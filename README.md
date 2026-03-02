@@ -2,6 +2,9 @@
 
 Upload CSV or Excel files, ask questions in natural language, and get interactive dashboards — powered by Claude.
 
+![Dashboard — stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
+![Dashboard — box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
+
 ## Features
 
 - **Natural Language Queries** — Ask questions about your data and get visual answers
