@@ -1,0 +1,146 @@
+{
+  "state": {
+    "form": {
+      "name": "",
+      "brand": "",
+      "category": "",
+      "description": "",
+      "price": "",
+      "stock": "",
+      "color": "",
+      "size": "",
+      "_currentStep": 0,
+      "_submitting": false,
+      "_submitted": false,
+      "_errors": {}
+    },
+    "submitResult": null,
+    "submitError": null
+  },
+  "root": "root",
+  "elements": {
+    "root": {
+      "type": "LayoutColumn",
+      "props": { "gap": 16 },
+      "children": ["heading", "formCtrl"]
+    },
+    "heading": {
+      "type": "TextBlock",
+      "props": { "content": "Add New Product", "variant": "heading" }
+    },
+    "formCtrl": {
+      "type": "FormController",
+      "props": {
+        "fields": [
+          { "key": "name", "bindTo": "/form/name", "validation": [{ "rule": "required", "message": "Product name is required" }, { "rule": "minLength", "value": 3, "message": "Name must be at least 3 characters" }] },
+          { "key": "brand", "bindTo": "/form/brand", "validation": [{ "rule": "required", "message": "Brand is required" }] },
+          { "key": "category", "bindTo": "/form/category", "validation": [{ "rule": "required", "message": "Category is required" }] },
+          { "key": "description", "bindTo": "/form/description", "validation": null },
+          { "key": "price", "bindTo": "/form/price", "validation": [{ "rule": "required" }, { "rule": "min", "value": 0.01, "message": "Price must be positive" }] },
+          { "key": "stock", "bindTo": "/form/stock", "validation": [{ "rule": "required" }, { "rule": "min", "value": 0, "message": "Stock cannot be negative" }] },
+          { "key": "color", "bindTo": "/form/color", "validation": null },
+          { "key": "size", "bindTo": "/form/size", "validation": null }
+        ],
+        "steps": [
+          { "key": "basic", "label": "Basic Info", "fields": ["name", "brand", "category"] },
+          { "key": "details", "label": "Details", "fields": ["description", "price", "stock"] },
+          { "key": "attributes", "label": "Attributes", "fields": ["color", "size"] }
+        ],
+        "submit": {
+          "endpoint": "/api/products",
+          "method": "POST",
+          "onSuccessStatePath": "/submitResult",
+          "onErrorStatePath": "/submitError"
+        }
+      },
+      "children": ["step1Fields", "step2Fields", "step3Fields"]
+    },
+    "step1Fields": {
+      "type": "LayoutColumn",
+      "props": { "gap": 12 },
+      "children": ["nameInput", "brandInput", "categoryInput"]
+    },
+    "nameInput": {
+      "type": "TextInput",
+      "props": {
+        "label": "Product Name",
+        "value": { "$bindState": "/form/name" },
+        "type": "text",
+        "placeholder": "Enter product name"
+      }
+    },
+    "brandInput": {
+      "type": "TextInput",
+      "props": {
+        "label": "Brand",
+        "value": { "$bindState": "/form/brand" },
+        "type": "text",
+        "placeholder": "e.g. Acme, BetaCorp"
+      }
+    },
+    "categoryInput": {
+      "type": "TextInput",
+      "props": {
+        "label": "Category",
+        "value": { "$bindState": "/form/category" },
+        "type": "text",
+        "placeholder": "e.g. Electronics, Apparel"
+      }
+    },
+    "step2Fields": {
+      "type": "LayoutColumn",
+      "props": { "gap": 12 },
+      "children": ["descInput", "priceInput", "stockInput"]
+    },
+    "descInput": {
+      "type": "TextArea",
+      "props": {
+        "label": "Description",
+        "value": { "$bindState": "/form/description" },
+        "placeholder": "Product description (optional)",
+        "rows": 3
+      }
+    },
+    "priceInput": {
+      "type": "TextInput",
+      "props": {
+        "label": "Price (USD)",
+        "value": { "$bindState": "/form/price" },
+        "type": "text",
+        "placeholder": "0.00"
+      }
+    },
+    "stockInput": {
+      "type": "TextInput",
+      "props": {
+        "label": "Stock Quantity",
+        "value": { "$bindState": "/form/stock" },
+        "type": "text",
+        "placeholder": "0"
+      }
+    },
+    "step3Fields": {
+      "type": "LayoutColumn",
+      "props": { "gap": 12 },
+      "children": ["colorInput", "sizeInput"]
+    },
+    "colorInput": {
+      "type": "TextInput",
+      "props": {
+        "label": "Color",
+        "value": { "$bindState": "/form/color" },
+        "type": "text",
+        "placeholder": "e.g. Red, Blue, Black"
+      }
+    },
+    "sizeInput": {
+      "type": "TextInput",
+      "props": {
+        "label": "Size",
+        "value": { "$bindState": "/form/size" },
+        "type": "text",
+        "placeholder": "e.g. S, M, L, XL"
+      }
+    }
+  }
+}
