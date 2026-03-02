@@ -13,6 +13,13 @@ export const THEMES: { id: ThemeId; label: string; description: string }[] = [
 
 const STORAGE_KEY = "gud-theme";
 
+function getStoredTheme(): ThemeId {
+  if (typeof window === "undefined") return "vanilla";
+  const stored = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
+  if (stored && THEMES.some((t) => t.id === stored)) return stored;
+  return "vanilla";
+}
+
 interface ThemeContextValue {
   theme: ThemeId;
   setTheme: (t: ThemeId) => void;
@@ -24,34 +31,19 @@ const ThemeContext = createContext<ThemeContextValue>({
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeId>("vanilla");
-  const [mounted, setMounted] = useState(false);
-
-  // Read from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
-    if (stored && THEMES.some((t) => t.id === stored)) {
-      setThemeState(stored);
-    }
-    setMounted(true);
-  }, []);
+  const [theme, setThemeState] = useState<ThemeId>(getStoredTheme);
 
   // Apply data-theme attribute on <html>
   useEffect(() => {
-    if (!mounted) return;
     document.documentElement.setAttribute("data-theme", theme);
-  }, [theme, mounted]);
+  }, [theme]);
 
   const setTheme = useCallback((t: ThemeId) => {
     setThemeState(t);
     localStorage.setItem(STORAGE_KEY, t);
   }, []);
 
-  return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

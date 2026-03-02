@@ -1,7 +1,7 @@
 "use client";
 
 import { useStateStore, useStateValue } from "@json-render/react";
-import { useCallback, useRef, type ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 
 interface SelectsConfig {
   column: string;
@@ -22,21 +22,14 @@ export function ChartSelectionBridge({
 }) {
   const store = useStateStore();
   const currentValue = useStateValue<string>(selects.bindTo);
-  const selectedValue =
-    currentValue && currentValue !== "All" ? currentValue : null;
-
-  const storeSetRef = useRef(store.set);
-  storeSetRef.current = store.set;
+  const selectedValue = currentValue && currentValue !== "All" ? currentValue : null;
 
   const onSelect = useCallback(
     (value: string) => {
       // Toggle: clicking the same value deselects (resets to "All")
-      storeSetRef.current(
-        selects.bindTo,
-        value === selectedValue ? "All" : value
-      );
+      store.set(selects.bindTo, value === selectedValue ? "All" : value);
     },
-    [selectedValue, selects.bindTo]
+    [store, selectedValue, selects.bindTo]
   );
 
   return <>{children({ selectedValue, onSelect })}</>;

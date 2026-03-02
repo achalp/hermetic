@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { CSVSchema } from "@/lib/types";
 
 interface SchemaPreviewProps {
@@ -13,9 +13,11 @@ export function SchemaPreview({ schema, collapsed = false }: SchemaPreviewProps)
   const [open, setOpen] = useState(!collapsed);
 
   // Collapse when parent signals (e.g. new query submitted)
-  useEffect(() => {
+  const [prevCollapsed, setPrevCollapsed] = useState(collapsed);
+  if (collapsed !== prevCollapsed) {
+    setPrevCollapsed(collapsed);
     if (collapsed) setOpen(false);
-  }, [collapsed]);
+  }
 
   return (
     <div
@@ -30,15 +32,15 @@ export function SchemaPreview({ schema, collapsed = false }: SchemaPreviewProps)
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center justify-between"
       >
-        <h3 className="text-sm font-semibold text-t-secondary">
-          {schema.filename}
-        </h3>
+        <h3 className="text-sm font-semibold text-t-secondary">{schema.filename}</h3>
         <div className="flex items-center gap-2">
           <span className="text-xs text-t-tertiary">
-            {schema.row_count.toLocaleString()} rows &middot;{" "}
-            {schema.columns.length} columns
+            {schema.row_count.toLocaleString()} rows &middot; {schema.columns.length} columns
           </span>
-          <span className="text-xs text-t-tertiary transition-transform duration-200" style={{ display: "inline-block", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}>
+          <span
+            className="text-xs text-t-tertiary transition-transform duration-200"
+            style={{ display: "inline-block", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+          >
             &#9660;
           </span>
         </div>
@@ -52,9 +54,7 @@ export function SchemaPreview({ schema, collapsed = false }: SchemaPreviewProps)
           <table className="min-w-full text-left text-xs">
             <thead>
               <tr className="border-b border-table-divider bg-table-header-bg">
-                <th className="px-3 py-2 font-medium text-t-tertiary">
-                  #
-                </th>
+                <th className="px-3 py-2 font-medium text-t-tertiary">#</th>
                 {columnNames.map((name) => (
                   <th
                     key={name}
@@ -67,14 +67,7 @@ export function SchemaPreview({ schema, collapsed = false }: SchemaPreviewProps)
             </thead>
             <tbody>
               {schema.sample_rows.map((row, i) => (
-                <tr
-                  key={i}
-                  className={
-                    i % 2 === 0
-                      ? "bg-surface-1"
-                      : "bg-surface-2"
-                  }
-                >
+                <tr key={i} className={i % 2 === 0 ? "bg-surface-1" : "bg-surface-2"}>
                   <td className="px-3 py-1.5 text-t-tertiary">{i + 1}</td>
                   {columnNames.map((name) => (
                     <td
