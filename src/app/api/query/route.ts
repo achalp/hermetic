@@ -128,10 +128,10 @@ export async function POST(request: Request) {
 
     // Describe chart_data shape (key names, column types, row counts, sample rows)
     // so the LLM can choose the right component without receiving full data arrays.
-    function describeShape(val: unknown): unknown {
+    function describeShape(val: unknown, includeSamples: boolean): unknown {
       if (Array.isArray(val)) {
         if (val.length === 0) return { _type: "array", rows: 0 };
-        const sample = val.slice(0, 2);
+        const sample = includeSamples ? val.slice(0, 2) : undefined;
         const first = val[0];
         if (typeof first === "object" && first !== null) {
           const cols: Record<string, string> = {};
@@ -139,22 +139,56 @@ export async function POST(request: Request) {
             cols[k] =
               typeof v === "number" ? "number" : typeof v === "boolean" ? "boolean" : "string";
           }
-          return { _type: "array", rows: val.length, columns: cols, sample };
+          return sample
+            ? { _type: "array", rows: val.length, columns: cols, sample }
+            : { _type: "array", rows: val.length, columns: cols };
         }
-        return { _type: "array", rows: val.length, valueType: typeof first, sample };
+        return sample
+          ? { _type: "array", rows: val.length, valueType: typeof first, sample }
+          : { _type: "array", rows: val.length, valueType: typeof first };
       }
       if (typeof val === "object" && val !== null) {
         const described: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(val)) {
-          described[k] = describeShape(v);
+          described[k] = describeShape(v, includeSamples);
         }
         return described;
       }
       return val; // scalars pass through
     }
 
+    function describeResultsSchema(obj: Record<string, unknown>): Record<string, unknown> {
+      const schema: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(obj)) {
+        if (val === null || val === undefined) {
+          schema[key] = { type: "null" };
+        } else if (typeof val === "number") {
+          schema[key] = { type: "number", is_integer: Number.isInteger(val) };
+        } else if (typeof val === "boolean") {
+          schema[key] = { type: "boolean" };
+        } else if (typeof val === "string") {
+          schema[key] = { type: "string" };
+        } else if (Array.isArray(val)) {
+          schema[key] = {
+            type: "array",
+            length: val.length,
+            element_type: val.length > 0 ? typeof val[0] : "unknown",
+          };
+        } else if (typeof val === "object") {
+          schema[key] = {
+            type: "object",
+            keys: describeResultsSchema(val as Record<string, unknown>),
+          };
+        }
+      }
+      return schema;
+    }
+
     const chartDataShape = Object.fromEntries(
-      Object.entries(executionResult.chart_data).map(([k, v]) => [k, describeShape(v)])
+      Object.entries(executionResult.chart_data).map(([k, v]) => [
+        k,
+        describeShape(v, schemaMode === "sample"),
+      ])
     );
 
     // Cap results at 30K chars — these are small scalar aggregations the LLM
@@ -200,11 +234,19 @@ export async function POST(request: Request) {
         ? truncateValue(executionResult.results, 30_000)
         : executionResult.results;
 
+    const resultsSection =
+      schemaMode === "metadata"
+        ? `## Analysis Results Schema
+${JSON.stringify(describeResultsSchema(compactResults as Record<string, unknown>))}
+
+Use "$result:<key>" placeholders for all scalar values in StatCard, TrendIndicator, and similar components. Example: {"value": "$result:total_sales"}. Supports dot-notation for nested keys: "$result:summary.avg_price".`
+        : `## Analysis Results
+${JSON.stringify(compactResults)}`;
+
     let userPrompt = `## Original Question
 ${question}
 
-## Analysis Results
-${JSON.stringify(compactResults)}
+${resultsSection}
 
 ## Chart Data Shapes
 Available keys and their shapes:
@@ -232,7 +274,7 @@ ${imageKeys.length > 0 ? `## Available Images\nThe following image keys are avai
 ## Dataset Available for Client-Side Filtering
 A dataset with ${mainDataset.length} rows is available at state path /datasets/main.
 Columns: ${datasetColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(", ")}
-Filterable columns (categorical, <15 values): ${filterableColumns.map((c) => `${c.name} [${c.sample.join(", ")}]`).join("; ")}
+Filterable columns (categorical, <15 values): ${schemaMode === "metadata" ? filterableColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(", ") : filterableColumns.map((c) => `${c.name} [${c.sample.join(", ")}]`).join("; ")}
 
 Use a DataController component to enable instant client-side filtering. The full dataset is stored at /datasets/main in spec.state. Charts MUST read from /computed/* state paths using {"$state": "/computed/<name>"} for their data prop — NOT "$chartData:" placeholders.`;
     }
@@ -267,6 +309,13 @@ Build on the prior analysis. Evolve the dashboard to address the new question wh
 Compose a dashboard that answers the user's question. Choose the layout that best tells the data story — lead with the most impactful component. Interleave brief insights between visualizations for a narrative flow.`;
 
     const customRules = [
+      ...(schemaMode === "metadata"
+        ? [
+            'Use "$result:<key>" placeholders for ALL scalar values in StatCard value, TrendIndicator value/previous, and any other numeric display props. Never fabricate or guess specific numbers.',
+            "TextBlock content must be qualitative and descriptive — do NOT include specific numeric values. Describe trends, patterns, and relationships without citing exact figures.",
+            "Never hallucinate specific numeric values. If you need a number displayed, it MUST come from a $result:<key> placeholder.",
+          ]
+        : []),
       "Do NOT fabricate large data arrays (e.g. GeoJSON boundaries, coordinate tables) that are not in the chart_data or results. Small scalar values from results (for StatCard, TextBlock, etc.) are fine to inline.",
       "Design the layout like a data infographic that flows top-to-bottom as a narrative. Lead with whatever is most impactful for the question — a chart, stat cards, or a key insight. TextBlock headings are optional, not required. Vary the opening by question type: comparisons can lead with a chart, trend questions with a line chart, summaries with stat cards. Interleave TextBlock (variant: insight) annotations between visualizations to narrate the story, rather than clustering all text at the end.",
       "Use StatCard for key metrics. Group them in a LayoutGrid (columns: 2-4).",
@@ -365,6 +414,20 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
               }
             }
           }
+
+          // Replace $result:<key> placeholders with actual values from execution results
+          const resultRegex = /"\$result:([a-zA-Z0-9_.]+)"/g;
+          processed = processed.replace(resultRegex, (_match, keyPath: string) => {
+            const parts = keyPath.split(".");
+            let current: unknown = executionResult.results;
+            for (const part of parts) {
+              if (current === null || current === undefined || typeof current !== "object")
+                return _match;
+              current = (current as Record<string, unknown>)[part];
+            }
+            if (current === undefined) return _match; // graceful degradation
+            return JSON.stringify(current);
+          });
 
           // Inject datasets.main into a JSON-Patch that sets /state
           if (useDataController && !stateInjected && mainDataset) {
