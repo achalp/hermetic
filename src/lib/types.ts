@@ -26,15 +26,7 @@ export interface DateMeta {
   uses_month_names: boolean;
   uses_day_names: boolean;
   has_time: boolean;
-  granularity:
-    | "year"
-    | "quarter"
-    | "month"
-    | "week"
-    | "day"
-    | "hour"
-    | "minute"
-    | "second";
+  granularity: "year" | "quarter" | "month" | "week" | "day" | "hour" | "minute" | "second";
 }
 
 export interface CategoricalMeta {

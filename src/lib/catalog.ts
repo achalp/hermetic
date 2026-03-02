@@ -25,8 +25,7 @@ export const catalog = defineCatalog(schema, {
         gap: z.number().nullable(),
       }),
       slots: ["default"],
-      description:
-        "CSS grid for card arrangements. Use columns 2-4 for stat cards.",
+      description: "CSS grid for card arrangements. Use columns 2-4 for stat cards.",
     },
     StatCard: {
       props: z.object({
@@ -44,8 +43,7 @@ export const catalog = defineCatalog(schema, {
         content: z.string(),
         variant: z.enum(["body", "insight", "warning", "heading"]).nullable(),
       }),
-      description:
-        'Narrative text. Use variant "heading" for titles, "insight" for analysis.',
+      description: 'Narrative text. Use variant "heading" for titles, "insight" for analysis.',
     },
     DataTable: {
       props: z.object({
@@ -67,10 +65,12 @@ export const catalog = defineCatalog(schema, {
         orientation: z.enum(["vertical", "horizontal"]).nullable(),
         stacked: z.boolean().nullable(),
         color_map: z.record(z.string(), z.string()).nullable(),
-        selects: z.object({
-          column: z.string(),
-          bindTo: z.string(),
-        }).nullable(),
+        selects: z
+          .object({
+            column: z.string(),
+            bindTo: z.string(),
+          })
+          .nullable(),
       }),
       description:
         "Bar chart for comparing categories. Supports grouped and stacked bars. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
@@ -85,7 +85,8 @@ export const catalog = defineCatalog(schema, {
         show_dots: z.boolean().nullable(),
         curve: z.enum(["linear", "monotone", "step"]).nullable(),
       }),
-      description: "Line chart for trends over time. Each y_key becomes a line. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
+      description:
+        "Line chart for trends over time. Each y_key becomes a line. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
     },
     AreaChart: {
       props: z.object({
@@ -97,7 +98,8 @@ export const catalog = defineCatalog(schema, {
         stacked: z.boolean().nullable(),
         opacity: z.number().nullable(),
       }),
-      description: "Area chart, like line chart with filled regions below lines. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
+      description:
+        "Area chart, like line chart with filled regions below lines. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
     },
     PieChart: {
       props: z.object({
@@ -107,12 +109,15 @@ export const catalog = defineCatalog(schema, {
         show_legend: z.boolean().nullable(),
         donut: z.boolean().nullable(),
         colors: z.array(z.string()).nullable(),
-        selects: z.object({
-          column: z.string(),
-          bindTo: z.string(),
-        }).nullable(),
+        selects: z
+          .object({
+            column: z.string(),
+            bindTo: z.string(),
+          })
+          .nullable(),
       }),
-      description: "Pie/donut chart for showing proportions of a whole. colors array can use named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
+      description:
+        "Pie/donut chart for showing proportions of a whole. colors array can use named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
     },
     ScatterChart: {
       props: z.object({
@@ -322,8 +327,7 @@ export const catalog = defineCatalog(schema, {
         content: z.string(),
         severity: z.enum(["info", "warning", "success", "error"]).nullable(),
       }),
-      description:
-        "Callout for highlighting a specific finding, outlier, or caveat.",
+      description: "Callout for highlighting a specific finding, outlier, or caveat.",
     },
     TrendIndicator: {
       props: z.object({
@@ -333,8 +337,7 @@ export const catalog = defineCatalog(schema, {
         format: z.enum(["number", "currency", "percent"]).nullable(),
         precision: z.number().nullable(),
       }),
-      description:
-        "Compact element showing directional change between two values.",
+      description: "Compact element showing directional change between two values.",
     },
     ChartImage: {
       props: z.object({

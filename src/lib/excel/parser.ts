@@ -24,7 +24,12 @@ function cellToString(cell: ExcelJS.Cell): string {
       const result = (value as ExcelJS.CellFormulaValue).result as unknown;
       if (result === null || result === undefined) return "";
       if (result instanceof Date) return result.toISOString();
-      if (typeof result === "object" && result !== null && "richText" in result && Array.isArray((result as { richText: unknown[] }).richText)) {
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "richText" in result &&
+        Array.isArray((result as { richText: unknown[] }).richText)
+      ) {
         return (result as { richText: { text: string }[] }).richText.map((rt) => rt.text).join("");
       }
       return String(result);
@@ -33,7 +38,12 @@ function cellToString(cell: ExcelJS.Cell): string {
     if ("hyperlink" in value) {
       const text = (value as ExcelJS.CellHyperlinkValue).text as unknown;
       if (text === null || text === undefined) return "";
-      if (typeof text === "object" && text !== null && "richText" in text && Array.isArray((text as { richText: unknown[] }).richText)) {
+      if (
+        typeof text === "object" &&
+        text !== null &&
+        "richText" in text &&
+        Array.isArray((text as { richText: unknown[] }).richText)
+      ) {
         return (text as { richText: { text: string }[] }).richText.map((rt) => rt.text).join("");
       }
       return String(text);
@@ -43,7 +53,12 @@ function cellToString(cell: ExcelJS.Cell): string {
       const result = (value as ExcelJS.CellSharedFormulaValue).result as unknown;
       if (result === null || result === undefined) return "";
       if (result instanceof Date) return result.toISOString();
-      if (typeof result === "object" && result !== null && "richText" in result && Array.isArray((result as { richText: unknown[] }).richText)) {
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "richText" in result &&
+        Array.isArray((result as { richText: unknown[] }).richText)
+      ) {
         return (result as { richText: { text: string }[] }).richText.map((rt) => rt.text).join("");
       }
       return String(result);
@@ -94,7 +109,10 @@ function detectHeaderRow(worksheet: ExcelJS.Worksheet, colCount: number): number
 
 export async function parseExcelMeta(buffer: Buffer | ArrayBuffer): Promise<ExcelMeta> {
   const workbook = new ExcelJS.Workbook();
-  const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  const arrayBuffer =
+    buffer instanceof ArrayBuffer
+      ? buffer
+      : buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
   await workbook.xlsx.load(arrayBuffer as ArrayBuffer);
 
   const sheets: SheetInfo[] = [];

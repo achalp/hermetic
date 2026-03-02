@@ -38,10 +38,7 @@ function walkElement(
   }
 }
 
-function extractLabel(
-  component: string,
-  props: Record<string, unknown>
-): string {
+function extractLabel(component: string, props: Record<string, unknown>): string {
   switch (component) {
     case "TextBlock":
       return truncate(String(props.content ?? ""), 60);

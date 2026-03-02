@@ -20,14 +20,7 @@ export interface Aggregation {
   as: string;
 }
 
-export type AggFn =
-  | "sum"
-  | "avg"
-  | "min"
-  | "max"
-  | "count"
-  | "countDistinct"
-  | "median";
+export type AggFn = "sum" | "avg" | "min" | "max" | "count" | "countDistinct" | "median";
 
 export type PipelineStep =
   | { op: "filter" }
@@ -78,9 +71,7 @@ function median(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0
-    ? sorted[mid]
-    : (sorted[mid - 1] + sorted[mid]) / 2;
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function aggregate(values: unknown[], fn: AggFn): number {
@@ -119,11 +110,7 @@ export function applyFilter(
   return result;
 }
 
-export function applyGroupBy(
-  data: Row[],
-  columns: string[],
-  aggregations: Aggregation[]
-): Row[] {
+export function applyGroupBy(data: Row[], columns: string[], aggregations: Aggregation[]): Row[] {
   const groups = new Map<string, Row[]>();
 
   for (const row of data) {
@@ -351,9 +338,7 @@ export function computeFilterOptions(
         if (!parentDef) continue;
         const parentVal = currentValues[parentKey];
         if (parentVal && parentVal !== "All") {
-          subset = subset.filter(
-            (row) => String(row[parentDef.column]) === String(parentVal)
-          );
+          subset = subset.filter((row) => String(row[parentDef.column]) === String(parentVal));
         }
       }
     }

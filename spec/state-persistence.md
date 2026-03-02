@@ -42,8 +42,8 @@ A configuration layer maps path patterns to persistence targets:
 ```ts
 sinks: [
   { match: "/zones/*/geometry", endpoint: "/api/zones/:id/geometry", method: "PUT", debounce: 500 },
-  { match: "/zones/*/meta/**",  endpoint: "/api/zones/:id",          method: "PATCH" },
-  { match: "/filters/**",       local: true },  // no persistence, state only
+  { match: "/zones/*/meta/**", endpoint: "/api/zones/:id", method: "PATCH" },
+  { match: "/filters/**", local: true }, // no persistence, state only
 ];
 ```
 
@@ -55,14 +55,14 @@ Sinks are decoupled from components. A slider doesn't know if its value goes to 
 
 The LLM picks state paths from documented conventions. The developer (or a config file) registers what those paths mean in terms of persistence.
 
-| Concern | LLM | Developer |
-|---|---|---|
-| Layout, which components, how they're arranged | Yes | No |
+| Concern                                        | LLM                               | Developer               |
+| ---------------------------------------------- | --------------------------------- | ----------------------- |
+| Layout, which components, how they're arranged | Yes                               | No                      |
 | State paths (`/draft/row/name`, `/sync/error`) | Yes — from documented conventions | Defines the conventions |
-| Action names (`commitRow`, `selectRow`) | Yes — from catalog | Implements them |
-| API endpoints, HTTP methods, auth | No | Yes |
-| Error shape, dup-check logic | No | Yes |
-| Which fields are required, validation rules | Partially (from schema) | Enforces |
+| Action names (`commitRow`, `selectRow`)        | Yes — from catalog                | Implements them         |
+| API endpoints, HTTP methods, auth              | No                                | Yes                     |
+| Error shape, dup-check logic                   | No                                | Yes                     |
+| Which fields are required, validation rules    | Partially (from schema)           | Enforces                |
 
 ### Option A: LLM declares sinks in the spec
 
@@ -262,16 +262,24 @@ Errors write to state. The UI reads state. No special error channel needed.
 ### LLM-Generated Error Display
 
 ```jsonl
-{"op":"add","path":"/elements/errorBanner","value":{
-  "type":"Annotation",
-  "props":{
-    "icon":"alert",
-    "title":"Save failed",
-    "content":{"$state":"/sync/error"},
-    "severity":"error",
-    "visible":{"$expr":"state('/sync/status') === 'error'"}
+{
+  "op": "add",
+  "path": "/elements/errorBanner",
+  "value": {
+    "type": "Annotation",
+    "props": {
+      "icon": "alert",
+      "title": "Save failed",
+      "content": {
+        "$state": "/sync/error"
+      },
+      "severity": "error",
+      "visible": {
+        "$expr": "state('/sync/status') === 'error'"
+      }
+    }
   }
-}}
+}
 ```
 
 ### Error Branch in Action Handler
@@ -288,7 +296,7 @@ if (!res.ok) {
     mutate("/sync/field_errors", body.field_errors);
   }
 
-  return;  // don't clear the draft — user can fix and retry
+  return; // don't clear the draft — user can fix and retry
 }
 ```
 
@@ -297,11 +305,18 @@ if (!res.ok) {
 Individual inputs can show their specific error:
 
 ```jsonl
-{"type":"TextInput","props":{
-  "label":"Name",
-  "value":{"$bindState":"/draft/row/name"},
-  "error":{"$state":"/sync/field_errors/name"}
-}}
+{
+  "type": "TextInput",
+  "props": {
+    "label": "Name",
+    "value": {
+      "$bindState": "/draft/row/name"
+    },
+    "error": {
+      "$state": "/sync/field_errors/name"
+    }
+  }
+}
 ```
 
 ### Auto-Clear on Edit

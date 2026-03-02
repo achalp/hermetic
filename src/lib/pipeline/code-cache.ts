@@ -14,17 +14,11 @@ if (!globalCache.__codeCache) {
 }
 const cache = globalCache.__codeCache;
 
-export function cacheGeneratedCode(
-  csvId: string,
-  code: string,
-  question: string
-): void {
+export function cacheGeneratedCode(csvId: string, code: string, question: string): void {
   cache.set(csvId, { code, question, cachedAt: Date.now() });
 }
 
-export function getCachedCode(
-  csvId: string
-): { code: string; question: string } | undefined {
+export function getCachedCode(csvId: string): { code: string; question: string } | undefined {
   const entry = cache.get(csvId);
   if (!entry) return undefined;
   if (Date.now() - entry.cachedAt > CODE_CACHE_TTL_MS) {

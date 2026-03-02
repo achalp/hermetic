@@ -1,14 +1,7 @@
 "use client";
 
 import { useStateStore, useStateValue } from "@json-render/react";
-import {
-  useState,
-  useMemo,
-  useEffect,
-  useCallback,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   applyFilter,
   executePipeline,
@@ -45,10 +38,7 @@ interface DataControllerComponentProps {
  * 1. source.statePath — reads an existing dataset array from state (dashboard filtering)
  * 2. source.fromState — builds a single-row dataset from scalar state paths (scenario planners)
  */
-export function DataControllerComponent({
-  props,
-  children,
-}: DataControllerComponentProps) {
+export function DataControllerComponent({ props, children }: DataControllerComponentProps) {
   const store = useStateStore();
   const isFromState = !!props.source.fromState;
   const datasetFromPath = useStateValue<Row[]>(props.source.statePath ?? "/__unused");
@@ -113,15 +103,13 @@ export function DataControllerComponent({
 
   // Track filter values in local state so that writing pipeline outputs
   // back to the store does NOT cause re-render loops.
-  const [filterValues, setFilterValues] = useState<Record<string, unknown>>(
-    () => {
-      const vals: Record<string, unknown> = {};
-      for (const f of filters) {
-        vals[f.key] = store.get(f.bindTo);
-      }
-      return vals;
+  const [filterValues, setFilterValues] = useState<Record<string, unknown>>(() => {
+    const vals: Record<string, unknown> = {};
+    for (const f of filters) {
+      vals[f.key] = store.get(f.bindTo);
     }
-  );
+    return vals;
+  });
 
   // Sync external writes to filter state paths (e.g. from chart cross-filtering)
   // into local filterValues. Only calls setFilterValues on genuine mismatch to
@@ -184,7 +172,7 @@ export function DataControllerComponent({
       if (currentVal && currentVal !== "All") {
         const options = filterOptions[def.key];
         if (options && !options.includes(String(currentVal))) {
-          const resetVal = def.allowAll ? "All" : options[0] ?? "All";
+          const resetVal = def.allowAll ? "All" : (options[0] ?? "All");
           storeSetRef.current(def.bindTo, resetVal);
           setFilterValues((prev) => ({ ...prev, [def.key]: resetVal }));
         }
@@ -192,13 +180,10 @@ export function DataControllerComponent({
     }
   }, [filterOptions, filters, filterValues]);
 
-  const handleFilterChange = useCallback(
-    (def: FilterDef, value: string) => {
-      storeSetRef.current(def.bindTo, value);
-      setFilterValues((prev) => ({ ...prev, [def.key]: value }));
-    },
-    []
-  );
+  const handleFilterChange = useCallback((def: FilterDef, value: string) => {
+    storeSetRef.current(def.bindTo, value);
+    setFilterValues((prev) => ({ ...prev, [def.key]: value }));
+  }, []);
 
   // fromState mode or no filters: skip filter dropdowns
   if (isFromState || filters.length === 0) {
@@ -211,20 +196,19 @@ export function DataControllerComponent({
       <div className="flex flex-wrap gap-3">
         {filters.map((def) => {
           const options = filterOptions[def.key] ?? [];
-          const currentVal = String(
-            filterValues[def.key] ?? (def.allowAll ? "All" : "")
-          );
+          const currentVal = String(filterValues[def.key] ?? (def.allowAll ? "All" : ""));
 
           return (
             <div key={def.key} className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-t-secondary">
-                {def.label}
-              </label>
+              <label className="text-sm font-medium text-t-secondary">{def.label}</label>
               <select
                 value={currentVal}
                 onChange={(e) => handleFilterChange(def, e.target.value)}
                 className="border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors focus:border-accent"
-                style={{ borderRadius: "var(--radius-input)", transitionDuration: "var(--transition-speed)" }}
+                style={{
+                  borderRadius: "var(--radius-input)",
+                  transitionDuration: "var(--transition-speed)",
+                }}
               >
                 {def.allowAll && <option value="All">All</option>}
                 {options.map((opt) => (

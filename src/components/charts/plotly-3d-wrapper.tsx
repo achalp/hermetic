@@ -7,8 +7,7 @@ import { usePlotly3DScene } from "@/lib/chart-theme";
 const Plotly3DPlot = dynamic(
   async () => {
     const Plotly = await import("plotly.js-gl3d-dist");
-    const createPlotlyComponent = (await import("react-plotly.js/factory"))
-      .default;
+    const createPlotlyComponent = (await import("react-plotly.js/factory")).default;
     return createPlotlyComponent(Plotly);
   },
   {
@@ -44,7 +43,7 @@ export function Plotly3DChart({
     ...(sceneLayout as Partial<Layout>),
     ...layout,
     scene: {
-      ...(sceneLayout as Record<string, unknown>).scene as object,
+      ...((sceneLayout as Record<string, unknown>).scene as object),
       ...(layout?.scene as object),
     },
   };

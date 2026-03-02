@@ -5,11 +5,12 @@ import type { ExecutionResult } from "@/lib/types";
 import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 
-const executors: Record<SandboxRuntimeId, (csv: string, code: string) => Promise<ExecutionResult>> = {
-  docker: dockerExecutor,
-  e2b: e2bExecutor,
-  microsandbox: microsandboxExecutor,
-};
+const executors: Record<SandboxRuntimeId, (csv: string, code: string) => Promise<ExecutionResult>> =
+  {
+    docker: dockerExecutor,
+    e2b: e2bExecutor,
+    microsandbox: microsandboxExecutor,
+  };
 
 export function executeSandbox(
   csvContent: string,

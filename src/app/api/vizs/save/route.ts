@@ -18,7 +18,10 @@ export async function POST(request: Request) {
     const cached = getCachedCode(csvId);
     if (!cached) {
       return NextResponse.json(
-        { error: "Generated code not found in cache. It may have expired — please re-run the query." },
+        {
+          error:
+            "Generated code not found in cache. It may have expired — please re-run the query.",
+        },
         { status: 404 }
       );
     }
@@ -34,10 +37,7 @@ export async function POST(request: Request) {
 
     const csvContent = await getCSVContent(csvId);
     if (!csvContent) {
-      return NextResponse.json(
-        { error: "CSV content not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "CSV content not found" }, { status: 404 });
     }
 
     const meta = await saveVisualization({

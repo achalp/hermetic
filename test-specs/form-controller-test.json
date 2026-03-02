@@ -32,12 +32,41 @@
       "type": "FormController",
       "props": {
         "fields": [
-          { "key": "name", "bindTo": "/form/name", "validation": [{ "rule": "required", "message": "Product name is required" }, { "rule": "minLength", "value": 3, "message": "Name must be at least 3 characters" }] },
-          { "key": "brand", "bindTo": "/form/brand", "validation": [{ "rule": "required", "message": "Brand is required" }] },
-          { "key": "category", "bindTo": "/form/category", "validation": [{ "rule": "required", "message": "Category is required" }] },
+          {
+            "key": "name",
+            "bindTo": "/form/name",
+            "validation": [
+              { "rule": "required", "message": "Product name is required" },
+              { "rule": "minLength", "value": 3, "message": "Name must be at least 3 characters" }
+            ]
+          },
+          {
+            "key": "brand",
+            "bindTo": "/form/brand",
+            "validation": [{ "rule": "required", "message": "Brand is required" }]
+          },
+          {
+            "key": "category",
+            "bindTo": "/form/category",
+            "validation": [{ "rule": "required", "message": "Category is required" }]
+          },
           { "key": "description", "bindTo": "/form/description", "validation": null },
-          { "key": "price", "bindTo": "/form/price", "validation": [{ "rule": "required" }, { "rule": "min", "value": 0.01, "message": "Price must be positive" }] },
-          { "key": "stock", "bindTo": "/form/stock", "validation": [{ "rule": "required" }, { "rule": "min", "value": 0, "message": "Stock cannot be negative" }] },
+          {
+            "key": "price",
+            "bindTo": "/form/price",
+            "validation": [
+              { "rule": "required" },
+              { "rule": "min", "value": 0.01, "message": "Price must be positive" }
+            ]
+          },
+          {
+            "key": "stock",
+            "bindTo": "/form/stock",
+            "validation": [
+              { "rule": "required" },
+              { "rule": "min", "value": 0, "message": "Stock cannot be negative" }
+            ]
+          },
           { "key": "color", "bindTo": "/form/color", "validation": null },
           { "key": "size", "bindTo": "/form/size", "validation": null }
         ],

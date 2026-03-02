@@ -23,11 +23,7 @@ async function ensureDir() {
   }
 }
 
-export async function storeCSV(
-  csvId: string,
-  csvText: string,
-  schema: CSVSchema
-): Promise<void> {
+export async function storeCSV(csvId: string, csvText: string, schema: CSVSchema): Promise<void> {
   await ensureDir();
   const filePath = join(CSV_DIR, `${csvId}.csv`);
   await writeFile(filePath, csvText, "utf-8");

@@ -98,12 +98,7 @@ export function Map3DInner(props: Map3DInnerProps) {
         ...tileProps,
         data: undefined,
         image: tileProps.data as string,
-        bounds: [
-          boundingBox[0][0],
-          boundingBox[0][1],
-          boundingBox[1][0],
-          boundingBox[1][1],
-        ],
+        bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
       });
     },
   });
@@ -117,9 +112,7 @@ export function Map3DInner(props: Map3DInnerProps) {
     const getColor = (d: Record<string, unknown>): [number, number, number] => {
       if (color_key && color_map && d[color_key]) {
         const name = String(d[color_key]);
-        const resolved = color_map[name]
-          ? resolveColor(color_map[name])
-          : chartColors[0];
+        const resolved = color_map[name] ? resolveColor(color_map[name]) : chartColors[0];
         return hexToRgb(resolved);
       }
       return hexToRgb(chartColors[0]);
@@ -136,7 +129,10 @@ export function Map3DInner(props: Map3DInnerProps) {
           radius: radius ?? 1000,
           elevationScale: elevation_scale ?? 4,
           opacity: opacity ?? 0.8,
-          colorRange: chartColors.slice(0, 6).map(hexToRgb).map((c) => [...c, 255] as [number, number, number, number]),
+          colorRange: chartColors
+            .slice(0, 6)
+            .map(hexToRgb)
+            .map((c) => [...c, 255] as [number, number, number, number]),
         });
 
       case "column":
@@ -146,7 +142,8 @@ export function Map3DInner(props: Map3DInnerProps) {
           getPosition,
           getElevation: (d: Record<string, unknown>) =>
             value_key ? Number(d[value_key]) || 0 : 100,
-          getFillColor: (d: Record<string, unknown>) => [...getColor(d), 200] as [number, number, number, number],
+          getFillColor: (d: Record<string, unknown>) =>
+            [...getColor(d), 200] as [number, number, number, number],
           diskResolution: 12,
           radius: radius ?? 200,
           extruded: true,
@@ -174,9 +171,10 @@ export function Map3DInner(props: Map3DInnerProps) {
           id: "scatterplot-layer",
           data,
           getPosition,
-          getFillColor: (d: Record<string, unknown>) => [...getColor(d), 200] as [number, number, number, number],
+          getFillColor: (d: Record<string, unknown>) =>
+            [...getColor(d), 200] as [number, number, number, number],
           getRadius: (d: Record<string, unknown>) =>
-            value_key ? Math.max(50, Number(d[value_key]) || 100) : radius ?? 100,
+            value_key ? Math.max(50, Number(d[value_key]) || 100) : (radius ?? 100),
           radiusScale: 1,
           radiusMinPixels: 2,
           radiusMaxPixels: 50,
@@ -188,8 +186,7 @@ export function Map3DInner(props: Map3DInnerProps) {
           id: "heatmap-layer",
           data,
           getPosition,
-          getWeight: (d: Record<string, unknown>) =>
-            value_key ? Number(d[value_key]) || 1 : 1,
+          getWeight: (d: Record<string, unknown>) => (value_key ? Number(d[value_key]) || 1 : 1),
           gpuAggregation: false,
           radiusPixels: radius ? Math.min(radius, 100) : 30,
           intensity: 1,
@@ -197,15 +194,25 @@ export function Map3DInner(props: Map3DInnerProps) {
           opacity: opacity ?? 0.8,
         });
     }
-  }, [data, lat_key, lng_key, layer_type, value_key, target_lat_key, target_lng_key, color_key, color_map, elevation_scale, radius, opacity, chartColors]);
+  }, [
+    data,
+    lat_key,
+    lng_key,
+    layer_type,
+    value_key,
+    target_lat_key,
+    target_lng_key,
+    color_key,
+    color_map,
+    elevation_scale,
+    radius,
+    opacity,
+    chartColors,
+  ]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: height ?? 500 }}>
-      <DeckGL
-        initialViewState={viewState}
-        controller
-        layers={[tileLayer, dataLayer]}
-      />
+      <DeckGL initialViewState={viewState} controller layers={[tileLayer, dataLayer]} />
     </div>
   );
 }

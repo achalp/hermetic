@@ -48,16 +48,18 @@ The LLM may only compose UIs using the following component types. The frontend r
 
 ### 3.1 Layout Components
 
-| Type | Purpose | Props |
-|------|---------|-------|
-| `layout-row` | Horizontal flex container | `gap?: number`, `align?: "start" \| "center" \| "end" \| "stretch"` |
-| `layout-column` | Vertical flex container | `gap?: number` |
-| `layout-grid` | CSS grid for card arrangements | `columns: number`, `gap?: number` |
+| Type            | Purpose                        | Props                                                               |
+| --------------- | ------------------------------ | ------------------------------------------------------------------- |
+| `layout-row`    | Horizontal flex container      | `gap?: number`, `align?: "start" \| "center" \| "end" \| "stretch"` |
+| `layout-column` | Vertical flex container        | `gap?: number`                                                      |
+| `layout-grid`   | CSS grid for card arrangements | `columns: number`, `gap?: number`                                   |
 
 ### 3.2 Content Components
 
 #### `stat-card`
+
 A single KPI or metric with optional trend indicator.
+
 ```json
 {
   "type": "stat-card",
@@ -70,16 +72,19 @@ A single KPI or metric with optional trend indicator.
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `label` | string | yes | Metric name |
-| `value` | string | yes | Formatted display value |
-| `change` | string | no | e.g. "+12.4%", "-3.2%" |
-| `trend` | `"up" \| "down" \| "flat"` | no | Drives color/icon |
-| `description` | string | no | Contextual subtitle |
+
+| Prop          | Type                       | Required | Notes                   |
+| ------------- | -------------------------- | -------- | ----------------------- |
+| `label`       | string                     | yes      | Metric name             |
+| `value`       | string                     | yes      | Formatted display value |
+| `change`      | string                     | no       | e.g. "+12.4%", "-3.2%"  |
+| `trend`       | `"up" \| "down" \| "flat"` | no       | Drives color/icon       |
+| `description` | string                     | no       | Contextual subtitle     |
 
 #### `text-block`
+
 Narrative text — the LLM's explanation, insight, or annotation.
+
 ```json
 {
   "type": "text-block",
@@ -89,13 +94,16 @@ Narrative text — the LLM's explanation, insight, or annotation.
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `content` | string | yes | Markdown-supported text |
-| `variant` | `"body" \| "insight" \| "warning" \| "heading"` | no | Styling variant. Default `"body"` |
+
+| Prop      | Type                                            | Required | Notes                             |
+| --------- | ----------------------------------------------- | -------- | --------------------------------- |
+| `content` | string                                          | yes      | Markdown-supported text           |
+| `variant` | `"body" \| "insight" \| "warning" \| "heading"` | no       | Styling variant. Default `"body"` |
 
 #### `data-table`
+
 A tabular view of data, paginated client-side.
+
 ```json
 {
   "type": "data-table",
@@ -110,20 +118,22 @@ A tabular view of data, paginated client-side.
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `columns` | string[] | yes | Column headers |
-| `rows` | string[][] | yes | Row data (pre-formatted strings) |
-| `caption` | string | no | Table title |
-| `highlight_max` | boolean | no | Highlight highest value per row |
-| `highlight_min` | boolean | no | Highlight lowest value per row |
-| `max_rows` | number | no | Client-side pagination threshold. Default 20 |
+
+| Prop            | Type       | Required | Notes                                        |
+| --------------- | ---------- | -------- | -------------------------------------------- |
+| `columns`       | string[]   | yes      | Column headers                               |
+| `rows`          | string[][] | yes      | Row data (pre-formatted strings)             |
+| `caption`       | string     | no       | Table title                                  |
+| `highlight_max` | boolean    | no       | Highlight highest value per row              |
+| `highlight_min` | boolean    | no       | Highlight lowest value per row               |
+| `max_rows`      | number     | no       | Client-side pagination threshold. Default 20 |
 
 ### 3.3 Chart Components
 
 All chart components accept data inline. Charts are rendered client-side using Recharts.
 
 #### `bar-chart`
+
 ```json
 {
   "type": "bar-chart",
@@ -140,17 +150,19 @@ All chart components accept data inline. Charts are rendered client-side using R
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `title` | string | no | Chart heading |
-| `data` | object[] | yes | Array of data points |
-| `x_key` | string | yes | Key for x-axis |
-| `y_keys` | string[] | yes | Keys for y-axis bars (supports grouped bars) |
-| `orientation` | `"vertical" \| "horizontal"` | no | Default `"vertical"` |
-| `stacked` | boolean | no | Stack multiple y_keys |
-| `color_map` | Record<string, string> | no | Key → hex color |
+
+| Prop          | Type                         | Required | Notes                                        |
+| ------------- | ---------------------------- | -------- | -------------------------------------------- |
+| `title`       | string                       | no       | Chart heading                                |
+| `data`        | object[]                     | yes      | Array of data points                         |
+| `x_key`       | string                       | yes      | Key for x-axis                               |
+| `y_keys`      | string[]                     | yes      | Keys for y-axis bars (supports grouped bars) |
+| `orientation` | `"vertical" \| "horizontal"` | no       | Default `"vertical"`                         |
+| `stacked`     | boolean                      | no       | Stack multiple y_keys                        |
+| `color_map`   | Record<string, string>       | no       | Key → hex color                              |
 
 #### `line-chart`
+
 ```json
 {
   "type": "line-chart",
@@ -166,17 +178,19 @@ All chart components accept data inline. Charts are rendered client-side using R
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `title` | string | no | |
-| `data` | object[] | yes | |
-| `x_key` | string | yes | |
-| `y_keys` | string[] | yes | Each key becomes a line |
-| `color_map` | Record<string, string> | no | |
-| `show_dots` | boolean | no | Default `true` |
-| `curve` | `"linear" \| "monotone" \| "step"` | no | Default `"monotone"` |
+
+| Prop        | Type                               | Required | Notes                   |
+| ----------- | ---------------------------------- | -------- | ----------------------- |
+| `title`     | string                             | no       |                         |
+| `data`      | object[]                           | yes      |                         |
+| `x_key`     | string                             | yes      |                         |
+| `y_keys`    | string[]                           | yes      | Each key becomes a line |
+| `color_map` | Record<string, string>             | no       |                         |
+| `show_dots` | boolean                            | no       | Default `true`          |
+| `curve`     | `"linear" \| "monotone" \| "step"` | no       | Default `"monotone"`    |
 
 #### `area-chart`
+
 Same interface as `line-chart` plus:
 | Prop | Type | Required | Notes |
 |------|------|----------|-------|
@@ -184,6 +198,7 @@ Same interface as `line-chart` plus:
 | `opacity` | number | no | Fill opacity, 0-1. Default `0.3` |
 
 #### `pie-chart`
+
 ```json
 {
   "type": "pie-chart",
@@ -199,43 +214,51 @@ Same interface as `line-chart` plus:
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `title` | string | no | |
-| `data` | { label: string, value: number }[] | yes | |
-| `show_labels` | boolean | no | Default `true` |
-| `show_legend` | boolean | no | Default `true` |
-| `donut` | boolean | no | Donut variant |
-| `colors` | string[] | no | Custom palette |
+
+| Prop          | Type                               | Required | Notes          |
+| ------------- | ---------------------------------- | -------- | -------------- |
+| `title`       | string                             | no       |                |
+| `data`        | { label: string, value: number }[] | yes      |                |
+| `show_labels` | boolean                            | no       | Default `true` |
+| `show_legend` | boolean                            | no       | Default `true` |
+| `donut`       | boolean                            | no       | Donut variant  |
+| `colors`      | string[]                           | no       | Custom palette |
 
 #### `scatter-chart`
+
 ```json
 {
   "type": "scatter-chart",
   "props": {
     "title": "Price vs. Volume",
-    "data": [{ "x": 10, "y": 200 }, { "x": 15, "y": 350 }],
+    "data": [
+      { "x": 10, "y": 200 },
+      { "x": 15, "y": 350 }
+    ],
     "x_label": "Price ($)",
     "y_label": "Volume",
     "show_regression": true
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `title` | string | no | |
-| `data` | { x: number, y: number, label?: string, group?: string }[] | yes | |
-| `x_label` | string | no | Axis label |
-| `y_label` | string | no | Axis label |
-| `show_regression` | boolean | no | Overlay linear regression line |
-| `color_by` | string | no | Group field for color coding |
+
+| Prop              | Type                                                       | Required | Notes                          |
+| ----------------- | ---------------------------------------------------------- | -------- | ------------------------------ |
+| `title`           | string                                                     | no       |                                |
+| `data`            | { x: number, y: number, label?: string, group?: string }[] | yes      |                                |
+| `x_label`         | string                                                     | no       | Axis label                     |
+| `y_label`         | string                                                     | no       | Axis label                     |
+| `show_regression` | boolean                                                    | no       | Overlay linear regression line |
+| `color_by`        | string                                                     | no       | Group field for color coding   |
 
 ### 3.4 Annotation / Overlay Components
 
 These attach to charts or stand alone as callouts.
 
 #### `annotation`
+
 An inline callout, used to highlight a specific finding.
+
 ```json
 {
   "type": "annotation",
@@ -247,15 +270,18 @@ An inline callout, used to highlight a specific finding.
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `icon` | `"alert" \| "info" \| "trend" \| "check" \| "flag"` | no | Default `"info"` |
-| `title` | string | yes | |
-| `content` | string | yes | |
-| `severity` | `"info" \| "warning" \| "success" \| "error"` | no | Default `"info"` |
+
+| Prop       | Type                                                | Required | Notes            |
+| ---------- | --------------------------------------------------- | -------- | ---------------- |
+| `icon`     | `"alert" \| "info" \| "trend" \| "check" \| "flag"` | no       | Default `"info"` |
+| `title`    | string                                              | yes      |                  |
+| `content`  | string                                              | yes      |                  |
+| `severity` | `"info" \| "warning" \| "success" \| "error"`       | no       | Default `"info"` |
 
 #### `trend-indicator`
+
 A compact inline element showing directional change.
+
 ```json
 {
   "type": "trend-indicator",
@@ -267,18 +293,21 @@ A compact inline element showing directional change.
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `label` | string | yes | |
-| `current` | number | yes | |
-| `previous` | number | yes | |
-| `format` | `"number" \| "currency" \| "percent"` | no | Default `"number"` |
-| `precision` | number | no | Decimal places. Default 1 |
+
+| Prop        | Type                                  | Required | Notes                     |
+| ----------- | ------------------------------------- | -------- | ------------------------- |
+| `label`     | string                                | yes      |                           |
+| `current`   | number                                | yes      |                           |
+| `previous`  | number                                | yes      |                           |
+| `format`    | `"number" \| "currency" \| "percent"` | no       | Default `"number"`        |
+| `precision` | number                                | no       | Decimal places. Default 1 |
 
 ### 3.5 Image Component
 
 #### `chart-image`
+
 For complex visualizations that Recharts can't handle (heatmaps, correlation matrices, custom matplotlib output). The image is generated in the E2B sandbox and returned as base64.
+
 ```json
 {
   "type": "chart-image",
@@ -289,12 +318,13 @@ For complex visualizations that Recharts can't handle (heatmaps, correlation mat
   }
 }
 ```
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `src` | string | yes | base64 data URI |
-| `alt` | string | yes | Accessibility text |
-| `caption` | string | no | Displayed below image |
-| `width` | number | no | Max width in px |
+
+| Prop      | Type   | Required | Notes                 |
+| --------- | ------ | -------- | --------------------- |
+| `src`     | string | yes      | base64 data URI       |
+| `alt`     | string | yes      | Accessibility text    |
+| `caption` | string | no       | Displayed below image |
+| `width`   | number | no       | Max width in px       |
 
 ---
 
@@ -331,6 +361,7 @@ interface ComponentNode {
 ```
 
 **Validation rules:**
+
 - `children` is only allowed on `layout-row`, `layout-column`, and `layout-grid`.
 - All other components are leaf nodes.
 - Maximum nesting depth: 3 levels.
@@ -343,6 +374,7 @@ interface ComponentNode {
 ### Step 1: CSV Ingestion
 
 On upload, the server:
+
 1. Saves CSV to temp storage and assigns a `csv_id`.
 2. Parses headers, dtypes, row count, and a 5-row sample.
 3. Stores this **schema snapshot** for prompt construction.
@@ -355,10 +387,10 @@ interface CSVSchema {
   columns: {
     name: string;
     dtype: "string" | "number" | "date" | "boolean";
-    sample_values: string[];   // first 5 non-null values
+    sample_values: string[]; // first 5 non-null values
     null_count: number;
   }[];
-  sample_rows: Record<string, string>[];  // first 5 rows
+  sample_rows: Record<string, string>[]; // first 5 rows
 }
 ```
 
@@ -438,6 +470,7 @@ def execute_analysis(csv_bytes: bytes, code: str) -> dict:
 ```
 
 **E2B sandbox template** (`csv-insight`) is pre-built with:
+
 - Python 3.11
 - pandas, numpy, scipy, matplotlib, seaborn, scikit-learn
 - No network access (sandboxed)
@@ -485,6 +518,7 @@ Rules:
 ### Step 5: Validation & Streaming
 
 Before sending to the client:
+
 1. Validate every `type` against the component registry. Reject unknowns.
 2. Validate `children` only on layout components.
 3. Enforce max depth (3) and max component count (20).
@@ -500,10 +534,13 @@ Upload a CSV file.
 
 **Request:** `multipart/form-data` with file field `csv`
 **Response:**
+
 ```json
 {
   "csv_id": "abc123",
-  "schema": { /* CSVSchema object */ }
+  "schema": {
+    /* CSVSchema object */
+  }
 }
 ```
 
@@ -512,6 +549,7 @@ Upload a CSV file.
 Ask a question about an uploaded CSV.
 
 **Request:**
+
 ```json
 {
   "csv_id": "abc123",
@@ -522,6 +560,7 @@ Ask a question about an uploaded CSV.
 **Response:** SSE stream of `UIResponse` (streamed as the composition LLM generates it).
 
 Event types:
+
 ```
 event: status
 data: {"stage": "generating_code"}
@@ -563,7 +602,7 @@ export const registry: Record<string, React.ComponentType<any>> = {
   "area-chart": AreaChartComponent,
   "pie-chart": PieChartComponent,
   "scatter-chart": ScatterChartComponent,
-  "annotation": Annotation,
+  annotation: Annotation,
   "trend-indicator": TrendIndicator,
   "chart-image": ChartImage,
   "layout-row": LayoutRow,
@@ -598,14 +637,14 @@ As SSE `component` events arrive, append them to a state array. The UI builds up
 
 ## 8. Error Handling
 
-| Failure | Recovery |
-|---------|----------|
-| CSV parse error | Return error to user at upload time. Reject non-CSV. |
-| LLM generates invalid Python | E2B returns traceback. Retry once with the error appended to the prompt: "Your code failed with: {error}. Fix it." |
-| E2B execution timeout (>30s) | Kill sandbox. Return annotation component with error. |
-| E2B sandbox creation fails | Fallback: return text-only response from LLM without code execution. |
-| LLM returns invalid UI JSON | Validate and strip invalid components. Render what's valid. |
-| Component type not in registry | Skip silently. Log for monitoring. |
+| Failure                        | Recovery                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| CSV parse error                | Return error to user at upload time. Reject non-CSV.                                                               |
+| LLM generates invalid Python   | E2B returns traceback. Retry once with the error appended to the prompt: "Your code failed with: {error}. Fix it." |
+| E2B execution timeout (>30s)   | Kill sandbox. Return annotation component with error.                                                              |
+| E2B sandbox creation fails     | Fallback: return text-only response from LLM without code execution.                                               |
+| LLM returns invalid UI JSON    | Validate and strip invalid components. Render what's valid.                                                        |
+| Component type not in registry | Skip silently. Log for monitoring.                                                                                 |
 
 **Retry policy:** One automatic retry on code execution failure. On second failure, return the error as an `annotation` component with `severity: "error"`.
 
@@ -633,6 +672,7 @@ WORKDIR /analysis
 ```
 
 Build and register with E2B CLI:
+
 ```bash
 e2b template build --name csv-insight --dockerfile e2b.Dockerfile
 ```
@@ -641,14 +681,14 @@ e2b template build --name csv-insight --dockerfile e2b.Dockerfile
 
 ## 10. Tech Stack
 
-| Layer | Choice | Rationale |
-|-------|--------|-----------|
-| Frontend | Next.js 14 (App Router) | SSE streaming, React Server Components |
-| Component library | Tailwind + Recharts | Recharts for declarative charts, Tailwind for layout components |
-| Backend | Next.js API Routes | Co-located with frontend, simple deployment |
-| LLM | Claude (Anthropic API) | Strong code generation + structured JSON output |
-| Sandbox | E2B Code Interpreter | Sub-200ms spin-up, secure isolation, rich output capture |
-| File storage | Local temp / S3 | CSV files, short-lived (TTL 1 hour) |
+| Layer             | Choice                  | Rationale                                                       |
+| ----------------- | ----------------------- | --------------------------------------------------------------- |
+| Frontend          | Next.js 14 (App Router) | SSE streaming, React Server Components                          |
+| Component library | Tailwind + Recharts     | Recharts for declarative charts, Tailwind for layout components |
+| Backend           | Next.js API Routes      | Co-located with frontend, simple deployment                     |
+| LLM               | Claude (Anthropic API)  | Strong code generation + structured JSON output                 |
+| Sandbox           | E2B Code Interpreter    | Sub-200ms spin-up, secure isolation, rich output capture        |
+| File storage      | Local temp / S3         | CSV files, short-lived (TTL 1 hour)                             |
 
 ---
 
@@ -671,6 +711,7 @@ e2b template build --name csv-insight --dockerfile e2b.Dockerfile
 **User asks:** "Which region is most profitable, and show me the monthly trend?"
 
 **Step 1 — Code generation LLM produces:**
+
 ```python
 import pandas as pd
 import json
@@ -712,6 +753,7 @@ print(json.dumps({
 **Step 2 — E2B executes, returns JSON results.**
 
 **Step 3 — UI composition LLM produces:**
+
 ```json
 {
   "id": "resp_001",
