@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GUD - Generative-UI Dashboard",
+  title: "Hermetic",
   description: "Upload CSV files, ask questions, get visual answers",
 };
 

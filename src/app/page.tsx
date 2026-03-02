@@ -116,7 +116,7 @@ export default function Home() {
         <header className="mb-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-t-primary">GUD - Generative-UI Dashboard</h1>
+              <h1 className="text-2xl font-bold text-t-primary">Hermetic</h1>
               <p className="mt-1 text-sm text-t-secondary">
                 Upload a CSV or Excel file and ask questions about your data
               </p>
