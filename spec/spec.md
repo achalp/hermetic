@@ -1,4 +1,4 @@
-# CSV Insight — Application Specification
+# Hermetic — Application Specification
 
 ## 1. What This Is
 
@@ -446,7 +446,7 @@ Columns:
 from e2b_code_interpreter import Sandbox
 
 def execute_analysis(csv_bytes: bytes, code: str) -> dict:
-    with Sandbox.create(template="csv-insight") as sbx:
+    with Sandbox.create(template="hermetic") as sbx:
         # Upload the CSV into the sandbox
         sbx.files.write("/data/input.csv", csv_bytes)
 
@@ -469,7 +469,7 @@ def execute_analysis(csv_bytes: bytes, code: str) -> dict:
         return result
 ```
 
-**E2B sandbox template** (`csv-insight`) is pre-built with:
+**E2B sandbox template** (`hermetic`) is pre-built with:
 
 - Python 3.11
 - pandas, numpy, scipy, matplotlib, seaborn, scikit-learn
@@ -674,7 +674,7 @@ WORKDIR /analysis
 Build and register with E2B CLI:
 
 ```bash
-e2b template build --name csv-insight --dockerfile e2b.Dockerfile
+e2b template build --name hermetic --dockerfile e2b.Dockerfile
 ```
 
 ---

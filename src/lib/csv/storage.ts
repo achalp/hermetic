@@ -13,7 +13,7 @@ if (!globalStore.__csvStore) {
 }
 const store = globalStore.__csvStore;
 
-const CSV_DIR = join(tmpdir(), "csv-insight");
+const CSV_DIR = join(tmpdir(), "hermetic");
 
 let dirCreated = false;
 async function ensureDir() {
