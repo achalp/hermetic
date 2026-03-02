@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────
-#  CSV Insight — One-command setup & run
+#  Hermetic — One-command setup & run
 # ─────────────────────────────────────────────────────────
 
 # Ensure common install locations are in PATH
@@ -32,7 +32,7 @@ fail() { echo -e "    ${RED}✗ $1${RESET}"; echo ""; exit 1; }
 
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "${BOLD}  CSV Insight — Setup & Launch${RESET}"
+echo -e "${BOLD}  Hermetic — Setup & Launch${RESET}"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
 # ── 1. Check Node.js ──────────────────────────────────────

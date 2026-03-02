@@ -1,4 +1,4 @@
-# CSV Insight
+# Hermetic
 
 Upload CSV or Excel files, ask questions in natural language, and get interactive dashboards — powered by Claude.
 
@@ -23,8 +23,8 @@ Upload CSV or Excel files, ask questions in natural language, and get interactiv
 ## Quick Start
 
 ```bash
-git clone https://github.com/achalp/csv-insight.git
-cd csv-insight
+git clone https://github.com/achalp/hermetic.git
+cd hermetic
 ./start.sh
 ```
 
@@ -141,7 +141,7 @@ npm run analyze      # Bundle analysis
 
 ## Sandbox Runtimes
 
-CSV Insight executes AI-generated Python code in an isolated sandbox. Three runtimes are supported:
+Hermetic executes AI-generated Python code in an isolated sandbox. Three runtimes are supported:
 
 | Runtime              | How it works                          | Requirements                                                                                               |
 | -------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |

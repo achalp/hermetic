@@ -17,7 +17,7 @@ if (!globalStore.__excelStore) {
 }
 const store = globalStore.__excelStore;
 
-const EXCEL_DIR = join(tmpdir(), "csv-insight", "excel-temp");
+const EXCEL_DIR = join(tmpdir(), "hermetic", "excel-temp");
 
 let dirCreated = false;
 async function ensureDir() {

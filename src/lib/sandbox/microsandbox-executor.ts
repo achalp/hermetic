@@ -4,7 +4,7 @@ import type { ExecutionResult } from "@/lib/types";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
-const SANDBOX_NAME = "csv-insight";
+const SANDBOX_NAME = "hermetic";
 
 const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-learn"];
 
