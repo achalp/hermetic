@@ -1,0 +1,777 @@
+{
+  "root": "main",
+  "elements": {
+    "main": {
+      "type": "LayoutColumn",
+      "props": {
+        "gap": 24
+      },
+      "children": [
+        "heading",
+        "form-container"
+      ]
+    },
+    "heading": {
+      "type": "TextBlock",
+      "props": {
+        "content": "Add New Flight Route",
+        "variant": "heading"
+      }
+    },
+    "form-container": {
+      "type": "FormController",
+      "props": {
+        "fields": [
+          {
+            "name": "origin_city",
+            "label": "Origin City",
+            "type": "text",
+            "required": true
+          },
+          {
+            "name": "origin_lat",
+            "label": "Origin Latitude",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "origin_lng",
+            "label": "Origin Longitude",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "dest_city",
+            "label": "Destination City",
+            "type": "text",
+            "required": true
+          },
+          {
+            "name": "dest_lat",
+            "label": "Destination Latitude",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "dest_lng",
+            "label": "Destination Longitude",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "passengers",
+            "label": "Passengers",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "airline",
+            "label": "Airline",
+            "type": "text",
+            "required": true
+          }
+        ],
+        "submit": {
+          "endpoint": "/api/flights",
+          "method": "POST",
+          "onSuccessStatePath": "/submitSuccess",
+          "onErrorStatePath": "/submitError"
+        }
+      },
+      "children": [
+        "origin-section",
+        "origin-coords",
+        "dest-section",
+        "dest-coords",
+        "flight-details",
+        "success-message",
+        "error-message"
+      ]
+    },
+    "origin-section": {
+      "type": "TextBlock",
+      "props": {
+        "content": "Origin Information",
+        "variant": "heading"
+      }
+    },
+    "origin-coords": {
+      "type": "LayoutRow",
+      "props": {
+        "gap": 16
+      },
+      "children": [
+        "origin-city",
+        "origin-lat",
+        "origin-lng"
+      ]
+    },
+    "origin-city": {
+      "type": "TextInput",
+      "props": {
+        "label": "Origin City",
+        "value": {
+          "$bindState": "/form/origin_city"
+        },
+        "type": "text",
+        "placeholder": "e.g., New York, London, Tokyo"
+      }
+    },
+    "origin-lat": {
+      "type": "NumberInput",
+      "props": {
+        "label": "Origin Latitude",
+        "value": {
+          "$bindState": "/form/origin_lat"
+        },
+        "min": -90,
+        "max": 90,
+        "step": 0.0001
+      }
+    },
+    "origin-lng": {
+      "type": "NumberInput",
+      "props": {
+        "label": "Origin Longitude",
+        "value": {
+          "$bindState": "/form/origin_lng"
+        },
+        "min": -180,
+        "max": 180,
+        "step": 0.0001
+      }
+    },
+    "dest-section": {
+      "type": "TextBlock",
+      "props": {
+        "content": "Destination Information",
+        "variant": "heading"
+      }
+    },
+    "dest-coords": {
+      "type": "LayoutRow",
+      "props": {
+        "gap": 16
+      },
+      "children": [
+        "dest-city",
+        "dest-lat",
+        "dest-lng"
+      ]
+    },
+    "dest-city": {
+      "type": "TextInput",
+      "props": {
+        "label": "Destination City",
+        "value": {
+          "$bindState": "/form/dest_city"
+        },
+        "type": "text",
+        "placeholder": "e.g., Paris, Dubai, Singapore"
+      }
+    },
+    "dest-lat": {
+      "type": "NumberInput",
+      "props": {
+        "label": "Destination Latitude",
+        "value": {
+          "$bindState": "/form/dest_lat"
+        },
+        "min": -90,
+        "max": 90,
+        "step": 0.0001
+      }
+    },
+    "dest-lng": {
+      "type": "NumberInput",
+      "props": {
+        "label": "Destination Longitude",
+        "value": {
+          "$bindState": "/form/dest_lng"
+        },
+        "min": -180,
+        "max": 180,
+        "step": 0.0001
+      }
+    },
+    "flight-details": {
+      "type": "LayoutRow",
+      "props": {
+        "gap": 16
+      },
+      "children": [
+        "passengers",
+        "airline"
+      ]
+    },
+    "passengers": {
+      "type": "NumberInput",
+      "props": {
+        "label": "Passengers",
+        "value": {
+          "$bindState": "/form/passengers"
+        },
+        "min": 0,
+        "step": 1
+      }
+    },
+    "airline": {
+      "type": "TextInput",
+      "props": {
+        "label": "Airline",
+        "value": {
+          "$bindState": "/form/airline"
+        },
+        "type": "text",
+        "placeholder": "e.g., Emirates, Delta, Singapore Airlines"
+      }
+    },
+    "success-message": {
+      "type": "Annotation",
+      "props": {
+        "icon": "check",
+        "title": "Success",
+        "content": "Flight route added successfully!",
+        "severity": "success"
+      },
+      "visible": {
+        "$state": "/submitSuccess"
+      }
+    },
+    "error-message": {
+      "type": "Annotation",
+      "props": {
+        "icon": "alert",
+        "title": "Error",
+        "content": "Failed to add flight route. Please try again.",
+        "severity": "error"
+      },
+      "visible": {
+        "$state": "/submitError"
+      }
+    }
+  },
+  "state": {
+    "form": {
+      "origin_city": "",
+      "origin_lat": 0,
+      "origin_lng": 0,
+      "dest_city": "",
+      "dest_lat": 0,
+      "dest_lng": 0,
+      "passengers": 0,
+      "airline": "",
+      "_errors": {
+        "undefined": null
+      },
+      "_submitting": false,
+      "_submitted": false
+    },
+    "submitSuccess": false,
+    "submitError": false,
+    "datasets": {
+      "main": [
+        {
+          "origin_city": "New York",
+          "origin_lat": 40.6413,
+          "origin_lng": -73.7781,
+          "dest_city": "London",
+          "dest_lat": 51.47,
+          "dest_lng": -0.4543,
+          "passengers": 285000,
+          "airline": "British Airways"
+        },
+        {
+          "origin_city": "New York",
+          "origin_lat": 40.6413,
+          "origin_lng": -73.7781,
+          "dest_city": "Paris",
+          "dest_lat": 49.0097,
+          "dest_lng": 2.5479,
+          "passengers": 198000,
+          "airline": "Air France"
+        },
+        {
+          "origin_city": "New York",
+          "origin_lat": 40.6413,
+          "origin_lng": -73.7781,
+          "dest_city": "Tokyo",
+          "dest_lat": 35.772,
+          "dest_lng": 140.3929,
+          "passengers": 156000,
+          "airline": "ANA"
+        },
+        {
+          "origin_city": "New York",
+          "origin_lat": 40.6413,
+          "origin_lng": -73.7781,
+          "dest_city": "Dubai",
+          "dest_lat": 25.2532,
+          "dest_lng": 55.3657,
+          "passengers": 134000,
+          "airline": "Emirates"
+        },
+        {
+          "origin_city": "New York",
+          "origin_lat": 40.6413,
+          "origin_lng": -73.7781,
+          "dest_city": "Sao Paulo",
+          "dest_lat": -23.4356,
+          "dest_lng": -46.4731,
+          "passengers": 112000,
+          "airline": "LATAM"
+        },
+        {
+          "origin_city": "London",
+          "origin_lat": 51.47,
+          "origin_lng": -0.4543,
+          "dest_city": "Dubai",
+          "dest_lat": 25.2532,
+          "dest_lng": 55.3657,
+          "passengers": 245000,
+          "airline": "Emirates"
+        },
+        {
+          "origin_city": "London",
+          "origin_lat": 51.47,
+          "origin_lng": -0.4543,
+          "dest_city": "Singapore",
+          "dest_lat": 1.3644,
+          "dest_lng": 103.9915,
+          "passengers": 178000,
+          "airline": "Singapore Airlines"
+        },
+        {
+          "origin_city": "London",
+          "origin_lat": 51.47,
+          "origin_lng": -0.4543,
+          "dest_city": "Hong Kong",
+          "dest_lat": 22.308,
+          "dest_lng": 113.9185,
+          "passengers": 165000,
+          "airline": "Cathay Pacific"
+        },
+        {
+          "origin_city": "London",
+          "origin_lat": 51.47,
+          "origin_lng": -0.4543,
+          "dest_city": "New York",
+          "dest_lat": 40.6413,
+          "dest_lng": -73.7781,
+          "passengers": 280000,
+          "airline": "American Airlines"
+        },
+        {
+          "origin_city": "London",
+          "origin_lat": 51.47,
+          "origin_lng": -0.4543,
+          "dest_city": "Sydney",
+          "dest_lat": -33.9461,
+          "dest_lng": 151.1772,
+          "passengers": 98000,
+          "airline": "Qantas"
+        },
+        {
+          "origin_city": "Paris",
+          "origin_lat": 49.0097,
+          "origin_lng": 2.5479,
+          "dest_city": "New York",
+          "dest_lat": 40.6413,
+          "dest_lng": -73.7781,
+          "passengers": 192000,
+          "airline": "Delta"
+        },
+        {
+          "origin_city": "Paris",
+          "origin_lat": 49.0097,
+          "origin_lng": 2.5479,
+          "dest_city": "Tokyo",
+          "dest_lat": 35.772,
+          "dest_lng": 140.3929,
+          "passengers": 87000,
+          "airline": "Air France"
+        },
+        {
+          "origin_city": "Paris",
+          "origin_lat": 49.0097,
+          "origin_lng": 2.5479,
+          "dest_city": "Montreal",
+          "dest_lat": 45.4706,
+          "dest_lng": -73.7408,
+          "passengers": 76000,
+          "airline": "Air Canada"
+        },
+        {
+          "origin_city": "Paris",
+          "origin_lat": 49.0097,
+          "origin_lng": 2.5479,
+          "dest_city": "Dubai",
+          "dest_lat": 25.2532,
+          "dest_lng": 55.3657,
+          "passengers": 143000,
+          "airline": "Emirates"
+        },
+        {
+          "origin_city": "Paris",
+          "origin_lat": 49.0097,
+          "origin_lng": 2.5479,
+          "dest_city": "Singapore",
+          "dest_lat": 1.3644,
+          "dest_lng": 103.9915,
+          "passengers": 65000,
+          "airline": "Singapore Airlines"
+        },
+        {
+          "origin_city": "Tokyo",
+          "origin_lat": 35.772,
+          "origin_lng": 140.3929,
+          "dest_city": "Los Angeles",
+          "dest_lat": 33.9416,
+          "dest_lng": -118.4085,
+          "passengers": 210000,
+          "airline": "JAL"
+        },
+        {
+          "origin_city": "Tokyo",
+          "origin_lat": 35.772,
+          "origin_lng": 140.3929,
+          "dest_city": "Singapore",
+          "dest_lat": 1.3644,
+          "dest_lng": 103.9915,
+          "passengers": 185000,
+          "airline": "ANA"
+        },
+        {
+          "origin_city": "Tokyo",
+          "origin_lat": 35.772,
+          "origin_lng": 140.3929,
+          "dest_city": "Sydney",
+          "dest_lat": -33.9461,
+          "dest_lng": 151.1772,
+          "passengers": 124000,
+          "airline": "Qantas"
+        },
+        {
+          "origin_city": "Tokyo",
+          "origin_lat": 35.772,
+          "origin_lng": 140.3929,
+          "dest_city": "Bangkok",
+          "dest_lat": 13.69,
+          "dest_lng": 100.7501,
+          "passengers": 198000,
+          "airline": "Thai Airways"
+        },
+        {
+          "origin_city": "Tokyo",
+          "origin_lat": 35.772,
+          "origin_lng": 140.3929,
+          "dest_city": "Seoul",
+          "dest_lat": 37.4602,
+          "dest_lng": 126.4407,
+          "passengers": 267000,
+          "airline": "Korean Air"
+        },
+        {
+          "origin_city": "Dubai",
+          "origin_lat": 25.2532,
+          "origin_lng": 55.3657,
+          "dest_city": "Singapore",
+          "dest_lat": 1.3644,
+          "dest_lng": 103.9915,
+          "passengers": 215000,
+          "airline": "Emirates"
+        },
+        {
+          "origin_city": "Dubai",
+          "origin_lat": 25.2532,
+          "origin_lng": 55.3657,
+          "dest_city": "Mumbai",
+          "dest_lat": 19.0896,
+          "dest_lng": 72.8656,
+          "passengers": 232000,
+          "airline": "Air India"
+        },
+        {
+          "origin_city": "Dubai",
+          "origin_lat": 25.2532,
+          "origin_lng": 55.3657,
+          "dest_city": "Sydney",
+          "dest_lat": -33.9461,
+          "dest_lng": 151.1772,
+          "passengers": 145000,
+          "airline": "Emirates"
+        },
+        {
+          "origin_city": "Dubai",
+          "origin_lat": 25.2532,
+          "origin_lng": 55.3657,
+          "dest_city": "Johannesburg",
+          "dest_lat": -26.1392,
+          "dest_lng": 28.246,
+          "passengers": 98000,
+          "airline": "South African Airways"
+        },
+        {
+          "origin_city": "Dubai",
+          "origin_lat": 25.2532,
+          "origin_lng": 55.3657,
+          "dest_city": "Frankfurt",
+          "dest_lat": 50.0379,
+          "dest_lng": 8.5622,
+          "passengers": 176000,
+          "airline": "Lufthansa"
+        },
+        {
+          "origin_city": "Singapore",
+          "origin_lat": 1.3644,
+          "origin_lng": 103.9915,
+          "dest_city": "Sydney",
+          "dest_lat": -33.9461,
+          "dest_lng": 151.1772,
+          "passengers": 198000,
+          "airline": "Singapore Airlines"
+        },
+        {
+          "origin_city": "Singapore",
+          "origin_lat": 1.3644,
+          "origin_lng": 103.9915,
+          "dest_city": "Melbourne",
+          "dest_lat": -37.669,
+          "dest_lng": 144.841,
+          "passengers": 142000,
+          "airline": "Qantas"
+        },
+        {
+          "origin_city": "Singapore",
+          "origin_lat": 1.3644,
+          "origin_lng": 103.9915,
+          "dest_city": "Jakarta",
+          "dest_lat": -6.1256,
+          "dest_lng": 106.6559,
+          "passengers": 265000,
+          "airline": "Garuda Indonesia"
+        },
+        {
+          "origin_city": "Singapore",
+          "origin_lat": 1.3644,
+          "origin_lng": 103.9915,
+          "dest_city": "Bangkok",
+          "dest_lat": 13.69,
+          "dest_lng": 100.7501,
+          "passengers": 287000,
+          "airline": "Thai Airways"
+        },
+        {
+          "origin_city": "Singapore",
+          "origin_lat": 1.3644,
+          "origin_lng": 103.9915,
+          "dest_city": "Hong Kong",
+          "dest_lat": 22.308,
+          "dest_lng": 113.9185,
+          "passengers": 213000,
+          "airline": "Cathay Pacific"
+        },
+        {
+          "origin_city": "Los Angeles",
+          "origin_lat": 33.9416,
+          "origin_lng": -118.4085,
+          "dest_city": "Sydney",
+          "dest_lat": -33.9461,
+          "dest_lng": 151.1772,
+          "passengers": 132000,
+          "airline": "Qantas"
+        },
+        {
+          "origin_city": "Los Angeles",
+          "origin_lat": 33.9416,
+          "origin_lng": -118.4085,
+          "dest_city": "Seoul",
+          "dest_lat": 37.4602,
+          "dest_lng": 126.4407,
+          "passengers": 145000,
+          "airline": "Korean Air"
+        },
+        {
+          "origin_city": "Los Angeles",
+          "origin_lat": 33.9416,
+          "origin_lng": -118.4085,
+          "dest_city": "Mexico City",
+          "dest_lat": 19.4361,
+          "dest_lng": -99.0719,
+          "passengers": 198000,
+          "airline": "Aeromexico"
+        },
+        {
+          "origin_city": "Los Angeles",
+          "origin_lat": 33.9416,
+          "origin_lng": -118.4085,
+          "dest_city": "London",
+          "dest_lat": 51.47,
+          "dest_lng": -0.4543,
+          "passengers": 176000,
+          "airline": "Virgin Atlantic"
+        },
+        {
+          "origin_city": "Los Angeles",
+          "origin_lat": 33.9416,
+          "origin_lng": -118.4085,
+          "dest_city": "Shanghai",
+          "dest_lat": 31.1443,
+          "dest_lng": 121.8083,
+          "passengers": 108000,
+          "airline": "China Eastern"
+        },
+        {
+          "origin_city": "Sydney",
+          "origin_lat": -33.9461,
+          "origin_lng": 151.1772,
+          "dest_city": "Auckland",
+          "dest_lat": -37.0082,
+          "dest_lng": 174.785,
+          "passengers": 245000,
+          "airline": "Air New Zealand"
+        },
+        {
+          "origin_city": "Sydney",
+          "origin_lat": -33.9461,
+          "origin_lng": 151.1772,
+          "dest_city": "Bali",
+          "dest_lat": -8.7467,
+          "dest_lng": 115.1667,
+          "passengers": 187000,
+          "airline": "Jetstar"
+        },
+        {
+          "origin_city": "Sydney",
+          "origin_lat": -33.9461,
+          "origin_lng": 151.1772,
+          "dest_city": "Hong Kong",
+          "dest_lat": 22.308,
+          "dest_lng": 113.9185,
+          "passengers": 156000,
+          "airline": "Cathay Pacific"
+        },
+        {
+          "origin_city": "Sao Paulo",
+          "origin_lat": -23.4356,
+          "origin_lng": -46.4731,
+          "dest_city": "Buenos Aires",
+          "dest_lat": -34.8222,
+          "dest_lng": -58.5358,
+          "passengers": 198000,
+          "airline": "LATAM"
+        },
+        {
+          "origin_city": "Sao Paulo",
+          "origin_lat": -23.4356,
+          "origin_lng": -46.4731,
+          "dest_city": "Lima",
+          "dest_lat": -12.0219,
+          "dest_lng": -77.1143,
+          "passengers": 87000,
+          "airline": "LATAM"
+        },
+        {
+          "origin_city": "Sao Paulo",
+          "origin_lat": -23.4356,
+          "origin_lng": -46.4731,
+          "dest_city": "Lisbon",
+          "dest_lat": 38.7813,
+          "dest_lng": -9.1359,
+          "passengers": 112000,
+          "airline": "TAP Portugal"
+        },
+        {
+          "origin_city": "Mumbai",
+          "origin_lat": 19.0896,
+          "origin_lng": 72.8656,
+          "dest_city": "London",
+          "dest_lat": 51.47,
+          "dest_lng": -0.4543,
+          "passengers": 187000,
+          "airline": "British Airways"
+        },
+        {
+          "origin_city": "Mumbai",
+          "origin_lat": 19.0896,
+          "origin_lng": 72.8656,
+          "dest_city": "Singapore",
+          "dest_lat": 1.3644,
+          "dest_lng": 103.9915,
+          "passengers": 165000,
+          "airline": "Singapore Airlines"
+        },
+        {
+          "origin_city": "Mumbai",
+          "origin_lat": 19.0896,
+          "origin_lng": 72.8656,
+          "dest_city": "Bangkok",
+          "dest_lat": 13.69,
+          "dest_lng": 100.7501,
+          "passengers": 98000,
+          "airline": "Thai Airways"
+        },
+        {
+          "origin_city": "Johannesburg",
+          "origin_lat": -26.1392,
+          "origin_lng": 28.246,
+          "dest_city": "London",
+          "dest_lat": 51.47,
+          "dest_lng": -0.4543,
+          "passengers": 134000,
+          "airline": "British Airways"
+        },
+        {
+          "origin_city": "Johannesburg",
+          "origin_lat": -26.1392,
+          "origin_lng": 28.246,
+          "dest_city": "Nairobi",
+          "dest_lat": -1.3192,
+          "dest_lng": 36.9278,
+          "passengers": 87000,
+          "airline": "Kenya Airways"
+        },
+        {
+          "origin_city": "Istanbul",
+          "origin_lat": 41.2753,
+          "origin_lng": 28.7519,
+          "dest_city": "London",
+          "dest_lat": 51.47,
+          "dest_lng": -0.4543,
+          "passengers": 198000,
+          "airline": "Turkish Airlines"
+        },
+        {
+          "origin_city": "Istanbul",
+          "origin_lat": 41.2753,
+          "origin_lng": 28.7519,
+          "dest_city": "New York",
+          "dest_lat": 40.6413,
+          "dest_lng": -73.7781,
+          "passengers": 112000,
+          "airline": "Turkish Airlines"
+        },
+        {
+          "origin_city": "Istanbul",
+          "origin_lat": 41.2753,
+          "origin_lng": 28.7519,
+          "dest_city": "Dubai",
+          "dest_lat": 25.2532,
+          "dest_lng": 55.3657,
+          "passengers": 156000,
+          "airline": "Emirates"
+        },
+        {
+          "origin_city": "Cairo",
+          "origin_lat": 30.1219,
+          "origin_lng": 31.4056,
+          "dest_city": "Dubai",
+          "dest_lat": 25.2532,
+          "dest_lng": 55.3657,
+          "passengers": 98000,
+          "airline": "Emirates"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "state": {
+    "datasets": {
+      "main": [
+        { "Index": 1, "Name": "Widget A", "Brand": "Acme", "Category": "Electronics", "Price": 29.99, "Currency": "USD", "Stock": 150, "Color": "Red", "Size": "M", "Availability": "In Stock" },
+        { "Index": 2, "Name": "Widget B", "Brand": "Acme", "Category": "Electronics", "Price": 49.99, "Currency": "USD", "Stock": 75, "Color": "Blue", "Size": "L", "Availability": "In Stock" },
+        { "Index": 3, "Name": "Widget C", "Brand": "BetaCorp", "Category": "Home & Garden", "Price": 15.50, "Currency": "USD", "Stock": 300, "Color": "Green", "Size": "S", "Availability": "In Stock" },
+        { "Index": 4, "Name": "Widget D", "Brand": "BetaCorp", "Category": "Home & Garden", "Price": 22.00, "Currency": "USD", "Stock": 0, "Color": "Red", "Size": "M", "Availability": "Out of Stock" },
+        { "Index": 5, "Name": "Widget E", "Brand": "GammaTech", "Category": "Electronics", "Price": 199.99, "Currency": "USD", "Stock": 20, "Color": "Black", "Size": "L", "Availability": "In Stock" },
+        { "Index": 6, "Name": "Widget F", "Brand": "GammaTech", "Category": "Apparel", "Price": 35.00, "Currency": "USD", "Stock": 500, "Color": "White", "Size": "XL", "Availability": "In Stock" },
+        { "Index": 7, "Name": "Widget G", "Brand": "Acme", "Category": "Apparel", "Price": 12.99, "Currency": "USD", "Stock": 1000, "Color": "Blue", "Size": "S", "Availability": "In Stock" },
+        { "Index": 8, "Name": "Widget H", "Brand": "DeltaInc", "Category": "Electronics", "Price": 89.00, "Currency": "USD", "Stock": 45, "Color": "Black", "Size": "M", "Availability": "Low Stock" },
+        { "Index": 9, "Name": "Widget I", "Brand": "DeltaInc", "Category": "Home & Garden", "Price": 55.00, "Currency": "USD", "Stock": 200, "Color": "Green", "Size": "L", "Availability": "In Stock" },
+        { "Index": 10, "Name": "Widget J", "Brand": "Acme", "Category": "Home & Garden", "Price": 8.99, "Currency": "USD", "Stock": 0, "Color": "White", "Size": "S", "Availability": "Out of Stock" }
+      ]
+    },
+    "filters": {
+      "Brand": "All",
+      "Category": "All"
+    },
+    "computed": {
+      "costByBrand": [
+        { "Brand": "Acme", "TotalInventoryCost": 16877.5 },
+        { "Brand": "BetaCorp", "TotalInventoryCost": 11250 },
+        { "Brand": "DeltaInc", "TotalInventoryCost": 15005 },
+        { "Brand": "GammaTech", "TotalInventoryCost": 21498 }
+      ],
+      "costByCategory": [
+        { "Category": "Apparel", "TotalInventoryCost": 30490 },
+        { "Category": "Electronics", "TotalInventoryCost": 15119 },
+        { "Category": "Home & Garden", "TotalInventoryCost": 18021 }
+      ]
+    }
+  },
+  "root": "root",
+  "elements": {
+    "root": {
+      "type": "LayoutColumn",
+      "props": { "gap": 16 },
+      "children": ["heading", "dataCtrl"]
+    },
+    "heading": {
+      "type": "TextBlock",
+      "props": { "content": "Product Inventory Dashboard", "variant": "heading" }
+    },
+    "dataCtrl": {
+      "type": "DataController",
+      "props": {
+        "source": { "statePath": "/datasets/main" },
+        "filters": [
+          { "key": "Brand", "column": "Brand", "bindTo": "/filters/Brand", "label": "Brand", "allowAll": true, "dependsOn": null },
+          { "key": "Category", "column": "Category", "bindTo": "/filters/Category", "label": "Category", "allowAll": true, "dependsOn": null }
+        ],
+        "pipeline": [
+          { "op": "filter" },
+          { "op": "groupBy", "columns": ["Brand"], "aggregations": [{ "column": "Price", "fn": "sum", "as": "TotalInventoryCost" }] },
+          { "op": "sort", "column": "TotalInventoryCost", "direction": "desc" }
+        ],
+        "outputs": [
+          { "statePath": "/computed/costByBrand", "format": null }
+        ]
+      },
+      "children": ["statsGrid", "barChart", "catChart"]
+    },
+    "statsGrid": {
+      "type": "LayoutGrid",
+      "props": { "columns": 3, "gap": 16 },
+      "children": ["stat1", "stat2", "stat3"]
+    },
+    "stat1": {
+      "type": "StatCard",
+      "props": { "label": "Total Products", "value": "10", "change": null, "trend": null, "description": "Unique items" }
+    },
+    "stat2": {
+      "type": "StatCard",
+      "props": { "label": "Average Price", "value": "$51.85", "change": null, "trend": null, "description": "Mean product price" }
+    },
+    "stat3": {
+      "type": "StatCard",
+      "props": { "label": "Total Stock", "value": "2,290", "change": null, "trend": null, "description": "Units in inventory" }
+    },
+    "barChart": {
+      "type": "BarChart",
+      "props": {
+        "title": "Inventory Cost by Brand",
+        "data": { "$state": "/computed/costByBrand" },
+        "x_key": "Brand",
+        "y_keys": ["TotalInventoryCost"],
+        "orientation": "horizontal",
+        "stacked": false,
+        "color_map": { "TotalInventoryCost": "indigo" }
+      }
+    },
+    "catChart": {
+      "type": "BarChart",
+      "props": {
+        "title": "Inventory Cost by Category",
+        "data": { "$state": "/computed/costByCategory" },
+        "x_key": "Category",
+        "y_keys": ["TotalInventoryCost"],
+        "orientation": "vertical",
+        "stacked": false,
+        "color_map": { "TotalInventoryCost": "emerald" }
+      }
+    }
+  }
+}

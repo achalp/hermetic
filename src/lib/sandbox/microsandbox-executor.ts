@@ -1,0 +1,276 @@
+import { PythonSandbox } from "microsandbox";
+import { randomUUID } from "node:crypto";
+import type { ExecutionResult } from "@/lib/types";
+import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
+import { logger } from "@/lib/logger";
+
+const SANDBOX_NAME = "csv-insight";
+
+const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-learn"];
+
+/**
+ * Module-level persistent sandbox. Created once, reused across queries.
+ */
+let warmSandbox: PythonSandbox | null = null;
+let sandboxReady = false;
+
+async function getOrCreateSandbox(): Promise<PythonSandbox> {
+  if (warmSandbox && sandboxReady) {
+    return warmSandbox;
+  }
+
+  // If a previous sandbox exists but isn't ready (failed setup), stop it
+  if (warmSandbox) {
+    await warmSandbox.stop().catch(() => {});
+    warmSandbox = null;
+    sandboxReady = false;
+  }
+
+  logger.debug("Creating persistent microsandbox...");
+  const sandbox = await PythonSandbox.create({
+    name: SANDBOX_NAME,
+    ...(process.env.MICROSANDBOX_IMAGE && { image: process.env.MICROSANDBOX_IMAGE }),
+    ...(process.env.MICROSANDBOX_URL && { serverUrl: process.env.MICROSANDBOX_URL }),
+    ...(process.env.MICROSANDBOX_API_KEY && { apiKey: process.env.MICROSANDBOX_API_KEY }),
+  });
+
+  // If the warmup script already ran, packages are installed. Otherwise install now.
+  const probe = await sandbox.run("import pandas", { timeout: 10 }).catch(() => null);
+  if (!probe || probe.hasError()) {
+    logger.debug("pandas not found — fixing pip and installing packages...");
+
+    // The default microsandbox/python image has a broken pip. Download get-pip.py
+    // on the HOST (reliable networking) and send it into the sandbox via base64.
+    const CHUNK = 512 * 1024;
+    const resp = await fetch("https://bootstrap.pypa.io/get-pip.py");
+    if (!resp.ok) throw new Error(`Failed to download get-pip.py: HTTP ${resp.status}`);
+    const buf = Buffer.from(await resp.arrayBuffer());
+
+    const first = buf.subarray(0, CHUNK).toString("base64");
+    await sandbox.run(
+      `import base64, pathlib; pathlib.Path("/tmp/get-pip.py").write_bytes(base64.b64decode(${JSON.stringify(first)}))`,
+      { timeout: 10 }
+    );
+    for (let off = CHUNK; off < buf.length; off += CHUNK) {
+      const chunk = buf.subarray(off, off + CHUNK).toString("base64");
+      await sandbox.run(
+        `import base64\nwith open("/tmp/get-pip.py", "ab") as f: f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
+        { timeout: 10 }
+      );
+    }
+
+    await sandbox.run(
+      `import subprocess, sys; subprocess.run([sys.executable, "/tmp/get-pip.py", "--force-reinstall", "-q"], capture_output=True, timeout=120)`,
+      { timeout: 150 }
+    );
+
+    const pipExec = await sandbox.run(
+      `import subprocess, sys\n` +
+        `r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", ${PACKAGES.map((p) => `"${p}"`).join(", ")}], capture_output=True, text=True, timeout=300)\n` +
+        `assert r.returncode == 0, f"pip failed (exit {r.returncode}):\\n{r.stderr}"`,
+      { timeout: 360 }
+    );
+    if (pipExec.hasError()) {
+      const err = await pipExec.error().catch(() => "unknown error");
+      await sandbox.stop().catch(() => {});
+      throw new Error(`Failed to install packages: ${String(err).slice(0, 300)}`);
+    }
+    logger.debug("Packages installed successfully");
+  }
+
+  // Create base /data directory
+  await sandbox.run(`import pathlib; pathlib.Path("/data").mkdir(parents=True, exist_ok=True)`, {
+    timeout: 5,
+  });
+
+  warmSandbox = sandbox;
+  sandboxReady = true;
+  return sandbox;
+}
+
+/**
+ * Pre-warm the sandbox: create it and install packages.
+ * Called from /api/runtimes/warmup during startup.
+ */
+export async function warmupSandbox(): Promise<void> {
+  await getOrCreateSandbox();
+}
+
+export async function executeSandbox(csvContent: string, code: string): Promise<ExecutionResult> {
+  const start = Date.now();
+  // Per-query working directory for isolation
+  const queryId = randomUUID().slice(0, 8);
+  const workDir = `/data/${queryId}`;
+
+  try {
+    const sandbox = await getOrCreateSandbox();
+
+    // Create per-query directory
+    await sandbox.run(
+      `import pathlib; pathlib.Path("${workDir}").mkdir(parents=True, exist_ok=True)`,
+      { timeout: 5 }
+    );
+
+    // Write CSV in chunks to avoid exceeding the JSON-RPC body size limit.
+    const CHUNK_SIZE = 512 * 1024;
+    const csvBuf = Buffer.from(csvContent);
+    const firstChunk = csvBuf.subarray(0, CHUNK_SIZE).toString("base64");
+    const initExec = await sandbox.run(
+      `import base64, pathlib\n` +
+        `pathlib.Path("${workDir}/input.csv").write_bytes(base64.b64decode(${JSON.stringify(firstChunk)}))`,
+      { timeout: 15 }
+    );
+
+    if (initExec.hasError()) {
+      return {
+        success: false,
+        error: `Failed to write files: ${await initExec.error()}`,
+        execution_ms: Date.now() - start,
+      };
+    }
+
+    for (let offset = CHUNK_SIZE; offset < csvBuf.length; offset += CHUNK_SIZE) {
+      const chunk = csvBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
+      const appendExec = await sandbox.run(
+        `import base64\n` +
+          `with open("${workDir}/input.csv", "ab") as f:\n` +
+          `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
+        { timeout: 15 }
+      );
+      if (appendExec.hasError()) {
+        return {
+          success: false,
+          error: `Failed to write CSV chunk: ${await appendExec.error()}`,
+          execution_ms: Date.now() - start,
+        };
+      }
+    }
+
+    // Write the script — rewrite /data paths to per-query paths
+    const patchedCode = code.replace(/\/data\//g, `${workDir}/`);
+    const patchedB64 = Buffer.from(patchedCode).toString("base64");
+    const writeExec = await sandbox.run(
+      `import base64, pathlib\n` +
+        `pathlib.Path("${workDir}/script.py").write_bytes(base64.b64decode(${JSON.stringify(patchedB64)}))`,
+      { timeout: 15 }
+    );
+
+    if (writeExec.hasError()) {
+      return {
+        success: false,
+        error: `Failed to write script: ${await writeExec.error()}`,
+        execution_ms: Date.now() - start,
+      };
+    }
+
+    // Execute the script
+    const timeoutSecs = Math.ceil(SANDBOX_TIMEOUT_MS / 1000);
+    const execResult = await sandbox.command.run(
+      "sh",
+      [
+        "-c",
+        `python3 ${workDir}/script.py > ${workDir}/stdout.txt 2>${workDir}/stderr.txt; echo $?`,
+      ],
+      timeoutSecs
+    );
+
+    const executionMs = Date.now() - start;
+    const rawOutput = await execResult.output();
+    const exitCode = parseInt(rawOutput.trim(), 10);
+
+    if (exitCode !== 0) {
+      const stderrResult = await sandbox.command
+        .run("cat", [`${workDir}/stderr.txt`], 5)
+        .catch(() => null);
+      const stderr = stderrResult ? await stderrResult.output() : "Unknown execution error";
+      return {
+        success: false,
+        error: stderr || "Unknown execution error",
+        execution_ms: executionMs,
+      };
+    }
+
+    // Read output
+    let outputJson: string;
+    let outputSource: string;
+
+    const jsonResult = await sandbox.command
+      .run("cat", [`${workDir}/output.json`], 5)
+      .catch(() => null);
+
+    if (jsonResult && jsonResult.success && (await jsonResult.output()).trim()) {
+      outputJson = await jsonResult.output();
+      outputSource = `file:${workDir}/output.json`;
+    } else {
+      const stdoutResult = await sandbox.command
+        .run("cat", [`${workDir}/stdout.txt`], 5)
+        .catch(() => null);
+      if (stdoutResult && stdoutResult.success && (await stdoutResult.output()).trim()) {
+        outputJson = await stdoutResult.output();
+        outputSource = `file:${workDir}/stdout.txt`;
+      } else {
+        return {
+          success: false,
+          error:
+            "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
+          execution_ms: executionMs,
+        };
+      }
+    }
+
+    logger.debug("Microsandbox executor output", { source: outputSource, len: outputJson.length });
+
+    if (!outputJson.trim()) {
+      return {
+        success: false,
+        error:
+          "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
+        execution_ms: executionMs,
+      };
+    }
+
+    outputJson = outputJson
+      .replace(/\bNaN\b/g, "null")
+      .replace(/\b-Infinity\b/g, "null")
+      .replace(/\bInfinity\b/g, "null");
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(outputJson);
+    } catch {
+      return {
+        success: false,
+        error: `Failed to parse output as JSON. Output was: ${outputJson.slice(0, 500)}`,
+        execution_ms: executionMs,
+      };
+    }
+
+    const images: Record<string, string> = (parsed.images as Record<string, string>) ?? {};
+
+    return {
+      success: true,
+      results: (parsed.results as Record<string, unknown>) ?? {},
+      chart_data: (parsed.chart_data as Record<string, unknown>) ?? {},
+      images,
+      datasets: (parsed.datasets as Record<string, Record<string, unknown>[]>) ?? undefined,
+      execution_ms: executionMs,
+    };
+  } catch (err) {
+    // If the sandbox itself is broken, reset it so next query creates a fresh one
+    if (warmSandbox) {
+      await warmSandbox.stop().catch(() => {});
+      warmSandbox = null;
+      sandboxReady = false;
+    }
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      execution_ms: Date.now() - start,
+    };
+  } finally {
+    // Clean up per-query directory (best effort, don't await)
+    if (warmSandbox) {
+      warmSandbox.command.run("rm", ["-rf", workDir], 5).catch(() => {});
+    }
+  }
+}

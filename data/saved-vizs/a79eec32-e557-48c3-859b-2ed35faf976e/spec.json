@@ -1,0 +1,1141 @@
+{
+  "root": "main",
+  "elements": {
+    "main": {
+      "type": "LayoutColumn",
+      "props": {
+        "gap": 24
+      },
+      "children": [
+        "heading",
+        "key-metrics",
+        "map-section",
+        "category-analysis",
+        "revenue-insights",
+        "top-performers",
+        "correlation-insight"
+      ]
+    },
+    "heading": {
+      "type": "TextBlock",
+      "props": {
+        "content": "San Francisco Business Location Analysis: Key Insights & Geographic Distribution",
+        "variant": "heading"
+      },
+      "children": []
+    },
+    "key-metrics": {
+      "type": "LayoutGrid",
+      "props": {
+        "columns": 4,
+        "gap": 16
+      },
+      "children": [
+        "metric-total-revenue",
+        "metric-avg-revenue",
+        "metric-avg-rating",
+        "metric-locations"
+      ]
+    },
+    "metric-total-revenue": {
+      "type": "StatCard",
+      "props": {
+        "label": "Total Revenue",
+        "value": "$7.31M",
+        "description": "Across 30 locations"
+      },
+      "children": []
+    },
+    "metric-avg-revenue": {
+      "type": "StatCard",
+      "props": {
+        "label": "Avg Revenue per Location",
+        "value": "$244K",
+        "description": "Mean across all categories"
+      },
+      "children": []
+    },
+    "metric-avg-rating": {
+      "type": "StatCard",
+      "props": {
+        "label": "Average Rating",
+        "value": "4.36",
+        "trend": "up",
+        "description": "Strong customer satisfaction"
+      },
+      "children": []
+    },
+    "metric-locations": {
+      "type": "StatCard",
+      "props": {
+        "label": "Total Locations",
+        "value": "30",
+        "description": "5 business categories"
+      },
+      "children": []
+    },
+    "map-section": {
+      "type": "LayoutColumn",
+      "props": {
+        "gap": 12
+      },
+      "children": [
+        "map-title",
+        "map-view",
+        "map-annotation"
+      ]
+    },
+    "map-title": {
+      "type": "TextBlock",
+      "props": {
+        "content": "Geographic Distribution of Business Locations",
+        "variant": "heading"
+      },
+      "children": []
+    },
+    "map-view": {
+      "type": "MapView",
+      "props": {
+        "title": "San Francisco Business Locations by Revenue & Category",
+        "markers": {
+          "$state": "/mapMarkers"
+        },
+        "height": 500
+      },
+      "children": []
+    },
+    "map-annotation": {
+      "type": "Annotation",
+      "props": {
+        "icon": "info",
+        "title": "Geographic Clustering",
+        "content": "High-revenue restaurants cluster in tourist areas (Fisherman's Wharf, North Beach) while cafes and retail spread across residential neighborhoods. The northern waterfront shows the highest concentration of premium businesses.",
+        "severity": "info"
+      },
+      "children": []
+    },
+    "category-analysis": {
+      "type": "LayoutColumn",
+      "props": {
+        "gap": 12
+      },
+      "children": [
+        "category-title",
+        "category-charts"
+      ]
+    },
+    "category-title": {
+      "type": "TextBlock",
+      "props": {
+        "content": "Revenue & Performance by Business Category",
+        "variant": "heading"
+      },
+      "children": []
+    },
+    "category-charts": {
+      "type": "LayoutRow",
+      "props": {
+        "gap": 16
+      },
+      "children": [
+        "category-revenue-chart",
+        "category-distribution-chart"
+      ]
+    },
+    "category-revenue-chart": {
+      "type": "BarChart",
+      "props": {
+        "title": "Total Revenue by Category",
+        "data": {
+          "$state": "/categoryRevenue"
+        },
+        "x_key": "category",
+        "y_keys": [
+          "revenue"
+        ],
+        "orientation": "horizontal",
+        "color_map": {
+          "revenue": "indigo"
+        }
+      },
+      "children": []
+    },
+    "category-distribution-chart": {
+      "type": "PieChart",
+      "props": {
+        "title": "Location Count by Category",
+        "data": {
+          "$state": "/categoryDistribution"
+        },
+        "show_labels": true,
+        "show_legend": true,
+        "colors": [
+          "#10b981",
+          "#f59e0b",
+          "#06b6d4",
+          "#ec4899",
+          "#8b5cf6"
+        ]
+      },
+      "children": []
+    },
+    "revenue-insights": {
+      "type": "LayoutColumn",
+      "props": {
+        "gap": 12
+      },
+      "children": [
+        "revenue-title",
+        "revenue-scatter",
+        "revenue-annotation"
+      ]
+    },
+    "revenue-title": {
+      "type": "TextBlock",
+      "props": {
+        "content": "Revenue vs. Customer Engagement Analysis",
+        "variant": "heading"
+      },
+      "children": []
+    },
+    "revenue-scatter": {
+      "type": "ScatterChart",
+      "props": {
+        "title": "Revenue vs. Reviews by Category",
+        "data": {
+          "$state": "/revenueRatingScatter"
+        },
+        "x_label": "Number of Reviews",
+        "y_label": "Revenue ($)",
+        "color_by": "category",
+        "show_regression": true
+      },
+      "children": []
+    },
+    "revenue-annotation": {
+      "type": "Annotation",
+      "props": {
+        "icon": "trend",
+        "title": "Strong Revenue-Review Correlation",
+        "content": "Analysis reveals a 0.90 correlation between revenue and review count, indicating that customer engagement (measured by reviews) is a powerful predictor of business success. Restaurants show the strongest pattern, with high-traffic locations generating both more reviews and higher revenue.",
+        "severity": "success"
+      },
+      "children": []
+    },
+    "top-performers": {
+      "type": "LayoutColumn",
+      "props": {
+        "gap": 12
+      },
+      "children": [
+        "top-performers-title",
+        "top-performers-tables"
+      ]
+    },
+    "top-performers-title": {
+      "type": "TextBlock",
+      "props": {
+        "content": "Top Performing Locations",
+        "variant": "heading"
+      },
+      "children": []
+    },
+    "top-performers-tables": {
+      "type": "LayoutRow",
+      "props": {
+        "gap": 16
+      },
+      "children": [
+        "top-revenue-table",
+        "top-rated-table"
+      ]
+    },
+    "top-revenue-table": {
+      "type": "DataTable",
+      "props": {
+        "caption": "Top 5 by Revenue",
+        "columns": [
+          "Business",
+          "Category",
+          "Revenue",
+          "Rating"
+        ],
+        "rows": {
+          "$state": "/topRevenueRows"
+        },
+        "highlight_max": true
+      },
+      "children": []
+    },
+    "top-rated-table": {
+      "type": "DataTable",
+      "props": {
+        "caption": "Top 5 by Rating",
+        "columns": [
+          "Business",
+          "Category",
+          "Rating",
+          "Reviews"
+        ],
+        "rows": {
+          "$state": "/topRatedRows"
+        },
+        "highlight_max": true
+      },
+      "children": []
+    },
+    "correlation-insight": {
+      "type": "Annotation",
+      "props": {
+        "icon": "alert",
+        "title": "Key Strategic Insight",
+        "content": "Restaurants dominate revenue (47% of total) despite representing only 30% of locations. Average restaurant revenue ($378K) is 2.7x the overall average. However, fitness businesses achieve the highest customer satisfaction (4.63 avg rating), suggesting opportunity for premium positioning in that category.",
+        "severity": "info"
+      },
+      "children": []
+    }
+  },
+  "state": {
+    "mapMarkers": [
+      {
+        "lat": 37.7749,
+        "lng": -122.4194,
+        "label": "Bay Brew Coffee - $245K",
+        "color": "#f59e0b"
+      },
+      {
+        "lat": 37.7751,
+        "lng": -122.4183,
+        "label": "Golden Gate Tacos - $389K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7635,
+        "lng": -122.4686,
+        "label": "Sunset Yoga Studio - $178K",
+        "color": "#8b5cf6"
+      },
+      {
+        "lat": 37.7599,
+        "lng": -122.4148,
+        "label": "Mission Vinyl Records - $92K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.793,
+        "lng": -122.4161,
+        "label": "Nob Hill Dry Cleaners - $134K",
+        "color": "#ec4899"
+      },
+      {
+        "lat": 37.7609,
+        "lng": -122.435,
+        "label": "Castro Pet Supply - $210K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.7692,
+        "lng": -122.4481,
+        "label": "Haight Street Books - $115K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.808,
+        "lng": -122.4177,
+        "label": "Fisherman's Catch - $520K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7785,
+        "lng": -122.395,
+        "label": "SoMa CrossFit - $312K",
+        "color": "#8b5cf6"
+      },
+      {
+        "lat": 37.8005,
+        "lng": -122.4369,
+        "label": "Marina Juice Bar - $198K",
+        "color": "#f59e0b"
+      },
+      {
+        "lat": 37.7941,
+        "lng": -122.4078,
+        "label": "Chinatown Herbal - $87K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.7605,
+        "lng": -122.4009,
+        "label": "Potrero Barbershop - $156K",
+        "color": "#ec4899"
+      },
+      {
+        "lat": 37.758,
+        "lng": -122.387,
+        "label": "Dogpatch Brewery - $445K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7804,
+        "lng": -122.4644,
+        "label": "Richmond Dim Sum - $367K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7925,
+        "lng": -122.4382,
+        "label": "Pacific Heights Pilates - $265K",
+        "color": "#8b5cf6"
+      },
+      {
+        "lat": 37.7837,
+        "lng": -122.4141,
+        "label": "Tenderloin Tattoo - $178K",
+        "color": "#ec4899"
+      },
+      {
+        "lat": 37.7936,
+        "lng": -122.393,
+        "label": "Embarcadero Smoothie - $289K",
+        "color": "#f59e0b"
+      },
+      {
+        "lat": 37.7998,
+        "lng": -122.4083,
+        "label": "North Beach Pizza Co - $478K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7853,
+        "lng": -122.4296,
+        "label": "Japantown Ramen House - $356K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7554,
+        "lng": -122.505,
+        "label": "Outer Sunset Surf Shop - $143K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.779,
+        "lng": -122.3985,
+        "label": "SOMA Tech Repair - $201K",
+        "color": "#ec4899"
+      },
+      {
+        "lat": 37.7454,
+        "lng": -122.4154,
+        "label": "Bernal Heights Bakery - $267K",
+        "color": "#f59e0b"
+      },
+      {
+        "lat": 37.734,
+        "lng": -122.4332,
+        "label": "Glen Park Hardware - $118K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.725,
+        "lng": -122.4245,
+        "label": "Excelsior Taqueria - $298K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7502,
+        "lng": -122.4337,
+        "label": "Noe Valley Wine Bar - $334K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7762,
+        "lng": -122.4243,
+        "label": "Hayes Valley Florist - $165K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.7989,
+        "lng": -122.4662,
+        "label": "Presidio Running Co - $187K",
+        "color": "#06b6d4"
+      },
+      {
+        "lat": 37.7544,
+        "lng": -122.4477,
+        "label": "Twin Peaks Diner - $213K",
+        "color": "#10b981"
+      },
+      {
+        "lat": 37.7664,
+        "lng": -122.4507,
+        "label": "Cole Valley Creamery - $225K",
+        "color": "#f59e0b"
+      },
+      {
+        "lat": 37.7346,
+        "lng": -122.3896,
+        "label": "Bayview Auto Detail - $142K",
+        "color": "#ec4899"
+      }
+    ],
+    "categoryRevenue": [
+      {
+        "category": "restaurant",
+        "revenue": 3400000,
+        "rating": 4.31
+      },
+      {
+        "category": "cafe",
+        "revenue": 1224000,
+        "rating": 4.4
+      },
+      {
+        "category": "retail",
+        "revenue": 1117000,
+        "rating": 4.44
+      },
+      {
+        "category": "services",
+        "revenue": 811000,
+        "rating": 4.1
+      },
+      {
+        "category": "fitness",
+        "revenue": 755000,
+        "rating": 4.63
+      }
+    ],
+    "categoryDistribution": [
+      {
+        "name": "restaurant",
+        "value": 9
+      },
+      {
+        "name": "retail",
+        "value": 8
+      },
+      {
+        "name": "cafe",
+        "value": 5
+      },
+      {
+        "name": "services",
+        "value": 5
+      },
+      {
+        "name": "fitness",
+        "value": 3
+      }
+    ],
+    "revenueRatingScatter": [
+      {
+        "name": "Bay Brew Coffee",
+        "revenue": 245000,
+        "rating": 4.5,
+        "category": "cafe",
+        "reviews": 312
+      },
+      {
+        "name": "Golden Gate Tacos",
+        "revenue": 389000,
+        "rating": 4.2,
+        "category": "restaurant",
+        "reviews": 587
+      },
+      {
+        "name": "Sunset Yoga Studio",
+        "revenue": 178000,
+        "rating": 4.8,
+        "category": "fitness",
+        "reviews": 203
+      },
+      {
+        "name": "Mission Vinyl Records",
+        "revenue": 92000,
+        "rating": 4.6,
+        "category": "retail",
+        "reviews": 145
+      },
+      {
+        "name": "Nob Hill Dry Cleaners",
+        "revenue": 134000,
+        "rating": 3.9,
+        "category": "services",
+        "reviews": 67
+      },
+      {
+        "name": "Castro Pet Supply",
+        "revenue": 210000,
+        "rating": 4.3,
+        "category": "retail",
+        "reviews": 198
+      },
+      {
+        "name": "Haight Street Books",
+        "revenue": 115000,
+        "rating": 4.7,
+        "category": "retail",
+        "reviews": 276
+      },
+      {
+        "name": "Fisherman's Catch",
+        "revenue": 520000,
+        "rating": 4,
+        "category": "restaurant",
+        "reviews": 892
+      },
+      {
+        "name": "SoMa CrossFit",
+        "revenue": 312000,
+        "rating": 4.4,
+        "category": "fitness",
+        "reviews": 178
+      },
+      {
+        "name": "Marina Juice Bar",
+        "revenue": 198000,
+        "rating": 4.1,
+        "category": "cafe",
+        "reviews": 234
+      },
+      {
+        "name": "Chinatown Herbal",
+        "revenue": 87000,
+        "rating": 4.3,
+        "category": "retail",
+        "reviews": 112
+      },
+      {
+        "name": "Potrero Barbershop",
+        "revenue": 156000,
+        "rating": 4.6,
+        "category": "services",
+        "reviews": 189
+      },
+      {
+        "name": "Dogpatch Brewery",
+        "revenue": 445000,
+        "rating": 4.5,
+        "category": "restaurant",
+        "reviews": 634
+      },
+      {
+        "name": "Richmond Dim Sum",
+        "revenue": 367000,
+        "rating": 4.4,
+        "category": "restaurant",
+        "reviews": 723
+      },
+      {
+        "name": "Pacific Heights Pilates",
+        "revenue": 265000,
+        "rating": 4.7,
+        "category": "fitness",
+        "reviews": 156
+      },
+      {
+        "name": "Tenderloin Tattoo",
+        "revenue": 178000,
+        "rating": 4.2,
+        "category": "services",
+        "reviews": 301
+      },
+      {
+        "name": "Embarcadero Smoothie",
+        "revenue": 289000,
+        "rating": 4,
+        "category": "cafe",
+        "reviews": 412
+      },
+      {
+        "name": "North Beach Pizza Co",
+        "revenue": 478000,
+        "rating": 4.3,
+        "category": "restaurant",
+        "reviews": 845
+      },
+      {
+        "name": "Japantown Ramen House",
+        "revenue": 356000,
+        "rating": 4.6,
+        "category": "restaurant",
+        "reviews": 567
+      },
+      {
+        "name": "Outer Sunset Surf Shop",
+        "revenue": 143000,
+        "rating": 4.5,
+        "category": "retail",
+        "reviews": 98
+      },
+      {
+        "name": "SOMA Tech Repair",
+        "revenue": 201000,
+        "rating": 3.8,
+        "category": "services",
+        "reviews": 145
+      },
+      {
+        "name": "Bernal Heights Bakery",
+        "revenue": 267000,
+        "rating": 4.8,
+        "category": "cafe",
+        "reviews": 389
+      },
+      {
+        "name": "Glen Park Hardware",
+        "revenue": 118000,
+        "rating": 4.1,
+        "category": "retail",
+        "reviews": 76
+      },
+      {
+        "name": "Excelsior Taqueria",
+        "revenue": 298000,
+        "rating": 4.4,
+        "category": "restaurant",
+        "reviews": 456
+      },
+      {
+        "name": "Noe Valley Wine Bar",
+        "revenue": 334000,
+        "rating": 4.5,
+        "category": "restaurant",
+        "reviews": 278
+      },
+      {
+        "name": "Hayes Valley Florist",
+        "revenue": 165000,
+        "rating": 4.7,
+        "category": "retail",
+        "reviews": 134
+      },
+      {
+        "name": "Presidio Running Co",
+        "revenue": 187000,
+        "rating": 4.3,
+        "category": "retail",
+        "reviews": 167
+      },
+      {
+        "name": "Twin Peaks Diner",
+        "revenue": 213000,
+        "rating": 3.9,
+        "category": "restaurant",
+        "reviews": 345
+      },
+      {
+        "name": "Cole Valley Creamery",
+        "revenue": 225000,
+        "rating": 4.6,
+        "category": "cafe",
+        "reviews": 298
+      },
+      {
+        "name": "Bayview Auto Detail",
+        "revenue": 142000,
+        "rating": 4,
+        "category": "services",
+        "reviews": 89
+      }
+    ],
+    "topRevenueRows": [
+      [
+        "Fisherman's Catch",
+        "restaurant",
+        "$520,000",
+        "4.0"
+      ],
+      [
+        "North Beach Pizza Co",
+        "restaurant",
+        "$478,000",
+        "4.3"
+      ],
+      [
+        "Dogpatch Brewery",
+        "restaurant",
+        "$445,000",
+        "4.5"
+      ],
+      [
+        "Golden Gate Tacos",
+        "restaurant",
+        "$389,000",
+        "4.2"
+      ],
+      [
+        "Richmond Dim Sum",
+        "restaurant",
+        "$367,000",
+        "4.4"
+      ]
+    ],
+    "topRatedRows": [
+      [
+        "Sunset Yoga Studio",
+        "fitness",
+        "4.8",
+        "203"
+      ],
+      [
+        "Bernal Heights Bakery",
+        "cafe",
+        "4.8",
+        "389"
+      ],
+      [
+        "Haight Street Books",
+        "retail",
+        "4.7",
+        "276"
+      ],
+      [
+        "Pacific Heights Pilates",
+        "fitness",
+        "4.7",
+        "156"
+      ],
+      [
+        "Hayes Valley Florist",
+        "retail",
+        "4.7",
+        "134"
+      ]
+    ],
+    "datasets": {
+      "main": [
+        {
+          "id": 1,
+          "name": "Bay Brew Coffee",
+          "category": "cafe",
+          "latitude": 37.7749,
+          "longitude": -122.4194,
+          "revenue": 245000,
+          "rating": 4.5,
+          "reviews": 312,
+          "year_opened": 2018
+        },
+        {
+          "id": 2,
+          "name": "Golden Gate Tacos",
+          "category": "restaurant",
+          "latitude": 37.7751,
+          "longitude": -122.4183,
+          "revenue": 389000,
+          "rating": 4.2,
+          "reviews": 587,
+          "year_opened": 2016
+        },
+        {
+          "id": 3,
+          "name": "Sunset Yoga Studio",
+          "category": "fitness",
+          "latitude": 37.7635,
+          "longitude": -122.4686,
+          "revenue": 178000,
+          "rating": 4.8,
+          "reviews": 203,
+          "year_opened": 2020
+        },
+        {
+          "id": 4,
+          "name": "Mission Vinyl Records",
+          "category": "retail",
+          "latitude": 37.7599,
+          "longitude": -122.4148,
+          "revenue": 92000,
+          "rating": 4.6,
+          "reviews": 145,
+          "year_opened": 2015
+        },
+        {
+          "id": 5,
+          "name": "Nob Hill Dry Cleaners",
+          "category": "services",
+          "latitude": 37.793,
+          "longitude": -122.4161,
+          "revenue": 134000,
+          "rating": 3.9,
+          "reviews": 67,
+          "year_opened": 2012
+        },
+        {
+          "id": 6,
+          "name": "Castro Pet Supply",
+          "category": "retail",
+          "latitude": 37.7609,
+          "longitude": -122.435,
+          "revenue": 210000,
+          "rating": 4.3,
+          "reviews": 198,
+          "year_opened": 2019
+        },
+        {
+          "id": 7,
+          "name": "Haight Street Books",
+          "category": "retail",
+          "latitude": 37.7692,
+          "longitude": -122.4481,
+          "revenue": 115000,
+          "rating": 4.7,
+          "reviews": 276,
+          "year_opened": 2014
+        },
+        {
+          "id": 8,
+          "name": "Fisherman's Catch",
+          "category": "restaurant",
+          "latitude": 37.808,
+          "longitude": -122.4177,
+          "revenue": 520000,
+          "rating": 4,
+          "reviews": 892,
+          "year_opened": 2010
+        },
+        {
+          "id": 9,
+          "name": "SoMa CrossFit",
+          "category": "fitness",
+          "latitude": 37.7785,
+          "longitude": -122.395,
+          "revenue": 312000,
+          "rating": 4.4,
+          "reviews": 178,
+          "year_opened": 2021
+        },
+        {
+          "id": 10,
+          "name": "Marina Juice Bar",
+          "category": "cafe",
+          "latitude": 37.8005,
+          "longitude": -122.4369,
+          "revenue": 198000,
+          "rating": 4.1,
+          "reviews": 234,
+          "year_opened": 2019
+        },
+        {
+          "id": 11,
+          "name": "Chinatown Herbal",
+          "category": "retail",
+          "latitude": 37.7941,
+          "longitude": -122.4078,
+          "revenue": 87000,
+          "rating": 4.3,
+          "reviews": 112,
+          "year_opened": 2008
+        },
+        {
+          "id": 12,
+          "name": "Potrero Barbershop",
+          "category": "services",
+          "latitude": 37.7605,
+          "longitude": -122.4009,
+          "revenue": 156000,
+          "rating": 4.6,
+          "reviews": 189,
+          "year_opened": 2017
+        },
+        {
+          "id": 13,
+          "name": "Dogpatch Brewery",
+          "category": "restaurant",
+          "latitude": 37.758,
+          "longitude": -122.387,
+          "revenue": 445000,
+          "rating": 4.5,
+          "reviews": 634,
+          "year_opened": 2018
+        },
+        {
+          "id": 14,
+          "name": "Richmond Dim Sum",
+          "category": "restaurant",
+          "latitude": 37.7804,
+          "longitude": -122.4644,
+          "revenue": 367000,
+          "rating": 4.4,
+          "reviews": 723,
+          "year_opened": 2011
+        },
+        {
+          "id": 15,
+          "name": "Pacific Heights Pilates",
+          "category": "fitness",
+          "latitude": 37.7925,
+          "longitude": -122.4382,
+          "revenue": 265000,
+          "rating": 4.7,
+          "reviews": 156,
+          "year_opened": 2020
+        },
+        {
+          "id": 16,
+          "name": "Tenderloin Tattoo",
+          "category": "services",
+          "latitude": 37.7837,
+          "longitude": -122.4141,
+          "revenue": 178000,
+          "rating": 4.2,
+          "reviews": 301,
+          "year_opened": 2013
+        },
+        {
+          "id": 17,
+          "name": "Embarcadero Smoothie",
+          "category": "cafe",
+          "latitude": 37.7936,
+          "longitude": -122.393,
+          "revenue": 289000,
+          "rating": 4,
+          "reviews": 412,
+          "year_opened": 2022
+        },
+        {
+          "id": 18,
+          "name": "North Beach Pizza Co",
+          "category": "restaurant",
+          "latitude": 37.7998,
+          "longitude": -122.4083,
+          "revenue": 478000,
+          "rating": 4.3,
+          "reviews": 845,
+          "year_opened": 2009
+        },
+        {
+          "id": 19,
+          "name": "Japantown Ramen House",
+          "category": "restaurant",
+          "latitude": 37.7853,
+          "longitude": -122.4296,
+          "revenue": 356000,
+          "rating": 4.6,
+          "reviews": 567,
+          "year_opened": 2017
+        },
+        {
+          "id": 20,
+          "name": "Outer Sunset Surf Shop",
+          "category": "retail",
+          "latitude": 37.7554,
+          "longitude": -122.505,
+          "revenue": 143000,
+          "rating": 4.5,
+          "reviews": 98,
+          "year_opened": 2021
+        },
+        {
+          "id": 21,
+          "name": "SOMA Tech Repair",
+          "category": "services",
+          "latitude": 37.779,
+          "longitude": -122.3985,
+          "revenue": 201000,
+          "rating": 3.8,
+          "reviews": 145,
+          "year_opened": 2016
+        },
+        {
+          "id": 22,
+          "name": "Bernal Heights Bakery",
+          "category": "cafe",
+          "latitude": 37.7454,
+          "longitude": -122.4154,
+          "revenue": 267000,
+          "rating": 4.8,
+          "reviews": 389,
+          "year_opened": 2015
+        },
+        {
+          "id": 23,
+          "name": "Glen Park Hardware",
+          "category": "retail",
+          "latitude": 37.734,
+          "longitude": -122.4332,
+          "revenue": 118000,
+          "rating": 4.1,
+          "reviews": 76,
+          "year_opened": 2006
+        },
+        {
+          "id": 24,
+          "name": "Excelsior Taqueria",
+          "category": "restaurant",
+          "latitude": 37.725,
+          "longitude": -122.4245,
+          "revenue": 298000,
+          "rating": 4.4,
+          "reviews": 456,
+          "year_opened": 2014
+        },
+        {
+          "id": 25,
+          "name": "Noe Valley Wine Bar",
+          "category": "restaurant",
+          "latitude": 37.7502,
+          "longitude": -122.4337,
+          "revenue": 334000,
+          "rating": 4.5,
+          "reviews": 278,
+          "year_opened": 2019
+        },
+        {
+          "id": 26,
+          "name": "Hayes Valley Florist",
+          "category": "retail",
+          "latitude": 37.7762,
+          "longitude": -122.4243,
+          "revenue": 165000,
+          "rating": 4.7,
+          "reviews": 134,
+          "year_opened": 2020
+        },
+        {
+          "id": 27,
+          "name": "Presidio Running Co",
+          "category": "retail",
+          "latitude": 37.7989,
+          "longitude": -122.4662,
+          "revenue": 187000,
+          "rating": 4.3,
+          "reviews": 167,
+          "year_opened": 2022
+        },
+        {
+          "id": 28,
+          "name": "Twin Peaks Diner",
+          "category": "restaurant",
+          "latitude": 37.7544,
+          "longitude": -122.4477,
+          "revenue": 213000,
+          "rating": 3.9,
+          "reviews": 345,
+          "year_opened": 2007
+        },
+        {
+          "id": 29,
+          "name": "Cole Valley Creamery",
+          "category": "cafe",
+          "latitude": 37.7664,
+          "longitude": -122.4507,
+          "revenue": 225000,
+          "rating": 4.6,
+          "reviews": 298,
+          "year_opened": 2018
+        },
+        {
+          "id": 30,
+          "name": "Bayview Auto Detail",
+          "category": "services",
+          "latitude": 37.7346,
+          "longitude": -122.3896,
+          "revenue": 142000,
+          "rating": 4,
+          "reviews": 89,
+          "year_opened": 2015
+        }
+      ]
+    }
+  }
+}

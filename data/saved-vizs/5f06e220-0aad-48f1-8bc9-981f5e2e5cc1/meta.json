@@ -1,0 +1,6 @@
+{
+  "vizId": "5f06e220-0aad-48f1-8bc9-981f5e2e5cc1",
+  "question": "Find out the correlation between tip and fare amount. Build a model to predict the tip given a fare. Use scatterplot for showing",
+  "csvFilename": "nyc_taxi_pickups.csv",
+  "createdAt": 1772331759901
+}

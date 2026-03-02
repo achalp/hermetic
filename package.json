@@ -1,0 +1,109 @@
+{
+  "name": "csv-insight",
+  "version": "0.1.0",
+  "description": "Upload CSV/Excel files, ask questions in natural language, get interactive dashboards powered by Claude",
+  "license": "MIT",
+  "author": "CSV Insight Contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/achalp/csv-insight.git"
+  },
+  "keywords": [
+    "csv",
+    "data-visualization",
+    "dashboard",
+    "claude",
+    "llm",
+    "generative-ui",
+    "next.js"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "analyze": "ANALYZE=true next build",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,css,md}": [
+      "prettier --write"
+    ]
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.69",
+    "@ai-sdk/anthropic": "^3.0.46",
+    "@ai-sdk/google-vertex": "^4.0.68",
+    "@ai-sdk/openai": "^3.0.37",
+    "@deck.gl/aggregation-layers": "^9.2.9",
+    "@deck.gl/core": "^9.2.9",
+    "@deck.gl/geo-layers": "^9.2.9",
+    "@deck.gl/layers": "^9.2.9",
+    "@deck.gl/react": "^9.2.9",
+    "@e2b/code-interpreter": "^2.3.3",
+    "@json-render/core": "^0.8.0",
+    "@json-render/react": "^0.8.0",
+    "@json-render/shadcn": "^0.8.0",
+    "@nivo/bar": "^0.99.0",
+    "@nivo/core": "^0.99.0",
+    "@nivo/line": "^0.99.0",
+    "@nivo/pie": "^0.99.0",
+    "@nivo/scatterplot": "^0.99.0",
+    "@tanstack/react-table": "^8.21.3",
+    "ai": "^6.0.97",
+    "docx": "^9.6.0",
+    "exceljs": "^4.4.0",
+    "html-to-image": "^1.11.13",
+    "jspdf": "^4.2.0",
+    "microsandbox": "^0.1.1",
+    "next": "16.1.6",
+    "papaparse": "^5.5.3",
+    "pigeon-maps": "^0.22.1",
+    "plotly.js-cartesian-dist": "^3.4.0",
+    "plotly.js-finance-dist": "^3.4.0",
+    "plotly.js-gl3d-dist": "^3.4.0",
+    "pptxgenjs": "^4.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-globe.gl": "^2.37.0",
+    "react-plotly.js": "^2.6.0",
+    "three": "^0.183.1",
+    "uuid": "^13.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@next/bundle-analyzer": "^16.1.6",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/react-plotly.js": "^2.6.4",
+    "@types/three": "^0.183.1",
+    "@types/uuid": "^11.0.0",
+    "@vitejs/plugin-react": "^5.1.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.1",
+    "prettier": "^3.8.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.0.18"
+  }
+}
