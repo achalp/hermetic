@@ -32,6 +32,12 @@ export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
     cache.delete(csvId);
     return undefined;
   }
-  const { cachedAt: _, ...artifacts } = entry;
-  return artifacts;
+  return {
+    code: entry.code,
+    question: entry.question,
+    results: entry.results,
+    chart_data: entry.chart_data,
+    datasets: entry.datasets,
+    execution_ms: entry.execution_ms,
+  };
 }
