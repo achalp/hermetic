@@ -6,10 +6,7 @@
       "props": {
         "gap": 24
       },
-      "children": [
-        "heading",
-        "form-container"
-      ]
+      "children": ["heading", "form-container"]
     },
     "heading": {
       "type": "TextBlock",
@@ -100,11 +97,7 @@
       "props": {
         "gap": 16
       },
-      "children": [
-        "origin-city",
-        "origin-lat",
-        "origin-lng"
-      ]
+      "children": ["origin-city", "origin-lat", "origin-lng"]
     },
     "origin-city": {
       "type": "TextInput",
@@ -153,11 +146,7 @@
       "props": {
         "gap": 16
       },
-      "children": [
-        "dest-city",
-        "dest-lat",
-        "dest-lng"
-      ]
+      "children": ["dest-city", "dest-lat", "dest-lng"]
     },
     "dest-city": {
       "type": "TextInput",
@@ -199,10 +188,7 @@
       "props": {
         "gap": 16
       },
-      "children": [
-        "passengers",
-        "airline"
-      ]
+      "children": ["passengers", "airline"]
     },
     "passengers": {
       "type": "NumberInput",

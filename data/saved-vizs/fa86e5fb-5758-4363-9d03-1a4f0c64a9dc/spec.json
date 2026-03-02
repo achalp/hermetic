@@ -44,12 +44,7 @@
         "columns": 4,
         "gap": 16
       },
-      "children": [
-        "stat-rides",
-        "stat-regions",
-        "stat-compliance",
-        "stat-cost"
-      ]
+      "children": ["stat-rides", "stat-regions", "stat-compliance", "stat-cost"]
     },
     "stat-rides": {
       "type": "StatCard",
@@ -114,12 +109,7 @@
         ],
         "show_labels": true,
         "show_legend": true,
-        "colors": [
-          "indigo",
-          "emerald",
-          "amber",
-          "rose"
-        ]
+        "colors": ["indigo", "emerald", "amber", "rose"]
       },
       "children": []
     },
@@ -486,9 +476,7 @@
           }
         ],
         "x_key": "date",
-        "y_keys": [
-          "rides"
-        ],
+        "y_keys": ["rides"],
         "color_map": {
           "rides": "indigo"
         },
@@ -860,9 +848,7 @@
           }
         ],
         "x_key": "date",
-        "y_keys": [
-          "compliance"
-        ],
+        "y_keys": ["compliance"],
         "color_map": {
           "compliance": "emerald"
         },
@@ -1234,9 +1220,7 @@
           }
         ],
         "x_key": "date",
-        "y_keys": [
-          "cost"
-        ],
+        "y_keys": ["cost"],
         "color_map": {
           "cost": "amber"
         },
@@ -1312,9 +1296,7 @@
           }
         ],
         "x_key": "region",
-        "y_keys": [
-          "rides"
-        ],
+        "y_keys": ["rides"],
         "orientation": "horizontal",
         "color_map": {
           "rides": "indigo"
@@ -1369,9 +1351,7 @@
           }
         ],
         "x_key": "state",
-        "y_keys": [
-          "rides"
-        ],
+        "y_keys": ["rides"],
         "orientation": "vertical",
         "color_map": {
           "rides": "emerald"
@@ -1559,12 +1539,7 @@
       "props": {
         "gap": 16
       },
-      "children": [
-        "insight-1",
-        "insight-2",
-        "insight-3",
-        "insight-4"
-      ]
+      "children": ["insight-1", "insight-2", "insight-3", "insight-4"]
     },
     "insight-1": {
       "type": "Annotation",

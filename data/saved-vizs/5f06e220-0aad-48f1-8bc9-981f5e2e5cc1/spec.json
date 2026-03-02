@@ -31,12 +31,7 @@
         "columns": 4,
         "gap": 12
       },
-      "children": [
-        "kpi-pearson",
-        "kpi-r2",
-        "kpi-rmse",
-        "kpi-tiprate"
-      ]
+      "children": ["kpi-pearson", "kpi-r2", "kpi-rmse", "kpi-tiprate"]
     },
     "kpi-pearson": {
       "type": "StatCard",
@@ -86,10 +81,7 @@
       "props": {
         "gap": 8
       },
-      "children": [
-        "scatter-title",
-        "scatter-row"
-      ]
+      "children": ["scatter-title", "scatter-row"]
     },
     "scatter-title": {
       "type": "TextBlock",
@@ -103,10 +95,7 @@
       "props": {
         "gap": 8
       },
-      "children": [
-        "scatter-chart",
-        "regression-chart"
-      ]
+      "children": ["scatter-chart", "regression-chart"]
     },
     "scatter-chart": {
       "type": "ScatterChart",
@@ -131,9 +120,7 @@
           "$state": "/computed/regression_data"
         },
         "x_key": "fare_amount",
-        "y_keys": [
-          "predicted_tip"
-        ],
+        "y_keys": ["predicted_tip"],
         "color_map": {
           "predicted_tip": "indigo"
         },
@@ -200,9 +187,7 @@
             "pipeline": [
               {
                 "op": "groupBy",
-                "columns": [
-                  "fare_bucket"
-                ],
+                "columns": ["fare_bucket"],
                 "aggregations": [
                   {
                     "column": "tip_amount",
@@ -220,19 +205,14 @@
           }
         ]
       },
-      "children": [
-        "dc-inner"
-      ]
+      "children": ["dc-inner"]
     },
     "dc-inner": {
       "type": "LayoutColumn",
       "props": {
         "gap": 16
       },
-      "children": [
-        "filtered-kpi-grid",
-        "filtered-insight"
-      ]
+      "children": ["filtered-kpi-grid", "filtered-insight"]
     },
     "filtered-kpi-grid": {
       "type": "LayoutGrid",
@@ -240,11 +220,7 @@
         "columns": 3,
         "gap": 12
       },
-      "children": [
-        "fkpi-count",
-        "fkpi-fare",
-        "fkpi-tip"
-      ]
+      "children": ["fkpi-count", "fkpi-fare", "fkpi-tip"]
     },
     "fkpi-count": {
       "type": "StatCard",
@@ -285,11 +261,7 @@
       "props": {
         "gap": 8
       },
-      "children": [
-        "bucket-title",
-        "bucket-chart",
-        "bucket-insight"
-      ]
+      "children": ["bucket-title", "bucket-chart", "bucket-insight"]
     },
     "bucket-title": {
       "type": "TextBlock",
@@ -306,9 +278,7 @@
           "$state": "/computed/bucket_bar"
         },
         "x_key": "fare_bucket",
-        "y_keys": [
-          "avg_tip"
-        ],
+        "y_keys": ["avg_tip"],
         "color_map": {
           "avg_tip": "emerald"
         },
@@ -327,10 +297,7 @@
       "props": {
         "gap": 8
       },
-      "children": [
-        "payment-title",
-        "payment-chart"
-      ]
+      "children": ["payment-title", "payment-chart"]
     },
     "payment-title": {
       "type": "TextBlock",
@@ -347,10 +314,7 @@
           "$state": "/computed/payment_bar_data"
         },
         "x_key": "payment_type",
-        "y_keys": [
-          "avg_fare",
-          "avg_tip"
-        ],
+        "y_keys": ["avg_fare", "avg_tip"],
         "color_map": {
           "avg_fare": "indigo",
           "avg_tip": "amber"
@@ -372,11 +336,7 @@
       "props": {
         "gap": 8
       },
-      "children": [
-        "pred-title",
-        "pred-table",
-        "pred-insight"
-      ]
+      "children": ["pred-title", "pred-table", "pred-insight"]
     },
     "pred-title": {
       "type": "TextBlock",
@@ -388,52 +348,16 @@
     "pred-table": {
       "type": "DataTable",
       "props": {
-        "columns": [
-          "Fare Amount",
-          "Predicted Tip",
-          "Tip %"
-        ],
+        "columns": ["Fare Amount", "Predicted Tip", "Tip %"],
         "rows": [
-          [
-            "$5",
-            "$0.67",
-            "13.4%"
-          ],
-          [
-            "$10",
-            "$1.25",
-            "12.5%"
-          ],
-          [
-            "$15",
-            "$1.83",
-            "12.2%"
-          ],
-          [
-            "$20",
-            "$2.41",
-            "12.1%"
-          ],
-          [
-            "$25",
-            "$2.99",
-            "12.0%"
-          ],
-          [
-            "$30",
-            "$3.57",
-            "11.9%"
-          ],
-          [
-            "$40",
-            "$4.73",
-            "11.8%"
-          ],
-          [
-            "$50",
-            "$5.89",
-            "11.8%"
-          ]
+          ["$5", "$0.67", "13.4%"],
+          ["$10", "$1.25", "12.5%"],
+          ["$15", "$1.83", "12.2%"],
+          ["$20", "$2.41", "12.1%"],
+          ["$25", "$2.99", "12.0%"],
+          ["$30", "$3.57", "11.9%"],
+          ["$40", "$4.73", "11.8%"],
+          ["$50", "$5.89", "11.8%"]
         ],
         "caption": "Linear regression predictions — tip converges toward ~12% of fare at higher amounts"
       }

@@ -5,9 +5,7 @@ const PIXEL_RATIO = 2;
 
 function getBackgroundColor(): string {
   if (typeof window === "undefined") return "#ffffff";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "#111827"
-    : "#ffffff";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "#111827" : "#ffffff";
 }
 
 export function triggerDownload(url: string, filename: string) {
@@ -29,15 +27,10 @@ export async function copyChartToClipboard(el: HTMLElement): Promise<void> {
     pixelRatio: PIXEL_RATIO,
   });
   if (!blob) throw new Error("Failed to capture chart");
-  await navigator.clipboard.write([
-    new ClipboardItem({ "image/png": blob }),
-  ]);
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
 }
 
-export async function downloadChartAsPng(
-  el: HTMLElement,
-  filename: string,
-): Promise<void> {
+export async function downloadChartAsPng(el: HTMLElement, filename: string): Promise<void> {
   const dataUrl = await toPng(el, {
     backgroundColor: getBackgroundColor(),
     pixelRatio: PIXEL_RATIO,
@@ -45,11 +38,7 @@ export async function downloadChartAsPng(
   triggerDownload(dataUrl, `${sanitizeFilename(filename)}.png`);
 }
 
-export function downloadTableAsCsv(
-  headers: string[],
-  rows: string[][],
-  filename: string,
-): void {
+export function downloadTableAsCsv(headers: string[], rows: string[][], filename: string): void {
   const csv = Papa.unparse({ fields: headers, data: rows });
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -60,7 +49,7 @@ export function downloadTableAsCsv(
 export async function downloadTableAsXlsx(
   headers: string[],
   rows: string[][],
-  filename: string,
+  filename: string
 ): Promise<void> {
   const ExcelJS = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
@@ -91,10 +80,7 @@ export async function downloadTableAsXlsx(
   URL.revokeObjectURL(url);
 }
 
-export async function downloadDashboardAsPdf(
-  el: HTMLElement,
-  filename: string,
-): Promise<void> {
+export async function downloadDashboardAsPdf(el: HTMLElement, filename: string): Promise<void> {
   const { default: jsPDF } = await import("jspdf");
   const dataUrl = await toPng(el, {
     backgroundColor: getBackgroundColor(),
@@ -135,27 +121,10 @@ export async function downloadDashboardAsPdf(
     canvas.width = img.width;
     canvas.height = Math.ceil(srcSliceHeight);
     const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(
-      img,
-      0,
-      srcY,
-      img.width,
-      srcSliceHeight,
-      0,
-      0,
-      img.width,
-      srcSliceHeight,
-    );
+    ctx.drawImage(img, 0, srcY, img.width, srcSliceHeight, 0, 0, img.width, srcSliceHeight);
     const sliceDataUrl = canvas.toDataURL("image/png");
 
-    pdf.addImage(
-      sliceDataUrl,
-      "PNG",
-      pdfMargin,
-      pdfMargin,
-      contentWidth,
-      sliceHeight,
-    );
+    pdf.addImage(sliceDataUrl, "PNG", pdfMargin, pdfMargin, contentWidth, sliceHeight);
 
     yOffset += usableHeight;
     page++;
@@ -164,12 +133,8 @@ export async function downloadDashboardAsPdf(
   pdf.save(`${sanitizeFilename(filename)}.pdf`);
 }
 
-export async function downloadDashboardAsDocx(
-  el: HTMLElement,
-  filename: string,
-): Promise<void> {
-  const { Document, Packer, Paragraph, ImageRun, PageOrientation } =
-    await import("docx");
+export async function downloadDashboardAsDocx(el: HTMLElement, filename: string): Promise<void> {
+  const { Document, Packer, Paragraph, ImageRun, PageOrientation } = await import("docx");
 
   const dataUrl = await toPng(el, {
     backgroundColor: getBackgroundColor(),
@@ -238,10 +203,7 @@ export async function downloadDashboardAsDocx(
   URL.revokeObjectURL(url);
 }
 
-export async function downloadDashboardAsPptx(
-  el: HTMLElement,
-  filename: string,
-): Promise<void> {
+export async function downloadDashboardAsPptx(el: HTMLElement, filename: string): Promise<void> {
   const PptxGenJS = await import("pptxgenjs");
   const pptx = new PptxGenJS.default();
 
@@ -265,7 +227,7 @@ export async function downloadDashboardAsPptx(
 
 export async function downloadMultiSheetXlsx(
   sheets: { name: string; headers: string[]; rows: string[][] }[],
-  filename: string,
+  filename: string
 ): Promise<void> {
   const ExcelJS = await import("exceljs");
   const workbook = new ExcelJS.Workbook();

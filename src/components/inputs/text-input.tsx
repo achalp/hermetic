@@ -19,9 +19,7 @@ export function TextInputComponent({ props, bindings }: TextInputComponentProps)
 
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-sm font-medium text-t-secondary">
-        {props.label}
-      </label>
+      <label className="text-sm font-medium text-t-secondary">{props.label}</label>
       <input
         type={props.type ?? "text"}
         value={value ?? ""}
@@ -32,8 +30,8 @@ export function TextInputComponent({ props, bindings }: TextInputComponentProps)
           borderRadius: "var(--radius-input)",
           transitionDuration: "var(--transition-speed)",
         }}
-        onFocus={(e) => e.currentTarget.style.boxShadow = "var(--ring-focus)"}
-        onBlur={(e) => e.currentTarget.style.boxShadow = "none"}
+        onFocus={(e) => (e.currentTarget.style.boxShadow = "var(--ring-focus)")}
+        onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
       />
     </div>
   );

@@ -30,7 +30,7 @@ function sanitizeHeaders(headers: string[]): {
       renamed = true;
     }
     seen.set(headers[i].trim() || `column_${i + 1}`, count + 1);
-    seen.set(h, (seen.get(h) ?? 0));
+    seen.set(h, seen.get(h) ?? 0);
     clean.push(h);
   }
 

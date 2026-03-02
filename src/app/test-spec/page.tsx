@@ -1,12 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Renderer,
-  StateProvider,
-  ActionProvider,
-  VisibilityProvider,
-} from "@json-render/react";
+import { Renderer, StateProvider, ActionProvider, VisibilityProvider } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
 import dataControllerSpec from "../../../test-specs/data-controller-test.json";
@@ -23,9 +18,7 @@ export default function TestSpecPage() {
 
   return (
     <div className="mx-auto max-w-4xl p-8">
-      <h1 className="mb-4 text-2xl font-bold text-gray-900 dark:text-gray-100">
-        Spec Test Page
-      </h1>
+      <h1 className="mb-4 text-2xl font-bold text-gray-900 dark:text-gray-100">Spec Test Page</h1>
       <div className="mb-6 flex gap-3">
         {Object.keys(specs).map((key) => (
           <button

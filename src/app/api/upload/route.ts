@@ -40,17 +40,11 @@ export async function POST(request: Request) {
       const parsed = parseCSV(text);
 
       if (parsed.headers.length === 0) {
-        return NextResponse.json(
-          { error: "CSV file has no columns" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "CSV file has no columns" }, { status: 400 });
       }
 
       if (parsed.rowCount === 0) {
-        return NextResponse.json(
-          { error: "CSV file has no data rows" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "CSV file has no data rows" }, { status: 400 });
       }
 
       const csvId = uuidv4();
@@ -65,10 +59,7 @@ export async function POST(request: Request) {
     const { sheets, workbook } = await parseExcelMeta(buffer);
 
     if (sheets.length === 0) {
-      return NextResponse.json(
-        { error: "Excel file has no sheets" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Excel file has no sheets" }, { status: 400 });
     }
 
     // Single sheet: auto-convert to CSV
@@ -77,17 +68,11 @@ export async function POST(request: Request) {
       const parsed = parseCSV(csvText);
 
       if (parsed.headers.length === 0) {
-        return NextResponse.json(
-          { error: "Sheet has no columns" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Sheet has no columns" }, { status: 400 });
       }
 
       if (parsed.rowCount === 0) {
-        return NextResponse.json(
-          { error: "Sheet has no data rows" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Sheet has no data rows" }, { status: 400 });
       }
 
       const csvId = uuidv4();

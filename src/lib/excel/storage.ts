@@ -27,11 +27,7 @@ async function ensureDir() {
   }
 }
 
-export async function storeExcel(
-  excelId: string,
-  buffer: Buffer,
-  filename: string
-): Promise<void> {
+export async function storeExcel(excelId: string, buffer: Buffer, filename: string): Promise<void> {
   await ensureDir();
   const filePath = join(EXCEL_DIR, `${excelId}.xlsx`);
   await writeFile(filePath, buffer);

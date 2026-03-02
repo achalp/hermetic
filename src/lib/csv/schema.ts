@@ -43,9 +43,7 @@ function round(n: number, decimals = 2): number {
 // ── dtype inference (enhanced) ─────────────────────────────────────
 
 function inferDtype(values: string[]): CSVColumn["dtype"] {
-  const nonEmpty = values.filter(
-    (v) => v !== "" && v !== null && v !== undefined
-  );
+  const nonEmpty = values.filter((v) => v !== "" && v !== null && v !== undefined);
   if (nonEmpty.length === 0) return "string";
 
   const lowerValues = nonEmpty.map((v) => v.toLowerCase().trim());
@@ -81,9 +79,7 @@ function inferDtype(values: string[]): CSVColumn["dtype"] {
 // ── Numeric metadata ──────────────────────────────────────────────
 
 function extractNumericMeta(rawValues: string[]): NumericMeta {
-  const nonEmpty = rawValues.filter(
-    (v) => v !== "" && v !== null && v !== undefined
-  );
+  const nonEmpty = rawValues.filter((v) => v !== "" && v !== null && v !== undefined);
 
   // Detect currency
   const currencyMatches = nonEmpty.filter((v) => CURRENCY_RE.test(v));
@@ -107,9 +103,7 @@ function extractNumericMeta(rawValues: string[]): NumericMeta {
   const isPercentage = percentMatches.length / nonEmpty.length > 0.5;
 
   // Parse numbers
-  const nums = nonEmpty
-    .map((v) => Number(stripNumericFormatting(v)))
-    .filter((n) => !isNaN(n));
+  const nums = nonEmpty.map((v) => Number(stripNumericFormatting(v))).filter((n) => !isNaN(n));
 
   if (nums.length === 0) {
     return {
@@ -134,8 +128,7 @@ function extractNumericMeta(rawValues: string[]): NumericMeta {
   const sorted = [...nums].sort((a, b) => a - b);
   const sum = nums.reduce((a, b) => a + b, 0);
   const mean = sum / nums.length;
-  const variance =
-    nums.reduce((acc, n) => acc + (n - mean) ** 2, 0) / nums.length;
+  const variance = nums.reduce((acc, n) => acc + (n - mean) ** 2, 0) / nums.length;
 
   // Decimal precision — max decimal places across stripped values
   let maxDecimals = 0;
@@ -203,9 +196,7 @@ const MONTH_NAME_RE =
 const DAY_NAME_RE =
   /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/i;
 
-function inferGranularity(
-  timestamps: number[]
-): DateMeta["granularity"] {
+function inferGranularity(timestamps: number[]): DateMeta["granularity"] {
   if (timestamps.length < 2) return "day";
   const sorted = [...timestamps].sort((a, b) => a - b);
   const gaps: number[] = [];
@@ -227,9 +218,7 @@ function inferGranularity(
 }
 
 function extractDateMeta(rawValues: string[]): DateMeta {
-  const nonEmpty = rawValues.filter(
-    (v) => v !== "" && v !== null && v !== undefined
-  );
+  const nonEmpty = rawValues.filter((v) => v !== "" && v !== null && v !== undefined);
 
   // Detect format
   let format = "unknown";
@@ -241,19 +230,12 @@ function extractDateMeta(rawValues: string[]): DateMeta {
   }
 
   // Parse timestamps
-  const timestamps = nonEmpty
-    .map((v) => Date.parse(v))
-    .filter((ts) => !isNaN(ts));
+  const timestamps = nonEmpty.map((v) => Date.parse(v)).filter((ts) => !isNaN(ts));
 
   const sorted = [...timestamps].sort((a, b) => a - b);
-  const minDate =
-    sorted.length > 0
-      ? new Date(sorted[0]).toISOString().split("T")[0]
-      : "unknown";
+  const minDate = sorted.length > 0 ? new Date(sorted[0]).toISOString().split("T")[0] : "unknown";
   const maxDate =
-    sorted.length > 0
-      ? new Date(sorted[sorted.length - 1]).toISOString().split("T")[0]
-      : "unknown";
+    sorted.length > 0 ? new Date(sorted[sorted.length - 1]).toISOString().split("T")[0] : "unknown";
 
   const usesMonthNames = nonEmpty.some((v) => MONTH_NAME_RE.test(v));
   const usesDayNames = nonEmpty.some((v) => DAY_NAME_RE.test(v));
@@ -300,11 +282,9 @@ function detectStructuralCode(sample: string[]): string | undefined {
   if (sample.length < 5) return undefined;
 
   // Try to generalize: replace letter runs with A, digit runs with N
-  const patterns = sample.slice(0, 50).map((v) =>
-    v
-      .replace(/[A-Za-z]+/g, "A")
-      .replace(/\d+/g, "N")
-  );
+  const patterns = sample
+    .slice(0, 50)
+    .map((v) => v.replace(/[A-Za-z]+/g, "A").replace(/\d+/g, "N"));
 
   const counts: Record<string, number> = {};
   for (const p of patterns) {
@@ -333,9 +313,7 @@ function detectStringPattern(sample: string[]): string | undefined {
 // ── Categorical metadata ──────────────────────────────────────────
 
 function extractCategoricalMeta(rawValues: string[]): CategoricalMeta {
-  const nonEmpty = rawValues.filter(
-    (v) => v !== "" && v !== null && v !== undefined
-  );
+  const nonEmpty = rawValues.filter((v) => v !== "" && v !== null && v !== undefined);
 
   // Frequency map
   const freq: Record<string, number> = {};
@@ -350,9 +328,7 @@ function extractCategoricalMeta(rawValues: string[]): CategoricalMeta {
   // String length stats
   const lengths = nonEmpty.map((v) => v.length);
   const avgLength =
-    lengths.length > 0
-      ? round(lengths.reduce((a, b) => a + b, 0) / lengths.length, 1)
-      : 0;
+    lengths.length > 0 ? round(lengths.reduce((a, b) => a + b, 0) / lengths.length, 1) : 0;
   const maxLength = lengths.length > 0 ? Math.max(...lengths) : 0;
   const minLength = lengths.length > 0 ? Math.min(...lengths) : 0;
 
@@ -385,9 +361,7 @@ function extractCategoricalMeta(rawValues: string[]): CategoricalMeta {
 // ── Boolean metadata ──────────────────────────────────────────────
 
 function extractBooleanMeta(rawValues: string[]): BooleanMeta {
-  const nonEmpty = rawValues.filter(
-    (v) => v !== "" && v !== null && v !== undefined
-  );
+  const nonEmpty = rawValues.filter((v) => v !== "" && v !== null && v !== undefined);
 
   let trueCount = 0;
   let falseCount = 0;
@@ -436,10 +410,7 @@ function extractBooleanMeta(rawValues: string[]): BooleanMeta {
 
 // ── Extract column metadata by dtype ──────────────────────────────
 
-function extractColumnMeta(
-  dtype: CSVColumn["dtype"],
-  rawValues: string[]
-): ColumnMeta {
+function extractColumnMeta(dtype: CSVColumn["dtype"], rawValues: string[]): ColumnMeta {
   switch (dtype) {
     case "number":
       return extractNumericMeta(rawValues);
@@ -454,16 +425,10 @@ function extractColumnMeta(
 
 // ── Public API ────────────────────────────────────────────────────
 
-export function extractSchema(
-  parsed: ParsedCSV,
-  csvId: string,
-  filename: string
-): CSVSchema {
+export function extractSchema(parsed: ParsedCSV, csvId: string, filename: string): CSVSchema {
   const columns: CSVColumn[] = parsed.headers.map((name) => {
     const values = parsed.data.map((row) => row[name] ?? "");
-    const nonEmpty = values.filter(
-      (v) => v !== "" && v !== null && v !== undefined
-    );
+    const nonEmpty = values.filter((v) => v !== "" && v !== null && v !== undefined);
     const nullCount = values.length - nonEmpty.length;
     const dtype = inferDtype(values.slice(0, 100));
     const meta = extractColumnMeta(dtype, values);

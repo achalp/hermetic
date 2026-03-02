@@ -79,11 +79,7 @@
       "props": {
         "gap": 12
       },
-      "children": [
-        "map-title",
-        "map-view",
-        "map-annotation"
-      ]
+      "children": ["map-title", "map-view", "map-annotation"]
     },
     "map-title": {
       "type": "TextBlock",
@@ -119,10 +115,7 @@
       "props": {
         "gap": 12
       },
-      "children": [
-        "category-title",
-        "category-charts"
-      ]
+      "children": ["category-title", "category-charts"]
     },
     "category-title": {
       "type": "TextBlock",
@@ -137,10 +130,7 @@
       "props": {
         "gap": 16
       },
-      "children": [
-        "category-revenue-chart",
-        "category-distribution-chart"
-      ]
+      "children": ["category-revenue-chart", "category-distribution-chart"]
     },
     "category-revenue-chart": {
       "type": "BarChart",
@@ -150,9 +140,7 @@
           "$state": "/categoryRevenue"
         },
         "x_key": "category",
-        "y_keys": [
-          "revenue"
-        ],
+        "y_keys": ["revenue"],
         "orientation": "horizontal",
         "color_map": {
           "revenue": "indigo"
@@ -169,13 +157,7 @@
         },
         "show_labels": true,
         "show_legend": true,
-        "colors": [
-          "#10b981",
-          "#f59e0b",
-          "#06b6d4",
-          "#ec4899",
-          "#8b5cf6"
-        ]
+        "colors": ["#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6"]
       },
       "children": []
     },
@@ -184,11 +166,7 @@
       "props": {
         "gap": 12
       },
-      "children": [
-        "revenue-title",
-        "revenue-scatter",
-        "revenue-annotation"
-      ]
+      "children": ["revenue-title", "revenue-scatter", "revenue-annotation"]
     },
     "revenue-title": {
       "type": "TextBlock",
@@ -227,10 +205,7 @@
       "props": {
         "gap": 12
       },
-      "children": [
-        "top-performers-title",
-        "top-performers-tables"
-      ]
+      "children": ["top-performers-title", "top-performers-tables"]
     },
     "top-performers-title": {
       "type": "TextBlock",
@@ -245,21 +220,13 @@
       "props": {
         "gap": 16
       },
-      "children": [
-        "top-revenue-table",
-        "top-rated-table"
-      ]
+      "children": ["top-revenue-table", "top-rated-table"]
     },
     "top-revenue-table": {
       "type": "DataTable",
       "props": {
         "caption": "Top 5 by Revenue",
-        "columns": [
-          "Business",
-          "Category",
-          "Revenue",
-          "Rating"
-        ],
+        "columns": ["Business", "Category", "Revenue", "Rating"],
         "rows": {
           "$state": "/topRevenueRows"
         },
@@ -271,12 +238,7 @@
       "type": "DataTable",
       "props": {
         "caption": "Top 5 by Rating",
-        "columns": [
-          "Business",
-          "Category",
-          "Rating",
-          "Reviews"
-        ],
+        "columns": ["Business", "Category", "Rating", "Reviews"],
         "rows": {
           "$state": "/topRatedRows"
         },
@@ -740,68 +702,18 @@
       }
     ],
     "topRevenueRows": [
-      [
-        "Fisherman's Catch",
-        "restaurant",
-        "$520,000",
-        "4.0"
-      ],
-      [
-        "North Beach Pizza Co",
-        "restaurant",
-        "$478,000",
-        "4.3"
-      ],
-      [
-        "Dogpatch Brewery",
-        "restaurant",
-        "$445,000",
-        "4.5"
-      ],
-      [
-        "Golden Gate Tacos",
-        "restaurant",
-        "$389,000",
-        "4.2"
-      ],
-      [
-        "Richmond Dim Sum",
-        "restaurant",
-        "$367,000",
-        "4.4"
-      ]
+      ["Fisherman's Catch", "restaurant", "$520,000", "4.0"],
+      ["North Beach Pizza Co", "restaurant", "$478,000", "4.3"],
+      ["Dogpatch Brewery", "restaurant", "$445,000", "4.5"],
+      ["Golden Gate Tacos", "restaurant", "$389,000", "4.2"],
+      ["Richmond Dim Sum", "restaurant", "$367,000", "4.4"]
     ],
     "topRatedRows": [
-      [
-        "Sunset Yoga Studio",
-        "fitness",
-        "4.8",
-        "203"
-      ],
-      [
-        "Bernal Heights Bakery",
-        "cafe",
-        "4.8",
-        "389"
-      ],
-      [
-        "Haight Street Books",
-        "retail",
-        "4.7",
-        "276"
-      ],
-      [
-        "Pacific Heights Pilates",
-        "fitness",
-        "4.7",
-        "156"
-      ],
-      [
-        "Hayes Valley Florist",
-        "retail",
-        "4.7",
-        "134"
-      ]
+      ["Sunset Yoga Studio", "fitness", "4.8", "203"],
+      ["Bernal Heights Bakery", "cafe", "4.8", "389"],
+      ["Haight Street Books", "retail", "4.7", "276"],
+      ["Pacific Heights Pilates", "fitness", "4.7", "156"],
+      ["Hayes Valley Florist", "retail", "4.7", "134"]
     ],
     "datasets": {
       "main": [

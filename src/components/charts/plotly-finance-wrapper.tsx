@@ -7,8 +7,7 @@ import { usePlotlyLayout } from "@/lib/chart-theme";
 const PlotlyPlot = dynamic(
   async () => {
     const Plotly = await import("plotly.js-finance-dist");
-    const createPlotlyComponent = (await import("react-plotly.js/factory"))
-      .default;
+    const createPlotlyComponent = (await import("react-plotly.js/factory")).default;
     return createPlotlyComponent(Plotly);
   },
   {

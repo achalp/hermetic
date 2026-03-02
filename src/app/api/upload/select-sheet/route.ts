@@ -12,10 +12,7 @@ export async function POST(request: Request) {
     const { excel_id, sheet_name } = body;
 
     if (!excel_id || !sheet_name) {
-      return NextResponse.json(
-        { error: "Missing excel_id or sheet_name" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing excel_id or sheet_name" }, { status: 400 });
     }
 
     const stored = getStoredExcel(excel_id);
@@ -39,17 +36,11 @@ export async function POST(request: Request) {
     const parsed = parseCSV(csvText);
 
     if (parsed.headers.length === 0) {
-      return NextResponse.json(
-        { error: "Selected sheet has no columns" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Selected sheet has no columns" }, { status: 400 });
     }
 
     if (parsed.rowCount === 0) {
-      return NextResponse.json(
-        { error: "Selected sheet has no data rows" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Selected sheet has no data rows" }, { status: 400 });
     }
 
     const csvId = uuidv4();

@@ -12,8 +12,7 @@ import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 // ── Column metadata formatter ─────────────────────────────────────
 
 function formatColumnMeta(col: CSVColumn): string {
-  const nullSuffix =
-    col.null_count > 0 ? ` [${col.null_count} nulls]` : "";
+  const nullSuffix = col.null_count > 0 ? ` [${col.null_count} nulls]` : "";
   const m = col.meta;
 
   switch (m.kind) {
@@ -46,24 +45,18 @@ function formatColumnMeta(col: CSVColumn): string {
     case "categorical": {
       const tags: string[] = [];
       if (m.is_unique) {
-        tags.push(
-          `unique per row (${m.distinct_count} distinct)`
-        );
+        tags.push(`unique per row (${m.distinct_count} distinct)`);
       } else {
         tags.push(`${m.distinct_count} distinct`);
       }
       if (m.distinct_values) {
         tags.push(`[${m.distinct_values.join(", ")}]`);
       } else if (m.top_values) {
-        const topStr = m.top_values
-          .map((t) => `${t.value}(${t.count})`)
-          .join(", ");
+        const topStr = m.top_values.map((t) => `${t.value}(${t.count})`).join(", ");
         tags.push(`top: ${topStr}`);
       }
       if (m.detected_pattern) tags.push(`pattern: ${m.detected_pattern}`);
-      tags.push(
-        `lengths: avg=${m.avg_length}, max=${m.max_length}`
-      );
+      tags.push(`lengths: avg=${m.avg_length}, max=${m.max_length}`);
       return `- ${col.name} (${col.dtype}) — ${tags.join(", ")}${nullSuffix}`;
     }
     case "boolean": {
@@ -75,8 +68,7 @@ function formatColumnMeta(col: CSVColumn): string {
 // ── Column sample formatter (legacy) ──────────────────────────────
 
 function formatColumnSample(col: CSVColumn): string {
-  const nullSuffix =
-    col.null_count > 0 ? ` [${col.null_count} nulls]` : "";
+  const nullSuffix = col.null_count > 0 ? ` [${col.null_count} nulls]` : "";
   return `- ${col.name} (${col.dtype}) — sample: ${col.sample_values.join(", ")}${nullSuffix}`;
 }
 
@@ -198,8 +190,10 @@ function generateSyntheticCategorical(m: CategoricalMeta, count: number): string
 
   if (pool.length === 0) {
     // Fallback based on pattern
-    if (m.detected_pattern === "email") pool = ["user1@example.com", "user2@example.com", "user3@example.com"];
-    else if (m.detected_pattern === "url") pool = ["https://example.com/a", "https://example.com/b"];
+    if (m.detected_pattern === "email")
+      pool = ["user1@example.com", "user2@example.com", "user3@example.com"];
+    else if (m.detected_pattern === "url")
+      pool = ["https://example.com/a", "https://example.com/b"];
     else if (m.detected_pattern === "uuid") pool = ["550e8400-e29b-41d4-a716-446655440000"];
     else pool = ["value_1", "value_2", "value_3", "value_4", "value_5"];
   }
