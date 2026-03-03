@@ -8,6 +8,7 @@ export const MAX_COMPONENT_COUNT = 20;
 export const MAX_NESTING_DEPTH = 3;
 export const CODE_GEN_MODEL = "claude-sonnet-4-6" as const;
 export const UI_COMPOSE_MODEL = "claude-sonnet-4-6" as const;
+export const OLLAMA_NUM_CTX = 32_768; // context window for Ollama models
 
 export const AVAILABLE_MODELS = [
   { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
@@ -41,6 +42,40 @@ export const AVAILABLE_PROVIDERS = [
   { id: "bedrock", label: "Amazon Bedrock" },
   { id: "vertex", label: "Google Vertex AI" },
   { id: "openai-compatible", label: "OpenAI-Compatible" },
+  { id: "ollama", label: "Ollama (Local)" },
 ] as const;
 
 export type LLMProviderId = (typeof AVAILABLE_PROVIDERS)[number]["id"];
+
+export const RECOMMENDED_OLLAMA_MODELS = [
+  {
+    id: "qwen2.5-coder:14b",
+    label: "Qwen 2.5 Coder 14B",
+    description: "Best balance of quality and speed",
+    tag: "recommended",
+  },
+  {
+    id: "qwen2.5-coder:7b",
+    label: "Qwen 2.5 Coder 7B",
+    description: "Good for 16 GB RAM machines",
+    tag: "lightweight",
+  },
+  {
+    id: "qwen2.5-coder:32b",
+    label: "Qwen 2.5 Coder 32B",
+    description: "Highest quality, needs 32+ GB RAM",
+    tag: "premium",
+  },
+  {
+    id: "deepseek-coder-v2:16b",
+    label: "DeepSeek Coder V2 16B",
+    description: "Strong code and analysis",
+    tag: "alternative",
+  },
+  {
+    id: "llama3.3:latest",
+    label: "Llama 3.3",
+    description: "General purpose, good instruction following",
+    tag: "general",
+  },
+] as const;

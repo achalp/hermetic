@@ -4,6 +4,7 @@
  */
 
 import type { LLMProviderId } from "@/lib/constants";
+import { getRuntimeConfig } from "@/lib/runtime-config";
 
 export interface EnvConfig {
   LLM_PROVIDER: LLMProviderId;
@@ -24,6 +25,11 @@ export class EnvError extends Error {
 
 let cachedConfig: EnvConfig | null = null;
 
+/** Clear the cached env config so validateEnv() re-evaluates on next call. */
+export function clearEnvConfigCache(): void {
+  cachedConfig = null;
+}
+
 /**
  * Detect which LLM provider is configured (same logic as client.ts getActiveProvider
  * but returns undefined instead of throwing when nothing is found).
@@ -32,15 +38,21 @@ function detectProvider(): LLMProviderId | undefined {
   const explicit = process.env.LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase();
-    if (["anthropic", "bedrock", "vertex", "openai-compatible"].includes(normalized)) {
+    if (["anthropic", "bedrock", "vertex", "openai-compatible", "ollama"].includes(normalized)) {
       return normalized as LLMProviderId;
     }
     return undefined; // invalid — will be caught below
   }
+  // Check runtime config for Ollama — user explicitly enabled in UI,
+  // so it takes priority over auto-detected env var credentials
+  const rc = getRuntimeConfig();
+  if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
+
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   if (process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return "bedrock";
   if (process.env.GOOGLE_VERTEX_PROJECT) return "vertex";
   if (process.env.OPENAI_BASE_URL) return "openai-compatible";
+
   return undefined;
 }
 
@@ -51,12 +63,12 @@ export function validateEnv(): EnvConfig {
   const explicitProvider = process.env.LLM_PROVIDER;
   if (
     explicitProvider &&
-    !["anthropic", "bedrock", "vertex", "openai-compatible"].includes(
+    !["anthropic", "bedrock", "vertex", "openai-compatible", "ollama"].includes(
       explicitProvider.toLowerCase()
     )
   ) {
     throw new EnvError(
-      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: anthropic, bedrock, vertex, openai-compatible`
+      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: anthropic, bedrock, vertex, openai-compatible, ollama`
     );
   }
 
@@ -68,7 +80,7 @@ export function validateEnv(): EnvConfig {
         "  - AWS_ACCESS_KEY_ID (for Amazon Bedrock)\n" +
         "  - GOOGLE_VERTEX_PROJECT (for Google Vertex AI)\n" +
         "  - OPENAI_BASE_URL (for OpenAI-compatible endpoint)\n" +
-        "Or set LLM_PROVIDER explicitly."
+        "Or set LLM_PROVIDER explicitly, or enable Ollama in Settings."
     );
   }
 

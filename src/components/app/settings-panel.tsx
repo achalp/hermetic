@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { AVAILABLE_MODELS } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import { useTheme, THEMES } from "@/lib/theme-context";
+import { OllamaSection } from "./ollama-section";
 
 interface ProviderInfo {
   active: string;
@@ -25,6 +26,8 @@ interface SettingsPanelProps {
   onUiComposeModelChange: (model: ModelId) => void;
   sandboxRuntime: SandboxRuntimeId;
   onSandboxRuntimeChange: (runtime: SandboxRuntimeId) => void;
+  ollamaModel: string | null;
+  onOllamaModelChange: (model: string | null) => void;
 }
 
 export function SettingsPanel({
@@ -34,6 +37,8 @@ export function SettingsPanel({
   onUiComposeModelChange,
   sandboxRuntime,
   onSandboxRuntimeChange,
+  ollamaModel,
+  onOllamaModelChange,
 }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -71,6 +76,21 @@ export function SettingsPanel({
       onSandboxRuntimeChange(availableRuntimes[0].id as SandboxRuntimeId);
     }
   }, [availableRuntimes, sandboxRuntime, onSandboxRuntimeChange]);
+
+  const handleOllamaProviderChange = useCallback(
+    (_provider: "ollama", model: string) => {
+      onOllamaModelChange(model || null);
+      // Re-fetch provider info to reflect the change
+      providerFetched.current = false;
+      fetch("/api/providers")
+        .then((r) => r.json())
+        .then((data: ProviderInfo) => setProviderInfo(data))
+        .catch(() => {});
+    },
+    [onOllamaModelChange]
+  );
+
+  const isOllamaActive = providerInfo?.active === "ollama";
 
   useEffect(() => {
     if (!open) return;
@@ -116,7 +136,7 @@ export function SettingsPanel({
 
       {open && (
         <div
-          className="absolute right-0 top-full z-50 mt-2 w-72 border border-border-default bg-surface-dropdown p-4"
+          className="absolute right-0 top-full z-50 mt-2 w-80 max-h-[80vh] overflow-y-auto border border-border-default bg-surface-dropdown p-4"
           style={{
             borderRadius: "var(--radius-card)",
             boxShadow: "var(--shadow-elevated)",
@@ -169,14 +189,39 @@ export function SettingsPanel({
             ) : (
               <span className="text-xs text-t-tertiary">Detecting...</span>
             )}
-            <p className="mt-1.5 text-xs text-t-tertiary">Set via server environment variables</p>
+            {!isOllamaActive && (
+              <p className="mt-1.5 text-xs text-t-tertiary">Set via server environment variables</p>
+            )}
+          </div>
+
+          <div className="mb-3 border-t border-border-default pt-3">
+            <h3 className="mb-3 text-sm font-semibold text-t-primary">Local Models (Ollama)</h3>
+          </div>
+
+          <div className="mb-4">
+            <OllamaSection
+              onProviderChange={handleOllamaProviderChange}
+              isActive={isOllamaActive}
+              activeModel={ollamaModel}
+            />
           </div>
 
           <div className="mb-3 border-t border-border-default pt-3">
             <h3 className="mb-3 text-sm font-semibold text-t-primary">Model Settings</h3>
           </div>
 
-          {providerInfo?.active === "openai-compatible" ? (
+          {isOllamaActive ? (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-t-secondary">Model</label>
+              <span
+                className="inline-flex items-center px-2.5 py-1.5 text-sm font-mono text-t-primary bg-surface-input border border-border-default"
+                style={{ borderRadius: "var(--radius-badge)" }}
+              >
+                {ollamaModel ?? "—"}
+              </span>
+              <p className="mt-1.5 text-xs text-t-tertiary">Managed via Ollama section above</p>
+            </div>
+          ) : providerInfo?.active === "openai-compatible" ? (
             <div>
               <label className="mb-1 block text-xs font-medium text-t-secondary">Model</label>
               <span

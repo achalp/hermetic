@@ -1,6 +1,7 @@
 import { getActiveProvider } from "@/lib/llm/client";
 import { AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
+import { getRuntimeConfig } from "@/lib/runtime-config";
 
 export function GET() {
   let active: LLMProviderId;
@@ -16,6 +17,9 @@ export function GET() {
   if (process.env.GOOGLE_VERTEX_PROJECT) configured.push("vertex");
   if (process.env.OPENAI_BASE_URL) configured.push("openai-compatible");
 
+  const rc = getRuntimeConfig();
+  if (rc.ollama?.enabled) configured.push("ollama");
+
   const activeInfo = AVAILABLE_PROVIDERS.find((p) => p.id === active);
 
   return Response.json({
@@ -25,6 +29,10 @@ export function GET() {
     // For openai-compatible, expose the model name so the UI can display it
     ...(active === "openai-compatible" && {
       model: process.env.OPENAI_MODEL ?? "unknown",
+    }),
+    // For Ollama, expose the active model name
+    ...(active === "ollama" && {
+      model: rc.ollama?.activeModel ?? "unknown",
     }),
   });
 }
