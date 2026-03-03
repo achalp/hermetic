@@ -1,0 +1,16 @@
+campaign_id,campaign_name,channel,start_date,end_date,budget_usd,spend_usd,impressions,clicks,conversions,revenue_usd,cpa,roas,audience_segment,creative_type,region
+MKT-101,Spring Sale 2024,Google Ads,2024-03-01,2024-03-31,15000,14200,520000,12480,312,46800,45.51,3.30,Prospecting,Search,US-East
+MKT-102,Spring Sale 2024,Facebook,2024-03-01,2024-03-31,12000,11800,890000,17800,267,34710,44.19,2.94,Retargeting,Carousel,US-East
+MKT-103,Spring Sale 2024,Instagram,2024-03-01,2024-03-31,8000,7600,650000,13000,156,20280,48.72,2.67,Prospecting,Video,US-West
+MKT-104,Spring Sale 2024,Email,2024-03-01,2024-03-31,2000,1800,45000,6750,405,56700,4.44,31.50,Existing,Newsletter,All
+MKT-105,Spring Sale 2024,TikTok,2024-03-01,2024-03-31,6000,5900,1200000,18000,108,10800,54.63,1.83,Prospecting,Short Video,US-West
+MKT-106,Brand Awareness Q1,YouTube,2024-01-15,2024-03-31,25000,24500,2800000,28000,140,14000,175.00,0.57,Prospecting,Pre-roll,All
+MKT-107,Brand Awareness Q1,LinkedIn,2024-01-15,2024-03-31,18000,17200,340000,5100,102,25500,168.63,1.48,B2B,Sponsored Post,All
+MKT-108,Retarget High-Intent,Google Ads,2024-02-01,2024-03-31,10000,9800,180000,7200,504,85680,19.44,8.74,Retargeting,Display,US-East
+MKT-109,Retarget High-Intent,Facebook,2024-02-01,2024-03-31,8000,7500,320000,9600,384,49920,19.53,6.66,Retargeting,Dynamic,All
+MKT-110,Product Launch X,Google Ads,2024-03-15,2024-03-31,20000,18500,420000,12600,378,64260,48.94,3.47,Prospecting,Search,All
+MKT-111,Product Launch X,Instagram,2024-03-15,2024-03-31,15000,14200,780000,15600,234,30420,60.68,2.14,Lookalike,Story,US-West
+MKT-112,Product Launch X,TikTok,2024-03-15,2024-03-31,10000,9500,1500000,22500,180,19800,52.78,2.08,Prospecting,Challenge,All
+MKT-113,Loyalty Program,Email,2024-01-01,2024-03-31,5000,4200,120000,24000,1680,285600,2.50,68.00,Existing,Personalized,All
+MKT-114,Loyalty Program,SMS,2024-01-01,2024-03-31,3000,2800,85000,12750,637,76440,4.40,27.30,Existing,Promo,US-East
+MKT-115,SEO Content,Organic,2024-01-01,2024-03-31,8000,8000,950000,47500,950,114000,8.42,14.25,Prospecting,Blog,All

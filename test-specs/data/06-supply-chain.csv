@@ -1,0 +1,21 @@
+shipment_id,origin,destination,product_line,weight_kg,volume_cbm,carrier,mode,ship_date,deliver_date,quoted_days,actual_days,cost_usd,damage_flag,delay_flag,warehouse,inventory_units,reorder_point,lead_time_days
+SHP-001,Shanghai,Los Angeles,Electronics,2400,18.5,MaerskLine,Sea,2024-01-05,2024-01-25,18,20,4200,No,Yes,LA-West,15000,5000,21
+SHP-002,Shenzhen,Rotterdam,Electronics,1800,14.2,CMA-CGM,Sea,2024-01-08,2024-01-30,20,22,3800,No,Yes,EU-Central,12000,4000,23
+SHP-003,Detroit,Chicago,Automotive,5200,32.0,FedEx,Truck,2024-01-10,2024-01-12,2,2,1200,No,No,MW-Hub,8500,3000,3
+SHP-004,Munich,New York,Automotive,3100,22.5,DHL,Air,2024-01-12,2024-01-14,2,2,8900,No,No,NE-Dist,6200,2500,5
+SHP-005,Guangzhou,Sydney,Consumer Goods,4500,38.0,Evergreen,Sea,2024-01-15,2024-02-08,22,24,5100,Yes,Yes,AU-Main,20000,8000,25
+SHP-006,Mexico City,Dallas,Consumer Goods,2800,20.0,UPS,Truck,2024-01-18,2024-01-20,2,2,950,No,No,SW-Dist,11000,4500,3
+SHP-007,Tokyo,Vancouver,Electronics,1500,11.0,NYK-Line,Sea,2024-01-20,2024-02-05,14,16,3200,No,Yes,BC-Port,9000,3500,17
+SHP-008,Stuttgart,Shanghai,Automotive,6000,42.0,Hapag-Lloyd,Sea,2024-01-22,2024-02-18,25,27,6800,No,Yes,CN-East,4500,2000,28
+SHP-009,Ho Chi Minh,Hamburg,Consumer Goods,3800,30.0,MSC,Sea,2024-01-25,2024-02-20,24,26,4500,No,Yes,EU-Central,16000,6000,27
+SHP-010,Chicago,Atlanta,Consumer Goods,1200,8.5,FedEx,Truck,2024-01-28,2024-01-30,2,2,680,No,No,SE-Dist,7500,3000,3
+SHP-011,Busan,Long Beach,Electronics,2000,15.8,HMM,Sea,2024-02-01,2024-02-17,15,16,3500,No,Yes,LA-West,13000,5000,18
+SHP-012,Berlin,Chicago,Automotive,4200,28.0,Lufthansa,Air,2024-02-03,2024-02-05,2,2,12500,No,No,MW-Hub,5800,2500,5
+SHP-013,Taipei,Rotterdam,Electronics,1600,12.5,Yang-Ming,Sea,2024-02-05,2024-02-27,20,22,3400,Yes,Yes,EU-Central,10500,4000,23
+SHP-014,Monterrey,Houston,Automotive,3500,24.0,XPO,Truck,2024-02-08,2024-02-10,2,2,1100,No,No,SW-Dist,7200,3000,3
+SHP-015,Bangkok,Melbourne,Consumer Goods,4000,34.0,Maersk,Sea,2024-02-10,2024-03-04,21,22,4800,No,Yes,AU-Main,18000,7000,24
+SHP-016,Yokohama,Seattle,Electronics,1900,14.0,ONE,Sea,2024-02-12,2024-02-26,13,14,3300,No,Yes,PNW-Hub,8800,3500,16
+SHP-017,Memphis,Boston,Consumer Goods,900,6.0,UPS,Air,2024-02-15,2024-02-16,1,1,1800,No,No,NE-Dist,5500,2500,2
+SHP-018,Ningbo,Savannah,Consumer Goods,5000,40.0,COSCO,Sea,2024-02-18,2024-03-12,21,22,5500,No,Yes,SE-Dist,22000,9000,24
+SHP-019,Osaka,Hamburg,Automotive,3800,26.0,NYK-Line,Sea,2024-02-20,2024-03-16,23,24,5200,No,Yes,EU-Central,4000,1800,26
+SHP-020,Guadalajara,Phoenix,Consumer Goods,2200,16.0,FedEx,Truck,2024-02-22,2024-02-24,2,2,780,No,No,SW-Dist,9500,4000,3

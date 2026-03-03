@@ -1,0 +1,26 @@
+student_id,gender,age,school_type,study_hours_weekly,sleep_hours,extracurriculars,parental_education,family_income_bracket,math_score,science_score,english_score,history_score,gpa,attendance_pct,tutoring
+S001,F,16,Public,12,7.5,Yes,Bachelor's,Middle,82,78,91,85,3.4,94,No
+S002,M,17,Public,8,6.0,No,High School,Low,65,62,70,68,2.7,82,No
+S003,F,15,Private,15,8.0,Yes,Master's,High,95,92,97,90,3.9,98,Yes
+S004,M,16,Public,10,7.0,Yes,Bachelor's,Middle,74,70,80,76,3.1,90,No
+S005,F,17,Public,6,6.5,No,High School,Low,58,55,63,60,2.4,75,No
+S006,M,15,Private,14,8.0,Yes,Master's,High,90,88,93,87,3.8,96,Yes
+S007,F,16,Public,11,7.5,Yes,Associate's,Middle,79,76,85,82,3.3,92,No
+S008,M,17,Public,5,5.5,No,High School,Low,52,48,58,54,2.1,70,No
+S009,F,16,Private,16,8.0,Yes,Doctorate,High,98,96,99,95,4.0,99,Yes
+S010,M,15,Public,9,7.0,No,Bachelor's,Middle,71,68,76,72,3.0,88,No
+S011,F,17,Public,7,6.0,Yes,Associate's,Low,63,60,68,65,2.6,80,No
+S012,M,16,Private,13,7.5,Yes,Master's,High,88,85,91,86,3.7,95,Yes
+S013,F,15,Public,10,7.0,No,Bachelor's,Middle,76,73,82,78,3.2,91,No
+S014,M,17,Public,4,5.0,No,High School,Low,45,42,50,47,1.9,65,No
+S015,F,16,Private,15,8.0,Yes,Doctorate,High,96,94,98,93,3.9,98,Yes
+S016,M,16,Public,8,6.5,Yes,Associate's,Middle,68,65,73,70,2.8,85,No
+S017,F,15,Public,11,7.5,Yes,Bachelor's,Middle,81,78,87,83,3.4,93,No
+S018,M,17,Private,14,7.5,Yes,Master's,High,92,90,95,89,3.8,97,Yes
+S019,F,16,Public,6,6.0,No,High School,Low,55,52,60,57,2.3,73,No
+S020,M,15,Public,9,7.0,No,Bachelor's,Middle,72,69,77,74,3.0,89,No
+S021,F,17,Public,12,7.5,Yes,Associate's,Middle,83,80,88,84,3.5,94,Yes
+S022,M,16,Public,7,6.5,No,High School,Low,60,57,65,62,2.5,78,No
+S023,F,15,Private,16,8.0,Yes,Doctorate,High,97,95,99,94,4.0,99,Yes
+S024,M,17,Public,10,7.0,Yes,Bachelor's,Middle,75,72,81,77,3.1,90,No
+S025,F,16,Public,5,5.5,No,High School,Low,50,47,55,51,2.0,68,No

@@ -1,0 +1,16 @@
+listing_id,address,city,state,zip,lat,lng,property_type,bedrooms,bathrooms,sqft,lot_sqft,year_built,list_price,sold_price,days_on_market,listing_date,sold_date,agent,brokerage,hoa_monthly,parking_spaces,pool,waterfront
+RE-2001,123 Oak St,Austin,TX,78701,30.2672,-97.7431,Single Family,3,2,1850,6500,1998,425000,418000,22,2024-01-15,2024-02-06,Sarah Chen,Compass,0,2,No,No
+RE-2002,456 Elm Ave,Austin,TX,78704,30.2420,-97.7634,Condo,2,2,1200,0,2019,315000,320000,8,2024-01-20,2024-01-28,Mike Torres,Redfin,350,1,Yes,No
+RE-2003,789 Pine Dr,Denver,CO,80202,39.7392,-104.9903,Single Family,4,3,2400,8200,2005,580000,565000,35,2024-01-10,2024-02-14,Sarah Chen,Compass,0,2,No,No
+RE-2004,321 Maple Ln,Denver,CO,80210,39.6789,-104.9639,Townhouse,3,2.5,1800,3200,2015,490000,485000,18,2024-02-01,2024-02-19,Lisa Park,KW,180,2,No,No
+RE-2005,654 Cedar Ct,Nashville,TN,37203,36.1627,-86.7816,Single Family,3,2,1650,5800,1992,375000,370000,28,2024-01-25,2024-02-22,James Reed,Coldwell,0,2,No,No
+RE-2006,987 Birch Way,Nashville,TN,37215,36.1059,-86.8352,Single Family,5,4,3200,12000,2010,725000,710000,42,2024-01-05,2024-02-16,James Reed,Coldwell,0,3,Yes,No
+RE-2007,147 Spruce St,Austin,TX,78745,30.2090,-97.7924,Condo,1,1,750,0,2022,225000,228000,5,2024-02-10,2024-02-15,Mike Torres,Redfin,280,1,Yes,No
+RE-2008,258 Walnut Blvd,Denver,CO,80220,39.7310,-104.9230,Single Family,3,2,1900,7000,2001,520000,508000,30,2024-02-05,2024-03-06,Sarah Chen,Compass,0,2,No,No
+RE-2009,369 Willow Dr,Nashville,TN,37206,36.1809,-86.7488,Townhouse,2,2,1400,2800,2018,345000,350000,12,2024-02-15,2024-02-27,Lisa Park,KW,150,1,No,No
+RE-2010,481 Aspen Rd,Austin,TX,78702,30.2632,-97.7223,Single Family,4,3,2600,9500,2008,650000,638000,25,2024-01-18,2024-02-12,Sarah Chen,Compass,0,2,Yes,No
+RE-2011,592 Poplar Ave,Denver,CO,80205,39.7575,-104.9709,Condo,2,1,950,0,2020,285000,290000,10,2024-02-20,2024-03-01,Mike Torres,Redfin,320,1,No,No
+RE-2012,603 Hickory Ln,Nashville,TN,37205,36.1340,-86.8600,Single Family,4,3,2800,10000,2003,615000,600000,38,2024-01-12,2024-02-19,James Reed,Coldwell,0,2,Yes,Yes
+RE-2013,714 Magnolia Ct,Austin,TX,78703,30.3004,-97.7527,Townhouse,3,2.5,1950,3500,2016,475000,470000,15,2024-02-25,2024-03-11,Lisa Park,KW,200,2,No,No
+RE-2014,825 Sycamore St,Denver,CO,80209,39.7100,-104.9750,Single Family,5,4,3500,15000,2012,820000,795000,45,2024-01-08,2024-02-22,Sarah Chen,Compass,0,3,Yes,Yes
+RE-2015,936 Chestnut Dr,Nashville,TN,37204,36.1154,-86.7931,Condo,1,1,800,0,2021,210000,215000,7,2024-03-01,2024-03-08,Mike Torres,Redfin,250,1,No,No

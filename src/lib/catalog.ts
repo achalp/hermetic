@@ -320,6 +320,273 @@ export const catalog = defineCatalog(schema, {
       description:
         "Interactive candlestick (OHLC) chart for financial/stock data. Requires date, open, high, low, close columns. Optional volume overlay. Supports zoom, pan, crosshair, and OHLC tooltip. Use for stock prices, crypto, forex, or any time-series with OHLC structure.",
     },
+    SankeyChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        nodes: z.array(z.object({ id: z.string(), label: z.string().nullable() })),
+        links: z.array(z.object({ source: z.string(), target: z.string(), value: z.number() })),
+        color_map: z.record(z.string(), z.string()).nullable(),
+        label_position: z.enum(["inside", "outside"]).nullable(),
+        align: z.enum(["left", "center", "right", "justify"]).nullable(),
+      }),
+      description:
+        "Sankey diagram for flow/transfer visualization. Pass nodes [{id, label?}] and links [{source, target, value}]. Use for budget flows, user journeys, energy transfers.",
+    },
+    TreemapChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.record(z.string(), z.unknown()),
+        colors: z.array(z.string()).nullable(),
+        tile_mode: z.enum(["squarify", "binary", "slice", "dice"]).nullable(),
+        label_skip_size: z.number().nullable(),
+        border_width: z.number().nullable(),
+      }),
+      description:
+        "Treemap for hierarchical part-to-whole data. Pass data as a tree: {name, value?, children?}. Leaf nodes must have value. Use for file sizes, budget breakdowns, market share.",
+    },
+    RadarChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        index_key: z.string(),
+        keys: z.array(z.string()),
+        color_map: z.record(z.string(), z.string()).nullable(),
+        max_value: z.number().nullable(),
+        fill_opacity: z.number().nullable(),
+        dot_size: z.number().nullable(),
+      }),
+      description:
+        "Radar/spider chart for comparing multiple metrics. Each row is an axis (index_key), each key is a series. Use for product scorecards, performance profiles.",
+    },
+    BumpChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(
+          z.object({
+            id: z.string(),
+            data: z.array(z.object({ x: z.union([z.string(), z.number()]), y: z.number() })),
+          })
+        ),
+        color_map: z.record(z.string(), z.string()).nullable(),
+        line_width: z.number().nullable(),
+        point_size: z.number().nullable(),
+      }),
+      description:
+        "Bump chart for ranking changes over time. y is rank at each x point. Use for leaderboard evolution, competitive positioning.",
+    },
+    ChordChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        matrix: z.array(z.array(z.number())),
+        keys: z.array(z.string()),
+        colors: z.array(z.string()).nullable(),
+        pad_angle: z.number().nullable(),
+        inner_radius_ratio: z.number().nullable(),
+      }),
+      description:
+        "Chord diagram for inter-relationships between groups. matrix[i][j] is flow from keys[i] to keys[j]. Use for migration, trade, communication patterns.",
+    },
+    SunburstChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.record(z.string(), z.unknown()),
+        colors: z.array(z.string()).nullable(),
+        corner_radius: z.number().nullable(),
+        border_width: z.number().nullable(),
+        child_color: z.enum(["inherit", "noinherit"]).nullable(),
+      }),
+      description:
+        "Sunburst for hierarchical drill-down. Like treemap but radial. Pass data as tree: {name, value?, children?}. Use for org hierarchies, category breakdowns.",
+    },
+    MarimekkoChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        id_key: z.string(),
+        value_key: z.string(),
+        dimensions: z.array(z.object({ id: z.string(), value: z.string() })),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Marimekko (variable-width bar) for two-dimensional composition. Bar width proportional to value_key. Dimensions define stacked segments. Use for market share by segment.",
+    },
+    CalendarChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.object({ day: z.string(), value: z.number() })),
+        from: z.string(),
+        to: z.string(),
+        color_scale: z.array(z.string()).nullable(),
+        empty_color: z.string().nullable(),
+        direction: z.enum(["horizontal", "vertical"]).nullable(),
+      }),
+      description:
+        "GitHub-style calendar heatmap for daily values. Each cell is a day colored by intensity. Use for commit activity, daily metrics.",
+    },
+    StreamChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        keys: z.array(z.string()),
+        color_map: z.record(z.string(), z.string()).nullable(),
+        offset: z.enum(["silhouette", "wiggle", "expand", "none"]).nullable(),
+        curve: z.enum(["basis", "cardinal", "linear", "monotoneX"]).nullable(),
+      }),
+      description:
+        "Stream graph (ThemeRiver) for evolution of categories over time. Centered stacked area. Use for genre popularity, topic trends.",
+    },
+    WaterfallChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(
+          z.object({
+            label: z.string(),
+            value: z.number(),
+            type: z.enum(["absolute", "relative", "total"]).nullable(),
+          })
+        ),
+        orientation: z.enum(["vertical", "horizontal"]).nullable(),
+        increasing_color: z.string().nullable(),
+        decreasing_color: z.string().nullable(),
+        total_color: z.string().nullable(),
+      }),
+      description:
+        "Waterfall for cumulative positive/negative effects. type: 'absolute' for start, 'relative' for change, 'total' for subtotal. Use for P&L, bridge charts.",
+    },
+    RidgelineChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        value_key: z.string(),
+        group_key: z.string(),
+        overlap: z.number().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Ridgeline (joy plot) for comparing distributions across groups. Overlapping density curves. Use for distribution changes over time.",
+    },
+    DumbbellChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.object({ label: z.string(), start: z.number(), end: z.number() })),
+        start_label: z.string().nullable(),
+        end_label: z.string().nullable(),
+        start_color: z.string().nullable(),
+        end_color: z.string().nullable(),
+        orientation: z.enum(["vertical", "horizontal"]).nullable(),
+      }),
+      description:
+        "Dumbbell for comparing two values per category (before/after, actual/target). Use for gap analysis, paired comparisons.",
+    },
+    SlopeChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.object({ label: z.string(), start: z.number(), end: z.number() })),
+        start_label: z.string().nullable(),
+        end_label: z.string().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Slope chart comparing values between two periods. Each line connects start to end value. Use for before/after, two-period ranking shifts.",
+    },
+    BeeswarmChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        value_key: z.string(),
+        group_key: z.string().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+        marker_size: z.number().nullable(),
+      }),
+      description:
+        "Beeswarm showing individual data points with jitter. Use for distribution of individual observations.",
+    },
+    ShapBeeswarm: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(
+          z.object({
+            feature: z.string(),
+            shap_value: z.number(),
+            feature_value: z.number(),
+          })
+        ),
+        color_scale: z.string().nullable(),
+        marker_size: z.number().nullable(),
+      }),
+      description:
+        "SHAP beeswarm for ML feature importance. x=SHAP value, y=feature, color=feature value. Features sorted by importance.",
+    },
+    ConfusionMatrix: {
+      props: z.object({
+        title: z.string().nullable(),
+        matrix: z.array(z.array(z.number())),
+        labels: z.array(z.string()),
+        color_scale: z.string().nullable(),
+        normalize: z.boolean().nullable(),
+      }),
+      description:
+        "Confusion matrix for ML classification. matrix[i][j] = count of actual=labels[i] predicted as labels[j]. normalize=true for percentages.",
+    },
+    RocCurve: {
+      props: z.object({
+        title: z.string().nullable(),
+        curves: z.array(
+          z.object({
+            label: z.string(),
+            fpr: z.array(z.number()),
+            tpr: z.array(z.number()),
+            auc: z.number().nullable(),
+          })
+        ),
+        curve_type: z.enum(["roc", "pr"]).nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+        show_diagonal: z.boolean().nullable(),
+      }),
+      description:
+        "ROC or Precision-Recall curve for ML evaluation. Multiple curves for model comparison. AUC shown in legend if provided.",
+    },
+    ParallelCoordinates: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        dimensions: z.array(z.string()),
+        group_key: z.string().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+        line_opacity: z.number().nullable(),
+      }),
+      description:
+        "Parallel coordinates for multivariate data. Each axis is a dimension, each polyline is a row. Use for high-dimensional exploration.",
+    },
+    BulletChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(
+          z.object({
+            label: z.string(),
+            value: z.number(),
+            target: z.number().nullable(),
+            ranges: z.array(z.number()),
+          })
+        ),
+        orientation: z.enum(["vertical", "horizontal"]).nullable(),
+        range_colors: z.array(z.string()).nullable(),
+        value_color: z.string().nullable(),
+      }),
+      description:
+        "Bullet chart for progress against targets with qualitative ranges. Use for KPI dashboards, goal tracking.",
+    },
+    DecisionTree: {
+      props: z.object({
+        title: z.string().nullable(),
+        tree: z.record(z.string(), z.unknown()),
+        orientation: z.enum(["vertical", "horizontal"]).nullable(),
+        node_width: z.number().nullable(),
+        node_height: z.number().nullable(),
+      }),
+      description:
+        "Decision tree for ML interpretation or decision flowcharts. Branch nodes show conditions, leaves show values.",
+    },
     Annotation: {
       props: z.object({
         icon: z.enum(["alert", "info", "trend", "check", "flag"]).nullable(),
