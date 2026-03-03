@@ -1,7 +1,7 @@
 import { streamText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
-import { getStoredCSV, getCSVContent } from "@/lib/csv/storage";
+import { getStoredCSV, getCSVContent, getGeoJSONContent } from "@/lib/csv/storage";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -91,6 +91,9 @@ export async function POST(request: Request) {
       });
     }
 
+    // Fetch GeoJSON sidecar if the upload was GeoJSON
+    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId) : null;
+
     // Run the code-gen + sandbox pipeline (non-streaming)
     const pipelineResult = await runPipeline(
       stored.schema,
@@ -99,7 +102,8 @@ export async function POST(request: Request) {
       undefined,
       schemaMode,
       codeGenModel,
-      sandboxRuntime
+      sandboxRuntime,
+      geojsonContent
     );
 
     // Cache the generated code for save functionality
@@ -383,7 +387,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
       'For DataTable rows, use arrays of strings like [["Alice", "30"]], NOT objects.',
       "When data supports further segmentation or breakdown, add on.click bindings with the drillDown action on chart components. Set appropriate params: segment_label (human-readable label for the segment), segment_value (the data value), chart_title (title of the chart), x_key/y_key (the data keys), filter_column (column to filter on), filter_value (value to filter by). Only add drill-down when further breakdown makes sense.",
       "Prefer named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) in color_map and colors props for consistent theming.",
-      "Use MapView when data contains geographic coordinates (lat/lng). Pass markers as [{lat, lng, label, color}]. Only pass geojson if GeoJSON geometry is present in the chart_data — do NOT fabricate or inline GeoJSON.",
+      'Use MapView when data contains geographic coordinates (lat/lng). Pass markers as [{lat, lng, label, color}]. Only pass geojson if GeoJSON geometry is present in the chart_data — do NOT fabricate or inline GeoJSON. For choropleth maps (polygons colored by a numeric property), set color_key to the property name and optionally color_scale to [low_color, high_color]. Example: {"geojson": "$chartData:geojson", "color_key": "population", "color_scale": ["#f7fbff", "#08306b"]}.',
       'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Wire props using $chartData placeholders: "points": "$chartData:<key>.points", "arcs": "$chartData:<key>.arcs". Do NOT wrap Globe3D in a DataController. Do NOT pass polygons unless the user explicitly asks for country boundary overlays — points and arcs are sufficient for most use cases. globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).',
       "Use Map3D for dense geospatial data needing 3D aggregation. layer_type: 'hexagon' for hexagonal density, 'column' for extruded bars at locations, 'arc' for origin-destination flows, 'scatterplot' for points on map, 'heatmap' for density. Use instead of MapView when data has hundreds+ of points or needs aggregation.",
       "Use Scatter3D when there are three numeric variables to explore in 3D. Supports group_key for coloring by category and size_key for a 4th dimension.",

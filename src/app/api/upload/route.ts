@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
-import { storeCSV } from "@/lib/csv/storage";
+import { storeCSV, storeGeoJSON } from "@/lib/csv/storage";
 import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { storeExcel } from "@/lib/excel/storage";
+import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { MAX_CSV_SIZE_BYTES, MAX_CSV_SIZE_LABEL } from "@/lib/constants";
 
 export async function POST(request: Request) {
@@ -19,10 +20,12 @@ export async function POST(request: Request) {
     const name = file.name.toLowerCase();
     const isCSV = name.endsWith(".csv");
     const isExcel = name.endsWith(".xlsx");
+    const isGeoJSONExt = name.endsWith(".geojson");
+    const isJSON = name.endsWith(".json");
 
-    if (!isCSV && !isExcel) {
+    if (!isCSV && !isExcel && !isGeoJSONExt && !isJSON) {
       return NextResponse.json(
-        { error: "Only .csv and .xlsx files are accepted" },
+        { error: "Only .csv, .xlsx, .geojson, and .json files are accepted" },
         { status: 400 }
       );
     }
@@ -30,6 +33,49 @@ export async function POST(request: Request) {
     if (file.size > MAX_CSV_SIZE_BYTES) {
       return NextResponse.json(
         { error: `File too large. Maximum size is ${MAX_CSV_SIZE_LABEL}.` },
+        { status: 400 }
+      );
+    }
+
+    // ── GeoJSON path ─────────────────────────────────────────────
+    // For .json files, peek at the content to check if it's GeoJSON
+    let isGeoJSON = isGeoJSONExt;
+    let prefetchedText: string | null = null;
+    if (isJSON) {
+      prefetchedText = await file.text();
+      try {
+        isGeoJSON = isGeoJSONObject(JSON.parse(prefetchedText));
+      } catch {
+        isGeoJSON = false;
+      }
+    }
+
+    if (isGeoJSON) {
+      const text = prefetchedText ?? (await file.text());
+      const parsed = parseGeoJSON(text);
+
+      if (parsed.headers.length === 0) {
+        return NextResponse.json({ error: "GeoJSON file has no properties" }, { status: 400 });
+      }
+
+      const csvId = uuidv4();
+      const schema = extractSchema(parsed, csvId, file.name);
+      schema.has_geojson = true;
+      schema.geojson_geometry_type = parsed.geometryType;
+
+      await storeCSV(csvId, toCSVText(parsed), schema);
+      await storeGeoJSON(csvId, text);
+
+      return NextResponse.json({ csv_id: csvId, schema });
+    }
+
+    // If it's a .json file that isn't GeoJSON, reject it
+    if (isJSON) {
+      return NextResponse.json(
+        {
+          error:
+            "JSON file is not valid GeoJSON. Only .csv, .xlsx, and .geojson files are accepted.",
+        },
         { status: 400 }
       );
     }

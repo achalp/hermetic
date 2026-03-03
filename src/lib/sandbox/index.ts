@@ -5,17 +5,27 @@ import type { ExecutionResult } from "@/lib/types";
 import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 
-const executors: Record<SandboxRuntimeId, (csv: string, code: string) => Promise<ExecutionResult>> =
-  {
-    docker: dockerExecutor,
-    e2b: e2bExecutor,
-    microsandbox: microsandboxExecutor,
-  };
+type SandboxExecutor = (
+  csv: string,
+  code: string,
+  geojsonContent?: string | null
+) => Promise<ExecutionResult>;
+
+const executors: Record<SandboxRuntimeId, SandboxExecutor> = {
+  docker: dockerExecutor,
+  e2b: e2bExecutor,
+  microsandbox: microsandboxExecutor,
+};
 
 export function executeSandbox(
   csvContent: string,
   code: string,
-  runtime?: SandboxRuntimeId
+  runtime?: SandboxRuntimeId,
+  geojsonContent?: string | null
 ): Promise<ExecutionResult> {
-  return (executors[runtime ?? DEFAULT_SANDBOX_RUNTIME] ?? dockerExecutor)(csvContent, code);
+  return (executors[runtime ?? DEFAULT_SANDBOX_RUNTIME] ?? dockerExecutor)(
+    csvContent,
+    code,
+    geojsonContent
+  );
 }

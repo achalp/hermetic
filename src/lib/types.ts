@@ -68,6 +68,10 @@ export interface CSVSchema {
   row_count: number;
   columns: CSVColumn[];
   sample_rows: Record<string, string>[];
+  /** true when the uploaded file was GeoJSON */
+  has_geojson?: boolean;
+  /** Dominant geometry type: "Point" | "Polygon" | "LineString" | etc. */
+  geojson_geometry_type?: string;
 }
 
 // ── Execution types ────────────────────────────────────────────────
