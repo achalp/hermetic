@@ -15,6 +15,7 @@ import {
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { ConversationEntry, SchemaMode } from "@/lib/types";
 import { logger } from "@/lib/logger";
+import { getActiveProvider } from "@/lib/llm/client";
 
 export const maxDuration = 60;
 
@@ -36,12 +37,23 @@ export async function POST(request: Request) {
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const conversationHistory: ConversationEntry[] | undefined = context?.conversation_history;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";
+
+    // When Ollama or openai-compatible is active, skip Claude model ID validation
+    // since getModel() will use the Ollama/custom model directly
+    let skipModelValidation = false;
+    try {
+      const provider = getActiveProvider();
+      skipModelValidation = provider === "ollama" || provider === "openai-compatible";
+    } catch {
+      // No provider configured — will fail later in getModel()
+    }
+
     const codeGenModel: string =
-      context?.code_gen_model && isValidModelId(context.code_gen_model)
+      !skipModelValidation && context?.code_gen_model && isValidModelId(context.code_gen_model)
         ? context.code_gen_model
         : CODE_GEN_MODEL;
     const uiComposeModel: string =
-      context?.ui_compose_model && isValidModelId(context.ui_compose_model)
+      !skipModelValidation && context?.ui_compose_model && isValidModelId(context.ui_compose_model)
         ? context.ui_compose_model
         : UI_COMPOSE_MODEL;
     const sandboxRuntime: SandboxRuntimeId =

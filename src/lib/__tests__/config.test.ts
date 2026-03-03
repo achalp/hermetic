@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+// Mock runtime-config so tests don't read from disk (data/runtime-config.json)
+vi.mock("@/lib/runtime-config", () => ({
+  getRuntimeConfig: () => ({}),
+  clearRuntimeConfigCache: () => {},
+}));
+
 // Must reset module between tests since config caches
 beforeEach(() => {
   vi.resetModules();

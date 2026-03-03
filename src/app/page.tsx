@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { Spec } from "@json-render/react";
 import { CSVUploadPanel } from "@/components/app/csv-upload-panel";
 import { SheetPicker } from "@/components/app/sheet-picker";
@@ -50,6 +50,18 @@ export default function Home() {
     }
     return DEFAULT_SANDBOX_RUNTIME;
   });
+  const [ollamaModel, setOllamaModel] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/ollama/config")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ollama?.enabled && data.ollama?.activeModel) {
+          setOllamaModel(data.ollama.activeModel);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
     setSandboxRuntime(r);
@@ -129,6 +141,8 @@ export default function Home() {
                 onUiComposeModelChange={setUiComposeModel}
                 sandboxRuntime={sandboxRuntime}
                 onSandboxRuntimeChange={handleRuntimeChange}
+                ollamaModel={ollamaModel}
+                onOllamaModelChange={setOllamaModel}
               />
               <div
                 className="flex items-center gap-1.5 border border-border-default px-2 py-1"
