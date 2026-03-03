@@ -1,6 +1,6 @@
 # Hermetic
 
-Upload CSV or Excel files, ask questions in natural language, and get interactive dashboards — powered by Claude.
+Upload CSV or Excel files, ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or fully local models via Ollama — no API key required.
 
 ![Dashboard — stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
 ![Dashboard — box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
@@ -9,6 +9,8 @@ Upload CSV or Excel files, ask questions in natural language, and get interactiv
 
 - **Natural Language Queries** — Ask questions about your data and get visual answers
 - **Interactive Dashboards** — Auto-generated charts, tables, stat cards, and insights
+- **Multiple LLM Providers** — Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints
+- **Local Models via Ollama** — Run fully offline with Qwen, Llama, DeepSeek, or any Ollama-supported model — detect, pull, and activate models from the Settings UI
 - **10+ Chart Types** — Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick
 - **3D Visualizations** — Scatter3D, Surface3D, Globe, deck.gl maps
 - **Geographic Maps** — Pigeon-maps markers, deck.gl layers (hexagon, column, arc, heatmap)
@@ -17,7 +19,7 @@ Upload CSV or Excel files, ask questions in natural language, and get interactiv
 - **Export** — PDF, DOCX, PPTX, PNG, SVG
 - **Save & Reload** — Persist and reload visualizations
 - **Themes** — Vanilla, Stamen, Info is Beautiful, Pentagram (light + dark)
-- **Model Selection** — Choose Claude model for code generation and UI composition
+- **Model Selection** — Choose models for code generation and UI composition
 - **Sandbox Runtimes** — Docker (local), E2B (cloud), Microsandbox (MicroVM)
 
 ## Quick Start
@@ -44,7 +46,7 @@ The setup script checks prerequisites, installs dependencies, sets up your chose
    cp .env.example .env.local
    ```
 
-   Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration).
+   Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration). For local-only usage with Ollama, no `.env.local` changes are needed — configure it from the Settings UI instead.
 
 3. **Set up a sandbox runtime** (pick one):
 
@@ -119,9 +121,9 @@ src/
 ### How It Works
 
 1. **Upload** — CSV/Excel file is parsed, schema extracted, content stored in memory
-2. **Query** — User question + schema sent to Claude for Python code generation
+2. **Query** — User question + schema sent to your configured LLM for Python code generation
 3. **Execute** — Generated code runs in a sandboxed Python environment with pandas/numpy/matplotlib
-4. **Compose** — Execution results streamed to Claude for UI composition as JSON-Render spec
+4. **Compose** — Execution results streamed to the LLM for UI composition as JSON-Render spec
 5. **Render** — JSON-Render spec streamed to the browser and rendered as interactive React components
 
 ## Development
@@ -155,20 +157,40 @@ Set `SANDBOX_RUNTIME` in `.env.local` to switch runtimes. The startup script (`s
 
 ### LLM Provider
 
-Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from available credentials.
+Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from available credentials. Ollama can be enabled from the Settings UI without any environment variables.
 
-| Variable                 | Required                      | Default     | Description                                                                |
-| ------------------------ | ----------------------------- | ----------- | -------------------------------------------------------------------------- |
-| `LLM_PROVIDER`           | No                            | auto-detect | Force a provider: `anthropic`, `bedrock`, `vertex`, or `openai-compatible` |
-| `ANTHROPIC_API_KEY`      | If provider=anthropic         | —           | Anthropic API key                                                          |
-| `AWS_ACCESS_KEY_ID`      | If provider=bedrock           | —           | AWS access key (or use `AWS_PROFILE`)                                      |
-| `AWS_SECRET_ACCESS_KEY`  | If provider=bedrock           | —           | AWS secret key                                                             |
-| `AWS_REGION`             | No                            | `us-east-1` | AWS region for Bedrock                                                     |
-| `GOOGLE_VERTEX_PROJECT`  | If provider=vertex            | —           | GCP project ID                                                             |
-| `GOOGLE_VERTEX_LOCATION` | No                            | `us-east5`  | GCP region for Vertex AI                                                   |
-| `OPENAI_BASE_URL`        | If provider=openai-compatible | —           | OpenAI-compatible endpoint URL                                             |
-| `OPENAI_API_KEY`         | No                            | —           | API key for the endpoint (not needed for Ollama)                           |
-| `OPENAI_MODEL`           | If provider=openai-compatible | —           | Model name (e.g. `llama3.3`, `gpt-4o`)                                     |
+| Variable                 | Required                      | Default     | Description                                                                          |
+| ------------------------ | ----------------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `LLM_PROVIDER`           | No                            | auto-detect | Force a provider: `anthropic`, `bedrock`, `vertex`, `openai-compatible`, or `ollama` |
+| `ANTHROPIC_API_KEY`      | If provider=anthropic         | —           | Anthropic API key                                                                    |
+| `AWS_ACCESS_KEY_ID`      | If provider=bedrock           | —           | AWS access key (or use `AWS_PROFILE`)                                                |
+| `AWS_SECRET_ACCESS_KEY`  | If provider=bedrock           | —           | AWS secret key                                                                       |
+| `AWS_REGION`             | No                            | `us-east-1` | AWS region for Bedrock                                                               |
+| `GOOGLE_VERTEX_PROJECT`  | If provider=vertex            | —           | GCP project ID                                                                       |
+| `GOOGLE_VERTEX_LOCATION` | No                            | `us-east5`  | GCP region for Vertex AI                                                             |
+| `OPENAI_BASE_URL`        | If provider=openai-compatible | —           | OpenAI-compatible endpoint URL                                                       |
+| `OPENAI_API_KEY`         | No                            | —           | API key for the endpoint (not needed for Ollama)                                     |
+| `OPENAI_MODEL`           | If provider=openai-compatible | —           | Model name (e.g. `llama3.3`, `gpt-4o`)                                               |
+
+### Ollama (Local Models)
+
+No environment variables needed. Open **Settings > Local Models (Ollama)** to detect, pull, and activate models directly from the UI.
+
+1. Install Ollama: `brew install ollama` (macOS) or see [ollama.com](https://ollama.com)
+2. Start the server: `ollama serve`
+3. Open Settings in Hermetic and activate a model
+
+Recommended models for data analysis:
+
+| Model                   | RAM    | Notes                             |
+| ----------------------- | ------ | --------------------------------- |
+| `qwen2.5-coder:14b`     | 16 GB+ | Best balance of quality and speed |
+| `qwen2.5-coder:7b`      | 8 GB+  | Good for smaller machines         |
+| `qwen2.5-coder:32b`     | 32 GB+ | Highest quality                   |
+| `deepseek-coder-v2:16b` | 16 GB+ | Strong code and analysis          |
+| `llama3.3:latest`       | 16 GB+ | General purpose                   |
+
+When Ollama is activated in Settings, it takes priority over cloud providers. Deactivate it from Settings to switch back.
 
 ### Sandbox Runtime
 
@@ -183,7 +205,7 @@ Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from a
 ## Tech Stack
 
 - [Next.js 16](https://nextjs.org/) — React framework
-- [Claude](https://docs.anthropic.com/) — LLM for code generation and UI composition
+- [Vercel AI SDK](https://sdk.vercel.ai/) — Multi-provider LLM integration (Anthropic, Bedrock, Vertex, OpenAI-compatible, Ollama)
 - [JSON-Render](https://json-render.com/) — Streaming UI rendering from JSON specs
 - [Nivo](https://nivo.rocks/) — Declarative chart components
 - [Plotly.js](https://plotly.com/javascript/) — 3D charts and advanced visualizations
