@@ -36,7 +36,11 @@ function run(
   });
 }
 
-export async function executeSandbox(csvContent: string, code: string): Promise<ExecutionResult> {
+export async function executeSandbox(
+  csvContent: string,
+  code: string,
+  geojsonContent?: string | null
+): Promise<ExecutionResult> {
   const start = Date.now();
   const id = `gen-ui-sandbox-${randomUUID()}`;
 
@@ -51,6 +55,14 @@ export async function executeSandbox(csvContent: string, code: string): Promise<
       input: csvContent,
       timeoutMs: 15_000,
     });
+
+    // 2b. Write GeoJSON via stdin (if provided)
+    if (geojsonContent) {
+      await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/input.geojson"], {
+        input: geojsonContent,
+        timeoutMs: 15_000,
+      });
+    }
 
     // 3. Write script via stdin
     await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/script.py"], {

@@ -96,7 +96,11 @@ export async function warmupSandbox(): Promise<void> {
   await getOrCreateSandbox();
 }
 
-export async function executeSandbox(csvContent: string, code: string): Promise<ExecutionResult> {
+export async function executeSandbox(
+  csvContent: string,
+  code: string,
+  geojsonContent?: string | null
+): Promise<ExecutionResult> {
   const start = Date.now();
   // Per-query working directory for isolation
   const queryId = randomUUID().slice(0, 8);
@@ -143,6 +147,40 @@ export async function executeSandbox(csvContent: string, code: string): Promise<
           error: `Failed to write CSV chunk: ${await appendExec.error()}`,
           execution_ms: Date.now() - start,
         };
+      }
+    }
+
+    // Write GeoJSON file (if provided)
+    if (geojsonContent) {
+      const geoBuf = Buffer.from(geojsonContent);
+      const geoFirstChunk = geoBuf.subarray(0, CHUNK_SIZE).toString("base64");
+      const geoInitExec = await sandbox.run(
+        `import base64, pathlib\n` +
+          `pathlib.Path("${workDir}/input.geojson").write_bytes(base64.b64decode(${JSON.stringify(geoFirstChunk)}))`,
+        { timeout: 15 }
+      );
+      if (geoInitExec.hasError()) {
+        return {
+          success: false,
+          error: `Failed to write GeoJSON: ${await geoInitExec.error()}`,
+          execution_ms: Date.now() - start,
+        };
+      }
+      for (let offset = CHUNK_SIZE; offset < geoBuf.length; offset += CHUNK_SIZE) {
+        const chunk = geoBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
+        const appendExec = await sandbox.run(
+          `import base64\n` +
+            `with open("${workDir}/input.geojson", "ab") as f:\n` +
+            `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
+          { timeout: 15 }
+        );
+        if (appendExec.hasError()) {
+          return {
+            success: false,
+            error: `Failed to write GeoJSON chunk: ${await appendExec.error()}`,
+            execution_ms: Date.now() - start,
+          };
+        }
       }
     }
 

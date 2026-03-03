@@ -26,6 +26,10 @@ interface MapViewProps {
   center?: [number, number] | null;
   zoom?: number | null;
   height?: number | null;
+  /** Feature property name to color by for choropleth maps */
+  color_key?: string | null;
+  /** Gradient endpoints [low_color, high_color] for choropleth */
+  color_scale?: [string, string] | null;
 }
 
 interface EventHandle {
@@ -95,6 +99,31 @@ function computeBounds(
   return { center: [centerLat, centerLng], zoom: clampedZoom };
 }
 
+/** Parse a hex color (#rrggbb or #rgb) to [r, g, b] */
+function parseHex(hex: string): [number, number, number] {
+  let h = hex.replace("#", "");
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+/** Linearly interpolate between two hex colors at t ∈ [0, 1] */
+function lerpColor(c1: [number, number, number], c2: [number, number, number], t: number): string {
+  const r = Math.round(c1[0] + (c2[0] - c1[0]) * t);
+  const g = Math.round(c1[1] + (c2[1] - c1[1]) * t);
+  const b = Math.round(c1[2] + (c2[2] - c1[2]) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+/** Darken an rgb(...) color by 30% for stroke */
+function darkenRgb(rgb: string): string {
+  const match = rgb.match(/rgb\((\d+),(\d+),(\d+)\)/);
+  if (!match) return rgb;
+  const r = Math.round(Number(match[1]) * 0.7);
+  const g = Math.round(Number(match[2]) * 0.7);
+  const b = Math.round(Number(match[3]) * 0.7);
+  return `rgb(${r},${g},${b})`;
+}
+
 export function MapViewComponent({
   props,
   emit,
@@ -117,6 +146,27 @@ export function MapViewComponent({
     () => computeBounds(props.markers, props.geojson),
     [props.markers, props.geojson]
   );
+
+  // Pre-compute min/max for choropleth color_key
+  const colorRange = useMemo(() => {
+    if (!props.color_key || !props.geojson) return null;
+    const features = (props.geojson as { features?: unknown[] })?.features;
+    if (!Array.isArray(features)) return null;
+
+    let min = Infinity;
+    let max = -Infinity;
+    for (const f of features) {
+      const feat = f as { properties?: Record<string, unknown> };
+      const val = Number(feat?.properties?.[props.color_key!]);
+      if (!isNaN(val)) {
+        if (val < min) min = val;
+        if (val > max) max = val;
+      }
+    }
+    if (!isFinite(min) || !isFinite(max)) return null;
+    const scale = props.color_scale ?? ["#fee0d2", "#de2d26"];
+    return { min, max, low: parseHex(scale[0]), high: parseHex(scale[1]) };
+  }, [props.color_key, props.geojson, props.color_scale]);
 
   const center: [number, number] = props.center ?? bounds.center;
   const zoom = props.zoom ?? bounds.zoom;
@@ -147,12 +197,30 @@ export function MapViewComponent({
           {props.geojson && (
             <GeoJson
               data={props.geojson}
-              styleCallback={() => ({
-                fill: props.geojson_style?.fill ?? chartColors[0] + "4D",
-                stroke: props.geojson_style?.stroke ?? chartColors[0],
-                strokeWidth: props.geojson_style?.strokeWidth ?? 2,
-                fillOpacity: props.geojson_style?.fillOpacity ?? 0.3,
-              })}
+              styleCallback={(feature: { properties?: Record<string, unknown> } | undefined) => {
+                // Choropleth mode: color features by a numeric property
+                if (colorRange && props.color_key && feature?.properties) {
+                  const val = Number(feature.properties[props.color_key]);
+                  if (!isNaN(val)) {
+                    const span = colorRange.max - colorRange.min;
+                    const t = span > 0 ? (val - colorRange.min) / span : 0.5;
+                    const fill = lerpColor(colorRange.low, colorRange.high, t);
+                    return {
+                      fill,
+                      stroke: darkenRgb(fill),
+                      strokeWidth: 1,
+                      fillOpacity: 0.7,
+                    };
+                  }
+                }
+                // Default uniform styling
+                return {
+                  fill: props.geojson_style?.fill ?? chartColors[0] + "4D",
+                  stroke: props.geojson_style?.stroke ?? chartColors[0],
+                  strokeWidth: props.geojson_style?.strokeWidth ?? 2,
+                  fillOpacity: props.geojson_style?.fillOpacity ?? 0.3,
+                };
+              }}
             />
           )}
 

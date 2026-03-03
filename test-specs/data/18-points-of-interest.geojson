@@ -1,0 +1,293 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Central Park Zoo",
+        "category": "Attraction",
+        "subcategory": "Zoo",
+        "rating": 4.5,
+        "review_count": 12840,
+        "avg_visit_duration_min": 120,
+        "annual_visitors": 1250000,
+        "price_usd": 19.95,
+        "accessibility_score": 8,
+        "year_established": 1864
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9712, 40.7678] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Empire State Building",
+        "category": "Attraction",
+        "subcategory": "Observation Deck",
+        "rating": 4.7,
+        "review_count": 45210,
+        "avg_visit_duration_min": 90,
+        "annual_visitors": 2500000,
+        "price_usd": 42.00,
+        "accessibility_score": 9,
+        "year_established": 1931
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9857, 40.7484] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Metropolitan Museum of Art",
+        "category": "Museum",
+        "subcategory": "Art Museum",
+        "rating": 4.8,
+        "review_count": 62500,
+        "avg_visit_duration_min": 180,
+        "annual_visitors": 5400000,
+        "price_usd": 25.00,
+        "accessibility_score": 9,
+        "year_established": 1870
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9632, 40.7794] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Joe's Pizza",
+        "category": "Restaurant",
+        "subcategory": "Pizza",
+        "rating": 4.4,
+        "review_count": 8920,
+        "avg_visit_duration_min": 20,
+        "annual_visitors": 730000,
+        "price_usd": 3.50,
+        "accessibility_score": 6,
+        "year_established": 1975
+      },
+      "geometry": { "type": "Point", "coordinates": [-74.0003, 40.7306] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Brooklyn Bridge",
+        "category": "Attraction",
+        "subcategory": "Landmark",
+        "rating": 4.8,
+        "review_count": 38400,
+        "avg_visit_duration_min": 60,
+        "annual_visitors": 4100000,
+        "price_usd": 0,
+        "accessibility_score": 7,
+        "year_established": 1883
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9969, 40.7061] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Di Fara Pizza",
+        "category": "Restaurant",
+        "subcategory": "Pizza",
+        "rating": 4.3,
+        "review_count": 5640,
+        "avg_visit_duration_min": 45,
+        "annual_visitors": 320000,
+        "price_usd": 5.00,
+        "accessibility_score": 5,
+        "year_established": 1965
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9613, 40.6250] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "MoMA",
+        "category": "Museum",
+        "subcategory": "Art Museum",
+        "rating": 4.6,
+        "review_count": 41300,
+        "avg_visit_duration_min": 150,
+        "annual_visitors": 2800000,
+        "price_usd": 25.00,
+        "accessibility_score": 10,
+        "year_established": 1929
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9776, 40.7614] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Shake Shack (Madison Sq)",
+        "category": "Restaurant",
+        "subcategory": "Burgers",
+        "rating": 4.2,
+        "review_count": 14200,
+        "avg_visit_duration_min": 30,
+        "annual_visitors": 850000,
+        "price_usd": 8.50,
+        "accessibility_score": 7,
+        "year_established": 2004
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9882, 40.7415] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Natural History Museum",
+        "category": "Museum",
+        "subcategory": "Natural History",
+        "rating": 4.7,
+        "review_count": 52100,
+        "avg_visit_duration_min": 180,
+        "annual_visitors": 4200000,
+        "price_usd": 23.00,
+        "accessibility_score": 9,
+        "year_established": 1869
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9740, 40.7813] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Statue of Liberty",
+        "category": "Attraction",
+        "subcategory": "Landmark",
+        "rating": 4.7,
+        "review_count": 71200,
+        "avg_visit_duration_min": 240,
+        "annual_visitors": 4200000,
+        "price_usd": 24.00,
+        "accessibility_score": 6,
+        "year_established": 1886
+      },
+      "geometry": { "type": "Point", "coordinates": [-74.0445, 40.6892] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "The Halal Guys",
+        "category": "Restaurant",
+        "subcategory": "Street Food",
+        "rating": 4.1,
+        "review_count": 9800,
+        "avg_visit_duration_min": 15,
+        "annual_visitors": 620000,
+        "price_usd": 8.00,
+        "accessibility_score": 4,
+        "year_established": 1990
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9795, 40.7617] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Whitney Museum",
+        "category": "Museum",
+        "subcategory": "Art Museum",
+        "rating": 4.5,
+        "review_count": 18700,
+        "avg_visit_duration_min": 120,
+        "annual_visitors": 1300000,
+        "price_usd": 25.00,
+        "accessibility_score": 10,
+        "year_established": 1931
+      },
+      "geometry": { "type": "Point", "coordinates": [-74.0089, 40.7396] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Top of the Rock",
+        "category": "Attraction",
+        "subcategory": "Observation Deck",
+        "rating": 4.7,
+        "review_count": 29800,
+        "avg_visit_duration_min": 75,
+        "annual_visitors": 3200000,
+        "price_usd": 40.00,
+        "accessibility_score": 9,
+        "year_established": 2005
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9787, 40.7593] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Peter Luger Steak House",
+        "category": "Restaurant",
+        "subcategory": "Steakhouse",
+        "rating": 4.3,
+        "review_count": 11500,
+        "avg_visit_duration_min": 90,
+        "annual_visitors": 280000,
+        "price_usd": 55.00,
+        "accessibility_score": 6,
+        "year_established": 1887
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9625, 40.7098] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Intrepid Museum",
+        "category": "Museum",
+        "subcategory": "Military History",
+        "rating": 4.6,
+        "review_count": 16400,
+        "avg_visit_duration_min": 150,
+        "annual_visitors": 1100000,
+        "price_usd": 33.00,
+        "accessibility_score": 8,
+        "year_established": 1982
+      },
+      "geometry": { "type": "Point", "coordinates": [-74.0005, 40.7645] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Katz's Delicatessen",
+        "category": "Restaurant",
+        "subcategory": "Deli",
+        "rating": 4.4,
+        "review_count": 22100,
+        "avg_visit_duration_min": 45,
+        "annual_visitors": 510000,
+        "price_usd": 24.00,
+        "accessibility_score": 5,
+        "year_established": 1888
+      },
+      "geometry": { "type": "Point", "coordinates": [-73.9874, 40.7223] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "High Line",
+        "category": "Attraction",
+        "subcategory": "Park",
+        "rating": 4.7,
+        "review_count": 34600,
+        "avg_visit_duration_min": 60,
+        "annual_visitors": 7600000,
+        "price_usd": 0,
+        "accessibility_score": 8,
+        "year_established": 2009
+      },
+      "geometry": { "type": "Point", "coordinates": [-74.0049, 40.7480] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "One World Observatory",
+        "category": "Attraction",
+        "subcategory": "Observation Deck",
+        "rating": 4.6,
+        "review_count": 21800,
+        "avg_visit_duration_min": 90,
+        "annual_visitors": 3300000,
+        "price_usd": 38.00,
+        "accessibility_score": 10,
+        "year_established": 2015
+      },
+      "geometry": { "type": "Point", "coordinates": [-74.0133, 40.7127] }
+    }
+  ]
+}

@@ -1,0 +1,197 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "California",
+        "abbreviation": "CA",
+        "population": 39538223,
+        "area_sq_mi": 163696,
+        "median_income": 78672,
+        "unemployment_rate": 7.3,
+        "region": "West"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-124.41, 42.01], [-114.13, 42.01], [-114.63, 35.0], [-117.16, 32.54], [-120.0, 34.0], [-122.38, 37.79], [-124.21, 41.75], [-124.41, 42.01]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Texas",
+        "abbreviation": "TX",
+        "population": 29145505,
+        "area_sq_mi": 268596,
+        "median_income": 63826,
+        "unemployment_rate": 6.7,
+        "region": "South"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-106.63, 31.87], [-103.0, 31.87], [-103.0, 36.5], [-100.0, 36.5], [-94.48, 33.64], [-93.82, 29.77], [-97.14, 25.97], [-99.17, 26.4], [-106.63, 31.87]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Florida",
+        "abbreviation": "FL",
+        "population": 21538187,
+        "area_sq_mi": 65758,
+        "median_income": 55660,
+        "unemployment_rate": 6.1,
+        "region": "South"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-87.63, 30.99], [-82.0, 30.99], [-82.0, 29.0], [-80.03, 25.0], [-81.81, 24.55], [-87.63, 30.38], [-87.63, 30.99]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "New York",
+        "abbreviation": "NY",
+        "population": 20201249,
+        "area_sq_mi": 54555,
+        "median_income": 71117,
+        "unemployment_rate": 8.5,
+        "region": "Northeast"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-79.76, 42.27], [-75.0, 42.0], [-73.73, 41.1], [-73.73, 40.65], [-74.01, 40.71], [-76.1, 42.41], [-79.76, 42.27]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pennsylvania",
+        "abbreviation": "PA",
+        "population": 13002700,
+        "area_sq_mi": 46054,
+        "median_income": 63627,
+        "unemployment_rate": 7.4,
+        "region": "Northeast"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-80.52, 42.0], [-75.0, 42.0], [-74.7, 41.36], [-75.12, 39.95], [-80.52, 39.72], [-80.52, 42.0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Illinois",
+        "abbreviation": "IL",
+        "population": 12812508,
+        "area_sq_mi": 57914,
+        "median_income": 68428,
+        "unemployment_rate": 7.1,
+        "region": "Midwest"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-91.5, 42.51], [-87.52, 42.49], [-87.53, 41.76], [-87.62, 38.2], [-89.17, 36.98], [-90.64, 38.09], [-91.5, 42.51]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ohio",
+        "abbreviation": "OH",
+        "population": 11799448,
+        "area_sq_mi": 44826,
+        "median_income": 56602,
+        "unemployment_rate": 5.6,
+        "region": "Midwest"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-84.82, 41.69], [-80.52, 41.98], [-80.52, 39.72], [-84.82, 38.4], [-84.82, 41.69]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Georgia",
+        "abbreviation": "GA",
+        "population": 10711908,
+        "area_sq_mi": 59425,
+        "median_income": 58700,
+        "unemployment_rate": 5.4,
+        "region": "South"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-85.61, 34.98], [-83.11, 35.0], [-83.32, 34.79], [-80.84, 32.16], [-81.0, 31.0], [-85.0, 31.0], [-85.61, 34.98]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "North Carolina",
+        "abbreviation": "NC",
+        "population": 10439388,
+        "area_sq_mi": 53819,
+        "median_income": 54602,
+        "unemployment_rate": 6.5,
+        "region": "South"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-84.32, 35.23], [-80.78, 36.56], [-75.72, 36.1], [-75.53, 34.0], [-78.55, 33.86], [-84.32, 35.23]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Michigan",
+        "abbreviation": "MI",
+        "population": 10077331,
+        "area_sq_mi": 96714,
+        "median_income": 57144,
+        "unemployment_rate": 9.0,
+        "region": "Midwest"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-86.82, 41.76], [-82.41, 41.68], [-83.45, 42.08], [-82.12, 43.59], [-84.37, 46.5], [-87.62, 45.1], [-86.82, 41.76]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Washington",
+        "abbreviation": "WA",
+        "population": 7614893,
+        "area_sq_mi": 71298,
+        "median_income": 77006,
+        "unemployment_rate": 5.8,
+        "region": "West"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-124.73, 48.4], [-117.03, 49.0], [-117.03, 46.0], [-122.76, 45.66], [-124.08, 46.27], [-124.73, 48.4]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Colorado",
+        "abbreviation": "CO",
+        "population": 5773714,
+        "area_sq_mi": 104094,
+        "median_income": 75231,
+        "unemployment_rate": 6.4,
+        "region": "West"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-109.05, 41.0], [-102.05, 41.0], [-102.05, 37.0], [-109.05, 37.0], [-109.05, 41.0]]]
+      }
+    }
+  ]
+}

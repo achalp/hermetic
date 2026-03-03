@@ -86,7 +86,7 @@ export function CSVUploadPanel({ onUpload, onExcelSheets, disabled }: CSVUploadP
       onClick={() => fileInputRef.current?.click()}
       role="button"
       tabIndex={0}
-      aria-label="Upload CSV or Excel file — drag and drop or click to browse"
+      aria-label="Upload CSV, Excel, or GeoJSON file — drag and drop or click to browse"
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -97,10 +97,10 @@ export function CSVUploadPanel({ onUpload, onExcelSheets, disabled }: CSVUploadP
       <input
         ref={fileInputRef}
         type="file"
-        accept=".csv,.xlsx"
+        accept=".csv,.xlsx,.geojson,.json"
         className="hidden"
         onChange={handleFileSelect}
-        aria-label="Select CSV or Excel file"
+        aria-label="Select CSV, Excel, or GeoJSON file"
       />
       <svg
         className="mb-3 h-10 w-10 text-t-tertiary"
@@ -121,7 +121,7 @@ export function CSVUploadPanel({ onUpload, onExcelSheets, disabled }: CSVUploadP
       ) : (
         <>
           <p className="text-sm font-medium text-t-secondary">
-            Drop your CSV or Excel file here, or click to browse
+            Drop your CSV, Excel, or GeoJSON file here, or click to browse
           </p>
           <p className="mt-1 text-xs text-t-tertiary">Max 100MB</p>
         </>

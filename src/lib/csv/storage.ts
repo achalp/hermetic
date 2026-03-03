@@ -36,6 +36,8 @@ export function getStoredCSV(csvId: string): StoredCSV | undefined {
   if (Date.now() - entry.createdAt > CSV_TTL_MS) {
     store.delete(csvId);
     unlink(entry.filePath).catch(() => {});
+    // Also clean up sidecar GeoJSON file if present
+    unlink(join(CSV_DIR, `${csvId}.geojson`)).catch(() => {});
     return undefined;
   }
   return entry;
@@ -48,6 +50,20 @@ export async function getCSVContent(csvId: string): Promise<string | null> {
     return await readFile(entry.filePath, "utf-8");
   } catch {
     store.delete(csvId);
+    return null;
+  }
+}
+
+export async function storeGeoJSON(csvId: string, geojsonText: string): Promise<void> {
+  await ensureDir();
+  const filePath = join(CSV_DIR, `${csvId}.geojson`);
+  await writeFile(filePath, geojsonText, "utf-8");
+}
+
+export async function getGeoJSONContent(csvId: string): Promise<string | null> {
+  try {
+    return await readFile(join(CSV_DIR, `${csvId}.geojson`), "utf-8");
+  } catch {
     return null;
   }
 }

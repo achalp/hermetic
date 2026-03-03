@@ -282,3 +282,108 @@ The prompts are designed to exercise different chart types — including the 20 
 ### Prompt 14c — Head-to-head chord + radar
 
 > Build a chord diagram where the matrix represents goals scored between teams (team[i] → team[j] = goals i scored against j). Add a radar chart comparing Arsenal, Man City, and Liverpool across: goals scored, possession, shots on target, clean sheets, and xG.
+
+---
+
+## 15 — US States Population (`15-us-states-population.geojson`) 🗺️
+
+**Domain:** Demographics / choropleth mapping
+**Format:** GeoJSON (Polygon)
+**Features:** 12 · **Properties:** 7
+**Target charts:** MapView (choropleth), BarChart, StatCard, ScatterChart
+
+### Prompt 15a — Population choropleth
+
+> Show a choropleth map of states colored by population. Include stat cards for total population across all states, most populous state, and average median income.
+
+### Prompt 15b — Income vs unemployment scatter
+
+> Create a scatter plot of median income vs unemployment rate with points labeled by state abbreviation. Add a bar chart of population by region (West, South, Northeast, Midwest). Which region has the highest total population?
+
+### Prompt 15c — Population density analysis
+
+> Calculate population density (population / area) for each state. Show a choropleth map colored by density, a bar chart of density by state sorted descending, and stat cards for the densest and least dense states. Is there a pattern between density and median income?
+
+---
+
+## 16 — City Zones (`16-city-zones.geojson`) 🗺️
+
+**Domain:** Urban planning / real estate
+**Format:** GeoJSON (Polygon)
+**Features:** 10 · **Properties:** 10
+**Target charts:** MapView (choropleth), RadarChart, ScatterChart, BarChart, HeatMap
+
+### Prompt 16a — Rent choropleth with stats
+
+> Show a choropleth map of zones colored by average rent per sqft. Include stat cards for the most expensive zone, the cheapest zone, and average rent across all zones. Add a bar chart of rent by zone sorted descending.
+
+### Prompt 16b — Zone comparison radar
+
+> Create a radar chart comparing Commercial vs Residential vs Mixed Use zone types across: population density, transit score, crime index, green space %, and avg rent. Which zone type is the most livable?
+
+### Prompt 16c — Livability analysis
+
+> Build a scatter plot of transit score vs crime index, with point size proportional to population density and color by zone type. Add a choropleth map colored by green space percentage. Show a heatmap/correlation matrix of all numeric properties. Which zones balance accessibility and safety best?
+
+---
+
+## 17 — Delivery Routes (`17-delivery-routes.geojson`) 🗺️
+
+**Domain:** Last-mile logistics
+**Format:** GeoJSON (LineString)
+**Features:** 12 · **Properties:** 12
+**Target charts:** MapView, BarChart, ScatterChart, StatCard, DumbbellChart
+
+### Prompt 17a — Route map with performance
+
+> Show all delivery routes on a map. Include stat cards for total packages delivered, overall on-time percentage, and total fuel cost. Add a bar chart of packages delivered per route.
+
+### Prompt 17b — Vehicle type efficiency
+
+> Compare vehicle types (Van, Bike, Truck) across: average on-time %, average fuel cost, average delivery time per stop. Show a bar chart of each metric. Which vehicle type is the most cost-effective per package?
+
+### Prompt 17c — Driver performance deep dive
+
+> Build a scatter plot of distance vs on-time percentage, colored by driver. Add a dumbbell chart comparing packages delivered vs total stops per route (to show completion rate). Show stat cards for the best-performing driver by on-time rate and the driver with the most deliveries. Which routes need improvement?
+
+---
+
+## 18 — Points of Interest (`18-points-of-interest.geojson`) 🗺️
+
+**Domain:** Tourism / city guide
+**Format:** GeoJSON (Point)
+**Features:** 18 · **Properties:** 10
+**Target charts:** MapView, BarChart, ScatterChart, PieChart, BoxPlot
+
+### Prompt 18a — POI map with categories
+
+> Plot all points of interest on a map with markers colored by category (Attraction, Museum, Restaurant). Show a pie chart of POI count by category and stat cards for average rating, total annual visitors, and number of free attractions.
+
+### Prompt 18b — Price vs popularity scatter
+
+> Create a scatter plot of price vs annual visitors, with point size proportional to review count and color by category. Label the top-5 most visited. Are expensive attractions also the most popular?
+
+### Prompt 18c — Category comparison dashboard
+
+> Show box plots of rating by category. Add a bar chart of average visit duration by subcategory sorted descending. Create a scatter plot of year established vs annual visitors — do older landmarks attract more visitors? Include stat cards for the highest-rated POI and the POI with the most reviews.
+
+---
+
+## 19 — Park Boundaries (`19-park-boundaries.geojson`) 🗺️
+
+**Domain:** Parks & recreation / environmental
+**Format:** GeoJSON (Polygon)
+**Features:** 10 · **Properties:** 10
+**Target charts:** MapView (choropleth), BarChart, ScatterChart, TreemapChart, StatCard
+
+### Prompt 19a — Park map with budget choropleth
+
+> Show a choropleth map of parks colored by maintenance budget. Include stat cards for total acreage, total trees, and average safety rating. Add a bar chart of annual visitors by park.
+
+### Prompt 19b — Size vs visitors scatter
+
+> Create a scatter plot of acreage vs annual visitors (millions), with points labeled by park name and colored by borough. Is there a relationship between park size and visitor count? Add stat cards for the largest park and the most visited park.
+
+### Prompt 19c — Borough comparison treemap
+
+> Build a treemap of total acreage by borough, with individual parks as leaves. Add a bar chart comparing average maintenance budget per acre across boroughs. Which borough invests the most per acre? Show a scatter plot of trees per acre vs safety rating — do greener parks feel safer?

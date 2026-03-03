@@ -3,7 +3,11 @@ import type { ExecutionResult } from "@/lib/types";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
-export async function executeSandbox(csvContent: string, code: string): Promise<ExecutionResult> {
+export async function executeSandbox(
+  csvContent: string,
+  code: string,
+  geojsonContent?: string | null
+): Promise<ExecutionResult> {
   const start = Date.now();
   let sandbox: Sandbox | null = null;
 
@@ -15,6 +19,9 @@ export async function executeSandbox(csvContent: string, code: string): Promise<
 
     // Upload CSV and Python script to sandbox
     await sandbox.files.write("/data/input.csv", csvContent);
+    if (geojsonContent) {
+      await sandbox.files.write("/data/input.geojson", geojsonContent);
+    }
     await sandbox.files.write("/data/script.py", code);
 
     // Use shell redirection to capture stdout to a file at the OS level.

@@ -132,6 +132,12 @@ Rules:
 - For stream charts (StreamChart): return rows where each row has a value for each category key, under chart_data.
 - For marimekko charts (MarimekkoChart): return rows with id_key, value_key, and dimension value columns under chart_data.
 - Use matplotlib/seaborn ONLY for truly custom visualizations that cannot be expressed with the above chart types. Save as base64 PNG. The UI has native support for: bar, line, area, pie, scatter, histogram, box, violin, heatmap, radar, bump, chord, sankey, treemap, sunburst, marimekko, calendar, stream, waterfall, ridgeline, dumbbell, slope, beeswarm, SHAP beeswarm, confusion matrix, ROC curve, parallel coordinates, bullet, decision tree, candlestick, 3D scatter, 3D surface, globe, and map.
+- When the schema indicates has_geojson=true, a GeoJSON file is available at "/data/input.geojson".
+  Read it with: \`import json; geojson = json.load(open("/data/input.geojson"))\`.
+  The CSV at "/data/input.csv" contains the flattened feature properties.
+  For map visualizations, include the relevant GeoJSON under chart_data (e.g., chart_data["geojson"] = geojson).
+  You can filter features, add properties, or transform the GeoJSON as needed.
+  Do NOT use geopandas — it is not available.
 - Always handle missing values gracefully.
 - Do NOT use print() at all. Write the final JSON output to "/data/output.json" using: json.dump(output, open("/data/output.json", "w"), default=str, allow_nan=False). Replace NaN/None values in DataFrames before serialization: df = df.fillna("") or df = df.where(df.notna(), None).
 - Do not install packages. Available: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn.
@@ -292,13 +298,19 @@ export function buildCodeGenUserPrompt(
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
+  const geojsonSection = schema.has_geojson
+    ? `\n## GeoJSON Source
+This data was uploaded as a GeoJSON file. Geometry type: ${schema.geojson_geometry_type ?? "unknown"}.
+A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\n`
+    : "";
+
   return `## CSV Schema
 Filename: ${schema.filename}
 Rows: ${schema.row_count}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-
+${geojsonSection}
 ## Question
 ${question}`;
 }
@@ -324,13 +336,19 @@ The current question may be a follow-up. Consider previous questions for context
 `
       : "";
 
+  const geojsonSection = schema.has_geojson
+    ? `\n## GeoJSON Source
+This data was uploaded as a GeoJSON file. Geometry type: ${schema.geojson_geometry_type ?? "unknown"}.
+A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\n`
+    : "";
+
   return `${historySection}## CSV Schema
 Filename: ${schema.filename}
 Rows: ${schema.row_count}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-
+${geojsonSection}
 ## Question
 ${question}`;
 }

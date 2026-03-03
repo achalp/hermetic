@@ -1,0 +1,195 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-001",
+        "zone_name": "Downtown Core",
+        "zone_type": "Commercial",
+        "population_density": 28500,
+        "avg_rent_sqft": 4.85,
+        "transit_score": 95,
+        "crime_index": 72,
+        "green_space_pct": 5.2,
+        "avg_commute_min": 18,
+        "noise_level_db": 78
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.99, 40.75], [-73.97, 40.75], [-73.97, 40.77], [-73.99, 40.77], [-73.99, 40.75]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-002",
+        "zone_name": "Midtown East",
+        "zone_type": "Mixed Use",
+        "population_density": 22100,
+        "avg_rent_sqft": 3.95,
+        "transit_score": 88,
+        "crime_index": 45,
+        "green_space_pct": 8.1,
+        "avg_commute_min": 24,
+        "noise_level_db": 68
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.97, 40.75], [-73.95, 40.75], [-73.95, 40.77], [-73.97, 40.77], [-73.97, 40.75]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-003",
+        "zone_name": "Upper West",
+        "zone_type": "Residential",
+        "population_density": 31200,
+        "avg_rent_sqft": 3.40,
+        "transit_score": 82,
+        "crime_index": 38,
+        "green_space_pct": 15.3,
+        "avg_commute_min": 32,
+        "noise_level_db": 58
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.99, 40.77], [-73.97, 40.77], [-73.97, 40.80], [-73.99, 40.80], [-73.99, 40.77]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-004",
+        "zone_name": "East Village",
+        "zone_type": "Mixed Use",
+        "population_density": 26800,
+        "avg_rent_sqft": 3.10,
+        "transit_score": 91,
+        "crime_index": 52,
+        "green_space_pct": 6.7,
+        "avg_commute_min": 22,
+        "noise_level_db": 72
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.99, 40.72], [-73.97, 40.72], [-73.97, 40.74], [-73.99, 40.74], [-73.99, 40.72]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-005",
+        "zone_name": "Greenpoint",
+        "zone_type": "Residential",
+        "population_density": 18400,
+        "avg_rent_sqft": 2.65,
+        "transit_score": 72,
+        "crime_index": 30,
+        "green_space_pct": 12.4,
+        "avg_commute_min": 38,
+        "noise_level_db": 55
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.96, 40.72], [-73.94, 40.72], [-73.94, 40.74], [-73.96, 40.74], [-73.96, 40.72]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-006",
+        "zone_name": "Williamsburg",
+        "zone_type": "Mixed Use",
+        "population_density": 24300,
+        "avg_rent_sqft": 3.25,
+        "transit_score": 78,
+        "crime_index": 41,
+        "green_space_pct": 9.0,
+        "avg_commute_min": 30,
+        "noise_level_db": 65
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.96, 40.70], [-73.94, 40.70], [-73.94, 40.72], [-73.96, 40.72], [-73.96, 40.70]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-007",
+        "zone_name": "Financial District",
+        "zone_type": "Commercial",
+        "population_density": 14200,
+        "avg_rent_sqft": 5.10,
+        "transit_score": 97,
+        "crime_index": 55,
+        "green_space_pct": 3.8,
+        "avg_commute_min": 15,
+        "noise_level_db": 75
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-74.02, 40.70], [-74.00, 40.70], [-74.00, 40.72], [-74.02, 40.72], [-74.02, 40.70]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-008",
+        "zone_name": "Harlem",
+        "zone_type": "Residential",
+        "population_density": 20900,
+        "avg_rent_sqft": 2.15,
+        "transit_score": 85,
+        "crime_index": 68,
+        "green_space_pct": 11.2,
+        "avg_commute_min": 35,
+        "noise_level_db": 62
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.96, 40.80], [-73.93, 40.80], [-73.93, 40.82], [-73.96, 40.82], [-73.96, 40.80]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-009",
+        "zone_name": "Chelsea",
+        "zone_type": "Mixed Use",
+        "population_density": 25600,
+        "avg_rent_sqft": 3.70,
+        "transit_score": 90,
+        "crime_index": 42,
+        "green_space_pct": 7.5,
+        "avg_commute_min": 20,
+        "noise_level_db": 67
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-74.01, 40.74], [-73.99, 40.74], [-73.99, 40.75], [-74.01, 40.75], [-74.01, 40.74]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z-010",
+        "zone_name": "Park Slope",
+        "zone_type": "Residential",
+        "population_density": 19800,
+        "avg_rent_sqft": 2.90,
+        "transit_score": 76,
+        "crime_index": 25,
+        "green_space_pct": 18.6,
+        "avg_commute_min": 34,
+        "noise_level_db": 52
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.99, 40.67], [-73.97, 40.67], [-73.97, 40.69], [-73.99, 40.69], [-73.99, 40.67]]]
+      }
+    }
+  ]
+}

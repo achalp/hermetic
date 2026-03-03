@@ -21,7 +21,8 @@ export async function runPipeline(
   onStage?: (stage: string) => void,
   mode: SchemaMode = "metadata",
   model: string = CODE_GEN_MODEL,
-  runtime?: SandboxRuntimeId
+  runtime?: SandboxRuntimeId,
+  geojsonContent?: string | null
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code
   onStage?.("generating_code");
@@ -30,7 +31,7 @@ export async function runPipeline(
   // Step 2: Execute in sandbox
   logger.debug("Generated code", { chars: code.length });
   onStage?.("executing");
-  let result = await executeSandbox(csvContent, code, runtime);
+  let result = await executeSandbox(csvContent, code, runtime, geojsonContent);
 
   // Step 3: Retry once on failure
   if (!result.success) {
@@ -55,7 +56,7 @@ export async function runPipeline(
     retryCode = retryCode.trim();
 
     onStage?.("executing");
-    result = await executeSandbox(csvContent, retryCode, runtime);
+    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent);
 
     if (!result.success) {
       throw new Error(`Analysis failed after retry: ${result.error}`);
@@ -79,7 +80,8 @@ export async function runChatPipeline(
   onStage?: (stage: string) => void,
   mode: SchemaMode = "metadata",
   model: string = CODE_GEN_MODEL,
-  runtime?: SandboxRuntimeId
+  runtime?: SandboxRuntimeId,
+  geojsonContent?: string | null
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code with conversation context
   onStage?.("generating_code");
@@ -93,7 +95,7 @@ export async function runChatPipeline(
 
   // Step 2: Execute in sandbox
   onStage?.("executing");
-  let result = await executeSandbox(csvContent, code, runtime);
+  let result = await executeSandbox(csvContent, code, runtime, geojsonContent);
 
   // Step 3: Retry once on failure
   if (!result.success) {
@@ -118,7 +120,7 @@ export async function runChatPipeline(
     retryCode = retryCode.trim();
 
     onStage?.("executing");
-    result = await executeSandbox(csvContent, retryCode, runtime);
+    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent);
 
     if (!result.success) {
       throw new Error(`Analysis failed after retry: ${result.error}`);

@@ -1,0 +1,257 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-101",
+        "route_name": "Downtown Express",
+        "driver": "Maria Santos",
+        "vehicle_type": "Van",
+        "total_stops": 18,
+        "distance_km": 32.5,
+        "avg_delivery_min": 4.2,
+        "fuel_cost_usd": 12.80,
+        "on_time_pct": 94.4,
+        "packages_delivered": 18,
+        "packages_failed": 1,
+        "shift": "Morning"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.99, 40.75], [-73.98, 40.74], [-73.97, 40.73], [-73.96, 40.72], [-73.97, 40.71], [-73.98, 40.70]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-102",
+        "route_name": "Brooklyn Loop",
+        "driver": "James Chen",
+        "vehicle_type": "Van",
+        "total_stops": 24,
+        "distance_km": 45.1,
+        "avg_delivery_min": 5.8,
+        "fuel_cost_usd": 18.40,
+        "on_time_pct": 87.5,
+        "packages_delivered": 21,
+        "packages_failed": 3,
+        "shift": "Morning"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.99, 40.69], [-73.98, 40.68], [-73.96, 40.67], [-73.94, 40.68], [-73.93, 40.70], [-73.95, 40.71]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-103",
+        "route_name": "Uptown Sprint",
+        "driver": "Aisha Johnson",
+        "vehicle_type": "Bike",
+        "total_stops": 12,
+        "distance_km": 15.3,
+        "avg_delivery_min": 3.1,
+        "fuel_cost_usd": 0,
+        "on_time_pct": 100.0,
+        "packages_delivered": 12,
+        "packages_failed": 0,
+        "shift": "Morning"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.97, 40.77], [-73.96, 40.78], [-73.95, 40.79], [-73.96, 40.80], [-73.97, 40.81]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-104",
+        "route_name": "Midtown Grid",
+        "driver": "Tom Burke",
+        "vehicle_type": "Van",
+        "total_stops": 22,
+        "distance_km": 28.7,
+        "avg_delivery_min": 6.4,
+        "fuel_cost_usd": 11.20,
+        "on_time_pct": 81.8,
+        "packages_delivered": 18,
+        "packages_failed": 4,
+        "shift": "Afternoon"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.99, 40.76], [-73.98, 40.75], [-73.97, 40.75], [-73.96, 40.76], [-73.97, 40.77], [-73.98, 40.76]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-105",
+        "route_name": "Queens Connector",
+        "driver": "Priya Patel",
+        "vehicle_type": "Truck",
+        "total_stops": 15,
+        "distance_km": 52.3,
+        "avg_delivery_min": 7.9,
+        "fuel_cost_usd": 24.50,
+        "on_time_pct": 93.3,
+        "packages_delivered": 14,
+        "packages_failed": 1,
+        "shift": "Morning"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.94, 40.75], [-73.92, 40.76], [-73.88, 40.75], [-73.85, 40.74], [-73.82, 40.73]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-106",
+        "route_name": "Lower East Side",
+        "driver": "Carlos Rivera",
+        "vehicle_type": "Bike",
+        "total_stops": 10,
+        "distance_km": 11.8,
+        "avg_delivery_min": 2.8,
+        "fuel_cost_usd": 0,
+        "on_time_pct": 100.0,
+        "packages_delivered": 10,
+        "packages_failed": 0,
+        "shift": "Afternoon"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.99, 40.72], [-73.98, 40.72], [-73.97, 40.71], [-73.98, 40.71], [-73.99, 40.71]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-107",
+        "route_name": "Bronx Industrial",
+        "driver": "Maria Santos",
+        "vehicle_type": "Truck",
+        "total_stops": 8,
+        "distance_km": 38.6,
+        "avg_delivery_min": 12.3,
+        "fuel_cost_usd": 22.10,
+        "on_time_pct": 75.0,
+        "packages_delivered": 6,
+        "packages_failed": 2,
+        "shift": "Afternoon"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.92, 40.82], [-73.90, 40.83], [-73.88, 40.84], [-73.87, 40.85]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-108",
+        "route_name": "Sunset Park Run",
+        "driver": "James Chen",
+        "vehicle_type": "Van",
+        "total_stops": 20,
+        "distance_km": 35.2,
+        "avg_delivery_min": 4.6,
+        "fuel_cost_usd": 14.30,
+        "on_time_pct": 95.0,
+        "packages_delivered": 19,
+        "packages_failed": 1,
+        "shift": "Morning"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-74.01, 40.65], [-74.00, 40.64], [-73.99, 40.63], [-73.98, 40.64], [-73.99, 40.65]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-109",
+        "route_name": "Harlem Heights",
+        "driver": "Aisha Johnson",
+        "vehicle_type": "Bike",
+        "total_stops": 14,
+        "distance_km": 18.9,
+        "avg_delivery_min": 3.5,
+        "fuel_cost_usd": 0,
+        "on_time_pct": 92.9,
+        "packages_delivered": 13,
+        "packages_failed": 1,
+        "shift": "Afternoon"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.95, 40.81], [-73.94, 40.82], [-73.95, 40.83], [-73.94, 40.84]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-110",
+        "route_name": "Jersey City Express",
+        "driver": "Tom Burke",
+        "vehicle_type": "Van",
+        "total_stops": 16,
+        "distance_km": 29.4,
+        "avg_delivery_min": 5.1,
+        "fuel_cost_usd": 13.60,
+        "on_time_pct": 93.8,
+        "packages_delivered": 15,
+        "packages_failed": 1,
+        "shift": "Morning"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-74.08, 40.73], [-74.06, 40.72], [-74.04, 40.71], [-74.05, 40.73], [-74.07, 40.74]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-111",
+        "route_name": "SoHo Circuit",
+        "driver": "Carlos Rivera",
+        "vehicle_type": "Bike",
+        "total_stops": 11,
+        "distance_km": 9.6,
+        "avg_delivery_min": 2.5,
+        "fuel_cost_usd": 0,
+        "on_time_pct": 100.0,
+        "packages_delivered": 11,
+        "packages_failed": 0,
+        "shift": "Morning"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-74.00, 40.73], [-73.99, 40.73], [-73.99, 40.72], [-74.00, 40.72], [-74.00, 40.73]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "route_id": "R-112",
+        "route_name": "Astoria Link",
+        "driver": "Priya Patel",
+        "vehicle_type": "Van",
+        "total_stops": 19,
+        "distance_km": 33.8,
+        "avg_delivery_min": 5.3,
+        "fuel_cost_usd": 15.70,
+        "on_time_pct": 89.5,
+        "packages_delivered": 17,
+        "packages_failed": 2,
+        "shift": "Afternoon"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-73.93, 40.77], [-73.91, 40.77], [-73.90, 40.76], [-73.91, 40.75], [-73.93, 40.76]]
+      }
+    }
+  ]
+}

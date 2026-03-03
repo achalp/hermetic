@@ -1,0 +1,195 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Central Park",
+        "borough": "Manhattan",
+        "acreage": 843,
+        "trees_count": 18000,
+        "playgrounds": 21,
+        "annual_visitors_millions": 42.0,
+        "maintenance_budget_usd": 85000000,
+        "year_established": 1858,
+        "has_lake": true,
+        "safety_rating": 4.2
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.981, 40.764], [-73.958, 40.764], [-73.949, 40.800], [-73.972, 40.800], [-73.981, 40.764]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Prospect Park",
+        "borough": "Brooklyn",
+        "acreage": 585,
+        "trees_count": 30000,
+        "playgrounds": 11,
+        "annual_visitors_millions": 10.0,
+        "maintenance_budget_usd": 42000000,
+        "year_established": 1867,
+        "has_lake": true,
+        "safety_rating": 3.9
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.976, 40.660], [-73.962, 40.660], [-73.962, 40.680], [-73.976, 40.680], [-73.976, 40.660]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Flushing Meadows",
+        "borough": "Queens",
+        "acreage": 897,
+        "trees_count": 8500,
+        "playgrounds": 9,
+        "annual_visitors_millions": 5.5,
+        "maintenance_budget_usd": 28000000,
+        "year_established": 1939,
+        "has_lake": true,
+        "safety_rating": 3.5
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.855, 40.735], [-73.835, 40.735], [-73.835, 40.755], [-73.855, 40.755], [-73.855, 40.735]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Van Cortlandt Park",
+        "borough": "Bronx",
+        "acreage": 1146,
+        "trees_count": 42000,
+        "playgrounds": 7,
+        "annual_visitors_millions": 3.2,
+        "maintenance_budget_usd": 18000000,
+        "year_established": 1888,
+        "has_lake": true,
+        "safety_rating": 3.6
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.905, 40.888], [-73.885, 40.888], [-73.885, 40.908], [-73.905, 40.908], [-73.905, 40.888]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Pelham Bay Park",
+        "borough": "Bronx",
+        "acreage": 2772,
+        "trees_count": 55000,
+        "playgrounds": 5,
+        "annual_visitors_millions": 2.8,
+        "maintenance_budget_usd": 15000000,
+        "year_established": 1888,
+        "has_lake": false,
+        "safety_rating": 3.4
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.815, 40.855], [-73.790, 40.855], [-73.790, 40.880], [-73.815, 40.880], [-73.815, 40.855]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Riverside Park",
+        "borough": "Manhattan",
+        "acreage": 330,
+        "trees_count": 9200,
+        "playgrounds": 14,
+        "annual_visitors_millions": 13.5,
+        "maintenance_budget_usd": 32000000,
+        "year_established": 1872,
+        "has_lake": false,
+        "safety_rating": 4.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.993, 40.790], [-73.988, 40.790], [-73.978, 40.830], [-73.983, 40.830], [-73.993, 40.790]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Forest Park",
+        "borough": "Queens",
+        "acreage": 538,
+        "trees_count": 25000,
+        "playgrounds": 6,
+        "annual_visitors_millions": 1.9,
+        "maintenance_budget_usd": 12000000,
+        "year_established": 1895,
+        "has_lake": false,
+        "safety_rating": 3.7
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.860, 40.698], [-73.830, 40.698], [-73.830, 40.712], [-73.860, 40.712], [-73.860, 40.698]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Clove Lakes Park",
+        "borough": "Staten Island",
+        "acreage": 198,
+        "trees_count": 7800,
+        "playgrounds": 4,
+        "annual_visitors_millions": 0.8,
+        "maintenance_budget_usd": 5500000,
+        "year_established": 1927,
+        "has_lake": true,
+        "safety_rating": 4.1
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-74.117, 40.622], [-74.108, 40.622], [-74.108, 40.632], [-74.117, 40.632], [-74.117, 40.622]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "McCarren Park",
+        "borough": "Brooklyn",
+        "acreage": 36,
+        "trees_count": 650,
+        "playgrounds": 3,
+        "annual_visitors_millions": 2.1,
+        "maintenance_budget_usd": 8500000,
+        "year_established": 1906,
+        "has_lake": false,
+        "safety_rating": 3.8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-73.952, 40.720], [-73.948, 40.720], [-73.948, 40.724], [-73.952, 40.724], [-73.952, 40.720]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "park_name": "Greenbelt",
+        "borough": "Staten Island",
+        "acreage": 1778,
+        "trees_count": 48000,
+        "playgrounds": 3,
+        "annual_visitors_millions": 0.6,
+        "maintenance_budget_usd": 9000000,
+        "year_established": 1984,
+        "has_lake": false,
+        "safety_rating": 3.3
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-74.155, 40.585], [-74.125, 40.585], [-74.125, 40.610], [-74.155, 40.610], [-74.155, 40.585]]]
+      }
+    }
+  ]
+}
