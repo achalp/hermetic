@@ -1,0 +1,17 @@
+match_id,date,home_team,away_team,home_goals,away_goals,home_possession_pct,away_possession_pct,home_shots,away_shots,home_shots_on_target,away_shots_on_target,home_corners,away_corners,home_fouls,away_fouls,home_yellow,away_yellow,home_red,away_red,attendance,referee,stadium,home_xg,away_xg
+M001,2024-01-06,Arsenal,Liverpool,2,1,55,45,16,12,7,5,8,4,10,12,1,2,0,0,60234,Oliver,Emirates,1.85,1.22
+M002,2024-01-06,Man City,Chelsea,3,0,62,38,20,8,9,3,10,2,8,14,0,3,0,0,53482,Taylor,Etihad,2.78,0.65
+M003,2024-01-07,Tottenham,Newcastle,1,2,48,52,14,15,5,7,6,7,12,9,2,1,0,0,62062,Attwell,Tottenham Stadium,1.12,1.88
+M004,2024-01-07,Aston Villa,Brighton,2,2,51,49,13,14,6,6,5,6,11,10,1,1,0,0,42640,Brooks,Villa Park,1.65,1.72
+M005,2024-01-13,Liverpool,Man City,1,1,47,53,11,18,4,8,5,9,13,7,2,1,0,0,54074,Tierney,Anfield,0.95,1.45
+M006,2024-01-13,Chelsea,Arsenal,0,2,42,58,9,17,3,8,3,8,15,9,3,1,0,0,40172,Pawson,Stamford Bridge,0.55,2.10
+M007,2024-01-14,Newcastle,Aston Villa,3,1,54,46,18,11,8,4,7,5,9,13,1,2,0,0,52258,England,St James Park,2.45,0.88
+M008,2024-01-14,Brighton,Tottenham,1,0,56,44,15,10,6,4,6,4,8,11,0,2,0,0,31476,Hooper,Amex Stadium,1.32,0.78
+M009,2024-01-20,Arsenal,Newcastle,2,0,58,42,19,9,9,3,9,3,7,14,0,3,0,0,60234,Oliver,Emirates,2.20,0.72
+M010,2024-01-20,Man City,Brighton,4,1,65,35,22,10,11,4,11,3,6,12,0,2,0,0,53482,Taylor,Etihad,3.45,0.92
+M011,2024-01-21,Liverpool,Aston Villa,3,2,52,48,17,14,8,6,7,6,11,10,2,1,0,0,54074,Salisbury,Anfield,2.35,1.68
+M012,2024-01-21,Tottenham,Chelsea,2,1,50,50,14,13,6,5,6,5,10,11,1,2,0,0,62062,Attwell,Tottenham Stadium,1.55,1.15
+M013,2024-02-03,Chelsea,Liverpool,0,3,40,60,8,21,2,10,2,9,16,8,4,0,0,1,40172,Tierney,Stamford Bridge,0.42,2.85
+M014,2024-02-03,Brighton,Arsenal,1,1,46,54,12,16,5,7,4,7,10,9,1,1,0,0,31476,Pawson,Amex Stadium,1.08,1.35
+M015,2024-02-04,Aston Villa,Man City,1,2,38,62,10,19,4,9,4,10,14,6,2,0,0,0,42640,Brooks,Villa Park,0.82,2.12
+M016,2024-02-04,Newcastle,Tottenham,2,0,53,47,16,11,7,4,7,4,9,12,1,2,0,0,52258,England,St James Park,1.92,0.68

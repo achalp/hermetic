@@ -114,7 +114,24 @@ Rules:
 - For 3D surface plots (Surface3D): return {z: number[][], x_labels: [...], y_labels: [...]} under chart_data (same format as heatmap).
 - For Globe3D: return {points: [{lat, lng, label, size}], arcs: [{start_lat, start_lng, end_lat, end_lng, label}]} under chart_data. Do NOT generate or fetch country boundary GeoJSON polygons — the globe already shows earth imagery.
 - For Map3D: return rows with lat/lng columns plus value/category columns under chart_data.
-- Use matplotlib/seaborn ONLY for truly custom visualizations that cannot be expressed with the above chart types. Save as base64 PNG.
+- For confusion matrices (ConfusionMatrix): return {matrix: number[][], labels: string[]} under chart_data. Do NOT use matplotlib. The UI renders an annotated heatmap natively. Can also set normalize: true in the UI component.
+- For ROC / Precision-Recall curves (RocCurve): return {curves: [{label: string, fpr: number[], tpr: number[], auc?: number}]} under chart_data. fpr is the x-axis (false positive rate or recall), tpr is y-axis (true positive rate or precision). Compute using sklearn.metrics.roc_curve / precision_recall_curve and roc_auc_score.
+- For SHAP beeswarm plots (ShapBeeswarm): return [{feature: string, shap_value: number, feature_value: number}] under chart_data. Each row is one sample-feature pair. If SHAP values are already columns in the data, reshape them. Do NOT use matplotlib for SHAP plots.
+- For waterfall charts (WaterfallChart): return [{label: string, value: number, type?: "absolute"|"relative"|"total"}] under chart_data. First item is usually type "absolute" (starting point), middle items are "relative" (changes), last is "total".
+- For Sankey diagrams (SankeyChart): return {nodes: [{id: string}], links: [{source: string, target: string, value: number}]} under chart_data. Nodes are unique entities, links are flows between them.
+- For chord diagrams (ChordChart): return {matrix: number[][], keys: string[]} under chart_data. matrix[i][j] = flow from keys[i] to keys[j].
+- For calendar heatmaps (CalendarChart): return {data: [{day: "YYYY-MM-DD", value: number}], from: "YYYY-MM-DD", to: "YYYY-MM-DD"} under chart_data.
+- For bump charts (BumpChart): return [{id: string, data: [{x: string|number, y: number}]}] under chart_data. Each series has an id and an array of {x, y} points where y is the rank.
+- For decision trees (DecisionTree): return a recursive tree object {label, value?, condition?, children?: [...]} under chart_data. Branch nodes should have condition and children, leaf nodes should have value.
+- For treemap / sunburst data (TreemapChart, SunburstChart): return a recursive tree {name: string, value?: number, children?: [...]} under chart_data. Leaf nodes must have value.
+- For bullet charts (BulletChart): return [{label: string, value: number, target?: number, ranges: number[]}] under chart_data. ranges are qualitative thresholds (e.g. [poor, ok, good]).
+- For dumbbell/slope charts (DumbbellChart, SlopeChart): return [{label: string, start: number, end: number}] under chart_data.
+- For radar charts (RadarChart): return rows as [{index_key_value: string, series1: number, series2: number, ...}] under chart_data.
+- For parallel coordinates (ParallelCoordinates): return raw data rows under chart_data with the numeric dimension columns. The UI component handles normalization.
+- For ridgeline / beeswarm charts: return raw data rows with value_key and group_key columns under chart_data.
+- For stream charts (StreamChart): return rows where each row has a value for each category key, under chart_data.
+- For marimekko charts (MarimekkoChart): return rows with id_key, value_key, and dimension value columns under chart_data.
+- Use matplotlib/seaborn ONLY for truly custom visualizations that cannot be expressed with the above chart types. Save as base64 PNG. The UI has native support for: bar, line, area, pie, scatter, histogram, box, violin, heatmap, radar, bump, chord, sankey, treemap, sunburst, marimekko, calendar, stream, waterfall, ridgeline, dumbbell, slope, beeswarm, SHAP beeswarm, confusion matrix, ROC curve, parallel coordinates, bullet, decision tree, candlestick, 3D scatter, 3D surface, globe, and map.
 - Always handle missing values gracefully.
 - Do NOT use print() at all. Write the final JSON output to "/data/output.json" using: json.dump(output, open("/data/output.json", "w"), default=str, allow_nan=False). Replace NaN/None values in DataFrames before serialization: df = df.fillna("") or df = df.where(df.notna(), None).
 - Do not install packages. Available: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn.

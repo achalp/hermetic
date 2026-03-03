@@ -20,6 +20,26 @@ import { Surface3DChartComponent } from "./charts/surface3d-chart";
 import { Globe3DComponent } from "./charts/globe-view";
 import { Map3DComponent } from "./charts/map3d-view";
 import { CandlestickChartComponent } from "./charts/candlestick-chart";
+import { SankeyChartComponent } from "./charts/sankey-chart";
+import { TreemapChartComponent } from "./charts/treemap-chart";
+import { RadarChartComponent } from "./charts/radar-chart";
+import { BumpChartComponent } from "./charts/bump-chart";
+import { ChordChartComponent } from "./charts/chord-chart";
+import { SunburstChartComponent } from "./charts/sunburst-chart";
+import { MarimekkoChartComponent } from "./charts/marimekko-chart";
+import { CalendarChartComponent } from "./charts/calendar-chart";
+import { StreamChartComponent } from "./charts/stream-chart";
+import { WaterfallChartComponent } from "./charts/waterfall-chart";
+import { RidgelineChartComponent } from "./charts/ridgeline-chart";
+import { DumbbellChartComponent } from "./charts/dumbbell-chart";
+import { SlopeChartComponent } from "./charts/slope-chart";
+import { BeeswarmChartComponent } from "./charts/beeswarm-chart";
+import { ShapBeeswarmComponent } from "./charts/shap-beeswarm-chart";
+import { ConfusionMatrixComponent } from "./charts/confusion-matrix-chart";
+import { RocCurveComponent } from "./charts/roc-curve-chart";
+import { ParallelCoordinatesComponent } from "./charts/parallel-coordinates-chart";
+import { BulletChartComponent } from "./charts/bullet-chart";
+import { DecisionTreeComponent } from "./charts/decision-tree-chart";
 import { ChartExpandWrapper } from "./charts/chart-expand-wrapper";
 import { ChartSelectionBridge } from "./charts/chart-selection-bridge";
 import { DataControllerComponent } from "./controllers/data-controller";
@@ -280,6 +300,106 @@ const { registry } = defineRegistry(catalog, {
     CandlestickChart: ({ props }) => (
       <ChartExpandWrapper title={props.title}>
         <CandlestickChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    SankeyChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <SankeyChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    TreemapChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <TreemapChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    RadarChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <RadarChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    BumpChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <BumpChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ChordChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ChordChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    SunburstChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <SunburstChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    MarimekkoChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <MarimekkoChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    CalendarChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <CalendarChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    StreamChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <StreamChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    WaterfallChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <WaterfallChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    RidgelineChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <RidgelineChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    DumbbellChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <DumbbellChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    SlopeChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <SlopeChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    BeeswarmChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <BeeswarmChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ShapBeeswarm: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ShapBeeswarmComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ConfusionMatrix: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ConfusionMatrixComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    RocCurve: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <RocCurveComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ParallelCoordinates: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ParallelCoordinatesComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    BulletChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <BulletChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    DecisionTree: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <DecisionTreeComponent props={props} />
       </ChartExpandWrapper>
     ),
     Annotation: ({ props }) => {

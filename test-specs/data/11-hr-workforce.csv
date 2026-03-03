@@ -1,0 +1,21 @@
+employee_id,name,department,team,title,level,hire_date,tenure_years,age,gender,location,salary,bonus_pct,performance_rating,satisfaction_score,engagement_score,last_promotion_date,training_hours,remote_pct,attrition_risk,manager_id
+E001,Ana Martinez,Engineering,Backend,Senior Engineer,L5,2019-03-15,5.0,32,F,San Francisco,165000,15,Exceeds,4.2,4.5,2023-01-15,40,80,Low,E050
+E002,Brian Kim,Engineering,Frontend,Staff Engineer,L6,2017-06-01,6.8,38,M,San Francisco,195000,20,Exceeds,4.5,4.8,2022-07-01,32,60,Low,E050
+E003,Carla Singh,Engineering,Backend,Engineer,L4,2022-01-10,2.0,27,F,Austin,130000,10,Meets,3.8,3.9,,,24,100,Medium,E050
+E004,David Chen,Product,Core,Product Manager,L5,2020-08-20,3.5,34,M,San Francisco,155000,15,Exceeds,4.0,4.2,2023-06-01,28,60,Low,E051
+E005,Emily Brown,Design,UX,Senior Designer,L5,2018-11-01,5.3,30,F,New York,145000,12,Meets,3.5,3.6,2022-03-01,36,80,Medium,E052
+E006,Frank Lee,Engineering,ML,ML Engineer,L5,2021-04-15,2.9,29,M,San Francisco,175000,15,Exceeds,4.3,4.6,2023-09-01,48,80,Low,E053
+E007,Grace Wang,Sales,Enterprise,Account Executive,L4,2022-06-01,1.7,31,F,New York,120000,25,Exceeds,3.9,4.0,,20,40,Medium,E054
+E008,Henry Patel,Engineering,Backend,Engineer,L3,2023-03-01,0.9,25,M,Austin,110000,8,Meets,3.6,3.7,,16,100,High,E050
+E009,Irene Lopez,Marketing,Growth,Marketing Manager,L5,2019-09-10,4.5,35,F,New York,140000,12,Meets,3.4,3.3,2022-12-01,20,60,High,E055
+E010,Jake Thompson,Engineering,Frontend,Engineer,L4,2021-07-20,2.6,28,M,Austin,135000,10,Exceeds,4.1,4.3,2023-11-01,32,100,Low,E050
+E011,Keiko Tanaka,Product,Platform,Senior PM,L6,2016-02-28,8.0,40,F,San Francisco,180000,18,Exceeds,4.4,4.7,2021-06-01,24,60,Low,E051
+E012,Liam O'Brien,Design,Visual,Designer,L3,2023-08-15,0.4,24,M,New York,95000,8,Meets,3.7,3.8,,12,80,Medium,E052
+E013,Maya Johnson,Engineering,ML,Senior ML Engineer,L6,2018-05-10,5.8,36,F,San Francisco,200000,20,Exceeds,4.6,4.9,2022-01-15,52,80,Low,E053
+E014,Noah Garcia,Sales,Mid-Market,Sales Rep,L3,2023-01-10,1.0,26,M,Austin,90000,30,Needs Improvement,3.0,2.8,,8,20,High,E054
+E015,Olivia White,Engineering,Backend,Principal Engineer,L7,2015-09-01,8.5,42,F,San Francisco,230000,22,Exceeds,4.7,4.8,2020-03-01,20,60,Low,E056
+E016,Paul Davis,Marketing,Content,Content Lead,L4,2020-11-15,3.3,33,M,New York,115000,10,Meets,3.5,3.4,2023-05-01,16,80,Medium,E055
+E017,Quinn Adams,Engineering,Frontend,Senior Engineer,L5,2019-01-22,5.2,31,NB,San Francisco,160000,15,Exceeds,4.3,4.5,2022-08-01,36,80,Low,E050
+E018,Rachel Green,Product,Analytics,Data Analyst,L4,2021-10-01,2.4,29,F,Austin,125000,10,Meets,3.9,4.0,,24,100,Low,E051
+E019,Sam Wilson,Sales,Enterprise,Senior AE,L5,2018-07-15,5.6,37,M,New York,150000,30,Exceeds,4.1,4.2,2021-12-01,16,40,Low,E054
+E020,Tina Park,Engineering,ML,Engineer,L4,2022-09-01,1.5,27,F,Austin,140000,10,Meets,3.8,3.9,,28,100,Medium,E053

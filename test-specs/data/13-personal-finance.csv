@@ -1,0 +1,50 @@
+date,category,subcategory,description,amount,type,account,payment_method,recurring,budget_category,budget_amount
+2024-01-01,Housing,Rent,Monthly rent,-2200.00,Expense,Checking,Auto-Pay,Yes,Housing,2200
+2024-01-02,Food,Groceries,Whole Foods,-87.42,Expense,Credit Card,Visa,No,Food,600
+2024-01-03,Income,Salary,Paycheck direct deposit,4250.00,Income,Checking,Direct Deposit,Yes,,
+2024-01-04,Transportation,Gas,Shell station,-52.30,Expense,Credit Card,Visa,No,Transportation,300
+2024-01-05,Entertainment,Streaming,Netflix subscription,-15.99,Expense,Credit Card,Visa,Yes,Entertainment,200
+2024-01-06,Utilities,Electric,Power company,-128.50,Expense,Checking,Auto-Pay,Yes,Utilities,250
+2024-01-07,Food,Restaurants,Dinner out,-64.80,Expense,Credit Card,Visa,No,Food,600
+2024-01-08,Health,Gym,Monthly membership,-49.99,Expense,Credit Card,Visa,Yes,Health,150
+2024-01-09,Shopping,Clothing,Amazon order,-89.99,Expense,Credit Card,Visa,No,Shopping,200
+2024-01-10,Food,Groceries,Trader Joe's,-62.15,Expense,Credit Card,Visa,No,Food,600
+2024-01-12,Utilities,Internet,Comcast monthly,-79.99,Expense,Checking,Auto-Pay,Yes,Utilities,250
+2024-01-14,Food,Coffee,Starbucks,-5.75,Expense,Credit Card,Visa,No,Food,600
+2024-01-15,Insurance,Auto,Car insurance premium,-145.00,Expense,Checking,Auto-Pay,Yes,Insurance,300
+2024-01-15,Income,Salary,Paycheck direct deposit,4250.00,Income,Checking,Direct Deposit,Yes,,
+2024-01-16,Food,Groceries,Costco,-134.28,Expense,Credit Card,Visa,No,Food,600
+2024-01-18,Entertainment,Movies,AMC tickets,-28.00,Expense,Credit Card,Visa,No,Entertainment,200
+2024-01-20,Savings,Emergency Fund,Transfer to savings,-500.00,Transfer,Savings,Transfer,Yes,Savings,500
+2024-01-21,Food,Restaurants,Lunch with friends,-32.50,Expense,Credit Card,Visa,No,Food,600
+2024-01-22,Transportation,Maintenance,Oil change,-65.00,Expense,Credit Card,Visa,No,Transportation,300
+2024-01-23,Health,Pharmacy,CVS prescription,-25.00,Expense,Credit Card,Visa,No,Health,150
+2024-01-24,Utilities,Phone,AT&T monthly,-85.00,Expense,Checking,Auto-Pay,Yes,Utilities,250
+2024-01-25,Food,Groceries,Whole Foods,-78.90,Expense,Credit Card,Visa,No,Food,600
+2024-01-26,Entertainment,Streaming,Spotify subscription,-10.99,Expense,Credit Card,Visa,Yes,Entertainment,200
+2024-01-27,Shopping,Electronics,Best Buy headphones,-149.99,Expense,Credit Card,Visa,No,Shopping,200
+2024-01-28,Food,Coffee,Local cafe,-4.50,Expense,Credit Card,Visa,No,Food,600
+2024-01-29,Transportation,Parking,Downtown garage,-18.00,Expense,Credit Card,Visa,No,Transportation,300
+2024-01-30,Food,Restaurants,Pizza delivery,-24.99,Expense,Credit Card,Visa,No,Food,600
+2024-01-31,Income,Freelance,Side project payment,800.00,Income,Checking,Venmo,No,,
+2024-02-01,Housing,Rent,Monthly rent,-2200.00,Expense,Checking,Auto-Pay,Yes,Housing,2200
+2024-02-02,Food,Groceries,Trader Joe's,-71.30,Expense,Credit Card,Visa,No,Food,600
+2024-02-03,Income,Salary,Paycheck direct deposit,4250.00,Income,Checking,Direct Deposit,Yes,,
+2024-02-04,Utilities,Electric,Power company,-115.20,Expense,Checking,Auto-Pay,Yes,Utilities,250
+2024-02-05,Entertainment,Streaming,Netflix subscription,-15.99,Expense,Credit Card,Visa,Yes,Entertainment,200
+2024-02-06,Food,Restaurants,Date night dinner,-95.00,Expense,Credit Card,Visa,No,Food,600
+2024-02-07,Health,Gym,Monthly membership,-49.99,Expense,Credit Card,Visa,Yes,Health,150
+2024-02-08,Food,Groceries,Whole Foods,-92.40,Expense,Credit Card,Visa,No,Food,600
+2024-02-10,Shopping,Home,Target household items,-56.78,Expense,Credit Card,Visa,No,Shopping,200
+2024-02-12,Utilities,Internet,Comcast monthly,-79.99,Expense,Checking,Auto-Pay,Yes,Utilities,250
+2024-02-14,Food,Restaurants,Valentine's dinner,-142.00,Expense,Credit Card,Visa,No,Food,600
+2024-02-15,Income,Salary,Paycheck direct deposit,4250.00,Income,Checking,Direct Deposit,Yes,,
+2024-02-15,Insurance,Auto,Car insurance premium,-145.00,Expense,Checking,Auto-Pay,Yes,Insurance,300
+2024-02-17,Transportation,Gas,Chevron station,-48.60,Expense,Credit Card,Visa,No,Transportation,300
+2024-02-18,Food,Groceries,Costco,-118.45,Expense,Credit Card,Visa,No,Food,600
+2024-02-20,Savings,Emergency Fund,Transfer to savings,-500.00,Transfer,Savings,Transfer,Yes,Savings,500
+2024-02-22,Entertainment,Games,Steam purchase,-39.99,Expense,Credit Card,Visa,No,Entertainment,200
+2024-02-24,Utilities,Phone,AT&T monthly,-85.00,Expense,Checking,Auto-Pay,Yes,Utilities,250
+2024-02-25,Food,Coffee,Starbucks x3,-17.25,Expense,Credit Card,Visa,No,Food,600
+2024-02-26,Health,Doctor,Co-pay visit,-30.00,Expense,Credit Card,Visa,No,Health,150
+2024-02-28,Food,Groceries,Trader Joe's,-68.90,Expense,Credit Card,Visa,No,Food,600
