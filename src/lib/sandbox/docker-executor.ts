@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
+import type { AdditionalFile } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
@@ -39,7 +40,8 @@ function run(
 export async function executeSandbox(
   csvContent: string,
   code: string,
-  geojsonContent?: string | null
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[]
 ): Promise<ExecutionResult> {
   const start = Date.now();
   const id = `gen-ui-sandbox-${randomUUID()}`;
@@ -62,6 +64,19 @@ export async function executeSandbox(
         input: geojsonContent,
         timeoutMs: 15_000,
       });
+    }
+
+    // 2c. Write additional files (workbook sheets)
+    if (additionalFiles && additionalFiles.length > 0) {
+      await run("docker", ["exec", id, "mkdir", "-p", "/data/sheets"], { timeoutMs: 5_000 });
+      for (const file of additionalFiles) {
+        // Quote the path to handle sheet names with spaces/special characters
+        const safePath = file.path.replace(/'/g, "'\\''");
+        await run("docker", ["exec", "-i", id, "sh", "-c", `cat > '${safePath}'`], {
+          input: file.content,
+          timeoutMs: 15_000,
+        });
+      }
     }
 
     // 3. Write script via stdin

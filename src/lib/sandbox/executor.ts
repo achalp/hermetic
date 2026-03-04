@@ -1,12 +1,14 @@
 import { Sandbox } from "@e2b/code-interpreter";
 import type { ExecutionResult } from "@/lib/types";
+import type { AdditionalFile } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
 export async function executeSandbox(
   csvContent: string,
   code: string,
-  geojsonContent?: string | null
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[]
 ): Promise<ExecutionResult> {
   const start = Date.now();
   let sandbox: Sandbox | null = null;
@@ -21,6 +23,11 @@ export async function executeSandbox(
     await sandbox.files.write("/data/input.csv", csvContent);
     if (geojsonContent) {
       await sandbox.files.write("/data/input.geojson", geojsonContent);
+    }
+    if (additionalFiles && additionalFiles.length > 0) {
+      for (const file of additionalFiles) {
+        await sandbox.files.write(file.path, file.content);
+      }
     }
     await sandbox.files.write("/data/script.py", code);
 

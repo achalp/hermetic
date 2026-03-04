@@ -5,6 +5,7 @@ import type { Spec } from "@json-render/react";
 import { CSVUploadPanel } from "@/components/app/csv-upload-panel";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { SchemaPreview } from "@/components/app/schema-preview";
+import { WorkbookPreview } from "@/components/app/workbook-preview";
 import { QueryInput } from "@/components/app/query-input";
 import { ResponsePanel } from "@/components/app/response-panel";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
@@ -27,7 +28,9 @@ export default function Home() {
     isUploaded,
     excelMeta,
     showSheetPicker,
+    isWorkbookMode,
     handleUpload,
+    handleWorkbookUpload,
     handleExcelSheets,
     switchSheet,
     cancelSheetPicker,
@@ -226,13 +229,23 @@ export default function Home() {
               sheets={excelMeta.sheets}
               relationships={excelMeta.relationships}
               onSheetSelected={handleUpload}
+              onWorkbookSelected={handleWorkbookUpload}
               onCancel={cancelSheetPicker}
             />
           ) : !isUploaded && !showSaved ? (
             <CSVUploadPanel onUpload={handleUpload} onExcelSheets={handleExcelSheets} />
           ) : isUploaded ? (
             <>
-              {schema && <SchemaPreview schema={schema} collapsed={questionSeq > 0} />}
+              {isWorkbookMode && excelMeta ? (
+                <WorkbookPreview
+                  filename={excelMeta.filename}
+                  sheets={excelMeta.sheets}
+                  relationships={excelMeta.relationships}
+                  collapsed={questionSeq > 0}
+                />
+              ) : (
+                schema && <SchemaPreview schema={schema} collapsed={questionSeq > 0} />
+              )}
 
               <QueryInput onSubmit={handleQuery} disabled={!isUploaded} isLoading={isAnalyzing} />
 

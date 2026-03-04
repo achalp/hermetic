@@ -1,6 +1,7 @@
 import { PythonSandbox } from "microsandbox";
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
+import type { AdditionalFile } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
@@ -99,7 +100,8 @@ export async function warmupSandbox(): Promise<void> {
 export async function executeSandbox(
   csvContent: string,
   code: string,
-  geojsonContent?: string | null
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[]
 ): Promise<ExecutionResult> {
   const start = Date.now();
   // Per-query working directory for isolation
@@ -180,6 +182,49 @@ export async function executeSandbox(
             error: `Failed to write GeoJSON chunk: ${await appendExec.error()}`,
             execution_ms: Date.now() - start,
           };
+        }
+      }
+    }
+
+    // Write additional files (workbook sheets)
+    if (additionalFiles && additionalFiles.length > 0) {
+      // Create sheets directory
+      await sandbox.run(
+        `import pathlib; pathlib.Path("${workDir}/sheets").mkdir(parents=True, exist_ok=True)`,
+        { timeout: 5 }
+      );
+      for (const file of additionalFiles) {
+        // Rewrite /data/sheets/X.csv → workDir/sheets/X.csv
+        const localPath = file.path.replace(/^\/data\//, `${workDir}/`);
+        const fileBuf = Buffer.from(file.content);
+        const fileFirstChunk = fileBuf.subarray(0, CHUNK_SIZE).toString("base64");
+        const fileInitExec = await sandbox.run(
+          `import base64, pathlib\n` +
+            `pathlib.Path("${localPath}").write_bytes(base64.b64decode(${JSON.stringify(fileFirstChunk)}))`,
+          { timeout: 15 }
+        );
+        if (fileInitExec.hasError()) {
+          return {
+            success: false,
+            error: `Failed to write additional file: ${await fileInitExec.error()}`,
+            execution_ms: Date.now() - start,
+          };
+        }
+        for (let offset = CHUNK_SIZE; offset < fileBuf.length; offset += CHUNK_SIZE) {
+          const chunk = fileBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
+          const appendExec = await sandbox.run(
+            `import base64\n` +
+              `with open("${localPath}", "ab") as f:\n` +
+              `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
+            { timeout: 15 }
+          );
+          if (appendExec.hasError()) {
+            return {
+              success: false,
+              error: `Failed to write additional file chunk: ${await appendExec.error()}`,
+              execution_ms: Date.now() - start,
+            };
+          }
         }
       }
     }

@@ -9,6 +9,7 @@ interface SheetPickerProps {
   sheets: SheetInfo[];
   relationships: SheetRelationship[];
   onSheetSelected: (csvId: string, schema: CSVSchema) => void;
+  onWorkbookSelected: (csvId: string, schema: CSVSchema) => void;
   onCancel: () => void;
 }
 
@@ -24,12 +25,16 @@ export function SheetPicker({
   sheets,
   relationships,
   onSheetSelected,
+  onWorkbookSelected,
   onCancel,
 }: SheetPickerProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingWorkbook, setLoadingWorkbook] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [relationshipsExpanded, setRelationshipsExpanded] = useState(false);
+
+  const showWorkbookButton = relationships.length > 0 || sheets.length >= 2;
 
   const activeSheet = sheets[activeTab];
 
@@ -93,6 +98,31 @@ export function SheetPicker({
       setIsLoading(false);
     }
   }, [excelId, activeSheet.name, onSheetSelected]);
+
+  const handleWorkbookConfirm = useCallback(async () => {
+    setError(null);
+    setLoadingWorkbook(true);
+
+    try {
+      const res = await fetch("/api/upload/select-workbook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ excel_id: excelId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Workbook selection failed");
+      }
+
+      onWorkbookSelected(data.csv_id, data.schema);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Workbook selection failed");
+    } finally {
+      setLoadingWorkbook(false);
+    }
+  }, [excelId, onWorkbookSelected]);
 
   /** Get badge type for a column header in the active sheet */
   function getColumnBadge(header: string): "pk" | "fk" | "link" | null {
@@ -317,7 +347,7 @@ export function SheetPicker({
       <div className="flex gap-3 border-t border-border-default px-6 py-4">
         <button
           onClick={handleConfirm}
-          disabled={isLoading}
+          disabled={isLoading || loadingWorkbook}
           className="bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
           style={{
             borderRadius: "var(--radius-button)",
@@ -326,9 +356,25 @@ export function SheetPicker({
         >
           {isLoading ? "Converting..." : `Use "${activeSheet.name}"`}
         </button>
+        {showWorkbookButton && (
+          <button
+            onClick={handleWorkbookConfirm}
+            disabled={isLoading || loadingWorkbook}
+            className="border border-accent bg-accent-subtle px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent hover:text-white disabled:opacity-50"
+            style={{
+              borderRadius: "var(--radius-button)",
+              transitionDuration: "var(--transition-speed)",
+            }}
+          >
+            {loadingWorkbook ? "Processing..." : `Use entire workbook`}
+            {!loadingWorkbook && (
+              <span className="ml-1.5 text-xs opacity-75">({sheets.length} sheets)</span>
+            )}
+          </button>
+        )}
         <button
           onClick={onCancel}
-          disabled={isLoading}
+          disabled={isLoading || loadingWorkbook}
           className="border border-border-default bg-surface-1 px-4 py-2 text-sm font-medium text-t-secondary transition-colors hover:bg-surface-btn disabled:opacity-50"
           style={{
             borderRadius: "var(--radius-button)",
