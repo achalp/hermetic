@@ -1,8 +1,15 @@
 import { streamText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
-import { getStoredCSV, getCSVContent, getGeoJSONContent } from "@/lib/csv/storage";
+import {
+  getStoredCSV,
+  getCSVContent,
+  getGeoJSONContent,
+  getWorkbookManifest,
+} from "@/lib/csv/storage";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
+import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
+import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
@@ -94,6 +101,31 @@ export async function POST(request: Request) {
     // Fetch GeoJSON sidecar if the upload was GeoJSON
     const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId) : null;
 
+    // Check for workbook manifest (multi-sheet analysis)
+    const manifest = getWorkbookManifest(csvId);
+    let additionalFiles: AdditionalFile[] | undefined;
+    let workbookContext: string | undefined;
+
+    if (manifest) {
+      additionalFiles = [];
+      // Build a map of sheet name → exact sandbox file path for the LLM
+      const sheetPaths = new Map<string, string>();
+      for (const sheet of manifest.sheets) {
+        if (sheet.csvId === csvId) {
+          sheetPaths.set(sheet.name, "/data/input.csv");
+          continue;
+        }
+        const content = await getCSVContent(sheet.csvId);
+        if (content) {
+          const safeName = sanitizeSheetName(sheet.name);
+          const filePath = `/data/sheets/${safeName}.csv`;
+          additionalFiles.push({ path: filePath, content });
+          sheetPaths.set(sheet.name, filePath);
+        }
+      }
+      workbookContext = buildWorkbookContext(manifest, schemaMode, sheetPaths);
+    }
+
     // Run the code-gen + sandbox pipeline (non-streaming)
     const pipelineResult = await runPipeline(
       stored.schema,
@@ -103,7 +135,9 @@ export async function POST(request: Request) {
       schemaMode,
       codeGenModel,
       sandboxRuntime,
-      geojsonContent
+      geojsonContent,
+      additionalFiles,
+      workbookContext
     );
 
     // Cache the generated code for save functionality
@@ -318,6 +352,14 @@ The user is asking a follow-up question. Previous turns in this conversation:
 ${conversationHistory.map((entry, i) => `### Turn ${i + 1}: "${entry.question}"\nDashboard showed:\n${entry.specSummary}`).join("\n\n")}
 
 Build on the prior analysis. Evolve the dashboard to address the new question while maintaining continuity with previous insights where relevant.`;
+    }
+
+    if (workbookContext) {
+      userPrompt += `
+
+## Workbook Context
+This analysis was performed across multiple sheets in an Excel workbook. The code joined/merged data from different sheets.
+${workbookContext}`;
     }
 
     userPrompt += `

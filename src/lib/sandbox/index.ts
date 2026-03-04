@@ -5,10 +5,16 @@ import type { ExecutionResult } from "@/lib/types";
 import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 
+export interface AdditionalFile {
+  path: string;
+  content: string;
+}
+
 type SandboxExecutor = (
   csv: string,
   code: string,
-  geojsonContent?: string | null
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[]
 ) => Promise<ExecutionResult>;
 
 const executors: Record<SandboxRuntimeId, SandboxExecutor> = {
@@ -21,11 +27,13 @@ export function executeSandbox(
   csvContent: string,
   code: string,
   runtime?: SandboxRuntimeId,
-  geojsonContent?: string | null
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[]
 ): Promise<ExecutionResult> {
   return (executors[runtime ?? DEFAULT_SANDBOX_RUNTIME] ?? dockerExecutor)(
     csvContent,
     code,
-    geojsonContent
+    geojsonContent,
+    additionalFiles
   );
 }

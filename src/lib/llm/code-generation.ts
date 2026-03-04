@@ -12,12 +12,13 @@ export async function generateAnalysisCode(
   schema: CSVSchema,
   question: string,
   mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL
+  model: string = CODE_GEN_MODEL,
+  workbookContext?: string
 ): Promise<string> {
   const result = await generateText({
     model: getModel(model),
-    system: buildCodeGenSystemPrompt(mode),
-    prompt: buildCodeGenUserPrompt(schema, question, mode),
+    system: buildCodeGenSystemPrompt(mode, !!workbookContext),
+    prompt: buildCodeGenUserPrompt(schema, question, mode, workbookContext),
     temperature: 0,
   });
 
@@ -41,12 +42,13 @@ export async function generateAnalysisCodeWithHistory(
   question: string,
   history: string[],
   mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL
+  model: string = CODE_GEN_MODEL,
+  workbookContext?: string
 ): Promise<string> {
   const result = await generateText({
     model: getModel(model),
-    system: buildCodeGenSystemPrompt(mode),
-    prompt: buildCodeGenChatPrompt(schema, question, history, mode),
+    system: buildCodeGenSystemPrompt(mode, !!workbookContext),
+    prompt: buildCodeGenChatPrompt(schema, question, history, mode, workbookContext),
     temperature: 0,
   });
 

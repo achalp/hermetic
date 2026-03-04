@@ -155,3 +155,10 @@ export interface SheetRelationship {
   isPrimaryKeyCandidate: boolean;
   isForeignKeyCandidate: boolean;
 }
+
+// ── Workbook (multi-sheet) types ────────────────────────────────────
+
+export interface WorkbookManifest {
+  sheets: { name: string; csvId: string; schema: CSVSchema }[];
+  relationships: SheetRelationship[];
+}

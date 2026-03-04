@@ -1,6 +1,7 @@
 import { generateAnalysisCode, generateAnalysisCodeWithHistory } from "@/lib/llm/code-generation";
 import { buildRetryPrompt } from "@/lib/llm/prompts";
 import { executeSandbox } from "@/lib/sandbox";
+import type { AdditionalFile } from "@/lib/sandbox";
 import { generateText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { CODE_GEN_MODEL } from "@/lib/constants";
@@ -22,16 +23,18 @@ export async function runPipeline(
   mode: SchemaMode = "metadata",
   model: string = CODE_GEN_MODEL,
   runtime?: SandboxRuntimeId,
-  geojsonContent?: string | null
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[],
+  workbookContext?: string
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code
   onStage?.("generating_code");
-  let code = await generateAnalysisCode(schema, question, mode, model);
+  let code = await generateAnalysisCode(schema, question, mode, model, workbookContext);
 
   // Step 2: Execute in sandbox
   logger.debug("Generated code", { chars: code.length });
   onStage?.("executing");
-  let result = await executeSandbox(csvContent, code, runtime, geojsonContent);
+  let result = await executeSandbox(csvContent, code, runtime, geojsonContent, additionalFiles);
 
   // Step 3: Retry once on failure
   if (!result.success) {
@@ -56,7 +59,7 @@ export async function runPipeline(
     retryCode = retryCode.trim();
 
     onStage?.("executing");
-    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent);
+    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent, additionalFiles);
 
     if (!result.success) {
       throw new Error(`Analysis failed after retry: ${result.error}`);
@@ -81,7 +84,9 @@ export async function runChatPipeline(
   mode: SchemaMode = "metadata",
   model: string = CODE_GEN_MODEL,
   runtime?: SandboxRuntimeId,
-  geojsonContent?: string | null
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[],
+  workbookContext?: string
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code with conversation context
   onStage?.("generating_code");
@@ -90,12 +95,13 @@ export async function runChatPipeline(
     question,
     conversationHistory,
     mode,
-    model
+    model,
+    workbookContext
   );
 
   // Step 2: Execute in sandbox
   onStage?.("executing");
-  let result = await executeSandbox(csvContent, code, runtime, geojsonContent);
+  let result = await executeSandbox(csvContent, code, runtime, geojsonContent, additionalFiles);
 
   // Step 3: Retry once on failure
   if (!result.success) {
@@ -120,7 +126,7 @@ export async function runChatPipeline(
     retryCode = retryCode.trim();
 
     onStage?.("executing");
-    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent);
+    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent, additionalFiles);
 
     if (!result.success) {
       throw new Error(`Analysis failed after retry: ${result.error}`);

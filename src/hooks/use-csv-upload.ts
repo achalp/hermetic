@@ -16,6 +16,7 @@ interface UploadState {
   isUploaded: boolean;
   excelMeta: ExcelMeta | null;
   showSheetPicker: boolean;
+  isWorkbookMode: boolean;
 }
 
 export function useCSVUpload() {
@@ -25,6 +26,7 @@ export function useCSVUpload() {
     isUploaded: false,
     excelMeta: null,
     showSheetPicker: false,
+    isWorkbookMode: false,
   });
 
   const handleUpload = useCallback((csvId: string, schema: CSVSchema) => {
@@ -34,6 +36,18 @@ export function useCSVUpload() {
       isUploaded: true,
       excelMeta: prev.excelMeta,
       showSheetPicker: false,
+      isWorkbookMode: false,
+    }));
+  }, []);
+
+  const handleWorkbookUpload = useCallback((csvId: string, schema: CSVSchema) => {
+    setState((prev) => ({
+      csvId,
+      schema,
+      isUploaded: true,
+      excelMeta: prev.excelMeta,
+      showSheetPicker: false,
+      isWorkbookMode: true,
     }));
   }, []);
 
@@ -50,6 +64,7 @@ export function useCSVUpload() {
         isUploaded: false,
         excelMeta: { excelId, filename, sheets, relationships },
         showSheetPicker: true,
+        isWorkbookMode: false,
       });
     },
     []
@@ -76,12 +91,14 @@ export function useCSVUpload() {
       isUploaded: false,
       excelMeta: null,
       showSheetPicker: false,
+      isWorkbookMode: false,
     });
   }, []);
 
   return {
     ...state,
     handleUpload,
+    handleWorkbookUpload,
     handleExcelSheets,
     switchSheet,
     cancelSheetPicker,

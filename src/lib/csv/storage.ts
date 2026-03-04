@@ -1,17 +1,22 @@
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import type { CSVSchema, StoredCSV } from "@/lib/types";
+import type { CSVSchema, StoredCSV, WorkbookManifest } from "@/lib/types";
 import { CSV_TTL_MS } from "@/lib/constants";
 
 // Use globalThis to persist across module reloads in dev mode
 const globalStore = globalThis as unknown as {
   __csvStore?: Map<string, StoredCSV>;
+  __workbookManifestStore?: Map<string, WorkbookManifest>;
 };
 if (!globalStore.__csvStore) {
   globalStore.__csvStore = new Map();
 }
+if (!globalStore.__workbookManifestStore) {
+  globalStore.__workbookManifestStore = new Map();
+}
 const store = globalStore.__csvStore;
+const manifestStore = globalStore.__workbookManifestStore;
 
 const CSV_DIR = join(tmpdir(), "hermetic");
 
@@ -66,4 +71,12 @@ export async function getGeoJSONContent(csvId: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export function storeWorkbookManifest(primaryCsvId: string, manifest: WorkbookManifest): void {
+  manifestStore.set(primaryCsvId, manifest);
+}
+
+export function getWorkbookManifest(primaryCsvId: string): WorkbookManifest | undefined {
+  return manifestStore.get(primaryCsvId);
 }

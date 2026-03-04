@@ -6,6 +6,7 @@ import type {
   DateMeta,
   CategoricalMeta,
   BooleanMeta,
+  WorkbookManifest,
 } from "@/lib/types";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 
@@ -83,7 +84,7 @@ function formatColumns(schema: CSVSchema, mode: SchemaMode): string {
 
 // ── System prompt ─────────────────────────────────────────────────
 
-export function buildCodeGenSystemPrompt(mode: SchemaMode): string {
+export function buildCodeGenSystemPrompt(mode: SchemaMode, hasWorkbookContext?: boolean): string {
   const metadataNote =
     mode === "metadata"
       ? "\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics."
@@ -141,7 +142,17 @@ Rules:
 - Always handle missing values gracefully.
 - Do NOT use print() at all. Write the final JSON output to "/data/output.json" using: json.dump(output, open("/data/output.json", "w"), default=str, allow_nan=False). Replace NaN/None values in DataFrames before serialization: df = df.fillna("") or df = df.where(df.notna(), None).
 - Do not install packages. Available: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn.
-- Always include datasets.main in the output: the working DataFrame converted to row-objects via df.head(5000).to_dict(orient="records"). This enables client-side interactive filtering. If you filter the data for the analysis, use the ORIGINAL unfiltered DataFrame for datasets.main.
+- Always include datasets.main in the output: the working DataFrame converted to row-objects via df.head(5000).to_dict(orient="records"). This enables client-side interactive filtering. If you filter the data for the analysis, use the ORIGINAL unfiltered DataFrame for datasets.main.${
+    hasWorkbookContext
+      ? `
+- Multiple CSV sheets from an Excel workbook are available in the sandbox.
+- The primary sheet is at /data/input.csv. Additional sheets are in /data/sheets/.
+- The exact file path for each sheet is listed in the "Workbook Context" section of the user prompt. Use EXACTLY those paths — do not guess or modify file names.
+- Use pd.merge() or pd.concat() to join sheets as needed.
+- Detected relationships between sheets are provided in the user prompt below.
+- Only join on columns specified in the relationships unless the user explicitly asks otherwise.`
+      : ""
+  }
 - Output ONLY the Python code. No markdown fencing, no explanation.`;
 }
 
@@ -294,7 +305,8 @@ function formatDataSection(schema: CSVSchema, mode: SchemaMode): string {
 export function buildCodeGenUserPrompt(
   schema: CSVSchema,
   question: string,
-  mode: SchemaMode = "metadata"
+  mode: SchemaMode = "metadata",
+  workbookContext?: string
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
@@ -304,13 +316,15 @@ This data was uploaded as a GeoJSON file. Geometry type: ${schema.geojson_geomet
 A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\n`
     : "";
 
+  const workbookSection = workbookContext ? `\n## Workbook Context\n${workbookContext}\n` : "";
+
   return `## CSV Schema
 Filename: ${schema.filename}
 Rows: ${schema.row_count}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${geojsonSection}
+${geojsonSection}${workbookSection}
 ## Question
 ${question}`;
 }
@@ -321,7 +335,8 @@ export function buildCodeGenChatPrompt(
   schema: CSVSchema,
   question: string,
   history: string[],
-  mode: SchemaMode = "metadata"
+  mode: SchemaMode = "metadata",
+  workbookContext?: string
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
@@ -342,15 +357,88 @@ This data was uploaded as a GeoJSON file. Geometry type: ${schema.geojson_geomet
 A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\n`
     : "";
 
+  const workbookSection = workbookContext ? `\n## Workbook Context\n${workbookContext}\n` : "";
+
   return `${historySection}## CSV Schema
 Filename: ${schema.filename}
 Rows: ${schema.row_count}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${geojsonSection}
+${geojsonSection}${workbookSection}
 ## Question
 ${question}`;
+}
+
+// ── Workbook context builder ──────────────────────────────────────
+
+/**
+ * Sanitize a sheet name for use as a file name.
+ * Replaces spaces and special chars with underscores, keeps alphanumeric + dash + dot.
+ */
+export function sanitizeSheetName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_\-]/g, "_").replace(/_+/g, "_");
+}
+
+/**
+ * Build workbook context string for LLM prompts.
+ * @param sheetPaths - map of sheet name → exact file path in the sandbox
+ *   When provided, the LLM is told exactly where each file lives.
+ *   The first entry is the primary sheet at /data/input.csv.
+ */
+export function buildWorkbookContext(
+  manifest: WorkbookManifest,
+  mode: SchemaMode,
+  sheetPaths?: Map<string, string>
+): string {
+  const lines: string[] = [];
+  lines.push(
+    `This workbook has ${manifest.sheets.length} sheets. The user wants cross-sheet analysis.`
+  );
+  lines.push("");
+
+  // List exact file paths so the LLM doesn't have to guess
+  if (sheetPaths && sheetPaths.size > 0) {
+    lines.push("### File Paths");
+    for (const [sheetName, filePath] of sheetPaths) {
+      lines.push(`- "${sheetName}" → ${filePath}`);
+    }
+    lines.push("");
+  }
+
+  for (const sheet of manifest.sheets) {
+    const pathNote = sheetPaths?.get(sheet.name);
+    const pathSuffix = pathNote ? ` — file: ${pathNote}` : "";
+    lines.push(`### Sheet: ${sheet.name} (${sheet.schema.row_count} rows${pathSuffix})`);
+    lines.push("Columns:");
+    for (const col of sheet.schema.columns) {
+      if (mode === "metadata") {
+        lines.push(formatColumnMeta(col));
+      } else {
+        lines.push(formatColumnSample(col));
+      }
+    }
+    lines.push("");
+  }
+
+  if (manifest.relationships.length > 0) {
+    lines.push("### Detected Relationships");
+    for (const rel of manifest.relationships) {
+      if (rel.confidence < 0.5) continue;
+      const pkFk = rel.isPrimaryKeyCandidate
+        ? rel.isForeignKeyCandidate
+          ? ", PK\u2194FK"
+          : ", PK"
+        : rel.isForeignKeyCandidate
+          ? ", FK"
+          : "";
+      lines.push(
+        `- ${rel.sourceSheet}.${rel.sourceColumn} \u2194 ${rel.targetSheet}.${rel.targetColumn} (${rel.matchType}, confidence: ${rel.confidence.toFixed(2)}${pkFk})`
+      );
+    }
+  }
+
+  return lines.join("\n");
 }
 
 // ── Retry prompt ──────────────────────────────────────────────────
