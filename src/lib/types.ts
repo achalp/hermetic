@@ -138,3 +138,20 @@ export interface SheetInfo {
   headers?: string[];
   sampleRows?: string[][];
 }
+
+// ── Cross-sheet relationship types ──────────────────────────────────
+
+export type RelationshipMatchType = "exact_name" | "fuzzy_name" | "value_overlap";
+
+export interface SheetRelationship {
+  sourceSheet: string;
+  sourceColumn: string;
+  sourceColumnIndex: number;
+  targetSheet: string;
+  targetColumn: string;
+  targetColumnIndex: number;
+  matchType: RelationshipMatchType;
+  confidence: number;
+  isPrimaryKeyCandidate: boolean;
+  isForeignKeyCandidate: boolean;
+}

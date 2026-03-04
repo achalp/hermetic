@@ -224,6 +224,7 @@ export default function Home() {
               excelId={excelMeta.excelId}
               filename={excelMeta.filename}
               sheets={excelMeta.sheets}
+              relationships={excelMeta.relationships}
               onSheetSelected={handleUpload}
               onCancel={cancelSheetPicker}
             />
