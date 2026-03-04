@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { CSVSchema, SheetInfo } from "@/lib/types";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
 
 interface ExcelMeta {
   excelId: string;
   filename: string;
   sheets: SheetInfo[];
+  relationships: SheetRelationship[];
 }
 
 interface UploadState {
@@ -37,12 +38,17 @@ export function useCSVUpload() {
   }, []);
 
   const handleExcelSheets = useCallback(
-    (excelId: string, filename: string, sheets: SheetInfo[]) => {
+    (
+      excelId: string,
+      filename: string,
+      sheets: SheetInfo[],
+      relationships: SheetRelationship[]
+    ) => {
       setState({
         csvId: null,
         schema: null,
         isUploaded: false,
-        excelMeta: { excelId, filename, sheets },
+        excelMeta: { excelId, filename, sheets, relationships },
         showSheetPicker: true,
       });
     },

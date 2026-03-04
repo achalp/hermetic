@@ -1,11 +1,16 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { CSVSchema, SheetInfo } from "@/lib/types";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
 
 interface CSVUploadPanelProps {
   onUpload: (csvId: string, schema: CSVSchema) => void;
-  onExcelSheets?: (excelId: string, filename: string, sheets: SheetInfo[]) => void;
+  onExcelSheets?: (
+    excelId: string,
+    filename: string,
+    sheets: SheetInfo[],
+    relationships: SheetRelationship[]
+  ) => void;
   disabled?: boolean;
 }
 
@@ -36,7 +41,7 @@ export function CSVUploadPanel({ onUpload, onExcelSheets, disabled }: CSVUploadP
         }
 
         if (data.excel_id && onExcelSheets) {
-          onExcelSheets(data.excel_id, data.filename, data.sheets);
+          onExcelSheets(data.excel_id, data.filename, data.sheets, data.relationships ?? []);
           return;
         }
 

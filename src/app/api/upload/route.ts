@@ -5,6 +5,7 @@ import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeGeoJSON } from "@/lib/csv/storage";
 import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { storeExcel } from "@/lib/excel/storage";
+import { detectRelationships } from "@/lib/excel/relationships";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { MAX_CSV_SIZE_BYTES, MAX_CSV_SIZE_LABEL } from "@/lib/constants";
 
@@ -132,10 +133,13 @@ export async function POST(request: Request) {
     const excelId = uuidv4();
     await storeExcel(excelId, buffer, file.name);
 
+    const relationships = detectRelationships(sheets);
+
     return NextResponse.json({
       excel_id: excelId,
       sheets,
       filename: file.name,
+      relationships,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
