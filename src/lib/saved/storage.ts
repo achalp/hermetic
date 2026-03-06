@@ -2,6 +2,7 @@ import { mkdir, writeFile, readFile, readdir, rm } from "fs/promises";
 import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { SavedVizMeta } from "@/lib/types";
+import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 const SAVED_DIR = join(process.cwd(), "data", "saved-vizs");
 
@@ -24,6 +25,7 @@ interface SaveInput {
   csvContent: string;
   generatedCode: string;
   spec: Record<string, unknown>;
+  artifacts?: CachedArtifacts;
 }
 
 export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta> {
@@ -37,12 +39,16 @@ export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta>
     createdAt: Date.now(),
   };
 
-  await Promise.all([
+  const writes = [
     writeFile(join(dir, "meta.json"), JSON.stringify(meta, null, 2), "utf-8"),
     writeFile(join(dir, "spec.json"), JSON.stringify(input.spec, null, 2), "utf-8"),
     writeFile(join(dir, "code.py"), input.generatedCode, "utf-8"),
     writeFile(join(dir, "source.csv"), input.csvContent, "utf-8"),
-  ]);
+  ];
+  if (input.artifacts) {
+    writes.push(writeFile(join(dir, "artifacts.json"), JSON.stringify(input.artifacts), "utf-8"));
+  }
+  await Promise.all(writes);
 
   return meta;
 }
@@ -74,6 +80,7 @@ interface LoadedVisualization {
   spec: Record<string, unknown>;
   generatedCode: string;
   csvContent: string;
+  artifacts?: CachedArtifacts;
 }
 
 export async function loadSavedVisualization(id: string): Promise<LoadedVisualization> {
@@ -85,11 +92,20 @@ export async function loadSavedVisualization(id: string): Promise<LoadedVisualiz
     readFile(join(dir, "source.csv"), "utf-8"),
   ]);
 
+  let artifacts: CachedArtifacts | undefined;
+  try {
+    const artifactsRaw = await readFile(join(dir, "artifacts.json"), "utf-8");
+    artifacts = JSON.parse(artifactsRaw);
+  } catch {
+    // artifacts.json may not exist for older saved vizs
+  }
+
   return {
     meta: JSON.parse(metaRaw),
     spec: JSON.parse(specRaw),
     generatedCode: code,
     csvContent: csv,
+    artifacts,
   };
 }
 

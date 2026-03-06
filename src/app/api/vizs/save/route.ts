@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCachedCode } from "@/lib/pipeline/code-cache";
+import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getStoredCSV, getCSVContent } from "@/lib/csv/storage";
 import { saveVisualization } from "@/lib/saved/storage";
 
@@ -40,12 +41,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "CSV content not found" }, { status: 404 });
     }
 
+    // Grab artifacts from in-memory cache (best-effort — may have expired)
+    const artifacts = getCachedArtifacts(csvId);
+
     const meta = await saveVisualization({
       question,
       csvFilename: stored.schema.filename,
       csvContent,
       generatedCode: cached.code,
       spec,
+      artifacts: artifacts ?? undefined,
     });
 
     return NextResponse.json({ meta });
