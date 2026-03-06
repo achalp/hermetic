@@ -33,6 +33,7 @@ interface ResponsePanelProps {
   questionSeq: number;
   onStreamEnd?: () => void;
   loadedSpec?: Spec | null;
+  loadedArtifacts?: CachedArtifacts | null;
   onSaved?: () => void;
   schemaMode?: SchemaMode;
   codeGenModel?: ModelId;
@@ -46,6 +47,7 @@ export function ResponsePanel({
   questionSeq,
   onStreamEnd,
   loadedSpec,
+  loadedArtifacts,
   onSaved,
   schemaMode = "metadata",
   codeGenModel,
@@ -106,9 +108,11 @@ export function ResponsePanel({
       setPreviousSpec(currentSpecRef.current);
     }
 
-    // Reset drill stack on follow-up
+    // Reset drill stack and stale artifacts on follow-up
     setDrillStack([]);
     currentSpecRef.current = null;
+    setArtifacts(null);
+    setShowArtifacts(false);
 
     send("", {
       csv_id: csvId,
@@ -244,6 +248,8 @@ export function ResponsePanel({
     conversationHistoryRef.current = [];
   }, [clear]);
 
+  const [artifactsError, setArtifactsError] = useState<string | null>(null);
+
   const handleToggleArtifacts = useCallback(async () => {
     if (showArtifacts) {
       setShowArtifacts(false);
@@ -255,15 +261,20 @@ export function ResponsePanel({
       return;
     }
     setArtifactsLoading(true);
+    setArtifactsError(null);
     try {
       const res = await fetch(`/api/artifacts/${csvId}`);
       if (res.ok) {
         const data = await res.json();
         setArtifacts(data);
         setShowArtifacts(true);
+      } else {
+        setArtifactsError("Artifacts expired. Re-run the query or save the visualization first.");
+        setTimeout(() => setArtifactsError(null), 4000);
       }
     } catch {
-      // silently fail
+      setArtifactsError("Failed to load artifacts.");
+      setTimeout(() => setArtifactsError(null), 4000);
     } finally {
       setArtifactsLoading(false);
     }
@@ -280,8 +291,11 @@ export function ResponsePanel({
       setDrillStack([]);
       setPreviousSpec(null);
       conversationHistoryRef.current = [];
+      // Seed artifacts from saved viz (if available)
+      setArtifacts(loadedArtifacts ?? null);
+      setShowArtifacts(false);
     }
-  }, [loadedSpec]);
+  }, [loadedSpec, loadedArtifacts]);
 
   const handleBackWithRestore = useCallback(
     (toIndex: number) => {
@@ -502,6 +516,7 @@ export function ResponsePanel({
                   {saveMessage}
                 </span>
               )}
+              {artifactsError && <span className="text-xs text-error-text">{artifactsError}</span>}
             </div>
           )}
         </div>

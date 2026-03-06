@@ -12,6 +12,7 @@ import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
 import { SettingsPanel } from "@/components/app/settings-panel";
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import type { SchemaMode } from "@/lib/types";
+import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   MAX_SAMPLE_ROWS,
   CODE_GEN_MODEL,
@@ -40,6 +41,7 @@ export default function Home() {
   const [questionSeq, setQuestionSeq] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [loadedSpec, setLoadedSpec] = useState<Spec | null>(null);
+  const [loadedArtifacts, setLoadedArtifacts] = useState<CachedArtifacts | null>(null);
   const [showSaved, setShowSaved] = useState(false);
   const [savedRefreshKey, setSavedRefreshKey] = useState(0);
   const [loadingViz, setLoadingViz] = useState(false);
@@ -88,6 +90,7 @@ export default function Home() {
     setQuestionSeq(0);
     setIsAnalyzing(false);
     setLoadedSpec(null);
+    setLoadedArtifacts(null);
   }, [reset]);
 
   const handleLoadViz = useCallback(
@@ -111,6 +114,7 @@ export default function Home() {
         handleUpload(uploadData.csv_id, uploadData.schema);
         setCurrentQuestion(data.meta.question);
         setLoadedSpec(data.spec as Spec);
+        setLoadedArtifacts(data.artifacts ?? null);
         setShowSaved(false);
       } catch (err) {
         console.error("Load viz failed:", err);
@@ -255,6 +259,7 @@ export default function Home() {
                 questionSeq={questionSeq}
                 onStreamEnd={handleStreamEnd}
                 loadedSpec={loadedSpec}
+                loadedArtifacts={loadedArtifacts}
                 onSaved={handleSaved}
                 schemaMode={schemaMode}
                 codeGenModel={codeGenModel}
