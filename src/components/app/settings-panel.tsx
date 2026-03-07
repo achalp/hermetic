@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { AVAILABLE_MODELS } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import { useTheme, THEMES } from "@/lib/theme-context";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import { OllamaSection } from "./ollama-section";
 
 interface ProviderInfo {
@@ -92,16 +93,8 @@ export function SettingsPanel({
 
   const isOllamaActive = providerInfo?.active === "ollama";
 
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
+  const closePanel = useCallback(() => setOpen(false), []);
+  useClickOutside(panelRef, closePanel, open);
 
   return (
     <div className="relative" ref={panelRef}>
