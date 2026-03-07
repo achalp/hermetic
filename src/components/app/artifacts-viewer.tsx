@@ -9,6 +9,7 @@ import {
   sanitizeFilename,
 } from "@/lib/export-utils";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { tokenizePython, type TokenType } from "@/lib/syntax-highlight";
 
 interface ArtifactsViewerProps {
   artifacts: CachedArtifacts;
@@ -16,110 +17,14 @@ interface ArtifactsViewerProps {
 
 type Tab = "code" | "data";
 
-// Single-pass tokenizer for Python syntax highlighting.
-// Avoids cascading regex issues by matching tokens in one pass —
-// later patterns never see HTML inserted by earlier ones.
-const KEYWORDS = new Set([
-  "import",
-  "from",
-  "def",
-  "class",
-  "return",
-  "if",
-  "elif",
-  "else",
-  "for",
-  "while",
-  "try",
-  "except",
-  "finally",
-  "with",
-  "as",
-  "in",
-  "not",
-  "and",
-  "or",
-  "is",
-  "None",
-  "True",
-  "False",
-  "lambda",
-  "yield",
-  "raise",
-  "pass",
-  "break",
-  "continue",
-  "async",
-  "await",
-]);
-const BUILTINS = new Set([
-  "print",
-  "len",
-  "range",
-  "int",
-  "float",
-  "str",
-  "list",
-  "dict",
-  "set",
-  "tuple",
-  "type",
-  "isinstance",
-  "enumerate",
-  "zip",
-  "map",
-  "filter",
-  "sorted",
-  "sum",
-  "min",
-  "max",
-  "abs",
-  "round",
-  "open",
-]);
-
-// Order matters: earlier alternatives are tried first.
-const TOKEN_RE =
-  /"""[\s\S]*?"""|'''[\s\S]*?'''|#[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[a-zA-Z_]\w*|\d+\.?\d*(?:[eE][+-]?\d+)?|[\s\S]/g;
-
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function highlightPython(code: string): string {
-  return Array.from(code.matchAll(TOKEN_RE))
-    .map(([tok]) => {
-      // Comments
-      if (tok.startsWith("#")) {
-        return `<span style="color:var(--syntax-comment);font-style:italic">${esc(tok)}</span>`;
-      }
-      // Strings (single, double, triple-quoted)
-      if (
-        tok.startsWith('"') ||
-        tok.startsWith("'") ||
-        tok.startsWith('"""') ||
-        tok.startsWith("'''")
-      ) {
-        return `<span style="color:var(--syntax-string)">${esc(tok)}</span>`;
-      }
-      // Identifiers: keywords vs builtins vs plain
-      if (/^[a-zA-Z_]/.test(tok)) {
-        if (KEYWORDS.has(tok)) {
-          return `<span style="color:var(--syntax-keyword);font-weight:600">${esc(tok)}</span>`;
-        }
-        if (BUILTINS.has(tok)) {
-          return `<span style="color:var(--syntax-builtin)">${esc(tok)}</span>`;
-        }
-        return esc(tok);
-      }
-      // Numbers
-      if (/^\d/.test(tok)) {
-        return `<span style="color:var(--syntax-number)">${esc(tok)}</span>`;
-      }
-      return esc(tok);
-    })
-    .join("");
-}
+const TOKEN_STYLES: Record<TokenType, React.CSSProperties | undefined> = {
+  comment: { color: "var(--syntax-comment)", fontStyle: "italic" },
+  string: { color: "var(--syntax-string)" },
+  keyword: { color: "var(--syntax-keyword)", fontWeight: 600 },
+  builtin: { color: "var(--syntax-builtin)" },
+  number: { color: "var(--syntax-number)" },
+  plain: undefined,
+};
 
 function recordsToTable(records: Record<string, unknown>[]): {
   columns: string[];
@@ -402,11 +307,18 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
                 ))}
               </div>
               <pre className="flex-1">
-                <code
-                  dangerouslySetInnerHTML={{
-                    __html: highlightPython(artifacts.code),
-                  }}
-                />
+                <code>
+                  {tokenizePython(artifacts.code).map((token, i) => {
+                    const style = TOKEN_STYLES[token.type];
+                    return style ? (
+                      <span key={i} style={style}>
+                        {token.text}
+                      </span>
+                    ) : (
+                      token.text
+                    );
+                  })}
+                </code>
               </pre>
             </div>
           </div>
