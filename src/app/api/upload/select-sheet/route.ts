@@ -5,6 +5,8 @@ import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV } from "@/lib/csv/storage";
 import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { getExcelBuffer, getStoredExcel } from "@/lib/excel/storage";
+import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
+import { prepareWarmSandbox } from "@/lib/sandbox";
 
 export async function POST(request: Request) {
   try {
@@ -46,7 +48,9 @@ export async function POST(request: Request) {
     const csvId = uuidv4();
     const displayName = `${stored.filename} (${sheet_name})`;
     const schema = extractSchema(parsed, csvId, displayName);
-    await storeCSV(csvId, toCSVText(parsed), schema);
+    const csvContent = toCSVText(parsed);
+    await storeCSV(csvId, csvContent, schema);
+    prepareWarmSandbox(csvId, csvContent, DEFAULT_SANDBOX_RUNTIME);
 
     return NextResponse.json({ csv_id: csvId, schema });
   } catch (err) {

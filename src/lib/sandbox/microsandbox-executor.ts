@@ -1,7 +1,7 @@
 import { PythonSandbox } from "microsandbox";
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
-import type { AdditionalFile } from "./index";
+import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
@@ -15,7 +15,7 @@ const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-l
 let warmSandbox: PythonSandbox | null = null;
 let sandboxReady = false;
 
-async function getOrCreateSandbox(): Promise<PythonSandbox> {
+export async function getOrCreateSandbox(): Promise<PythonSandbox> {
   if (warmSandbox && sandboxReady) {
     return warmSandbox;
   }
@@ -229,8 +229,8 @@ export async function executeSandbox(
       }
     }
 
-    // Write the script — rewrite /data paths to per-query paths
-    const patchedCode = code.replace(/\/data\//g, `${workDir}/`);
+    // Write the script — rewrite /data paths to per-query paths (with NaN-safety prelude)
+    const patchedCode = PYTHON_NAN_PRELUDE + code.replace(/\/data\//g, `${workDir}/`);
     const patchedB64 = Buffer.from(patchedCode).toString("base64");
     const writeExec = await sandbox.run(
       `import base64, pathlib\n` +
@@ -357,3 +357,43 @@ export async function executeSandbox(
     }
   }
 }
+
+/**
+ * Write content to a file in the sandbox using base64 chunking.
+ * Exported for reuse by the warm backend.
+ */
+export async function writeChunkedFile(
+  sandbox: PythonSandbox,
+  filePath: string,
+  content: string
+): Promise<string | null> {
+  const CHUNK_SIZE = 512 * 1024;
+  const buf = Buffer.from(content);
+  const firstChunk = buf.subarray(0, CHUNK_SIZE).toString("base64");
+
+  const initExec = await sandbox.run(
+    `import base64, pathlib\n` +
+      `pathlib.Path("${filePath}").write_bytes(base64.b64decode(${JSON.stringify(firstChunk)}))`,
+    { timeout: 15 }
+  );
+  if (initExec.hasError()) {
+    return `Failed to write file ${filePath}: ${await initExec.error()}`;
+  }
+
+  for (let offset = CHUNK_SIZE; offset < buf.length; offset += CHUNK_SIZE) {
+    const chunk = buf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
+    const appendExec = await sandbox.run(
+      `import base64\n` +
+        `with open("${filePath}", "ab") as f:\n` +
+        `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
+      { timeout: 15 }
+    );
+    if (appendExec.hasError()) {
+      return `Failed to write chunk for ${filePath}: ${await appendExec.error()}`;
+    }
+  }
+
+  return null; // success
+}
+
+export { PACKAGES, SANDBOX_NAME };

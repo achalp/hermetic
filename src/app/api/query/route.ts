@@ -518,18 +518,46 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             }
           }
 
-          // Replace $result:<key> placeholders with actual values from execution results
-          const resultRegex = /"\$result:([a-zA-Z0-9_.]+)"/g;
+          // Replace $result:<key> placeholders with actual values from execution results.
+          // Resolve dot-notation paths greedily to handle keys containing literal dots
+          // (e.g. "significant_at_0.05" is a single key, not nested).
+          const resolveResultKey = (keyPath: string): unknown => {
+            const resolve = (obj: unknown, path: string): unknown => {
+              if (obj === null || obj === undefined || typeof obj !== "object") return undefined;
+              const rec = obj as Record<string, unknown>;
+              if (path in rec) return rec[path];
+              const dot = path.indexOf(".");
+              if (dot === -1) return undefined;
+              const head = path.slice(0, dot);
+              const tail = path.slice(dot + 1);
+              if (head in rec) return resolve(rec[head], tail);
+              return undefined;
+            };
+            return resolve(executionResult.results, keyPath);
+          };
+
+          // Pass 1: standalone JSON string values like "$result:total_sales" → raw JSON value
+          const resultRegex = /"\$result:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)"/g;
           processed = processed.replace(resultRegex, (_match, keyPath: string) => {
-            const parts = keyPath.split(".");
-            let current: unknown = executionResult.results;
-            for (const part of parts) {
-              if (current === null || current === undefined || typeof current !== "object")
-                return _match;
-              current = (current as Record<string, unknown>)[part];
+            const value = resolveResultKey(keyPath);
+            return value !== undefined ? JSON.stringify(value) : _match;
+          });
+
+          // Pass 2: inline placeholders within larger strings like "F-stat: $result:f_stat"
+          // These survive Pass 1 because the quotes don't wrap just the placeholder.
+          // The regex requires each dot-segment to start with a word char, so trailing
+          // sentence punctuation (periods) won't be captured.
+          const inlineResultRegex = /\$result:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)/g;
+          processed = processed.replace(inlineResultRegex, (_match, keyPath: string) => {
+            const value = resolveResultKey(keyPath);
+            if (value === undefined) return _match;
+            if (typeof value === "number") {
+              return Number.isInteger(value)
+                ? String(value)
+                : parseFloat(value.toFixed(4)).toString();
             }
-            if (current === undefined) return _match; // graceful degradation
-            return JSON.stringify(current);
+            if (typeof value === "boolean") return value ? "Yes" : "No";
+            return String(value);
           });
 
           // Inject datasets.main into a JSON-Patch that sets /state
