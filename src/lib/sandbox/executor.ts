@@ -1,6 +1,6 @@
 import { Sandbox } from "@e2b/code-interpreter";
 import type { ExecutionResult } from "@/lib/types";
-import type { AdditionalFile } from "./index";
+import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
@@ -29,7 +29,7 @@ export async function executeSandbox(
         await sandbox.files.write(file.path, file.content);
       }
     }
-    await sandbox.files.write("/data/script.py", code);
+    await sandbox.files.write("/data/script.py", PYTHON_NAN_PRELUDE + code);
 
     // Use shell redirection to capture stdout to a file at the OS level.
     // This bypasses all SDK/Jupyter buffer limits on stdout capture.

@@ -34,7 +34,14 @@ export async function runPipeline(
   // Step 2: Execute in sandbox
   logger.debug("Generated code", { chars: code.length });
   onStage?.("executing");
-  let result = await executeSandbox(csvContent, code, runtime, geojsonContent, additionalFiles);
+  let result = await executeSandbox(
+    csvContent,
+    code,
+    runtime,
+    geojsonContent,
+    additionalFiles,
+    schema.csv_id
+  );
 
   // Step 3: Retry once on failure
   if (!result.success) {
@@ -59,7 +66,14 @@ export async function runPipeline(
     retryCode = retryCode.trim();
 
     onStage?.("executing");
-    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent, additionalFiles);
+    result = await executeSandbox(
+      csvContent,
+      retryCode,
+      runtime,
+      geojsonContent,
+      additionalFiles,
+      schema.csv_id
+    );
 
     if (!result.success) {
       throw new Error(`Analysis failed after retry: ${result.error}`);
@@ -101,7 +115,14 @@ export async function runChatPipeline(
 
   // Step 2: Execute in sandbox
   onStage?.("executing");
-  let result = await executeSandbox(csvContent, code, runtime, geojsonContent, additionalFiles);
+  let result = await executeSandbox(
+    csvContent,
+    code,
+    runtime,
+    geojsonContent,
+    additionalFiles,
+    schema.csv_id
+  );
 
   // Step 3: Retry once on failure
   if (!result.success) {
@@ -126,7 +147,14 @@ export async function runChatPipeline(
     retryCode = retryCode.trim();
 
     onStage?.("executing");
-    result = await executeSandbox(csvContent, retryCode, runtime, geojsonContent, additionalFiles);
+    result = await executeSandbox(
+      csvContent,
+      retryCode,
+      runtime,
+      geojsonContent,
+      additionalFiles,
+      schema.csv_id
+    );
 
     if (!result.success) {
       throw new Error(`Analysis failed after retry: ${result.error}`);
