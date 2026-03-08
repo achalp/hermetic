@@ -40,17 +40,21 @@ export function SettingsPanel({
   useEffect(() => {
     if (providerFetched.current) return;
     providerFetched.current = true;
-    getProviders()
+    const controller = new AbortController();
+    getProviders(controller.signal)
       .then((data) => setProviderInfo(data))
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
     if (runtimesFetched.current) return;
     runtimesFetched.current = true;
-    getRuntimes()
+    const controller = new AbortController();
+    getRuntimes(controller.signal)
       .then((data) => setRuntimes(data))
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   const availableRuntimes = runtimes.filter((r) => r.available);

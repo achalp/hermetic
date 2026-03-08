@@ -70,13 +70,15 @@ export default function Home() {
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
 
   useEffect(() => {
-    getOllamaConfig()
+    const controller = new AbortController();
+    getOllamaConfig(controller.signal)
       .then((data) => {
         if (data.ollama?.enabled && data.ollama?.activeModel) {
           setOllamaModel(data.ollama.activeModel);
         }
       })
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {

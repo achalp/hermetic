@@ -15,11 +15,13 @@ export function SavedVizsPanel({ onLoad, refreshKey }: SavedVizsPanelProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
-    listVizs()
+    listVizs(controller.signal)
       .then((vizsList) => setVizs(vizsList))
       .catch(() => setVizs([]))
       .finally(() => setLoading(false));
+    return () => controller.abort();
   }, [refreshKey]);
 
   const handleDelete = async (id: string) => {

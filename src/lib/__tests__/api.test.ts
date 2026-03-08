@@ -33,7 +33,15 @@ describe("api module", () => {
       mockFetch.mockResolvedValue(mockOk(data));
       const result = await getProviders();
       expect(result).toEqual(data);
-      expect(mockFetch).toHaveBeenCalledWith("/api/providers");
+      expect(mockFetch).toHaveBeenCalledWith("/api/providers", { signal: undefined });
+    });
+
+    it("passes abort signal when provided", async () => {
+      const data = { active: "anthropic", activeLabel: "Anthropic", configured: ["anthropic"] };
+      mockFetch.mockResolvedValue(mockOk(data));
+      const controller = new AbortController();
+      await getProviders(controller.signal);
+      expect(mockFetch).toHaveBeenCalledWith("/api/providers", { signal: controller.signal });
     });
 
     it("throws ApiError on failure", async () => {
