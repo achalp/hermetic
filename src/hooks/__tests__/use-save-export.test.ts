@@ -2,8 +2,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useSaveExport } from "@/hooks/use-save-export";
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
+
+vi.mock("@/lib/api", () => ({
+  saveViz: vi.fn(),
+  ApiError: class ApiError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+    }
+  },
+}));
+
+import { saveViz, ApiError } from "@/lib/api";
+const mockSaveViz = saveViz as ReturnType<typeof vi.fn>;
 
 function makeRefs() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -18,7 +31,7 @@ function makeRefs() {
 }
 
 beforeEach(() => {
-  mockFetch.mockReset();
+  mockSaveViz.mockReset();
 });
 
 afterEach(() => {
@@ -33,12 +46,8 @@ describe("useSaveExport", () => {
     expect(result.current.exporting).toBeNull();
   });
 
-  it("handleSave succeeds and calls onSaved", async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ meta: {} }),
-    });
+  it("handleSave calls api.saveViz and calls onSaved", async () => {
+    mockSaveViz.mockResolvedValue({ meta: {} });
     const refs = makeRefs();
     const { result } = renderHook(() => useSaveExport(refs));
 
@@ -46,22 +55,17 @@ describe("useSaveExport", () => {
       await result.current.handleSave();
     });
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/vizs/save",
-      expect.objectContaining({
-        method: "POST",
-      })
+    expect(mockSaveViz).toHaveBeenCalledWith(
+      "csv-1",
+      refs.currentSpecRef.current,
+      "What are sales?"
     );
     expect(result.current.saveMessage).toBe("Saved!");
     expect(refs.onSaved).toHaveBeenCalled();
   });
 
-  it("handleSave shows error on failure", async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-      json: () => Promise.resolve({ error: "DB error" }),
-    });
+  it("handleSave shows ApiError message on failure", async () => {
+    mockSaveViz.mockRejectedValue(new ApiError("DB error", 500));
     const { result } = renderHook(() => useSaveExport(makeRefs()));
 
     await act(async () => {
@@ -70,6 +74,17 @@ describe("useSaveExport", () => {
 
     expect(result.current.saveMessage).toBe("DB error");
     expect(result.current.saving).toBe(false);
+  });
+
+  it("handleSave shows generic message on unknown error", async () => {
+    mockSaveViz.mockRejectedValue(new Error("network"));
+    const { result } = renderHook(() => useSaveExport(makeRefs()));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(result.current.saveMessage).toBe("Save failed");
   });
 
   it("handleSave is no-op when csvId is null", async () => {
@@ -81,7 +96,7 @@ describe("useSaveExport", () => {
       await result.current.handleSave();
     });
 
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSaveViz).not.toHaveBeenCalled();
   });
 
   it("handleSave is no-op when spec is null", async () => {
@@ -93,6 +108,6 @@ describe("useSaveExport", () => {
       await result.current.handleSave();
     });
 
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSaveViz).not.toHaveBeenCalled();
   });
 });

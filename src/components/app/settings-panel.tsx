@@ -6,19 +6,7 @@ import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import { useTheme, THEMES } from "@/lib/theme-context";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { OllamaSection } from "./ollama-section";
-
-interface ProviderInfo {
-  active: string;
-  activeLabel: string;
-  configured: string[];
-  model?: string;
-}
-
-interface RuntimeStatus {
-  id: string;
-  label: string;
-  available: boolean;
-}
+import { getProviders, getRuntimes, type ProviderInfo, type RuntimeStatus } from "@/lib/api";
 
 interface SettingsPanelProps {
   codeGenModel: ModelId;
@@ -52,18 +40,16 @@ export function SettingsPanel({
   useEffect(() => {
     if (providerFetched.current) return;
     providerFetched.current = true;
-    fetch("/api/providers")
-      .then((r) => r.json())
-      .then((data: ProviderInfo) => setProviderInfo(data))
+    getProviders()
+      .then((data) => setProviderInfo(data))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     if (runtimesFetched.current) return;
     runtimesFetched.current = true;
-    fetch("/api/runtimes")
-      .then((r) => r.json())
-      .then((data: RuntimeStatus[]) => setRuntimes(data))
+    getRuntimes()
+      .then((data) => setRuntimes(data))
       .catch(() => {});
   }, []);
 
@@ -83,9 +69,8 @@ export function SettingsPanel({
       onOllamaModelChange(model || null);
       // Re-fetch provider info to reflect the change
       providerFetched.current = false;
-      fetch("/api/providers")
-        .then((r) => r.json())
-        .then((data: ProviderInfo) => setProviderInfo(data))
+      getProviders()
+        .then((data) => setProviderInfo(data))
         .catch(() => {});
     },
     [onOllamaModelChange]

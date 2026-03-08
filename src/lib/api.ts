@@ -3,7 +3,7 @@
  * Replaces raw fetch() scattered across components.
  */
 
-import type { CSVSchema, SavedVizMeta } from "@/lib/types";
+import type { CSVSchema, SavedVizMeta, SheetInfo, SheetRelationship } from "@/lib/types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -58,8 +58,8 @@ export interface UploadResult {
   schema?: CSVSchema;
   excel_id?: string;
   filename?: string;
-  sheets?: unknown[];
-  relationships?: unknown[];
+  sheets?: SheetInfo[];
+  relationships?: SheetRelationship[];
 }
 
 export async function uploadFile(formData: FormData): Promise<UploadResult> {
@@ -94,7 +94,8 @@ export async function selectWorkbook(excelId: string): Promise<SelectSheetResult
 
 export async function listVizs(): Promise<SavedVizMeta[]> {
   const res = await fetch("/api/vizs");
-  return json<SavedVizMeta[]>(res);
+  const data = await json<{ vizs: SavedVizMeta[] }>(res);
+  return data.vizs;
 }
 
 export interface LoadedViz {

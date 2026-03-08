@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
+import { uploadFile as apiUploadFile } from "@/lib/api";
 
 interface CSVUploadPanelProps {
   onUpload: (csvId: string, schema: CSVSchema) => void;
@@ -29,23 +30,14 @@ export function CSVUploadPanel({ onUpload, onExcelSheets, disabled }: CSVUploadP
         const formData = new FormData();
         formData.append("csv", file);
 
-        const res = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error ?? "Upload failed");
-        }
+        const data = await apiUploadFile(formData);
 
         if (data.excel_id && onExcelSheets) {
-          onExcelSheets(data.excel_id, data.filename, data.sheets, data.relationships ?? []);
+          onExcelSheets(data.excel_id, data.filename!, data.sheets!, data.relationships ?? []);
           return;
         }
 
-        onUpload(data.csv_id, data.schema);
+        onUpload(data.csv_id!, data.schema!);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed");
       } finally {

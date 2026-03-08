@@ -13,6 +13,7 @@ import { SettingsPanel } from "@/components/app/settings-panel";
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
+import { getOllamaConfig, loadViz, uploadFile } from "@/lib/api";
 import {
   MAX_SAMPLE_ROWS,
   CODE_GEN_MODEL,
@@ -69,8 +70,7 @@ export default function Home() {
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/ollama/config")
-      .then((r) => r.json())
+    getOllamaConfig()
       .then((data) => {
         if (data.ollama?.enabled && data.ollama?.activeModel) {
           setOllamaModel(data.ollama.activeModel);
@@ -93,9 +93,7 @@ export default function Home() {
     async (vizId: string) => {
       dispatch({ type: "LOAD_VIZ_START" });
       try {
-        const res = await fetch(`/api/vizs/${vizId}`);
-        if (!res.ok) throw new Error("Failed to load");
-        const data = await res.json();
+        const data = await loadViz(vizId);
 
         // Re-upload the CSV to get a fresh csvId
         const blob = new Blob([data.csvContent], { type: "text/csv" });
@@ -103,15 +101,14 @@ export default function Home() {
         const formData = new FormData();
         formData.append("csv", file);
 
-        const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
-        if (!uploadRes.ok) throw new Error("Failed to re-upload CSV");
-        const uploadData = await uploadRes.json();
+        const uploadData = await uploadFile(formData);
+        if (!uploadData.csv_id || !uploadData.schema) throw new Error("Failed to re-upload CSV");
 
         handleUpload(uploadData.csv_id, uploadData.schema);
         dispatch({
           type: "LOAD_VIZ_SUCCESS",
           question: data.meta.question,
-          spec: data.spec as Spec,
+          spec: data.spec as unknown as Spec,
           artifacts: data.artifacts ?? null,
         });
       } catch (err) {

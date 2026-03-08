@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { getArtifacts } from "@/lib/api";
 
 interface UseArtifactsOptions {
   csvId: string | null;
@@ -26,17 +27,11 @@ export function useArtifacts({ csvId }: UseArtifactsOptions) {
     setArtifactsLoading(true);
     setArtifactsError(null);
     try {
-      const res = await fetch(`/api/artifacts/${csvId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setArtifacts(data);
-        setShowArtifacts(true);
-      } else {
-        setArtifactsError("Artifacts expired. Re-run the query or save the visualization first.");
-        setTimeout(() => setArtifactsError(null), 4000);
-      }
+      const data = await getArtifacts(csvId);
+      setArtifacts(data);
+      setShowArtifacts(true);
     } catch {
-      setArtifactsError("Failed to load artifacts.");
+      setArtifactsError("Artifacts expired. Re-run the query or save the visualization first.");
       setTimeout(() => setArtifactsError(null), 4000);
     } finally {
       setArtifactsLoading(false);

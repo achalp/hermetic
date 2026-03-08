@@ -3,11 +3,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useArtifacts } from "@/hooks/use-artifacts";
 
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
+vi.mock("@/lib/api", () => ({
+  getArtifacts: vi.fn(),
+}));
+
+import { getArtifacts } from "@/lib/api";
+const mockGetArtifacts = getArtifacts as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  mockFetch.mockReset();
+  mockGetArtifacts.mockReset();
 });
 
 afterEach(() => {
@@ -37,16 +41,12 @@ describe("useArtifacts", () => {
       await result.current.handleToggleArtifacts();
     });
     expect(result.current.showArtifacts).toBe(false);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockGetArtifacts).not.toHaveBeenCalled();
   });
 
-  it("fetches artifacts on first toggle", async () => {
+  it("fetches artifacts via api.getArtifacts on first toggle", async () => {
     const data = { code: "x=1", question: "Q", results: {}, execution_ms: 100 };
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(data),
-    });
+    mockGetArtifacts.mockResolvedValue(data);
 
     const { result } = renderHook(() => useArtifacts({ csvId: "csv-1" }));
 
@@ -54,7 +54,7 @@ describe("useArtifacts", () => {
       await result.current.handleToggleArtifacts();
     });
 
-    expect(mockFetch).toHaveBeenCalledWith("/api/artifacts/csv-1");
+    expect(mockGetArtifacts).toHaveBeenCalledWith("csv-1");
     expect(result.current.artifacts).toEqual(data);
     expect(result.current.showArtifacts).toBe(true);
     expect(result.current.artifactsLoading).toBe(false);
@@ -62,11 +62,7 @@ describe("useArtifacts", () => {
 
   it("uses cached artifacts on subsequent toggle", async () => {
     const data = { code: "x=1", question: "Q", results: {}, execution_ms: 100 };
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(data),
-    });
+    mockGetArtifacts.mockResolvedValue(data);
 
     const { result } = renderHook(() => useArtifacts({ csvId: "csv-1" }));
 
@@ -74,7 +70,7 @@ describe("useArtifacts", () => {
     await act(async () => {
       await result.current.handleToggleArtifacts();
     });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockGetArtifacts).toHaveBeenCalledTimes(1);
 
     // Toggle off
     await act(async () => {
@@ -85,16 +81,12 @@ describe("useArtifacts", () => {
     await act(async () => {
       await result.current.handleToggleArtifacts();
     });
-    expect(mockFetch).toHaveBeenCalledTimes(1); // no additional fetch
+    expect(mockGetArtifacts).toHaveBeenCalledTimes(1); // no additional fetch
     expect(result.current.showArtifacts).toBe(true);
   });
 
   it("sets error when fetch fails", async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 404,
-      json: () => Promise.resolve({ error: "Not found" }),
-    });
+    mockGetArtifacts.mockRejectedValue(new Error("Not found"));
 
     const { result } = renderHook(() => useArtifacts({ csvId: "csv-1" }));
 
@@ -115,6 +107,6 @@ describe("useArtifacts", () => {
       await result.current.handleToggleArtifacts();
     });
 
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockGetArtifacts).not.toHaveBeenCalled();
   });
 });

@@ -79,11 +79,11 @@ describe("api module", () => {
   });
 
   describe("listVizs", () => {
-    it("returns saved viz list", async () => {
-      const data = [{ vizId: "v1", question: "Q", csvFilename: "f.csv", createdAt: 1 }];
-      mockFetch.mockResolvedValue(mockOk(data));
+    it("unwraps vizs array from response", async () => {
+      const vizs = [{ vizId: "v1", question: "Q", csvFilename: "f.csv", createdAt: 1 }];
+      mockFetch.mockResolvedValue(mockOk({ vizs }));
       const result = await listVizs();
-      expect(result).toEqual(data);
+      expect(result).toEqual(vizs);
     });
   });
 
