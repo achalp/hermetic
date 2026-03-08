@@ -6,6 +6,8 @@ import type {
   CategoricalMeta,
   BooleanMeta,
   ColumnMeta,
+  DataDomain,
+  ColumnCorrelation,
 } from "@/lib/types";
 import type { ParsedCSV } from "./parser";
 import { MAX_SAMPLE_ROWS, MAX_PREVIEW_ROWS } from "@/lib/constants";
@@ -143,6 +145,26 @@ function extractNumericMeta(rawValues: string[]): NumericMeta {
 
   const isInteger = maxDecimals === 0;
 
+  const stdDev = Math.sqrt(variance);
+  const p25Val = percentile(sorted, 25);
+  const p75Val = percentile(sorted, 75);
+  const iqr = p75Val - p25Val;
+
+  // Skewness (Fisher's) and excess kurtosis
+  let skewness: number | undefined;
+  let kurtosis: number | undefined;
+  if (nums.length >= 3 && stdDev > 0) {
+    const m3 = nums.reduce((acc, n) => acc + ((n - mean) / stdDev) ** 3, 0) / nums.length;
+    const m4 = nums.reduce((acc, n) => acc + ((n - mean) / stdDev) ** 4, 0) / nums.length;
+    skewness = round(m3, 2);
+    kurtosis = round(m4 - 3, 2); // excess kurtosis
+  }
+
+  // Outlier count: beyond 1.5×IQR fences
+  const lowerFence = p25Val - 1.5 * iqr;
+  const upperFence = p75Val + 1.5 * iqr;
+  const outlierCount = nums.filter((n) => n < lowerFence || n > upperFence).length;
+
   const meta: NumericMeta = {
     kind: "number",
     is_integer: isInteger,
@@ -153,11 +175,14 @@ function extractNumericMeta(rawValues: string[]): NumericMeta {
     max: round(sorted[sorted.length - 1], 4),
     mean: round(mean, 2),
     median: round(percentile(sorted, 50), 2),
-    std_dev: round(Math.sqrt(variance), 2),
-    p25: round(percentile(sorted, 25), 2),
-    p75: round(percentile(sorted, 75), 2),
+    std_dev: round(stdDev, 2),
+    p25: round(p25Val, 2),
+    p75: round(p75Val, 2),
     zero_count: nums.filter((n) => n === 0).length,
     negative_count: nums.filter((n) => n < 0).length,
+    ...(skewness !== undefined && { skewness }),
+    ...(kurtosis !== undefined && { kurtosis }),
+    ...(outlierCount > 0 && { outlier_count: outlierCount }),
   };
 
   if (currencySymbol) meta.currency_symbol = currencySymbol;
@@ -425,6 +450,107 @@ function extractColumnMeta(dtype: CSVColumn["dtype"], rawValues: string[]): Colu
 
 // ── Public API ────────────────────────────────────────────────────
 
+// ── Domain detection ──────────────────────────────────────────────
+
+/** OHLC column name patterns (case-insensitive) */
+const OHLC_PATTERNS = [/\bopen\b/i, /\bhigh\b/i, /\blow\b/i, /\bclose\b/i];
+const FINANCIAL_NAME_PATTERNS = [
+  /\b(price|volume|ticker|symbol|market.?cap|dividend|eps|pe.?ratio|revenue|profit|loss|margin|ebitda|nav|aum|yield|coupon|maturity|strike|bid|ask|spread)\b/i,
+];
+const RETURN_PATTERNS = [
+  /\b(return|pnl|p&l|gain|drawdown|sharpe|sortino|volatility|beta|alpha|cagr)\b/i,
+];
+
+function detectDomain(columns: CSVColumn[]): DataDomain {
+  const names = columns.map((c) => c.name);
+  const hasDate = columns.some((c) => c.dtype === "date");
+  const numericCols = columns.filter((c) => c.dtype === "number");
+
+  // OHLC detection: at least 3 of 4 OHLC columns present
+  const ohlcMatches = OHLC_PATTERNS.filter((p) => names.some((n) => p.test(n))).length;
+  if (ohlcMatches >= 3) return "financial";
+
+  // Financial keyword detection in column names
+  const financialHits = names.filter(
+    (n) => FINANCIAL_NAME_PATTERNS.some((p) => p.test(n)) || RETURN_PATTERNS.some((p) => p.test(n))
+  ).length;
+  if (financialHits >= 2) return "financial";
+
+  // Currency columns
+  const currencyCols = numericCols.filter((c) => c.meta.kind === "number" && c.meta.is_currency);
+  if (currencyCols.length >= 2) return "financial";
+
+  // Time series: has a date column + multiple numeric columns
+  if (hasDate && numericCols.length >= 2) return "time_series";
+
+  // Statistical: many numeric columns without dates (cross-sectional data)
+  if (!hasDate && numericCols.length >= 5) return "statistical";
+
+  return "general";
+}
+
+// ── Pairwise correlations ────────────────────────────────────────
+
+function computeCorrelations(
+  parsed: ParsedCSV,
+  columns: CSVColumn[],
+  maxPairs: number = 5
+): ColumnCorrelation[] {
+  const numericCols = columns.filter((c) => c.dtype === "number");
+  if (numericCols.length < 2) return [];
+
+  // Cap at first 1000 rows for performance
+  const sampleData = parsed.data.slice(0, 1000);
+
+  // Parse numeric arrays
+  const numArrays: Record<string, number[]> = {};
+  for (const col of numericCols) {
+    numArrays[col.name] = sampleData.map((row) => {
+      const raw = row[col.name] ?? "";
+      return Number(stripNumericFormatting(raw));
+    });
+  }
+
+  const pairs: ColumnCorrelation[] = [];
+  for (let i = 0; i < numericCols.length; i++) {
+    for (let j = i + 1; j < numericCols.length; j++) {
+      const a = numArrays[numericCols[i].name];
+      const b = numArrays[numericCols[j].name];
+
+      // Filter to rows where both are valid numbers
+      const validPairs: [number, number][] = [];
+      for (let k = 0; k < a.length; k++) {
+        if (!isNaN(a[k]) && !isNaN(b[k])) validPairs.push([a[k], b[k]]);
+      }
+      if (validPairs.length < 10) continue;
+
+      const meanA = validPairs.reduce((s, p) => s + p[0], 0) / validPairs.length;
+      const meanB = validPairs.reduce((s, p) => s + p[1], 0) / validPairs.length;
+      let cov = 0,
+        varA = 0,
+        varB = 0;
+      for (const [va, vb] of validPairs) {
+        const da = va - meanA;
+        const db = vb - meanB;
+        cov += da * db;
+        varA += da * da;
+        varB += db * db;
+      }
+      const denom = Math.sqrt(varA * varB);
+      if (denom === 0) continue;
+      const pearson = round(cov / denom, 3);
+
+      pairs.push({ col_a: numericCols[i].name, col_b: numericCols[j].name, pearson });
+    }
+  }
+
+  // Return top pairs by absolute correlation
+  pairs.sort((a, b) => Math.abs(b.pearson) - Math.abs(a.pearson));
+  return pairs.slice(0, maxPairs);
+}
+
+// ── Public API ────────────────────────────────────────────────────
+
 export function extractSchema(parsed: ParsedCSV, csvId: string, filename: string): CSVSchema {
   const columns: CSVColumn[] = parsed.headers.map((name) => {
     const values = parsed.data.map((row) => row[name] ?? "");
@@ -434,10 +560,17 @@ export function extractSchema(parsed: ParsedCSV, csvId: string, filename: string
     const meta = extractColumnMeta(dtype, values);
     const sampleValues = nonEmpty.slice(0, MAX_SAMPLE_ROWS);
 
+    // Add null_pct to numeric metadata
+    if (meta.kind === "number" && values.length > 0) {
+      meta.null_pct = round((nullCount / values.length) * 100, 1);
+    }
+
     return { name, dtype, null_count: nullCount, meta, sample_values: sampleValues };
   });
 
   const sampleRows = parsed.data.slice(0, MAX_PREVIEW_ROWS);
+  const detected_domain = detectDomain(columns);
+  const correlations = computeCorrelations(parsed, columns);
 
   return {
     csv_id: csvId,
@@ -445,5 +578,7 @@ export function extractSchema(parsed: ParsedCSV, csvId: string, filename: string
     row_count: parsed.rowCount,
     columns,
     sample_rows: sampleRows,
+    detected_domain,
+    ...(correlations.length > 0 && { correlations }),
   };
 }

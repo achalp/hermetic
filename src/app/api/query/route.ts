@@ -366,7 +366,34 @@ ${workbookContext}`;
 
 Compose a dashboard that answers the user's question. Choose the layout that best tells the data story — lead with the most impactful component. Interleave brief insights between visualizations for a narrative flow.`;
 
+    // Domain-aware UI rules
+    const domainUiRules: string[] = [];
+    const detectedDomain = stored.schema.detected_domain;
+    if (detectedDomain === "financial") {
+      domainUiRules.push(
+        'For financial metrics, use StatCard with format="currency" and precision=2. For percentage changes, use format="percent".',
+        "Use CandlestickChart for OHLC price data — prefer it over LineChart when open/high/low/close are available.",
+        "Use WaterfallChart for P&L bridges, revenue walks, or cumulative change breakdowns.",
+        "For period-over-period comparisons, use TrendIndicator with format and precision props.",
+        "Negative financial values (losses, declines) should display naturally — do not hide the sign."
+      );
+    } else if (detectedDomain === "statistical") {
+      domainUiRules.push(
+        "For statistical test results, use Annotation (severity: info) to display test names, p-values, and effect sizes clearly.",
+        "Use BoxPlot or ViolinChart for distribution comparisons — prefer these over bar charts for numeric distributions.",
+        "Use HeatMap with show_values: true for correlation matrices.",
+        "When showing regression results, use ScatterChart with show_regression: true."
+      );
+    } else if (detectedDomain === "time_series") {
+      domainUiRules.push(
+        "Use LineChart for time-series trends. Use show_dots: false for dense daily data, show_dots: true for sparse monthly/quarterly data.",
+        "For period comparisons (YoY, MoM), use TrendIndicator or DumbbellChart.",
+        "Use CalendarChart for daily metrics that benefit from a calendar view."
+      );
+    }
+
     const customRules = [
+      ...domainUiRules,
       ...(schemaMode === "metadata"
         ? [
             'Use "$result:<key>" placeholders for ALL scalar values in StatCard value, TrendIndicator value/previous, and any other numeric display props. Never fabricate or guess specific numbers.',

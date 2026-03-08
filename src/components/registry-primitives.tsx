@@ -65,6 +65,10 @@ export interface StatCardProps {
   change?: string | null;
   trend?: "up" | "down" | "flat" | null;
   description?: string | null;
+  /** Display format: currency adds $, percent adds %, number uses locale formatting */
+  format?: "currency" | "percent" | "number" | null;
+  /** Decimal precision (e.g. 2 for $1,234.56). Defaults: currency=2, percent=1, number=auto */
+  precision?: number | null;
 }
 
 export interface TextBlockProps {
@@ -109,9 +113,48 @@ export interface ToggleSwitchProps {
 
 // ── StatCard ───────────────────────────────────────────────────
 
+/** Format a numeric value with explicit format and precision control */
+function formatWithPrecision(
+  num: number,
+  format: StatCardProps["format"],
+  precision?: number | null
+): string {
+  switch (format) {
+    case "currency": {
+      const p = precision ?? 2;
+      return `$${num.toLocaleString(undefined, { minimumFractionDigits: p, maximumFractionDigits: p })}`;
+    }
+    case "percent": {
+      const p = precision ?? 1;
+      return `${num.toFixed(p)}%`;
+    }
+    case "number": {
+      const p = precision ?? undefined;
+      return num.toLocaleString(undefined, {
+        minimumFractionDigits: p,
+        maximumFractionDigits: p,
+      });
+    }
+    default:
+      return formatStatNumber(num);
+  }
+}
+
 export function StatCardComponent({ props }: { props: StatCardProps }) {
   const statCard = useStatCardTheme();
-  const displayValue = formatStatValue(props.value);
+  const displayValue = props.format
+    ? (() => {
+        const v = props.value;
+        if (typeof v === "number") return formatWithPrecision(v, props.format, props.precision);
+        if (typeof v === "string") {
+          const stripped = v.replace(/[$€£¥₹,%\s]/g, "");
+          const num = Number(stripped);
+          if (!isNaN(num) && stripped.length > 0)
+            return formatWithPrecision(num, props.format, props.precision);
+        }
+        return String(v ?? "");
+      })()
+    : formatStatValue(props.value);
   const fontSize = statCard.valueClass;
   return (
     <div
