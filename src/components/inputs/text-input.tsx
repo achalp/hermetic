@@ -25,13 +25,11 @@ export function TextInputComponent({ props, bindings }: TextInputComponentProps)
         value={value ?? ""}
         placeholder={props.placeholder ?? undefined}
         onChange={(e) => setValue(e.target.value)}
-        className="theme-input border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors focus:border-accent"
+        className="theme-input border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors focus:border-accent focus-visible:shadow-[var(--ring-focus)]"
         style={{
           borderRadius: "var(--radius-input)",
           transitionDuration: "var(--transition-speed)",
         }}
-        onFocus={(e) => (e.currentTarget.style.boxShadow = "var(--ring-focus)")}
-        onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
       />
     </div>
   );

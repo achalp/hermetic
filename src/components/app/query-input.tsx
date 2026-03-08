@@ -35,13 +35,11 @@ export function QueryInput({ onSubmit, disabled, isLoading }: QueryInputProps) {
         placeholder="Ask a question about your data..."
         disabled={disabled || isLoading}
         aria-describedby={isLoading ? "query-status" : undefined}
-        className="theme-input flex-1 border border-border-default bg-surface-input px-4 py-3 text-sm text-t-primary placeholder-t-tertiary outline-none transition-colors focus:border-accent disabled:opacity-50"
+        className="theme-input flex-1 border border-border-default bg-surface-input px-4 py-3 text-sm text-t-primary placeholder-t-tertiary outline-none transition-colors focus:border-accent focus-visible:shadow-[var(--ring-focus)] disabled:opacity-50"
         style={{
           borderRadius: "var(--radius-input)",
           transitionDuration: "var(--transition-speed)",
         }}
-        onFocus={(e) => (e.currentTarget.style.boxShadow = "var(--ring-focus)")}
-        onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
       />
       <button
         type="submit"

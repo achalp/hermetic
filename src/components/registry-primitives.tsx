@@ -215,14 +215,11 @@ export function SelectControlComponent({ props, bindings }: { props: any; bindin
       <select
         value={value ?? ""}
         onChange={(e) => setValue(e.target.value)}
-        className="theme-input border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors focus:border-accent"
+        className="theme-input border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors focus:border-accent focus-visible:shadow-[var(--ring-focus)]"
         style={{
           borderRadius: "var(--radius-input)",
-          boxShadow: "var(--ring-focus)",
           transitionDuration: "var(--transition-speed)",
         }}
-        onFocus={(e) => (e.currentTarget.style.boxShadow = "var(--ring-focus)")}
-        onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
       >
         {props.placeholder && <option value="">{props.placeholder}</option>}
         {props.options.map((opt: { value: string; label: string }) => (
@@ -249,13 +246,11 @@ export function NumberInputComponent({ props, bindings }: { props: any; bindings
         max={props.max ?? undefined}
         step={props.step ?? undefined}
         onChange={(e) => setValue(parseFloat(e.target.value))}
-        className="theme-input border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors focus:border-accent"
+        className="theme-input border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors focus:border-accent focus-visible:shadow-[var(--ring-focus)]"
         style={{
           borderRadius: "var(--radius-input)",
           transitionDuration: "var(--transition-speed)",
         }}
-        onFocus={(e) => (e.currentTarget.style.boxShadow = "var(--ring-focus)")}
-        onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
       />
     </div>
   );
@@ -274,12 +269,9 @@ export function ToggleSwitchComponent({ props, bindings }: { props: any; binding
         role="switch"
         aria-checked={isChecked}
         onClick={() => setChecked(!isChecked)}
-        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:shadow-[var(--ring-focus)] ${
           isChecked ? "bg-accent" : "bg-surface-2"
         }`}
-        style={{ boxShadow: "var(--ring-focus)" }}
-        onFocus={(e) => (e.currentTarget.style.boxShadow = "var(--ring-focus)")}
-        onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
       >
         <span
           className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
