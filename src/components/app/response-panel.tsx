@@ -20,6 +20,7 @@ import {
   downloadDashboardAsPptx,
 } from "@/lib/export-utils";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
+import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 
 interface DrillLevel {
   question: string;
@@ -392,7 +393,9 @@ export function ResponsePanel({
               <StateProvider initialState={level.spec.state ?? {}}>
                 <ActionProvider>
                   <VisibilityProvider>
-                    <Renderer spec={level.spec} registry={registry} />
+                    <RendererErrorBoundary>
+                      <Renderer spec={level.spec} registry={registry} />
+                    </RendererErrorBoundary>
                   </VisibilityProvider>
                 </ActionProvider>
               </StateProvider>
@@ -442,7 +445,9 @@ export function ResponsePanel({
           <StateProvider initialState={activeSpec.state ?? {}}>
             <ActionProvider>
               <VisibilityProvider>
-                <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                <RendererErrorBoundary>
+                  <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                </RendererErrorBoundary>
               </VisibilityProvider>
             </ActionProvider>
           </StateProvider>
@@ -539,7 +544,9 @@ export function ResponsePanel({
           <StateProvider initialState={previousSpec.state ?? {}}>
             <ActionProvider>
               <VisibilityProvider>
-                <Renderer spec={previousSpec} registry={registry} />
+                <RendererErrorBoundary>
+                  <Renderer spec={previousSpec} registry={registry} />
+                </RendererErrorBoundary>
               </VisibilityProvider>
             </ActionProvider>
           </StateProvider>
