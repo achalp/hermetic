@@ -33,7 +33,18 @@ export type PipelineStep =
 
 export interface OutputDef {
   statePath: string;
-  format?: "rows" | "pieData" | "scatterData" | "stats" | null;
+  format?:
+    | "rows"
+    | "pieData"
+    | "scatterData"
+    | "stats"
+    | "geojson"
+    | "globeData"
+    | "sankeyData" // Pattern A: filter structured data
+    | "matrix"
+    | "chordMatrix" // Pattern B: derive from pivoted rows
+    | null;
+  sourceStatePath?: string | null; // state path to base data (Pattern A formats)
   pipeline?: Record<string, unknown>[] | null;
   labelColumn?: string | null;
   valueColumn?: string | null;
@@ -108,6 +119,86 @@ export function applyFilter(
     result = result.filter((row) => String(row[def.column]) === String(val));
   }
   return result;
+}
+
+// ── Pattern A: Structured Data Filters ─────────────────────────────
+
+/** Filter GeoJSON FeatureCollection features by their properties. */
+export function filterGeoJSON(
+  geojson: Record<string, unknown>,
+  filterValues: Record<string, unknown>,
+  filterDefs: FilterDef[]
+): Record<string, unknown> {
+  const features = geojson.features;
+  if (!Array.isArray(features)) return geojson;
+
+  const filtered = features.filter((f) => {
+    const props = f?.properties ?? {};
+    for (const def of filterDefs) {
+      const val = filterValues[def.key];
+      if (val === undefined || val === null || val === "" || val === "All") continue;
+      if (String(props[def.column] ?? "") !== String(val)) return false;
+    }
+    return true;
+  });
+
+  return { ...geojson, features: filtered };
+}
+
+/** Filter Globe3D data: points by properties, arcs by endpoint membership. */
+export function filterGlobeData(
+  data: Record<string, unknown>,
+  filterValues: Record<string, unknown>,
+  filterDefs: FilterDef[]
+): Record<string, unknown> {
+  const points = Array.isArray(data.points) ? data.points : [];
+  const arcs = Array.isArray(data.arcs) ? data.arcs : [];
+
+  const filteredPoints = points.filter((pt: Record<string, unknown>) => {
+    for (const def of filterDefs) {
+      const val = filterValues[def.key];
+      if (val === undefined || val === null || val === "" || val === "All") continue;
+      if (String(pt[def.column] ?? "") !== String(val)) return false;
+    }
+    return true;
+  });
+
+  // Build set of surviving point locations for arc filtering
+  const pointSet = new Set(
+    filteredPoints.map((pt: Record<string, unknown>) => `${pt.lat},${pt.lng}`)
+  );
+  const filteredArcs = arcs.filter(
+    (arc: Record<string, unknown>) =>
+      pointSet.has(`${arc.startLat},${arc.startLng}`) && pointSet.has(`${arc.endLat},${arc.endLng}`)
+  );
+
+  return { ...data, points: filteredPoints, arcs: filteredArcs };
+}
+
+/** Filter SankeyChart data: nodes by properties, links by endpoint membership. */
+export function filterSankeyData(
+  data: Record<string, unknown>,
+  filterValues: Record<string, unknown>,
+  filterDefs: FilterDef[]
+): Record<string, unknown> {
+  const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+  const links = Array.isArray(data.links) ? data.links : [];
+
+  const filteredNodes = nodes.filter((node: Record<string, unknown>) => {
+    for (const def of filterDefs) {
+      const val = filterValues[def.key];
+      if (val === undefined || val === null || val === "" || val === "All") continue;
+      if (String(node[def.column] ?? "") !== String(val)) return false;
+    }
+    return true;
+  });
+
+  const nodeIds = new Set(filteredNodes.map((n: Record<string, unknown>) => n.id));
+  const filteredLinks = links.filter(
+    (link: Record<string, unknown>) => nodeIds.has(link.source) && nodeIds.has(link.target)
+  );
+
+  return { ...data, nodes: filteredNodes, links: filteredLinks };
 }
 
 export function applyGroupBy(data: Row[], columns: string[], aggregations: Aggregation[]): Row[] {
@@ -309,6 +400,29 @@ export function formatOutput(data: Row[], outputDef: OutputDef): unknown {
     // Extract the first row as a flat key→value object so StatCards can
     // bind to individual fields via $state, e.g. "/computed/stats/total".
     return data.length > 0 ? data[0] : {};
+  }
+
+  // Pattern B: convert pivoted rows → matrix structure for HeatMap/Surface3D
+  if (outputDef.format === "matrix") {
+    if (data.length === 0) return { z: [], x_labels: [], y_labels: [] };
+    const keys = Object.keys(data[0]);
+    const rowKeyCol = keys[0]; // first column is the row key
+    const valueCols = keys.slice(1);
+    const x_labels = data.map((row) => String(row[rowKeyCol] ?? ""));
+    const y_labels = valueCols;
+    const z = data.map((row) => valueCols.map((col) => toNumber(row[col])));
+    return { z, x_labels, y_labels };
+  }
+
+  // Pattern B: convert pivoted rows → chord matrix structure
+  if (outputDef.format === "chordMatrix") {
+    if (data.length === 0) return { matrix: [], keys: [] };
+    const cols = Object.keys(data[0]);
+    const rowKeyCol = cols[0];
+    const valueCols = cols.slice(1);
+    const keys = data.map((row) => String(row[rowKeyCol] ?? ""));
+    const matrix = data.map((row) => valueCols.map((col) => toNumber(row[col])));
+    return { matrix, keys };
   }
 
   return data;
