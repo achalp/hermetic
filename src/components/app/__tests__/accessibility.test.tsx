@@ -28,8 +28,8 @@ afterEach(() => cleanup());
 
 describe("Accessibility", () => {
   const defaultProps = {
-    codeGenModel: "claude-sonnet-4-20250514" as const,
-    uiComposeModel: "claude-sonnet-4-20250514" as const,
+    codeGenModel: "claude-sonnet-4-6" as const,
+    uiComposeModel: "claude-sonnet-4-6" as const,
     onCodeGenModelChange: vi.fn(),
     onUiComposeModelChange: vi.fn(),
     sandboxRuntime: "docker" as const,

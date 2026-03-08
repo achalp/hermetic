@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getArtifacts } from "@/lib/api";
 
@@ -13,6 +13,14 @@ export function useArtifacts({ csvId }: UseArtifactsOptions) {
   const [artifacts, setArtifacts] = useState<CachedArtifacts | null>(null);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
   const [artifactsError, setArtifactsError] = useState<string | null>(null);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear timer on unmount
+  useEffect(() => {
+    return () => {
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    };
+  }, []);
 
   const handleToggleArtifacts = useCallback(async () => {
     if (showArtifacts) {
@@ -32,7 +40,8 @@ export function useArtifacts({ csvId }: UseArtifactsOptions) {
       setShowArtifacts(true);
     } catch {
       setArtifactsError("Artifacts expired. Re-run the query or save the visualization first.");
-      setTimeout(() => setArtifactsError(null), 4000);
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = setTimeout(() => setArtifactsError(null), 4000);
     } finally {
       setArtifactsLoading(false);
     }

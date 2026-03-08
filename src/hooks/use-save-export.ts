@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Spec } from "@json-render/react";
 import {
   downloadDashboardAsPdf,
@@ -29,16 +29,25 @@ export function useSaveExport({
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!csvId || !currentSpecRef.current) return;
     setSaving(true);
     setSaveMessage(null);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     try {
       await saveViz(csvId, currentSpecRef.current, currentQuestionRef.current ?? "Analysis");
       setSaveMessage("Saved!");
       onSaved?.();
-      setTimeout(() => setSaveMessage(null), 2000);
+      saveTimerRef.current = setTimeout(() => setSaveMessage(null), 2000);
     } catch (err) {
       setSaveMessage(err instanceof ApiError ? err.message : "Save failed");
     } finally {
