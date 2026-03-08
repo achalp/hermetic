@@ -212,13 +212,20 @@ export function MapViewComponent({
                       fillOpacity: 0.7,
                     };
                   }
+                  // color_key set but value missing for this feature — gray fallback
+                  return {
+                    fill: "#9ca3af",
+                    stroke: "#6b7280",
+                    strokeWidth: 1,
+                    fillOpacity: 0.3,
+                  };
                 }
                 // Default uniform styling
                 return {
-                  fill: props.geojson_style?.fill ?? chartColors[0] + "4D",
+                  fill: props.geojson_style?.fill ?? chartColors[0],
                   stroke: props.geojson_style?.stroke ?? chartColors[0],
                   strokeWidth: props.geojson_style?.strokeWidth ?? 2,
-                  fillOpacity: props.geojson_style?.fillOpacity ?? 0.3,
+                  fillOpacity: props.geojson_style?.fillOpacity ?? 0.5,
                 };
               }}
             />
