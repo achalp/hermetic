@@ -94,13 +94,15 @@ export function SettingsPanel({
           borderRadius: "var(--radius-badge)",
           transitionDuration: "var(--transition-speed)",
         }}
-        title="Settings"
+        aria-label="Settings"
+        aria-expanded={open}
       >
         <svg
           className="h-4 w-4"
           fill="none"
           viewBox="0 0 24 24"
           strokeWidth={1.5}
+          aria-hidden="true"
           stroke="currentColor"
         >
           <path
