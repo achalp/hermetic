@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { SavedVizMeta } from "@/lib/types";
+import { listVizs, deleteViz } from "@/lib/api";
 
 interface SavedVizsPanelProps {
   onLoad: (vizId: string) => void;
@@ -15,18 +16,17 @@ export function SavedVizsPanel({ onLoad, refreshKey }: SavedVizsPanelProps) {
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/vizs")
-      .then((r) => r.json())
-      .then((data) => setVizs(data.vizs ?? []))
+    listVizs()
+      .then((vizsList) => setVizs(vizsList))
       .catch(() => setVizs([]))
       .finally(() => setLoading(false));
   }, [refreshKey]);
 
-  const handleDelete = async (vizId: string) => {
-    setDeletingId(vizId);
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
     try {
-      await fetch(`/api/vizs/${vizId}`, { method: "DELETE" });
-      setVizs((prev) => prev.filter((v) => v.vizId !== vizId));
+      await deleteViz(id);
+      setVizs((prev) => prev.filter((v) => v.vizId !== id));
     } catch {
       // ignore
     } finally {

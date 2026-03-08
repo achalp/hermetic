@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import type { SheetInfo, CSVSchema, SheetRelationship } from "@/lib/types";
 import { SheetTable } from "./sheet-table";
+import { selectSheet, selectWorkbook } from "@/lib/api";
 
 interface SheetPickerProps {
   excelId: string;
@@ -37,18 +38,7 @@ export function SheetPicker({
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/upload/select-sheet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ excel_id: excelId, sheet_name: activeSheet.name }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error ?? "Sheet selection failed");
-      }
-
+      const data = await selectSheet(excelId, activeSheet.name);
       onSheetSelected(data.csv_id, data.schema);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sheet selection failed");
@@ -62,18 +52,7 @@ export function SheetPicker({
     setLoadingWorkbook(true);
 
     try {
-      const res = await fetch("/api/upload/select-workbook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ excel_id: excelId }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error ?? "Workbook selection failed");
-      }
-
+      const data = await selectWorkbook(excelId);
       onWorkbookSelected(data.csv_id, data.schema);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Workbook selection failed");

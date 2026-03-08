@@ -7,6 +7,7 @@ import {
   downloadDashboardAsDocx,
   downloadDashboardAsPptx,
 } from "@/lib/export-utils";
+import { saveViz, ApiError } from "@/lib/api";
 
 type ExportFormat = "pdf" | "docx" | "pptx";
 
@@ -34,25 +35,12 @@ export function useSaveExport({
     setSaving(true);
     setSaveMessage(null);
     try {
-      const res = await fetch("/api/vizs/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          csvId,
-          spec: currentSpecRef.current,
-          question: currentQuestionRef.current ?? "Analysis",
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        setSaveMessage(data.error ?? "Save failed");
-      } else {
-        setSaveMessage("Saved!");
-        onSaved?.();
-        setTimeout(() => setSaveMessage(null), 2000);
-      }
-    } catch {
-      setSaveMessage("Save failed");
+      await saveViz(csvId, currentSpecRef.current, currentQuestionRef.current ?? "Analysis");
+      setSaveMessage("Saved!");
+      onSaved?.();
+      setTimeout(() => setSaveMessage(null), 2000);
+    } catch (err) {
+      setSaveMessage(err instanceof ApiError ? err.message : "Save failed");
     } finally {
       setSaving(false);
     }
