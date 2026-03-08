@@ -234,3 +234,21 @@ export function useThemeConfig(): ThemeConfig {
   const { theme } = useTheme();
   return THEME_CONFIGS[theme] ?? THEME_CONFIGS.vanilla;
 }
+
+// ── Adapter hooks ─────────────────────────────────────────────
+// Narrow interfaces that isolate components from ThemeConfig shape changes.
+
+export function useStatCardTheme() {
+  const { statCard } = useThemeConfig();
+  return statCard;
+}
+
+export function useInsightTheme() {
+  const { insight } = useThemeConfig();
+  return insight;
+}
+
+export function useAnnotationTheme() {
+  const { annotation } = useThemeConfig();
+  return annotation;
+}

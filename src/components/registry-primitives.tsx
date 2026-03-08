@@ -6,7 +6,7 @@
  */
 
 import { useBoundProp } from "@json-render/react";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useStatCardTheme, useInsightTheme, useAnnotationTheme } from "@/lib/theme-config";
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -110,8 +110,7 @@ export interface ToggleSwitchProps {
 // ── StatCard ───────────────────────────────────────────────────
 
 export function StatCardComponent({ props }: { props: StatCardProps }) {
-  const config = useThemeConfig();
-  const { statCard } = config;
+  const statCard = useStatCardTheme();
   const displayValue = formatStatValue(props.value);
   const fontSize = statCard.valueClass;
   return (
@@ -155,17 +154,17 @@ export function StatCardComponent({ props }: { props: StatCardProps }) {
 // ── TextBlock ──────────────────────────────────────────────────
 
 export function TextBlockComponent({ props }: { props: TextBlockProps }) {
-  const config = useThemeConfig();
+  const insight = useInsightTheme();
   const variant = props.variant ?? "body";
   const isInsight = variant === "insight";
   const insightBase = isInsight
-    ? config.insight.borderSide === "left"
+    ? insight.borderSide === "left"
       ? "text-accent-text border-l-4 border-accent pl-4"
-      : config.insight.borderSide === "top"
+      : insight.borderSide === "top"
         ? "text-accent-text"
         : "text-accent-text"
     : "";
-  const bgTint = isInsight && config.insight.bgTint ? " bg-accent-subtle" : "";
+  const bgTint = isInsight && insight.bgTint ? " bg-accent-subtle" : "";
   const styles: Record<string, string> = {
     body: "text-t-secondary",
     insight: `insight-block ${insightBase}${bgTint}`,
@@ -185,16 +184,16 @@ export function TextBlockComponent({ props }: { props: TextBlockProps }) {
 // ── Annotation ─────────────────────────────────────────────────
 
 export function AnnotationComponent({ props }: { props: AnnotationProps }) {
-  const config = useThemeConfig();
+  const annotation = useAnnotationTheme();
   const severity = props.severity ?? "info";
   const baseStyles = SEVERITY_STYLES[severity];
-  const bgClass = config.annotation.bgFill ? baseStyles : baseStyles.replace(/bg-\S+/g, "");
+  const bgClass = annotation.bgFill ? baseStyles : baseStyles.replace(/bg-\S+/g, "");
   return (
     <div
       className={`annotation-block border ${bgClass}`}
       style={{
         borderRadius: "var(--radius-card)",
-        borderWidth: config.annotation.borderWidth,
+        borderWidth: annotation.borderWidth,
         padding: "var(--padding-card)",
       }}
     >
