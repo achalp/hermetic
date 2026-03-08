@@ -19,6 +19,8 @@ import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
+import { ActionButton } from "@/components/ui/action-button";
+import { Card } from "@/components/ui/card";
 
 interface DrillLevel {
   question: string;
@@ -251,9 +253,6 @@ export function ResponsePanel({
     return null;
   }
 
-  const actionBtnClass =
-    "bg-surface-btn px-3 py-1.5 text-xs font-medium text-t-btn hover:bg-surface-btn-hover disabled:opacity-50 transition-colors";
-
   return (
     <div className="space-y-4">
       {/* Breadcrumb navigation */}
@@ -341,16 +340,7 @@ export function ResponsePanel({
 
       {/* Active level */}
       {activeSpec && (
-        <div
-          ref={dashboardRef}
-          className="theme-card border border-border-default"
-          style={{
-            background: "var(--bg-panel)",
-            padding: "var(--padding-card)",
-            borderRadius: "var(--radius-card)",
-            boxShadow: "var(--shadow-card)",
-          }}
-        >
+        <Card ref={dashboardRef}>
           <StateProvider initialState={activeSpec.state ?? {}}>
             <ActionProvider>
               <VisibilityProvider>
@@ -364,65 +354,25 @@ export function ResponsePanel({
           {/* Save & Export buttons */}
           {activeSpec && !isStreaming && (
             <div className="mt-4 flex items-center gap-2 border-t border-border-default pt-4">
-              <button
-                onClick={handleSave}
-                disabled={saving || !!exporting}
-                className={actionBtnClass}
-                style={{
-                  borderRadius: "var(--radius-badge)",
-                  transitionDuration: "var(--transition-speed)",
-                }}
-              >
+              <ActionButton onClick={handleSave} disabled={saving || !!exporting}>
                 {saving ? "Saving..." : "Save"}
-              </button>
-              <button
-                onClick={handleExportPdf}
-                disabled={!!exporting}
-                className={actionBtnClass}
-                style={{
-                  borderRadius: "var(--radius-badge)",
-                  transitionDuration: "var(--transition-speed)",
-                }}
-              >
+              </ActionButton>
+              <ActionButton onClick={handleExportPdf} disabled={!!exporting}>
                 {exporting === "pdf" ? "Exporting..." : "Export PDF"}
-              </button>
-              <button
-                onClick={handleExportDocx}
-                disabled={!!exporting}
-                className={actionBtnClass}
-                style={{
-                  borderRadius: "var(--radius-badge)",
-                  transitionDuration: "var(--transition-speed)",
-                }}
-              >
+              </ActionButton>
+              <ActionButton onClick={handleExportDocx} disabled={!!exporting}>
                 {exporting === "docx" ? "Exporting..." : "Export DOCX"}
-              </button>
-              <button
-                onClick={handleExportPptx}
-                disabled={!!exporting}
-                className={actionBtnClass}
-                style={{
-                  borderRadius: "var(--radius-badge)",
-                  transitionDuration: "var(--transition-speed)",
-                }}
-              >
+              </ActionButton>
+              <ActionButton onClick={handleExportPptx} disabled={!!exporting}>
                 {exporting === "pptx" ? "Exporting..." : "Export PPTX"}
-              </button>
-              <button
-                onClick={handleToggleArtifacts}
-                disabled={artifactsLoading}
-                className={actionBtnClass}
-                style={{
-                  borderRadius: "var(--radius-badge)",
-                  transitionDuration: "var(--transition-speed)",
-                }}
-              >
+              </ActionButton>
+              <ActionButton onClick={handleToggleArtifacts} disabled={artifactsLoading}>
                 {artifactsLoading
                   ? "Loading..."
                   : showArtifacts
                     ? "Hide Artifacts"
                     : "View Artifacts"}
-              </button>
+              </ActionButton>
               {saveMessage && (
                 <span
                   className={`text-xs ${saveMessage === "Saved!" ? "text-success-text" : "text-error-text"}`}
@@ -433,7 +383,7 @@ export function ResponsePanel({
               {artifactsError && <span className="text-xs text-error-text">{artifactsError}</span>}
             </div>
           )}
-        </div>
+        </Card>
       )}
 
       {/* Artifacts viewer */}
@@ -441,15 +391,7 @@ export function ResponsePanel({
 
       {/* Previous spec shown dimmed below the new dashboard during follow-ups */}
       {previousSpec && isStreaming && (
-        <div
-          className="theme-card border border-border-default opacity-40"
-          style={{
-            background: "var(--bg-panel)",
-            padding: "var(--padding-card)",
-            borderRadius: "var(--radius-card)",
-            boxShadow: "var(--shadow-card)",
-          }}
-        >
+        <Card className="opacity-40">
           <StateProvider initialState={previousSpec.state ?? {}}>
             <ActionProvider>
               <VisibilityProvider>
@@ -459,7 +401,7 @@ export function ResponsePanel({
               </VisibilityProvider>
             </ActionProvider>
           </StateProvider>
-        </div>
+        </Card>
       )}
     </div>
   );
