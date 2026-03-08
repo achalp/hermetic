@@ -3,7 +3,7 @@
 import type { ButtonHTMLAttributes } from "react";
 
 const baseClass =
-  "bg-surface-btn px-3 py-1.5 text-xs font-medium text-t-btn hover:bg-surface-btn-hover disabled:opacity-50 transition-colors";
+  "bg-surface-btn px-3 py-1.5 text-xs font-medium text-t-btn hover:bg-surface-btn-hover disabled:opacity-50 transition-colors rounded-badge";
 
 export function ActionButton({
   className,
@@ -15,7 +15,6 @@ export function ActionButton({
       {...props}
       className={className ? `${baseClass} ${className}` : baseClass}
       style={{
-        borderRadius: "var(--radius-badge)",
         transitionDuration: "var(--transition-speed)",
         ...style,
       }}

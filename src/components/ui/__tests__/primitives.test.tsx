@@ -19,7 +19,7 @@ describe("ActionButton", () => {
     const btn = screen.getByRole("button");
     expect(btn.className).toContain("bg-surface-btn");
     expect(btn.className).toContain("text-t-btn");
-    expect(btn.style.borderRadius).toBe("var(--radius-badge)");
+    expect(btn.className).toContain("rounded-badge");
   });
 
   it("forwards disabled prop", () => {
@@ -46,7 +46,7 @@ describe("ActionButton", () => {
     render(<ActionButton style={{ color: "red" }}>Click</ActionButton>);
     const btn = screen.getByRole("button");
     expect(btn.style.color).toBe("red");
-    expect(btn.style.borderRadius).toBe("var(--radius-badge)");
+    expect(btn.className).toContain("rounded-badge");
   });
 });
 
@@ -61,8 +61,8 @@ describe("Card", () => {
     const el = screen.getByTestId("card");
     expect(el.className).toContain("theme-card");
     expect(el.className).toContain("border-border-default");
-    expect(el.style.borderRadius).toBe("var(--radius-card)");
-    expect(el.style.boxShadow).toBe("var(--shadow-card)");
+    expect(el.className).toContain("rounded-card");
+    expect(el.className).toContain("shadow-card");
   });
 
   it("forwards ref", () => {
@@ -90,6 +90,6 @@ describe("Card", () => {
     );
     const el = screen.getByTestId("card");
     expect(el.style.maxHeight).toBe("100px");
-    expect(el.style.borderRadius).toBe("var(--radius-card)");
+    expect(el.className).toContain("rounded-card");
   });
 });

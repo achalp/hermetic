@@ -62,6 +62,19 @@
   --color-highlight-max: #16a34a;
   --color-highlight-min: #dc2626;
 
+  /* Spacing & density */
+  --spacing-card: 1rem;
+  --spacing-section: 16px;
+
+  /* Border radius */
+  --radius-card: 12px;
+  --radius-input: 12px;
+  --radius-badge: 6px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.1);
+
   /* Fonts */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -75,20 +88,15 @@
   color-scheme: light;
   --border-card: 1px solid var(--color-border-default);
   --ring-focus: 0 0 0 2px #c7d2fe;
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --radius-card: 12px;
-  --radius-input: 12px;
   --radius-button: 12px;
-  --radius-badge: 6px;
   --transition-speed: 150ms;
   --surface-card-border: 1px solid var(--color-border-default);
   --rule-color: transparent;
 
-  /* Density tokens */
-  --padding-card: 1rem;
-  --gap-section: 16px;
-  --gap-component: 16px;
+  /* Density tokens (aliased from @theme spacing) */
+  --padding-card: var(--spacing-card);
+  --gap-section: var(--spacing-section);
+  --gap-component: var(--spacing-section);
 
   /* Typography tokens */
   --font-heading-weight: 600;
