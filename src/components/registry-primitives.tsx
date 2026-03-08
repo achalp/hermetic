@@ -57,10 +57,59 @@ export function formatStatValue(v: unknown): string {
   return String(v ?? "");
 }
 
+// ── Prop types ────────────────────────────────────────────────
+
+export interface StatCardProps {
+  label: string;
+  value: unknown;
+  change?: string | null;
+  trend?: "up" | "down" | "flat" | null;
+  description?: string | null;
+}
+
+export interface TextBlockProps {
+  content: string;
+  variant?: "body" | "insight" | "warning" | "heading" | null;
+}
+
+export interface AnnotationProps {
+  title: string;
+  content: string;
+  severity?: "info" | "warning" | "success" | "error" | null;
+  icon?: "alert" | "info" | "trend" | "check" | "flag" | null;
+}
+
+export interface TrendIndicatorProps {
+  label: string;
+  current?: number | null;
+  previous?: number | null;
+  format?: "currency" | "percent" | "number" | null;
+  precision?: number | null;
+}
+
+export interface SelectControlProps {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  placeholder?: string | null;
+}
+
+export interface NumberInputProps {
+  label: string;
+  value: number;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+}
+
+export interface ToggleSwitchProps {
+  label: string;
+  checked: boolean;
+}
+
 // ── StatCard ───────────────────────────────────────────────────
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-export function StatCardComponent({ props }: { props: any }) {
+export function StatCardComponent({ props }: { props: StatCardProps }) {
   const config = useThemeConfig();
   const { statCard } = config;
   const displayValue = formatStatValue(props.value);
@@ -105,7 +154,7 @@ export function StatCardComponent({ props }: { props: any }) {
 
 // ── TextBlock ──────────────────────────────────────────────────
 
-export function TextBlockComponent({ props }: { props: any }) {
+export function TextBlockComponent({ props }: { props: TextBlockProps }) {
   const config = useThemeConfig();
   const variant = props.variant ?? "body";
   const isInsight = variant === "insight";
@@ -135,7 +184,7 @@ export function TextBlockComponent({ props }: { props: any }) {
 
 // ── Annotation ─────────────────────────────────────────────────
 
-export function AnnotationComponent({ props }: { props: any }) {
+export function AnnotationComponent({ props }: { props: AnnotationProps }) {
   const config = useThemeConfig();
   const severity = props.severity ?? "info";
   const baseStyles = SEVERITY_STYLES[severity];
@@ -162,7 +211,7 @@ export function AnnotationComponent({ props }: { props: any }) {
 
 // ── TrendIndicator ─────────────────────────────────────────────
 
-export function TrendIndicatorComponent({ props }: { props: any }) {
+export function TrendIndicatorComponent({ props }: { props: TrendIndicatorProps }) {
   const current = props.current ?? 0;
   const previous = props.previous ?? 0;
   const change = current - previous;
@@ -207,7 +256,14 @@ export function TrendIndicatorComponent({ props }: { props: any }) {
 
 // ── SelectControl ──────────────────────────────────────────────
 
-export function SelectControlComponent({ props, bindings }: { props: any; bindings: any }) {
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export function SelectControlComponent({
+  props,
+  bindings,
+}: {
+  props: SelectControlProps;
+  bindings: any;
+}) {
   const [value, setValue] = useBoundProp<string>(props.value, bindings?.value);
   return (
     <div className="flex flex-col gap-1">
@@ -234,7 +290,13 @@ export function SelectControlComponent({ props, bindings }: { props: any; bindin
 
 // ── NumberInput ─────────────────────────────────────────────────
 
-export function NumberInputComponent({ props, bindings }: { props: any; bindings: any }) {
+export function NumberInputComponent({
+  props,
+  bindings,
+}: {
+  props: NumberInputProps;
+  bindings: any;
+}) {
   const [value, setValue] = useBoundProp<number>(props.value, bindings?.value);
   return (
     <div className="flex flex-col gap-1">
@@ -258,7 +320,13 @@ export function NumberInputComponent({ props, bindings }: { props: any; bindings
 
 // ── ToggleSwitch ───────────────────────────────────────────────
 
-export function ToggleSwitchComponent({ props, bindings }: { props: any; bindings: any }) {
+export function ToggleSwitchComponent({
+  props,
+  bindings,
+}: {
+  props: ToggleSwitchProps;
+  bindings: any;
+}) {
   const [checked, setChecked] = useBoundProp<boolean>(props.checked, bindings?.checked);
   const isChecked = checked ?? false;
   return (
@@ -283,3 +351,4 @@ export function ToggleSwitchComponent({ props, bindings }: { props: any; binding
   );
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+// Note: `bindings` params remain `any` because json-render binding types are dynamic
