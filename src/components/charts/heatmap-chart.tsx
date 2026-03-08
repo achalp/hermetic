@@ -17,7 +17,8 @@ interface HeatMapChartProps {
 
 export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
   const { chart } = useThemeConfig();
-  if (!props.z || props.z.length === 0) return <div style={{ height: chart.height }} />;
+  if (!props.z || props.z.length === 0 || !props.x_labels || !props.y_labels)
+    return <div style={{ height: chart.height }} />;
 
   const traces: Data[] = [
     {

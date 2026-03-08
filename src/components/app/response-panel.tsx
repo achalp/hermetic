@@ -314,36 +314,11 @@ export function ResponsePanel({
 
       {/* Streaming indicator */}
       {isStreaming && (
-        <div
-          className="flex items-center gap-2 text-sm text-accent"
-          role="status"
-          aria-live="polite"
-        >
-          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
-          {drillStack.length > 0
-            ? "Drilling down..."
-            : previousSpec
-              ? "Updating dashboard..."
-              : "Building visualization..."}
-        </div>
+        <PipelineProgress spec={activeSpec} drillStack={drillStack} previousSpec={previousSpec} />
       )}
 
       {/* Active level */}
-      {activeSpec && (
+      {activeSpec?.root && (
         <Card ref={dashboardRef}>
           <StateProvider initialState={activeSpec.state ?? {}}>
             <ActionProvider>
@@ -408,6 +383,120 @@ export function ResponsePanel({
         </Card>
       )}
     </div>
+  );
+}
+
+const PIPELINE_STEPS = [
+  { stage: "analyzing", label: "Analyzed your data", activeLabel: "Analyzing your data..." },
+  { stage: "computing", label: "Ran computations", activeLabel: "Running computations..." },
+  { stage: "composing", label: "Composed dashboard", activeLabel: "Composing dashboard..." },
+] as const;
+
+// Map retrying stage to step 2
+const STAGE_TO_STEP: Record<string, number> = {
+  analyzing: 1,
+  computing: 2,
+  retrying: 2,
+  composing: 3,
+};
+
+const RETRYING_LABEL = "Fixing and retrying...";
+
+function PipelineProgress({
+  spec,
+  drillStack,
+  previousSpec,
+}: {
+  spec: Spec | null;
+  drillStack: DrillLevel[];
+  previousSpec: Spec | null;
+}) {
+  const progress = (spec?.state as Record<string, unknown> | undefined)?.__progress as
+    | { stage: string; step: number; total: number }
+    | undefined;
+
+  // If dashboard content is already building, hide the stepper
+  if (spec?.root) return null;
+
+  // Fall back to generic messages when no progress data (drill-down, restored spec, etc.)
+  if (!progress) {
+    const message =
+      drillStack.length > 0
+        ? "Drilling down..."
+        : previousSpec
+          ? "Updating dashboard..."
+          : "Building visualization...";
+    return (
+      <div className="flex items-center gap-2 text-sm text-accent" role="status" aria-live="polite">
+        <SpinnerIcon />
+        {message}
+      </div>
+    );
+  }
+
+  const currentStep = STAGE_TO_STEP[progress.stage] ?? progress.step;
+  const isRetrying = progress.stage === "retrying";
+
+  return (
+    <div className="space-y-1.5 text-sm" role="status" aria-live="polite">
+      {PIPELINE_STEPS.map((step, i) => {
+        const stepNum = i + 1;
+        const isCompleted = stepNum < currentStep;
+        const isActive = stepNum === currentStep;
+        const isUpcoming = stepNum > currentStep;
+
+        if (isUpcoming) {
+          return (
+            <div key={step.stage} className="flex items-center gap-2 text-t-tertiary">
+              <span className="inline-block h-4 w-4" />
+              {step.label}
+            </div>
+          );
+        }
+
+        if (isCompleted) {
+          return (
+            <div key={step.stage} className="flex items-center gap-2 text-t-secondary">
+              <svg
+                className="h-4 w-4 text-success-text"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              {step.label}
+            </div>
+          );
+        }
+
+        // Active
+        const label = isRetrying && stepNum === 2 ? RETRYING_LABEL : step.activeLabel;
+        return (
+          <div key={step.stage} className="flex items-center gap-2 text-accent font-medium">
+            <SpinnerIcon />
+            {label}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
+    </svg>
   );
 }
 
