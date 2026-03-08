@@ -11,8 +11,8 @@ import { ResponsePanel } from "@/components/app/response-panel";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
 import { SettingsPanel } from "@/components/app/settings-panel";
 import { useCSVUpload } from "@/hooks/use-csv-upload";
+import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   MAX_SAMPLE_ROWS,
   CODE_GEN_MODEL,
@@ -37,14 +37,25 @@ export default function Home() {
     cancelSheetPicker,
     reset,
   } = useCSVUpload();
-  const [currentQuestion, setCurrentQuestion] = useState<string | null>(null);
-  const [questionSeq, setQuestionSeq] = useState(0);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [loadedSpec, setLoadedSpec] = useState<Spec | null>(null);
-  const [loadedArtifacts, setLoadedArtifacts] = useState<CachedArtifacts | null>(null);
-  const [showSaved, setShowSaved] = useState(false);
-  const [savedRefreshKey, setSavedRefreshKey] = useState(0);
-  const [loadingViz, setLoadingViz] = useState(false);
+  const {
+    state: pageState,
+    dispatch,
+    query: handleQuery,
+    streamEnd: handleStreamEnd,
+    resetPage,
+    toggleSaved,
+    vizSaved: handleSaved,
+  } = usePageState();
+  const {
+    currentQuestion,
+    questionSeq,
+    isAnalyzing,
+    loadedSpec,
+    loadedArtifacts,
+    showSaved,
+    savedRefreshKey,
+    loadingViz,
+  } = pageState;
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
   const [codeGenModel, setCodeGenModel] = useState<ModelId>(CODE_GEN_MODEL);
   const [uiComposeModel, setUiComposeModel] = useState<ModelId>(UI_COMPOSE_MODEL);
@@ -73,29 +84,14 @@ export default function Home() {
     localStorage.setItem("gud-sandbox-runtime", r);
   }, []);
 
-  const handleQuery = useCallback((question: string) => {
-    setLoadedSpec(null);
-    setCurrentQuestion(question);
-    setQuestionSeq((s) => s + 1);
-    setIsAnalyzing(true);
-  }, []);
-
-  const handleStreamEnd = useCallback(() => {
-    setIsAnalyzing(false);
-  }, []);
-
   const handleReset = useCallback(() => {
     reset();
-    setCurrentQuestion(null);
-    setQuestionSeq(0);
-    setIsAnalyzing(false);
-    setLoadedSpec(null);
-    setLoadedArtifacts(null);
-  }, [reset]);
+    resetPage();
+  }, [reset, resetPage]);
 
   const handleLoadViz = useCallback(
     async (vizId: string) => {
-      setLoadingViz(true);
+      dispatch({ type: "LOAD_VIZ_START" });
       try {
         const res = await fetch(`/api/vizs/${vizId}`);
         if (!res.ok) throw new Error("Failed to load");
@@ -112,22 +108,19 @@ export default function Home() {
         const uploadData = await uploadRes.json();
 
         handleUpload(uploadData.csv_id, uploadData.schema);
-        setCurrentQuestion(data.meta.question);
-        setLoadedSpec(data.spec as Spec);
-        setLoadedArtifacts(data.artifacts ?? null);
-        setShowSaved(false);
+        dispatch({
+          type: "LOAD_VIZ_SUCCESS",
+          question: data.meta.question,
+          spec: data.spec as Spec,
+          artifacts: data.artifacts ?? null,
+        });
       } catch (err) {
         console.error("Load viz failed:", err);
-      } finally {
-        setLoadingViz(false);
+        dispatch({ type: "LOAD_VIZ_ERROR" });
       }
     },
-    [handleUpload]
+    [handleUpload, dispatch]
   );
-
-  const handleSaved = useCallback(() => {
-    setSavedRefreshKey((k) => k + 1);
-  }, []);
 
   return (
     <div className="min-h-screen">
@@ -187,7 +180,7 @@ export default function Home() {
                 </button>
               </div>
               <button
-                onClick={() => setShowSaved((s) => !s)}
+                onClick={toggleSaved}
                 className={`text-sm font-medium transition-colors ${
                   showSaved ? "text-accent" : "text-t-secondary hover:text-t-primary"
                 }`}
