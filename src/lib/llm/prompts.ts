@@ -195,7 +195,15 @@ Rules:
   Read it with: \`import json; geojson = json.load(open("/data/input.geojson"))\`.
   The CSV at "/data/input.csv" contains the flattened feature properties.
   For map visualizations, ALWAYS include the full GeoJSON FeatureCollection as chart_data["geojson"] = geojson.
-  For Polygon/MultiPolygon geometry: pass the COMPLETE GeoJSON as chart_data["geojson"]. Do NOT extract centroids or convert polygons to point markers. The UI renders polygons natively as colored regions. Enrich feature properties with any computed metrics (e.g., merged from the CSV DataFrame) so the UI can use color_key for choropleth coloring.
+  For Polygon/MultiPolygon geometry: pass the COMPLETE GeoJSON as chart_data["geojson"]. Do NOT extract centroids or convert polygons to point markers. The UI renders polygons natively as colored regions.
+  CRITICAL: You MUST merge computed DataFrame columns back into each GeoJSON feature's properties so the UI can color by them. Pattern:
+  \`\`\`
+  for i, feature in enumerate(geojson["features"]):
+      row = df.iloc[i]
+      for col in df.columns:
+          feature["properties"][col] = row[col]
+  \`\`\`
+  If features and rows don't align by index, match by a shared key (e.g., name/id).
   For Point geometry: you may additionally extract lat/lng into chart_data for marker-based display, but still include the full GeoJSON.
   You can filter features, add properties, or transform the GeoJSON as needed.
   Do NOT use geopandas — it is not available.
