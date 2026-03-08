@@ -185,13 +185,11 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
           value={globalFilter ?? ""}
           onChange={(e) => setGlobalFilter(e.target.value)}
           placeholder="Search all columns..."
-          className="theme-input w-full max-w-sm border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors placeholder:text-t-tertiary focus:border-accent"
+          className="theme-input w-full max-w-sm border border-border-default bg-surface-input px-3 py-2 text-sm text-t-primary outline-none transition-colors placeholder:text-t-tertiary focus:border-accent focus-visible:shadow-[var(--ring-focus)]"
           style={{
             borderRadius: "var(--radius-input)",
             transitionDuration: "var(--transition-speed)",
           }}
-          onFocus={(e) => (e.currentTarget.style.boxShadow = "var(--ring-focus)")}
-          onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
         />
       </div>
 
