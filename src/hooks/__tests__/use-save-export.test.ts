@@ -2,13 +2,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useSaveExport } from "@/hooks/use-save-export";
-import type { Spec } from "@json-render/react";
-
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
 function makeRefs() {
-  const spec: Spec = { type: "LayoutColumn", children: [] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const spec = { root: "r", elements: {} } as any;
   return {
     csvId: "csv-1",
     currentSpecRef: { current: spec },
