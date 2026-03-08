@@ -226,6 +226,7 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
+                    scope="col"
                     className={`group relative select-none font-semibold text-t-secondary ${tableConfig.cellPadding} ${tableConfig.headerBg ? "bg-table-header-bg" : ""}`}
                     style={{
                       width: header.getSize(),

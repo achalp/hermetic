@@ -314,8 +314,12 @@ export function ResponsePanel({
 
       {/* Streaming indicator */}
       {isStreaming && (
-        <div className="flex items-center gap-2 text-sm text-accent">
-          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+        <div
+          className="flex items-center gap-2 text-sm text-accent"
+          role="status"
+          aria-live="polite"
+        >
+          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle
               className="opacity-25"
               cx="12"
