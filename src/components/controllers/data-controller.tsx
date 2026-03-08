@@ -51,6 +51,8 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
   // update and would cause infinite effect → set → re-render loops).
   const storeSetRef = useRef(store.set);
   storeSetRef.current = store.set;
+  const storeGetRef = useRef(store.get);
+  storeGetRef.current = store.get;
 
   // ── Stabilize props ───────────────────────────────────────────────
   const filtersJson = JSON.stringify(props.filters);
@@ -163,7 +165,7 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
           output.format === "globeData" ||
           output.format === "sankeyData")
       ) {
-        const sourceData = store.get(output.sourceStatePath);
+        const sourceData = storeGetRef.current(output.sourceStatePath);
         if (sourceData && typeof sourceData === "object") {
           let filtered: unknown;
           if (output.format === "geojson") {
@@ -198,7 +200,7 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
       const formatted = formatOutput(data, output);
       storeSetRef.current(output.statePath, formatted);
     }
-  }, [sharedPipelineResult, filteredData, dataset, outputs, filterValues, filters, store]);
+  }, [sharedPipelineResult, filteredData, dataset, outputs, filterValues, filters]);
 
   // Reset child filter values when parent changes make them invalid
   useEffect(() => {
