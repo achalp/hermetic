@@ -3,6 +3,7 @@
 import { defineRegistry, useBoundProp } from "@json-render/react";
 import { catalog } from "@/lib/catalog";
 import type { DrillDownParams } from "@/lib/types";
+import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import { useThemeConfig } from "@/lib/theme-config";
 import { BarChartComponent } from "./charts/bar-chart";
 import { LineChartComponent } from "./charts/line-chart";
@@ -93,11 +94,6 @@ function formatStatValue(v: unknown): string {
   }
   return String(v ?? "");
 }
-
-// Module-level callback ref for drill-down. ResponsePanel sets this on mount.
-export const drillDownCallbackRef: { current: ((params: DrillDownParams) => void) | null } = {
-  current: null,
-};
 
 const { registry } = defineRegistry(catalog, {
   components: {

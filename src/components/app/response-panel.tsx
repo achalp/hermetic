@@ -8,7 +8,8 @@ import {
   VisibilityProvider,
 } from "@json-render/react";
 import type { Spec } from "@json-render/react";
-import { registry, drillDownCallbackRef } from "@/components/registry";
+import { registry } from "@/components/registry";
+import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, ConversationEntry, SchemaMode } from "@/lib/types";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
