@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import type { CSVSchema } from "@/lib/types";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 
 interface SchemaPreviewProps {
   schema: CSVSchema;
@@ -10,54 +10,28 @@ interface SchemaPreviewProps {
 
 export function SchemaPreview({ schema, collapsed = false }: SchemaPreviewProps) {
   const columnNames = schema.columns.map((c) => c.name);
-  const [open, setOpen] = useState(!collapsed);
-
-  // Collapse when parent signals (e.g. new query submitted)
-  const [prevCollapsed, setPrevCollapsed] = useState(collapsed);
-  if (collapsed !== prevCollapsed) {
-    setPrevCollapsed(collapsed);
-    if (collapsed) setOpen(false);
-  }
 
   return (
-    <div
-      className="theme-card border border-border-default bg-surface-1 p-4"
-      style={{
-        borderRadius: "var(--radius-card)",
-        boxShadow: "var(--shadow-card)",
-      }}
+    <CollapsibleSection
+      title={schema.filename}
+      meta={`${schema.row_count.toLocaleString()} rows \u00B7 ${schema.columns.length} columns`}
+      collapsed={collapsed}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between"
-      >
-        <h3 className="text-sm font-semibold text-t-secondary">{schema.filename}</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-t-tertiary">
-            {schema.row_count.toLocaleString()} rows &middot; {schema.columns.length} columns
-          </span>
-          <span
-            className="text-xs text-t-tertiary transition-transform duration-200"
-            style={{ display: "inline-block", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
-          >
-            &#9660;
-          </span>
-        </div>
-      </button>
-
-      {open && schema.sample_rows.length > 0 && (
+      {schema.sample_rows.length > 0 && (
         <div
-          className="mt-3 overflow-x-auto border border-border-default"
+          className="overflow-x-auto border border-border-default"
           style={{ borderRadius: "var(--radius-badge)" }}
         >
           <table className="min-w-full text-left text-xs">
             <thead>
               <tr className="border-b border-table-divider bg-table-header-bg">
-                <th className="px-3 py-2 font-medium text-t-tertiary">#</th>
+                <th scope="col" className="px-3 py-2 font-medium text-t-tertiary">
+                  #
+                </th>
                 {columnNames.map((name) => (
                   <th
                     key={name}
+                    scope="col"
                     className="whitespace-nowrap px-3 py-2 font-medium text-t-secondary"
                   >
                     {name}
@@ -84,6 +58,6 @@ export function SchemaPreview({ schema, collapsed = false }: SchemaPreviewProps)
           </table>
         </div>
       )}
-    </div>
+    </CollapsibleSection>
   );
 }
