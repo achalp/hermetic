@@ -194,7 +194,9 @@ Rules:
 - When the schema indicates has_geojson=true, a GeoJSON file is available at "/data/input.geojson".
   Read it with: \`import json; geojson = json.load(open("/data/input.geojson"))\`.
   The CSV at "/data/input.csv" contains the flattened feature properties.
-  For map visualizations, include the relevant GeoJSON under chart_data (e.g., chart_data["geojson"] = geojson).
+  For map visualizations, ALWAYS include the full GeoJSON FeatureCollection as chart_data["geojson"] = geojson.
+  For Polygon/MultiPolygon geometry: pass the COMPLETE GeoJSON as chart_data["geojson"]. Do NOT extract centroids or convert polygons to point markers. The UI renders polygons natively as colored regions. Enrich feature properties with any computed metrics (e.g., merged from the CSV DataFrame) so the UI can use color_key for choropleth coloring.
+  For Point geometry: you may additionally extract lat/lng into chart_data for marker-based display, but still include the full GeoJSON.
   You can filter features, add properties, or transform the GeoJSON as needed.
   Do NOT use geopandas — it is not available.
 - Always handle missing values gracefully.
@@ -370,10 +372,16 @@ export function buildCodeGenUserPrompt(
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
+  const geomType = schema.geojson_geometry_type ?? "unknown";
+  const isPolygonGeom = geomType === "Polygon" || geomType === "MultiPolygon";
   const geojsonSection = schema.has_geojson
     ? `\n## GeoJSON Source
-This data was uploaded as a GeoJSON file. Geometry type: ${schema.geojson_geometry_type ?? "unknown"}.
-A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\n`
+This data was uploaded as a GeoJSON file. Geometry type: ${geomType}.
+A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.${
+        isPolygonGeom
+          ? `\nIMPORTANT: This contains polygon geometry. Pass the full GeoJSON FeatureCollection as chart_data["geojson"]. Do NOT extract centroids or use point markers — render the actual polygon boundaries.`
+          : ""
+      }\n`
     : "";
 
   const workbookSection = workbookContext ? `\n## Workbook Context\n${workbookContext}\n` : "";
@@ -421,10 +429,16 @@ The current question may be a follow-up. Consider previous questions for context
 `
       : "";
 
+  const geomType = schema.geojson_geometry_type ?? "unknown";
+  const isPolygonGeom = geomType === "Polygon" || geomType === "MultiPolygon";
   const geojsonSection = schema.has_geojson
     ? `\n## GeoJSON Source
-This data was uploaded as a GeoJSON file. Geometry type: ${schema.geojson_geometry_type ?? "unknown"}.
-A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\n`
+This data was uploaded as a GeoJSON file. Geometry type: ${geomType}.
+A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.${
+        isPolygonGeom
+          ? `\nIMPORTANT: This contains polygon geometry. Pass the full GeoJSON FeatureCollection as chart_data["geojson"]. Do NOT extract centroids or use point markers — render the actual polygon boundaries.`
+          : ""
+      }\n`
     : "";
 
   const workbookSection = workbookContext ? `\n## Workbook Context\n${workbookContext}\n` : "";
