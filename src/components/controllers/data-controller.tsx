@@ -7,6 +7,9 @@ import {
   executePipeline,
   formatOutput,
   computeFilterOptions,
+  filterGeoJSON,
+  filterGlobeData,
+  filterSankeyData,
   type FilterDef,
   type PipelineStep,
   type OutputDef,
@@ -148,9 +151,42 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
 
   // Write outputs to state. Each output either uses its own pipeline
   // (run on the filtered data) or falls back to the shared pipeline result.
+  // Pattern A outputs (geojson, globeData, sankeyData) read structured data
+  // from a separate state path, filter it, and write the result.
   useEffect(() => {
     if (!Array.isArray(dataset) || dataset.length === 0) return;
     for (const output of outputs) {
+      // Pattern A: filter structured data directly from state
+      if (
+        output.sourceStatePath &&
+        (output.format === "geojson" ||
+          output.format === "globeData" ||
+          output.format === "sankeyData")
+      ) {
+        const sourceData = store.get(output.sourceStatePath);
+        if (sourceData && typeof sourceData === "object") {
+          let filtered: unknown;
+          if (output.format === "geojson") {
+            filtered = filterGeoJSON(sourceData as Record<string, unknown>, filterValues, filters);
+          } else if (output.format === "globeData") {
+            filtered = filterGlobeData(
+              sourceData as Record<string, unknown>,
+              filterValues,
+              filters
+            );
+          } else {
+            filtered = filterSankeyData(
+              sourceData as Record<string, unknown>,
+              filterValues,
+              filters
+            );
+          }
+          storeSetRef.current(output.statePath, filtered);
+        }
+        continue;
+      }
+
+      // Normal pipeline path (including Pattern B matrix/chordMatrix formats)
       const outputPipeline = output.pipeline as unknown as PipelineStep[] | null | undefined;
       let data: Record<string, unknown>[];
       if (outputPipeline && outputPipeline.length > 0) {
@@ -162,7 +198,7 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
       const formatted = formatOutput(data, output);
       storeSetRef.current(output.statePath, formatted);
     }
-  }, [sharedPipelineResult, filteredData, dataset, outputs, filterValues, filters]);
+  }, [sharedPipelineResult, filteredData, dataset, outputs, filterValues, filters, store]);
 
   // Reset child filter values when parent changes make them invalid
   useEffect(() => {

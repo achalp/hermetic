@@ -304,10 +304,7 @@ ${JSON.stringify(chartDataShape, null, 2)}
 ${
   useDataController
     ? `
-Use "$chartData:<key>" placeholders ONLY when pre-populating initial /computed/* state values so charts have data on first render. Charts themselves MUST use {"$state": "/computed/<name>"} for their data prop — never "$chartData:" in component props directly.
-EXCEPTION: Globe3D and Surface3D do NOT support DataController. Use "$chartData:" placeholders directly in their props (points, arcs, z, x_labels, y_labels). Place Globe3D/Surface3D OUTSIDE any DataController wrapper.
-For Globe3D: use "$chartData:<key>.points" for the points prop and "$chartData:<key>.arcs" for the arcs prop. Example: "points": "$chartData:globe.points", "arcs": "$chartData:globe.arcs".
-For Surface3D: use "$chartData:<key>.z", "$chartData:<key>.x_labels", "$chartData:<key>.y_labels".`
+Use "$chartData:<key>" placeholders ONLY when pre-populating initial /computed/* state values so charts have data on first render. Charts themselves MUST use {"$state": "/computed/<name>"} for their data prop — never "$chartData:" in component props directly.`
     : `
 When referencing chart data in component props, use the string "$chartData:<key>" as the data value. It will be replaced with the actual array at render time. For example: "data": "$chartData:scatter_data"
 For HeatMap z/x_labels/y_labels, use "$chartData:heatmap.z", "$chartData:heatmap.x_labels", etc.
@@ -326,7 +323,7 @@ A dataset with ${mainDataset.length} rows is available at state path /datasets/m
 Columns: ${datasetColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(", ")}
 Filterable columns (categorical, <15 values): ${schemaMode === "metadata" ? filterableColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(", ") : filterableColumns.map((c) => `${c.name} [${c.sample.join(", ")}]`).join("; ")}
 
-Use a DataController component to enable instant client-side filtering. The full dataset is stored at /datasets/main in spec.state. Charts MUST read from /computed/* state paths using {"$state": "/computed/<name>"} for their data prop — NOT "$chartData:" placeholders.`;
+Use a DataController component to enable instant client-side filtering. The full dataset is stored at /datasets/main in spec.state. Structured chart_data (geojson, globe, sankey, etc.) is also auto-injected at /datasets/<key>. Charts MUST read from /computed/* state paths using {"$state": "/computed/<name>"} for their data prop — NOT "$chartData:" placeholders.`;
     }
 
     // Append drill-down context if present
@@ -410,15 +407,21 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
       "Use ChartImage ONLY when images were generated in the sandbox (truly custom matplotlib visualizations).",
       "For distribution analysis, use Histogram (pass raw data rows + value_key, optional group_key for overlaid groups).",
       "For comparing distributions across groups, use BoxPlot (raw data rows + value_key + group_key) or ViolinChart (same props, shows density shape).",
-      "For correlation matrices or 2D numeric grids, use HeatMap (z: number[][], x_labels, y_labels, show_values: true). Do NOT use ChartImage for correlation matrices.",
+      useDataController
+        ? 'For correlation matrices or 2D numeric grids, use HeatMap (z, x_labels, y_labels, show_values: true). If the heatmap is a crosstab/pivot of the main dataset, use a DataController output with pipeline: [{op: "pivot", rowKey, columnKey, valueKey, aggFn}] and format: "matrix". HeatMap reads z: {"$state": "/computed/heatmap/z"}, x_labels: {"$state": "/computed/heatmap/x_labels"}, y_labels: {"$state": "/computed/heatmap/y_labels"}. For custom-computed matrices (e.g. correlation), use "$chartData:" directly. Do NOT use ChartImage for correlation matrices.'
+        : "For correlation matrices or 2D numeric grids, use HeatMap (z: number[][], x_labels, y_labels, show_values: true). Do NOT use ChartImage for correlation matrices.",
       "For ML confusion matrices, use ConfusionMatrix (matrix: number[][], labels: string[]). Set normalize: true for percentages. Do NOT use HeatMap or ChartImage for confusion matrices.",
       "For ROC or Precision-Recall curves, use RocCurve (curves: [{label, fpr, tpr, auc?}], curve_type: 'roc'|'pr'). Supports multiple curves for model comparison. Do NOT use matplotlib/ChartImage.",
       "For SHAP feature importance, use ShapBeeswarm (data: [{feature, shap_value, feature_value}]). x = SHAP value, y = feature, color = feature value. Do NOT use ChartImage.",
-      "For flow/transfer/journey visualizations, use SankeyChart (nodes: [{id}], links: [{source, target, value}]). Use for budget flows, user journeys, energy transfers, funnel analysis.",
+      useDataController
+        ? 'For flow/transfer/journey visualizations, use SankeyChart (nodes: [{id}], links: [{source, target, value}]). Include filter columns as extra properties on node objects. Add a DataController output: {statePath: "/computed/sankey", format: "sankeyData", sourceStatePath: "/datasets/sankey"}. SankeyChart reads nodes: {"$state": "/computed/sankey/nodes"}, links: {"$state": "/computed/sankey/links"}. Pre-populate /computed/sankey in initial state with "$chartData:sankey".'
+        : "For flow/transfer/journey visualizations, use SankeyChart (nodes: [{id}], links: [{source, target, value}]). Use for budget flows, user journeys, energy transfers, funnel analysis.",
       "For hierarchical part-to-whole data, use TreemapChart (recursive tree: {name, value?, children?}). For radial hierarchy, use SunburstChart (same data shape). Do NOT use ChartImage.",
       "For radar/spider multi-metric comparison, use RadarChart (data rows, index_key for axes, keys for series). Use for scorecards, profile comparison.",
       "For ranking changes over time, use BumpChart (data: [{id, data: [{x, y}]}] where y = rank).",
-      "For inter-group relationships/flows, use ChordChart (matrix: number[][], keys: string[]). matrix[i][j] = flow from i to j.",
+      useDataController
+        ? 'For inter-group relationships/flows, use ChordChart (matrix, keys). If the chord matrix is a crosstab/pivot of the main dataset, use a DataController output with pipeline: [{op: "pivot", rowKey, columnKey, valueKey, aggFn}] and format: "chordMatrix". ChordChart reads matrix: {"$state": "/computed/chord/matrix"}, keys: {"$state": "/computed/chord/keys"}. For custom-computed matrices, use "$chartData:" directly.'
+        : "For inter-group relationships/flows, use ChordChart (matrix: number[][], keys: string[]). matrix[i][j] = flow from i to j.",
       "For GitHub-style calendar heatmaps of daily values, use CalendarChart (data: [{day, value}], from, to).",
       "For stacked stream/ThemeRiver time series, use StreamChart (data rows, keys for categories).",
       "For cumulative positive/negative effects (P&L, bridge charts), use WaterfallChart (data: [{label, value, type}]). type: 'absolute' for start, 'relative' for change, 'total' for subtotal.",
@@ -444,6 +447,8 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             'Pipeline ops: "filter" (reads active filter state), "groupBy" (columns + aggregations with fn: sum/avg/min/max/count/countDistinct/median), "sort" (column + direction), "limit" (count), "topN" (column + n + direction), "pivot" (rowKey + columnKey + valueKey + aggFn), "compute" (column + expression like "percent(a,b)").',
             'Set initial state: datasets.main is injected automatically. Set /filters/<col> initial values (e.g. "All"). Pre-populate /computed/* paths using "$chartData:<key>" placeholders (e.g. "$chartData:bar_data") so charts render before any filter interaction — these placeholders are replaced with real data at stream time.',
             'StatCards MUST also update when filters change. Add a pipeline output with format: "stats" that uses groupBy with empty columns [] and aggregations (sum, count, avg, etc.) to compute summary values, and outputs to a stats path (e.g. "/computed/stats"). The "stats" format extracts the first row as a flat {key: value} object. Then set each StatCard value to {"$state": "/computed/stats/<field_name>"}. Numbers are auto-formatted (e.g. 1234567 → "1.2M"). Pre-populate /computed/stats in initial state with "$chartData:<stats_key>" so StatCards render before filter interaction.',
+            'Additional output formats for structured charts — Pattern A (filter structured data in state): format "geojson" with sourceStatePath filters GeoJSON FeatureCollection features by properties. format "globeData" with sourceStatePath filters points[] by properties, keeps arcs[] only where both endpoints survive. format "sankeyData" with sourceStatePath filters nodes[] by properties, keeps links[] only where both source and target survive. All three require sourceStatePath pointing to the unfiltered data in /datasets/<key>.',
+            'Additional output formats — Pattern B (derive from pivoted rows): format "matrix" converts pivot output rows to {z: number[][], x_labels: string[], y_labels: string[]} for HeatMap/Surface3D. format "chordMatrix" converts pivot output rows to {matrix: number[][], keys: string[]} for ChordChart. Both require a pivot step in the output pipeline.',
             "Do NOT use SelectControl/NumberInput/ToggleSwitch for filtering when DataController is present — the DataController renders its own filter dropdowns.",
             'Charts can enable click-to-filter cross-filtering via the "selects" prop. Set selects: {column: "<column>", bindTo: "/filters/<column>"} where bindTo matches a DataController filter. Clicking a bar or pie slice filters the dashboard; clicking again deselects.',
             "Use selects on BarChart and PieChart when the axis or slice represents a filterable category. Do NOT use selects AND on.click drillDown on the same chart.",
@@ -459,12 +464,18 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
       stored.schema.has_geojson &&
       (stored.schema.geojson_geometry_type === "Polygon" ||
         stored.schema.geojson_geometry_type === "MultiPolygon")
-        ? 'This data has Polygon/MultiPolygon GeoJSON geometry. Use MapView with the geojson prop to render polygon boundaries — do NOT use markers for polygon data. Set geojson: "$chartData:geojson" and use color_key for choropleth coloring by a numeric property, with color_scale: [low_color, high_color]. Example: {"geojson": "$chartData:geojson", "color_key": "population_density", "color_scale": ["#f7fbff", "#08306b"]}. Do NOT pass markers when geojson polygons are available.'
+        ? useDataController
+          ? 'This data has Polygon/MultiPolygon GeoJSON geometry. GeoJSON is auto-injected at /datasets/geojson. Add a DataController output: {statePath: "/computed/geojson", format: "geojson", sourceStatePath: "/datasets/geojson"}. MapView uses geojson: {"$state": "/computed/geojson"}. Pre-populate /computed/geojson in initial state with "$chartData:geojson". Use color_key for choropleth coloring, with color_scale: [low_color, high_color]. Do NOT pass markers when geojson polygons are available.'
+          : 'This data has Polygon/MultiPolygon GeoJSON geometry. Use MapView with the geojson prop to render polygon boundaries — do NOT use markers for polygon data. Set geojson: "$chartData:geojson" and use color_key for choropleth coloring by a numeric property, with color_scale: [low_color, high_color]. Example: {"geojson": "$chartData:geojson", "color_key": "population_density", "color_scale": ["#f7fbff", "#08306b"]}. Do NOT pass markers when geojson polygons are available.'
         : 'Use MapView when data contains geographic coordinates (lat/lng). Pass markers as [{lat, lng, label, color}]. Only pass geojson if GeoJSON geometry is present in the chart_data — do NOT fabricate or inline GeoJSON. For choropleth maps (polygons colored by a numeric property), set color_key to the property name and optionally color_scale to [low_color, high_color]. Example: {"geojson": "$chartData:geojson", "color_key": "population", "color_scale": ["#f7fbff", "#08306b"]}.',
-      'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Wire props using $chartData placeholders: "points": "$chartData:<key>.points", "arcs": "$chartData:<key>.arcs". Do NOT wrap Globe3D in a DataController. Do NOT pass polygons unless the user explicitly asks for country boundary overlays — points and arcs are sufficient for most use cases. globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).',
+      useDataController
+        ? 'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Include filter columns as extra properties on each point object (e.g. {lat, lng, label, region: row["region"]}). Add a DataController output: {statePath: "/computed/globe", format: "globeData", sourceStatePath: "/datasets/globe"}. Globe3D reads points: {"$state": "/computed/globe/points"}, arcs: {"$state": "/computed/globe/arcs"}. Pre-populate /computed/globe in initial state with "$chartData:globe". globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).'
+        : 'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Wire props using $chartData placeholders: "points": "$chartData:<key>.points", "arcs": "$chartData:<key>.arcs". Do NOT pass polygons unless the user explicitly asks for country boundary overlays — points and arcs are sufficient for most use cases. globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).',
       "Use Map3D for dense geospatial data needing 3D aggregation. layer_type: 'hexagon' for hexagonal density, 'column' for extruded bars at locations, 'arc' for origin-destination flows, 'scatterplot' for points on map, 'heatmap' for density. Use instead of MapView when data has hundreds+ of points or needs aggregation.",
       "Use Scatter3D when there are three numeric variables to explore in 3D. Supports group_key for coloring by category and size_key for a 4th dimension.",
-      "Use Surface3D for gridded 2D data that benefits from a 3D surface view (response surfaces, interpolated terrain). Similar to HeatMap but rendered as rotatable 3D surface.",
+      useDataController
+        ? 'Use Surface3D for gridded 2D data that benefits from a 3D surface view (response surfaces, interpolated terrain). If the surface is a crosstab/pivot of the main dataset, use a DataController output with pipeline: [{op: "pivot", rowKey, columnKey, valueKey, aggFn}] and format: "matrix". Surface3D reads z: {"$state": "/computed/surface/z"}, x_labels: {"$state": "/computed/surface/x_labels"}, y_labels: {"$state": "/computed/surface/y_labels"}. For custom-computed surfaces (e.g. correlation), use "$chartData:" directly.'
+        : "Use Surface3D for gridded 2D data that benefits from a 3D surface view (response surfaces, interpolated terrain). Similar to HeatMap but rendered as rotatable 3D surface.",
       "Prefer 2D charts (BarChart, LineChart, ScatterChart, etc.) when they communicate the data effectively. Only use 3D components when the third dimension adds real analytical value.",
       'For interactive scenario planners, what-if tools, or calculators where NumberInput changes should reactively update StatCard values, use DataController with source.fromState. This builds a reactive single-row dataset from scalar state paths. Example: {"type":"DataController","props":{"source":{"fromState":{"units":"/inputs/units","price":"/inputs/price","margin":"/inputs/margin"}},"filters":[],"pipeline":[{"op":"compute","column":"revenue","expression":"multiply(units, price)"},{"op":"compute","column":"profit","expression":"percentOf(revenue, margin)"}],"outputs":[{"statePath":"/computed/stats","format":"stats"}]}}. NumberInputs bind via $bindState to /inputs/* paths, StatCards read via {"$state":"/computed/stats/revenue"}. Set initial /inputs/* values in spec.state. Compute ops: multiply(a,b), add(a,b), subtract(a,b), percentOf(a,b)=a*b/100, percent(a,b)=a/b*100, ratio(a,b)=a/b, diff(a,b)=a-b.',
     ];
@@ -564,7 +575,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             return String(value);
           });
 
-          // Inject datasets.main into a JSON-Patch that sets /state
+          // Inject datasets.main (+ structured chart_data) into a JSON-Patch that sets /state
           if (useDataController && !stateInjected && mainDataset) {
             try {
               const parsed = JSON.parse(processed);
@@ -576,6 +587,12 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
               ) {
                 if (!parsed.value.datasets) parsed.value.datasets = {};
                 parsed.value.datasets.main = mainDataset;
+                // Inject structured chart_data (geojson, globe, sankey, etc.) into datasets
+                for (const [key, value] of Object.entries(executionResult.chart_data)) {
+                  if (typeof value === "object" && value !== null) {
+                    parsed.value.datasets[key] = value;
+                  }
+                }
                 processed = JSON.stringify(parsed);
                 stateInjected = true;
               }
@@ -646,11 +663,17 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
         // If the LLM streamed state as individual field patches (not a single
         // /state add), we still need to inject the dataset.
         if (!closed && useDataController && !stateInjected && mainDataset) {
+          const datasetsPayload: Record<string, unknown> = { main: mainDataset };
+          for (const [key, value] of Object.entries(executionResult.chart_data)) {
+            if (typeof value === "object" && value !== null) {
+              datasetsPayload[key] = value;
+            }
+          }
           emit(
             JSON.stringify({
               op: "add",
               path: "/state/datasets",
-              value: { main: mainDataset },
+              value: datasetsPayload,
             }) + "\n"
           );
         }
