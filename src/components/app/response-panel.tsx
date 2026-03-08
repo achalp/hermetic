@@ -15,11 +15,8 @@ import type { DrillDownParams, ConversationEntry, SchemaMode } from "@/lib/types
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { summarizeSpec } from "@/lib/spec-summary";
-import {
-  downloadDashboardAsPdf,
-  downloadDashboardAsDocx,
-  downloadDashboardAsPptx,
-} from "@/lib/export-utils";
+import { useSaveExport } from "@/hooks/use-save-export";
+import { useArtifacts } from "@/hooks/use-artifacts";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 
@@ -62,13 +59,27 @@ export function ResponsePanel({
   const conversationHistoryRef = useRef<ConversationEntry[]>([]);
   const [previousSpec, setPreviousSpec] = useState<Spec | null>(null);
   const lastSeqRef = useRef(0);
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<"pdf" | "docx" | "pptx" | null>(null);
-  const [showArtifacts, setShowArtifacts] = useState(false);
-  const [artifacts, setArtifacts] = useState<CachedArtifacts | null>(null);
-  const [artifactsLoading, setArtifactsLoading] = useState(false);
   const dashboardRef = useRef<HTMLDivElement>(null);
+
+  const {
+    saving,
+    saveMessage,
+    exporting,
+    handleSave,
+    handleExportPdf,
+    handleExportDocx,
+    handleExportPptx,
+  } = useSaveExport({ csvId, currentSpecRef, currentQuestionRef, dashboardRef, onSaved });
+
+  const {
+    showArtifacts,
+    setShowArtifacts,
+    artifacts,
+    setArtifacts,
+    artifactsLoading,
+    artifactsError,
+    handleToggleArtifacts,
+  } = useArtifacts({ csvId });
 
   const { spec, isStreaming, error, send, clear } = useUIStream({
     api: "/api/query",
@@ -171,77 +182,6 @@ export function ResponsePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [csvId, send]);
 
-  const handleSave = useCallback(async () => {
-    if (!csvId || !currentSpecRef.current) return;
-    setSaving(true);
-    setSaveMessage(null);
-    try {
-      const res = await fetch("/api/vizs/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          csvId,
-          spec: currentSpecRef.current,
-          question: currentQuestionRef.current ?? "Analysis",
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        setSaveMessage(data.error ?? "Save failed");
-      } else {
-        setSaveMessage("Saved!");
-        onSaved?.();
-        setTimeout(() => setSaveMessage(null), 2000);
-      }
-    } catch {
-      setSaveMessage("Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }, [csvId, onSaved]);
-
-  const handleExportPdf = useCallback(async () => {
-    if (!dashboardRef.current) return;
-    setExporting("pdf");
-    try {
-      await downloadDashboardAsPdf(dashboardRef.current, currentQuestionRef.current ?? "dashboard");
-    } catch (e) {
-      console.error("PDF export failed:", e);
-    } finally {
-      setExporting(null);
-    }
-  }, []);
-
-  const handleExportDocx = useCallback(async () => {
-    if (!dashboardRef.current) return;
-    setExporting("docx");
-    try {
-      await downloadDashboardAsDocx(
-        dashboardRef.current,
-        currentQuestionRef.current ?? "dashboard"
-      );
-    } catch (e) {
-      console.error("DOCX export failed:", e);
-    } finally {
-      setExporting(null);
-    }
-  }, []);
-
-  const handleExportPptx = useCallback(async () => {
-    if (!dashboardRef.current) return;
-    setExporting("pptx");
-    try {
-      await downloadDashboardAsPptx(
-        dashboardRef.current,
-        currentQuestionRef.current ?? "dashboard"
-      );
-    } catch (e) {
-      console.error("PPTX export failed:", e);
-    } finally {
-      setExporting(null);
-    }
-  }, []);
-
   const handleClear = useCallback(() => {
     clear();
     setDrillStack([]);
@@ -249,38 +189,6 @@ export function ResponsePanel({
     setPreviousSpec(null);
     conversationHistoryRef.current = [];
   }, [clear]);
-
-  const [artifactsError, setArtifactsError] = useState<string | null>(null);
-
-  const handleToggleArtifacts = useCallback(async () => {
-    if (showArtifacts) {
-      setShowArtifacts(false);
-      return;
-    }
-    if (!csvId) return;
-    if (artifacts) {
-      setShowArtifacts(true);
-      return;
-    }
-    setArtifactsLoading(true);
-    setArtifactsError(null);
-    try {
-      const res = await fetch(`/api/artifacts/${csvId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setArtifacts(data);
-        setShowArtifacts(true);
-      } else {
-        setArtifactsError("Artifacts expired. Re-run the query or save the visualization first.");
-        setTimeout(() => setArtifactsError(null), 4000);
-      }
-    } catch {
-      setArtifactsError("Failed to load artifacts.");
-      setTimeout(() => setArtifactsError(null), 4000);
-    } finally {
-      setArtifactsLoading(false);
-    }
-  }, [showArtifacts, csvId, artifacts]);
 
   // Restored spec for drill-back or loaded viz
   const [restoredSpec, setRestoredSpec] = useState<Spec | null>(null);

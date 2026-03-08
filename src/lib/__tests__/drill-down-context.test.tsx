@@ -29,7 +29,10 @@ describe("drillDownCallbackRef", () => {
       filter_column: "region",
       filter_value: "West",
       segment_label: "West Region",
+      segment_value: "West",
       chart_title: "Sales by Region",
+      x_key: "region",
+      y_key: "sales",
     };
     drillDownCallbackRef.current!(params);
 
