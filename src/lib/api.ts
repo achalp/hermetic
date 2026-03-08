@@ -41,13 +41,13 @@ export interface RuntimeStatus {
   available: boolean;
 }
 
-export async function getProviders(): Promise<ProviderInfo> {
-  const res = await fetch("/api/providers");
+export async function getProviders(signal?: AbortSignal): Promise<ProviderInfo> {
+  const res = await fetch("/api/providers", { signal });
   return json<ProviderInfo>(res);
 }
 
-export async function getRuntimes(): Promise<RuntimeStatus[]> {
-  const res = await fetch("/api/runtimes");
+export async function getRuntimes(signal?: AbortSignal): Promise<RuntimeStatus[]> {
+  const res = await fetch("/api/runtimes", { signal });
   return json<RuntimeStatus[]>(res);
 }
 
@@ -92,8 +92,8 @@ export async function selectWorkbook(excelId: string): Promise<SelectSheetResult
 
 // ── Visualizations ─────────────────────────────────────────────
 
-export async function listVizs(): Promise<SavedVizMeta[]> {
-  const res = await fetch("/api/vizs");
+export async function listVizs(signal?: AbortSignal): Promise<SavedVizMeta[]> {
+  const res = await fetch("/api/vizs", { signal });
   const data = await json<{ vizs: SavedVizMeta[] }>(res);
   return data.vizs;
 }
@@ -151,7 +151,7 @@ export interface OllamaConfig {
   };
 }
 
-export async function getOllamaConfig(): Promise<OllamaConfig> {
-  const res = await fetch("/api/ollama/config");
+export async function getOllamaConfig(signal?: AbortSignal): Promise<OllamaConfig> {
+  const res = await fetch("/api/ollama/config", { signal });
   return json<OllamaConfig>(res);
 }
