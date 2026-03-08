@@ -659,3 +659,10 @@ body {
   border-color: var(--color-accent);
   color: var(--color-t-secondary);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Custom utilities
+   ═══════════════════════════════════════════════════════════ */
+@utility bg-panel {
+  background: var(--bg-panel);
+}
