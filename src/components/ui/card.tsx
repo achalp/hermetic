@@ -2,7 +2,8 @@
 
 import { forwardRef, type HTMLAttributes } from "react";
 
-const baseClass = "theme-card border border-border-default rounded-card shadow-card p-card";
+const baseClass =
+  "theme-card border border-border-default rounded-card shadow-card p-card bg-panel";
 
 export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, style, ...props }, ref) => (
@@ -10,10 +11,7 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
       ref={ref}
       {...props}
       className={className ? `${baseClass} ${className}` : baseClass}
-      style={{
-        background: "var(--bg-panel)",
-        ...style,
-      }}
+      style={style}
     />
   )
 );
