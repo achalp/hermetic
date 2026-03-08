@@ -151,13 +151,35 @@ export function MapViewComponent({
   const colorRange = useMemo(() => {
     if (!props.color_key || !props.geojson) return null;
     const features = (props.geojson as { features?: unknown[] })?.features;
-    if (!Array.isArray(features)) return null;
+    if (!Array.isArray(features) || features.length === 0) return null;
+
+    // Resolve the actual property key: try exact match, then case-insensitive
+    const resolveKey = (): string | null => {
+      const first = features[0] as { properties?: Record<string, unknown> };
+      const propKeys = Object.keys(first?.properties ?? {});
+      if (propKeys.includes(props.color_key!)) return props.color_key!;
+      const lower = props.color_key!.toLowerCase();
+      const match = propKeys.find((k) => k.toLowerCase() === lower);
+      if (match) return match;
+      // Fallback: find first numeric property with variance
+      for (const k of propKeys) {
+        if (k.startsWith("_")) continue; // skip internal keys
+        const vals = features.map((f) =>
+          Number((f as { properties?: Record<string, unknown> })?.properties?.[k])
+        );
+        const numeric = vals.filter((v) => !isNaN(v));
+        if (numeric.length === features.length && new Set(numeric).size > 1) return k;
+      }
+      return null;
+    };
+    const resolvedKey = resolveKey();
+    if (!resolvedKey) return null;
 
     let min = Infinity;
     let max = -Infinity;
     for (const f of features) {
       const feat = f as { properties?: Record<string, unknown> };
-      const val = Number(feat?.properties?.[props.color_key!]);
+      const val = Number(feat?.properties?.[resolvedKey]);
       if (!isNaN(val)) {
         if (val < min) min = val;
         if (val > max) max = val;
@@ -165,7 +187,7 @@ export function MapViewComponent({
     }
     if (!isFinite(min) || !isFinite(max)) return null;
     const scale = props.color_scale ?? ["#fee0d2", "#de2d26"];
-    return { min, max, low: parseHex(scale[0]), high: parseHex(scale[1]) };
+    return { min, max, key: resolvedKey, low: parseHex(scale[0]), high: parseHex(scale[1]) };
   }, [props.color_key, props.geojson, props.color_scale]);
 
   const center: [number, number] = props.center ?? bounds.center;
@@ -199,8 +221,8 @@ export function MapViewComponent({
               data={props.geojson}
               styleCallback={(feature: { properties?: Record<string, unknown> } | undefined) => {
                 // Choropleth mode: color features by a numeric property
-                if (colorRange && props.color_key && feature?.properties) {
-                  const val = Number(feature.properties[props.color_key]);
+                if (colorRange && feature?.properties) {
+                  const val = Number(feature.properties[colorRange.key]);
                   if (!isNaN(val)) {
                     const span = colorRange.max - colorRange.min;
                     const t = span > 0 ? (val - colorRange.min) / span : 0.5;
