@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Map, Marker, Overlay, GeoJson } from "pigeon-maps";
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
 
@@ -99,6 +99,41 @@ function computeBounds(
   return { center: [centerLat, centerLng], zoom: clampedZoom };
 }
 
+/** Compute the centroid (center of bounding box) of a GeoJSON feature's geometry */
+function computeCentroid(geometry: Record<string, unknown>): [number, number] {
+  const lats: number[] = [];
+  const lngs: number[] = [];
+  const collectCoords = (obj: unknown): void => {
+    if (Array.isArray(obj)) {
+      if (obj.length >= 2 && typeof obj[0] === "number" && typeof obj[1] === "number") {
+        lngs.push(obj[0] as number);
+        lats.push(obj[1] as number);
+      } else {
+        for (const item of obj) collectCoords(item);
+      }
+    }
+  };
+  collectCoords(geometry.coordinates);
+  if (lats.length === 0) return [0, 0];
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  return [(minLat + maxLat) / 2, (minLng + maxLng) / 2];
+}
+
+/** Format a property key for display: snake_case → Title Case */
+function formatPropertyKey(key: string): string {
+  return key.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Format a property value for display */
+function formatPropertyValue(value: unknown): string {
+  if (typeof value === "number") return value.toLocaleString();
+  if (value == null) return "—";
+  return String(value);
+}
+
 /** Parse a hex color (#rrggbb or #rgb) to [r, g, b] */
 function parseHex(hex: string): [number, number, number] {
   let h = hex.replace("#", "");
@@ -138,6 +173,54 @@ export function MapViewComponent({
   const chartColors = useChartColors();
 
   const [hoveredMarker, setHoveredMarker] = useState<number | null>(null);
+  const [selectedFeature, setSelectedFeature] = useState<{
+    properties: Record<string, unknown>;
+    anchor: [number, number];
+  } | null>(null);
+
+  const handleGeoJsonClick = useCallback(
+    ({ event, payload }: { event: unknown; payload: unknown }) => {
+      // Stop propagation so the map background click doesn't dismiss immediately
+      if (event && typeof event === "object" && "stopPropagation" in event) {
+        (event as Event).stopPropagation();
+      }
+      const feature = payload as {
+        geometry?: Record<string, unknown>;
+        properties?: Record<string, unknown>;
+      };
+      if (!feature?.geometry) return;
+      const anchor = computeCentroid(feature.geometry);
+      const properties = (feature.properties ?? {}) as Record<string, unknown>;
+
+      // Toggle: clicking same feature dismisses
+      setSelectedFeature((prev) => {
+        if (prev && prev.anchor[0] === anchor[0] && prev.anchor[1] === anchor[1]) return null;
+        return { properties, anchor };
+      });
+    },
+    []
+  );
+
+  // Ref to block native wheel/touch events from reaching the map
+  const popoverRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = popoverRef.current;
+    if (!el) return;
+    const stopWheel = (e: WheelEvent) => {
+      e.stopPropagation();
+    };
+    const stopTouch = (e: TouchEvent) => {
+      e.stopPropagation();
+    };
+    el.addEventListener("wheel", stopWheel, { passive: false });
+    el.addEventListener("touchstart", stopTouch, { passive: false });
+    el.addEventListener("touchmove", stopTouch, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", stopWheel);
+      el.removeEventListener("touchstart", stopTouch);
+      el.removeEventListener("touchmove", stopTouch);
+    };
+  }, [selectedFeature]);
 
   const markers = Array.isArray(props.markers) ? props.markers : [];
   const height = props.height ?? 400;
@@ -215,11 +298,21 @@ export function MapViewComponent({
         </h3>
       )}
       <div className="overflow-hidden rounded-lg border border-border-default" style={{ height }}>
-        <Map defaultCenter={center} defaultZoom={zoom} height={height}>
+        <Map
+          defaultCenter={center}
+          defaultZoom={zoom}
+          height={height}
+          onClick={() => setSelectedFeature(null)}
+        >
           {props.geojson && (
             <GeoJson
               data={props.geojson}
-              styleCallback={(feature: { properties?: Record<string, unknown> } | undefined) => {
+              onClick={handleGeoJsonClick}
+              styleCallback={(
+                feature: { properties?: Record<string, unknown> } | undefined,
+                hover: boolean
+              ) => {
+                const hoverBoost = hover ? 0.25 : 0;
                 // Choropleth mode: color features by a numeric property
                 if (colorRange && feature?.properties) {
                   const val = Number(feature.properties[colorRange.key]);
@@ -230,8 +323,9 @@ export function MapViewComponent({
                     return {
                       fill,
                       stroke: darkenRgb(fill),
-                      strokeWidth: 1,
-                      fillOpacity: 0.7,
+                      strokeWidth: hover ? 2 : 1,
+                      fillOpacity: Math.min(1, 0.7 + hoverBoost),
+                      cursor: "pointer",
                     };
                   }
                   // color_key set but value missing for this feature — gray fallback
@@ -240,14 +334,18 @@ export function MapViewComponent({
                     stroke: "#6b7280",
                     strokeWidth: 1,
                     fillOpacity: 0.3,
+                    cursor: "pointer",
                   };
                 }
                 // Default uniform styling
                 return {
                   fill: props.geojson_style?.fill ?? chartColors[0],
                   stroke: props.geojson_style?.stroke ?? chartColors[0],
-                  strokeWidth: props.geojson_style?.strokeWidth ?? 2,
-                  fillOpacity: props.geojson_style?.fillOpacity ?? 0.5,
+                  strokeWidth: hover
+                    ? (props.geojson_style?.strokeWidth ?? 2) + 1
+                    : (props.geojson_style?.strokeWidth ?? 2),
+                  fillOpacity: Math.min(1, (props.geojson_style?.fillOpacity ?? 0.5) + hoverBoost),
+                  cursor: "pointer",
                 };
               }}
             />
@@ -275,6 +373,49 @@ export function MapViewComponent({
             >
               <div className="pointer-events-none rounded bg-surface-1 border border-border-default px-2 py-1 text-xs text-t-primary shadow-lg">
                 {markers[hoveredMarker].label}
+              </div>
+            </Overlay>
+          )}
+
+          {selectedFeature && (
+            <Overlay anchor={selectedFeature.anchor} offset={[0, -10]}>
+              <div
+                ref={popoverRef}
+                className="rounded-lg bg-surface-1 border border-border-default shadow-xl text-xs text-t-primary"
+                style={{ minWidth: 180, maxWidth: 280, maxHeight: 240, overflow: "auto" }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between sticky top-0 bg-surface-1 px-3 py-2 border-b border-border-default">
+                  <span className="font-semibold text-sm">Feature Properties</span>
+                  <button
+                    className="text-t-secondary hover:text-t-primary ml-2 text-base leading-none"
+                    onClick={() => setSelectedFeature(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="px-3 py-2">
+                  {Object.entries(selectedFeature.properties).length === 0 ? (
+                    <span className="text-t-secondary italic">No properties</span>
+                  ) : (
+                    <table className="w-full">
+                      <tbody>
+                        {Object.entries(selectedFeature.properties).map(([key, value]) => (
+                          <tr key={key} className="border-b border-border-default last:border-0">
+                            <td className="pr-2 py-1 text-t-secondary font-medium whitespace-nowrap align-top">
+                              {formatPropertyKey(key)}
+                            </td>
+                            <td className="py-1 text-right align-top">
+                              {formatPropertyValue(value)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
             </Overlay>
           )}
