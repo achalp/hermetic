@@ -7,6 +7,7 @@ import type {
   CategoricalMeta,
   BooleanMeta,
   WorkbookManifest,
+  DataDomain,
 } from "@/lib/types";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 
@@ -31,6 +32,10 @@ function formatColumnMeta(col: CSVColumn): string {
       tags.push(`p75: ${m.p75}`);
       if (m.zero_count > 0) tags.push(`zeros: ${m.zero_count}`);
       if (m.negative_count > 0) tags.push(`negatives: ${m.negative_count}`);
+      if (m.skewness !== undefined) tags.push(`skew: ${m.skewness}`);
+      if (m.kurtosis !== undefined) tags.push(`kurtosis: ${m.kurtosis}`);
+      if (m.outlier_count) tags.push(`outliers: ${m.outlier_count}`);
+      if (m.null_pct && m.null_pct > 0) tags.push(`null%: ${m.null_pct}`);
       return `- ${col.name} (${col.dtype}) — ${tags.join(", ")}${nullSuffix}`;
     }
     case "date": {
@@ -84,7 +89,60 @@ function formatColumns(schema: CSVSchema, mode: SchemaMode): string {
 
 // ── System prompt ─────────────────────────────────────────────────
 
-export function buildCodeGenSystemPrompt(mode: SchemaMode, hasWorkbookContext?: boolean): string {
+// ── Domain-specific prompt layers ────────────────────────────────────
+
+const FINANCIAL_PROMPT_LAYER = `
+Financial Data Guidelines:
+- For OHLC data, structure chart_data for CandlestickChart: [{date, open, high, low, close, volume?}]. Always include volume if available.
+- When computing returns, use logarithmic returns (np.log(price/price.shift(1))) for statistical accuracy, or simple returns ((price/price.shift(1))-1) for interpretability. State which you used.
+- Round currency values to 2 decimal places, interest rates to 4dp, percentages to 2dp, ratios to 3dp.
+- For time-series price data, consider: moving averages (20-day, 50-day), rolling volatility (std of returns), cumulative returns.
+- Handle weekend/holiday gaps in trading data: use business-day-aware resampling (e.g., df.resample('B') or asfreq('B')).
+- For P&L / bridge analysis, structure data for WaterfallChart with type "absolute" for opening, "relative" for changes, "total" for subtotals.
+- Negative values matter: losses, declines, costs should be negative numbers — do not take abs().
+- When comparing periods, compute both absolute change and percentage change.
+- Use log scale (in matplotlib) when price data spans more than a 5× range.
+- Common financial metrics to consider: CAGR, Sharpe ratio (return/std), max drawdown, win rate, profit factor.`;
+
+const STATISTICAL_PROMPT_LAYER = `
+Statistical Analysis Guidelines:
+- When asked about significance or differences: run an appropriate test (t-test for normal data, Mann-Whitney U for non-normal). Report the test statistic, p-value, and effect size.
+- For correlation analysis: compute Pearson (linear) and/or Spearman (monotonic) correlations. Report r² and p-values. Use HeatMap for correlation matrices.
+- Check distribution shape before choosing statistics: use median/IQR for skewed data (skewness > |1|), mean/std for symmetric data.
+- For regression: report R², adjusted R², coefficients with confidence intervals. Use ScatterChart with show_regression: true.
+- Include confidence intervals (95%) where appropriate: mean ± 1.96*SE.
+- For categorical comparisons: chi-squared test for independence, ANOVA for multi-group numeric comparisons.
+- When data has outliers (outlier_count > 0 in metadata), mention their impact and consider robust statistics (median, trimmed mean).
+- Round p-values to 4 decimal places. Use scientific notation for very small p-values.`;
+
+const TIME_SERIES_PROMPT_LAYER = `
+Time-Series Guidelines:
+- Parse date columns properly: pd.to_datetime() with infer_datetime_format=True.
+- Sort by date before any analysis.
+- For trend analysis, consider: rolling averages, percentage change over time, period-over-period comparisons.
+- Handle missing dates: decide whether to forward-fill (ffill for prices), interpolate (for continuous measures), or leave gaps (for count data).
+- When aggregating time series: use .resample() with appropriate frequency based on the granularity metadata.
+- For seasonality: group by month/quarter/day-of-week to show patterns.
+- Year-over-year or month-over-month comparisons are often more useful than raw trends.`;
+
+function buildDomainLayer(domain: DataDomain): string {
+  switch (domain) {
+    case "financial":
+      return FINANCIAL_PROMPT_LAYER + "\n" + TIME_SERIES_PROMPT_LAYER;
+    case "time_series":
+      return TIME_SERIES_PROMPT_LAYER;
+    case "statistical":
+      return STATISTICAL_PROMPT_LAYER;
+    default:
+      return "";
+  }
+}
+
+export function buildCodeGenSystemPrompt(
+  mode: SchemaMode,
+  hasWorkbookContext?: boolean,
+  domain?: DataDomain
+): string {
   const metadataNote =
     mode === "metadata"
       ? "\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics."
@@ -153,6 +211,8 @@ Rules:
 - Only join on columns specified in the relationships unless the user explicitly asks otherwise.`
       : ""
   }
+- For all numeric results: round currency to 2dp, percentages to 1-2dp, ratios to 3dp, counts to integers. Avoid raw float precision (e.g. 0.33333333333 → 0.33).
+- Include units in result keys where possible (e.g. "revenue_usd", "growth_pct", "volume_shares").${domain ? `\n${buildDomainLayer(domain)}` : ""}
 - Output ONLY the Python code. No markdown fencing, no explanation.`;
 }
 
@@ -318,13 +378,23 @@ A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\
 
   const workbookSection = workbookContext ? `\n## Workbook Context\n${workbookContext}\n` : "";
 
+  const correlationSection =
+    schema.correlations && schema.correlations.length > 0
+      ? `\n## Notable Correlations\n${schema.correlations.map((c) => `- ${c.col_a} ↔ ${c.col_b}: r=${c.pearson}`).join("\n")}\n`
+      : "";
+
+  const domainSection =
+    schema.detected_domain && schema.detected_domain !== "general"
+      ? `\nDetected data domain: ${schema.detected_domain}\n`
+      : "";
+
   return `## CSV Schema
 Filename: ${schema.filename}
-Rows: ${schema.row_count}
+Rows: ${schema.row_count}${domainSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${geojsonSection}${workbookSection}
+${correlationSection}${geojsonSection}${workbookSection}
 ## Question
 ${question}`;
 }
@@ -359,13 +429,23 @@ A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.\
 
   const workbookSection = workbookContext ? `\n## Workbook Context\n${workbookContext}\n` : "";
 
+  const correlationSection =
+    schema.correlations && schema.correlations.length > 0
+      ? `\n## Notable Correlations\n${schema.correlations.map((c) => `- ${c.col_a} ↔ ${c.col_b}: r=${c.pearson}`).join("\n")}\n`
+      : "";
+
+  const domainSection =
+    schema.detected_domain && schema.detected_domain !== "general"
+      ? `\nDetected data domain: ${schema.detected_domain}\n`
+      : "";
+
   return `${historySection}## CSV Schema
 Filename: ${schema.filename}
-Rows: ${schema.row_count}
+Rows: ${schema.row_count}${domainSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${geojsonSection}${workbookSection}
+${correlationSection}${geojsonSection}${workbookSection}
 ## Question
 ${question}`;
 }

@@ -17,7 +17,7 @@ export async function generateAnalysisCode(
 ): Promise<string> {
   const result = await generateText({
     model: getModel(model),
-    system: buildCodeGenSystemPrompt(mode, !!workbookContext),
+    system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
     prompt: buildCodeGenUserPrompt(schema, question, mode, workbookContext),
     temperature: 0,
   });
@@ -47,7 +47,7 @@ export async function generateAnalysisCodeWithHistory(
 ): Promise<string> {
   const result = await generateText({
     model: getModel(model),
-    system: buildCodeGenSystemPrompt(mode, !!workbookContext),
+    system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
     prompt: buildCodeGenChatPrompt(schema, question, history, mode, workbookContext),
     temperature: 0,
   });

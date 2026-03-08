@@ -16,6 +16,14 @@ export interface NumericMeta {
   p75: number;
   zero_count: number;
   negative_count: number;
+  /** Asymmetry of distribution: >0 right-skewed, <0 left-skewed */
+  skewness?: number;
+  /** Tail heaviness: >3 heavy-tailed, <3 light-tailed (excess kurtosis) */
+  kurtosis?: number;
+  /** Count of values beyond 1.5×IQR fences */
+  outlier_count?: number;
+  /** Percentage of null/empty values (0-100) */
+  null_pct?: number;
 }
 
 export interface DateMeta {
@@ -72,6 +80,20 @@ export interface CSVSchema {
   has_geojson?: boolean;
   /** Dominant geometry type: "Point" | "Polygon" | "LineString" | etc. */
   geojson_geometry_type?: string;
+  /** Detected data domain based on column patterns */
+  detected_domain?: DataDomain;
+  /** Top pairwise correlations between numeric columns */
+  correlations?: ColumnCorrelation[];
+}
+
+/** Detected domain hints for prompt specialization */
+export type DataDomain = "financial" | "time_series" | "statistical" | "general";
+
+/** A pairwise correlation between two numeric columns */
+export interface ColumnCorrelation {
+  col_a: string;
+  col_b: string;
+  pearson: number;
 }
 
 // ── Execution types ────────────────────────────────────────────────

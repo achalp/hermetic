@@ -34,9 +34,11 @@ export const catalog = defineCatalog(schema, {
         change: z.string().nullable(),
         trend: z.enum(["up", "down", "flat"]).nullable(),
         description: z.string().nullable(),
+        format: z.enum(["currency", "percent", "number"]).nullable(),
+        precision: z.number().nullable(),
       }),
       description:
-        'A single KPI or metric with optional trend indicator. Group in LayoutGrid. Value can be a string ("1,234") or a $state reference for reactive updates.',
+        'A single KPI or metric with optional trend indicator. Group in LayoutGrid. Value can be a string ("1,234") or a $state reference for reactive updates. Use format "currency" for $-prefixed values (precision default: 2), "percent" for %-suffixed (precision default: 1), "number" for locale-formatted with custom precision.',
     },
     TextBlock: {
       props: z.object({
