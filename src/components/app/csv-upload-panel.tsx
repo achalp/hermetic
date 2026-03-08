@@ -15,6 +15,8 @@ interface CSVUploadPanelProps {
   disabled?: boolean;
 }
 
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+
 export function CSVUploadPanel({ onUpload, onExcelSheets, disabled }: CSVUploadPanelProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -24,6 +26,12 @@ export function CSVUploadPanel({ onUpload, onExcelSheets, disabled }: CSVUploadP
   const uploadFile = useCallback(
     async (file: File) => {
       setError(null);
+
+      if (file.size > MAX_FILE_SIZE) {
+        setError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max 100MB.`);
+        return;
+      }
+
       setIsUploading(true);
 
       try {
