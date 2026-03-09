@@ -40,6 +40,8 @@ interface ResponsePanelProps {
   codeGenModel?: ModelId;
   uiComposeModel?: ModelId;
   sandboxRuntime?: SandboxRuntimeId;
+  onRerun?: () => void;
+  loadedVizId?: string | null;
 }
 
 export function ResponsePanel({
@@ -54,6 +56,8 @@ export function ResponsePanel({
   codeGenModel,
   uiComposeModel,
   sandboxRuntime,
+  onRerun,
+  loadedVizId,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   const currentSpecRef = useRef<Spec | null>(null);
@@ -206,8 +210,12 @@ export function ResponsePanel({
       // Seed artifacts from saved viz (if available)
       setArtifacts(loadedArtifacts ?? null);
       setShowArtifacts(false);
+    } else {
+      // loadedSpec cleared (e.g., loading a new viz) — clear stale display
+      setRestoredSpec(null);
+      currentSpecRef.current = null;
     }
-  }, [loadedSpec, loadedArtifacts]);
+  }, [loadedSpec, loadedArtifacts, setArtifacts, setShowArtifacts]);
 
   const handleBackWithRestore = useCallback(
     (toIndex: number) => {
@@ -352,6 +360,7 @@ export function ResponsePanel({
                     ? "Hide Artifacts"
                     : "View Artifacts"}
               </ActionButton>
+              {loadedVizId && onRerun && <ActionButton onClick={onRerun}>Update Data</ActionButton>}
               {saveMessage && (
                 <span
                   className={`text-xs ${saveMessage === "Saved!" ? "text-success-text" : "text-error-text"}`}
@@ -442,7 +451,6 @@ function PipelineProgress({
       {PIPELINE_STEPS.map((step, i) => {
         const stepNum = i + 1;
         const isCompleted = stepNum < currentStep;
-        const isActive = stepNum === currentStep;
         const isUpcoming = stepNum > currentStep;
 
         if (isUpcoming) {

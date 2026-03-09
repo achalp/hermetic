@@ -10,6 +10,8 @@ const initial = {
   showSaved: false,
   savedRefreshKey: 0,
   loadingViz: false,
+  rerunningViz: false,
+  pendingRerunVizId: null,
 };
 
 describe("pageReducer", () => {

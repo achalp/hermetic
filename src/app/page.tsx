@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { Spec } from "@json-render/react";
 import { CSVUploadPanel } from "@/components/app/csv-upload-panel";
 import { SheetPicker } from "@/components/app/sheet-picker";
@@ -13,7 +13,7 @@ import { SettingsPanel } from "@/components/app/settings-panel";
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
-import { getOllamaConfig, loadViz, uploadFile } from "@/lib/api";
+import { getOllamaConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
 import {
   MAX_SAMPLE_ROWS,
   CODE_GEN_MODEL,
@@ -33,6 +33,7 @@ export default function Home() {
     isWorkbookMode,
     handleUpload,
     handleWorkbookUpload,
+    loadWorkbookUpload,
     handleExcelSheets,
     switchSheet,
     cancelSheetPicker,
@@ -56,6 +57,8 @@ export default function Home() {
     showSaved,
     savedRefreshKey,
     loadingViz,
+    rerunningViz,
+    pendingRerunVizId,
   } = pageState;
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
   const [codeGenModel, setCodeGenModel] = useState<ModelId>(CODE_GEN_MODEL);
@@ -68,6 +71,9 @@ export default function Home() {
     return DEFAULT_SANDBOX_RUNTIME;
   });
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
+  const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const rerunVizIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,6 +95,7 @@ export default function Home() {
   const handleReset = useCallback(() => {
     reset();
     resetPage();
+    setLoadedVizId(null);
   }, [reset, resetPage]);
 
   const handleLoadViz = useCallback(
@@ -97,32 +104,109 @@ export default function Home() {
       try {
         const data = await loadViz(vizId);
 
-        // Re-upload the CSV to get a fresh csvId
-        const blob = new Blob([data.csvContent], { type: "text/csv" });
-        const file = new File([blob], data.meta.csvFilename, { type: "text/csv" });
-        const formData = new FormData();
-        formData.append("csv", file);
-
-        const uploadData = await uploadFile(formData);
-        if (!uploadData.csv_id || !uploadData.schema) throw new Error("Failed to re-upload CSV");
-
-        handleUpload(uploadData.csv_id, uploadData.schema);
+        // Server already parsed and stored the CSV — use the returned csvId
+        if (data.workbook) {
+          // Workbook mode — restore multi-sheet state
+          loadWorkbookUpload(
+            data.csvId,
+            data.schema,
+            data.workbook.filename,
+            data.workbook.sheetInfo,
+            data.workbook.relationships
+          );
+        } else {
+          handleUpload(data.csvId, data.schema);
+        }
         dispatch({
           type: "LOAD_VIZ_SUCCESS",
           question: data.meta.question,
           spec: data.spec as unknown as Spec,
           artifacts: data.artifacts ?? null,
         });
+        setLoadedVizId(vizId);
       } catch (err) {
         console.error("Load viz failed:", err);
         dispatch({ type: "LOAD_VIZ_ERROR" });
       }
     },
-    [handleUpload, dispatch]
+    [handleUpload, loadWorkbookUpload, dispatch]
   );
+
+  const handleRerunViz = useCallback((vizId: string) => {
+    rerunVizIdRef.current = vizId;
+    // Reset file input so same file can be selected again
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleRerunFileSelected = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      const vizId = rerunVizIdRef.current;
+      if (!file || !vizId) return;
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      dispatch({ type: "RERUN_START" });
+      try {
+        const result = await rerunViz(vizId, file, sandboxRuntime);
+
+        if (result.schemaMatch) {
+          // Fast path — schema matched, code re-executed successfully
+          handleUpload(result.csvId, result.schema);
+          dispatch({
+            type: "RERUN_FAST_SUCCESS",
+            spec: result.spec as unknown as Spec,
+            artifacts: result.artifacts ?? null,
+          });
+          setLoadedVizId(vizId);
+        } else {
+          // Slow path — schemas differ, trigger full pipeline
+          handleUpload(result.csvId, result.schema);
+          dispatch({
+            type: "RERUN_STREAM_START",
+            question: result.question!,
+            vizId,
+          });
+          setLoadedVizId(vizId);
+        }
+      } catch (err) {
+        console.error("Rerun failed:", err);
+        dispatch({ type: "RERUN_ERROR" });
+      }
+    },
+    [dispatch, handleUpload, sandboxRuntime]
+  );
+
+  const handleRerunFromToolbar = useCallback(() => {
+    if (loadedVizId) handleRerunViz(loadedVizId);
+  }, [loadedVizId, handleRerunViz]);
+
+  // Auto-save after incompatible rerun completes the full pipeline
+  useEffect(() => {
+    if (!isAnalyzing && pendingRerunVizId && csvId && loadedSpec) {
+      saveViz(csvId, loadedSpec, currentQuestion ?? "Analysis", pendingRerunVizId)
+        .then(() => {
+          dispatch({ type: "CLEAR_PENDING_RERUN" });
+          dispatch({ type: "VIZ_SAVED" });
+        })
+        .catch((err) => {
+          console.error("Auto-save after rerun failed:", err);
+          dispatch({ type: "CLEAR_PENDING_RERUN" });
+        });
+    }
+  }, [isAnalyzing, pendingRerunVizId, csvId, loadedSpec, currentQuestion, dispatch]);
 
   return (
     <div className="min-h-screen">
+      {/* Hidden file input for rerun */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.xlsx,.geojson,.json"
+        className="hidden"
+        onChange={handleRerunFileSelected}
+      />
+
       <div className="mx-auto max-w-5xl px-4 py-8">
         <header className="mb-8">
           <div className="flex items-center justify-between">
@@ -207,11 +291,17 @@ export default function Home() {
         </header>
 
         <main id="main-content" className="space-y-6">
-          {showSaved && <SavedVizsPanel onLoad={handleLoadViz} refreshKey={savedRefreshKey} />}
+          {showSaved && (
+            <SavedVizsPanel
+              onLoad={handleLoadViz}
+              onRerun={handleRerunViz}
+              refreshKey={savedRefreshKey}
+            />
+          )}
 
-          {loadingViz && (
+          {(loadingViz || rerunningViz) && (
             <div className="flex items-center gap-2 text-sm text-accent">
-              Loading saved visualization...
+              {rerunningViz ? "Re-running with new data..." : "Loading saved visualization..."}
             </div>
           )}
 
@@ -240,7 +330,12 @@ export default function Home() {
                 schema && <SchemaPreview schema={schema} collapsed={questionSeq > 0} />
               )}
 
-              <QueryInput onSubmit={handleQuery} disabled={!isUploaded} isLoading={isAnalyzing} />
+              <QueryInput
+                onSubmit={handleQuery}
+                disabled={!isUploaded}
+                isLoading={isAnalyzing}
+                initialValue={currentQuestion}
+              />
 
               <ResponsePanel
                 csvId={csvId}
@@ -254,6 +349,8 @@ export default function Home() {
                 codeGenModel={codeGenModel}
                 uiComposeModel={uiComposeModel}
                 sandboxRuntime={sandboxRuntime}
+                onRerun={handleRerunFromToolbar}
+                loadedVizId={loadedVizId}
               />
             </>
           ) : null}

@@ -197,6 +197,29 @@ export async function warmupAllSandboxes(): Promise<void> {
   }
 }
 
+/**
+ * Ensure the warm sandbox backend is registered and data preparation has started.
+ * Unlike prepareWarmSandbox (fire-and-forget), this awaits backend registration
+ * so that getWarmManager() won't return undefined when executeSandbox is called
+ * immediately after. The manager.execute() method already awaits preparationPromise.
+ */
+export async function ensureWarmSandboxReady(
+  csvId: string,
+  csvContent: string,
+  runtime?: SandboxRuntimeId,
+  geojsonContent?: string | null,
+  additionalFiles?: AdditionalFile[]
+): Promise<void> {
+  const rt = runtime ?? DEFAULT_SANDBOX_RUNTIME;
+  if (rt === "e2b") return;
+
+  const manager = await ensureBackendRegistered(rt);
+  if (!manager) return;
+
+  // Start data preparation — manager.execute() will await the promise
+  manager.prepareData(csvId, csvContent, geojsonContent, additionalFiles);
+}
+
 async function ensureBackendRegistered(
   runtime: SandboxRuntimeId
 ): Promise<WarmSandboxManager | undefined> {

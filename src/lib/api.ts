@@ -98,11 +98,19 @@ export async function listVizs(signal?: AbortSignal): Promise<SavedVizMeta[]> {
   return data.vizs;
 }
 
+export interface LoadedVizWorkbook {
+  filename: string;
+  sheetInfo: SheetInfo[];
+  relationships: SheetRelationship[];
+}
+
 export interface LoadedViz {
   meta: SavedVizMeta;
   spec: Record<string, unknown>;
-  csvContent: string;
+  csvId: string;
+  schema: CSVSchema;
   artifacts?: CachedArtifacts;
+  workbook?: LoadedVizWorkbook;
 }
 
 export async function loadViz(vizId: string): Promise<LoadedViz> {
@@ -125,14 +133,43 @@ export interface SaveVizResult {
 export async function saveViz(
   csvId: string,
   spec: unknown,
-  question: string
+  question: string,
+  parentVizId?: string
 ): Promise<SaveVizResult> {
   const res = await fetch("/api/vizs/save", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ csvId, spec, question }),
+    body: JSON.stringify({ csvId, spec, question, parentVizId }),
   });
   return json<SaveVizResult>(res);
+}
+
+// ── Rerun ───────────────────────────────────────────────────────
+
+export interface RerunResult {
+  schemaMatch: boolean;
+  spec?: Record<string, unknown>;
+  artifacts?: CachedArtifacts;
+  meta?: SavedVizMeta;
+  csvId: string;
+  schema: CSVSchema;
+  question?: string;
+}
+
+export async function rerunViz(
+  vizId: string,
+  file: File,
+  sandboxRuntime?: string
+): Promise<RerunResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (sandboxRuntime) formData.append("sandbox_runtime", sandboxRuntime);
+
+  const res = await fetch(`/api/vizs/${vizId}/rerun`, {
+    method: "POST",
+    body: formData,
+  });
+  return json<RerunResult>(res);
 }
 
 // ── Artifacts ──────────────────────────────────────────────────

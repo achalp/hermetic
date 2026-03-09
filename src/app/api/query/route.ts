@@ -588,19 +588,21 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             };
 
             // Pass 1: standalone JSON string values like "$result:total_sales" → raw JSON value
-            const resultRegex = /"\$result:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)"/g;
+            // Uses [^"]+ to support keys with spaces (e.g. "$result:status.On Track")
+            const resultRegex = /"\$result:([^"]+)"/g;
             processed = processed.replace(resultRegex, (_match, keyPath: string) => {
-              const value = resolveResultKey(keyPath);
+              const value = resolveResultKey(keyPath.trim());
               return value !== undefined ? JSON.stringify(value) : _match;
             });
 
             // Pass 2: inline placeholders within larger strings like "F-stat: $result:f_stat"
             // These survive Pass 1 because the quotes don't wrap just the placeholder.
-            // The regex requires each dot-segment to start with a word char, so trailing
-            // sentence punctuation (periods) won't be captured.
-            const inlineResultRegex = /\$result:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)/g;
+            // Supports spaces in dot-separated key segments (e.g. "On Track").
+            // Each segment must start with a word char; trailing punctuation is not captured.
+            const inlineResultRegex =
+              /\$result:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=[",}\s]|$)/g;
             processed = processed.replace(inlineResultRegex, (_match, keyPath: string) => {
-              const value = resolveResultKey(keyPath);
+              const value = resolveResultKey(keyPath.trim());
               if (value === undefined) return _match;
               if (typeof value === "number") {
                 return Number.isInteger(value)

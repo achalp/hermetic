@@ -13,6 +13,8 @@ interface PageState {
   showSaved: boolean;
   savedRefreshKey: number;
   loadingViz: boolean;
+  rerunningViz: boolean;
+  pendingRerunVizId: string | null;
 }
 
 type PageAction =
@@ -23,7 +25,12 @@ type PageAction =
   | { type: "LOAD_VIZ_SUCCESS"; question: string; spec: Spec; artifacts: CachedArtifacts | null }
   | { type: "LOAD_VIZ_ERROR" }
   | { type: "TOGGLE_SAVED" }
-  | { type: "VIZ_SAVED" };
+  | { type: "VIZ_SAVED" }
+  | { type: "RERUN_START" }
+  | { type: "RERUN_FAST_SUCCESS"; spec: Spec; artifacts: CachedArtifacts | null }
+  | { type: "RERUN_STREAM_START"; question: string; vizId: string }
+  | { type: "RERUN_ERROR" }
+  | { type: "CLEAR_PENDING_RERUN" };
 
 const initialState: PageState = {
   currentQuestion: null,
@@ -34,6 +41,8 @@ const initialState: PageState = {
   showSaved: false,
   savedRefreshKey: 0,
   loadingViz: false,
+  rerunningViz: false,
+  pendingRerunVizId: null,
 };
 
 export function pageReducer(state: PageState, action: PageAction): PageState {
@@ -55,7 +64,7 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
         savedRefreshKey: state.savedRefreshKey,
       };
     case "LOAD_VIZ_START":
-      return { ...state, loadingViz: true };
+      return { ...state, loadingViz: true, loadedSpec: null, loadedArtifacts: null };
     case "LOAD_VIZ_SUCCESS":
       return {
         ...state,
@@ -71,6 +80,31 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
       return { ...state, showSaved: !state.showSaved };
     case "VIZ_SAVED":
       return { ...state, savedRefreshKey: state.savedRefreshKey + 1 };
+    case "RERUN_START":
+      return { ...state, rerunningViz: true };
+    case "RERUN_FAST_SUCCESS":
+      return {
+        ...state,
+        rerunningViz: false,
+        loadedSpec: action.spec,
+        loadedArtifacts: action.artifacts,
+        showSaved: false,
+        savedRefreshKey: state.savedRefreshKey + 1,
+      };
+    case "RERUN_STREAM_START":
+      return {
+        ...state,
+        rerunningViz: false,
+        pendingRerunVizId: action.vizId,
+        currentQuestion: action.question,
+        questionSeq: state.questionSeq + 1,
+        isAnalyzing: true,
+        loadedSpec: null,
+      };
+    case "RERUN_ERROR":
+      return { ...state, rerunningViz: false };
+    case "CLEAR_PENDING_RERUN":
+      return { ...state, pendingRerunVizId: null };
   }
 }
 

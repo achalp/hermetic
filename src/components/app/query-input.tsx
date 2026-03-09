@@ -6,10 +6,20 @@ interface QueryInputProps {
   onSubmit: (question: string) => void;
   disabled?: boolean;
   isLoading?: boolean;
+  initialValue?: string | null;
 }
 
-export function QueryInput({ onSubmit, disabled, isLoading }: QueryInputProps) {
-  const [question, setQuestion] = useState("");
+export function QueryInput({ onSubmit, disabled, isLoading, initialValue }: QueryInputProps) {
+  const [question, setQuestion] = useState(initialValue ?? "");
+  const [prevInitial, setPrevInitial] = useState(initialValue);
+
+  // Sync from parent without useEffect — React pattern for derived state
+  if (initialValue !== prevInitial) {
+    setPrevInitial(initialValue);
+    if (initialValue) {
+      setQuestion(initialValue);
+    }
+  }
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
