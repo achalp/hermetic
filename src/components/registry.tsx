@@ -80,9 +80,9 @@ const { registry } = defineRegistry(catalog, {
     ),
     LayoutGrid: ({ props, children }) => (
       <div
-        className="grid"
+        className="grid [&>*]:min-w-0 [&>*]:overflow-hidden"
         style={{
-          gridTemplateColumns: `repeat(${props.columns}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${props.columns ?? 2}, minmax(0, 1fr))`,
           gap: props.gap ? `${props.gap}px` : "var(--gap-section)",
         }}
       >
