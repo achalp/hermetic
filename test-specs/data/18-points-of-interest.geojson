@@ -27,7 +27,7 @@
         "review_count": 45210,
         "avg_visit_duration_min": 90,
         "annual_visitors": 2500000,
-        "price_usd": 42.00,
+        "price_usd": 42.0,
         "accessibility_score": 9,
         "year_established": 1931
       },
@@ -43,7 +43,7 @@
         "review_count": 62500,
         "avg_visit_duration_min": 180,
         "annual_visitors": 5400000,
-        "price_usd": 25.00,
+        "price_usd": 25.0,
         "accessibility_score": 9,
         "year_established": 1870
       },
@@ -59,7 +59,7 @@
         "review_count": 8920,
         "avg_visit_duration_min": 20,
         "annual_visitors": 730000,
-        "price_usd": 3.50,
+        "price_usd": 3.5,
         "accessibility_score": 6,
         "year_established": 1975
       },
@@ -91,11 +91,11 @@
         "review_count": 5640,
         "avg_visit_duration_min": 45,
         "annual_visitors": 320000,
-        "price_usd": 5.00,
+        "price_usd": 5.0,
         "accessibility_score": 5,
         "year_established": 1965
       },
-      "geometry": { "type": "Point", "coordinates": [-73.9613, 40.6250] }
+      "geometry": { "type": "Point", "coordinates": [-73.9613, 40.625] }
     },
     {
       "type": "Feature",
@@ -107,7 +107,7 @@
         "review_count": 41300,
         "avg_visit_duration_min": 150,
         "annual_visitors": 2800000,
-        "price_usd": 25.00,
+        "price_usd": 25.0,
         "accessibility_score": 10,
         "year_established": 1929
       },
@@ -123,7 +123,7 @@
         "review_count": 14200,
         "avg_visit_duration_min": 30,
         "annual_visitors": 850000,
-        "price_usd": 8.50,
+        "price_usd": 8.5,
         "accessibility_score": 7,
         "year_established": 2004
       },
@@ -139,11 +139,11 @@
         "review_count": 52100,
         "avg_visit_duration_min": 180,
         "annual_visitors": 4200000,
-        "price_usd": 23.00,
+        "price_usd": 23.0,
         "accessibility_score": 9,
         "year_established": 1869
       },
-      "geometry": { "type": "Point", "coordinates": [-73.9740, 40.7813] }
+      "geometry": { "type": "Point", "coordinates": [-73.974, 40.7813] }
     },
     {
       "type": "Feature",
@@ -155,7 +155,7 @@
         "review_count": 71200,
         "avg_visit_duration_min": 240,
         "annual_visitors": 4200000,
-        "price_usd": 24.00,
+        "price_usd": 24.0,
         "accessibility_score": 6,
         "year_established": 1886
       },
@@ -171,7 +171,7 @@
         "review_count": 9800,
         "avg_visit_duration_min": 15,
         "annual_visitors": 620000,
-        "price_usd": 8.00,
+        "price_usd": 8.0,
         "accessibility_score": 4,
         "year_established": 1990
       },
@@ -187,7 +187,7 @@
         "review_count": 18700,
         "avg_visit_duration_min": 120,
         "annual_visitors": 1300000,
-        "price_usd": 25.00,
+        "price_usd": 25.0,
         "accessibility_score": 10,
         "year_established": 1931
       },
@@ -203,7 +203,7 @@
         "review_count": 29800,
         "avg_visit_duration_min": 75,
         "annual_visitors": 3200000,
-        "price_usd": 40.00,
+        "price_usd": 40.0,
         "accessibility_score": 9,
         "year_established": 2005
       },
@@ -219,7 +219,7 @@
         "review_count": 11500,
         "avg_visit_duration_min": 90,
         "annual_visitors": 280000,
-        "price_usd": 55.00,
+        "price_usd": 55.0,
         "accessibility_score": 6,
         "year_established": 1887
       },
@@ -235,7 +235,7 @@
         "review_count": 16400,
         "avg_visit_duration_min": 150,
         "annual_visitors": 1100000,
-        "price_usd": 33.00,
+        "price_usd": 33.0,
         "accessibility_score": 8,
         "year_established": 1982
       },
@@ -251,7 +251,7 @@
         "review_count": 22100,
         "avg_visit_duration_min": 45,
         "annual_visitors": 510000,
-        "price_usd": 24.00,
+        "price_usd": 24.0,
         "accessibility_score": 5,
         "year_established": 1888
       },
@@ -271,7 +271,7 @@
         "accessibility_score": 8,
         "year_established": 2009
       },
-      "geometry": { "type": "Point", "coordinates": [-74.0049, 40.7480] }
+      "geometry": { "type": "Point", "coordinates": [-74.0049, 40.748] }
     },
     {
       "type": "Feature",
@@ -283,7 +283,7 @@
         "review_count": 21800,
         "avg_visit_duration_min": 90,
         "annual_visitors": 3300000,
-        "price_usd": 38.00,
+        "price_usd": 38.0,
         "accessibility_score": 10,
         "year_established": 2015
       },
