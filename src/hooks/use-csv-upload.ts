@@ -51,6 +51,27 @@ export function useCSVUpload() {
     }));
   }, []);
 
+  /** Restore workbook mode from a saved viz — sets excelMeta and workbook mode together. */
+  const loadWorkbookUpload = useCallback(
+    (
+      csvId: string,
+      schema: CSVSchema,
+      filename: string,
+      sheets: SheetInfo[],
+      relationships: SheetRelationship[]
+    ) => {
+      setState({
+        csvId,
+        schema,
+        isUploaded: true,
+        excelMeta: { excelId: "", filename, sheets, relationships },
+        showSheetPicker: false,
+        isWorkbookMode: true,
+      });
+    },
+    []
+  );
+
   const handleExcelSheets = useCallback(
     (
       excelId: string,
@@ -99,6 +120,7 @@ export function useCSVUpload() {
     ...state,
     handleUpload,
     handleWorkbookUpload,
+    loadWorkbookUpload,
     handleExcelSheets,
     switchSheet,
     cancelSheetPicker,

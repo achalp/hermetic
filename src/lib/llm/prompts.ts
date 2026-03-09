@@ -208,6 +208,13 @@ Rules:
   You can filter features, add properties, or transform the GeoJSON as needed.
   Do NOT use geopandas — it is not available.
 - Always handle missing values gracefully.
+- DEFENSIVE CODING — always verify columns exist before using them:
+  - After reading the CSV, check df.columns to confirm expected column names are present.
+  - Use case-insensitive lookup when column names might differ in casing: match = [c for c in df.columns if c.lower() == expected.lower()].
+  - When a column is not found, try partial/fuzzy matching before giving up: match = [c for c in df.columns if expected.lower() in c.lower()].
+  - Convert numeric columns explicitly: pd.to_numeric(df[col], errors="coerce") — do not assume dtype.
+  - When aggregating (sum, mean, etc.), verify the result is not NaN/0 due to type issues. If a numeric column is stored as strings with formatting (e.g. "$1,234"), strip non-numeric characters first: df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^0-9.\-]', '', regex=True), errors='coerce').
+  - For workbook joins, verify the join produced rows: assert len(merged) > 0 or fall back gracefully.
 - Do NOT use print() at all. Write the final JSON output to "/data/output.json" using: json.dump(output, open("/data/output.json", "w"), default=str, allow_nan=False). Replace NaN/None values in DataFrames before serialization: df = df.fillna("") or df = df.where(df.notna(), None).
 - Do not install packages. Available: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn.
 - Always include datasets.main in the output: the working DataFrame converted to row-objects via df.head(5000).to_dict(orient="records"). This enables client-side interactive filtering. If you filter the data for the analysis, use the ORIGINAL unfiltered DataFrame for datasets.main.${
@@ -222,6 +229,7 @@ Rules:
       : ""
   }
 - For all numeric results: round currency to 2dp, percentages to 1-2dp, ratios to 3dp, counts to integers. Avoid raw float precision (e.g. 0.33333333333 → 0.33).
+- Use snake_case for ALL keys in results and chart_data (e.g. "on_track" not "On Track", "total_revenue_usd" not "Total Revenue (USD)"). This ensures reliable placeholder resolution in the UI layer.
 - Include units in result keys where possible (e.g. "revenue_usd", "growth_pct", "volume_shares").${domain ? `\n${buildDomainLayer(domain)}` : ""}
 - Output ONLY the Python code. No markdown fencing, no explanation.`;
 }
@@ -545,17 +553,27 @@ export function buildWorkbookContext(
 
 // ── Retry prompt ──────────────────────────────────────────────────
 
-export function buildRetryPrompt(originalCode: string, error: string): string {
+export function buildRetryPrompt(originalCode: string, error: string, schema?: CSVSchema): string {
+  const schemaContext = schema
+    ? `\n## Available Columns\nFilename: ${schema.filename} (${schema.row_count} rows)\n${schema.columns.map((c) => `- ${c.name} (${c.dtype})`).join("\n")}\n\nUse EXACTLY these column names — they are case-sensitive.\n`
+    : "";
+
   return `Your previous code failed with this error:
 
 \`\`\`
 ${error}
 \`\`\`
-
+${schemaContext}
 Here was your code:
 \`\`\`python
 ${originalCode}
 \`\`\`
+
+Common fixes:
+- KeyError / column not found: check the Available Columns list above for the exact column name (case-sensitive). Use case-insensitive lookup if needed.
+- TypeError on aggregation: the column may be stored as strings — use pd.to_numeric(df[col], errors="coerce") first.
+- NaN in JSON output: use df.fillna("") or df.fillna(0) before serialization.
+- FileNotFoundError for sheets: use the exact paths from the workbook context.
 
 Fix the code and return only the corrected Python script. No markdown fencing, no explanation.`;
 }

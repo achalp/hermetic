@@ -45,12 +45,12 @@ export function parseCSV(text: string): ParsedCSV {
   });
 
   if (result.errors.length > 0) {
-    const critical = result.errors.find(
-      (e) => e.type === "Delimiter" || e.type === "FieldMismatch"
-    );
+    const critical = result.errors.find((e) => e.type === "Delimiter");
     if (critical) {
       throw new Error(`CSV parse error: ${critical.message}`);
     }
+    // FieldMismatch (extra/missing fields per row) is non-fatal —
+    // papaparse still parses the data, extra fields are dropped.
   }
 
   const rawHeaders = result.meta.fields ?? [];

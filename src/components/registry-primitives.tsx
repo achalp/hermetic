@@ -320,8 +320,8 @@ export function SelectControlComponent({
         }}
       >
         {props.placeholder && <option value="">{props.placeholder}</option>}
-        {props.options.map((opt: { value: string; label: string }) => (
-          <option key={opt.value} value={opt.value}>
+        {(props.options ?? []).map((opt: { value: string; label: string }, i: number) => (
+          <option key={`${opt.value}-${i}`} value={opt.value}>
             {opt.label}
           </option>
         ))}

@@ -57,10 +57,36 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
   // Normalize rows: LLM may send objects or arrays
   const normalizedRows = useMemo(() => {
     const rawRows = Array.isArray(props.rows) ? props.rows : [];
+    if (rawRows.length === 0) return [];
+
+    // Build a mapping from column key → actual row key (handles display name vs snake_case mismatch)
+    const firstObj =
+      !Array.isArray(rawRows[0]) && typeof rawRows[0] === "object" && rawRows[0] !== null
+        ? (rawRows[0] as Record<string, unknown>)
+        : null;
+    const resolvedKeys = firstObj
+      ? columnKeys.map((key) => {
+          if (key in firstObj) return key;
+          // Try case-insensitive match
+          const lower = key.toLowerCase();
+          const objKeys = Object.keys(firstObj);
+          const ciMatch = objKeys.find((k) => k.toLowerCase() === lower);
+          if (ciMatch) return ciMatch;
+          // Try normalizing display name to snake_case: "Total PMM (USD)" → "total_pmm_usd"
+          const snake = key
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_|_$/g, "");
+          const snakeMatch = objKeys.find((k) => k === snake);
+          if (snakeMatch) return snakeMatch;
+          return key; // fallback to original
+        })
+      : columnKeys;
+
     return rawRows.map((row) => {
       if (Array.isArray(row)) return row.map(String);
       const obj = row as unknown as Record<string, unknown>;
-      return columnKeys.map((key) => String(obj[key] ?? ""));
+      return resolvedKeys.map((key) => String(obj[key] ?? ""));
     });
   }, [props.rows, columnKeys]);
 

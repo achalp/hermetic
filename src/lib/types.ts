@@ -149,6 +149,9 @@ export interface SavedVizMeta {
   question: string;
   csvFilename: string;
   createdAt: number;
+  versionCount?: number;
+  latestVersionTs?: number;
+  schemaFingerprint?: string;
 }
 
 // ── Excel types ─────────────────────────────────────────────────────

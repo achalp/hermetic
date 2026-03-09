@@ -6,10 +6,11 @@ import { listVizs, deleteViz } from "@/lib/api";
 
 interface SavedVizsPanelProps {
   onLoad: (vizId: string) => void;
+  onRerun: (vizId: string) => void;
   refreshKey: number;
 }
 
-export function SavedVizsPanel({ onLoad, refreshKey }: SavedVizsPanelProps) {
+export function SavedVizsPanel({ onLoad, onRerun, refreshKey }: SavedVizsPanelProps) {
   const [vizs, setVizs] = useState<SavedVizMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -87,6 +88,9 @@ export function SavedVizsPanel({ onLoad, refreshKey }: SavedVizsPanelProps) {
                 hour: "2-digit",
                 minute: "2-digit",
               })}
+              {(viz.versionCount ?? 1) > 1 && (
+                <span className="ml-1 text-t-tertiary">&middot; {viz.versionCount} versions</span>
+              )}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -99,6 +103,16 @@ export function SavedVizsPanel({ onLoad, refreshKey }: SavedVizsPanelProps) {
               }}
             >
               Load
+            </button>
+            <button
+              onClick={() => onRerun(viz.vizId)}
+              className="bg-accent-subtle px-3 py-1.5 text-xs font-medium text-accent-text hover:bg-accent/10 transition-colors"
+              style={{
+                borderRadius: "var(--radius-badge)",
+                transitionDuration: "var(--transition-speed)",
+              }}
+            >
+              Update Data
             </button>
             <button
               onClick={() => handleDelete(viz.vizId)}

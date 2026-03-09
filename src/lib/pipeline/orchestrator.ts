@@ -50,7 +50,7 @@ export async function runPipeline(
       model: getModel(model),
       system:
         "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.",
-      prompt: buildRetryPrompt(code, result.error),
+      prompt: buildRetryPrompt(code, result.error, schema),
       temperature: 0,
     });
 
@@ -131,7 +131,7 @@ export async function runChatPipeline(
       model: getModel(model),
       system:
         "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.",
-      prompt: buildRetryPrompt(code, result.error),
+      prompt: buildRetryPrompt(code, result.error, schema),
       temperature: 0,
     });
 
