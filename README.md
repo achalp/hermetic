@@ -5,6 +5,18 @@ Upload CSV, Excel, or GeoJSON files, ask questions in natural language, and get 
 ![Dashboard — stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
 ![Dashboard — box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
 
+## Philosophy
+
+Hermetic explores the idea that LLMs can generate correct, effective data analysis code **without seeing the data itself**.
+
+**Shape over samples.** Instead of sending rows to the LLM, Hermetic extracts the schema — column names, types, distributions, ranges, cardinality, correlations — and shares only that metadata as context. The LLM never sees the actual data or a sample of it by default. This keeps data private, reduces token usage, and forces the model to reason about structure rather than memorize values.
+
+**Blind execution.** The LLM generates Python code, but never sees the results. Code runs in an isolated sandbox (Docker, microVM, or cloud), and the execution output — scalars, chart data, datasets — flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. This separation means the model can't hallucinate values that look plausible — every number displayed comes from actual computation.
+
+**Hermetic sandboxing.** Code execution is fully isolated and reproducible. The same code against the same data produces the same output. Sandboxes have no network access, no persistent state, and no access to the host filesystem. This makes it safe to run LLM-generated code and makes results repeatable — re-running a saved visualization with new data is a pure function of code + input.
+
+**Adaptive UI.** A fixed dashboard template would defeat the purpose. Instead, the LLM composes a JSON-Render spec — a declarative layout of charts, stat cards, tables, annotations, and filters — tailored to each question. A bar chart for comparisons, a line chart for trends, stat cards for KPIs, a treemap for composition. The UI adapts to the question rather than forcing every answer into the same mold.
+
 ## Features
 
 - **Natural Language Queries** — Ask questions about your data and get visual answers
