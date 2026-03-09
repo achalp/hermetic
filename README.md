@@ -1,6 +1,6 @@
 # Hermetic
 
-Upload CSV or Excel files, ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or fully local models via Ollama — no API key required.
+Upload CSV, Excel, or GeoJSON files, ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or fully local models via Ollama — no API key required.
 
 ![Dashboard — stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
 ![Dashboard — box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
@@ -11,13 +11,14 @@ Upload CSV or Excel files, ask questions in natural language, and get interactiv
 - **Interactive Dashboards** — Auto-generated charts, tables, stat cards, and insights
 - **Multiple LLM Providers** — Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints
 - **Local Models via Ollama** — Run fully offline with Qwen, Llama, DeepSeek, or any Ollama-supported model — detect, pull, and activate models from the Settings UI
-- **10+ Chart Types** — Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick
-- **3D Visualizations** — Scatter3D, Surface3D, Globe, deck.gl maps
-- **Geographic Maps** — Pigeon-maps markers, deck.gl layers (hexagon, column, arc, heatmap)
+- **30+ Chart Types** — Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree
+- **3D Visualizations** — Scatter3D, Surface3D, Globe3D, deck.gl maps
+- **Geographic Maps** — Pigeon-maps markers and GeoJSON polygons, deck.gl layers (hexagon, column, arc, scatterplot, heatmap)
+- **Multiple File Formats** — CSV, Excel (multi-sheet workbooks), GeoJSON, JSON
 - **Drill-Down Navigation** — Click chart segments to explore deeper
 - **Client-Side Filtering** — DataController enables instant cross-filtering across dashboards
-- **Export** — PDF, DOCX, PPTX, PNG, SVG
-- **Save & Reload** — Persist and reload visualizations
+- **Save & Update Data** — Persist visualizations and re-run them with new data files (schema-compatible updates skip LLM calls)
+- **Export** — PDF, DOCX, PPTX, PNG
 - **Themes** — Vanilla, Stamen, Info is Beautiful, Pentagram (light + dark)
 - **Model Selection** — Choose models for code generation and UI composition
 - **Sandbox Runtimes** — Docker (local), E2B (cloud), Microsandbox (MicroVM)
@@ -112,19 +113,22 @@ src/
   lib/
     csv/                CSV parsing & schema extraction
     excel/              Excel file handling
+    geojson/            GeoJSON parsing
     llm/                LLM integration & prompt generation
     pipeline/           Query orchestration (code-gen → sandbox → UI compose)
     sandbox/            Code execution (Docker / E2B / Microsandbox)
-    saved/              Saved visualization storage
+    saved/              Saved visualization storage & versioning
 ```
 
 ### How It Works
 
-1. **Upload** — CSV/Excel file is parsed, schema extracted, content stored in memory
+1. **Upload** — CSV, Excel (multi-sheet), GeoJSON, or JSON file is parsed, schema extracted, and stored in memory
 2. **Query** — User question + schema sent to your configured LLM for Python code generation
-3. **Execute** — Generated code runs in a sandboxed Python environment with pandas/numpy/matplotlib
+3. **Execute** — Generated code runs in a sandboxed Python environment with pandas/numpy/scipy/scikit-learn
 4. **Compose** — Execution results streamed to the LLM for UI composition as JSON-Render spec
 5. **Render** — JSON-Render spec streamed to the browser and rendered as interactive React components
+
+Saved visualizations can be updated with new data files — if the schema matches, the saved code is re-executed directly without LLM calls.
 
 ## Development
 
