@@ -152,12 +152,14 @@ export function ResponsePanel({
       if (!currentSpecRef.current || !csvId) return;
 
       const currentQuestion = currentQuestionRef.current ?? "Analysis";
+      // Deep-clone the spec so later stream mutations don't corrupt the snapshot
+      const snapshotSpec = JSON.parse(JSON.stringify(currentSpecRef.current!));
       setDrillStack((prev) => [
         ...prev,
         {
           question: currentQuestion,
           segmentLabel: params.segment_label,
-          spec: currentSpecRef.current!,
+          spec: snapshotSpec,
         },
       ]);
 
@@ -306,15 +308,17 @@ export function ResponsePanel({
               }}
             >
               <p className="mb-2 text-xs font-medium text-t-secondary">{level.question}</p>
-              <StateProvider initialState={level.spec.state ?? {}}>
-                <ActionProvider>
-                  <VisibilityProvider>
-                    <RendererErrorBoundary>
-                      <Renderer spec={level.spec} registry={registry} />
-                    </RendererErrorBoundary>
-                  </VisibilityProvider>
-                </ActionProvider>
-              </StateProvider>
+              {level.spec?.root && level.spec?.elements && (
+                <StateProvider initialState={level.spec.state ?? {}}>
+                  <ActionProvider>
+                    <VisibilityProvider>
+                      <RendererErrorBoundary>
+                        <Renderer spec={level.spec} registry={registry} />
+                      </RendererErrorBoundary>
+                    </VisibilityProvider>
+                  </ActionProvider>
+                </StateProvider>
+              )}
             </div>
           ))}
         </div>
