@@ -1,39 +1,39 @@
 # Hermetic
 
-Upload CSV, Excel, or GeoJSON files, ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or fully local models via Ollama — no API key required.
+Upload CSV, Excel, or GeoJSON files, ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via Ollama.
 
-![Dashboard — stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
-![Dashboard — box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
+![Dashboard with stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
+![Dashboard with box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
 
 ## Philosophy
 
-Hermetic explores the idea that LLMs can generate correct, effective data analysis code **without seeing the data itself**.
+Hermetic explores the idea that LLMs can generate correct data analysis code **without seeing the data itself**.
 
-**Shape over samples.** Instead of sending rows to the LLM, Hermetic extracts the schema — column names, types, distributions, ranges, cardinality, correlations — and shares only that metadata as context. The LLM never sees the actual data or a sample of it by default. This keeps data private, reduces token usage, and forces the model to reason about structure rather than memorize values.
+**Shape over samples.** Instead of sending rows to the LLM, Hermetic extracts the schema (column names, types, distributions, ranges, cardinality, correlations) and shares only that metadata as context. The LLM never sees actual data rows by default. This keeps data private, reduces token usage, and forces the model to reason about structure rather than memorize values.
 
-**Blind execution.** The LLM generates Python code, but never sees the results. Code runs in an isolated sandbox (Docker, microVM, or cloud), and the execution output — scalars, chart data, datasets — flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. This separation means the model can't hallucinate values that look plausible — every number displayed comes from actual computation.
+**Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated sandbox (Docker, microVM, or cloud), and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data.
 
-**Hermetic sandboxing.** Code execution is fully isolated and reproducible. The same code against the same data produces the same output. Sandboxes have no network access, no persistent state, and no access to the host filesystem. This makes it safe to run LLM-generated code and makes results repeatable — re-running a saved visualization with new data is a pure function of code + input.
+**Sandboxed execution.** Code runs in containers or microVMs with no network access and no access to the host filesystem. Data is passed in via stdin and results are read from stdout. Warm sandbox modes (Docker, Microsandbox) reuse the underlying container across queries for speed but clear working data between runs. E2B creates a fresh sandbox each time.
 
-**Adaptive UI.** A fixed dashboard template would defeat the purpose. Instead, the LLM composes a JSON-Render spec — a declarative layout of charts, stat cards, tables, annotations, and filters — tailored to each question. A bar chart for comparisons, a line chart for trends, stat cards for KPIs, a treemap for composition. The UI adapts to the question rather than forcing every answer into the same mold.
+**Adaptive UI.** The LLM composes a JSON-Render spec, a declarative layout of charts, stat cards, tables, annotations, and filters, tailored to each question. A bar chart for comparisons, a line chart for trends, stat cards for KPIs, a treemap for composition. The UI adapts to the question rather than using a fixed template.
 
 ## Features
 
-- **Natural Language Queries** — Ask questions about your data and get visual answers
-- **Interactive Dashboards** — Auto-generated charts, tables, stat cards, and insights
-- **Multiple LLM Providers** — Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints
-- **Local Models via Ollama** — Run fully offline with Qwen, Llama, DeepSeek, or any Ollama-supported model — detect, pull, and activate models from the Settings UI
-- **30+ Chart Types** — Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree
-- **3D Visualizations** — Scatter3D, Surface3D, Globe3D, deck.gl maps
-- **Geographic Maps** — Pigeon-maps markers and GeoJSON polygons, deck.gl layers (hexagon, column, arc, scatterplot, heatmap)
-- **Multiple File Formats** — CSV, Excel (multi-sheet workbooks), GeoJSON, JSON
-- **Drill-Down Navigation** — Click chart segments to explore deeper
-- **Client-Side Filtering** — DataController enables instant cross-filtering across dashboards
-- **Save & Update Data** — Persist visualizations and re-run them with new data files (schema-compatible updates skip LLM calls)
-- **Export** — PDF, DOCX, PPTX, PNG
-- **Themes** — Vanilla, Stamen, Info is Beautiful, Pentagram (light + dark)
-- **Model Selection** — Choose models for code generation and UI composition
-- **Sandbox Runtimes** — Docker (local), E2B (cloud), Microsandbox (MicroVM)
+- **Natural language queries.** Ask questions about your data and get visual answers.
+- **Interactive dashboards.** Auto-generated charts, tables, stat cards, and insights.
+- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints.
+- **Local models via Ollama.** Run offline with Qwen, Llama, DeepSeek, or any Ollama-supported model. Detect, pull, and activate models from the Settings UI.
+- **30+ chart types.** Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree.
+- **3D visualizations.** Scatter3D, Surface3D, Globe3D, deck.gl maps.
+- **Geographic maps.** Pigeon-maps markers and GeoJSON polygons, deck.gl layers (hexagon, column, arc, scatterplot, heatmap).
+- **Multiple file formats.** CSV, Excel (multi-sheet workbooks), GeoJSON, JSON.
+- **Drill-down navigation.** Click chart segments to explore deeper.
+- **Client-side filtering.** DataController enables instant cross-filtering across dashboards.
+- **Save and update data.** Persist visualizations and re-run them with new data files. Schema-compatible updates skip LLM calls.
+- **Export.** PDF, DOCX, PPTX. Individual charts can be downloaded as PNG.
+- **Themes.** Vanilla, Stamen, Info is Beautiful, Pentagram (light and dark).
+- **Model selection.** Choose models for code generation and UI composition.
+- **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ The setup script checks prerequisites, installs dependencies, sets up your chose
    cp .env.example .env.local
    ```
 
-   Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration). For local-only usage with Ollama, no `.env.local` changes are needed — configure it from the Settings UI instead.
+   Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration). For local-only usage with Ollama, no `.env.local` changes are needed. Configure it from the Settings UI instead.
 
 3. **Set up a sandbox runtime** (pick one):
 
@@ -77,7 +77,7 @@ The setup script checks prerequisites, installs dependencies, sets up your chose
    # Install the microsandbox server
    curl -sSL https://get.microsandbox.dev | sh
 
-   # Start the server (dev mode — no API key required)
+   # Start the server (dev mode, no API key required)
    msb server start --dev
    ```
 
@@ -123,24 +123,24 @@ src/
     controllers/        DataController for client-side filtering
     inputs/             Form inputs (Select, NumberInput, Toggle)
   lib/
-    csv/                CSV parsing & schema extraction
+    csv/                CSV parsing and schema extraction
     excel/              Excel file handling
     geojson/            GeoJSON parsing
-    llm/                LLM integration & prompt generation
-    pipeline/           Query orchestration (code-gen → sandbox → UI compose)
+    llm/                LLM integration and prompt generation
+    pipeline/           Query orchestration (code-gen, sandbox, UI compose)
     sandbox/            Code execution (Docker / E2B / Microsandbox)
-    saved/              Saved visualization storage & versioning
+    saved/              Saved visualization storage and versioning
 ```
 
 ### How It Works
 
-1. **Upload** — CSV, Excel (multi-sheet), GeoJSON, or JSON file is parsed, schema extracted, and stored in memory
-2. **Query** — User question + schema sent to your configured LLM for Python code generation
-3. **Execute** — Generated code runs in a sandboxed Python environment with pandas/numpy/scipy/scikit-learn
-4. **Compose** — Execution results streamed to the LLM for UI composition as JSON-Render spec
-5. **Render** — JSON-Render spec streamed to the browser and rendered as interactive React components
+1. **Upload.** CSV, Excel (multi-sheet), GeoJSON, or JSON file is parsed, schema extracted, and stored in memory.
+2. **Query.** User question + schema sent to your configured LLM for Python code generation.
+3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, and scikit-learn.
+4. **Compose.** Execution results sent to the LLM for UI composition as a JSON-Render spec.
+5. **Render.** JSON-Render spec streamed to the browser and rendered as interactive React components.
 
-Saved visualizations can be updated with new data files — if the schema matches, the saved code is re-executed directly without LLM calls.
+Saved visualizations can be updated with new data files. If the schema matches, the saved code is re-executed directly without LLM calls.
 
 ## Development
 
@@ -159,7 +159,7 @@ npm run analyze      # Bundle analysis
 
 ## Sandbox Runtimes
 
-Hermetic executes AI-generated Python code in an isolated sandbox. Three runtimes are supported:
+Hermetic executes LLM-generated Python code in an isolated sandbox. Three runtimes are supported:
 
 | Runtime              | How it works                          | Requirements                                                                                               |
 | -------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -178,15 +178,15 @@ Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from a
 | Variable                 | Required                      | Default     | Description                                                                          |
 | ------------------------ | ----------------------------- | ----------- | ------------------------------------------------------------------------------------ |
 | `LLM_PROVIDER`           | No                            | auto-detect | Force a provider: `anthropic`, `bedrock`, `vertex`, `openai-compatible`, or `ollama` |
-| `ANTHROPIC_API_KEY`      | If provider=anthropic         | —           | Anthropic API key                                                                    |
-| `AWS_ACCESS_KEY_ID`      | If provider=bedrock           | —           | AWS access key (or use `AWS_PROFILE`)                                                |
-| `AWS_SECRET_ACCESS_KEY`  | If provider=bedrock           | —           | AWS secret key                                                                       |
+| `ANTHROPIC_API_KEY`      | If provider=anthropic         |             | Anthropic API key                                                                    |
+| `AWS_ACCESS_KEY_ID`      | If provider=bedrock           |             | AWS access key (or use `AWS_PROFILE`)                                                |
+| `AWS_SECRET_ACCESS_KEY`  | If provider=bedrock           |             | AWS secret key                                                                       |
 | `AWS_REGION`             | No                            | `us-east-1` | AWS region for Bedrock                                                               |
-| `GOOGLE_VERTEX_PROJECT`  | If provider=vertex            | —           | GCP project ID                                                                       |
+| `GOOGLE_VERTEX_PROJECT`  | If provider=vertex            |             | GCP project ID                                                                       |
 | `GOOGLE_VERTEX_LOCATION` | No                            | `us-east5`  | GCP region for Vertex AI                                                             |
-| `OPENAI_BASE_URL`        | If provider=openai-compatible | —           | OpenAI-compatible endpoint URL                                                       |
-| `OPENAI_API_KEY`         | No                            | —           | API key for the endpoint (not needed for Ollama)                                     |
-| `OPENAI_MODEL`           | If provider=openai-compatible | —           | Model name (e.g. `llama3.3`, `gpt-4o`)                                               |
+| `OPENAI_BASE_URL`        | If provider=openai-compatible |             | OpenAI-compatible endpoint URL                                                       |
+| `OPENAI_API_KEY`         | No                            |             | API key for the endpoint (not needed for Ollama)                                     |
+| `OPENAI_MODEL`           | If provider=openai-compatible |             | Model name (e.g. `llama3.3`, `gpt-4o`)                                               |
 
 ### Ollama (Local Models)
 
@@ -213,21 +213,21 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 | Variable               | Required                | Default                 | Description                                                      |
 | ---------------------- | ----------------------- | ----------------------- | ---------------------------------------------------------------- |
 | `SANDBOX_RUNTIME`      | No                      | `docker`                | Sandbox runtime: `docker`, `e2b`, or `microsandbox`              |
-| `E2B_API_KEY`          | If runtime=e2b          | —                       | E2B API key                                                      |
+| `E2B_API_KEY`          | If runtime=e2b          |                         | E2B API key                                                      |
 | `MICROSANDBOX_URL`     | If runtime=microsandbox | `http://127.0.0.1:5555` | Microsandbox server URL                                          |
-| `MICROSANDBOX_API_KEY` | No                      | —                       | Microsandbox API key                                             |
+| `MICROSANDBOX_API_KEY` | No                      |                         | Microsandbox API key                                             |
 | `MICROSANDBOX_IMAGE`   | No                      | `microsandbox/python`   | Docker Hub image for the sandbox (packages installed at startup) |
 
 ## Tech Stack
 
-- [Next.js 16](https://nextjs.org/) — React framework
-- [Vercel AI SDK](https://sdk.vercel.ai/) — Multi-provider LLM integration (Anthropic, Bedrock, Vertex, OpenAI-compatible, Ollama)
-- [JSON-Render](https://json-render.com/) — Streaming UI rendering from JSON specs
-- [Nivo](https://nivo.rocks/) — Declarative chart components
-- [Plotly.js](https://plotly.com/javascript/) — 3D charts and advanced visualizations
-- [deck.gl](https://deck.gl/) — Large-scale geospatial visualization
-- [Tailwind CSS v4](https://tailwindcss.com/) — Utility-first CSS
-- [Docker](https://www.docker.com/) — Sandboxed Python execution
+- [Next.js 16](https://nextjs.org/)
+- [Vercel AI SDK](https://sdk.vercel.ai/) for multi-provider LLM integration
+- [JSON-Render](https://json-render.com/) for streaming UI rendering from JSON specs
+- [Nivo](https://nivo.rocks/) for declarative chart components
+- [Plotly.js](https://plotly.com/javascript/) for 3D charts
+- [deck.gl](https://deck.gl/) for geospatial visualization
+- [Tailwind CSS v4](https://tailwindcss.com/)
+- [Docker](https://www.docker.com/) for sandboxed Python execution
 
 ## Contributing
 

@@ -36,6 +36,8 @@ describe("Accessibility", () => {
     onSandboxRuntimeChange: vi.fn(),
     ollamaModel: null,
     onOllamaModelChange: vi.fn(),
+    schemaMode: "metadata" as const,
+    onSchemaModeChange: vi.fn(),
   };
 
   it("settings button has aria-label and aria-expanded", () => {

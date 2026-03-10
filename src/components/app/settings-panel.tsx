@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { AVAILABLE_MODELS } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
+import { MAX_SAMPLE_ROWS } from "@/lib/constants";
+import type { SchemaMode } from "@/lib/types";
 import { useTheme, THEMES } from "@/lib/theme-context";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { OllamaSection } from "./ollama-section";
@@ -17,6 +19,8 @@ interface SettingsPanelProps {
   onSandboxRuntimeChange: (runtime: SandboxRuntimeId) => void;
   ollamaModel: string | null;
   onOllamaModelChange: (model: string | null) => void;
+  schemaMode: SchemaMode;
+  onSchemaModeChange: (mode: SchemaMode) => void;
 }
 
 export function SettingsPanel({
@@ -28,6 +32,8 @@ export function SettingsPanel({
   onSandboxRuntimeChange,
   ollamaModel,
   onOllamaModelChange,
+  schemaMode,
+  onSchemaModeChange,
 }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -280,6 +286,47 @@ export function SettingsPanel({
               No runtimes available. Start Docker or Microsandbox.
             </p>
           )}
+
+          <div className="mb-3 mt-4 border-t border-border-default pt-3">
+            <h3 className="mb-3 text-sm font-semibold text-t-primary">Schema Mode</h3>
+          </div>
+
+          <div
+            className="flex items-center gap-1.5 border border-border-default px-2 py-1"
+            style={{ borderRadius: "var(--radius-badge)" }}
+          >
+            <button
+              onClick={() => onSchemaModeChange("metadata")}
+              className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                schemaMode === "metadata"
+                  ? "bg-accent-subtle text-accent-text"
+                  : "text-t-secondary hover:text-t-primary"
+              }`}
+              style={{
+                borderRadius: "var(--radius-badge)",
+                transitionDuration: "var(--transition-speed)",
+              }}
+            >
+              Metadata
+            </button>
+            <button
+              onClick={() => onSchemaModeChange("sample")}
+              className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                schemaMode === "sample"
+                  ? "bg-accent-subtle text-accent-text"
+                  : "text-t-secondary hover:text-t-primary"
+              }`}
+              style={{
+                borderRadius: "var(--radius-badge)",
+                transitionDuration: "var(--transition-speed)",
+              }}
+            >
+              Sample ({MAX_SAMPLE_ROWS} rows)
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-t-tertiary">
+            Metadata sends column stats and patterns. Sample sends real data rows.
+          </p>
         </div>
       )}
     </div>
