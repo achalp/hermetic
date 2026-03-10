@@ -218,16 +218,124 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 | `MICROSANDBOX_API_KEY` | No                      |                         | Microsandbox API key                                             |
 | `MICROSANDBOX_IMAGE`   | No                      | `microsandbox/python`   | Docker Hub image for the sandbox (packages installed at startup) |
 
+## Components
+
+### Charts
+
+| Component           | Purpose                             | Library    |
+| ------------------- | ----------------------------------- | ---------- |
+| BarChart            | Categorical comparisons             | Nivo       |
+| LineChart           | Trends over time                    | Nivo       |
+| AreaChart           | Trends with volume                  | Nivo       |
+| PieChart            | Part-of-whole composition           | Nivo       |
+| ScatterChart        | Correlation between variables       | Nivo       |
+| RadarChart          | Multivariate comparison             | Nivo       |
+| BumpChart           | Ranking changes over time           | Nivo       |
+| ChordChart          | Flow between categories             | Nivo       |
+| SunburstChart       | Hierarchical composition            | Nivo       |
+| TreemapChart        | Hierarchical proportions            | Nivo       |
+| SankeyChart         | Flow quantities between nodes       | Nivo       |
+| MarimekkoChart      | Two-dimensional composition         | Nivo       |
+| CalendarChart       | Values over calendar days           | Nivo       |
+| StreamChart         | Stacked trends over time            | Nivo       |
+| Histogram           | Value distribution                  | Plotly     |
+| BoxPlot             | Statistical distribution            | Plotly     |
+| HeatMap             | Matrix of values by color           | Plotly     |
+| ViolinChart         | Distribution shape comparison       | Plotly     |
+| CandlestickChart    | OHLC financial data                 | Plotly     |
+| WaterfallChart      | Cumulative value changes            | Plotly     |
+| RidgelineChart      | Overlapping distributions           | Plotly     |
+| DumbbellChart       | Range between two values            | Plotly     |
+| SlopeChart          | Change between two points           | Plotly     |
+| BeeswarmChart       | Distribution with individual points | Plotly     |
+| ShapBeeswarm        | SHAP feature importance             | Plotly     |
+| ConfusionMatrix     | Classification performance          | Plotly     |
+| RocCurve            | Binary classifier performance       | Plotly     |
+| ParallelCoordinates | Multivariate patterns               | Custom SVG |
+| BulletChart         | Progress toward a target            | Custom SVG |
+| DecisionTree        | Tree model visualization            | Custom SVG |
+
+### 3D and Geospatial
+
+| Component | Purpose                                       | Library        |
+| --------- | --------------------------------------------- | -------------- |
+| Scatter3D | 3D point clouds                               | Plotly         |
+| Surface3D | 3D surface plots                              | Plotly         |
+| Globe3D   | Points and arcs on a 3D globe                 | react-globe.gl |
+| Map3D     | Hexagon, column, arc, scatter, heatmap layers | deck.gl        |
+| MapView   | Markers and GeoJSON polygons on a 2D map      | pigeon-maps    |
+
+### Display
+
+| Component      | Purpose                               | Library        |
+| -------------- | ------------------------------------- | -------------- |
+| StatCard       | Single KPI with trend                 | Custom         |
+| TextBlock      | Markdown or plain text                | Custom         |
+| Annotation     | Contextual notes                      | Custom         |
+| TrendIndicator | Directional change indicator          | Custom         |
+| DataTable      | Sortable, filterable, paginated table | TanStack Table |
+| ChartImage     | Rendered image from sandbox           | Custom         |
+| DataController | Client-side cross-filtering           | Custom         |
+
+### Inputs
+
+| Component     | Purpose                        | Library |
+| ------------- | ------------------------------ | ------- |
+| SelectControl | Dropdown select                | Custom  |
+| NumberInput   | Numeric input with constraints | Custom  |
+| ToggleSwitch  | Boolean toggle                 | Custom  |
+| TextInput     | Single-line text input         | Custom  |
+| TextArea      | Multi-line text input          | Custom  |
+
 ## Tech Stack
 
-- [Next.js 16](https://nextjs.org/)
-- [Vercel AI SDK](https://sdk.vercel.ai/) for multi-provider LLM integration
-- [JSON-Render](https://json-render.com/) for streaming UI rendering from JSON specs
-- [Nivo](https://nivo.rocks/) for declarative chart components
-- [Plotly.js](https://plotly.com/javascript/) for 3D charts
-- [deck.gl](https://deck.gl/) for geospatial visualization
+**Framework and rendering**
+
+- [Next.js 16](https://nextjs.org/) with React 19
+- [JSON-Render](https://json-render.com/) for streaming declarative UI from JSON specs
 - [Tailwind CSS v4](https://tailwindcss.com/)
-- [Docker](https://www.docker.com/) for sandboxed Python execution
+
+**LLM integration**
+
+- [Vercel AI SDK](https://sdk.vercel.ai/) with providers for Anthropic, AWS Bedrock, Google Vertex, and OpenAI-compatible endpoints
+- [Zod](https://zod.dev/) for schema validation
+
+**Charting**
+
+- [Nivo](https://nivo.rocks/) (14 chart types)
+- [Plotly.js](https://plotly.com/javascript/) (15 chart types including 3D)
+- [deck.gl](https://deck.gl/) for large-scale geospatial layers
+- [react-globe.gl](https://github.com/vasturiano/react-globe.gl) for 3D globe rendering
+- [pigeon-maps](https://pigeon-maps.js.org/) for 2D tile maps
+- [Three.js](https://threejs.org/) (peer dependency for globe and deck.gl)
+
+**Data tables**
+
+- [TanStack Table](https://tanstack.com/table) for headless table logic
+
+**Data parsing**
+
+- [PapaParse](https://www.papaparse.com/) for CSV
+- [ExcelJS](https://github.com/exceljs/exceljs) for Excel workbooks
+
+**Export**
+
+- [jsPDF](https://github.com/parallax/jsPDF) for PDF generation
+- [docx](https://github.com/dolanmiri/docx) for Word documents
+- [PptxGenJS](https://github.com/gitbrent/PptxGenJS) for PowerPoint presentations
+- [html-to-image](https://github.com/bubkoo/html-to-image) for chart PNG snapshots
+
+**Sandbox runtimes**
+
+- [Docker](https://www.docker.com/) for local container execution
+- [E2B](https://e2b.dev/) for cloud sandbox execution
+- [Microsandbox](https://github.com/microsandbox/microsandbox) for microVM execution
+
+**Development**
+
+- TypeScript 5, ESLint 9, Prettier, Husky, lint-staged
+- [Vitest](https://vitest.dev/) with Testing Library for unit tests
+- [@next/bundle-analyzer](https://www.npmjs.com/package/@next/bundle-analyzer) for bundle analysis
 
 ## Contributing
 
