@@ -77,7 +77,7 @@ export function BarChartComponent({
 
   // Compute left margin: for horizontal bars, measure the longest category label
   const leftMargin = isHorizontal
-    ? Math.min(180, Math.max(80, ...data.map((d) => String(d[props.x_key] ?? "").length * 7)))
+    ? Math.min(220, Math.max(90, ...data.map((d) => String(d[props.x_key] ?? "").length * 8 + 10)))
     : chart.margin.left;
 
   // For vertical bars with many categories, rotate labels
@@ -117,7 +117,7 @@ export function BarChartComponent({
           margin={{
             top: chart.margin.top,
             right: chart.margin.right,
-            bottom: manyCategories ? chart.margin.bottom + 30 : chart.margin.bottom,
+            bottom: manyCategories ? chart.margin.bottom + 50 : chart.margin.bottom,
             left: leftMargin,
           }}
           padding={chart.barPadding}

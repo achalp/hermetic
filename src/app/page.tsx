@@ -206,7 +206,7 @@ export default function Home() {
         onChange={handleRerunFileSelected}
       />
 
-      <div className="mx-auto max-w-5xl px-4 py-8">
+      <div className="mx-auto w-full max-w-5xl px-4 py-8 xl:max-w-[80vw]">
         <header className="mb-8">
           <div className="flex items-center justify-between">
             <div>

@@ -161,10 +161,12 @@ export function toNivoLineSeries(
 ): { id: string; data: { x: string | number; y: number | null }[] }[] {
   return yKeys.map((key) => ({
     id: key,
-    data: data.map((row) => ({
-      x: row[xKey] as string | number,
-      y: row[key] != null ? Number(row[key]) : null,
-    })),
+    data: data
+      .filter((row) => row[xKey] != null)
+      .map((row, i) => ({
+        x: (row[xKey] as string | number) ?? i,
+        y: row[key] != null ? Number(row[key]) : null,
+      })),
   }));
 }
 

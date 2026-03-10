@@ -61,7 +61,7 @@ const { registry } = defineRegistry(catalog, {
   components: {
     LayoutRow: ({ props, children }) => (
       <div
-        className="flex flex-wrap items-stretch"
+        className="flex flex-wrap items-stretch [&>*]:flex-1 [&>*]:min-w-[320px]"
         style={{
           gap: props.gap ? `${props.gap}px` : "var(--gap-section)",
           alignItems: props.align ?? "stretch",
@@ -80,7 +80,7 @@ const { registry } = defineRegistry(catalog, {
     ),
     LayoutGrid: ({ props, children }) => (
       <div
-        className="grid [&>*]:min-w-0 [&>*]:overflow-hidden"
+        className="grid [&>*]:min-w-0"
         style={{
           gridTemplateColumns: `repeat(${props.columns ?? 2}, minmax(0, 1fr))`,
           gap: props.gap ? `${props.gap}px` : "var(--gap-section)",

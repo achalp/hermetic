@@ -81,7 +81,7 @@ const VANILLA: ThemeConfig = {
     piePadAngle: 0.7,
     pointSize: 6,
     lineWidth: 2,
-    margin: { top: 10, right: 20, bottom: 50, left: 60 },
+    margin: { top: 10, right: 20, bottom: 60, left: 60 },
     tooltipRadius: 4,
     tooltipShadow: "0 2px 8px rgba(0,0,0,0.15)",
     tooltipBorder: "none",
