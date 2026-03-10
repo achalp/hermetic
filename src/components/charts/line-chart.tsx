@@ -49,7 +49,8 @@ export function LineChartComponent({
   const tc = useThemeConfig();
   const { chart } = tc;
 
-  const data = Array.isArray(props.data) ? props.data : [];
+  const raw = Array.isArray(props.data) ? props.data : [];
+  const data = raw.filter((row) => row[props.x_key] != null);
   const colors = useColorMap(props.y_keys, props.color_map);
   const series = toNivoLineSeries(data, props.x_key, props.y_keys);
   const curve = CURVE_MAP[props.curve ?? "monotone"];

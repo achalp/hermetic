@@ -57,7 +57,7 @@ export function PieChartComponent({
   const nivoData = rawData
     .map((d) => {
       if (d.label !== undefined && d.value !== undefined) {
-        return { id: String(d.label), value: Number(d.value) };
+        return { id: String(d.label), value: Math.round(Number(d.value) * 100) / 100 };
       }
       // Infer: first string-ish key → label, first number-ish key → value
       const entries = Object.entries(d as Record<string, unknown>);
@@ -68,7 +68,7 @@ export function PieChartComponent({
         if (value === undefined && typeof v === "number") value = v;
       }
       if (label !== undefined && value !== undefined) {
-        return { id: label, value };
+        return { id: label, value: Math.round(value * 100) / 100 };
       }
       return null;
     })
@@ -119,15 +119,20 @@ export function PieChartComponent({
           innerRadius={props.donut ? 0.5 : 0}
           padAngle={chart.piePadAngle}
           cornerRadius={chart.pieCornerRadius}
-          margin={{ top: 10, right: 40, bottom: 30, left: 40 }}
+          margin={{ top: 20, right: 80, bottom: props.show_legend ? 60 : 40, left: 80 }}
           theme={theme}
           activeId={isSelectable && selectedValue ? selectedValue : undefined}
           activeOuterRadiusOffset={isSelectable && selectedValue ? 8 : undefined}
           enableArcLabels={props.show_labels ?? false}
           enableArcLinkLabels={props.show_labels ?? true}
+          arcLabelsSkipAngle={15}
+          arcLabel={(d) => {
+            const v = d.value;
+            return Number.isInteger(v) ? String(v) : v.toFixed(1);
+          }}
           arcLinkLabelsSkipAngle={12}
-          arcLinkLabelsDiagonalLength={12}
-          arcLinkLabelsStraightLength={8}
+          arcLinkLabelsDiagonalLength={16}
+          arcLinkLabelsStraightLength={16}
           arcLinkLabelsTextOffset={4}
           arcLinkLabelsThickness={1}
           arcLinkLabelsColor={{ from: "color" }}

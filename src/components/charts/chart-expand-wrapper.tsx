@@ -133,7 +133,7 @@ export function ChartExpandWrapper({ title, children }: ChartExpandWrapperProps)
   );
 
   return (
-    <div className="group relative flex-1 min-w-0 overflow-hidden">
+    <div className="group relative flex-1 min-w-0">
       <div ref={chartRef}>{children}</div>
 
       {/* Action buttons -- visible on hover */}
