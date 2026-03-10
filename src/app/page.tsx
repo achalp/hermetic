@@ -15,7 +15,6 @@ import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
 import { getOllamaConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
 import {
-  MAX_SAMPLE_ROWS,
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
   DEFAULT_SANDBOX_RUNTIME,
@@ -223,42 +222,9 @@ export default function Home() {
                 onSandboxRuntimeChange={handleRuntimeChange}
                 ollamaModel={ollamaModel}
                 onOllamaModelChange={setOllamaModel}
+                schemaMode={schemaMode}
+                onSchemaModeChange={setSchemaMode}
               />
-              <div
-                className="flex items-center gap-1.5 border border-border-default px-2 py-1"
-                style={{ borderRadius: "var(--radius-badge)" }}
-              >
-                <button
-                  onClick={() => setSchemaMode("metadata")}
-                  className={`px-2 py-0.5 text-xs font-medium transition-colors ${
-                    schemaMode === "metadata"
-                      ? "bg-accent-subtle text-accent-text"
-                      : "text-t-secondary hover:text-t-primary"
-                  }`}
-                  style={{
-                    borderRadius: "var(--radius-badge)",
-                    transitionDuration: "var(--transition-speed)",
-                  }}
-                  title="Send computed column metadata (types, stats, patterns) to the LLM instead of real data"
-                >
-                  Metadata
-                </button>
-                <button
-                  onClick={() => setSchemaMode("sample")}
-                  className={`px-2 py-0.5 text-xs font-medium transition-colors ${
-                    schemaMode === "sample"
-                      ? "bg-accent-subtle text-accent-text"
-                      : "text-t-secondary hover:text-t-primary"
-                  }`}
-                  style={{
-                    borderRadius: "var(--radius-badge)",
-                    transitionDuration: "var(--transition-speed)",
-                  }}
-                  title={`Send ${MAX_SAMPLE_ROWS} sample rows of real data to the LLM`}
-                >
-                  Sample ({MAX_SAMPLE_ROWS} rows)
-                </button>
-              </div>
               <button
                 onClick={toggleSaved}
                 className={`text-sm font-medium transition-colors ${
