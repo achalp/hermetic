@@ -2,7 +2,7 @@ import type { WarmSandboxBackend } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS } from "@/lib/constants";
-import { ensureSuccess, run, parseExecutionOutput } from "./docker-utils";
+import { run, parseExecutionOutput } from "./docker-utils";
 import { logger } from "@/lib/logger";
 
 const CONTAINER_NAME = "hermetic-warm";
@@ -14,21 +14,18 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     await run("docker", ["rm", "-f", CONTAINER_NAME], { timeoutMs: 10_000 }).catch(() => {});
 
     // Create persistent container
-    ensureSuccess(
-      "Create warm Docker sandbox container",
-      await run(
-        "docker",
-        [
-          "run",
-          "-d",
-          "--name",
-          CONTAINER_NAME,
-          DOCKER_SANDBOX_IMAGE,
-          "sleep",
-          String(CONTAINER_LIFETIME),
-        ],
-        { timeoutMs: 15_000 }
-      )
+    await run(
+      "docker",
+      [
+        "run",
+        "-d",
+        "--name",
+        CONTAINER_NAME,
+        DOCKER_SANDBOX_IMAGE,
+        "sleep",
+        String(CONTAINER_LIFETIME),
+      ],
+      { timeoutMs: 15_000 }
     );
 
     logger.info("Warm Docker container created", { name: CONTAINER_NAME });
@@ -41,54 +38,35 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     additionalFiles?: AdditionalFile[]
   ): Promise<void> {
     // Clean existing data files (but keep container alive)
-    ensureSuccess(
-      "Clear warm Docker sandbox data",
-      await run("docker", ["exec", CONTAINER_NAME, "sh", "-c", "rm -rf /data/*"], {
-        timeoutMs: 5_000,
-      })
-    );
+    await run("docker", ["exec", CONTAINER_NAME, "sh", "-c", "rm -rf /data/*"], {
+      timeoutMs: 5_000,
+    });
 
     // Write CSV
-    ensureSuccess(
-      "Write CSV to warm Docker sandbox",
-      await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/input.csv"], {
-        input: csvContent,
-        timeoutMs: 15_000,
-      })
-    );
+    await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/input.csv"], {
+      input: csvContent,
+      timeoutMs: 15_000,
+    });
 
     // Write GeoJSON (if provided)
     if (geojsonContent) {
-      ensureSuccess(
-        "Write GeoJSON to warm Docker sandbox",
-        await run(
-          "docker",
-          ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/input.geojson"],
-          {
-            input: geojsonContent,
-            timeoutMs: 15_000,
-          }
-        )
-      );
+      await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/input.geojson"], {
+        input: geojsonContent,
+        timeoutMs: 15_000,
+      });
     }
 
     // Write additional files (workbook sheets)
     if (additionalFiles && additionalFiles.length > 0) {
-      ensureSuccess(
-        "Create workbook sheet directory in warm Docker sandbox",
-        await run("docker", ["exec", CONTAINER_NAME, "mkdir", "-p", "/data/sheets"], {
-          timeoutMs: 5_000,
-        })
-      );
+      await run("docker", ["exec", CONTAINER_NAME, "mkdir", "-p", "/data/sheets"], {
+        timeoutMs: 5_000,
+      });
       for (const file of additionalFiles) {
         const safePath = file.path.replace(/'/g, "'\\''");
-        ensureSuccess(
-          `Write additional file to warm Docker sandbox (${file.path})`,
-          await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", `cat > '${safePath}'`], {
-            input: file.content,
-            timeoutMs: 15_000,
-          })
-        );
+        await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", `cat > '${safePath}'`], {
+          input: file.content,
+          timeoutMs: 15_000,
+        });
       }
     }
 
@@ -100,44 +78,35 @@ export class DockerWarmBackend implements WarmSandboxBackend {
 
     try {
       // Clean output files only (data stays)
-      ensureSuccess(
-        "Clear warm Docker sandbox output files",
-        await run(
-          "docker",
-          [
-            "exec",
-            CONTAINER_NAME,
-            "sh",
-            "-c",
-            "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt",
-          ],
-          { timeoutMs: 5_000 }
-        )
+      await run(
+        "docker",
+        [
+          "exec",
+          CONTAINER_NAME,
+          "sh",
+          "-c",
+          "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt",
+        ],
+        { timeoutMs: 5_000 }
       );
 
       // Write script (with NaN-safety prelude)
-      ensureSuccess(
-        "Write Python script to warm Docker sandbox",
-        await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/script.py"], {
-          input: PYTHON_NAN_PRELUDE + code,
-          timeoutMs: 15_000,
-        })
-      );
+      await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/script.py"], {
+        input: PYTHON_NAN_PRELUDE + code,
+        timeoutMs: 15_000,
+      });
 
       // Execute
-      const execResult = ensureSuccess(
-        "Start Python analysis in warm Docker sandbox",
-        await run(
-          "docker",
-          [
-            "exec",
-            CONTAINER_NAME,
-            "sh",
-            "-c",
-            "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
-          ],
-          { timeoutMs: SANDBOX_TIMEOUT_MS }
-        )
+      const execResult = await run(
+        "docker",
+        [
+          "exec",
+          CONTAINER_NAME,
+          "sh",
+          "-c",
+          "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
+        ],
+        { timeoutMs: SANDBOX_TIMEOUT_MS }
       );
 
       return await parseExecutionOutput(CONTAINER_NAME, start, execResult.stdout);
