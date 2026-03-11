@@ -1,19 +1,12 @@
 import { execFile } from "node:child_process";
 import type { ExecutionResult } from "@/lib/types";
 import { logger } from "@/lib/logger";
-import { DOCKER_SANDBOX_IMAGE } from "@/lib/constants";
-
-export interface CommandResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
 
 export function run(
   cmd: string,
   args: string[],
   opts?: { input?: string; timeoutMs?: number }
-): Promise<CommandResult> {
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const ac = new AbortController();
     const timer = opts?.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
@@ -41,28 +34,6 @@ export function run(
   });
 }
 
-export function formatDockerCommandError(action: string, result: CommandResult): string {
-  const detail = result.stderr.trim() || result.stdout.trim();
-
-  if (/Unable to find image/i.test(detail)) {
-    return `${action} failed: ${detail}. Build it with: docker build -t ${DOCKER_SANDBOX_IMAGE} ./docker/sandbox`;
-  }
-
-  if (detail) {
-    return `${action} failed: ${detail}`;
-  }
-
-  return `${action} failed with exit code ${result.exitCode}.`;
-}
-
-export function ensureSuccess(action: string, result: CommandResult): CommandResult {
-  if (result.exitCode !== 0) {
-    throw new Error(formatDockerCommandError(action, result));
-  }
-
-  return result;
-}
-
 /**
  * Parse execution output from a container that ran a Python script.
  * Reads output.json or stdout.txt, parses JSON, returns ExecutionResult.
@@ -81,21 +52,11 @@ export async function parseExecutionOutput(
       containerId,
       "cat",
       "/data/stderr.txt",
-    ]).catch(() => null);
-
-    const stderrText = stderrResult?.exitCode === 0 ? stderrResult.stdout.trim() : "";
-
-    if (stderrText) {
-      return {
-        success: false,
-        error: stderrText,
-        execution_ms: executionMs,
-      };
-    }
+    ]).catch(() => ({ stdout: "Unknown execution error", stderr: "", exitCode: 1 }));
 
     return {
       success: false,
-      error: `Python script exited with code ${exitCode}, but no stderr was captured.`,
+      error: stderrResult.stdout || "Unknown execution error",
       execution_ms: executionMs,
     };
   }
