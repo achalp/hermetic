@@ -330,7 +330,7 @@ export function ResponsePanel({
       )}
 
       {/* Active level */}
-      {activeSpec?.root && (
+      {activeSpec?.root && activeSpec?.elements && (
         <Card ref={dashboardRef}>
           <StateProvider initialState={activeSpec.state ?? {}}>
             <ActionProvider>
@@ -382,7 +382,7 @@ export function ResponsePanel({
       {showArtifacts && artifacts && <ArtifactsViewer artifacts={artifacts} />}
 
       {/* Previous spec shown dimmed below the new dashboard during follow-ups */}
-      {previousSpec && isStreaming && (
+      {previousSpec?.root && previousSpec?.elements && isStreaming && (
         <Card className="opacity-40">
           <StateProvider initialState={previousSpec.state ?? {}}>
             <ActionProvider>

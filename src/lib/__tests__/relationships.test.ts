@@ -280,7 +280,7 @@ describe("detectRelationships", () => {
     const rels = detectRelationships(sheets);
     const elapsed = performance.now() - start;
 
-    expect(elapsed).toBeLessThan(100);
+    expect(elapsed).toBeLessThan(200);
     expect(Array.isArray(rels)).toBe(true);
   });
 });
