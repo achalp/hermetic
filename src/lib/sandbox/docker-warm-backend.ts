@@ -1,12 +1,11 @@
 import type { WarmSandboxBackend } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
-import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
+import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { run, parseExecutionOutput } from "./docker-utils";
 import { logger } from "@/lib/logger";
 
 const CONTAINER_NAME = "hermetic-warm";
-const IMAGE_NAME = "gen-ui-sandbox";
 const CONTAINER_LIFETIME = 86400; // 24 hours
 
 export class DockerWarmBackend implements WarmSandboxBackend {
@@ -17,7 +16,15 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     // Create persistent container
     await run(
       "docker",
-      ["run", "-d", "--name", CONTAINER_NAME, IMAGE_NAME, "sleep", String(CONTAINER_LIFETIME)],
+      [
+        "run",
+        "-d",
+        "--name",
+        CONTAINER_NAME,
+        DOCKER_SANDBOX_IMAGE,
+        "sleep",
+        String(CONTAINER_LIFETIME),
+      ],
       { timeoutMs: 15_000 }
     );
 

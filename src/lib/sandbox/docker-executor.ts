@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
-import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
+import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { run, parseExecutionOutput } from "./docker-utils";
 
 export async function executeSandbox(
@@ -11,11 +11,11 @@ export async function executeSandbox(
   additionalFiles?: AdditionalFile[]
 ): Promise<ExecutionResult> {
   const start = Date.now();
-  const id = `gen-ui-sandbox-${randomUUID()}`;
+  const id = `hermetic-sandbox-${randomUUID()}`;
 
   try {
     // 1. Create container
-    await run("docker", ["run", "-d", "--name", id, "gen-ui-sandbox", "sleep", "300"], {
+    await run("docker", ["run", "-d", "--name", id, DOCKER_SANDBOX_IMAGE, "sleep", "300"], {
       timeoutMs: 15_000,
     });
 
