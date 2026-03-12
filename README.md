@@ -66,7 +66,7 @@ The setup script checks prerequisites, installs dependencies, sets up your chose
    **Option A: Docker** (default)
 
    ```bash
-   docker build -t csv-sandbox docker/sandbox
+   docker build -t hermetic-sandbox docker/sandbox
    ```
 
    Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
@@ -292,7 +292,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 **Framework and rendering**
 
 - [Next.js 16](https://nextjs.org/) with React 19
-- [JSON-Render](https://json-render.com/) for streaming declarative UI from JSON specs
+- [JSON-Render](https://json-render.dev/) for streaming declarative UI from JSON specs
 - [Tailwind CSS v4](https://tailwindcss.com/)
 
 **LLM integration**
@@ -321,7 +321,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 **Export**
 
 - [jsPDF](https://github.com/parallax/jsPDF) for PDF generation
-- [docx](https://github.com/dolanmiri/docx) for Word documents
+- [docx](https://github.com/dolanmiu/docx) for Word documents
 - [PptxGenJS](https://github.com/gitbrent/PptxGenJS) for PowerPoint presentations
 - [html-to-image](https://github.com/bubkoo/html-to-image) for chart PNG snapshots
 

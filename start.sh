@@ -344,12 +344,12 @@ fi
 if [ "$RUNTIME" = "docker" ]; then
   step "Building Python sandbox"
 
-  if docker image inspect csv-sandbox &>/dev/null; then
-    ok "csv-sandbox image already exists"
+  if docker image inspect hermetic-sandbox &>/dev/null; then
+    ok "hermetic-sandbox image already exists"
   else
     echo -e "    ${DIM}(first time only — installs Python + data science libs)${RESET}"
-    docker build -t csv-sandbox ./docker/sandbox/ -q
-    ok "Built csv-sandbox image"
+    docker build -t hermetic-sandbox ./docker/sandbox/ -q
+    ok "Built hermetic-sandbox image"
   fi
 elif [ "$RUNTIME" = "microsandbox" ]; then
   step "Preparing microsandbox"

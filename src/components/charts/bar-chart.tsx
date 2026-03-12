@@ -83,6 +83,11 @@ export function BarChartComponent({
   // For vertical bars with many categories, rotate labels
   const manyCategories = !isHorizontal && data.length > 8;
 
+  // Ensure value scale always includes 0 so bars render correctly with all-negative or all-positive data
+  const allValues = data.flatMap((d) => props.y_keys.map((k) => Number(d[k]) || 0));
+  const dataMin = Math.min(0, ...allValues);
+  const dataMax = Math.max(0, ...allValues);
+
   if (data.length === 0) {
     return <div style={{ height: chart.height }} />;
   }
@@ -113,6 +118,8 @@ export function BarChartComponent({
           indexBy={props.x_key}
           layout={layout}
           groupMode={props.stacked ? "stacked" : "grouped"}
+          minValue={dataMin}
+          maxValue={dataMax}
           colors={colors}
           margin={{
             top: chart.margin.top,
