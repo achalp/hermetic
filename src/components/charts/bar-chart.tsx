@@ -118,8 +118,7 @@ export function BarChartComponent({
           indexBy={props.x_key}
           layout={layout}
           groupMode={props.stacked ? "stacked" : "grouped"}
-          minValue={dataMin}
-          maxValue={dataMax}
+          valueScale={{ type: "linear", min: dataMin, max: dataMax }}
           colors={colors}
           margin={{
             top: chart.margin.top,
