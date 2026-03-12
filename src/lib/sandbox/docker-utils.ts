@@ -53,6 +53,7 @@ export async function parseExecutionOutput(
       "cat",
       "/data/stderr.txt",
     ]).catch(() => ({ stdout: "Unknown execution error", stderr: "", exitCode: 1 }));
+
     return {
       success: false,
       error: stderrResult.stdout || "Unknown execution error",
