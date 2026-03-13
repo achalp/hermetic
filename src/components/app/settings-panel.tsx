@@ -7,7 +7,8 @@ import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 import type { SchemaMode } from "@/lib/types";
 import { useTheme, THEMES } from "@/lib/theme-context";
 import { useClickOutside } from "@/hooks/use-click-outside";
-import { OllamaSection } from "./ollama-section";
+import { LocalBackendSection } from "./local-backend-section";
+import type { LocalBackendId } from "@/lib/constants";
 import { getProviders, getRuntimes, type ProviderInfo, type RuntimeStatus } from "@/lib/api";
 
 interface SettingsPanelProps {
@@ -74,8 +75,27 @@ export function SettingsPanel({
     }
   }, [availableRuntimes, sandboxRuntime, onSandboxRuntimeChange]);
 
-  const handleOllamaProviderChange = useCallback(
-    (_provider: "ollama", model: string) => {
+  const [activeBackendTab, setActiveBackendTab] = useState<LocalBackendId>("ollama");
+  const [platform, setPlatform] = useState<{ os: string; arch: string } | null>(null);
+  const platformFetched = useRef(false);
+
+  useEffect(() => {
+    if (platformFetched.current) return;
+    platformFetched.current = true;
+    fetch("/api/local-llm/platform")
+      .then((r) => r.json())
+      .then((data) => {
+        setPlatform(data);
+        // Auto-select MLX tab on Apple Silicon
+        if (data.os === "darwin" && data.arch === "arm64") {
+          setActiveBackendTab("mlx");
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLocalProviderChange = useCallback(
+    (_provider: LocalBackendId, model: string) => {
       onOllamaModelChange(model || null);
       // Re-fetch provider info to reflect the change
       providerFetched.current = false;
@@ -86,6 +106,10 @@ export function SettingsPanel({
     [onOllamaModelChange]
   );
 
+  const isLocalActive =
+    providerInfo?.active === "ollama" ||
+    providerInfo?.active === "mlx" ||
+    providerInfo?.active === "llama-cpp";
   const isOllamaActive = providerInfo?.active === "ollama";
 
   const closePanel = useCallback(() => setOpen(false), []);
@@ -179,20 +203,56 @@ export function SettingsPanel({
             ) : (
               <span className="text-xs text-t-tertiary">Detecting...</span>
             )}
-            {!isOllamaActive && (
+            {!isLocalActive && (
               <p className="mt-1.5 text-xs text-t-tertiary">Set via server environment variables</p>
             )}
           </div>
 
           <div className="mb-3 border-t border-border-default pt-3">
-            <h3 className="mb-3 text-sm font-semibold text-t-primary">Local Models (Ollama)</h3>
+            <h3 className="mb-3 text-sm font-semibold text-t-primary">Local Models</h3>
+          </div>
+
+          {/* Backend tabs */}
+          <div
+            className="flex items-center gap-1 mb-3 border border-border-default px-1.5 py-1"
+            style={{ borderRadius: "var(--radius-badge)" }}
+          >
+            {(
+              [
+                ...(platform?.os === "darwin" && platform?.arch === "arm64"
+                  ? [{ id: "mlx" as const, label: "MLX" }]
+                  : []),
+                { id: "llama-cpp" as const, label: "llama.cpp" },
+                { id: "ollama" as const, label: "Ollama" },
+              ] as { id: LocalBackendId; label: string }[]
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveBackendTab(tab.id)}
+                className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                  activeBackendTab === tab.id
+                    ? "bg-accent-subtle text-accent-text"
+                    : "text-t-secondary hover:text-t-primary"
+                }`}
+                style={{
+                  borderRadius: "var(--radius-badge)",
+                  transitionDuration: "var(--transition-speed)",
+                }}
+              >
+                {tab.label}
+                {providerInfo?.active === tab.id && (
+                  <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+                )}
+              </button>
+            ))}
           </div>
 
           <div className="mb-4">
-            <OllamaSection
-              onProviderChange={handleOllamaProviderChange}
-              isActive={isOllamaActive}
-              activeModel={ollamaModel}
+            <LocalBackendSection
+              backend={activeBackendTab}
+              onProviderChange={handleLocalProviderChange}
+              isActive={providerInfo?.active === activeBackendTab}
+              activeModel={providerInfo?.active === activeBackendTab ? ollamaModel : null}
             />
           </div>
 
@@ -200,16 +260,18 @@ export function SettingsPanel({
             <h3 className="mb-3 text-sm font-semibold text-t-primary">Model Settings</h3>
           </div>
 
-          {isOllamaActive ? (
+          {isLocalActive ? (
             <div>
               <label className="mb-1 block text-xs font-medium text-t-secondary">Model</label>
               <span
                 className="inline-flex items-center px-2.5 py-1.5 text-sm font-mono text-t-primary bg-surface-input border border-border-default"
                 style={{ borderRadius: "var(--radius-badge)" }}
               >
-                {ollamaModel ?? "—"}
+                {providerInfo?.model ?? ollamaModel ?? "—"}
               </span>
-              <p className="mt-1.5 text-xs text-t-tertiary">Managed via Ollama section above</p>
+              <p className="mt-1.5 text-xs text-t-tertiary">
+                Managed via Local Models section above
+              </p>
             </div>
           ) : providerInfo?.active === "openai-compatible" ? (
             <div>

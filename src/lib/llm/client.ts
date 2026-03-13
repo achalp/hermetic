@@ -357,6 +357,8 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
     "claude-haiku-4-5-20251001": "claude-haiku-4-5@20251001",
   },
   "openai-compatible": {},
+  mlx: {},
+  "llama-cpp": {},
   ollama: {},
 };
 
@@ -372,20 +374,29 @@ export function getActiveProvider(): LLMProviderId {
   const explicit = process.env.LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase() as LLMProviderId;
-    if (!["anthropic", "bedrock", "vertex", "openai-compatible", "ollama"].includes(normalized)) {
+    const validProviders = [
+      "anthropic",
+      "bedrock",
+      "vertex",
+      "openai-compatible",
+      "mlx",
+      "llama-cpp",
+      "ollama",
+    ];
+    if (!validProviders.includes(normalized)) {
       throw new Error(
-        `Invalid LLM_PROVIDER "${explicit}". Must be one of: anthropic, bedrock, vertex, openai-compatible, ollama`
+        `Invalid LLM_PROVIDER "${explicit}". Must be one of: ${validProviders.join(", ")}`
       );
     }
     return normalized;
   }
 
-  // Check runtime config for Ollama — user explicitly enabled in UI,
-  // so it takes priority over auto-detected env var credentials
+  // Check runtime config for local backends — user explicitly enabled in UI,
+  // so they take priority over auto-detected env var credentials
   const rc = getRuntimeConfig();
-  if (rc.ollama?.enabled && rc.ollama.activeModel) {
-    return "ollama";
-  }
+  if (rc.mlx?.enabled && rc.mlx.activeModel) return "mlx";
+  if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
+  if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
 
   // Auto-detect from credentials
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
@@ -399,7 +410,7 @@ export function getActiveProvider(): LLMProviderId {
       "  - AWS_ACCESS_KEY_ID (for Amazon Bedrock)\n" +
       "  - GOOGLE_VERTEX_PROJECT (for Google Vertex AI)\n" +
       "  - OPENAI_BASE_URL (for OpenAI-compatible endpoint)\n" +
-      "Or set LLM_PROVIDER explicitly, or enable Ollama in Settings."
+      "Or set LLM_PROVIDER explicitly, or enable a local backend in Settings."
   );
 }
 
@@ -421,6 +432,16 @@ function createProviderClient(provider: LLMProviderId) {
         baseURL: process.env.OPENAI_BASE_URL,
         apiKey: process.env.OPENAI_API_KEY ?? "",
       });
+    case "mlx": {
+      const rc = getRuntimeConfig();
+      const baseUrl = rc.mlx?.baseUrl || "http://localhost:8080";
+      return createOpenAI({ baseURL: `${baseUrl}/v1`, apiKey: "mlx-local" });
+    }
+    case "llama-cpp": {
+      const rc = getRuntimeConfig();
+      const baseUrl = rc.llamaCpp?.baseUrl || "http://localhost:8081";
+      return createOpenAI({ baseURL: `${baseUrl}/v1`, apiKey: "llama-cpp-local" });
+    }
     case "ollama": {
       const rc = getRuntimeConfig();
       const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
@@ -454,13 +475,23 @@ export function getModel(internalModelId: string) {
     return client(model);
   }
 
-  // Ollama uses the active model from runtime config
+  // Local backends use the active model from runtime config
+  if (provider === "mlx") {
+    const rc = getRuntimeConfig();
+    const model = rc.mlx?.activeModel;
+    if (!model) throw new Error("No MLX model selected. Choose a model in Settings.");
+    return client(model);
+  }
+  if (provider === "llama-cpp") {
+    const rc = getRuntimeConfig();
+    const model = rc.llamaCpp?.activeModel;
+    if (!model) throw new Error("No llama.cpp model selected. Choose a model in Settings.");
+    return client(model);
+  }
   if (provider === "ollama") {
     const rc = getRuntimeConfig();
     const model = rc.ollama?.activeModel;
-    if (!model) {
-      throw new Error("No Ollama model selected. Choose a model in Settings.");
-    }
+    if (!model) throw new Error("No Ollama model selected. Choose a model in Settings.");
     return client(model);
   }
 

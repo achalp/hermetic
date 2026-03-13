@@ -38,14 +38,26 @@ function detectProvider(): LLMProviderId | undefined {
   const explicit = process.env.LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase();
-    if (["anthropic", "bedrock", "vertex", "openai-compatible", "ollama"].includes(normalized)) {
+    if (
+      [
+        "anthropic",
+        "bedrock",
+        "vertex",
+        "openai-compatible",
+        "mlx",
+        "llama-cpp",
+        "ollama",
+      ].includes(normalized)
+    ) {
       return normalized as LLMProviderId;
     }
     return undefined; // invalid — will be caught below
   }
-  // Check runtime config for Ollama — user explicitly enabled in UI,
-  // so it takes priority over auto-detected env var credentials
+  // Check runtime config for local backends — user explicitly enabled in UI,
+  // so they take priority over auto-detected env var credentials
   const rc = getRuntimeConfig();
+  if (rc.mlx?.enabled && rc.mlx.activeModel) return "mlx";
+  if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
   if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
 
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
@@ -63,12 +75,12 @@ export function validateEnv(): EnvConfig {
   const explicitProvider = process.env.LLM_PROVIDER;
   if (
     explicitProvider &&
-    !["anthropic", "bedrock", "vertex", "openai-compatible", "ollama"].includes(
+    !["anthropic", "bedrock", "vertex", "openai-compatible", "mlx", "llama-cpp", "ollama"].includes(
       explicitProvider.toLowerCase()
     )
   ) {
     throw new EnvError(
-      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: anthropic, bedrock, vertex, openai-compatible, ollama`
+      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: anthropic, bedrock, vertex, openai-compatible, mlx, llama-cpp, ollama`
     );
   }
 

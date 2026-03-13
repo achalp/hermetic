@@ -232,7 +232,8 @@ else
   echo -e "    ${BOLD}1)${RESET} Anthropic ${DIM}— direct API key${RESET}"
   echo -e "    ${BOLD}2)${RESET} Amazon Bedrock ${DIM}— AWS credentials${RESET}"
   echo -e "    ${BOLD}3)${RESET} Google Vertex AI ${DIM}— GCP project${RESET}"
-  echo -e "    ${BOLD}4)${RESET} OpenAI-compatible ${DIM}— Ollama, LM Studio, vLLM, etc.${RESET}"
+  echo -e "    ${BOLD}4)${RESET} OpenAI-compatible ${DIM}— custom endpoint${RESET}"
+  echo -e "    ${BOLD}5)${RESET} Local models ${DIM}— MLX, llama.cpp, or Ollama (configure in Settings)${RESET}"
   echo ""
   echo -n "    Choose provider [1]: "
   read -r PROVIDER_CHOICE
@@ -301,6 +302,40 @@ else
       [ -n "$OAI_API_KEY" ] && echo "OPENAI_API_KEY=$OAI_API_KEY" >> .env.local
       echo "OPENAI_MODEL=$OAI_MODEL" >> .env.local
       ok "OpenAI-compatible credentials saved to .env.local"
+      ;;
+    5)
+      # Detect platform and suggest the best local backend
+      IS_APPLE_SILICON=false
+      if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+        IS_APPLE_SILICON=true
+      fi
+
+      echo ""
+      if $IS_APPLE_SILICON; then
+        echo -e "    ${GREEN}Apple Silicon detected${RESET} — MLX is recommended for best performance."
+        echo -e "    You can configure your local backend in ${BOLD}Settings → Local Models${RESET} after launch."
+      else
+        echo -e "    You can configure your local backend in ${BOLD}Settings → Local Models${RESET} after launch."
+        echo -e "    Recommended: ${BOLD}Ollama${RESET} or ${BOLD}llama.cpp${RESET}"
+      fi
+
+      # Check for dependencies
+      if $IS_APPLE_SILICON; then
+        if command -v python3 &>/dev/null && python3 -c "import mlx" 2>/dev/null; then
+          ok "MLX framework detected"
+        else
+          warn "MLX not installed — you can install it later from Settings"
+          echo -e "      ${DIM}pip install mlx-lm${RESET}"
+        fi
+      fi
+
+      if command -v ollama &>/dev/null; then
+        ok "Ollama detected"
+      fi
+
+      # No env vars needed — provider is configured in-app via runtime config
+      ok "Local models will be configured in Settings after launch"
+      HAS_LLM_CREDS=true  # skip credential failure
       ;;
     *)
       echo ""

@@ -7,8 +7,25 @@ export interface OllamaConfig {
   activeModel: string;
 }
 
+export interface MlxConfig {
+  enabled: boolean;
+  baseUrl: string;
+  activeModel: string;
+  pid?: number;
+}
+
+export interface LlamaCppConfig {
+  enabled: boolean;
+  baseUrl: string;
+  activeModel: string;
+  pid?: number;
+  binaryPath?: string;
+}
+
 export interface RuntimeConfig {
   ollama?: OllamaConfig;
+  mlx?: MlxConfig;
+  llamaCpp?: LlamaCppConfig;
 }
 
 const CONFIG_PATH = join(process.cwd(), "data", "runtime-config.json");
@@ -42,6 +59,13 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
 
   if (partial.ollama !== undefined) {
     merged.ollama = partial.ollama === null ? undefined : { ...current.ollama, ...partial.ollama };
+  }
+  if (partial.mlx !== undefined) {
+    merged.mlx = partial.mlx === null ? undefined : { ...current.mlx, ...partial.mlx };
+  }
+  if (partial.llamaCpp !== undefined) {
+    merged.llamaCpp =
+      partial.llamaCpp === null ? undefined : { ...current.llamaCpp, ...partial.llamaCpp };
   }
 
   // Atomic write: write to tmp then rename

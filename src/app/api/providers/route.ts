@@ -18,21 +18,22 @@ export function GET() {
   if (process.env.OPENAI_BASE_URL) configured.push("openai-compatible");
 
   const rc = getRuntimeConfig();
+  if (rc.mlx?.enabled) configured.push("mlx");
+  if (rc.llamaCpp?.enabled) configured.push("llama-cpp");
   if (rc.ollama?.enabled) configured.push("ollama");
 
   const activeInfo = AVAILABLE_PROVIDERS.find((p) => p.id === active);
+
+  let model: string | undefined;
+  if (active === "openai-compatible") model = process.env.OPENAI_MODEL ?? "unknown";
+  else if (active === "mlx") model = rc.mlx?.activeModel ?? "unknown";
+  else if (active === "llama-cpp") model = rc.llamaCpp?.activeModel ?? "unknown";
+  else if (active === "ollama") model = rc.ollama?.activeModel ?? "unknown";
 
   return Response.json({
     active,
     activeLabel: activeInfo?.label ?? active,
     configured,
-    // For openai-compatible, expose the model name so the UI can display it
-    ...(active === "openai-compatible" && {
-      model: process.env.OPENAI_MODEL ?? "unknown",
-    }),
-    // For Ollama, expose the active model name
-    ...(active === "ollama" && {
-      model: rc.ollama?.activeModel ?? "unknown",
-    }),
+    ...(model && { model }),
   });
 }
