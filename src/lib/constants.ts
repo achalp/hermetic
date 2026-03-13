@@ -43,10 +43,14 @@ export const AVAILABLE_PROVIDERS = [
   { id: "bedrock", label: "Amazon Bedrock" },
   { id: "vertex", label: "Google Vertex AI" },
   { id: "openai-compatible", label: "OpenAI-Compatible" },
+  { id: "mlx", label: "MLX (Apple Silicon)" },
+  { id: "llama-cpp", label: "llama.cpp (Local)" },
   { id: "ollama", label: "Ollama (Local)" },
 ] as const;
 
 export type LLMProviderId = (typeof AVAILABLE_PROVIDERS)[number]["id"];
+
+export type LocalBackendId = "mlx" | "llama-cpp" | "ollama";
 
 export const RECOMMENDED_OLLAMA_MODELS = [
   {
@@ -78,5 +82,53 @@ export const RECOMMENDED_OLLAMA_MODELS = [
     label: "Llama 3.3",
     description: "General purpose, good instruction following",
     tag: "general",
+  },
+] as const;
+
+export const RECOMMENDED_MLX_MODELS = [
+  {
+    id: "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
+    label: "Qwen 2.5 Coder 14B (4-bit)",
+    description: "Best balance of quality and speed on Apple Silicon",
+    tag: "recommended",
+  },
+  {
+    id: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+    label: "Qwen 2.5 Coder 7B (4-bit)",
+    description: "Lightweight, 8 GB unified memory",
+    tag: "lightweight",
+  },
+  {
+    id: "mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
+    label: "Qwen 2.5 Coder 32B (4-bit)",
+    description: "Highest quality, needs 24+ GB unified memory",
+    tag: "premium",
+  },
+  {
+    id: "mlx-community/Meta-Llama-3.3-70B-Instruct-4bit",
+    label: "Llama 3.3 70B (4-bit)",
+    description: "Best general-purpose, needs 48+ GB unified memory",
+    tag: "premium",
+  },
+] as const;
+
+export const RECOMMENDED_LLAMACPP_MODELS = [
+  {
+    id: "bartowski/Qwen2.5-Coder-14B-Instruct-GGUF",
+    label: "Qwen 2.5 Coder 14B (GGUF)",
+    description: "Best balance of quality and speed",
+    tag: "recommended",
+  },
+  {
+    id: "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF",
+    label: "Qwen 2.5 Coder 7B (GGUF)",
+    description: "Lightweight, 8 GB VRAM",
+    tag: "lightweight",
+  },
+  {
+    id: "bartowski/Qwen2.5-Coder-32B-Instruct-GGUF",
+    label: "Qwen 2.5 Coder 32B (GGUF)",
+    description: "Highest quality, needs 24+ GB VRAM",
+    tag: "premium",
   },
 ] as const;
