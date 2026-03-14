@@ -69,20 +69,7 @@ export function LocalBackendSection({
   const label = BACKEND_LABELS[backend];
   const isManaged = backend === "mlx" || backend === "llama-cpp";
 
-  const checkStatus = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/local-llm/status?backend=${backend}`);
-      const data = await res.json();
-      setStatus(data);
-      if (data.running) {
-        fetchModels();
-      }
-    } catch {
-      setStatus({ running: false });
-    }
-  }, [backend]);
-
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
       const res = await fetch(`/api/local-llm/models?backend=${backend}`);
       if (res.ok) {
@@ -92,7 +79,19 @@ export function LocalBackendSection({
     } catch {
       // ignore
     }
-  };
+  }, [backend]);
+
+  const checkStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/local-llm/status?backend=${backend}`);
+      const data = await res.json();
+      setStatus(data);
+      // Always fetch models (managed backends can list cached models even when off)
+      fetchModels();
+    } catch {
+      setStatus({ running: false });
+    }
+  }, [backend, fetchModels]);
 
   useEffect(() => {
     if (statusChecked.current) return;
@@ -304,35 +303,37 @@ export function LocalBackendSection({
 
         {error && <p className="mb-2 text-xs text-error-text">{error}</p>}
 
-        {/* For managed backends, show a start button with model selection */}
-        {isManaged && recommended.length > 0 && !pulling && (
+        {/* Downloaded models — show Start button for managed backends */}
+        {isManaged && models.length > 0 && !pulling && !starting && (
           <div className="mb-3">
             <label className="mb-1.5 block text-xs font-medium text-t-secondary">
-              Start with a model
+              Downloaded Models
             </label>
             <div className="space-y-1">
-              {recommended.map((r) => (
+              {models.map((m) => (
                 <div
-                  key={r.id}
+                  key={m.name}
                   className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
                   style={{ borderRadius: "var(--radius-badge)" }}
                 >
                   <div className="min-w-0">
                     <span className="text-xs font-medium text-t-primary truncate block">
-                      {r.label}
+                      {m.name}
                     </span>
-                    <span className="text-[11px] text-t-tertiary">{r.description}</span>
+                    {formatSize(m.size) && (
+                      <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
+                    )}
                   </div>
                   <button
-                    onClick={() => startServer(r.id)}
+                    onClick={() => startServer(m.name)}
                     disabled={starting}
-                    className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-accent text-accent hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
+                    className="shrink-0 px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
                     style={{
                       borderRadius: "var(--radius-badge)",
                       transitionDuration: "var(--transition-speed)",
                     }}
                   >
-                    {starting ? "Starting..." : "Start"}
+                    Start
                   </button>
                 </div>
               ))}
@@ -340,7 +341,7 @@ export function LocalBackendSection({
           </div>
         )}
 
-        {/* Pull progress */}
+        {/* Download progress */}
         {pulling && (
           <DownloadProgress pulling={pulling} progress={pullProgress} status={pullStatus} />
         )}
@@ -353,6 +354,86 @@ export function LocalBackendSection({
               <span className="text-xs font-medium text-t-secondary">Starting...</span>
             </div>
             <p className="text-[11px] text-t-tertiary truncate">{startingStatus}</p>
+          </div>
+        )}
+
+        {/* Recommended models to download — for managed backends */}
+        {isManaged && recommendedNotInstalled.length > 0 && !pulling && !starting && (
+          <div className="mb-3">
+            <label className="mb-1.5 block text-xs font-medium text-t-secondary">
+              Recommended Models
+            </label>
+            <div className="space-y-1">
+              {recommendedNotInstalled.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                  style={{ borderRadius: "var(--radius-badge)" }}
+                >
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-t-primary truncate block">
+                      {r.label || r.id}
+                    </span>
+                    <span className="text-[11px] text-t-tertiary">{r.description}</span>
+                  </div>
+                  <button
+                    onClick={() => downloadModel(r.id)}
+                    className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-accent text-accent hover:bg-accent hover:text-white transition-colors"
+                    style={{
+                      borderRadius: "var(--radius-badge)",
+                      transitionDuration: "var(--transition-speed)",
+                    }}
+                  >
+                    Download
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Custom model download for managed backends */}
+        {isManaged && !pulling && !starting && (
+          <div className="mb-3">
+            <label className="mb-1 block text-xs font-medium text-t-secondary">
+              Download Custom Model
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={customModel}
+                onChange={(e) => setCustomModel(e.target.value)}
+                placeholder={
+                  backend === "mlx"
+                    ? "e.g. mlx-community/Qwen2.5-Coder-14B-Instruct-4bit"
+                    : "e.g. bartowski/Qwen2.5-Coder-14B-Instruct-GGUF"
+                }
+                className="flex-1 border border-border-default bg-surface-input px-2 py-1.5 text-xs text-t-primary placeholder:text-t-tertiary"
+                style={{ borderRadius: "var(--radius-badge)" }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && customModel.trim()) {
+                    downloadModel(customModel.trim());
+                    setCustomModel("");
+                  }
+                }}
+              />
+              <button
+                onClick={() => {
+                  if (customModel.trim()) {
+                    downloadModel(customModel.trim());
+                    setCustomModel("");
+                  }
+                }}
+                disabled={!customModel.trim()}
+                className="shrink-0 px-2.5 py-1.5 text-xs font-medium border border-border-default text-t-secondary hover:text-t-primary hover:bg-surface-btn disabled:opacity-40 transition-colors"
+                style={{
+                  borderRadius: "var(--radius-badge)",
+                  transitionDuration: "var(--transition-speed)",
+                }}
+              >
+                Download
+              </button>
+            </div>
           </div>
         )}
 
