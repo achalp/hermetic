@@ -180,7 +180,11 @@ export async function startServer(
   serverLogs.set(backend, logs);
 
   const appendLog = (stream: string, data: Buffer) => {
-    const lines = data.toString().split("\n").filter(Boolean);
+    // Split on both \n and \r to capture HuggingFace download progress bars
+    const lines = data
+      .toString()
+      .split(/[\r\n]+/)
+      .filter(Boolean);
     for (const line of lines) {
       logs.push(`[${stream}] ${line}`);
       if (logs.length > MAX_LOG_LINES) logs.shift();
