@@ -146,7 +146,10 @@ export function LocalBackendSection({
       const res = await fetch("/api/local-llm/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, model: modelName || "default" }),
+        body: JSON.stringify({
+          backend,
+          model: modelName || (backend === "ollama" ? "default" : recommended[0]?.id || "default"),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start server");
@@ -170,7 +173,14 @@ export function LocalBackendSection({
         }
 
         if (statusData.status === "stopped") {
-          throw new Error("Server process exited unexpectedly. Check logs in Settings.");
+          const logTail = statusData.logs?.length
+            ? "\n" +
+              statusData.logs
+                .slice(-5)
+                .map((l: string) => l.replace(/^\[(stdout|stderr)\]\s*/, ""))
+                .join("\n")
+            : "";
+          throw new Error(`Server process exited unexpectedly.${logTail}`);
         }
 
         // Still starting — update status with log tail if available
@@ -301,13 +311,17 @@ export function LocalBackendSection({
           </div>
         )}
 
-        {error && <p className="mb-2 text-xs text-error-text">{error}</p>}
+        {error && (
+          <pre className="mb-2 text-xs text-error-text whitespace-pre-wrap break-words">
+            {error}
+          </pre>
+        )}
 
         {/* Start Server button — always visible for all backends when not running */}
         {!starting && !pulling && (
           <div className="mb-3">
             <button
-              onClick={() => startServer(models[0]?.name ?? "")}
+              onClick={() => startServer(models[0]?.name ?? recommended[0]?.id ?? "")}
               disabled={starting}
               className="px-3 py-1.5 text-xs font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
               style={{
@@ -491,7 +505,9 @@ export function LocalBackendSection({
         )}
       </div>
 
-      {error && <p className="mb-2 text-xs text-error-text">{error}</p>}
+      {error && (
+        <pre className="mb-2 text-xs text-error-text whitespace-pre-wrap break-words">{error}</pre>
+      )}
 
       {/* Active model controls */}
       {isActive && activeModel && (
