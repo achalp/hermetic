@@ -138,9 +138,12 @@ export function LocalBackendSection({
     }
   };
 
+  const [startingStatus, setStartingStatus] = useState<string | null>(null);
+
   const startServer = async (modelName: string) => {
     setError(null);
     setStarting(true);
+    setStartingStatus("Launching server...");
     try {
       const res = await fetch("/api/local-llm/start", {
         method: "POST",
@@ -149,10 +152,40 @@ export function LocalBackendSection({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start server");
-      await checkStatus();
-      await activateModel(modelName);
+
+      // Poll status until ready (model loading can take minutes)
+      setStartingStatus("Loading model...");
+      const maxWaitMs = 5 * 60_000; // 5 minutes
+      const start = Date.now();
+      while (Date.now() - start < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const statusRes = await fetch(`/api/local-llm/status?backend=${backend}`);
+        const statusData = await statusRes.json();
+
+        if (statusData.status === "ready") {
+          await checkStatus();
+          await activateModel(modelName);
+          setStartingStatus(null);
+          return;
+        }
+
+        if (statusData.status === "stopped") {
+          throw new Error("Server process exited unexpectedly. Check logs in Settings.");
+        }
+
+        // Still starting — update status with log tail if available
+        if (statusData.logs?.length) {
+          const lastLog = statusData.logs[statusData.logs.length - 1];
+          // Extract just the meaningful part (strip [stderr] prefix)
+          const clean = lastLog.replace(/^\[(stdout|stderr)\]\s*/, "").slice(0, 80);
+          setStartingStatus(`Loading model... ${clean}`);
+        }
+      }
+
+      throw new Error("Server did not become ready within 5 minutes");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start server");
+      setStartingStatus(null);
     } finally {
       setStarting(false);
     }
@@ -310,6 +343,17 @@ export function LocalBackendSection({
         {/* Pull progress */}
         {pulling && (
           <DownloadProgress pulling={pulling} progress={pullProgress} status={pullStatus} />
+        )}
+
+        {/* Starting status */}
+        {starting && startingStatus && (
+          <div className="mb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
+              <span className="text-xs font-medium text-t-secondary">Starting...</span>
+            </div>
+            <p className="text-[11px] text-t-tertiary truncate">{startingStatus}</p>
+          </div>
         )}
 
         <div className="flex items-center gap-2">
