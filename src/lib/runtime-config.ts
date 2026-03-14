@@ -5,6 +5,7 @@ export interface OllamaConfig {
   enabled: boolean;
   baseUrl: string;
   activeModel: string;
+  pid?: number;
 }
 
 export interface MlxConfig {
