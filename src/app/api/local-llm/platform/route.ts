@@ -28,7 +28,7 @@ export async function GET() {
     arch,
     isAppleSilicon,
     hasPython: checkCommand("python3"),
-    hasMlxLm: isAppleSilicon ? checkPythonModule("mlx_lm") : false,
+    hasMlxLm: isAppleSilicon ? checkPythonModule("mlx_lm") || checkCommand("mlx_lm.server") : false,
     hasLlamaServer:
       checkCommand("llama-server") || checkCommand(`${process.cwd()}/data/bin/llama-server`),
     hasOllama: checkCommand("ollama"),
