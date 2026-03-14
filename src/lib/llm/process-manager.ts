@@ -7,6 +7,8 @@ import { spawn, execSync, type ChildProcess } from "child_process";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 
 const processes = new Map<string, ChildProcess>();
+const serverLogs = new Map<string, string[]>();
+const MAX_LOG_LINES = 200;
 
 const DEFAULT_PORTS: Record<string, number> = {
   mlx: 8080,
@@ -23,10 +25,15 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-/** Poll a URL until it responds OK or timeout */
-async function waitForReady(url: string, timeoutMs = 60_000): Promise<boolean> {
+/** Poll a URL until it responds OK, timeout, or shouldAbort returns true */
+async function waitForReady(
+  url: string,
+  timeoutMs = 60_000,
+  shouldAbort?: () => boolean
+): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    if (shouldAbort?.()) return false;
     try {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 2000);
@@ -103,9 +110,17 @@ export async function startServer(
   let proc: ChildProcess;
 
   if (backend === "mlx") {
-    proc = spawn(
-      "python3",
-      [
+    // Prefer the standalone mlx_lm.server command (works with Homebrew installs),
+    // fall back to python3 -m mlx_lm.server (works with pip installs)
+    let mlxCmd: string;
+    let mlxArgs: string[];
+    try {
+      execSync("which mlx_lm.server", { stdio: "ignore" });
+      mlxCmd = "mlx_lm.server";
+      mlxArgs = ["--model", options.model, "--port", String(port), "--host", "0.0.0.0"];
+    } catch {
+      mlxCmd = "python3";
+      mlxArgs = [
         "-m",
         "mlx_lm.server",
         "--model",
@@ -114,9 +129,13 @@ export async function startServer(
         String(port),
         "--host",
         "0.0.0.0",
-      ],
-      { detached: true, stdio: ["ignore", "pipe", "pipe"] }
-    );
+      ];
+    }
+
+    proc = spawn(mlxCmd, mlxArgs, {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   } else {
     const binary = options.binaryPath || "llama-server";
     const modelPath = options.modelPath || options.model;
@@ -133,6 +152,29 @@ export async function startServer(
 
   const pid = proc.pid!;
   processes.set(backend, proc);
+
+  // Capture stdout/stderr into a ring buffer for diagnostics
+  const logs: string[] = [];
+  serverLogs.set(backend, logs);
+
+  const appendLog = (stream: string, data: Buffer) => {
+    const lines = data.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      logs.push(`[${stream}] ${line}`);
+      if (logs.length > MAX_LOG_LINES) logs.shift();
+    }
+  };
+
+  proc.stdout?.on("data", (data: Buffer) => appendLog("stdout", data));
+  proc.stderr?.on("data", (data: Buffer) => appendLog("stderr", data));
+
+  // Track early exit
+  const earlyExit: { value: { code: number | null; signal: string | null } | null } = {
+    value: null,
+  };
+  proc.on("exit", (code, signal) => {
+    earlyExit.value = { code, signal };
+  });
 
   // Save PID and config
   if (backend === "mlx") {
@@ -156,11 +198,19 @@ export async function startServer(
     });
   }
 
-  // Wait for the server to become ready
-  const ready = await waitForReady(`${baseUrl}/v1/models`, 90_000);
+  // Wait for the server to become ready, but bail if process exits early
+  const ready = await waitForReady(`${baseUrl}/v1/models`, 90_000, () => earlyExit.value !== null);
   if (!ready) {
+    const recentLogs = logs.slice(-20).join("\n");
     await stopServer(backend);
-    throw new Error(`${backend} server failed to start within 90 seconds`);
+    if (earlyExit.value) {
+      throw new Error(
+        `${backend} server process exited (code=${earlyExit.value.code}, signal=${earlyExit.value.signal}) before becoming ready.\n\nServer output:\n${recentLogs || "(no output captured)"}`
+      );
+    }
+    throw new Error(
+      `${backend} server failed to start within 90 seconds.\n\nServer output:\n${recentLogs || "(no output captured)"}`
+    );
   }
 
   return { pid, baseUrl };
@@ -210,10 +260,9 @@ export async function stopServer(backend: string): Promise<void> {
   }
 }
 
-/** Get logs from a running server (last N lines of captured stderr) */
+/** Get logs from a running server (last N lines of captured output) */
 export function getServerLogs(backend: string): string[] {
-  // Future: capture stderr to a ring buffer during startServer
-  return [];
+  return serverLogs.get(backend) ?? [];
 }
 
 // Cleanup on process exit

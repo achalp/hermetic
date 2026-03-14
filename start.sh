@@ -77,22 +77,42 @@ setup_local_backend() {
       fi
 
       echo ""
+      local HAS_BREW=false
+      command -v brew &>/dev/null && HAS_BREW=true
+
       # Check Python
       if ! command -v python3 &>/dev/null; then
         warn "Python 3 is required for MLX."
-        echo -e "      Install it with: ${BOLD}brew install python${RESET}"
-        return 1
+        if $HAS_BREW; then
+          echo -e "    ${DIM}Installing Python via Homebrew...${RESET}"
+          if brew install python 2>&1 | tail -3; then
+            ok "Python 3 installed"
+          else
+            echo ""
+            echo -e "      ${BOLD}brew install python${RESET}"
+            echo -e "      ${DIM}— or download from:${RESET} ${BLUE}https://www.python.org/downloads/${RESET}"
+            return 1
+          fi
+        else
+          echo -e "      Install with: ${BOLD}brew install python${RESET}"
+          echo -e "      ${DIM}— or download from:${RESET} ${BLUE}https://www.python.org/downloads/${RESET}"
+          return 1
+        fi
       fi
       ok "Python 3 found: $(python3 --version 2>&1)"
 
-      # Check mlx-lm
-      if python3 -c "import mlx_lm" 2>/dev/null; then
+      # Check mlx-lm (Homebrew installs into its own venv, so also check for the CLI)
+      if python3 -c "import mlx_lm" 2>/dev/null || command -v mlx_lm.server &>/dev/null || command -v mlx_lm &>/dev/null; then
         ok "mlx-lm already installed"
       else
         echo ""
         echo -e "    ${BOLD}mlx-lm${RESET} (the MLX inference library) is not installed."
         echo ""
-        echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— runs: pip install mlx-lm${RESET}"
+        if $HAS_BREW; then
+          echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— runs: brew install mlx-lm${RESET}"
+        else
+          echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— runs: pip install mlx-lm${RESET}"
+        fi
         echo -e "    ${BOLD}2)${RESET} I'll install it myself in another terminal"
         echo ""
         echo -n "    Choose [1]: "
@@ -101,8 +121,10 @@ setup_local_backend() {
         case "$MLX_INSTALL_CHOICE" in
           2)
             echo ""
-            echo -e "    Run this in another terminal:"
+            echo -e "    Run one of these in another terminal:"
             echo ""
+            echo -e "      ${BOLD}brew install mlx-lm${RESET}"
+            echo -e "      ${DIM}— or:${RESET}"
             echo -e "      ${BOLD}pip install mlx-lm${RESET}"
             echo ""
             warn "Install mlx-lm, then configure in Settings → Local Models → MLX"
@@ -110,20 +132,42 @@ setup_local_backend() {
             ;;
           *)
             echo ""
-            echo -e "    Installing mlx-lm..."
-            if pip install mlx-lm 2>&1 | tail -3; then
-              echo ""
-              ok "mlx-lm installed successfully"
+            if $HAS_BREW; then
+              echo -e "    Installing mlx-lm via Homebrew..."
+              if brew install mlx-lm 2>&1 | tail -5; then
+                echo ""
+                ok "mlx-lm installed successfully"
+              else
+                warn "brew install failed. Falling back to pip..."
+                if pip install mlx-lm 2>&1 | tail -3; then
+                  echo ""
+                  ok "mlx-lm installed successfully"
+                else
+                  pip3 install mlx-lm 2>&1 | tail -3 || true
+                  if python3 -c "import mlx_lm" 2>/dev/null || command -v mlx_lm.server &>/dev/null; then
+                    ok "mlx-lm installed successfully"
+                  else
+                    warn "Failed to install mlx-lm. Try manually: brew install mlx-lm"
+                    return 1
+                  fi
+                fi
+              fi
             else
-              echo ""
-              warn "pip install failed. Trying pip3..."
-              if pip3 install mlx-lm 2>&1 | tail -3; then
+              echo -e "    Installing mlx-lm via pip..."
+              if pip install mlx-lm 2>&1 | tail -3; then
                 echo ""
                 ok "mlx-lm installed successfully"
               else
                 echo ""
-                warn "Failed to install mlx-lm. Try manually: pip install mlx-lm"
-                return 1
+                warn "pip install failed. Trying pip3..."
+                if pip3 install mlx-lm 2>&1 | tail -3; then
+                  echo ""
+                  ok "mlx-lm installed successfully"
+                else
+                  echo ""
+                  warn "Failed to install mlx-lm. Try: brew install mlx-lm or pip install mlx-lm"
+                  return 1
+                fi
               fi
             fi
             ;;
@@ -135,7 +179,11 @@ setup_local_backend() {
         ok "huggingface-hub available (for model downloads)"
       else
         echo -e "    ${DIM}Installing huggingface-hub for model downloads...${RESET}"
-        pip install huggingface-hub 2>/dev/null || pip3 install huggingface-hub 2>/dev/null || true
+        if $HAS_BREW; then
+          brew install huggingface-cli 2>/dev/null || pip install huggingface-hub 2>/dev/null || pip3 install huggingface-hub 2>/dev/null || true
+        else
+          pip install huggingface-hub 2>/dev/null || pip3 install huggingface-hub 2>/dev/null || true
+        fi
       fi
 
       ok "MLX backend ready — choose a model in Settings → Local Models → MLX after launch"
@@ -665,7 +713,34 @@ step "Local inference backend"
 
 echo ""
 echo -e "    ${DIM}Local models let you run queries without cloud API keys.${RESET}"
-echo -n "    Set up a local inference backend? [y/N]: "
+
+# Detect already-installed backends
+LOCAL_INSTALLED=""
+if python3 -c "import mlx_lm" 2>/dev/null || command -v mlx_lm.server &>/dev/null || command -v mlx_lm &>/dev/null; then
+  ok "MLX (mlx-lm) is installed"
+  LOCAL_INSTALLED="${LOCAL_INSTALLED}mlx "
+fi
+LLAMA_SERVER_FOUND=""
+if command -v llama-server &>/dev/null; then
+  LLAMA_SERVER_FOUND="$(command -v llama-server)"
+elif [ -x "$(pwd)/data/bin/llama-server" ]; then
+  LLAMA_SERVER_FOUND="$(pwd)/data/bin/llama-server"
+fi
+if [ -n "$LLAMA_SERVER_FOUND" ]; then
+  ok "llama.cpp (llama-server) is installed: $LLAMA_SERVER_FOUND"
+  LOCAL_INSTALLED="${LOCAL_INSTALLED}llama "
+fi
+if command -v ollama &>/dev/null; then
+  ok "Ollama is installed"
+  LOCAL_INSTALLED="${LOCAL_INSTALLED}ollama "
+fi
+
+if [ -n "$LOCAL_INSTALLED" ]; then
+  echo ""
+  echo -n "    Set up or reinstall a local inference backend? [y/N]: "
+else
+  echo -n "    Set up a local inference backend? [y/N]: "
+fi
 read -r SETUP_LOCAL
 
 case "$SETUP_LOCAL" in
@@ -673,7 +748,11 @@ case "$SETUP_LOCAL" in
     setup_local_backend
     ;;
   *)
-    ok "Skipped — you can set up local models any time in Settings → Local Models"
+    if [ -n "$LOCAL_INSTALLED" ]; then
+      ok "Keeping current setup — configure models in Settings → Local Models"
+    else
+      ok "Skipped — you can set up local models any time in Settings → Local Models"
+    fi
     ;;
 esac
 
