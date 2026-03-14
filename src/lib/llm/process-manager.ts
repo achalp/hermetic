@@ -13,6 +13,7 @@ const MAX_LOG_LINES = 200;
 const DEFAULT_PORTS: Record<string, number> = {
   mlx: 8080,
   "llama-cpp": 8081,
+  ollama: 11434,
 };
 
 /** Check if a process with the given PID is still alive */
@@ -52,10 +53,17 @@ async function waitForReady(
 export async function healthCheck(backend: string): Promise<boolean> {
   const rc = getRuntimeConfig();
   let baseUrl: string;
-  if (backend === "mlx") {
+  let healthUrl: string;
+
+  if (backend === "ollama") {
+    baseUrl = rc.ollama?.baseUrl || `http://localhost:${DEFAULT_PORTS.ollama}`;
+    healthUrl = `${baseUrl}/api/version`;
+  } else if (backend === "mlx") {
     baseUrl = rc.mlx?.baseUrl || `http://localhost:${DEFAULT_PORTS.mlx}`;
+    healthUrl = `${baseUrl}/v1/models`;
   } else if (backend === "llama-cpp") {
     baseUrl = rc.llamaCpp?.baseUrl || `http://localhost:${DEFAULT_PORTS["llama-cpp"]}`;
+    healthUrl = `${baseUrl}/v1/models`;
   } else {
     return false;
   }
@@ -63,7 +71,7 @@ export async function healthCheck(backend: string): Promise<boolean> {
   try {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(`${baseUrl}/v1/models`, { signal: controller.signal });
+    const res = await fetch(healthUrl, { signal: controller.signal });
     clearTimeout(t);
     return res.ok;
   } catch {
@@ -79,7 +87,14 @@ export function isRunning(backend: string): boolean {
 
   // Check saved PID from runtime config
   const rc = getRuntimeConfig();
-  const pid = backend === "mlx" ? rc.mlx?.pid : rc.llamaCpp?.pid;
+  const pid =
+    backend === "mlx"
+      ? rc.mlx?.pid
+      : backend === "llama-cpp"
+        ? rc.llamaCpp?.pid
+        : backend === "ollama"
+          ? rc.ollama?.pid
+          : undefined;
   if (pid && isPidAlive(pid)) return true;
 
   return false;
@@ -96,9 +111,9 @@ export interface StartOptions {
   contextLength?: number;
 }
 
-/** Start an MLX or llama.cpp server subprocess */
+/** Start a local LLM server subprocess */
 export async function startServer(
-  backend: "mlx" | "llama-cpp",
+  backend: "mlx" | "llama-cpp" | "ollama",
   options: StartOptions
 ): Promise<{ pid: number; baseUrl: string }> {
   const port = options.port ?? DEFAULT_PORTS[backend];
@@ -109,7 +124,14 @@ export async function startServer(
 
   let proc: ChildProcess;
 
-  if (backend === "mlx") {
+  if (backend === "ollama") {
+    // Spawn `ollama serve`
+    proc = spawn("ollama", ["serve"], {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, OLLAMA_HOST: `0.0.0.0:${port}` },
+    });
+  } else if (backend === "mlx") {
     // Prefer the standalone mlx_lm.server command (works with Homebrew installs),
     // fall back to python3 -m mlx_lm.server (works with pip installs)
     let mlxCmd: string;
@@ -177,7 +199,16 @@ export async function startServer(
   });
 
   // Save PID and config
-  if (backend === "mlx") {
+  if (backend === "ollama") {
+    setRuntimeConfig({
+      ollama: {
+        enabled: true,
+        baseUrl,
+        activeModel: options.model,
+        pid,
+      },
+    });
+  } else if (backend === "mlx") {
     setRuntimeConfig({
       mlx: {
         enabled: true,
@@ -225,7 +256,14 @@ export async function stopServer(backend: string): Promise<void> {
 
   // Also kill by saved PID
   const rc = getRuntimeConfig();
-  const pid = backend === "mlx" ? rc.mlx?.pid : rc.llamaCpp?.pid;
+  const pid =
+    backend === "mlx"
+      ? rc.mlx?.pid
+      : backend === "llama-cpp"
+        ? rc.llamaCpp?.pid
+        : backend === "ollama"
+          ? rc.ollama?.pid
+          : undefined;
   if (pid && isPidAlive(pid)) {
     try {
       process.kill(pid, "SIGTERM");
@@ -240,7 +278,11 @@ export async function stopServer(backend: string): Promise<void> {
   }
 
   // Clear PID from config
-  if (backend === "mlx") {
+  if (backend === "ollama") {
+    setRuntimeConfig({
+      ollama: { enabled: false, baseUrl: "", activeModel: "", pid: undefined },
+    });
+  } else if (backend === "mlx") {
     setRuntimeConfig({ mlx: { enabled: false, baseUrl: "", activeModel: "", pid: undefined } });
   } else if (backend === "llama-cpp") {
     setRuntimeConfig({

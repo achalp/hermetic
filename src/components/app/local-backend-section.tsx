@@ -67,7 +67,6 @@ export function LocalBackendSection({
   const statusChecked = useRef(false);
 
   const label = BACKEND_LABELS[backend];
-  const isManaged = backend === "mlx" || backend === "llama-cpp";
 
   const fetchModels = useCallback(async () => {
     try {
@@ -147,13 +146,13 @@ export function LocalBackendSection({
       const res = await fetch("/api/local-llm/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, model: modelName }),
+        body: JSON.stringify({ backend, model: modelName || "default" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start server");
 
-      // Poll status until ready (model loading can take minutes)
-      setStartingStatus("Loading model...");
+      // Poll status until ready (model loading can take minutes for MLX/llama.cpp)
+      setStartingStatus("Waiting for server...");
       const maxWaitMs = 5 * 60_000; // 5 minutes
       const start = Date.now();
       while (Date.now() - start < maxWaitMs) {
@@ -163,7 +162,9 @@ export function LocalBackendSection({
 
         if (statusData.status === "ready") {
           await checkStatus();
-          await activateModel(modelName);
+          if (modelName) {
+            await activateModel(modelName);
+          }
           setStartingStatus(null);
           return;
         }
@@ -175,9 +176,8 @@ export function LocalBackendSection({
         // Still starting — update status with log tail if available
         if (statusData.logs?.length) {
           const lastLog = statusData.logs[statusData.logs.length - 1];
-          // Extract just the meaningful part (strip [stderr] prefix)
           const clean = lastLog.replace(/^\[(stdout|stderr)\]\s*/, "").slice(0, 80);
-          setStartingStatus(`Loading model... ${clean}`);
+          setStartingStatus(`Starting... ${clean}`);
         }
       }
 
@@ -303,8 +303,25 @@ export function LocalBackendSection({
 
         {error && <p className="mb-2 text-xs text-error-text">{error}</p>}
 
-        {/* Downloaded models — show Start button for managed backends */}
-        {isManaged && models.length > 0 && !pulling && !starting && (
+        {/* Ollama: simple Start Server button (Ollama loads models on demand) */}
+        {backend === "ollama" && !starting && (
+          <div className="mb-3">
+            <button
+              onClick={() => startServer("")}
+              disabled={starting}
+              className="px-3 py-1.5 text-xs font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
+              style={{
+                borderRadius: "var(--radius-badge)",
+                transitionDuration: "var(--transition-speed)",
+              }}
+            >
+              Start Ollama
+            </button>
+          </div>
+        )}
+
+        {/* Downloaded models — show Start button (MLX / llama.cpp) */}
+        {backend !== "ollama" && models.length > 0 && !pulling && !starting && (
           <div className="mb-3">
             <label className="mb-1.5 block text-xs font-medium text-t-secondary">
               Downloaded Models
@@ -357,8 +374,8 @@ export function LocalBackendSection({
           </div>
         )}
 
-        {/* Recommended models to download — for managed backends */}
-        {isManaged && recommendedNotInstalled.length > 0 && !pulling && !starting && (
+        {/* Recommended models to download — skip Ollama (requires running server to pull) */}
+        {backend !== "ollama" && recommendedNotInstalled.length > 0 && !pulling && !starting && (
           <div className="mb-3">
             <label className="mb-1.5 block text-xs font-medium text-t-secondary">
               Recommended Models
@@ -392,8 +409,8 @@ export function LocalBackendSection({
           </div>
         )}
 
-        {/* Custom model download for managed backends */}
-        {isManaged && !pulling && !starting && (
+        {/* Custom model download — skip Ollama when not running */}
+        {backend !== "ollama" && !pulling && !starting && (
           <div className="mb-3">
             <label className="mb-1 block text-xs font-medium text-t-secondary">
               Download Custom Model
@@ -499,16 +516,16 @@ export function LocalBackendSection({
               <span className="flex-1 text-xs text-t-secondary font-mono">{activeModel}</span>
             )}
             <button
-              onClick={isManaged ? stopServer : deactivate}
+              onClick={stopServer}
               disabled={stopping}
               className="px-2 py-1.5 text-xs border border-border-default text-t-secondary hover:text-error-text hover:border-error-text transition-colors"
               style={{
                 borderRadius: "var(--radius-badge)",
                 transitionDuration: "var(--transition-speed)",
               }}
-              title={isManaged ? "Stop server" : "Deactivate"}
+              title="Stop server"
             >
-              {stopping ? "..." : isManaged ? "Stop" : "Off"}
+              {stopping ? "..." : "Stop"}
             </button>
           </div>
         </div>
@@ -518,7 +535,7 @@ export function LocalBackendSection({
       {models.length > 0 && !(isActive && activeModel) && (
         <div className="mb-3">
           <label className="mb-1.5 block text-xs font-medium text-t-secondary">
-            {isManaged ? "Available Models" : "Installed Models"}
+            Available Models
           </label>
           <div className="space-y-1">
             {models.map((m) => (
@@ -536,7 +553,7 @@ export function LocalBackendSection({
                   )}
                 </div>
                 <button
-                  onClick={() => (isManaged ? startServer(m.name) : activateModel(m.name))}
+                  onClick={() => activateModel(m.name)}
                   disabled={starting}
                   className="shrink-0 px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
                   style={{
@@ -544,7 +561,7 @@ export function LocalBackendSection({
                     transitionDuration: "var(--transition-speed)",
                   }}
                 >
-                  {starting ? "Starting..." : isManaged ? "Start" : "Activate"}
+                  {starting ? "Starting..." : "Activate"}
                 </button>
               </div>
             ))}

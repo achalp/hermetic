@@ -8,8 +8,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "backend and model are required" }, { status: 400 });
   }
 
-  if (backend !== "mlx" && backend !== "llama-cpp") {
-    return Response.json({ error: "backend must be mlx or llama-cpp" }, { status: 400 });
+  if (backend !== "mlx" && backend !== "llama-cpp" && backend !== "ollama") {
+    return Response.json({ error: "backend must be mlx, llama-cpp, or ollama" }, { status: 400 });
   }
 
   try {
