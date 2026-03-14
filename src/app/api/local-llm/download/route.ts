@@ -1,4 +1,73 @@
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
+
+/**
+ * Find a working Python that can download from HuggingFace.
+ * Returns the python command and whether it has the full CLI module
+ * or only the snapshot_download API.
+ */
+function findHfPython(): { python: string; hasCli: boolean } {
+  // 1. Standalone huggingface-cli on PATH — use system python (irrelevant, but marks hasCli)
+  try {
+    execSync("which huggingface-cli", { stdio: "ignore" });
+    return { python: "huggingface-cli", hasCli: true };
+  } catch {
+    /* not found */
+  }
+
+  // 2. Check various pythons for the full CLI module, then snapshot_download
+  const pythons = [
+    "python3",
+    "/opt/homebrew/opt/mlx-lm/libexec/bin/python3",
+    "/opt/homebrew/opt/huggingface-cli/libexec/bin/python3",
+  ];
+
+  for (const py of pythons) {
+    try {
+      execSync(`${py} -c "import huggingface_hub.commands"`, { stdio: "ignore" });
+      return { python: py, hasCli: true };
+    } catch {
+      /* not found */
+    }
+  }
+
+  for (const py of pythons) {
+    try {
+      execSync(`${py} -c "from huggingface_hub import snapshot_download"`, { stdio: "ignore" });
+      return { python: py, hasCli: false };
+    } catch {
+      /* not found */
+    }
+  }
+
+  return { python: "python3", hasCli: false };
+}
+
+/** Spawn a download process for a HuggingFace model */
+function spawnHfDownload(model: string): ReturnType<typeof spawn> {
+  const { python, hasCli } = findHfPython();
+
+  if (hasCli) {
+    if (python === "huggingface-cli") {
+      return spawn("huggingface-cli", ["download", model], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    }
+    return spawn(python, ["-m", "huggingface_hub.commands.huggingface_cli", "download", model], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
+
+  // Fallback: inline snapshot_download script
+  const script = `
+import sys
+from huggingface_hub import snapshot_download
+path = snapshot_download(sys.argv[1])
+print(path)
+`;
+  return spawn(python, ["-c", script, model], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -37,13 +106,7 @@ export async function POST(request: Request) {
 
         emit({ status: `Downloading ${model}...`, progress: 0 });
 
-        const proc = spawn(
-          "python3",
-          ["-m", "huggingface_hub.commands.huggingface_cli", "download", model],
-          {
-            stdio: ["ignore", "pipe", "pipe"],
-          }
-        );
+        const proc = spawnHfDownload(model);
 
         let lastLine = "";
         proc.stderr?.on("data", (chunk: Buffer) => {
@@ -96,23 +159,38 @@ export async function POST(request: Request) {
 
         emit({ status: `Downloading ${model}...`, progress: 0 });
 
-        // Use huggingface-cli for GGUF download too
-        const proc = spawn(
-          "python3",
-          [
-            "-m",
-            "huggingface_hub.commands.huggingface_cli",
-            "download",
-            ...model.split("/").slice(0, 2),
-            "--include",
-            "*.gguf",
-            "--local-dir",
-            `${process.cwd()}/data/models/gguf`,
-          ],
-          {
+        const { python, hasCli } = findHfPython();
+        const repoId = model.split("/").slice(0, 2).join("/");
+        const localDir = `${process.cwd()}/data/models/gguf`;
+
+        let proc: ReturnType<typeof spawn>;
+        if (hasCli) {
+          const cmd = python === "huggingface-cli" ? "huggingface-cli" : python;
+          const args =
+            python === "huggingface-cli"
+              ? ["download", repoId, "--include", "*.gguf", "--local-dir", localDir]
+              : [
+                  "-m",
+                  "huggingface_hub.commands.huggingface_cli",
+                  "download",
+                  repoId,
+                  "--include",
+                  "*.gguf",
+                  "--local-dir",
+                  localDir,
+                ];
+          proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+        } else {
+          const script = `
+import sys
+from huggingface_hub import snapshot_download
+path = snapshot_download(sys.argv[1], allow_patterns=["*.gguf"], local_dir=sys.argv[2])
+print(path)
+`;
+          proc = spawn(python, ["-c", script, repoId, localDir], {
             stdio: ["ignore", "pipe", "pipe"],
-          }
-        );
+          });
+        }
 
         proc.stderr?.on("data", (chunk: Buffer) => {
           const text = chunk.toString().trim();

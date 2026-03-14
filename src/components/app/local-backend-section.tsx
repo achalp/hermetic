@@ -564,6 +564,17 @@ export function LocalBackendSection({
             {activeModel}
           </span>
         )}
+        <button
+          onClick={stopServer}
+          disabled={stopping}
+          className="ml-auto px-2 py-0.5 text-[11px] font-medium border border-border-default text-t-secondary hover:text-error-text hover:border-error-text transition-colors"
+          style={{
+            borderRadius: "var(--radius-badge)",
+            transitionDuration: "var(--transition-speed)",
+          }}
+        >
+          {stopping ? "..." : "Stop"}
+        </button>
       </div>
 
       {error && (
