@@ -60,10 +60,21 @@ export async function getOrCreateSandbox(): Promise<PythonSandbox> {
       );
     }
 
-    await sandbox.run(
-      `import subprocess, sys; subprocess.run([sys.executable, "/tmp/get-pip.py", "--force-reinstall", "-q"], capture_output=True, timeout=120)`,
+    // Try get-pip.py first, checking the return code
+    const getPipExec = await sandbox.run(
+      `import subprocess, sys\n` +
+        `r = subprocess.run([sys.executable, "/tmp/get-pip.py", "--force-reinstall", "-q"], capture_output=True, text=True, timeout=120)\n` +
+        `if r.returncode != 0:\n` +
+        `    # Fallback: try ensurepip\n` +
+        `    r2 = subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"], capture_output=True, text=True, timeout=60)\n` +
+        `    assert r2.returncode == 0, f"Both get-pip.py (exit {r.returncode}: {r.stderr[:200]}) and ensurepip (exit {r2.returncode}: {r2.stderr[:200]}) failed"`,
       { timeout: 150 }
     );
+    if (getPipExec.hasError()) {
+      const err = await getPipExec.error().catch(() => "unknown error");
+      logger.debug(`pip bootstrap warning: ${String(err).slice(0, 200)}`);
+      // Still try to install packages — pip might work from a previous run
+    }
 
     const pipExec = await sandbox.run(
       `import subprocess, sys\n` +

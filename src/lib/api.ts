@@ -179,16 +179,29 @@ export async function getArtifacts(csvId: string): Promise<CachedArtifacts> {
   return json<CachedArtifacts>(res);
 }
 
-// ── Ollama ─────────────────────────────────────────────────────
+// ── Local Backend Config ──────────────────────────────────────
 
-export interface OllamaConfig {
+export interface LocalBackendConfig {
   ollama?: {
+    enabled: boolean;
+    activeModel?: string;
+  };
+  mlx?: {
+    enabled: boolean;
+    activeModel?: string;
+  };
+  llamaCpp?: {
     enabled: boolean;
     activeModel?: string;
   };
 }
 
-export async function getOllamaConfig(signal?: AbortSignal): Promise<OllamaConfig> {
-  const res = await fetch("/api/ollama/config", { signal });
-  return json<OllamaConfig>(res);
+export async function getLocalBackendConfig(signal?: AbortSignal): Promise<LocalBackendConfig> {
+  const res = await fetch("/api/local-llm/config", { signal });
+  return json<LocalBackendConfig>(res);
+}
+
+/** @deprecated Use getLocalBackendConfig instead */
+export async function getOllamaConfig(signal?: AbortSignal): Promise<LocalBackendConfig> {
+  return getLocalBackendConfig(signal);
 }

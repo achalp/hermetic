@@ -13,7 +13,7 @@ import { SettingsPanel } from "@/components/app/settings-panel";
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
-import { getOllamaConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
+import { getLocalBackendConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -76,11 +76,18 @@ export default function Home() {
 
   useEffect(() => {
     const controller = new AbortController();
-    getOllamaConfig(controller.signal)
+    getLocalBackendConfig(controller.signal)
       .then((data) => {
-        if (data.ollama?.enabled && data.ollama?.activeModel) {
-          setOllamaModel(data.ollama.activeModel);
-        }
+        // Check all local backends for an active model
+        const active =
+          data.mlx?.enabled && data.mlx?.activeModel
+            ? data.mlx.activeModel
+            : data.llamaCpp?.enabled && data.llamaCpp?.activeModel
+              ? data.llamaCpp.activeModel
+              : data.ollama?.enabled && data.ollama?.activeModel
+                ? data.ollama.activeModel
+                : null;
+        if (active) setOllamaModel(active);
       })
       .catch(() => {});
     return () => controller.abort();
