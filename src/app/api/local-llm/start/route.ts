@@ -20,7 +20,9 @@ export async function POST(request: Request) {
       binaryPath,
       contextLength,
     });
-    return Response.json({ success: true, ...result });
+    // Server is spawned but may still be loading the model.
+    // Client should poll /api/local-llm/status?backend=... until healthy.
+    return Response.json({ success: true, status: "starting", ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to start server";
     return Response.json({ error: message }, { status: 500 });

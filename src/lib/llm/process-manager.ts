@@ -198,20 +198,9 @@ export async function startServer(
     });
   }
 
-  // Wait for the server to become ready, but bail if process exits early
-  const ready = await waitForReady(`${baseUrl}/v1/models`, 90_000, () => earlyExit.value !== null);
-  if (!ready) {
-    const recentLogs = logs.slice(-20).join("\n");
-    await stopServer(backend);
-    if (earlyExit.value) {
-      throw new Error(
-        `${backend} server process exited (code=${earlyExit.value.code}, signal=${earlyExit.value.signal}) before becoming ready.\n\nServer output:\n${recentLogs || "(no output captured)"}`
-      );
-    }
-    throw new Error(
-      `${backend} server failed to start within 90 seconds.\n\nServer output:\n${recentLogs || "(no output captured)"}`
-    );
-  }
+  // Don't block — return immediately. The client should poll /api/local-llm/status
+  // to know when the server is ready. Model loading can take minutes for large models.
+  // If the process exits early, the next status check will detect it.
 
   return { pid, baseUrl };
 }
