@@ -265,8 +265,9 @@ export function LocalBackendSection({
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let finished = false;
 
-      while (true) {
+      while (!finished) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -283,12 +284,19 @@ export function LocalBackendSection({
             if (msg.total && msg.completed) {
               setPullProgress(Math.round((msg.completed / msg.total) * 100));
             }
-          } catch {
-            // skip malformed lines
+            if (msg.done || msg.error) {
+              finished = true;
+              if (msg.error) throw new Error(msg.status || "Download failed");
+              break;
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message !== "Download failed") continue;
+            throw e;
           }
         }
       }
 
+      reader.cancel();
       await fetchModels();
     } catch {
       setError(`Failed to download ${modelName}`);
