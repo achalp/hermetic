@@ -3,8 +3,21 @@ import { clearEnvConfigCache } from "@/lib/config";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const backend = searchParams.get("backend") ?? "mlx";
+  const backend = searchParams.get("backend");
   const rc = getRuntimeConfig();
+
+  // No backend param: return all backend configs (used by page.tsx on init)
+  if (!backend) {
+    return Response.json({
+      ollama: rc.ollama ?? { enabled: false, baseUrl: "http://localhost:11434", activeModel: "" },
+      mlx: rc.mlx ?? { enabled: false, baseUrl: "http://localhost:8080", activeModel: "" },
+      llamaCpp: rc.llamaCpp ?? {
+        enabled: false,
+        baseUrl: "http://localhost:8081",
+        activeModel: "",
+      },
+    });
+  }
 
   if (backend === "ollama") {
     return Response.json({
