@@ -3,26 +3,60 @@ import { readdirSync, statSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 
+/** Find a Python that has huggingface_hub */
+function findHfPython(): string | null {
+  for (const py of [
+    "python3",
+    "/opt/homebrew/opt/mlx-lm/libexec/bin/python3",
+    "/opt/homebrew/opt/huggingface-cli/libexec/bin/python3",
+  ]) {
+    try {
+      execSync(`${py} -c "import huggingface_hub"`, { stdio: "ignore" });
+      return py;
+    } catch {
+      /* not found */
+    }
+  }
+  return null;
+}
+
 /** Scan HuggingFace cache for downloaded MLX models */
 function listCachedMlxModels(): { name: string; size: number; modified_at: string }[] {
   try {
-    // huggingface-cli scan-cache outputs a table of cached repos
-    const output = execSync(
-      "huggingface-cli scan-cache --json 2>/dev/null || python3 -m huggingface_hub.commands.huggingface_cli scan-cache --json 2>/dev/null",
-      {
+    // Try standalone CLI first
+    let output: string | null = null;
+    try {
+      output = execSync("huggingface-cli scan-cache --json 2>/dev/null", {
         encoding: "utf-8",
         timeout: 10000,
         stdio: ["ignore", "pipe", "ignore"],
-      }
-    );
+      });
+    } catch {
+      /* not found */
+    }
+
+    // Fall back to Python script using scan_cache_dir API
+    if (!output) {
+      const py = findHfPython();
+      if (!py) return [];
+      const script = `
+import json
+from huggingface_hub import scan_cache_dir
+info = scan_cache_dir()
+repos = [{"repo_id": r.repo_id, "repo_type": r.repo_type, "size_on_disk": r.size_on_disk, "last_accessed": r.last_accessed} for r in info.repos]
+print(json.dumps({"repos": repos}))
+`;
+      output = execSync(`${py} -c '${script}'`, {
+        encoding: "utf-8",
+        timeout: 10000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    }
+
     const data = JSON.parse(output);
     const repos = data.repos ?? [];
-    // Filter for MLX models (typically have "mlx" in the repo name)
     return repos
-      .filter(
-        (r: { repo_id: string; repo_type: string }) =>
-          r.repo_type === "model" && r.repo_id.toLowerCase().includes("mlx")
-      )
+      .filter((r: { repo_id: string; repo_type: string }) => r.repo_type === "model")
       .map((r: { repo_id: string; size_on_disk: number; last_accessed: number }) => ({
         name: r.repo_id,
         size: r.size_on_disk ?? 0,
