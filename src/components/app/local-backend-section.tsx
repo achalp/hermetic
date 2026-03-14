@@ -112,6 +112,12 @@ export function LocalBackendSection({
   const activateModel = async (modelName: string) => {
     setError(null);
     try {
+      // For MLX/llama.cpp, switching models requires restarting the server
+      // since the model is loaded at startup. Ollama loads models on demand.
+      if (backend !== "ollama" && status?.running) {
+        await startServer(modelName);
+        return;
+      }
       const res = await fetch("/api/local-llm/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
