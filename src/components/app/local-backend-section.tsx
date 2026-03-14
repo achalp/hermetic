@@ -627,91 +627,59 @@ export function LocalBackendSection({
         <pre className="mb-2 text-xs text-error-text whitespace-pre-wrap break-words">{error}</pre>
       )}
 
-      {/* Active model controls */}
-      {isActive && activeModel && (
-        <div className="mb-3">
-          <label className="mb-1 block text-xs font-medium text-t-secondary">Active Model</label>
-          <div className="flex items-center gap-2">
-            {models.length > 0 ? (
-              <select
-                value={activeModel}
-                onChange={(e) => activateModel(e.target.value)}
-                className="flex-1 border border-border-default bg-surface-input px-2 py-1.5 text-sm text-t-primary"
-                style={{ borderRadius: "var(--radius-badge)" }}
-              >
-                {models.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name}
-                    {formatSize(m.size) ? ` (${formatSize(m.size)})` : ""}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="flex-1 text-xs text-t-secondary font-mono">{activeModel}</span>
-            )}
-            <button
-              onClick={stopServer}
-              disabled={stopping}
-              className="px-2 py-1.5 text-xs border border-border-default text-t-secondary hover:text-error-text hover:border-error-text transition-colors"
-              style={{
-                borderRadius: "var(--radius-badge)",
-                transitionDuration: "var(--transition-speed)",
-              }}
-              title="Stop server"
-            >
-              {stopping ? "..." : "Stop"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Installed models (when not active) */}
-      {models.length > 0 && !(isActive && activeModel) && (
+      {/* Downloaded models list — always visible */}
+      {models.length > 0 && (
         <div className="mb-3">
           <label className="mb-1.5 block text-xs font-medium text-t-secondary">
-            Available Models
+            Downloaded Models
           </label>
           <div className="space-y-1">
-            {models.map((m) => (
-              <div
-                key={m.name}
-                className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
-                style={{ borderRadius: "var(--radius-badge)" }}
-              >
-                <div className="min-w-0">
-                  <span className="text-xs font-medium text-t-primary truncate block">
-                    {m.name}
-                  </span>
-                  {formatSize(m.size) && (
-                    <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
-                  )}
+            {models.map((m) => {
+              const isCurrentActive = isActive && activeModel === m.name;
+              return (
+                <div
+                  key={m.name}
+                  className={`flex items-center justify-between gap-2 px-2 py-1.5 border ${isCurrentActive ? "border-accent bg-accent-subtle/30" : "border-border-default"}`}
+                  style={{ borderRadius: "var(--radius-badge)" }}
+                >
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-t-primary truncate block">
+                      {m.name}
+                      {isCurrentActive && <span className="text-accent-text ml-1">(active)</span>}
+                    </span>
+                    {formatSize(m.size) && (
+                      <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {!isCurrentActive && (
+                      <button
+                        onClick={() => activateModel(m.name)}
+                        disabled={starting}
+                        className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
+                        style={{
+                          borderRadius: "var(--radius-badge)",
+                          transitionDuration: "var(--transition-speed)",
+                        }}
+                      >
+                        Activate
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteModel(m.name)}
+                      className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-badge)",
+                        transitionDuration: "var(--transition-speed)",
+                      }}
+                      title="Delete model"
+                    >
+                      &times;
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => activateModel(m.name)}
-                    disabled={starting}
-                    className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
-                    style={{
-                      borderRadius: "var(--radius-badge)",
-                      transitionDuration: "var(--transition-speed)",
-                    }}
-                  >
-                    {starting ? "Starting..." : "Activate"}
-                  </button>
-                  <button
-                    onClick={() => deleteModel(m.name)}
-                    className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
-                    style={{
-                      borderRadius: "var(--radius-badge)",
-                      transitionDuration: "var(--transition-speed)",
-                    }}
-                    title="Delete model"
-                  >
-                    &times;
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
