@@ -100,8 +100,15 @@ export async function POST(request: Request) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       start(controller) {
+        let closed = false;
         const emit = (data: Record<string, unknown>) => {
+          if (closed) return;
           controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+        };
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          close();
         };
 
         emit({ status: `Downloading ${model}...`, progress: 0 });
@@ -132,12 +139,12 @@ export async function POST(request: Request) {
           } else {
             emit({ status: `Download failed (exit code ${code})`, error: true });
           }
-          controller.close();
+          close();
         });
 
         proc.on("error", (err) => {
           emit({ status: `Failed to start download: ${err.message}`, error: true });
-          controller.close();
+          close();
         });
       },
     });
@@ -153,8 +160,15 @@ export async function POST(request: Request) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       start(controller) {
+        let closed = false;
         const emit = (data: Record<string, unknown>) => {
+          if (closed) return;
           controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+        };
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          close();
         };
 
         emit({ status: `Downloading ${model}...`, progress: 0 });
@@ -213,12 +227,12 @@ print(path)
           } else {
             emit({ status: `Download failed (exit code ${code})`, error: true });
           }
-          controller.close();
+          close();
         });
 
         proc.on("error", (err) => {
           emit({ status: `Failed to start download: ${err.message}`, error: true });
-          controller.close();
+          close();
         });
       },
     });
