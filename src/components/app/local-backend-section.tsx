@@ -299,6 +299,31 @@ export function LocalBackendSection({
     }
   };
 
+  const deleteModel = async (modelName: string) => {
+    if (
+      !confirm(
+        `Delete ${modelName}? This will free disk space but the model will need to be re-downloaded to use again.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    try {
+      const res = await fetch("/api/local-llm/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backend, model: modelName }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to delete model");
+      }
+      await fetchModels();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete model");
+    }
+  };
+
   const recommended = RECOMMENDED_MODELS[backend] ?? [];
   const installedNames = new Set(models.map((m) => m.name));
   const recommendedNotInstalled = recommended.filter((r) => !installedNames.has(r.id));
@@ -382,17 +407,30 @@ export function LocalBackendSection({
                       <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
                     )}
                   </div>
-                  <button
-                    onClick={() => startServer(m.name)}
-                    disabled={starting}
-                    className="shrink-0 px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
-                    style={{
-                      borderRadius: "var(--radius-badge)",
-                      transitionDuration: "var(--transition-speed)",
-                    }}
-                  >
-                    Start
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => startServer(m.name)}
+                      disabled={starting}
+                      className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-badge)",
+                        transitionDuration: "var(--transition-speed)",
+                      }}
+                    >
+                      Start
+                    </button>
+                    <button
+                      onClick={() => deleteModel(m.name)}
+                      className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-badge)",
+                        transitionDuration: "var(--transition-speed)",
+                      }}
+                      title="Delete model"
+                    >
+                      &times;
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -640,17 +678,30 @@ export function LocalBackendSection({
                     <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
                   )}
                 </div>
-                <button
-                  onClick={() => activateModel(m.name)}
-                  disabled={starting}
-                  className="shrink-0 px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
-                  style={{
-                    borderRadius: "var(--radius-badge)",
-                    transitionDuration: "var(--transition-speed)",
-                  }}
-                >
-                  {starting ? "Starting..." : "Activate"}
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => activateModel(m.name)}
+                    disabled={starting}
+                    className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
+                    style={{
+                      borderRadius: "var(--radius-badge)",
+                      transitionDuration: "var(--transition-speed)",
+                    }}
+                  >
+                    {starting ? "Starting..." : "Activate"}
+                  </button>
+                  <button
+                    onClick={() => deleteModel(m.name)}
+                    className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
+                    style={{
+                      borderRadius: "var(--radius-badge)",
+                      transitionDuration: "var(--transition-speed)",
+                    }}
+                    title="Delete model"
+                  >
+                    &times;
+                  </button>
+                </div>
               </div>
             ))}
           </div>
