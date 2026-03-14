@@ -64,6 +64,8 @@ export function LocalBackendSection({
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [startProgress, setStartProgress] = useState<number | null>(null);
+  const [startLogs, setStartLogs] = useState<string[]>([]);
   const statusChecked = useRef(false);
 
   const label = BACKEND_LABELS[backend];
@@ -142,6 +144,8 @@ export function LocalBackendSection({
     setError(null);
     setStarting(true);
     setStartingStatus("Launching server...");
+    setStartProgress(null);
+    setStartLogs([]);
     try {
       const res = await fetch("/api/local-llm/start", {
         method: "POST",
@@ -183,11 +187,34 @@ export function LocalBackendSection({
           throw new Error(`Server process exited unexpectedly.${logTail}`);
         }
 
-        // Still starting — update status with log tail if available
+        // Still starting — parse logs for download progress and status
         if (statusData.logs?.length) {
-          const lastLog = statusData.logs[statusData.logs.length - 1];
-          const clean = lastLog.replace(/^\[(stdout|stderr)\]\s*/, "").slice(0, 80);
-          setStartingStatus(`Starting... ${clean}`);
+          const cleaned: string[] = statusData.logs
+            .slice(-10)
+            .map((l: string) => l.replace(/^\[(stdout|stderr)\]\s*/, ""));
+          setStartLogs(cleaned);
+
+          // Look for percentage patterns in logs (HuggingFace downloads, etc.)
+          // Patterns: "45%|", "Downloading: 45%", "XX/YY bytes", percentage in progress bars
+          let pct: number | null = null;
+          for (let i = cleaned.length - 1; i >= 0; i--) {
+            const line = cleaned[i];
+            // Match "XX%" pattern (e.g., "45%|████" or "Downloading: 72%")
+            const pctMatch = line.match(/(\d{1,3})%/);
+            if (pctMatch) {
+              pct = parseInt(pctMatch[1], 10);
+              break;
+            }
+          }
+          setStartProgress(pct);
+
+          // Use last meaningful line as status text
+          const lastLine = cleaned[cleaned.length - 1]?.slice(0, 120) ?? "";
+          if (pct !== null) {
+            setStartingStatus(`Downloading model... ${pct}%`);
+          } else if (lastLine) {
+            setStartingStatus(`Starting... ${lastLine.slice(0, 80)}`);
+          }
         }
       }
 
@@ -377,14 +404,48 @@ export function LocalBackendSection({
           <DownloadProgress pulling={pulling} progress={pullProgress} status={pullStatus} />
         )}
 
-        {/* Starting status */}
+        {/* Starting status with download progress */}
         {starting && startingStatus && (
           <div className="mb-3">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
-              <span className="text-xs font-medium text-t-secondary">Starting...</span>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
+                <span className="text-xs font-medium text-t-secondary">
+                  {startProgress !== null
+                    ? `Downloading model... ${startProgress}%`
+                    : "Starting..."}
+                </span>
+              </div>
+              {startProgress !== null && (
+                <span className="text-xs text-t-tertiary">{startProgress}%</span>
+              )}
             </div>
-            <p className="text-[11px] text-t-tertiary truncate">{startingStatus}</p>
+            {startProgress !== null && (
+              <div
+                className="h-1.5 w-full bg-surface-input overflow-hidden mb-2"
+                style={{ borderRadius: "var(--radius-badge)" }}
+              >
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{
+                    width: `${startProgress}%`,
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                />
+              </div>
+            )}
+            {startLogs.length > 0 && (
+              <div
+                className="p-2 bg-surface-input text-[11px] text-t-tertiary font-mono max-h-24 overflow-y-auto"
+                style={{ borderRadius: "var(--radius-badge)" }}
+              >
+                {startLogs.slice(-5).map((line, i) => (
+                  <div key={i} className="truncate">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
