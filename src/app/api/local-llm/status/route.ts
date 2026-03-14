@@ -53,7 +53,8 @@ export async function GET(request: Request) {
     status = "stopped";
   }
 
-  const logs = processAlive && !healthy ? getServerLogs(backend).slice(-5) : [];
+  // Always return logs if available (especially useful when process just died)
+  const logs = getServerLogs(backend).slice(-10);
 
   return Response.json({
     running: healthy,
