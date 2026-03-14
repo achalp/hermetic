@@ -337,6 +337,236 @@ function ollamaFetch(baseUrl: string) {
 }
 
 /**
+ * Custom fetch for local OpenAI-compatible servers (MLX, llama.cpp):
+ * intercepts SDK requests to /responses and redirects them to
+ * /v1/chat/completions (which these servers support), translating the
+ * response back to the Responses API format the SDK expects.
+ */
+function localOpenAIFetch(baseUrl: string) {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+
+    if (!url.includes("/responses") || !init?.body) {
+      return globalThis.fetch(input, init);
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(init.body as string);
+    } catch {
+      return globalThis.fetch(input, init);
+    }
+
+    const isStreaming = body.stream === true;
+
+    // Convert Responses API input to Chat Completions messages
+    const rawMessages = (body.input ?? []) as Array<Record<string, unknown>>;
+    const messages = rawMessages.map((m) => ({
+      role: m.role as string,
+      content: extractContent(m.content),
+    }));
+
+    // Add system instructions if present
+    if (body.instructions) {
+      messages.unshift({ role: "system", content: body.instructions as string });
+    }
+
+    const ccBody: Record<string, unknown> = {
+      model: body.model,
+      messages,
+      stream: isStreaming,
+    };
+    if (body.temperature != null) ccBody.temperature = body.temperature;
+    if (body.max_output_tokens != null) ccBody.max_tokens = body.max_output_tokens;
+
+    const ccRes = await globalThis.fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ccBody),
+    });
+
+    if (!ccRes.ok || !ccRes.body) return ccRes;
+
+    // --- Non-streaming: translate Chat Completion → Responses API ---
+    if (!isStreaming) {
+      const data = await ccRes.json();
+      const choice = data.choices?.[0];
+      const ts = Math.floor(Date.now() / 1000);
+      return new Response(
+        JSON.stringify({
+          id: `resp_${ts}`,
+          object: "response",
+          created_at: ts,
+          completed_at: ts,
+          status: "completed",
+          model: body.model,
+          output: [
+            {
+              id: `msg_${ts}`,
+              type: "message",
+              status: "completed",
+              role: "assistant",
+              content: [
+                { type: "output_text", text: choice?.message?.content ?? "", annotations: [] },
+              ],
+            },
+          ],
+          usage: {
+            input_tokens: data.usage?.prompt_tokens ?? 0,
+            output_tokens: data.usage?.completion_tokens ?? 0,
+            total_tokens: data.usage?.total_tokens ?? 0,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- Streaming: OpenAI SSE → Responses API SSE ---
+    const reader = ccRes.body.getReader();
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    const ts = Math.floor(Date.now() / 1000);
+    const respId = `resp_${ts}`;
+    const msgId = `msg_${ts}`;
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        let seq = 0;
+        const emit = (event: string, data: unknown) => {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        };
+
+        const baseResponse = {
+          id: respId,
+          object: "response",
+          status: "in_progress",
+          model: body.model,
+          output: [],
+        };
+
+        emit("response.created", {
+          type: "response.created",
+          sequence_number: seq++,
+          response: baseResponse,
+        });
+        emit("response.in_progress", {
+          type: "response.in_progress",
+          sequence_number: seq++,
+          response: baseResponse,
+        });
+        emit("response.output_item.added", {
+          type: "response.output_item.added",
+          sequence_number: seq++,
+          output_index: 0,
+          item: {
+            id: msgId,
+            type: "message",
+            status: "in_progress",
+            role: "assistant",
+            content: [],
+          },
+        });
+        emit("response.content_part.added", {
+          type: "response.content_part.added",
+          sequence_number: seq++,
+          output_index: 0,
+          content_index: 0,
+          item_id: msgId,
+          part: { type: "output_text", text: "", annotations: [], logprobs: [] },
+        });
+
+        let buffer = "";
+        let fullText = "";
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed === "data: [DONE]") continue;
+              const jsonStr = trimmed.startsWith("data: ") ? trimmed.slice(6) : trimmed;
+              try {
+                const chunk = JSON.parse(jsonStr);
+                const content = chunk.choices?.[0]?.delta?.content ?? "";
+                if (content) {
+                  fullText += content;
+                  emit("response.output_text.delta", {
+                    type: "response.output_text.delta",
+                    sequence_number: seq++,
+                    output_index: 0,
+                    content_index: 0,
+                    item_id: msgId,
+                    delta: content,
+                    logprobs: [],
+                  });
+                }
+              } catch {
+                /* skip */
+              }
+            }
+          }
+        } catch {
+          /* stream ended */
+        }
+
+        const doneItem = {
+          id: msgId,
+          type: "message",
+          status: "completed",
+          role: "assistant",
+          content: [{ type: "output_text", text: fullText, annotations: [], logprobs: [] }],
+        };
+
+        emit("response.output_text.done", {
+          type: "response.output_text.done",
+          sequence_number: seq++,
+          output_index: 0,
+          content_index: 0,
+          item_id: msgId,
+          text: fullText,
+        });
+        emit("response.content_part.done", {
+          type: "response.content_part.done",
+          sequence_number: seq++,
+          output_index: 0,
+          content_index: 0,
+          item_id: msgId,
+          part: { type: "output_text", text: fullText, annotations: [], logprobs: [] },
+        });
+        emit("response.output_item.done", {
+          type: "response.output_item.done",
+          sequence_number: seq++,
+          output_index: 0,
+          item: doneItem,
+        });
+        emit("response.completed", {
+          type: "response.completed",
+          sequence_number: seq++,
+          response: {
+            ...baseResponse,
+            status: "completed",
+            output: [doneItem],
+          },
+        });
+
+        controller.close();
+      },
+    });
+
+    return new Response(readable, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+    });
+  };
+}
+
+/**
  * Model ID mapping per provider.
  * Internal IDs (used throughout the app) → provider-specific IDs.
  */
@@ -435,12 +665,20 @@ function createProviderClient(provider: LLMProviderId) {
     case "mlx": {
       const rc = getRuntimeConfig();
       const baseUrl = rc.mlx?.baseUrl || "http://localhost:8080";
-      return createOpenAI({ baseURL: `${baseUrl}/v1`, apiKey: "mlx-local" });
+      return createOpenAI({
+        baseURL: `${baseUrl}/v1`,
+        apiKey: "mlx-local",
+        fetch: localOpenAIFetch(baseUrl),
+      });
     }
     case "llama-cpp": {
       const rc = getRuntimeConfig();
       const baseUrl = rc.llamaCpp?.baseUrl || "http://localhost:8081";
-      return createOpenAI({ baseURL: `${baseUrl}/v1`, apiKey: "llama-cpp-local" });
+      return createOpenAI({
+        baseURL: `${baseUrl}/v1`,
+        apiKey: "llama-cpp-local",
+        fetch: localOpenAIFetch(baseUrl),
+      });
     }
     case "ollama": {
       const rc = getRuntimeConfig();
