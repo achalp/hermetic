@@ -304,38 +304,340 @@ else
       ok "OpenAI-compatible credentials saved to .env.local"
       ;;
     5)
-      # Detect platform and suggest the best local backend
+      # Detect platform
       IS_APPLE_SILICON=false
-      if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
-        IS_APPLE_SILICON=true
+      IS_MAC=false
+      IS_LINUX=false
+      if [ "$(uname -s)" = "Darwin" ]; then
+        IS_MAC=true
+        [ "$(uname -m)" = "arm64" ] && IS_APPLE_SILICON=true
+      elif [ "$(uname -s)" = "Linux" ]; then
+        IS_LINUX=true
       fi
 
       echo ""
+      echo -e "    Choose a local inference backend:"
+      echo ""
       if $IS_APPLE_SILICON; then
-        echo -e "    ${GREEN}Apple Silicon detected${RESET} — MLX is recommended for best performance."
-        echo -e "    You can configure your local backend in ${BOLD}Settings → Local Models${RESET} after launch."
+        echo -e "    ${BOLD}a)${RESET} MLX ${DIM}— fastest on Apple Silicon (recommended)${RESET}"
+      fi
+      echo -e "    ${BOLD}b)${RESET} llama.cpp ${DIM}— cross-platform, GGUF models${RESET}"
+      echo -e "    ${BOLD}c)${RESET} Ollama ${DIM}— easiest setup, manages models for you${RESET}"
+      echo ""
+      if $IS_APPLE_SILICON; then
+        echo -n "    Choose backend [a]: "
       else
-        echo -e "    You can configure your local backend in ${BOLD}Settings → Local Models${RESET} after launch."
-        echo -e "    Recommended: ${BOLD}Ollama${RESET} or ${BOLD}llama.cpp${RESET}"
+        echo -n "    Choose backend [c]: "
+      fi
+      read -r LOCAL_CHOICE
+
+      # Default: MLX on Apple Silicon, Ollama otherwise
+      if [ -z "$LOCAL_CHOICE" ]; then
+        if $IS_APPLE_SILICON; then LOCAL_CHOICE="a"; else LOCAL_CHOICE="c"; fi
       fi
 
-      # Check for dependencies
-      if $IS_APPLE_SILICON; then
-        if command -v python3 &>/dev/null && python3 -c "import mlx" 2>/dev/null; then
-          ok "MLX framework detected"
-        else
-          warn "MLX not installed — you can install it later from Settings"
-          echo -e "      ${DIM}pip install mlx-lm${RESET}"
-        fi
-      fi
+      case "$LOCAL_CHOICE" in
+        a|A)
+          if ! $IS_APPLE_SILICON; then
+            fail "MLX requires Apple Silicon (M1/M2/M3/M4). Use llama.cpp or Ollama instead."
+          fi
 
-      if command -v ollama &>/dev/null; then
-        ok "Ollama detected"
-      fi
+          echo ""
+          # Check Python
+          if ! command -v python3 &>/dev/null; then
+            fail "Python 3 is required for MLX.
+
+    Install it with:
+      brew install python
+
+    Then re-run this script."
+          fi
+          ok "Python 3 found: $(python3 --version 2>&1)"
+
+          # Check mlx-lm
+          if python3 -c "import mlx_lm" 2>/dev/null; then
+            ok "mlx-lm already installed"
+          else
+            echo ""
+            echo -e "    ${BOLD}mlx-lm${RESET} (the MLX inference library) is not installed."
+            echo ""
+            echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— runs: pip install mlx-lm${RESET}"
+            echo -e "    ${BOLD}2)${RESET} I'll install it myself in another terminal"
+            echo ""
+            echo -n "    Choose [1]: "
+            read -r MLX_INSTALL_CHOICE
+
+            case "$MLX_INSTALL_CHOICE" in
+              2)
+                echo ""
+                echo -e "    Run this in another terminal, then re-run start.sh:"
+                echo ""
+                echo -e "      ${BOLD}pip install mlx-lm${RESET}"
+                echo ""
+                fail "Re-run this script after installing mlx-lm."
+                ;;
+              *)
+                echo ""
+                echo -e "    Installing mlx-lm..."
+                if pip install mlx-lm 2>&1 | tail -3; then
+                  echo ""
+                  ok "mlx-lm installed successfully"
+                else
+                  echo ""
+                  warn "pip install failed. Trying pip3..."
+                  if pip3 install mlx-lm 2>&1 | tail -3; then
+                    echo ""
+                    ok "mlx-lm installed successfully"
+                  else
+                    echo ""
+                    fail "Failed to install mlx-lm.
+
+    Try manually:
+      pip install mlx-lm
+
+    Then re-run this script."
+                  fi
+                fi
+                ;;
+            esac
+          fi
+
+          # Check huggingface-cli for model downloads
+          if python3 -c "import huggingface_hub" 2>/dev/null; then
+            ok "huggingface-hub available (for model downloads)"
+          else
+            echo -e "    ${DIM}Installing huggingface-hub for model downloads...${RESET}"
+            pip install huggingface-hub 2>/dev/null || pip3 install huggingface-hub 2>/dev/null || true
+          fi
+
+          ok "MLX backend ready — choose a model in Settings → Local Models → MLX after launch"
+          ;;
+
+        b|B)
+          echo ""
+          # Check if llama-server is available
+          LLAMA_SERVER_PATH=""
+          if command -v llama-server &>/dev/null; then
+            LLAMA_SERVER_PATH="$(command -v llama-server)"
+          elif [ -x "$(pwd)/data/bin/llama-server" ]; then
+            LLAMA_SERVER_PATH="$(pwd)/data/bin/llama-server"
+          fi
+
+          if [ -n "$LLAMA_SERVER_PATH" ]; then
+            ok "llama-server found: $LLAMA_SERVER_PATH"
+          else
+            echo -e "    ${BOLD}llama-server${RESET} (the llama.cpp HTTP server) is not installed."
+            echo ""
+
+            if $IS_MAC; then
+              echo -e "    ${BOLD}1)${RESET} Install now via Homebrew ${DIM}— runs: brew install llama.cpp${RESET}"
+              echo -e "    ${BOLD}2)${RESET} I'll install it myself in another terminal"
+              echo ""
+              echo -n "    Choose [1]: "
+              read -r LLAMA_INSTALL_CHOICE
+
+              case "$LLAMA_INSTALL_CHOICE" in
+                2)
+                  echo ""
+                  echo -e "    Run one of these in another terminal, then re-run start.sh:"
+                  echo ""
+                  echo -e "      ${BOLD}brew install llama.cpp${RESET}"
+                  echo -e "      ${DIM}— or build from source:${RESET}"
+                  echo -e "      ${BOLD}git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp && make llama-server${RESET}"
+                  echo ""
+                  fail "Re-run this script after installing llama-server."
+                  ;;
+                *)
+                  echo ""
+                  if command -v brew &>/dev/null; then
+                    echo -e "    Installing llama.cpp via Homebrew..."
+                    if brew install llama.cpp 2>&1 | tail -5; then
+                      echo ""
+                      ok "llama.cpp installed"
+                    else
+                      fail "brew install failed. Install manually:
+
+      brew install llama.cpp
+
+    Then re-run this script."
+                    fi
+                  else
+                    fail "Homebrew not found. Install llama.cpp manually:
+
+      Option A: Install Homebrew first, then brew install llama.cpp
+      Option B: git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp && make llama-server
+
+    Then re-run this script."
+                  fi
+                  ;;
+              esac
+
+            elif $IS_LINUX; then
+              echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— clones and builds llama.cpp${RESET}"
+              echo -e "    ${BOLD}2)${RESET} I'll install it myself in another terminal"
+              echo ""
+              echo -n "    Choose [1]: "
+              read -r LLAMA_INSTALL_CHOICE
+
+              case "$LLAMA_INSTALL_CHOICE" in
+                2)
+                  echo ""
+                  echo -e "    Run this in another terminal, then re-run start.sh:"
+                  echo ""
+                  echo -e "      ${BOLD}git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp && make llama-server${RESET}"
+                  echo -e "      ${BOLD}sudo cp build/bin/llama-server /usr/local/bin/${RESET}"
+                  echo ""
+                  fail "Re-run this script after installing llama-server."
+                  ;;
+                *)
+                  echo ""
+                  echo -e "    Building llama.cpp from source..."
+                  LLAMA_BUILD_DIR="/tmp/llama-cpp-build-$$"
+                  if ! command -v cmake &>/dev/null; then
+                    fail "cmake is required to build llama.cpp.
+
+    Install it with:
+      sudo apt install cmake build-essential   (Debian/Ubuntu)
+      sudo dnf install cmake gcc-c++           (Fedora)
+
+    Then re-run this script."
+                  fi
+
+                  git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_BUILD_DIR" 2>&1 | tail -2
+                  cd "$LLAMA_BUILD_DIR"
+                  cmake -B build -DBUILD_SHARED_LIBS=OFF 2>&1 | tail -3
+                  cmake --build build --target llama-server -j "$(nproc 2>/dev/null || echo 4)" 2>&1 | tail -5
+                  cd - >/dev/null
+
+                  # Install to project-local bin
+                  mkdir -p "$(pwd)/data/bin"
+                  cp "$LLAMA_BUILD_DIR/build/bin/llama-server" "$(pwd)/data/bin/llama-server"
+                  chmod +x "$(pwd)/data/bin/llama-server"
+                  rm -rf "$LLAMA_BUILD_DIR"
+                  ok "llama-server installed to data/bin/llama-server"
+                  ;;
+              esac
+            else
+              fail "Unsupported platform. Install llama-server manually from:
+      https://github.com/ggerganov/llama.cpp"
+            fi
+          fi
+
+          # Check huggingface-cli for GGUF downloads
+          if command -v python3 &>/dev/null && python3 -c "import huggingface_hub" 2>/dev/null; then
+            ok "huggingface-hub available (for model downloads)"
+          elif command -v python3 &>/dev/null; then
+            echo -e "    ${DIM}Installing huggingface-hub for model downloads...${RESET}"
+            pip install huggingface-hub 2>/dev/null || pip3 install huggingface-hub 2>/dev/null || true
+          fi
+
+          ok "llama.cpp backend ready — choose a model in Settings → Local Models → llama.cpp after launch"
+          ;;
+
+        c|C)
+          echo ""
+          if command -v ollama &>/dev/null; then
+            ok "Ollama already installed"
+
+            # Check if it's running
+            if curl -s -o /dev/null --max-time 2 http://localhost:11434 2>/dev/null; then
+              ok "Ollama server is running"
+            else
+              warn "Ollama is installed but not running"
+              echo -e "    ${DIM}Start it with: ${BOLD}ollama serve${RESET}"
+              echo -e "    ${DIM}Or launch the Ollama app.${RESET}"
+            fi
+          else
+            echo -e "    ${BOLD}Ollama${RESET} is not installed."
+            echo ""
+
+            if $IS_MAC; then
+              echo -e "    ${BOLD}1)${RESET} Install now via Homebrew ${DIM}— runs: brew install ollama${RESET}"
+              echo -e "    ${BOLD}2)${RESET} I'll install it myself ${DIM}— download from ollama.com${RESET}"
+              echo ""
+              echo -n "    Choose [1]: "
+              read -r OLLAMA_INSTALL_CHOICE
+
+              case "$OLLAMA_INSTALL_CHOICE" in
+                2)
+                  echo ""
+                  echo -e "    Download Ollama from: ${BLUE}https://ollama.com/download${RESET}"
+                  echo -e "    Or run: ${BOLD}brew install ollama${RESET}"
+                  echo ""
+                  echo -e "    After installing, start it:"
+                  echo -e "      ${BOLD}ollama serve${RESET}"
+                  echo ""
+                  fail "Re-run this script after installing Ollama."
+                  ;;
+                *)
+                  echo ""
+                  if command -v brew &>/dev/null; then
+                    echo -e "    Installing Ollama via Homebrew..."
+                    if brew install ollama 2>&1 | tail -5; then
+                      echo ""
+                      ok "Ollama installed"
+                      echo -e "    ${DIM}Starting Ollama server...${RESET}"
+                      ollama serve &>/dev/null &
+                      disown $! 2>/dev/null || true
+                      sleep 2
+                      if curl -s -o /dev/null --max-time 2 http://localhost:11434 2>/dev/null; then
+                        ok "Ollama server started"
+                      else
+                        warn "Ollama installed but server may need a moment to start"
+                      fi
+                    else
+                      fail "brew install failed. Download from: https://ollama.com/download"
+                    fi
+                  else
+                    fail "Homebrew not found. Download Ollama from: https://ollama.com/download"
+                  fi
+                  ;;
+              esac
+
+            elif $IS_LINUX; then
+              echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— runs the official install script${RESET}"
+              echo -e "    ${BOLD}2)${RESET} I'll install it myself in another terminal"
+              echo ""
+              echo -n "    Choose [1]: "
+              read -r OLLAMA_INSTALL_CHOICE
+
+              case "$OLLAMA_INSTALL_CHOICE" in
+                2)
+                  echo ""
+                  echo -e "    Run this in another terminal, then re-run start.sh:"
+                  echo ""
+                  echo -e "      ${BOLD}curl -fsSL https://ollama.ai/install.sh | sh${RESET}"
+                  echo ""
+                  fail "Re-run this script after installing Ollama."
+                  ;;
+                *)
+                  echo ""
+                  echo -e "    Running Ollama install script..."
+                  if curl -fsSL https://ollama.ai/install.sh | sh 2>&1 | tail -5; then
+                    echo ""
+                    ok "Ollama installed"
+                  else
+                    fail "Install failed. Try manually:
+
+      curl -fsSL https://ollama.ai/install.sh | sh"
+                  fi
+                  ;;
+              esac
+            else
+              fail "Download Ollama from: https://ollama.com/download"
+            fi
+          fi
+
+          ok "Ollama backend ready — choose a model in Settings → Local Models → Ollama after launch"
+          ;;
+
+        *)
+          fail "Invalid choice. Re-run and pick a, b, or c."
+          ;;
+      esac
 
       # No env vars needed — provider is configured in-app via runtime config
-      ok "Local models will be configured in Settings after launch"
-      HAS_LLM_CREDS=true  # skip credential failure
+      HAS_LLM_CREDS=true
       ;;
     *)
       echo ""
