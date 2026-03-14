@@ -129,16 +129,22 @@ export async function GET(request: Request) {
             size: 0,
             modified_at: "",
           }));
-          if (serverModels.length > 0) {
-            // Merge with cache info for sizes
-            const cached = listCachedMlxModels();
-            const cacheMap = new Map(cached.map((c) => [c.name, c]));
-            const merged = serverModels.map(
-              (m: { name: string; size: number; modified_at: string }) => ({
-                ...m,
-                size: cacheMap.get(m.name)?.size ?? m.size,
-              })
-            );
+          // Merge server models with all cached models
+          const cached = listCachedMlxModels();
+          const seen = new Set<string>();
+          const merged: { name: string; size: number; modified_at: string }[] = [];
+          const cacheMap = new Map(cached.map((c) => [c.name, c]));
+
+          // Server models first (currently loaded)
+          for (const m of serverModels) {
+            seen.add(m.name);
+            merged.push({ ...m, size: cacheMap.get(m.name)?.size ?? m.size });
+          }
+          // Then cached models not already from server
+          for (const c of cached) {
+            if (!seen.has(c.name)) merged.push(c);
+          }
+          if (merged.length > 0) {
             return Response.json({ models: merged });
           }
         }
