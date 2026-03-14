@@ -303,11 +303,11 @@ export function LocalBackendSection({
 
         {error && <p className="mb-2 text-xs text-error-text">{error}</p>}
 
-        {/* Ollama: simple Start Server button (Ollama loads models on demand) */}
-        {backend === "ollama" && !starting && (
+        {/* Start Server button — always visible for all backends when not running */}
+        {!starting && !pulling && (
           <div className="mb-3">
             <button
-              onClick={() => startServer("")}
+              onClick={() => startServer(models[0]?.name ?? "")}
               disabled={starting}
               className="px-3 py-1.5 text-xs font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
               style={{
@@ -315,12 +315,12 @@ export function LocalBackendSection({
                 transitionDuration: "var(--transition-speed)",
               }}
             >
-              Start Ollama
+              Start {label}
             </button>
           </div>
         )}
 
-        {/* Downloaded models — show Start button (MLX / llama.cpp) */}
+        {/* Downloaded models — pick which model to start with (MLX / llama.cpp) */}
         {backend !== "ollama" && models.length > 0 && !pulling && !starting && (
           <div className="mb-3">
             <label className="mb-1.5 block text-xs font-medium text-t-secondary">
