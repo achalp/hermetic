@@ -15,13 +15,14 @@ import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   UI_COMPOSE_MODEL,
   CODE_GEN_MODEL,
-  DEFAULT_SANDBOX_RUNTIME,
+  LLM_MAX_OUTPUT_TOKENS,
   isValidModelId,
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { ConversationEntry, SchemaMode } from "@/lib/types";
 import { logger } from "@/lib/logger";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 
 export const maxDuration = 60;
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
     const sandboxRuntime: SandboxRuntimeId =
       context?.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
         ? context.sandbox_runtime
-        : DEFAULT_SANDBOX_RUNTIME;
+        : getActiveSandboxRuntime();
 
     if (!csvId) {
       return new Response(JSON.stringify({ error: "csv_id is required in context" }), {
@@ -534,6 +535,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             system: catalog.prompt({ customRules }),
             prompt: userPrompt,
             temperature: 0,
+            maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
           });
 
           // Transform stream: strip markdown fences + replace image placeholders + inject datasets

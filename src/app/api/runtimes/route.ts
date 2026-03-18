@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { logger } from "@/lib/logger";
 import { DOCKER_SANDBOX_IMAGE } from "@/lib/constants";
+import { setRuntimeConfig } from "@/lib/runtime-config";
 
 interface RuntimeStatus {
   id: string;
@@ -64,4 +65,20 @@ export async function GET() {
   });
 
   return NextResponse.json(runtimes);
+}
+
+/** Persist the user's sandbox runtime selection */
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const runtime = body.sandboxRuntime;
+    if (!["docker", "e2b", "microsandbox"].includes(runtime)) {
+      return NextResponse.json({ error: "Invalid runtime" }, { status: 400 });
+    }
+    setRuntimeConfig({ sandboxRuntime: runtime });
+    logger.info("Sandbox runtime changed", { runtime });
+    return NextResponse.json({ status: "ok", sandboxRuntime: runtime });
+  } catch {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
 }

@@ -4,7 +4,7 @@ import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { generateText } from "ai";
 import { getModel } from "@/lib/llm/client";
-import { CODE_GEN_MODEL } from "@/lib/constants";
+import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, SandboxExecutionResult, SchemaMode } from "@/lib/types";
 import { logger } from "@/lib/logger";
@@ -52,6 +52,7 @@ export async function runPipeline(
         "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.",
       prompt: buildRetryPrompt(code, result.error, schema),
       temperature: 0,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     });
 
     let retryCode = retryResult.text.trim();
@@ -133,6 +134,7 @@ export async function runChatPipeline(
         "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.",
       prompt: buildRetryPrompt(code, result.error, schema),
       temperature: 0,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     });
 
     let retryCode = retryResult.text.trim();

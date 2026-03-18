@@ -5,10 +5,19 @@
  */
 import { spawn, execSync, type ChildProcess } from "child_process";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
+import { LOCAL_CTX_SIZE } from "@/lib/constants";
 
-const processes = new Map<string, ChildProcess>();
-const serverLogs = new Map<string, string[]>();
 const MAX_LOG_LINES = 200;
+
+// Use globalThis to survive Next.js HMR — prevents orphan processes
+const g = globalThis as unknown as {
+  __llmProcesses?: Map<string, ChildProcess>;
+  __llmServerLogs?: Map<string, string[]>;
+};
+if (!g.__llmProcesses) g.__llmProcesses = new Map();
+if (!g.__llmServerLogs) g.__llmServerLogs = new Map();
+const processes = g.__llmProcesses;
+const serverLogs = g.__llmServerLogs;
 
 const DEFAULT_PORTS: Record<string, number> = {
   mlx: 8080,
@@ -139,7 +148,16 @@ export async function startServer(
     try {
       execSync("which mlx_lm.server", { stdio: "ignore" });
       mlxCmd = "mlx_lm.server";
-      mlxArgs = ["--model", options.model, "--port", String(port), "--host", "0.0.0.0"];
+      mlxArgs = [
+        "--model",
+        options.model,
+        "--port",
+        String(port),
+        "--host",
+        "0.0.0.0",
+        "--max-tokens",
+        "16384",
+      ];
     } catch {
       mlxCmd = "python3";
       mlxArgs = [
@@ -151,6 +169,8 @@ export async function startServer(
         String(port),
         "--host",
         "0.0.0.0",
+        "--max-tokens",
+        "16384",
       ];
     }
 
@@ -161,7 +181,7 @@ export async function startServer(
   } else {
     const binary = options.binaryPath || "llama-server";
     const modelPath = options.modelPath || options.model;
-    const ctxLen = options.contextLength ?? 32768;
+    const ctxLen = options.contextLength ?? LOCAL_CTX_SIZE;
     proc = spawn(
       binary,
       ["-m", modelPath, "--port", String(port), "--host", "0.0.0.0", "-c", String(ctxLen)],
@@ -258,7 +278,7 @@ export async function stopServer(backend: string): Promise<void> {
     processes.delete(backend);
   }
 
-  // Also kill by saved PID
+  // Also kill by saved PID (handles orphans after HMR)
   const rc = getRuntimeConfig();
   const pid =
     backend === "mlx"
@@ -270,14 +290,27 @@ export async function stopServer(backend: string): Promise<void> {
           : undefined;
   if (pid && isPidAlive(pid)) {
     try {
-      process.kill(pid, "SIGTERM");
-      // Give it a moment, then force kill
-      await new Promise((r) => setTimeout(r, 2000));
-      if (isPidAlive(pid)) {
-        process.kill(pid, "SIGKILL");
-      }
+      // Kill the process group (negative PID) since we spawn detached
+      process.kill(-pid, "SIGTERM");
     } catch {
-      // already dead
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // ignore
+      }
+    }
+    // Give it a moment, then force kill
+    await new Promise((r) => setTimeout(r, 2000));
+    if (isPidAlive(pid)) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // already dead
+        }
+      }
     }
   }
 

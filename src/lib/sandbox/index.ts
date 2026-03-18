@@ -3,8 +3,8 @@ import { executeSandbox as dockerExecutor } from "./docker-executor";
 import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
 import { getWarmManager } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
-import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 
 export interface AdditionalFile {
   path: string;
@@ -51,7 +51,7 @@ export function executeSandbox(
   additionalFiles?: AdditionalFile[],
   csvId?: string
 ): Promise<ExecutionResult> {
-  const rt = runtime ?? DEFAULT_SANDBOX_RUNTIME;
+  const rt = runtime ?? getActiveSandboxRuntime();
 
   // Route through warm manager when available (not for E2B)
   if (rt !== "e2b" && csvId) {

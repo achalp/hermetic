@@ -5,7 +5,7 @@ import {
   buildCodeGenUserPrompt,
   buildCodeGenChatPrompt,
 } from "./prompts";
-import { CODE_GEN_MODEL } from "@/lib/constants";
+import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema, SchemaMode } from "@/lib/types";
 
 export async function generateAnalysisCode(
@@ -20,6 +20,7 @@ export async function generateAnalysisCode(
     system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
     prompt: buildCodeGenUserPrompt(schema, question, mode, workbookContext),
     temperature: 0,
+    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
   let code = result.text.trim();
@@ -50,6 +51,7 @@ export async function generateAnalysisCodeWithHistory(
     system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
     prompt: buildCodeGenChatPrompt(schema, question, history, mode, workbookContext),
     temperature: 0,
+    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
   let code = result.text.trim();

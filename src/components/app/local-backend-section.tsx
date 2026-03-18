@@ -6,7 +6,7 @@ import {
   RECOMMENDED_LLAMACPP_MODELS,
   RECOMMENDED_OLLAMA_MODELS,
 } from "@/lib/constants";
-import type { LocalBackendId } from "@/lib/constants";
+import type { LocalBackendId, RecommendedModel } from "@/lib/constants";
 
 interface BackendModel {
   name: string;
@@ -27,10 +27,7 @@ const BACKEND_LABELS: Record<LocalBackendId, string> = {
   ollama: "Ollama",
 };
 
-const RECOMMENDED_MODELS: Record<
-  LocalBackendId,
-  readonly { id: string; label: string; description: string; tag: string }[]
-> = {
+const RECOMMENDED_MODELS: Record<LocalBackendId, readonly RecommendedModel[]> = {
   mlx: RECOMMENDED_MLX_MODELS,
   "llama-cpp": RECOMMENDED_LLAMACPP_MODELS,
   ollama: RECOMMENDED_OLLAMA_MODELS,
@@ -55,6 +52,7 @@ export function LocalBackendSection({
     version?: string;
     baseUrl?: string;
     pid?: number;
+    systemRamGb?: number;
   } | null>(null);
   const [models, setModels] = useState<BackendModel[]>([]);
   const [pulling, setPulling] = useState<string | null>(null);
@@ -66,6 +64,7 @@ export function LocalBackendSection({
   const [stopping, setStopping] = useState(false);
   const [startProgress, setStartProgress] = useState<number | null>(null);
   const [startLogs, setStartLogs] = useState<string[]>([]);
+  const [showOversized, setShowOversized] = useState(false);
   const statusChecked = useRef(false);
 
   const label = BACKEND_LABELS[backend];
@@ -183,14 +182,22 @@ export function LocalBackendSection({
         }
 
         if (statusData.status === "stopped") {
-          const logTail = statusData.logs?.length
-            ? "\n" +
-              statusData.logs
-                .slice(-5)
-                .map((l: string) => l.replace(/^\[(stdout|stderr)\]\s*/, ""))
-                .join("\n")
-            : "";
-          throw new Error(`Server process exited unexpectedly.${logTail}`);
+          const rawLogs: string[] = statusData.logs?.slice(-10) ?? [];
+          const cleanLogs = rawLogs.map((l: string) => l.replace(/^\[(stdout|stderr)\]\s*/, ""));
+          const logText = cleanLogs.join("\n");
+
+          // Detect memory/GPU crash patterns
+          const isMemoryCrash =
+            /metal|gpu|check_error|SIGABRT|abort|command buffer|out of memory|jetsam/i.test(
+              logText
+            );
+
+          const hint = isMemoryCrash
+            ? "The model is too large for your available memory. Try a smaller model."
+            : "Check logs below for details.";
+
+          const logTail = cleanLogs.length > 0 ? "\n" + cleanLogs.slice(-5).join("\n") : "";
+          throw new Error(`Server crashed. ${hint}${logTail}`);
         }
 
         // Still starting — parse logs for download progress and status
@@ -338,7 +345,12 @@ export function LocalBackendSection({
     }
   };
 
-  const recommended = RECOMMENDED_MODELS[backend] ?? [];
+  const allRecommended = RECOMMENDED_MODELS[backend] ?? [];
+  const systemRam = status?.systemRamGb ?? 0;
+  // Filter by RAM — show models that fit, plus all if RAM is unknown (0)
+  const recommended =
+    systemRam > 0 ? allRecommended.filter((r) => r.minRam <= systemRam) : allRecommended;
+  const oversized = systemRam > 0 ? allRecommended.filter((r) => r.minRam > systemRam) : [];
   const installedNames = new Set(models.map((m) => m.name));
   const recommendedNotInstalled = recommended.filter((r) => !installedNames.has(r.id));
 
@@ -354,6 +366,9 @@ export function LocalBackendSection({
         <div className="flex items-center gap-2 mb-2">
           <span className="h-2 w-2 rounded-full bg-red-500" />
           <span className="text-xs font-medium text-t-secondary">Not running</span>
+          {systemRam > 0 && (
+            <span className="ml-auto text-[11px] text-t-tertiary">{systemRam} GB RAM</span>
+          )}
         </div>
 
         {isActive && (
@@ -533,6 +548,52 @@ export function LocalBackendSection({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Oversized models — collapsed, with warning */}
+        {backend !== "ollama" && oversized.length > 0 && !pulling && !starting && (
+          <div className="mb-3">
+            <button
+              onClick={() => setShowOversized((v) => !v)}
+              className="mb-1.5 flex items-center gap-1 text-xs font-medium text-t-tertiary hover:text-t-secondary transition-colors"
+            >
+              <span className="text-[11px]">{showOversized ? "▼" : "▶"}</span>
+              Larger models (need more than {systemRam} GB)
+            </button>
+            {showOversized && (
+              <div className="space-y-1 opacity-60">
+                {oversized
+                  .filter((r) => !installedNames.has(r.id))
+                  .map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                      style={{ borderRadius: "var(--radius-badge)" }}
+                    >
+                      <div className="min-w-0">
+                        <span className="text-xs font-medium text-t-primary truncate block">
+                          {r.label || r.id}
+                          <span className="ml-1 text-[10px] text-t-tertiary font-normal">
+                            ({r.minRam}+ GB)
+                          </span>
+                        </span>
+                        <span className="text-[11px] text-t-tertiary">{r.description}</span>
+                      </div>
+                      <button
+                        onClick={() => downloadModel(r.id)}
+                        className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-border-default text-t-tertiary hover:text-t-primary transition-colors"
+                        style={{
+                          borderRadius: "var(--radius-badge)",
+                          transitionDuration: "var(--transition-speed)",
+                        }}
+                      >
+                        Download
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -727,6 +788,52 @@ export function LocalBackendSection({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Oversized models — collapsed, with warning (running state) */}
+      {oversized.length > 0 && !pulling && (
+        <div className="mb-3">
+          <button
+            onClick={() => setShowOversized((v) => !v)}
+            className="mb-1.5 flex items-center gap-1 text-xs font-medium text-t-tertiary hover:text-t-secondary transition-colors"
+          >
+            <span className="text-[11px]">{showOversized ? "▼" : "▶"}</span>
+            Larger models (need more than {systemRam} GB)
+          </button>
+          {showOversized && (
+            <div className="space-y-1 opacity-60">
+              {oversized
+                .filter((r) => !installedNames.has(r.id))
+                .map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                    style={{ borderRadius: "var(--radius-badge)" }}
+                  >
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-t-primary truncate block">
+                        {r.label || r.id}
+                        <span className="ml-1 text-[10px] text-t-tertiary font-normal">
+                          ({r.minRam}+ GB)
+                        </span>
+                      </span>
+                      <span className="text-[11px] text-t-tertiary">{r.description}</span>
+                    </div>
+                    <button
+                      onClick={() => downloadModel(r.id)}
+                      className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-border-default text-t-tertiary hover:text-t-primary transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-badge)",
+                        transitionDuration: "var(--transition-speed)",
+                      }}
+                    >
+                      Download
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 

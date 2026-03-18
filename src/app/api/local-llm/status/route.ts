@@ -1,5 +1,19 @@
+import { execSync } from "child_process";
 import { healthCheck, isRunning, getServerLogs } from "@/lib/llm/process-manager";
-import { getRuntimeConfig } from "@/lib/runtime-config";
+import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
+
+/** Get total system RAM in GB (cached after first call) */
+let cachedRamGb: number | null = null;
+function getSystemRamGb(): number {
+  if (cachedRamGb !== null) return cachedRamGb;
+  try {
+    const bytes = parseInt(execSync("sysctl -n hw.memsize", { encoding: "utf-8" }).trim(), 10);
+    cachedRamGb = Math.round(bytes / (1024 * 1024 * 1024));
+  } catch {
+    cachedRamGb = 0;
+  }
+  return cachedRamGb;
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -51,10 +65,22 @@ export async function GET(request: Request) {
     status = "starting";
   } else {
     status = "stopped";
+    // Clean up stale PID if the process died (crash, OOM, etc.)
+    if (config?.pid) {
+      if (backend === "mlx") {
+        setRuntimeConfig({ mlx: { ...config, pid: undefined } });
+      } else if (backend === "llama-cpp") {
+        setRuntimeConfig({ llamaCpp: { ...config, pid: undefined } });
+      } else if (backend === "ollama") {
+        setRuntimeConfig({ ollama: { ...config, pid: undefined } });
+      }
+    }
   }
 
   // Always return logs if available (especially useful when process just died)
   const logs = getServerLogs(backend).slice(-10);
+
+  const systemRamGb = getSystemRamGb();
 
   return Response.json({
     running: healthy,
@@ -63,6 +89,7 @@ export async function GET(request: Request) {
     baseUrl,
     activeModel: config?.activeModel || "",
     pid: config?.pid,
+    ...(systemRamGb > 0 && { systemRamGb }),
     ...(version && { version }),
     ...(logs.length > 0 && { logs }),
   });

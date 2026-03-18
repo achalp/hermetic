@@ -27,6 +27,7 @@ export interface RuntimeConfig {
   ollama?: OllamaConfig;
   mlx?: MlxConfig;
   llamaCpp?: LlamaCppConfig;
+  sandboxRuntime?: "docker" | "e2b" | "microsandbox";
 }
 
 const CONFIG_PATH = join(process.cwd(), "data", "runtime-config.json");
@@ -68,6 +69,9 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
     merged.llamaCpp =
       partial.llamaCpp === null ? undefined : { ...current.llamaCpp, ...partial.llamaCpp };
   }
+  if (partial.sandboxRuntime !== undefined) {
+    merged.sandboxRuntime = partial.sandboxRuntime;
+  }
 
   // Atomic write: write to tmp then rename
   const dir = dirname(CONFIG_PATH);
@@ -86,4 +90,16 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
 export function clearRuntimeConfigCache(): void {
   cached = null;
   cacheTime = 0;
+}
+
+/**
+ * Get the active sandbox runtime. Checks runtime config (UI selection) first,
+ * then SANDBOX_RUNTIME env var, then defaults to "docker".
+ */
+export function getActiveSandboxRuntime(): "docker" | "e2b" | "microsandbox" {
+  const rc = getRuntimeConfig();
+  if (rc.sandboxRuntime) return rc.sandboxRuntime;
+  const env = process.env.SANDBOX_RUNTIME;
+  if (env === "docker" || env === "e2b" || env === "microsandbox") return env;
+  return "docker";
 }

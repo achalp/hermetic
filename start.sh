@@ -442,100 +442,134 @@ ok "Node.js $(node -v)"
 # ── 2. Choose sandbox runtime ────────────────────────────
 step "Choosing sandbox runtime"
 
-# If .env.local already exists with a runtime, use it
-RUNTIME=""
-if [ -f .env.local ] && grep -q "^SANDBOX_RUNTIME=" .env.local 2>/dev/null; then
-  RUNTIME=$(grep "^SANDBOX_RUNTIME=" .env.local | cut -d= -f2)
-fi
+# Detect what's available
+HAS_DOCKER=false
+HAS_MSB=false
+HAS_E2B=false
+command -v docker &>/dev/null && docker info &>/dev/null 2>&1 && HAS_DOCKER=true
+command -v msb &>/dev/null && HAS_MSB=true
+([ -f .env.local ] && grep -q "^E2B_API_KEY=" .env.local 2>/dev/null) && HAS_E2B=true
+[ -n "${E2B_API_KEY:-}" ] && HAS_E2B=true
 
-if [ -z "$RUNTIME" ]; then
-  HAS_DOCKER=false
-  HAS_MSB=false
-  command -v docker &>/dev/null && docker info &>/dev/null 2>&1 && HAS_DOCKER=true
-  command -v msb &>/dev/null && HAS_MSB=true
-
-  if $HAS_DOCKER && $HAS_MSB; then
-    echo ""
-    echo -e "    Both Docker and Microsandbox are available."
-    echo -e "    ${BOLD}1)${RESET} Docker       ${DIM}— runs code in containers${RESET}"
-    echo -e "    ${BOLD}2)${RESET} Microsandbox ${DIM}— runs code in lightweight microVMs${RESET}"
-    echo ""
-    echo -n "    Choose runtime [1]: "
-    read -r CHOICE
-    case "$CHOICE" in
-      2) RUNTIME="microsandbox" ;;
-      *) RUNTIME="docker" ;;
-    esac
-  elif $HAS_MSB; then
-    RUNTIME="microsandbox"
-    ok "Microsandbox detected — using microsandbox runtime"
-  elif $HAS_DOCKER; then
-    RUNTIME="docker"
-    ok "Docker detected — using docker runtime"
+status_tag() {
+  if $1; then
+    echo -e "${GREEN}installed${RESET}"
   else
-    echo ""
-    echo -e "    ${BOLD}No sandbox runtime found.${RESET} You need one of:"
-    echo ""
-    echo -e "    ${BOLD}Option A: Docker${RESET}"
-    echo -e "      Install Docker Desktop: ${BLUE}https://www.docker.com/products/docker-desktop/${RESET}"
-    echo ""
-    echo -e "    ${BOLD}Option B: Microsandbox${RESET} ${DIM}(macOS Apple Silicon or Linux with KVM)${RESET}"
-    echo -e "      curl -sSL https://get.microsandbox.dev | sh"
-    echo -e "      msb server start --dev"
-    echo ""
-    fail "Install Docker or Microsandbox, then re-run this script."
+    echo -e "${DIM}not found${RESET}"
   fi
+}
+
+# If .env.local already exists with a runtime, use it as default
+SAVED_RUNTIME=""
+if [ -f .env.local ] && grep -q "^SANDBOX_RUNTIME=" .env.local 2>/dev/null; then
+  SAVED_RUNTIME=$(grep "^SANDBOX_RUNTIME=" .env.local | cut -d= -f2)
 fi
 
-ok "Using $RUNTIME runtime"
+# Determine default selection for the prompt
+DEFAULT_NUM="1"
+if [ "$SAVED_RUNTIME" = "microsandbox" ]; then
+  DEFAULT_NUM="2"
+elif [ "$SAVED_RUNTIME" = "e2b" ]; then
+  DEFAULT_NUM="3"
+elif [ -n "$SAVED_RUNTIME" ]; then
+  DEFAULT_NUM="1"
+elif $HAS_MSB; then
+  DEFAULT_NUM="2"
+elif $HAS_E2B && ! $HAS_DOCKER; then
+  DEFAULT_NUM="3"
+fi
 
-# ── 3. Validate sandbox runtime ──────────────────────────
-step "Checking $RUNTIME"
+echo ""
+echo -e "    Choose a sandbox runtime for executing Python code:"
+echo ""
+echo -e "    ${BOLD}1)${RESET} Docker        ${DIM}— containers${RESET}            [$(status_tag $HAS_DOCKER)]"
+echo -e "    ${BOLD}2)${RESET} Microsandbox  ${DIM}— lightweight microVMs${RESET}  [$(status_tag $HAS_MSB)]"
+echo -e "    ${BOLD}3)${RESET} E2B           ${DIM}— cloud sandboxes${RESET}       [$(status_tag $HAS_E2B)]"
+echo ""
+echo -n "    Choose runtime [$DEFAULT_NUM]: "
+read -r RUNTIME_CHOICE
+RUNTIME_CHOICE="${RUNTIME_CHOICE:-$DEFAULT_NUM}"
+
+case "$RUNTIME_CHOICE" in
+  2) RUNTIME="microsandbox" ;;
+  3) RUNTIME="e2b" ;;
+  *) RUNTIME="docker" ;;
+esac
+
+ok "Selected $RUNTIME"
+
+# ── 3. Validate & start sandbox runtime ──────────────────
+step "Setting up $RUNTIME"
 
 if [ "$RUNTIME" = "docker" ]; then
   if ! command -v docker &>/dev/null; then
-    fail "Docker is not installed.
-
-    Please install Docker Desktop:
-      • Mac:     https://www.docker.com/products/docker-desktop/
-      • Linux:   https://docs.docker.com/engine/install/
-
-    Install it, launch it, then re-run this script."
+    warn "Docker is not installed."
+    echo ""
+    echo -e "    Install Docker Desktop:"
+    echo -e "      ${BOLD}Mac:${RESET}   ${BLUE}https://www.docker.com/products/docker-desktop/${RESET}"
+    echo -e "      ${BOLD}Linux:${RESET} ${BLUE}https://docs.docker.com/engine/install/${RESET}"
+    echo ""
+    echo -e "    Then re-run this script."
+    echo ""
+    fail "Docker not found."
   fi
 
-  if ! docker info &>/dev/null; then
+  if ! docker info &>/dev/null 2>&1; then
     warn "Docker is installed but not running."
     echo ""
-    echo -e "    ${BOLD}Please open Docker Desktop and wait for it to start,${RESET}"
-    echo -e "    ${BOLD}then re-run this script.${RESET}"
+    echo -e "    ${BOLD}Start Docker Desktop${RESET}, then re-run this script."
     echo ""
-    exit 1
+    fail "Docker daemon not running."
   fi
 
   ok "Docker daemon is running"
 
 elif [ "$RUNTIME" = "microsandbox" ]; then
   if ! command -v msb &>/dev/null; then
+    warn "Microsandbox CLI (msb) is not installed."
     echo ""
-    echo -e "    Microsandbox CLI (${BOLD}msb${RESET}) is not installed."
+    echo -e "    ${BOLD}1)${RESET} Install now ${DIM}— runs: curl -sSL https://get.microsandbox.dev | sh${RESET}"
+    echo -e "    ${BOLD}2)${RESET} I'll install it myself"
     echo ""
-    echo -e "    Install it with:"
-    echo -e "      ${BOLD}curl -sSL https://get.microsandbox.dev | sh${RESET}"
-    echo ""
-    echo -e "    Then start the server:"
-    echo -e "      ${BOLD}msb server start --dev${RESET}"
-    echo ""
-    fail "Install microsandbox, then re-run this script."
+    echo -n "    Choose [1]: "
+    read -r MSB_INSTALL
+    case "${MSB_INSTALL:-1}" in
+      2)
+        echo ""
+        echo -e "    Install with:"
+        echo -e "      ${BOLD}curl -sSL https://get.microsandbox.dev | sh${RESET}"
+        echo ""
+        echo -e "    Then start the server:"
+        echo -e "      ${BOLD}msb server start --dev${RESET}"
+        echo ""
+        fail "Install microsandbox, then re-run this script."
+        ;;
+      *)
+        echo ""
+        echo -e "    Installing microsandbox..."
+        if curl -sSL https://get.microsandbox.dev | sh 2>&1 | tail -5; then
+          # Refresh PATH for the newly installed binary
+          for p in "$HOME/.local/bin" "$HOME/.msb/bin"; do
+            [[ -d "$p" ]] && [[ ":$PATH:" != *":$p:"* ]] && export PATH="$p:$PATH"
+          done
+          if command -v msb &>/dev/null; then
+            ok "Microsandbox installed"
+          else
+            fail "Installation finished but 'msb' not found in PATH. Try opening a new terminal and re-running."
+          fi
+        else
+          fail "Installation failed. Try manually: curl -sSL https://get.microsandbox.dev | sh"
+        fi
+        ;;
+    esac
+  else
+    ok "msb CLI found"
   fi
-
-  ok "msb CLI found"
 
   # Check if microsandbox server is responding
   MSB_URL="${MICROSANDBOX_URL:-http://127.0.0.1:5555}"
 
   msb_reachable() {
-    # Server returns 404 on root — that's fine, it means it's up.
-    # Use -o /dev/null -w to check HTTP status instead of -f.
     local status
     status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "${MSB_URL}" 2>/dev/null) || return 1
     [ "$status" != "000" ]
@@ -546,39 +580,84 @@ elif [ "$RUNTIME" = "microsandbox" ]; then
   else
     warn "Microsandbox server is not running at ${MSB_URL}"
     echo ""
-    echo -e "    Starting microsandbox server in the background..."
-
-    # Try --detach first, fall back to backgrounding
-    if msb server start --dev --detach 2>/dev/null; then
-      ok "msb server start --dev --detach succeeded"
-    else
-      msb server start --dev &>/dev/null &
-      MSB_PID=$!
-      disown "$MSB_PID" 2>/dev/null || true
-    fi
-
-    # Wait up to 10 seconds for the server to come up
-    echo -ne "    Waiting for server"
-    for i in $(seq 1 10); do
-      if msb_reachable; then
+    echo -e "    ${BOLD}1)${RESET} Start now ${DIM}— runs: msb server start --dev${RESET}"
+    echo -e "    ${BOLD}2)${RESET} I'll start it myself"
+    echo ""
+    echo -n "    Choose [1]: "
+    read -r MSB_START
+    case "${MSB_START:-1}" in
+      2)
         echo ""
-        ok "Microsandbox server started"
-        break
-      fi
-      echo -n "."
-      sleep 1
-    done
+        echo -e "    Start the server in another terminal:"
+        echo -e "      ${BOLD}msb server start --dev${RESET}"
+        echo ""
+        fail "Start microsandbox, then re-run this script."
+        ;;
+      *)
+        echo -e "    Starting microsandbox server..."
 
-    if ! msb_reachable; then
-      echo ""
-      echo ""
-      echo -e "    ${BOLD}Could not auto-start the server.${RESET}"
-      echo -e "    Please start it manually in another terminal:"
-      echo -e "      ${BOLD}msb server start --dev${RESET}"
-      echo ""
-      fail "Microsandbox server not reachable at ${MSB_URL}"
+        # Try --detach first, fall back to backgrounding
+        if msb server start --dev --detach 2>/dev/null; then
+          ok "msb server start --dev --detach succeeded"
+        else
+          msb server start --dev &>/dev/null &
+          MSB_PID=$!
+          disown "$MSB_PID" 2>/dev/null || true
+        fi
+
+        # Wait up to 15 seconds for the server to come up
+        echo -ne "    Waiting for server"
+        for i in $(seq 1 15); do
+          if msb_reachable; then
+            echo ""
+            ok "Microsandbox server started"
+            break
+          fi
+          echo -n "."
+          sleep 1
+        done
+
+        if ! msb_reachable; then
+          echo ""
+          echo ""
+          echo -e "    ${BOLD}Could not auto-start the server.${RESET}"
+          echo -e "    Please start it manually in another terminal:"
+          echo -e "      ${BOLD}msb server start --dev${RESET}"
+          echo ""
+          fail "Microsandbox server not reachable at ${MSB_URL}"
+        fi
+        ;;
+    esac
+  fi
+
+elif [ "$RUNTIME" = "e2b" ]; then
+  E2B_KEY=""
+  if [ -f .env.local ]; then
+    E2B_KEY=$(grep "^E2B_API_KEY=" .env.local 2>/dev/null | cut -d= -f2) || true
+  fi
+  [ -z "$E2B_KEY" ] && E2B_KEY="${E2B_API_KEY:-}"
+
+  if [ -z "$E2B_KEY" ]; then
+    echo ""
+    echo -e "    E2B requires an API key."
+    echo -e "    Get one at: ${BLUE}https://e2b.dev/dashboard${RESET}"
+    echo ""
+    echo -n "    Paste your E2B API key: "
+    read -r E2B_KEY
+    if [ -z "$E2B_KEY" ]; then
+      fail "E2B_API_KEY is required for the E2B runtime."
+    fi
+    # Save to .env.local
+    if [ -f .env.local ]; then
+      # Remove existing E2B_API_KEY line if present
+      grep -v "^E2B_API_KEY=" .env.local > .env.local.tmp || true
+      mv .env.local.tmp .env.local
+      echo "E2B_API_KEY=$E2B_KEY" >> .env.local
+    else
+      echo "E2B_API_KEY=$E2B_KEY" > .env.local
     fi
   fi
+  ok "E2B API key configured"
 fi
 
 # ── 4. LLM Provider Credentials ──────────────────────────
