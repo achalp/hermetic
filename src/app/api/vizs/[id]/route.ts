@@ -8,7 +8,7 @@ import { storeCSV, storeWorkbookManifest } from "@/lib/csv/storage";
 import { sanitizeSheetName } from "@/lib/llm/prompts";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
-import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { WorkbookManifest, SheetInfo, SheetRelationship } from "@/lib/types";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -30,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     if (viz.workbook) {
       workbookInfo = await restoreWorkbook(csvId, normalizedCsv, viz.workbook);
     } else {
-      prepareWarmSandbox(csvId, normalizedCsv, DEFAULT_SANDBOX_RUNTIME);
+      prepareWarmSandbox(csvId, normalizedCsv, getActiveSandboxRuntime());
     }
 
     return NextResponse.json({
@@ -99,7 +99,7 @@ async function restoreWorkbook(
   prepareWarmSandbox(
     primaryCsvId,
     primaryCsvContent,
-    DEFAULT_SANDBOX_RUNTIME,
+    getActiveSandboxRuntime(),
     null,
     additionalFiles.length > 0 ? additionalFiles : undefined
   );

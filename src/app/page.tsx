@@ -1,15 +1,22 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import type { Spec } from "@json-render/react";
 import { CSVUploadPanel } from "@/components/app/csv-upload-panel";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { SchemaPreview } from "@/components/app/schema-preview";
 import { WorkbookPreview } from "@/components/app/workbook-preview";
 import { QueryInput } from "@/components/app/query-input";
-import { ResponsePanel } from "@/components/app/response-panel";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
 import { SettingsPanel } from "@/components/app/settings-panel";
+
+// Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
+// via the chart registry. Deferring avoids compiling ~300MB of deps on initial page load.
+const ResponsePanel = dynamic(
+  () => import("@/components/app/response-panel").then((m) => m.ResponsePanel),
+  { ssr: false }
+);
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
@@ -96,6 +103,12 @@ export default function Home() {
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
     setSandboxRuntime(r);
     localStorage.setItem("gud-sandbox-runtime", r);
+    // Persist to server so upload routes and warmup use the correct runtime
+    fetch("/api/runtimes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sandboxRuntime: r }),
+    }).catch(() => {});
   }, []);
 
   const handleReset = useCallback(() => {

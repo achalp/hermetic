@@ -13,7 +13,8 @@ import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { sanitizeSheetName } from "@/lib/llm/prompts";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import { isValidRuntimeId, DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
+import { isValidRuntimeId } from "@/lib/constants";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { CSVSchema, SandboxExecutionResult, WorkbookManifest } from "@/lib/types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { ParsedCSV } from "@/lib/csv/parser";
@@ -30,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const runtimeRaw = formData.get("sandbox_runtime") as string | null;
     const runtime: SandboxRuntimeId =
-      runtimeRaw && isValidRuntimeId(runtimeRaw) ? runtimeRaw : DEFAULT_SANDBOX_RUNTIME;
+      runtimeRaw && isValidRuntimeId(runtimeRaw) ? runtimeRaw : getActiveSandboxRuntime();
 
     // 1. Load saved viz
     const savedViz = await loadSavedVisualization(vizId);

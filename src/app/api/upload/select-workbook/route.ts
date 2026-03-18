@@ -7,8 +7,8 @@ import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { getExcelBuffer, getStoredExcel } from "@/lib/excel/storage";
 import { detectRelationships } from "@/lib/excel/relationships";
 import { sanitizeSheetName } from "@/lib/llm/prompts";
-import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
 import { prepareWarmSandbox } from "@/lib/sandbox";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { AdditionalFile } from "@/lib/sandbox";
 import type { WorkbookManifest } from "@/lib/types";
 
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
     prepareWarmSandbox(
       primaryCsvId,
       primaryCsvContent,
-      DEFAULT_SANDBOX_RUNTIME,
+      getActiveSandboxRuntime(),
       null,
       additionalFiles.length > 0 ? additionalFiles : undefined
     );

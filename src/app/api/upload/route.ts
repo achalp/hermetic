@@ -7,8 +7,9 @@ import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { storeExcel } from "@/lib/excel/storage";
 import { detectRelationships } from "@/lib/excel/relationships";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
-import { MAX_CSV_SIZE_BYTES, MAX_CSV_SIZE_LABEL, DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
+import { MAX_CSV_SIZE_BYTES, MAX_CSV_SIZE_LABEL } from "@/lib/constants";
 import { prepareWarmSandbox } from "@/lib/sandbox";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 
 export async function POST(request: Request) {
   try {
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
       const csvText = toCSVText(parsed);
       await storeCSV(csvId, csvText, schema);
       await storeGeoJSON(csvId, text);
-      prepareWarmSandbox(csvId, csvText, DEFAULT_SANDBOX_RUNTIME, text);
+      prepareWarmSandbox(csvId, csvText, getActiveSandboxRuntime(), text);
 
       return NextResponse.json({ csv_id: csvId, schema });
     }
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
       const schema = extractSchema(parsed, csvId, file.name);
       const csvText2 = toCSVText(parsed);
       await storeCSV(csvId, csvText2, schema);
-      prepareWarmSandbox(csvId, csvText2, DEFAULT_SANDBOX_RUNTIME);
+      prepareWarmSandbox(csvId, csvText2, getActiveSandboxRuntime());
 
       return NextResponse.json({ csv_id: csvId, schema });
     }
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
       const schema = extractSchema(parsed, csvId, file.name);
       const csvText3 = toCSVText(parsed);
       await storeCSV(csvId, csvText3, schema);
-      prepareWarmSandbox(csvId, csvText3, DEFAULT_SANDBOX_RUNTIME);
+      prepareWarmSandbox(csvId, csvText3, getActiveSandboxRuntime());
 
       return NextResponse.json({ csv_id: csvId, schema });
     }

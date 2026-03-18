@@ -2,7 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
-import { OLLAMA_NUM_CTX } from "@/lib/constants";
+import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 
@@ -62,7 +62,7 @@ function ollamaFetch(baseUrl: string) {
       messages,
       stream: isStreaming,
       options: {
-        num_ctx: OLLAMA_NUM_CTX,
+        num_ctx: LOCAL_CTX_SIZE,
         ...(body.temperature != null && { temperature: body.temperature }),
       },
     };
@@ -379,11 +379,24 @@ function localOpenAIFetch(baseUrl: string) {
     if (body.temperature != null) ccBody.temperature = body.temperature;
     if (body.max_output_tokens != null) ccBody.max_tokens = body.max_output_tokens;
 
-    const ccRes = await globalThis.fetch(`${baseUrl}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(ccBody),
-    });
+    let ccRes: Response;
+    try {
+      ccRes = await globalThis.fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ccBody),
+      });
+    } catch (err) {
+      // Server crashed or is unreachable — likely OOM / Metal GPU error
+      const msg =
+        err instanceof Error && err.message.includes("ECONNREFUSED")
+          ? "Local LLM server crashed (likely out of memory). Try a smaller model in Settings."
+          : `Cannot connect to local LLM server: ${err instanceof Error ? err.message : err}`;
+      return new Response(JSON.stringify({ error: msg }), {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (!ccRes.ok || !ccRes.body) return ccRes;
 
@@ -478,6 +491,7 @@ function localOpenAIFetch(baseUrl: string) {
         let buffer = "";
         let fullText = "";
 
+        let streamError: string | null = null;
         try {
           while (true) {
             const { done, value } = await reader.read();
@@ -511,8 +525,27 @@ function localOpenAIFetch(baseUrl: string) {
               }
             }
           }
-        } catch {
-          /* stream ended */
+        } catch (err) {
+          // Stream interrupted — server likely crashed mid-inference (OOM / Metal GPU error)
+          streamError =
+            err instanceof Error &&
+            (err.message.includes("ECONNRESET") || err.message.includes("terminated"))
+              ? "\n\n[Server crashed during inference — the model may be too large for available memory. Try a smaller model.]"
+              : `\n\n[Stream interrupted: ${err instanceof Error ? err.message : err}]`;
+        }
+
+        if (streamError && !fullText) {
+          // No output generated — emit the error as text so the user sees it
+          fullText = streamError.trim();
+          emit("response.output_text.delta", {
+            type: "response.output_text.delta",
+            sequence_number: seq++,
+            output_index: 0,
+            content_index: 0,
+            item_id: msgId,
+            delta: fullText,
+            logprobs: [],
+          });
         }
 
         const doneItem = {

@@ -1,7 +1,7 @@
 import type { ExecutionResult } from "@/lib/types";
 import type { AdditionalFile } from "./index";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import { DEFAULT_SANDBOX_RUNTIME } from "@/lib/constants";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
 
 // ── WarmSandboxBackend interface ─────────────────────────────────────
@@ -175,7 +175,7 @@ export function prepareWarmSandbox(
   geojsonContent?: string | null,
   additionalFiles?: AdditionalFile[]
 ): void {
-  const rt = runtime ?? DEFAULT_SANDBOX_RUNTIME;
+  const rt = runtime ?? getActiveSandboxRuntime();
   if (rt === "e2b") return; // E2B stays ephemeral
 
   // Lazy-initialize backends, then prepare data (all fire-and-forget)
@@ -188,7 +188,7 @@ export function prepareWarmSandbox(
  * Warmup all non-E2B sandbox runtimes.
  */
 export async function warmupAllSandboxes(): Promise<void> {
-  const rt = DEFAULT_SANDBOX_RUNTIME;
+  const rt = getActiveSandboxRuntime();
   if (rt === "e2b") return;
 
   const manager = await ensureBackendRegistered(rt);
@@ -210,7 +210,7 @@ export async function ensureWarmSandboxReady(
   geojsonContent?: string | null,
   additionalFiles?: AdditionalFile[]
 ): Promise<void> {
-  const rt = runtime ?? DEFAULT_SANDBOX_RUNTIME;
+  const rt = runtime ?? getActiveSandboxRuntime();
   if (rt === "e2b") return;
 
   const manager = await ensureBackendRegistered(rt);
