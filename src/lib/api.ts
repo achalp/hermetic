@@ -205,3 +205,54 @@ export async function getLocalBackendConfig(signal?: AbortSignal): Promise<Local
 export async function getOllamaConfig(signal?: AbortSignal): Promise<LocalBackendConfig> {
   return getLocalBackendConfig(signal);
 }
+
+// ── LLM Readiness Check ──────────────────────────────────────
+
+export interface LlmReadiness {
+  ready: boolean;
+  provider: string;
+  message?: string;
+}
+
+const LOCAL_PROVIDERS = ["ollama", "mlx", "llama-cpp"];
+
+/**
+ * Check if the active LLM provider is ready to accept queries.
+ * For local providers, checks both that the server is running and healthy.
+ */
+export async function checkLlmReady(): Promise<LlmReadiness> {
+  const provider = await getProviders().catch(() => null);
+  if (!provider) {
+    return {
+      ready: false,
+      provider: "unknown",
+      message: "No LLM provider configured. Open Settings to choose one.",
+    };
+  }
+
+  if (!LOCAL_PROVIDERS.includes(provider.active)) {
+    // Cloud providers are assumed ready if configured
+    return { ready: true, provider: provider.active };
+  }
+
+  // For local providers, check the backend status
+  const backend = provider.active === "llama-cpp" ? "llama-cpp" : provider.active;
+  try {
+    const res = await fetch(`/api/local-llm/status?backend=${backend}`);
+    const status = await res.json();
+    if (status.status === "ready") {
+      return { ready: true, provider: provider.active };
+    }
+    return {
+      ready: false,
+      provider: provider.active,
+      message: `Local LLM server (${provider.activeLabel}) is not running. Start it in Settings.`,
+    };
+  } catch {
+    return {
+      ready: false,
+      provider: provider.active,
+      message: `Local LLM server (${provider.activeLabel}) is not running. Start it in Settings.`,
+    };
+  }
+}

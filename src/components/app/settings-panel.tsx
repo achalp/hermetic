@@ -22,6 +22,8 @@ interface SettingsPanelProps {
   onOllamaModelChange: (model: string | null) => void;
   schemaMode: SchemaMode;
   onSchemaModeChange: (mode: SchemaMode) => void;
+  /** Ref to imperatively open the settings panel */
+  openRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export function SettingsPanel({
@@ -35,8 +37,19 @@ export function SettingsPanel({
   onOllamaModelChange,
   schemaMode,
   onSchemaModeChange,
+  openRef,
 }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
+
+  // Expose open() to parent via ref
+  useEffect(() => {
+    if (openRef) {
+      openRef.current = () => setOpen(true);
+    }
+    return () => {
+      if (openRef) openRef.current = null;
+    };
+  }, [openRef]);
   const panelRef = useRef<HTMLDivElement>(null);
   const { theme, setTheme } = useTheme();
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(null);

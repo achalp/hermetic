@@ -1,4 +1,8 @@
-import { generateAnalysisCode, generateAnalysisCodeWithHistory } from "@/lib/llm/code-generation";
+import {
+  generateAnalysisCode,
+  generateAnalysisCodeWithHistory,
+  cleanGeneratedCode,
+} from "@/lib/llm/code-generation";
 import { buildRetryPrompt } from "@/lib/llm/prompts";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
@@ -55,16 +59,7 @@ export async function runPipeline(
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     });
 
-    let retryCode = retryResult.text.trim();
-    if (retryCode.startsWith("```python")) {
-      retryCode = retryCode.slice("```python".length);
-    } else if (retryCode.startsWith("```")) {
-      retryCode = retryCode.slice("```".length);
-    }
-    if (retryCode.endsWith("```")) {
-      retryCode = retryCode.slice(0, -"```".length);
-    }
-    retryCode = retryCode.trim();
+    const retryCode = cleanGeneratedCode(retryResult.text);
 
     onStage?.("executing");
     result = await executeSandbox(
@@ -137,16 +132,7 @@ export async function runChatPipeline(
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     });
 
-    let retryCode = retryResult.text.trim();
-    if (retryCode.startsWith("```python")) {
-      retryCode = retryCode.slice("```python".length);
-    } else if (retryCode.startsWith("```")) {
-      retryCode = retryCode.slice("```".length);
-    }
-    if (retryCode.endsWith("```")) {
-      retryCode = retryCode.slice(0, -"```".length);
-    }
-    retryCode = retryCode.trim();
+    const retryCode = cleanGeneratedCode(retryResult.text);
 
     onStage?.("executing");
     result = await executeSandbox(

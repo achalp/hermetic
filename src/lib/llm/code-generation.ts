@@ -8,6 +8,43 @@ import {
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema, SchemaMode } from "@/lib/types";
 
+/**
+ * Clean LLM-generated code by stripping markdown fences, chat template
+ * tokens, and other artifacts that local models sometimes emit.
+ */
+export function cleanGeneratedCode(raw: string): string {
+  let code = raw.trim();
+
+  // Extract content from markdown code block if present (handles fences anywhere)
+  const fenceMatch = code.match(/```(?:python)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch) {
+    code = fenceMatch[1];
+  } else {
+    // Fallback: strip leading/trailing fences
+    if (code.startsWith("```python")) {
+      code = code.slice("```python".length);
+    } else if (code.startsWith("```")) {
+      code = code.slice("```".length);
+    }
+    if (code.endsWith("```")) {
+      code = code.slice(0, -"```".length);
+    }
+  }
+
+  // Strip chat template tokens that local models sometimes leak
+  code = code.replace(/<\|im_end\|>/g, "");
+  code = code.replace(/<\|im_start\|>[^\n]*/g, "");
+  code = code.replace(/<\|end\|>/g, "");
+  code = code.replace(/<\|assistant\|>/g, "");
+  code = code.replace(/<\|user\|>/g, "");
+  code = code.replace(/<\|eot_id\|>/g, "");
+
+  // Remove any trailing markdown fences that remain after extraction
+  code = code.replace(/\n```\s*$/g, "");
+
+  return code.trim();
+}
+
 export async function generateAnalysisCode(
   schema: CSVSchema,
   question: string,
@@ -23,19 +60,7 @@ export async function generateAnalysisCode(
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
-  let code = result.text.trim();
-
-  // Strip markdown fencing if present
-  if (code.startsWith("```python")) {
-    code = code.slice("```python".length);
-  } else if (code.startsWith("```")) {
-    code = code.slice("```".length);
-  }
-  if (code.endsWith("```")) {
-    code = code.slice(0, -"```".length);
-  }
-
-  return code.trim();
+  return cleanGeneratedCode(result.text);
 }
 
 export async function generateAnalysisCodeWithHistory(
@@ -54,17 +79,5 @@ export async function generateAnalysisCodeWithHistory(
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
-  let code = result.text.trim();
-
-  // Strip markdown fencing if present
-  if (code.startsWith("```python")) {
-    code = code.slice("```python".length);
-  } else if (code.startsWith("```")) {
-    code = code.slice("```".length);
-  }
-  if (code.endsWith("```")) {
-    code = code.slice(0, -"```".length);
-  }
-
-  return code.trim();
+  return cleanGeneratedCode(result.text);
 }

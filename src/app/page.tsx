@@ -20,7 +20,7 @@ const ResponsePanel = dynamic(
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
-import { getLocalBackendConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
+import { checkLlmReady, getLocalBackendConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -78,8 +78,10 @@ export default function Home() {
   });
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
   const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
+  const [llmWarning, setLlmWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rerunVizIdRef = useRef<string | null>(null);
+  const openSettingsRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -99,6 +101,20 @@ export default function Home() {
       .catch(() => {});
     return () => controller.abort();
   }, []);
+
+  const handleGuardedQuery = useCallback(
+    async (question: string) => {
+      setLlmWarning(null);
+      const readiness = await checkLlmReady();
+      if (!readiness.ready) {
+        setLlmWarning(readiness.message ?? "LLM is not available.");
+        openSettingsRef.current?.();
+        return;
+      }
+      handleQuery(question);
+    },
+    [handleQuery]
+  );
 
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
     setSandboxRuntime(r);
@@ -244,6 +260,7 @@ export default function Home() {
                 onOllamaModelChange={setOllamaModel}
                 schemaMode={schemaMode}
                 onSchemaModeChange={setSchemaMode}
+                openRef={openSettingsRef}
               />
               <button
                 onClick={toggleSaved}
@@ -316,8 +333,28 @@ export default function Home() {
                 schema && <SchemaPreview schema={schema} collapsed={questionSeq > 0} />
               )}
 
+              {llmWarning && (
+                <div
+                  className="flex items-center justify-between gap-3 border px-4 py-3 text-sm"
+                  style={{
+                    borderRadius: "var(--radius-card)",
+                    borderColor: "var(--color-warning-border)",
+                    backgroundColor: "var(--color-warning-bg)",
+                    color: "var(--color-warning-text)",
+                  }}
+                >
+                  <span>{llmWarning}</span>
+                  <button
+                    onClick={() => setLlmWarning(null)}
+                    className="shrink-0 font-medium hover:opacity-70"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
               <QueryInput
-                onSubmit={handleQuery}
+                onSubmit={handleGuardedQuery}
                 disabled={!isUploaded}
                 isLoading={isAnalyzing}
                 initialValue={currentQuestion}
