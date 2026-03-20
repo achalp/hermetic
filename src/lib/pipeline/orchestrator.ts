@@ -2,6 +2,7 @@ import {
   generateAnalysisCode,
   generateAnalysisCodeWithHistory,
   cleanGeneratedCode,
+  fixUpFilenames,
 } from "@/lib/llm/code-generation";
 import { buildRetryPrompt } from "@/lib/llm/prompts";
 import { executeSandbox } from "@/lib/sandbox";
@@ -33,7 +34,16 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code
   onStage?.("generating_code");
-  let code = await generateAnalysisCode(schema, question, mode, model, workbookContext);
+  let code: string;
+  try {
+    code = await generateAnalysisCode(schema, question, mode, model, workbookContext);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error("Code generation failed", { error: msg });
+    throw new Error(
+      msg || "LLM failed to generate code — check that the model server is running and responsive."
+    );
+  }
 
   // Step 2: Execute in sandbox
   logger.debug("Generated code", { chars: code.length });
@@ -59,7 +69,7 @@ export async function runPipeline(
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     });
 
-    const retryCode = cleanGeneratedCode(retryResult.text);
+    const retryCode = fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename);
 
     onStage?.("executing");
     result = await executeSandbox(
@@ -100,14 +110,23 @@ export async function runChatPipeline(
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code with conversation context
   onStage?.("generating_code");
-  let code = await generateAnalysisCodeWithHistory(
-    schema,
-    question,
-    conversationHistory,
-    mode,
-    model,
-    workbookContext
-  );
+  let code: string;
+  try {
+    code = await generateAnalysisCodeWithHistory(
+      schema,
+      question,
+      conversationHistory,
+      mode,
+      model,
+      workbookContext
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error("Code generation failed", { error: msg });
+    throw new Error(
+      msg || "LLM failed to generate code — check that the model server is running and responsive."
+    );
+  }
 
   // Step 2: Execute in sandbox
   onStage?.("executing");
@@ -132,7 +151,7 @@ export async function runChatPipeline(
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     });
 
-    const retryCode = cleanGeneratedCode(retryResult.text);
+    const retryCode = fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename);
 
     onStage?.("executing");
     result = await executeSandbox(

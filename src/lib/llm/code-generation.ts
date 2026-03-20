@@ -45,6 +45,18 @@ export function cleanGeneratedCode(raw: string): string {
   return code.trim();
 }
 
+/**
+ * Fix filenames in generated code: local models sometimes use the original
+ * filename (e.g. "/data/sales.csv") instead of the expected "/data/input.csv".
+ */
+export function fixUpFilenames(code: string, originalFilename: string): string {
+  if (!originalFilename || originalFilename === "input.csv") return code;
+  // Replace /data/<original-filename> with /data/input.csv
+  // Handle both the exact name and common variations (with/without extension)
+  const escaped = originalFilename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return code.replace(new RegExp(`/data/${escaped}`, "g"), "/data/input.csv");
+}
+
 export async function generateAnalysisCode(
   schema: CSVSchema,
   question: string,
@@ -60,7 +72,7 @@ export async function generateAnalysisCode(
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
-  return cleanGeneratedCode(result.text);
+  return fixUpFilenames(cleanGeneratedCode(result.text), schema.filename);
 }
 
 export async function generateAnalysisCodeWithHistory(
@@ -79,5 +91,5 @@ export async function generateAnalysisCodeWithHistory(
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
-  return cleanGeneratedCode(result.text);
+  return fixUpFilenames(cleanGeneratedCode(result.text), schema.filename);
 }
