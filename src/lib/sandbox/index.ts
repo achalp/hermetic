@@ -12,9 +12,10 @@ export interface AdditionalFile {
 }
 
 /**
- * Python prelude that monkey-patches json.dump/dumps to force allow_nan=True.
- * This prevents generated code from crashing on NaN/Infinity values.
- * The JS-side output parser already replaces NaN/Infinity with null.
+ * Python prelude injected before every generated script.
+ * - Patches json.dump/dumps to force allow_nan=True (prevents NaN crash)
+ * - Patches DataFrame.corr/cov to auto-select numeric columns (prevents
+ *   "could not convert string to float" when LLM forgets select_dtypes)
  */
 export const PYTHON_NAN_PRELUDE = `
 import json as _json_mod
@@ -28,6 +29,18 @@ def _safe_dumps(*a, **kw):
     return _orig_dumps(*a, **kw)
 _json_mod.dump = _safe_dump
 _json_mod.dumps = _safe_dumps
+try:
+    import pandas as _pd
+    _orig_corr = _pd.DataFrame.corr
+    _orig_cov = _pd.DataFrame.cov
+    def _safe_corr(self, *a, **kw):
+        return _orig_corr(self.select_dtypes(include="number"), *a, **kw)
+    def _safe_cov(self, *a, **kw):
+        return _orig_cov(self.select_dtypes(include="number"), *a, **kw)
+    _pd.DataFrame.corr = _safe_corr
+    _pd.DataFrame.cov = _safe_cov
+except ImportError:
+    pass
 `;
 
 type SandboxExecutor = (

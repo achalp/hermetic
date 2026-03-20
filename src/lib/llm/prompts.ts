@@ -213,6 +213,7 @@ Rules:
   - Use case-insensitive lookup when column names might differ in casing: match = [c for c in df.columns if c.lower() == expected.lower()].
   - When a column is not found, try partial/fuzzy matching before giving up: match = [c for c in df.columns if expected.lower() in c.lower()].
   - Convert numeric columns explicitly: pd.to_numeric(df[col], errors="coerce") — do not assume dtype.
+  - For correlation, PCA, or any operation requiring numeric data, select numeric columns first: df.select_dtypes(include="number"). Never call df.corr() on a DataFrame with string columns.
   - When aggregating (sum, mean, etc.), verify the result is not NaN/0 due to type issues. If a numeric column is stored as strings with formatting (e.g. "$1,234"), strip non-numeric characters first: df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^0-9.\-]', '', regex=True), errors='coerce').
   - For workbook joins, verify the join produced rows: assert len(merged) > 0 or fall back gracefully.
 - Do NOT use print() at all. Write the final JSON output to "/data/output.json" using: json.dump(output, open("/data/output.json", "w"), default=str, allow_nan=False). Replace NaN/None values in DataFrames before serialization: df = df.fillna("") or df = df.where(df.notna(), None).
