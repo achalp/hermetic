@@ -73,7 +73,23 @@ function ollamaFetch(baseUrl: string) {
       body: JSON.stringify(ollamaBody),
     });
 
-    if (!ollamaRes.ok || !ollamaRes.body) {
+    if (!ollamaRes.ok) {
+      const errText = await ollamaRes.text().catch(() => "");
+      let errMsg: string;
+      try {
+        const errJson = JSON.parse(errText);
+        errMsg = errJson.error ?? errText;
+      } catch {
+        errMsg = errText || `Ollama returned HTTP ${ollamaRes.status}`;
+      }
+      return new Response(
+        JSON.stringify({
+          error: { message: errMsg, type: "server_error", code: ollamaRes.status },
+        }),
+        { status: ollamaRes.status, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!ollamaRes.body) {
       return ollamaRes;
     }
 
@@ -398,7 +414,22 @@ function localOpenAIFetch(baseUrl: string) {
       });
     }
 
-    if (!ccRes.ok || !ccRes.body) return ccRes;
+    if (!ccRes.ok) {
+      // Translate error into a format the AI SDK can extract a message from
+      const errText = await ccRes.text().catch(() => "");
+      let errMsg: string;
+      try {
+        const errJson = JSON.parse(errText);
+        errMsg = errJson.error?.message ?? errJson.error ?? errText;
+      } catch {
+        errMsg = errText || `Local LLM server returned HTTP ${ccRes.status}`;
+      }
+      return new Response(
+        JSON.stringify({ error: { message: errMsg, type: "server_error", code: ccRes.status } }),
+        { status: ccRes.status, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (!ccRes.body) return ccRes;
 
     // --- Non-streaming: translate Chat Completion → Responses API ---
     if (!isStreaming) {
