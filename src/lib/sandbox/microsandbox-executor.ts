@@ -99,56 +99,61 @@ export async function getOrCreateSandbox(): Promise<PythonSandbox> {
   // If the warmup script already ran, packages are installed. Otherwise install now.
   const probe = await sandbox.run("import pandas", { timeout: 10 }).catch(() => null);
   if (!probe || probe.hasError()) {
-    logger.debug("pandas not found — fixing pip and installing packages...");
+    logger.debug("pandas not found — installing packages...");
 
-    // The default microsandbox/python image has a broken pip. Download get-pip.py
-    // on the HOST (reliable networking) and send it into the sandbox via base64.
-    const CHUNK = 512 * 1024;
-    const resp = await fetch("https://bootstrap.pypa.io/get-pip.py");
-    if (!resp.ok) throw new Error(`Failed to download get-pip.py: HTTP ${resp.status}`);
-    const buf = Buffer.from(await resp.arrayBuffer());
+    // The base image's pip may be corrupted (missing _vendor.pygments on overlay fs).
+    // Workaround: set PYTHONPATH to the pip wheel bundled with ensurepip so pip loads
+    // from the pristine wheel instead of the broken site-packages installation.
+    const findWheel = await sandbox.command
+      .run(
+        "python3",
+        [
+          "-c",
+          'import ensurepip, os; d = os.path.join(os.path.dirname(ensurepip.__file__), "_bundled"); whl = [f for f in os.listdir(d) if f.startswith("pip")][0]; print(os.path.join(d, whl))',
+        ],
+        10
+      )
+      .catch(() => null);
+    const wheelPath = findWheel ? (await findWheel.output().catch(() => "")).trim() : "";
 
-    const first = buf.subarray(0, CHUNK).toString("base64");
-    await sandbox.run(
-      `import base64, pathlib; pathlib.Path("/tmp/get-pip.py").write_bytes(base64.b64decode(${JSON.stringify(first)}))`,
-      { timeout: 10 }
+    // Build the install command — use PYTHONPATH workaround if we found the wheel
+    const pipPrefix = wheelPath ? `PYTHONPATH=${wheelPath} ` : "";
+    const pkgList = PACKAGES.join(" ");
+    const installResult = await sandbox.command.run(
+      "sh",
+      ["-c", `${pipPrefix}python3 -m pip install -q --root-user-action=ignore ${pkgList} 2>&1`],
+      360
     );
-    for (let off = CHUNK; off < buf.length; off += CHUNK) {
-      const chunk = buf.subarray(off, off + CHUNK).toString("base64");
-      await sandbox.run(
-        `import base64\nwith open("/tmp/get-pip.py", "ab") as f: f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
-        { timeout: 10 }
+
+    if (!installResult.success) {
+      const installOut = await installResult.output().catch(() => "");
+      const installErr = await installResult.error().catch(() => "");
+      logger.error("pip install failed", {
+        exitCode: installResult.exitCode,
+        stderr: installErr.slice(0, 300),
+        stdout: installOut.slice(0, 300),
+      });
+      await sandbox.stop().catch(() => {});
+      throw new Error(
+        `Failed to install packages (exit ${installResult.exitCode}): ${(installErr || installOut).slice(0, 300)}`
       );
     }
-
-    // Try get-pip.py first, checking the return code
-    const getPipExec = await sandbox.run(
-      `import subprocess, sys\n` +
-        `r = subprocess.run([sys.executable, "/tmp/get-pip.py", "--force-reinstall", "-q"], capture_output=True, text=True, timeout=120)\n` +
-        `if r.returncode != 0:\n` +
-        `    # Fallback: try ensurepip\n` +
-        `    r2 = subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"], capture_output=True, text=True, timeout=60)\n` +
-        `    assert r2.returncode == 0, f"Both get-pip.py (exit {r.returncode}: {r.stderr[:200]}) and ensurepip (exit {r2.returncode}: {r2.stderr[:200]}) failed"`,
-      { timeout: 150 }
-    );
-    if (getPipExec.hasError()) {
-      const err = await getPipExec.error().catch(() => "unknown error");
-      logger.debug(`pip bootstrap warning: ${String(err).slice(0, 200)}`);
-      // Still try to install packages — pip might work from a previous run
-    }
-
-    const pipExec = await sandbox.run(
-      `import subprocess, sys\n` +
-        `r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", ${PACKAGES.map((p) => `"${p}"`).join(", ")}], capture_output=True, text=True, timeout=300)\n` +
-        `assert r.returncode == 0, f"pip failed (exit {r.returncode}):\\n{r.stderr}"`,
-      { timeout: 360 }
-    );
-    if (pipExec.hasError()) {
-      const err = await pipExec.error().catch(() => "unknown error");
-      await sandbox.stop().catch(() => {});
-      throw new Error(`Failed to install packages: ${String(err).slice(0, 300)}`);
-    }
     logger.debug("Packages installed successfully");
+
+    // Verify packages are importable
+    const verify = await sandbox
+      .run("import pandas, numpy, scipy", { timeout: 10 })
+      .catch(() => null);
+    if (!verify || verify.hasError()) {
+      const verifyErr = verify ? await verify.error().catch(() => "unknown") : "no response";
+      logger.error("Package verification failed after install", {
+        error: String(verifyErr).slice(0, 200),
+      });
+      await sandbox.stop().catch(() => {});
+      throw new Error(
+        "Packages installed but not importable — sandbox filesystem may be corrupted"
+      );
+    }
   }
 
   // Create base /data directory
