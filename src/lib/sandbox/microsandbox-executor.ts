@@ -15,6 +15,65 @@ const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-l
 let warmSandbox: PythonSandbox | null = null;
 let sandboxReady = false;
 
+/**
+ * Send a raw JSON-RPC call to the microsandbox server.
+ * Used to force-stop broken sandboxes that the SDK can't stop.
+ */
+async function rawRpc(
+  method: string,
+  params: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const url = process.env.MICROSANDBOX_URL || "http://127.0.0.1:5555";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (process.env.MICROSANDBOX_API_KEY) {
+    headers["Authorization"] = `Bearer ${process.env.MICROSANDBOX_API_KEY}`;
+  }
+  const res = await fetch(`${url}/api/v1/rpc`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: randomUUID() }),
+  });
+  return (await res.json()) as Record<string, unknown>;
+}
+
+/**
+ * Create a sandbox and verify it can execute code.
+ * If the sandbox name is taken by a zombie, force-stop it first.
+ */
+async function createHealthySandbox(
+  opts: Parameters<typeof PythonSandbox.create>[0]
+): Promise<PythonSandbox> {
+  const sandbox = await PythonSandbox.create(opts);
+
+  // Verify the REPL actually works — sandbox.start can silently succeed
+  // even when reconnecting to a broken/zombie sandbox.
+  const check = await sandbox.run("print('ok')", { timeout: 10 }).catch(() => null);
+  if (check && !check.hasError()) return sandbox;
+
+  // REPL broken — force-stop via raw API (SDK's stop also fails with 5002
+  // on broken sandboxes) and create fresh.
+  const name = opts?.name ?? SANDBOX_NAME;
+  logger.debug("Sandbox started but REPL is broken, force-stopping and recreating...", { name });
+  const stopResult = await rawRpc("sandbox.stop", {
+    namespace: "default",
+    sandbox: name,
+  }).catch(() => null);
+
+  // Brief wait for the server to clean up the stopped sandbox
+  await new Promise((r) => setTimeout(r, 1000));
+
+  if (stopResult && !("error" in stopResult)) {
+    // Stop succeeded — recreate with same name
+    return PythonSandbox.create(opts);
+  }
+
+  // Even raw stop failed — server state is corrupted for this sandbox name.
+  // Use a fresh name to sidestep the broken entry entirely.
+  const freshName = `${name}-${randomUUID().slice(0, 8)}`;
+  logger.debug("Force-stop failed, creating sandbox with fresh name", { freshName });
+  return PythonSandbox.create({ ...opts, name: freshName });
+}
+
 export async function getOrCreateSandbox(): Promise<PythonSandbox> {
   if (warmSandbox && sandboxReady) {
     return warmSandbox;
@@ -28,12 +87,14 @@ export async function getOrCreateSandbox(): Promise<PythonSandbox> {
   }
 
   logger.debug("Creating persistent microsandbox...");
-  const sandbox = await PythonSandbox.create({
+  const sboxOpts = {
     name: SANDBOX_NAME,
     ...(process.env.MICROSANDBOX_IMAGE && { image: process.env.MICROSANDBOX_IMAGE }),
     ...(process.env.MICROSANDBOX_URL && { serverUrl: process.env.MICROSANDBOX_URL }),
     ...(process.env.MICROSANDBOX_API_KEY && { apiKey: process.env.MICROSANDBOX_API_KEY }),
-  });
+  };
+
+  const sandbox = await createHealthySandbox(sboxOpts);
 
   // If the warmup script already ran, packages are installed. Otherwise install now.
   const probe = await sandbox.run("import pandas", { timeout: 10 }).catch(() => null);
