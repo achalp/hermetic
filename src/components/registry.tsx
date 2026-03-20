@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { defineRegistry } from "@json-render/react";
 import { catalog } from "@/lib/catalog";
 import type { DrillDownParams } from "@/lib/types";
@@ -13,49 +14,156 @@ import {
   NumberInputComponent,
   ToggleSwitchComponent,
 } from "./registry-primitives";
-import { BarChartComponent } from "./charts/bar-chart";
-import { LineChartComponent } from "./charts/line-chart";
-import { AreaChartComponent } from "./charts/area-chart";
-import { PieChartComponent } from "./charts/pie-chart";
-import { ScatterChartComponent } from "./charts/scatter-chart";
-import { MapViewComponent } from "./charts/map-view";
-import { ChartImageComponent } from "./charts/chart-image";
-import { HistogramChartComponent } from "./charts/histogram-chart";
-import { BoxPlotChartComponent } from "./charts/box-plot-chart";
-import { HeatMapChartComponent } from "./charts/heatmap-chart";
-import { ViolinChartComponent } from "./charts/violin-chart";
-import { Scatter3DChartComponent } from "./charts/scatter3d-chart";
-import { Surface3DChartComponent } from "./charts/surface3d-chart";
-import { Globe3DComponent } from "./charts/globe-view";
-import { Map3DComponent } from "./charts/map3d-view";
-import { CandlestickChartComponent } from "./charts/candlestick-chart";
-import { SankeyChartComponent } from "./charts/sankey-chart";
-import { TreemapChartComponent } from "./charts/treemap-chart";
-import { RadarChartComponent } from "./charts/radar-chart";
-import { BumpChartComponent } from "./charts/bump-chart";
-import { ChordChartComponent } from "./charts/chord-chart";
-import { SunburstChartComponent } from "./charts/sunburst-chart";
-import { MarimekkoChartComponent } from "./charts/marimekko-chart";
-import { CalendarChartComponent } from "./charts/calendar-chart";
-import { StreamChartComponent } from "./charts/stream-chart";
-import { WaterfallChartComponent } from "./charts/waterfall-chart";
-import { RidgelineChartComponent } from "./charts/ridgeline-chart";
-import { DumbbellChartComponent } from "./charts/dumbbell-chart";
-import { SlopeChartComponent } from "./charts/slope-chart";
-import { BeeswarmChartComponent } from "./charts/beeswarm-chart";
-import { ShapBeeswarmComponent } from "./charts/shap-beeswarm-chart";
-import { ConfusionMatrixComponent } from "./charts/confusion-matrix-chart";
-import { RocCurveComponent } from "./charts/roc-curve-chart";
-import { ParallelCoordinatesComponent } from "./charts/parallel-coordinates-chart";
-import { BulletChartComponent } from "./charts/bullet-chart";
-import { DecisionTreeComponent } from "./charts/decision-tree-chart";
 import { ChartExpandWrapper } from "./charts/chart-expand-wrapper";
 import { ChartSelectionBridge } from "./charts/chart-selection-bridge";
+import { ChartImageComponent } from "./charts/chart-image";
 import { DataControllerComponent } from "./controllers/data-controller";
 import { FormControllerComponent } from "./controllers/form-controller";
 import { TextInputComponent } from "./inputs/text-input";
 import { TextAreaComponent } from "./inputs/text-area";
 import { DataTableComponent } from "./data-table";
+
+// Lazy-load all chart components to avoid compiling heavy deps (nivo, plotly, deck.gl, three.js)
+// on initial page load. Each chart is only compiled when first rendered.
+const BarChartComponent = dynamic(
+  () => import("./charts/bar-chart").then((m) => m.BarChartComponent),
+  { ssr: false }
+);
+const LineChartComponent = dynamic(
+  () => import("./charts/line-chart").then((m) => m.LineChartComponent),
+  { ssr: false }
+);
+const AreaChartComponent = dynamic(
+  () => import("./charts/area-chart").then((m) => m.AreaChartComponent),
+  { ssr: false }
+);
+const PieChartComponent = dynamic(
+  () => import("./charts/pie-chart").then((m) => m.PieChartComponent),
+  { ssr: false }
+);
+const ScatterChartComponent = dynamic(
+  () => import("./charts/scatter-chart").then((m) => m.ScatterChartComponent),
+  { ssr: false }
+);
+const MapViewComponent = dynamic(
+  () => import("./charts/map-view").then((m) => m.MapViewComponent),
+  { ssr: false }
+);
+const HistogramChartComponent = dynamic(
+  () => import("./charts/histogram-chart").then((m) => m.HistogramChartComponent),
+  { ssr: false }
+);
+const BoxPlotChartComponent = dynamic(
+  () => import("./charts/box-plot-chart").then((m) => m.BoxPlotChartComponent),
+  { ssr: false }
+);
+const HeatMapChartComponent = dynamic(
+  () => import("./charts/heatmap-chart").then((m) => m.HeatMapChartComponent),
+  { ssr: false }
+);
+const ViolinChartComponent = dynamic(
+  () => import("./charts/violin-chart").then((m) => m.ViolinChartComponent),
+  { ssr: false }
+);
+const Scatter3DChartComponent = dynamic(
+  () => import("./charts/scatter3d-chart").then((m) => m.Scatter3DChartComponent),
+  { ssr: false }
+);
+const Surface3DChartComponent = dynamic(
+  () => import("./charts/surface3d-chart").then((m) => m.Surface3DChartComponent),
+  { ssr: false }
+);
+const Globe3DComponent = dynamic(
+  () => import("./charts/globe-view").then((m) => m.Globe3DComponent),
+  { ssr: false }
+);
+const Map3DComponent = dynamic(() => import("./charts/map3d-view").then((m) => m.Map3DComponent), {
+  ssr: false,
+});
+const CandlestickChartComponent = dynamic(
+  () => import("./charts/candlestick-chart").then((m) => m.CandlestickChartComponent),
+  { ssr: false }
+);
+const SankeyChartComponent = dynamic(
+  () => import("./charts/sankey-chart").then((m) => m.SankeyChartComponent),
+  { ssr: false }
+);
+const TreemapChartComponent = dynamic(
+  () => import("./charts/treemap-chart").then((m) => m.TreemapChartComponent),
+  { ssr: false }
+);
+const RadarChartComponent = dynamic(
+  () => import("./charts/radar-chart").then((m) => m.RadarChartComponent),
+  { ssr: false }
+);
+const BumpChartComponent = dynamic(
+  () => import("./charts/bump-chart").then((m) => m.BumpChartComponent),
+  { ssr: false }
+);
+const ChordChartComponent = dynamic(
+  () => import("./charts/chord-chart").then((m) => m.ChordChartComponent),
+  { ssr: false }
+);
+const SunburstChartComponent = dynamic(
+  () => import("./charts/sunburst-chart").then((m) => m.SunburstChartComponent),
+  { ssr: false }
+);
+const MarimekkoChartComponent = dynamic(
+  () => import("./charts/marimekko-chart").then((m) => m.MarimekkoChartComponent),
+  { ssr: false }
+);
+const CalendarChartComponent = dynamic(
+  () => import("./charts/calendar-chart").then((m) => m.CalendarChartComponent),
+  { ssr: false }
+);
+const StreamChartComponent = dynamic(
+  () => import("./charts/stream-chart").then((m) => m.StreamChartComponent),
+  { ssr: false }
+);
+const WaterfallChartComponent = dynamic(
+  () => import("./charts/waterfall-chart").then((m) => m.WaterfallChartComponent),
+  { ssr: false }
+);
+const RidgelineChartComponent = dynamic(
+  () => import("./charts/ridgeline-chart").then((m) => m.RidgelineChartComponent),
+  { ssr: false }
+);
+const DumbbellChartComponent = dynamic(
+  () => import("./charts/dumbbell-chart").then((m) => m.DumbbellChartComponent),
+  { ssr: false }
+);
+const SlopeChartComponent = dynamic(
+  () => import("./charts/slope-chart").then((m) => m.SlopeChartComponent),
+  { ssr: false }
+);
+const BeeswarmChartComponent = dynamic(
+  () => import("./charts/beeswarm-chart").then((m) => m.BeeswarmChartComponent),
+  { ssr: false }
+);
+const ShapBeeswarmComponent = dynamic(
+  () => import("./charts/shap-beeswarm-chart").then((m) => m.ShapBeeswarmComponent),
+  { ssr: false }
+);
+const ConfusionMatrixComponent = dynamic(
+  () => import("./charts/confusion-matrix-chart").then((m) => m.ConfusionMatrixComponent),
+  { ssr: false }
+);
+const RocCurveComponent = dynamic(
+  () => import("./charts/roc-curve-chart").then((m) => m.RocCurveComponent),
+  { ssr: false }
+);
+const ParallelCoordinatesComponent = dynamic(
+  () => import("./charts/parallel-coordinates-chart").then((m) => m.ParallelCoordinatesComponent),
+  { ssr: false }
+);
+const BulletChartComponent = dynamic(
+  () => import("./charts/bullet-chart").then((m) => m.BulletChartComponent),
+  { ssr: false }
+);
+const DecisionTreeComponent = dynamic(
+  () => import("./charts/decision-tree-chart").then((m) => m.DecisionTreeComponent),
+  { ssr: false }
+);
 
 const { registry } = defineRegistry(catalog, {
   components: {

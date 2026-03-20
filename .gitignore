@@ -36,8 +36,7 @@ yarn-error.log*
 !.env.example
 
 # runtime config & user data
-data/runtime-config.json
-data/saved-vizs/
+data/
 
 # vercel
 .vercel
