@@ -5,6 +5,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { logger } from "@/lib/logger";
 
 /**
  * Extract plain-text content from an OpenAI Responses API message.
@@ -363,6 +364,7 @@ function localOpenAIFetch(baseUrl: string) {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 
     if (!url.includes("/responses") || !init?.body) {
+      logger.debug("localOpenAIFetch passthrough", { url });
       return globalThis.fetch(input, init);
     }
 
@@ -395,6 +397,12 @@ function localOpenAIFetch(baseUrl: string) {
     if (body.temperature != null) ccBody.temperature = body.temperature;
     if (body.max_output_tokens != null) ccBody.max_tokens = body.max_output_tokens;
 
+    logger.debug("localOpenAIFetch → chat/completions", {
+      model: ccBody.model,
+      stream: isStreaming,
+      messages: (messages as Array<{ role: string; content: string }>).length,
+    });
+
     let ccRes: Response;
     try {
       ccRes = await globalThis.fetch(`${baseUrl}/v1/chat/completions`, {
@@ -403,16 +411,20 @@ function localOpenAIFetch(baseUrl: string) {
         body: JSON.stringify(ccBody),
       });
     } catch (err) {
+      const errDetail = err instanceof Error ? err.message : String(err);
+      logger.error("localOpenAIFetch connection error", { error: errDetail });
       // Server crashed or is unreachable — likely OOM / Metal GPU error
       const msg =
         err instanceof Error && err.message.includes("ECONNREFUSED")
           ? "Local LLM server crashed (likely out of memory). Try a smaller model in Settings."
-          : `Cannot connect to local LLM server: ${err instanceof Error ? err.message : err}`;
-      return new Response(JSON.stringify({ error: msg }), {
+          : `Cannot connect to local LLM server: ${errDetail}`;
+      return new Response(JSON.stringify({ error: { message: msg, type: "connection_error" } }), {
         status: 502,
         headers: { "Content-Type": "application/json" },
       });
     }
+
+    logger.debug("localOpenAIFetch response", { status: ccRes.status, ok: ccRes.ok });
 
     if (!ccRes.ok) {
       // Translate error into a format the AI SDK can extract a message from
@@ -433,8 +445,29 @@ function localOpenAIFetch(baseUrl: string) {
 
     // --- Non-streaming: translate Chat Completion → Responses API ---
     if (!isStreaming) {
-      const data = await ccRes.json();
-      const choice = data.choices?.[0];
+      const rawText = await ccRes.text();
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        logger.error("localOpenAIFetch: non-JSON response from LLM", {
+          body: rawText.slice(0, 500),
+        });
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: `Local LLM returned non-JSON response: ${rawText.slice(0, 200)}`,
+              type: "parse_error",
+            },
+          }),
+          { status: 502, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      const choice = d.choices?.[0];
+      const text = choice?.message?.content ?? "";
+      logger.debug("localOpenAIFetch response text", { chars: text.length });
       const ts = Math.floor(Date.now() / 1000);
       return new Response(
         JSON.stringify({
@@ -450,15 +483,13 @@ function localOpenAIFetch(baseUrl: string) {
               type: "message",
               status: "completed",
               role: "assistant",
-              content: [
-                { type: "output_text", text: choice?.message?.content ?? "", annotations: [] },
-              ],
+              content: [{ type: "output_text", text, annotations: [] }],
             },
           ],
           usage: {
-            input_tokens: data.usage?.prompt_tokens ?? 0,
-            output_tokens: data.usage?.completion_tokens ?? 0,
-            total_tokens: data.usage?.total_tokens ?? 0,
+            input_tokens: d.usage?.prompt_tokens ?? 0,
+            output_tokens: d.usage?.completion_tokens ?? 0,
+            total_tokens: d.usage?.total_tokens ?? 0,
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }

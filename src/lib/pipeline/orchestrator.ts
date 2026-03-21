@@ -37,9 +37,23 @@ export async function runPipeline(
   let code: string;
   try {
     code = await generateAnalysisCode(schema, question, mode, model, workbookContext);
-  } catch (err) {
+  } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error("Code generation failed", { error: msg });
+    // Log the full error including any nested cause/errors for debugging
+    const details: Record<string, unknown> = {
+      error: msg,
+      name: err instanceof Error ? err.name : typeof err,
+    };
+    if (err && typeof err === "object" && "errors" in err) {
+      const nested = (err as { errors: unknown[] }).errors;
+      details.nested = nested.map((e) =>
+        e instanceof Error ? { name: e.name, message: e.message } : String(e)
+      );
+    }
+    if (err instanceof Error && err.cause) {
+      details.cause = err.cause instanceof Error ? err.cause.message : String(err.cause);
+    }
+    logger.error("Code generation failed", details);
     throw new Error(
       msg || "LLM failed to generate code — check that the model server is running and responsive."
     );
@@ -120,9 +134,22 @@ export async function runChatPipeline(
       model,
       workbookContext
     );
-  } catch (err) {
+  } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error("Code generation failed", { error: msg });
+    const details: Record<string, unknown> = {
+      error: msg,
+      name: err instanceof Error ? err.name : typeof err,
+    };
+    if (err && typeof err === "object" && "errors" in err) {
+      const nested = (err as { errors: unknown[] }).errors;
+      details.nested = nested.map((e) =>
+        e instanceof Error ? { name: e.name, message: e.message } : String(e)
+      );
+    }
+    if (err instanceof Error && err.cause) {
+      details.cause = err.cause instanceof Error ? err.cause.message : String(err.cause);
+    }
+    logger.error("Code generation failed", details);
     throw new Error(
       msg || "LLM failed to generate code — check that the model server is running and responsive."
     );
