@@ -143,17 +143,19 @@ export function LocalBackendSection({
       .finally(() => setLlmfitLoading(false));
   }, [backend]);
 
-  // Poll while downloads are active so progress updates
+  // Poll while downloads are active or server is starting so progress updates
   const hasActiveDownloads = (status?.downloads?.length ?? 0) > 0;
+  const isServerStarting = status?.status === "starting";
   // True when either a local stream download or a background download is in progress
   const isDownloading = !!pulling || hasActiveDownloads;
+  const needsPolling = hasActiveDownloads || isServerStarting;
   useEffect(() => {
-    if (!hasActiveDownloads) return;
+    if (!needsPolling) return;
     const interval = setInterval(() => {
       checkStatus();
     }, 3000);
     return () => clearInterval(interval);
-  }, [hasActiveDownloads, checkStatus]);
+  }, [needsPolling, checkStatus]);
 
   const activateModel = async (modelName: string) => {
     setError(null);
@@ -406,19 +408,81 @@ export function LocalBackendSection({
     return <div className="text-xs text-t-tertiary">Checking {label}...</div>;
   }
 
-  // Not running
+  // Not running (or starting — process alive but not healthy yet)
   if (!status.running) {
+    // Parse download progress from server logs when process is starting
+    const serverLogs = (status.logs ?? []).map((l: string) =>
+      l.replace(/^\[(stdout|stderr)\]\s*/, "")
+    );
+    let serverProgress: number | null = null;
+    let serverProgressStatus = "";
+    if (isServerStarting && serverLogs.length > 0) {
+      for (let i = serverLogs.length - 1; i >= 0; i--) {
+        const pctMatch = serverLogs[i].match(/(\d{1,3})%/);
+        if (pctMatch) {
+          serverProgress = parseInt(pctMatch[1], 10);
+          break;
+        }
+      }
+      serverProgressStatus = serverLogs[serverLogs.length - 1]?.slice(0, 120) ?? "";
+    }
+
     return (
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <span className="h-2 w-2 rounded-full bg-red-500" />
-          <span className="text-xs font-medium text-t-secondary">Not running</span>
+          {isServerStarting ? (
+            <>
+              <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
+              <span className="text-xs font-medium text-t-secondary">
+                {serverProgress !== null
+                  ? `Downloading model... ${serverProgress}%`
+                  : "Starting..."}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              <span className="text-xs font-medium text-t-secondary">Not running</span>
+            </>
+          )}
           {systemRam > 0 && (
             <span className="ml-auto text-[11px] text-t-tertiary">{systemRam} GB RAM</span>
           )}
         </div>
 
-        {isActive && (
+        {/* Server is starting — show progress bar and logs */}
+        {isServerStarting && (
+          <div className="mb-3">
+            {serverProgress !== null && (
+              <div
+                className="h-1.5 w-full bg-surface-input overflow-hidden mb-2"
+                style={{ borderRadius: "var(--radius-badge)" }}
+              >
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{
+                    width: `${serverProgress}%`,
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                />
+              </div>
+            )}
+            {serverLogs.length > 0 && (
+              <div
+                className="p-2 bg-surface-input text-[11px] text-t-tertiary font-mono max-h-24 overflow-y-auto"
+                style={{ borderRadius: "var(--radius-badge)" }}
+              >
+                {serverLogs.slice(-5).map((line, i) => (
+                  <div key={i} className="truncate">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isActive && !isServerStarting && (
           <div
             className="mb-3 p-2.5 text-xs border border-error-text/30 bg-error-text/5"
             style={{ borderRadius: "var(--radius-badge)" }}
@@ -445,16 +509,13 @@ export function LocalBackendSection({
           </pre>
         )}
 
-        {/* Show crash logs from previous session if available */}
-        {!error && status.logs && status.logs.length > 0 && (
+        {/* Show crash logs from previous session if available (not while starting) */}
+        {!error && !isServerStarting && status.logs && status.logs.length > 0 && (
           <pre
             className="mb-2 p-2 text-[11px] text-t-tertiary bg-surface-input border border-border-default whitespace-pre-wrap break-words max-h-24 overflow-y-auto"
             style={{ borderRadius: "var(--radius-badge)" }}
           >
-            {status.logs
-              .map((l: string) => l.replace(/^\[(stdout|stderr)\]\s*/, ""))
-              .slice(-5)
-              .join("\n")}
+            {serverLogs.slice(-5).join("\n")}
           </pre>
         )}
 
@@ -470,8 +531,8 @@ export function LocalBackendSection({
             />
           ))}
 
-        {/* Start Server button — always visible for all backends when not running */}
-        {!starting && !isDownloading && (
+        {/* Start Server button — hidden while starting */}
+        {!starting && !isDownloading && !isServerStarting && (
           <div className="mb-3">
             <button
               onClick={() => startServer(models[0]?.name ?? recommended[0]?.id ?? "")}
@@ -488,55 +549,59 @@ export function LocalBackendSection({
         )}
 
         {/* Downloaded models — pick which model to start with (MLX / llama.cpp) */}
-        {backend !== "ollama" && models.length > 0 && !isDownloading && !starting && (
-          <div className="mb-3">
-            <label className="mb-1.5 block text-xs font-medium text-t-secondary">
-              Downloaded Models
-            </label>
-            <div className="space-y-1">
-              {models.map((m) => (
-                <div
-                  key={m.name}
-                  className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
-                  style={{ borderRadius: "var(--radius-badge)" }}
-                >
-                  <div className="min-w-0">
-                    <span className="text-xs font-medium text-t-primary truncate block">
-                      {m.name}
-                    </span>
-                    {formatSize(m.size) && (
-                      <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
-                    )}
+        {backend !== "ollama" &&
+          models.length > 0 &&
+          !isDownloading &&
+          !starting &&
+          !isServerStarting && (
+            <div className="mb-3">
+              <label className="mb-1.5 block text-xs font-medium text-t-secondary">
+                Downloaded Models
+              </label>
+              <div className="space-y-1">
+                {models.map((m) => (
+                  <div
+                    key={m.name}
+                    className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                    style={{ borderRadius: "var(--radius-badge)" }}
+                  >
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-t-primary truncate block">
+                        {m.name}
+                      </span>
+                      {formatSize(m.size) && (
+                        <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => startServer(m.name)}
+                        disabled={starting}
+                        className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
+                        style={{
+                          borderRadius: "var(--radius-badge)",
+                          transitionDuration: "var(--transition-speed)",
+                        }}
+                      >
+                        Start
+                      </button>
+                      <button
+                        onClick={() => deleteModel(m.name)}
+                        className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
+                        style={{
+                          borderRadius: "var(--radius-badge)",
+                          transitionDuration: "var(--transition-speed)",
+                        }}
+                        title="Delete model"
+                      >
+                        &times;
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => startServer(m.name)}
-                      disabled={starting}
-                      className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
-                      style={{
-                        borderRadius: "var(--radius-badge)",
-                        transitionDuration: "var(--transition-speed)",
-                      }}
-                    >
-                      Start
-                    </button>
-                    <button
-                      onClick={() => deleteModel(m.name)}
-                      className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
-                      style={{
-                        borderRadius: "var(--radius-badge)",
-                        transitionDuration: "var(--transition-speed)",
-                      }}
-                      title="Delete model"
-                    >
-                      &times;
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Download progress */}
         {pulling && (
@@ -589,7 +654,7 @@ export function LocalBackendSection({
         )}
 
         {/* Recommended models (llmfit-powered) */}
-        {backend !== "ollama" && !isDownloading && !starting && (
+        {backend !== "ollama" && !isDownloading && !starting && !isServerStarting && (
           <LlmfitRecommendations
             models={llmfitModels}
             loading={llmfitLoading}
@@ -605,7 +670,7 @@ export function LocalBackendSection({
         )}
 
         {/* Custom model download — skip Ollama when not running */}
-        {backend !== "ollama" && !isDownloading && !starting && (
+        {backend !== "ollama" && !isDownloading && !starting && !isServerStarting && (
           <div className="mb-3">
             <label className="mb-1 block text-xs font-medium text-t-secondary">
               Download Custom Model
