@@ -122,6 +122,35 @@ print(path)
   });
 }
 
+/**
+ * Quick check whether a HuggingFace repo looks MLX-compatible.
+ * MLX needs safetensors weights — repos with only .bin / .pt files will crash.
+ */
+async function checkMlxCompatibility(model: string): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const res = await fetch(`https://huggingface.co/api/models/${encodeURIComponent(model)}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return { ok: true }; // Can't verify — let the download proceed
+    const data = await res.json();
+    const siblings: Array<{ rfilename: string }> = data.siblings ?? [];
+    const hasSafetensors = siblings.some((f: { rfilename: string }) =>
+      f.rfilename.endsWith(".safetensors")
+    );
+    if (!hasSafetensors) {
+      return {
+        ok: false,
+        reason:
+          `${model} does not contain safetensors weights and is not compatible with MLX. ` +
+          `Look for an MLX-converted version (e.g. from mlx-community) or choose a different model.`,
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: true }; // Network error — don't block
+  }
+}
+
 export async function POST(request: Request) {
   const body = await request.json();
   const { backend, model } = body;
@@ -149,6 +178,12 @@ export async function POST(request: Request) {
   }
 
   if (backend === "mlx") {
+    // Validate model has safetensors before downloading
+    const compat = await checkMlxCompatibility(model);
+    if (!compat.ok) {
+      return Response.json({ error: compat.reason }, { status: 400 });
+    }
+
     // Use huggingface-cli download to fetch the model
     const encoder = new TextEncoder();
     const readable = new ReadableStream({

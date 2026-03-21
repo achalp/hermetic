@@ -25,10 +25,12 @@ const RUNTIME_MAP: Record<string, string> = {
 const INCOMPATIBLE_FORMATS = /FP4|FP8|AWQ|GPTQ|EXL2|AQLM|HQQ/i;
 
 /** Check if a model name/org indicates MLX-compatible weights */
-function isMlxCompatible(name: string, quant: string): boolean {
+function isMlxCompatible(name: string): boolean {
   if (INCOMPATIBLE_FORMATS.test(name)) return false;
   const lower = name.toLowerCase();
-  return lower.includes("mlx") || lower.startsWith("mlx-community/") || quant.startsWith("mlx-");
+  // Must explicitly be an MLX model — vanilla HF models (PyTorch .bin) will crash MLX.
+  // Don't trust quant field alone since llmfit may tag any model as mlx when forced.
+  return lower.includes("mlx") || lower.startsWith("mlx-community/");
 }
 
 /** Check if a model is usable with llama.cpp (GGUF format) */
@@ -98,7 +100,7 @@ export async function GET(request: Request) {
     // Filter to models compatible with the selected backend
     const models = all
       .filter((m) => {
-        if (backend === "mlx") return isMlxCompatible(m.name, m.best_quant);
+        if (backend === "mlx") return isMlxCompatible(m.name);
         if (backend === "llama-cpp" || backend === "ollama")
           return isGgufCompatible(m.name, m.best_quant, m.gguf_sources);
         return true;

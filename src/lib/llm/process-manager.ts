@@ -267,6 +267,21 @@ export async function startServer(
   return { pid, baseUrl };
 }
 
+/** Find PID of a process listening on a given port (macOS/Linux) */
+function findPidByPort(port: number): number | null {
+  try {
+    // macOS: lsof -ti :PORT; Linux: fuser PORT/tcp
+    const output = execSync(`lsof -ti :${port} 2>/dev/null || fuser ${port}/tcp 2>/dev/null`, {
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim();
+    const pid = parseInt(output.split("\n")[0], 10);
+    return isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+
 /** Stop a backend server subprocess */
 export async function stopServer(backend: string): Promise<void> {
   // Kill tracked process
@@ -316,6 +331,29 @@ export async function stopServer(backend: string): Promise<void> {
           process.kill(pid, "SIGKILL");
         } catch {
           // already dead
+        }
+      }
+    }
+  }
+
+  // Last resort: find orphan process by port (handles cases where PID was lost)
+  if (backend !== "ollama") {
+    const port = DEFAULT_PORTS[backend];
+    if (port) {
+      const orphanPid = findPidByPort(port);
+      if (orphanPid && orphanPid !== pid && isPidAlive(orphanPid)) {
+        try {
+          process.kill(orphanPid, "SIGTERM");
+        } catch {
+          // ignore
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+        if (isPidAlive(orphanPid)) {
+          try {
+            process.kill(orphanPid, "SIGKILL");
+          } catch {
+            // ignore
+          }
         }
       }
     }
