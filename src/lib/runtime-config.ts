@@ -28,6 +28,8 @@ export interface RuntimeConfig {
   mlx?: MlxConfig;
   llamaCpp?: LlamaCppConfig;
   sandboxRuntime?: "docker" | "e2b" | "microsandbox";
+  /** User-selected LLM provider override (takes priority over auto-detection) */
+  activeProvider?: string;
 }
 
 const CONFIG_PATH = join(process.cwd(), "data", "runtime-config.json");
@@ -71,6 +73,9 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
   }
   if (partial.sandboxRuntime !== undefined) {
     merged.sandboxRuntime = partial.sandboxRuntime;
+  }
+  if (partial.activeProvider !== undefined) {
+    merged.activeProvider = partial.activeProvider || undefined;
   }
 
   // Atomic write: write to tmp then rename

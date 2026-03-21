@@ -732,9 +732,24 @@ export function getActiveProvider(): LLMProviderId {
     return normalized;
   }
 
-  // Check runtime config for local backends — user explicitly enabled in UI,
-  // so they take priority over auto-detected env var credentials
+  // Check runtime config for user-selected provider (from Settings UI)
   const rc = getRuntimeConfig();
+  if (rc.activeProvider) {
+    const validProviders = [
+      "anthropic",
+      "bedrock",
+      "vertex",
+      "openai-compatible",
+      "mlx",
+      "llama-cpp",
+      "ollama",
+    ];
+    if (validProviders.includes(rc.activeProvider)) {
+      return rc.activeProvider as LLMProviderId;
+    }
+  }
+
+  // Check runtime config for local backends — user explicitly enabled in UI
   if (rc.mlx?.enabled && rc.mlx.activeModel) return "mlx";
   if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
   if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";

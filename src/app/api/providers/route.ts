@@ -1,7 +1,7 @@
 import { getActiveProvider } from "@/lib/llm/client";
 import { AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
-import { getRuntimeConfig } from "@/lib/runtime-config";
+import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 
 export function GET() {
   let active: LLMProviderId;
@@ -35,5 +35,31 @@ export function GET() {
     activeLabel: activeInfo?.label ?? active,
     configured,
     ...(model && { model }),
+  });
+}
+
+export async function PUT(request: Request) {
+  const body = await request.json();
+  const { provider } = body;
+
+  if (!provider) {
+    return Response.json({ error: "provider is required" }, { status: 400 });
+  }
+
+  const validProviders = AVAILABLE_PROVIDERS.map((p) => p.id);
+  if (!validProviders.includes(provider)) {
+    return Response.json({ error: `Invalid provider: ${provider}` }, { status: 400 });
+  }
+
+  // Save the user's provider preference
+  setRuntimeConfig({ activeProvider: provider });
+
+  // Re-read to confirm
+  const active = getActiveProvider();
+  const activeInfo = AVAILABLE_PROVIDERS.find((p) => p.id === active);
+
+  return Response.json({
+    active,
+    activeLabel: activeInfo?.label ?? active,
   });
 }
