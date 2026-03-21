@@ -6,6 +6,7 @@ import {
   getCSVContent,
   getGeoJSONContent,
   getWorkbookManifest,
+  storeCSV,
 } from "@/lib/csv/storage";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
@@ -20,10 +21,15 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import type { ConversationEntry, SchemaMode } from "@/lib/types";
+import type { ConversationEntry, SchemaMode, CSVSchema } from "@/lib/types";
 import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
+import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
+import { generateSQL } from "@/lib/warehouse/sql-generation";
+import { randomUUID } from "crypto";
+import { extractSchema } from "@/lib/csv/schema";
+import { parseCSV } from "@/lib/csv/parser";
 
 export const maxDuration = 60;
 
@@ -40,7 +46,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { prompt, context } = body;
 
-    const csvId: string | undefined = context?.csv_id;
+    let csvId: string | undefined = context?.csv_id;
+    const warehouseId: string | undefined = context?.warehouse_id;
     const question: string = context?.question ?? prompt ?? "";
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const conversationHistory: ConversationEntry[] | undefined = context?.conversation_history;
@@ -69,11 +76,14 @@ export async function POST(request: Request) {
         ? context.sandbox_runtime
         : getActiveSandboxRuntime();
 
-    if (!csvId) {
-      return new Response(JSON.stringify({ error: "csv_id is required in context" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (!csvId && !warehouseId) {
+      return new Response(
+        JSON.stringify({ error: "csv_id or warehouse_id is required in context" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
 
     if (!question) {
@@ -83,7 +93,73 @@ export async function POST(request: Request) {
       });
     }
 
-    const stored = getStoredCSV(csvId);
+    // ── Warehouse path: generate SQL → execute → store as CSV ──────
+    let warehouseSQL: string | undefined;
+    if (warehouseId) {
+      const warehouse = getStoredWarehouse(warehouseId);
+      if (!warehouse) {
+        return new Response(
+          JSON.stringify({ error: "Warehouse not found or expired. Please reconnect." }),
+          { status: 404, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      const connector = getWarehouseConnector(warehouseId);
+      if (!connector) {
+        return new Response(JSON.stringify({ error: "Warehouse connector not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Stage 1: LLM generates SQL from question + all table schemas
+      try {
+        warehouseSQL = await generateSQL(
+          warehouse.tableSchemas,
+          question,
+          warehouse.config.type,
+          codeGenModel
+        );
+        logger.debug("Generated SQL", { sql: warehouseSQL });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "SQL generation failed";
+        return new Response(JSON.stringify({ error: `SQL generation failed: ${msg}` }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Stage 2: Execute SQL against warehouse → CSV
+      let csvContent: string;
+      try {
+        csvContent = await connector.executeSQL(warehouseSQL);
+        if (!csvContent || csvContent.trim() === "") {
+          return new Response(JSON.stringify({ error: "SQL query returned no results" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "SQL execution failed";
+        return new Response(
+          JSON.stringify({
+            error: `SQL execution failed: ${msg}\n\nGenerated SQL:\n${warehouseSQL}`,
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      // Stage 3: Parse CSV → extract schema → store as regular CSV
+      const parsed = parseCSV(csvContent);
+      const newCsvId = randomUUID();
+      const schema = extractSchema(parsed, newCsvId, `warehouse_query_result`);
+      schema.source_type = "warehouse";
+      schema.warehouse_type = warehouse.config.type;
+      await storeCSV(newCsvId, csvContent, schema);
+      csvId = newCsvId;
+    }
+
+    // ── File path: load stored CSV ─────────────────────────────────
+    const stored = getStoredCSV(csvId!);
     if (!stored) {
       return new Response(
         JSON.stringify({ error: "CSV not found or expired. Please re-upload." }),
@@ -91,7 +167,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const csvContent = await getCSVContent(csvId);
+    const csvContent = await getCSVContent(csvId!);
     if (!csvContent) {
       return new Response(JSON.stringify({ error: "CSV content not found" }), {
         status: 404,
@@ -100,10 +176,10 @@ export async function POST(request: Request) {
     }
 
     // Fetch GeoJSON sidecar if the upload was GeoJSON
-    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId) : null;
+    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
 
     // Check for workbook manifest (multi-sheet analysis)
-    const manifest = getWorkbookManifest(csvId);
+    const manifest = getWorkbookManifest(csvId!);
     let additionalFiles: AdditionalFile[] | undefined;
     let workbookContext: string | undefined;
 
@@ -176,11 +252,11 @@ export async function POST(request: Request) {
           if (closed) return;
 
           // Cache the generated code for save functionality
-          cacheGeneratedCode(csvId, pipelineResult.generatedCode, question);
+          cacheGeneratedCode(csvId!, pipelineResult.generatedCode, question);
 
           // Cache artifacts for the artifacts viewer
           const { executionResult } = pipelineResult;
-          cacheArtifacts(csvId, {
+          cacheArtifacts(csvId!, {
             code: pipelineResult.generatedCode,
             question,
             results: executionResult.results as Record<string, unknown>,

@@ -7,6 +7,7 @@ import { CSVUploadPanel } from "@/components/app/csv-upload-panel";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { SchemaPreview } from "@/components/app/schema-preview";
 import { WorkbookPreview } from "@/components/app/workbook-preview";
+import { WarehouseConnectPanel } from "@/components/app/warehouse-connect-panel";
 import { QueryInput } from "@/components/app/query-input";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
 import { SettingsPanel } from "@/components/app/settings-panel";
@@ -18,6 +19,7 @@ const ResponsePanel = dynamic(
   { ssr: false }
 );
 import { useCSVUpload } from "@/hooks/use-csv-upload";
+import { useWarehouse } from "@/hooks/use-warehouse";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
 import { checkLlmReady, getLocalBackendConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
@@ -45,6 +47,8 @@ export default function Home() {
     cancelSheetPicker,
     reset,
   } = useCSVUpload();
+  const warehouse = useWarehouse();
+  const [dataSourceMode, setDataSourceMode] = useState<"file" | "warehouse">("file");
   const {
     state: pageState,
     dispatch,
@@ -129,9 +133,11 @@ export default function Home() {
 
   const handleReset = useCallback(() => {
     reset();
+    warehouse.reset();
     resetPage();
     setLoadedVizId(null);
-  }, [reset, resetPage]);
+    setDataSourceMode("file");
+  }, [reset, warehouse, resetPage]);
 
   const handleLoadViz = useCallback(
     async (vizId: string) => {
@@ -280,13 +286,13 @@ export default function Home() {
                   Switch sheet
                 </button>
               )}
-              {(isUploaded || showSheetPicker) && (
+              {(isUploaded || showSheetPicker || warehouse.isConnected) && (
                 <button
                   onClick={handleReset}
                   className="text-sm text-t-secondary hover:text-t-primary transition-colors"
                   style={{ transitionDuration: "var(--transition-speed)" }}
                 >
-                  Upload new file
+                  New data source
                 </button>
               )}
             </div>
@@ -319,18 +325,74 @@ export default function Home() {
               onCancel={cancelSheetPicker}
             />
           ) : !isUploaded && !showSaved ? (
-            <CSVUploadPanel onUpload={handleUpload} onExcelSheets={handleExcelSheets} />
-          ) : isUploaded ? (
-            <>
-              {isWorkbookMode && excelMeta ? (
-                <WorkbookPreview
-                  filename={excelMeta.filename}
-                  sheets={excelMeta.sheets}
-                  relationships={excelMeta.relationships}
-                  collapsed={questionSeq > 0}
-                />
+            <div className="space-y-4">
+              {/* Data source mode toggle */}
+              <div className="flex gap-1 rounded-lg bg-surface-secondary p-1 max-w-xs">
+                <button
+                  onClick={() => setDataSourceMode("file")}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    dataSourceMode === "file"
+                      ? "bg-surface-primary text-t-primary shadow-sm"
+                      : "text-t-tertiary hover:text-t-secondary"
+                  }`}
+                >
+                  Upload File
+                </button>
+                <button
+                  onClick={() => setDataSourceMode("warehouse")}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    dataSourceMode === "warehouse"
+                      ? "bg-surface-primary text-t-primary shadow-sm"
+                      : "text-t-tertiary hover:text-t-secondary"
+                  }`}
+                >
+                  Connect Warehouse
+                </button>
+              </div>
+
+              {dataSourceMode === "file" ? (
+                <CSVUploadPanel onUpload={handleUpload} onExcelSheets={handleExcelSheets} />
               ) : (
-                schema && <SchemaPreview schema={schema} collapsed={questionSeq > 0} />
+                <WarehouseConnectPanel
+                  isConnected={warehouse.isConnected}
+                  isConnecting={warehouse.isConnecting}
+                  tables={warehouse.tables}
+                  tableCount={warehouse.tableCount}
+                  totalColumns={warehouse.totalColumns}
+                  warehouseType={warehouse.warehouseType}
+                  error={warehouse.error}
+                  onConnect={warehouse.connect}
+                  onDisconnect={warehouse.disconnect}
+                />
+              )}
+            </div>
+          ) : isUploaded || warehouse.isConnected ? (
+            <>
+              {isUploaded &&
+                !warehouse.isConnected &&
+                (isWorkbookMode && excelMeta ? (
+                  <WorkbookPreview
+                    filename={excelMeta.filename}
+                    sheets={excelMeta.sheets}
+                    relationships={excelMeta.relationships}
+                    collapsed={questionSeq > 0}
+                  />
+                ) : (
+                  schema && <SchemaPreview schema={schema} collapsed={questionSeq > 0} />
+                ))}
+
+              {warehouse.isConnected && (
+                <WarehouseConnectPanel
+                  isConnected={warehouse.isConnected}
+                  isConnecting={warehouse.isConnecting}
+                  tables={warehouse.tables}
+                  tableCount={warehouse.tableCount}
+                  totalColumns={warehouse.totalColumns}
+                  warehouseType={warehouse.warehouseType}
+                  error={warehouse.error}
+                  onConnect={warehouse.connect}
+                  onDisconnect={warehouse.disconnect}
+                />
               )}
 
               {llmWarning && (
@@ -355,13 +417,14 @@ export default function Home() {
 
               <QueryInput
                 onSubmit={handleGuardedQuery}
-                disabled={!isUploaded}
+                disabled={!isUploaded && !warehouse.isConnected}
                 isLoading={isAnalyzing}
                 initialValue={currentQuestion}
               />
 
               <ResponsePanel
                 csvId={csvId}
+                warehouseId={warehouse.warehouseId}
                 question={currentQuestion}
                 questionSeq={questionSeq}
                 onStreamEnd={handleStreamEnd}

@@ -84,6 +84,12 @@ export interface CSVSchema {
   detected_domain?: DataDomain;
   /** Top pairwise correlations between numeric columns */
   correlations?: ColumnCorrelation[];
+  /** Where the data came from */
+  source_type?: "file" | "warehouse";
+  /** Which warehouse type (only set when source_type === "warehouse") */
+  warehouse_type?: WarehouseType;
+  /** Fully qualified table name (only set when source_type === "warehouse") */
+  warehouse_table?: string;
 }
 
 /** Detected domain hints for prompt specialization */
@@ -186,4 +192,74 @@ export interface SheetRelationship {
 export interface WorkbookManifest {
   sheets: { name: string; csvId: string; schema: CSVSchema }[];
   relationships: SheetRelationship[];
+}
+
+// ── Warehouse types ────────────────────────────────────────────────
+
+export type WarehouseType = "postgresql" | "bigquery" | "clickhouse";
+
+export interface PostgresConnectionConfig {
+  type: "postgresql";
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  ssl?: boolean;
+  schema?: string;
+}
+
+export interface BigQueryConnectionConfig {
+  type: "bigquery";
+  projectId: string;
+  dataset: string;
+  credentialsJson: string;
+}
+
+export interface ClickHouseConnectionConfig {
+  type: "clickhouse";
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  ssl?: boolean;
+}
+
+export type WarehouseConnectionConfig =
+  | PostgresConnectionConfig
+  | BigQueryConnectionConfig
+  | ClickHouseConnectionConfig;
+
+export interface WarehouseTableInfo {
+  schema: string;
+  name: string;
+  row_count_estimate: number;
+  column_count: number;
+}
+
+/** Column metadata for warehouse schema introspection (lightweight, for SQL generation) */
+export interface WarehouseColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+}
+
+/** Full schema of a single warehouse table (for SQL generation context) */
+export interface WarehouseTableSchema {
+  schema: string;
+  name: string;
+  columns: WarehouseColumnInfo[];
+  row_count_estimate: number;
+  primary_key?: string[];
+  foreign_keys?: { column: string; references_table: string; references_column: string }[];
+}
+
+export interface StoredWarehouse {
+  warehouseId: string;
+  config: WarehouseConnectionConfig;
+  tables: WarehouseTableInfo[];
+  /** Full column-level schemas for all tables — used for SQL generation */
+  tableSchemas: WarehouseTableSchema[];
+  createdAt: number;
 }

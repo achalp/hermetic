@@ -413,9 +413,17 @@ A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.$
       ? `\nDetected data domain: ${schema.detected_domain}\n`
       : "";
 
-  return `## CSV Schema
+  const warehouseSection =
+    schema.source_type === "warehouse"
+      ? `\nData source: ${schema.warehouse_type} warehouse, table: ${schema.warehouse_table}
+Column types are database-native (high fidelity). The data has been loaded as CSV at /data/input.csv.\n`
+      : "";
+
+  const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
+
+  return `## ${headerLabel}
 Filename: ${schema.filename}
-Rows: ${schema.row_count}${domainSection}
+Rows: ${schema.row_count}${domainSection}${warehouseSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
@@ -470,9 +478,17 @@ A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.$
       ? `\nDetected data domain: ${schema.detected_domain}\n`
       : "";
 
-  return `${historySection}## CSV Schema
+  const warehouseSection =
+    schema.source_type === "warehouse"
+      ? `\nData source: ${schema.warehouse_type} warehouse, table: ${schema.warehouse_table}
+Column types are database-native (high fidelity). The data has been loaded as CSV at /data/input.csv.\n`
+      : "";
+
+  const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
+
+  return `${historySection}## ${headerLabel}
 Filename: ${schema.filename}
-Rows: ${schema.row_count}${domainSection}
+Rows: ${schema.row_count}${domainSection}${warehouseSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
