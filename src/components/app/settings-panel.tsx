@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { AVAILABLE_MODELS } from "@/lib/constants";
-import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
+import { AVAILABLE_MODELS, AVAILABLE_PROVIDERS } from "@/lib/constants";
+import type { ModelId, SandboxRuntimeId, LLMProviderId } from "@/lib/constants";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 import type { SchemaMode } from "@/lib/types";
 import { useTheme, THEMES } from "@/lib/theme-context";
@@ -206,18 +206,52 @@ export function SettingsPanel({
 
           <div className="mb-4">
             {providerInfo ? (
-              <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-accent-subtle text-accent-text"
-                style={{ borderRadius: "var(--radius-badge)" }}
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
-                {providerInfo.activeLabel}
-              </span>
+              providerInfo.configured.length > 1 ? (
+                <select
+                  value={providerInfo.active}
+                  onChange={async (e) => {
+                    const newProvider = e.target.value as LLMProviderId;
+                    try {
+                      const res = await fetch("/api/providers", {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ provider: newProvider }),
+                      });
+                      if (res.ok) {
+                        const data = await res.json();
+                        setProviderInfo({
+                          ...providerInfo,
+                          active: data.active,
+                          activeLabel: data.activeLabel,
+                        });
+                      }
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  className="w-full border border-border-default bg-surface-input px-2 py-1.5 text-sm text-t-primary"
+                  style={{ borderRadius: "var(--radius-badge)" }}
+                >
+                  {providerInfo.configured.map((id) => {
+                    const info = AVAILABLE_PROVIDERS.find((p) => p.id === id);
+                    return (
+                      <option key={id} value={id}>
+                        {info?.label ?? id}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-accent-subtle text-accent-text"
+                  style={{ borderRadius: "var(--radius-badge)" }}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
+                  {providerInfo.activeLabel}
+                </span>
+              )
             ) : (
               <span className="text-xs text-t-tertiary">Detecting...</span>
-            )}
-            {!isLocalActive && (
-              <p className="mt-1.5 text-xs text-t-tertiary">Set via server environment variables</p>
             )}
           </div>
 
