@@ -88,7 +88,7 @@ export function SettingsPanel({
     }
   }, [availableRuntimes, sandboxRuntime, onSandboxRuntimeChange]);
 
-  const [activeBackendTab, setActiveBackendTab] = useState<LocalBackendId>("ollama");
+  const [activeBackendTab, setActiveBackendTab] = useState<LocalBackendId>("mlx");
   const [platform, setPlatform] = useState<{ os: string; arch: string } | null>(null);
   const platformFetched = useRef(false);
 
@@ -99,9 +99,9 @@ export function SettingsPanel({
       .then((r) => r.json())
       .then((data) => {
         setPlatform(data);
-        // Auto-select MLX tab on Apple Silicon
-        if (data.os === "darwin" && data.arch === "arm64") {
-          setActiveBackendTab("mlx");
+        // If not Apple Silicon, switch away from MLX tab
+        if (!(data.os === "darwin" && data.arch === "arm64")) {
+          setActiveBackendTab((prev) => (prev === "mlx" ? "llama-cpp" : prev));
         }
       })
       .catch(() => {});
@@ -232,7 +232,8 @@ export function SettingsPanel({
           >
             {(
               [
-                ...(platform?.os === "darwin" && platform?.arch === "arm64"
+                // Show MLX tab unless we've confirmed this is NOT Apple Silicon
+                ...(platform === null || (platform.os === "darwin" && platform.arch === "arm64")
                   ? [{ id: "mlx" as const, label: "MLX" }]
                   : []),
                 { id: "llama-cpp" as const, label: "llama.cpp" },
