@@ -3,7 +3,14 @@
  * Replaces raw fetch() scattered across components.
  */
 
-import type { CSVSchema, SavedVizMeta, SheetInfo, SheetRelationship } from "@/lib/types";
+import type {
+  CSVSchema,
+  SavedVizMeta,
+  SheetInfo,
+  SheetRelationship,
+  WarehouseConnectionConfig,
+  WarehouseTableInfo,
+} from "@/lib/types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -255,4 +262,33 @@ export async function checkLlmReady(): Promise<LlmReadiness> {
       message: `Local LLM server (${provider.activeLabel}) is not running. Start it in Settings.`,
     };
   }
+}
+
+// ── Warehouse ────────────────────────────────────────────────
+
+export interface ConnectWarehouseResult {
+  warehouse_id: string;
+  warehouse_type: string;
+  tables: WarehouseTableInfo[];
+  table_count: number;
+  total_columns: number;
+}
+
+export async function connectWarehouse(
+  config: WarehouseConnectionConfig
+): Promise<ConnectWarehouseResult> {
+  const res = await fetch("/api/warehouse/connect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  return json<ConnectWarehouseResult>(res);
+}
+
+export async function disconnectWarehouse(warehouseId: string): Promise<void> {
+  await fetch("/api/warehouse/disconnect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ warehouse_id: warehouseId }),
+  });
 }

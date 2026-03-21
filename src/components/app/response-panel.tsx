@@ -30,6 +30,7 @@ interface DrillLevel {
 
 interface ResponsePanelProps {
   csvId: string | null;
+  warehouseId?: string | null;
   question: string | null;
   questionSeq: number;
   onStreamEnd?: () => void;
@@ -46,6 +47,7 @@ interface ResponsePanelProps {
 
 export function ResponsePanel({
   csvId,
+  warehouseId,
   question,
   questionSeq,
   onStreamEnd,
@@ -135,6 +137,7 @@ export function ResponsePanel({
 
     send("", {
       csv_id: csvId,
+      warehouse_id: warehouseId ?? undefined,
       question: question,
       conversation_history: historyToSend.length > 0 ? historyToSend : undefined,
       schema_mode: schemaMode,
@@ -169,6 +172,7 @@ export function ResponsePanel({
 
       send("", {
         csv_id: csvId,
+        warehouse_id: warehouseId ?? undefined,
         question: drillQuestion,
         drill_down_context: {
           parent_question: currentQuestion,
