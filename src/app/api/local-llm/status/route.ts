@@ -1,6 +1,7 @@
 import { execSync } from "child_process";
 import { healthCheck, isRunning, getServerLogs } from "@/lib/llm/process-manager";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
+import { getActiveDownloads } from "@/app/api/local-llm/download/route";
 
 /** Get total system RAM in GB (cached after first call) */
 let cachedRamGb: number | null = null;
@@ -82,6 +83,9 @@ export async function GET(request: Request) {
 
   const systemRamGb = getSystemRamGb();
 
+  // Check for active downloads for this backend
+  const downloads = getActiveDownloads(backend);
+
   return Response.json({
     running: healthy,
     status,
@@ -92,5 +96,6 @@ export async function GET(request: Request) {
     ...(systemRamGb > 0 && { systemRamGb }),
     ...(version && { version }),
     ...(logs.length > 0 && { logs }),
+    ...(downloads.length > 0 && { downloads }),
   });
 }

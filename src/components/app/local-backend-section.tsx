@@ -55,6 +55,7 @@ export function LocalBackendSection({
     pid?: number;
     systemRamGb?: number;
     logs?: string[];
+    downloads?: Array<{ model: string; progress: number; status: string }>;
   } | null>(null);
   const [models, setModels] = useState<BackendModel[]>([]);
   const [pulling, setPulling] = useState<string | null>(null);
@@ -109,6 +110,16 @@ export function LocalBackendSection({
     setError(null);
     checkStatus();
   }, [backend, checkStatus]);
+
+  // Poll while downloads are active so progress updates
+  const hasActiveDownloads = (status?.downloads?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!hasActiveDownloads) return;
+    const interval = setInterval(() => {
+      checkStatus();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [hasActiveDownloads, checkStatus]);
 
   const activateModel = async (modelName: string) => {
     setError(null);
@@ -413,6 +424,24 @@ export function LocalBackendSection({
           </pre>
         )}
 
+        {/* Active background downloads */}
+        {status.downloads && status.downloads.length > 0 && (
+          <div
+            className="mb-3 p-2.5 text-xs border border-accent/30 bg-accent/5"
+            style={{ borderRadius: "var(--radius-badge)" }}
+          >
+            {status.downloads.map((dl) => (
+              <div key={dl.model} className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+                <span className="text-t-secondary truncate flex-1">{dl.model}</span>
+                <span className="text-t-tertiary shrink-0">
+                  {dl.progress > 0 ? `${dl.progress}%` : dl.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Start Server button — always visible for all backends when not running */}
         {!starting && !pulling && (
           <div className="mb-3">
@@ -704,6 +733,24 @@ export function LocalBackendSection({
           {stopping ? "..." : "Stop"}
         </button>
       </div>
+
+      {/* Active background downloads */}
+      {status.downloads && status.downloads.length > 0 && (
+        <div
+          className="mb-3 p-2.5 text-xs border border-accent/30 bg-accent/5"
+          style={{ borderRadius: "var(--radius-badge)" }}
+        >
+          {status.downloads.map((dl) => (
+            <div key={dl.model} className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+              <span className="text-t-secondary truncate flex-1">{dl.model}</span>
+              <span className="text-t-tertiary shrink-0">
+                {dl.progress > 0 ? `${dl.progress}%` : dl.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {error && (
         <pre className="mb-2 text-xs text-error-text whitespace-pre-wrap break-words">{error}</pre>
