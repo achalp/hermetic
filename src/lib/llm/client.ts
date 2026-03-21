@@ -68,11 +68,26 @@ function ollamaFetch(baseUrl: string) {
       },
     };
 
-    const ollamaRes = await globalThis.fetch(`${baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(ollamaBody),
-    });
+    let ollamaRes: Response;
+    try {
+      ollamaRes = await globalThis.fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ollamaBody),
+      });
+    } catch (err) {
+      const errDetail = err instanceof Error ? err.message : String(err);
+      logger.error("ollamaFetch connection error", { error: errDetail });
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Ollama server crashed or is unreachable. Check that Ollama is running.",
+            type: "connection_error",
+          },
+        }),
+        { status: 422, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     if (!ollamaRes.ok) {
       const errText = await ollamaRes.text().catch(() => "");
@@ -413,13 +428,14 @@ function localOpenAIFetch(baseUrl: string) {
     } catch (err) {
       const errDetail = err instanceof Error ? err.message : String(err);
       logger.error("localOpenAIFetch connection error", { error: errDetail });
-      // Server crashed or is unreachable — likely OOM / Metal GPU error
+      // Server crashed or is unreachable — likely OOM / Metal GPU error.
+      // Use 422 (not 5xx) so the AI SDK does NOT retry — a crashed server
+      // won't recover on its own and retrying just wastes time.
       const msg =
-        err instanceof Error && err.message.includes("ECONNREFUSED")
-          ? "Local LLM server crashed (likely out of memory). Try a smaller model in Settings."
-          : `Cannot connect to local LLM server: ${errDetail}`;
+        "Local LLM server crashed or is unreachable (likely out of memory). " +
+        "Try a smaller model in Settings.";
       return new Response(JSON.stringify({ error: { message: msg, type: "connection_error" } }), {
-        status: 502,
+        status: 422,
         headers: { "Content-Type": "application/json" },
       });
     }
