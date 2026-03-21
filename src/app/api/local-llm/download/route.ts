@@ -161,7 +161,7 @@ export async function POST(request: Request) {
         const close = () => {
           if (closed) return;
           closed = true;
-          close();
+          controller.close();
         };
 
         emit({ status: `Downloading ${model}...`, progress: 0 });
@@ -225,7 +225,7 @@ export async function POST(request: Request) {
         const close = () => {
           if (closed) return;
           closed = true;
-          close();
+          controller.close();
         };
 
         emit({ status: `Downloading ${model}...`, progress: 0 });
