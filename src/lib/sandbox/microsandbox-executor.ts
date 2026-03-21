@@ -86,6 +86,20 @@ export async function getOrCreateSandbox(): Promise<PythonSandbox> {
     sandboxReady = false;
   }
 
+  // Check if the microsandbox server is reachable before attempting to create
+  const msbUrl = process.env.MICROSANDBOX_URL || "http://127.0.0.1:5555";
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 5000);
+    await fetch(msbUrl, { signal: controller.signal });
+    clearTimeout(t);
+  } catch {
+    throw new Error(
+      `Microsandbox server is not reachable at ${msbUrl}. ` +
+        "Start it with: msb server start --dev — or switch to Docker in Settings → Sandbox Runtime."
+    );
+  }
+
   logger.debug("Creating persistent microsandbox...");
   const sboxOpts = {
     name: SANDBOX_NAME,
