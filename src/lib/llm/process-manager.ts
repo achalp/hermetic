@@ -4,6 +4,8 @@
  * Persists PIDs to runtime config so processes survive Next.js hot reloads.
  */
 import { spawn, execSync, type ChildProcess } from "child_process";
+import { existsSync } from "fs";
+import { join, isAbsolute } from "path";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
 
@@ -180,7 +182,12 @@ export async function startServer(
     });
   } else {
     const binary = options.binaryPath || "llama-server";
-    const modelPath = options.modelPath || options.model;
+    let modelPath = options.modelPath || options.model;
+    // Resolve bare GGUF filenames against the default model directory
+    if (!isAbsolute(modelPath) && !existsSync(modelPath)) {
+      const resolved = join(process.cwd(), "data", "models", "gguf", modelPath);
+      if (existsSync(resolved)) modelPath = resolved;
+    }
     const ctxLen = options.contextLength ?? LOCAL_CTX_SIZE;
     proc = spawn(
       binary,
