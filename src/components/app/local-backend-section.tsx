@@ -49,10 +49,12 @@ export function LocalBackendSection({
 }: LocalBackendSectionProps) {
   const [status, setStatus] = useState<{
     running: boolean;
+    status?: string;
     version?: string;
     baseUrl?: string;
     pid?: number;
     systemRamGb?: number;
+    logs?: string[];
   } | null>(null);
   const [models, setModels] = useState<BackendModel[]>([]);
   const [pulling, setPulling] = useState<string | null>(null);
@@ -395,6 +397,19 @@ export function LocalBackendSection({
         {error && (
           <pre className="mb-2 text-xs text-error-text whitespace-pre-wrap break-words">
             {error}
+          </pre>
+        )}
+
+        {/* Show crash logs from previous session if available */}
+        {!error && status.logs && status.logs.length > 0 && (
+          <pre
+            className="mb-2 p-2 text-[11px] text-t-tertiary bg-surface-input border border-border-default whitespace-pre-wrap break-words max-h-24 overflow-y-auto"
+            style={{ borderRadius: "var(--radius-badge)" }}
+          >
+            {status.logs
+              .map((l: string) => l.replace(/^\[(stdout|stderr)\]\s*/, ""))
+              .slice(-5)
+              .join("\n")}
           </pre>
         )}
 
