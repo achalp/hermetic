@@ -241,9 +241,15 @@ export function LocalBackendSection({
               logText
             );
 
-          const hint = isMemoryCrash
-            ? "The model is too large for your available memory. Try a smaller model."
-            : "Check logs below for details.";
+          // Detect format incompatibility (e.g. PyTorch-only model loaded in MLX)
+          const isFormatError =
+            /No safetensors found|no safetensors|unsupported model format/i.test(logText);
+
+          const hint = isFormatError
+            ? "This model is not in a compatible format. For MLX, use models from mlx-community or repos with safetensors weights."
+            : isMemoryCrash
+              ? "The model is too large for your available memory. Try a smaller model."
+              : "Check logs below for details.";
 
           const logTail = cleanLogs.length > 0 ? "\n" + cleanLogs.slice(-5).join("\n") : "";
           throw new Error(`Server crashed. ${hint}${logTail}`);

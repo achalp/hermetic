@@ -1,5 +1,6 @@
 import { getRuntimeConfig, setRuntimeConfig, clearRuntimeConfigCache } from "@/lib/runtime-config";
 import { clearEnvConfigCache } from "@/lib/config";
+import { stopServer } from "@/lib/llm/process-manager";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -41,6 +42,11 @@ export async function PUT(request: Request) {
   try {
     const body = await request.json();
     const { backend, enabled, baseUrl, activeModel } = body;
+
+    // When disabling a backend, stop its server process to free resources
+    if (enabled === false && backend !== "ollama") {
+      await stopServer(backend).catch(() => {});
+    }
 
     if (backend === "ollama") {
       const updated = setRuntimeConfig({
