@@ -453,11 +453,11 @@ export function LocalBackendSection({
         {/* Server is starting — show progress bar and logs */}
         {isServerStarting && (
           <div className="mb-3">
-            {serverProgress !== null && (
-              <div
-                className="h-1.5 w-full bg-surface-input overflow-hidden mb-2"
-                style={{ borderRadius: "var(--radius-badge)" }}
-              >
+            <div
+              className="h-1.5 w-full bg-surface-input overflow-hidden mb-2"
+              style={{ borderRadius: "var(--radius-badge)" }}
+            >
+              {serverProgress !== null ? (
                 <div
                   className="h-full bg-accent transition-all"
                   style={{
@@ -465,8 +465,13 @@ export function LocalBackendSection({
                     transitionDuration: "var(--transition-speed)",
                   }}
                 />
-              </div>
-            )}
+              ) : (
+                <div
+                  className="h-full bg-accent/60 animate-indeterminate"
+                  style={{ width: "30%" }}
+                />
+              )}
+            </div>
             {serverLogs.length > 0 && (
               <div
                 className="p-2 bg-surface-input text-[11px] text-t-tertiary font-mono max-h-24 overflow-y-auto"
@@ -624,11 +629,11 @@ export function LocalBackendSection({
                 <span className="text-xs text-t-tertiary">{startProgress}%</span>
               )}
             </div>
-            {startProgress !== null && (
-              <div
-                className="h-1.5 w-full bg-surface-input overflow-hidden mb-2"
-                style={{ borderRadius: "var(--radius-badge)" }}
-              >
+            <div
+              className="h-1.5 w-full bg-surface-input overflow-hidden mb-2"
+              style={{ borderRadius: "var(--radius-badge)" }}
+            >
+              {startProgress !== null ? (
                 <div
                   className="h-full bg-accent transition-all"
                   style={{
@@ -636,8 +641,13 @@ export function LocalBackendSection({
                     transitionDuration: "var(--transition-speed)",
                   }}
                 />
-              </div>
-            )}
+              ) : (
+                <div
+                  className="h-full bg-accent/60 animate-indeterminate"
+                  style={{ width: "30%" }}
+                />
+              )}
+            </div>
             {startLogs.length > 0 && (
               <div
                 className="p-2 bg-surface-input text-[11px] text-t-tertiary font-mono max-h-24 overflow-y-auto"
@@ -1116,22 +1126,32 @@ function DownloadProgress({
   progress: number;
   status: string;
 }) {
+  const indeterminate = progress === 0;
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs text-t-secondary">Downloading {pulling}...</span>
-        <span className="text-xs text-t-tertiary">{progress}%</span>
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+          <span className="text-xs text-t-secondary">Downloading {pulling}...</span>
+        </div>
+        <span className="text-xs text-t-tertiary">
+          {indeterminate ? "starting..." : `${progress}%`}
+        </span>
       </div>
       <div
         className="h-1.5 w-full bg-surface-input overflow-hidden"
         style={{ borderRadius: "var(--radius-badge)" }}
       >
-        <div
-          className="h-full bg-accent transition-all"
-          style={{ width: `${progress}%`, transitionDuration: "var(--transition-speed)" }}
-        />
+        {indeterminate ? (
+          <div className="h-full bg-accent/60 animate-indeterminate" style={{ width: "30%" }} />
+        ) : (
+          <div
+            className="h-full bg-accent transition-all"
+            style={{ width: `${progress}%`, transitionDuration: "var(--transition-speed)" }}
+          />
+        )}
       </div>
-      <p className="mt-1 text-[11px] text-t-tertiary truncate">{status}</p>
+      {status && <p className="mt-1 text-[11px] text-t-tertiary truncate">{status}</p>}
     </div>
   );
 }
