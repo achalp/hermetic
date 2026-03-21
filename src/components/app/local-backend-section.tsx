@@ -145,6 +145,8 @@ export function LocalBackendSection({
 
   // Poll while downloads are active so progress updates
   const hasActiveDownloads = (status?.downloads?.length ?? 0) > 0;
+  // True when either a local stream download or a background download is in progress
+  const isDownloading = !!pulling || hasActiveDownloads;
   useEffect(() => {
     if (!hasActiveDownloads) return;
     const interval = setInterval(() => {
@@ -456,26 +458,20 @@ export function LocalBackendSection({
           </pre>
         )}
 
-        {/* Active background downloads */}
-        {status.downloads && status.downloads.length > 0 && (
-          <div
-            className="mb-3 p-2.5 text-xs border border-accent/30 bg-accent/5"
-            style={{ borderRadius: "var(--radius-badge)" }}
-          >
-            {status.downloads.map((dl) => (
-              <div key={dl.model} className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
-                <span className="text-t-secondary truncate flex-1">{dl.model}</span>
-                <span className="text-t-tertiary shrink-0">
-                  {dl.progress > 0 ? `${dl.progress}%` : dl.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Active background downloads — show full progress bar */}
+        {!pulling &&
+          status.downloads &&
+          status.downloads.map((dl) => (
+            <DownloadProgress
+              key={dl.model}
+              pulling={dl.model}
+              progress={dl.progress}
+              status={dl.status}
+            />
+          ))}
 
         {/* Start Server button — always visible for all backends when not running */}
-        {!starting && !pulling && (
+        {!starting && !isDownloading && (
           <div className="mb-3">
             <button
               onClick={() => startServer(models[0]?.name ?? recommended[0]?.id ?? "")}
@@ -492,7 +488,7 @@ export function LocalBackendSection({
         )}
 
         {/* Downloaded models — pick which model to start with (MLX / llama.cpp) */}
-        {backend !== "ollama" && models.length > 0 && !pulling && !starting && (
+        {backend !== "ollama" && models.length > 0 && !isDownloading && !starting && (
           <div className="mb-3">
             <label className="mb-1.5 block text-xs font-medium text-t-secondary">
               Downloaded Models
@@ -593,7 +589,7 @@ export function LocalBackendSection({
         )}
 
         {/* Recommended models (llmfit-powered) */}
-        {backend !== "ollama" && !pulling && !starting && (
+        {backend !== "ollama" && !isDownloading && !starting && (
           <LlmfitRecommendations
             models={llmfitModels}
             loading={llmfitLoading}
@@ -609,7 +605,7 @@ export function LocalBackendSection({
         )}
 
         {/* Custom model download — skip Ollama when not running */}
-        {backend !== "ollama" && !pulling && !starting && (
+        {backend !== "ollama" && !isDownloading && !starting && (
           <div className="mb-3">
             <label className="mb-1 block text-xs font-medium text-t-secondary">
               Download Custom Model
@@ -786,7 +782,7 @@ export function LocalBackendSection({
       )}
 
       {/* Recommended models (llmfit-powered) */}
-      {!pulling && (
+      {!isDownloading && (
         <LlmfitRecommendations
           models={llmfitModels}
           loading={llmfitLoading}
@@ -802,7 +798,7 @@ export function LocalBackendSection({
       )}
 
       {/* Custom model input */}
-      {!pulling && (
+      {!isDownloading && (
         <div>
           <label className="mb-1 block text-xs font-medium text-t-secondary">
             {backend === "ollama" ? "Pull Custom Model" : "Download Custom Model"}
