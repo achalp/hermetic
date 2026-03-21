@@ -14,6 +14,21 @@ interface BackendModel {
   modified_at: string;
 }
 
+interface LlmfitModel {
+  name: string;
+  provider: string;
+  score: number;
+  best_quant: string;
+  fit_level: string;
+  memory_required_gb: number;
+  estimated_tps: number;
+  parameter_count: string;
+  use_case: string;
+  category: string;
+  context_length: number;
+  gguf_sources: Array<{ provider: string; repo: string }>;
+}
+
 interface LocalBackendSectionProps {
   backend: LocalBackendId;
   onProviderChange: (provider: LocalBackendId, model: string) => void;
@@ -68,6 +83,9 @@ export function LocalBackendSection({
   const [startProgress, setStartProgress] = useState<number | null>(null);
   const [startLogs, setStartLogs] = useState<string[]>([]);
   const [showOversized, setShowOversized] = useState(false);
+  const [llmfitModels, setLlmfitModels] = useState<LlmfitModel[]>([]);
+  const [llmfitLoading, setLlmfitLoading] = useState(false);
+  const llmfitFetched = useRef(false);
   const statusChecked = useRef(false);
 
   const label = BACKEND_LABELS[backend];
@@ -105,11 +123,25 @@ export function LocalBackendSection({
   // Reset when backend changes
   useEffect(() => {
     statusChecked.current = false;
+    llmfitFetched.current = false;
     setStatus(null);
     setModels([]);
+    setLlmfitModels([]);
     setError(null);
     checkStatus();
   }, [backend, checkStatus]);
+
+  // Fetch llmfit recommendations
+  useEffect(() => {
+    if (llmfitFetched.current) return;
+    llmfitFetched.current = true;
+    setLlmfitLoading(true);
+    fetch(`/api/local-llm/recommend?backend=${backend}&limit=8`)
+      .then((res) => res.json())
+      .then((data) => setLlmfitModels(data.models ?? []))
+      .catch(() => {})
+      .finally(() => setLlmfitLoading(false));
+  }, [backend]);
 
   // Poll while downloads are active so progress updates
   const hasActiveDownloads = (status?.downloads?.length ?? 0) > 0;
@@ -560,85 +592,20 @@ export function LocalBackendSection({
           </div>
         )}
 
-        {/* Recommended models to download — skip Ollama (requires running server to pull) */}
-        {backend !== "ollama" && recommendedNotInstalled.length > 0 && !pulling && !starting && (
-          <div className="mb-3">
-            <label className="mb-1.5 block text-xs font-medium text-t-secondary">
-              Recommended Models
-            </label>
-            <div className="space-y-1">
-              {recommendedNotInstalled.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
-                  style={{ borderRadius: "var(--radius-badge)" }}
-                >
-                  <div className="min-w-0">
-                    <span className="text-xs font-medium text-t-primary truncate block">
-                      {r.label || r.id}
-                    </span>
-                    <span className="text-[11px] text-t-tertiary">{r.description}</span>
-                  </div>
-                  <button
-                    onClick={() => downloadModel(r.id)}
-                    className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-accent text-accent hover:bg-accent hover:text-white transition-colors"
-                    style={{
-                      borderRadius: "var(--radius-badge)",
-                      transitionDuration: "var(--transition-speed)",
-                    }}
-                  >
-                    Download
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Oversized models — collapsed, with warning */}
-        {backend !== "ollama" && oversized.length > 0 && !pulling && !starting && (
-          <div className="mb-3">
-            <button
-              onClick={() => setShowOversized((v) => !v)}
-              className="mb-1.5 flex items-center gap-1 text-xs font-medium text-t-tertiary hover:text-t-secondary transition-colors"
-            >
-              <span className="text-[11px]">{showOversized ? "▼" : "▶"}</span>
-              Larger models (need more than {systemRam} GB)
-            </button>
-            {showOversized && (
-              <div className="space-y-1 opacity-60">
-                {oversized
-                  .filter((r) => !installedNames.has(r.id))
-                  .map((r) => (
-                    <div
-                      key={r.id}
-                      className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
-                      style={{ borderRadius: "var(--radius-badge)" }}
-                    >
-                      <div className="min-w-0">
-                        <span className="text-xs font-medium text-t-primary truncate block">
-                          {r.label || r.id}
-                          <span className="ml-1 text-[10px] text-t-tertiary font-normal">
-                            ({r.minRam}+ GB)
-                          </span>
-                        </span>
-                        <span className="text-[11px] text-t-tertiary">{r.description}</span>
-                      </div>
-                      <button
-                        onClick={() => downloadModel(r.id)}
-                        className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-border-default text-t-tertiary hover:text-t-primary transition-colors"
-                        style={{
-                          borderRadius: "var(--radius-badge)",
-                          transitionDuration: "var(--transition-speed)",
-                        }}
-                      >
-                        Download
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
+        {/* Recommended models (llmfit-powered) */}
+        {backend !== "ollama" && !pulling && !starting && (
+          <LlmfitRecommendations
+            models={llmfitModels}
+            loading={llmfitLoading}
+            installedNames={installedNames}
+            backend={backend}
+            onDownload={downloadModel}
+            fallbackModels={recommendedNotInstalled}
+            oversizedModels={oversized}
+            systemRam={systemRam}
+            showOversized={showOversized}
+            onToggleOversized={() => setShowOversized((v) => !v)}
+          />
         )}
 
         {/* Custom model download — skip Ollama when not running */}
@@ -818,85 +785,20 @@ export function LocalBackendSection({
         <DownloadProgress pulling={pulling} progress={pullProgress} status={pullStatus} />
       )}
 
-      {/* Recommended models */}
-      {recommendedNotInstalled.length > 0 && !pulling && (
-        <div className="mb-3">
-          <label className="mb-1.5 block text-xs font-medium text-t-secondary">
-            Recommended Models
-          </label>
-          <div className="space-y-1">
-            {recommendedNotInstalled.map((r) => (
-              <div
-                key={r.id}
-                className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
-                style={{ borderRadius: "var(--radius-badge)" }}
-              >
-                <div className="min-w-0">
-                  <span className="text-xs font-medium text-t-primary truncate block">
-                    {r.label || r.id}
-                  </span>
-                  <span className="text-[11px] text-t-tertiary">{r.description}</span>
-                </div>
-                <button
-                  onClick={() => downloadModel(r.id)}
-                  className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-accent text-accent hover:bg-accent hover:text-white transition-colors"
-                  style={{
-                    borderRadius: "var(--radius-badge)",
-                    transitionDuration: "var(--transition-speed)",
-                  }}
-                >
-                  Download
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Oversized models — collapsed, with warning (running state) */}
-      {oversized.length > 0 && !pulling && (
-        <div className="mb-3">
-          <button
-            onClick={() => setShowOversized((v) => !v)}
-            className="mb-1.5 flex items-center gap-1 text-xs font-medium text-t-tertiary hover:text-t-secondary transition-colors"
-          >
-            <span className="text-[11px]">{showOversized ? "▼" : "▶"}</span>
-            Larger models (need more than {systemRam} GB)
-          </button>
-          {showOversized && (
-            <div className="space-y-1 opacity-60">
-              {oversized
-                .filter((r) => !installedNames.has(r.id))
-                .map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
-                    style={{ borderRadius: "var(--radius-badge)" }}
-                  >
-                    <div className="min-w-0">
-                      <span className="text-xs font-medium text-t-primary truncate block">
-                        {r.label || r.id}
-                        <span className="ml-1 text-[10px] text-t-tertiary font-normal">
-                          ({r.minRam}+ GB)
-                        </span>
-                      </span>
-                      <span className="text-[11px] text-t-tertiary">{r.description}</span>
-                    </div>
-                    <button
-                      onClick={() => downloadModel(r.id)}
-                      className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-border-default text-t-tertiary hover:text-t-primary transition-colors"
-                      style={{
-                        borderRadius: "var(--radius-badge)",
-                        transitionDuration: "var(--transition-speed)",
-                      }}
-                    >
-                      Download
-                    </button>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
+      {/* Recommended models (llmfit-powered) */}
+      {!pulling && (
+        <LlmfitRecommendations
+          models={llmfitModels}
+          loading={llmfitLoading}
+          installedNames={installedNames}
+          backend={backend}
+          onDownload={downloadModel}
+          fallbackModels={recommendedNotInstalled}
+          oversizedModels={oversized}
+          systemRam={systemRam}
+          showOversized={showOversized}
+          onToggleOversized={() => setShowOversized((v) => !v)}
+        />
       )}
 
       {/* Custom model input */}
@@ -946,6 +848,201 @@ export function LocalBackendSection({
         </div>
       )}
     </div>
+  );
+}
+
+/** Get the download ID for a llmfit model — use GGUF source if available for llama-cpp */
+function getDownloadId(m: LlmfitModel, backend: string): string {
+  if (backend === "llama-cpp" && m.gguf_sources.length > 0) {
+    return m.gguf_sources[0].repo;
+  }
+  return m.name;
+}
+
+function fitColor(level: string): string {
+  switch (level) {
+    case "Perfect":
+      return "text-emerald-600";
+    case "Good":
+      return "text-accent-text";
+    case "Marginal":
+      return "text-yellow-600";
+    default:
+      return "text-t-tertiary";
+  }
+}
+
+function LlmfitRecommendations({
+  models,
+  loading,
+  installedNames,
+  backend,
+  onDownload,
+  fallbackModels,
+  oversizedModels,
+  systemRam,
+  showOversized,
+  onToggleOversized,
+}: {
+  models: LlmfitModel[];
+  loading: boolean;
+  installedNames: Set<string>;
+  backend: string;
+  onDownload: (id: string) => void;
+  fallbackModels: RecommendedModel[];
+  oversizedModels: RecommendedModel[];
+  systemRam: number;
+  showOversized: boolean;
+  onToggleOversized: () => void;
+}) {
+  // Filter out already-installed models
+  const notInstalled = models.filter(
+    (m) => !installedNames.has(m.name) && !installedNames.has(getDownloadId(m, backend))
+  );
+
+  // If llmfit returned results, show them
+  if (notInstalled.length > 0) {
+    return (
+      <div className="mb-3">
+        <label className="mb-1.5 block text-xs font-medium text-t-secondary">
+          Recommended for Your Hardware
+          <span className="ml-1.5 text-[10px] font-normal text-t-tertiary">via llmfit</span>
+        </label>
+        <div className="space-y-1">
+          {notInstalled.map((m) => {
+            const dlId = getDownloadId(m, backend);
+            return (
+              <div
+                key={m.name}
+                className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                style={{ borderRadius: "var(--radius-badge)" }}
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-medium text-t-primary truncate block">
+                    {m.name.split("/").pop()}
+                    <span className="ml-1 text-[10px] text-t-tertiary font-normal">
+                      {m.parameter_count}
+                    </span>
+                  </span>
+                  <div className="flex items-center gap-2 text-[11px] text-t-tertiary">
+                    <span className={fitColor(m.fit_level)}>{m.fit_level}</span>
+                    <span>Score {m.score}</span>
+                    <span>{m.memory_required_gb} GB</span>
+                    <span>~{Math.round(m.estimated_tps)} tok/s</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onDownload(dlId)}
+                  className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-accent text-accent hover:bg-accent hover:text-white transition-colors"
+                  style={{
+                    borderRadius: "var(--radius-badge)",
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                >
+                  Download
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="mb-3">
+        <label className="mb-1.5 block text-xs font-medium text-t-secondary">
+          Recommended Models
+        </label>
+        <span className="text-[11px] text-t-tertiary">Analyzing hardware...</span>
+      </div>
+    );
+  }
+
+  // Fallback to hardcoded recommendations if llmfit not available
+  if (backend === "ollama") return null;
+  return (
+    <>
+      {fallbackModels.length > 0 && (
+        <div className="mb-3">
+          <label className="mb-1.5 block text-xs font-medium text-t-secondary">
+            Recommended Models
+          </label>
+          <div className="space-y-1">
+            {fallbackModels.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                style={{ borderRadius: "var(--radius-badge)" }}
+              >
+                <div className="min-w-0">
+                  <span className="text-xs font-medium text-t-primary truncate block">
+                    {r.label || r.id}
+                  </span>
+                  <span className="text-[11px] text-t-tertiary">{r.description}</span>
+                </div>
+                <button
+                  onClick={() => onDownload(r.id)}
+                  className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-accent text-accent hover:bg-accent hover:text-white transition-colors"
+                  style={{
+                    borderRadius: "var(--radius-badge)",
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                >
+                  Download
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {oversizedModels.length > 0 && (
+        <div className="mb-3">
+          <button
+            onClick={onToggleOversized}
+            className="mb-1.5 flex items-center gap-1 text-xs font-medium text-t-tertiary hover:text-t-secondary transition-colors"
+          >
+            <span className="text-[11px]">{showOversized ? "▼" : "▶"}</span>
+            Larger models (need more than {systemRam} GB)
+          </button>
+          {showOversized && (
+            <div className="space-y-1 opacity-60">
+              {oversizedModels
+                .filter((r) => !installedNames.has(r.id))
+                .map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                    style={{ borderRadius: "var(--radius-badge)" }}
+                  >
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-t-primary truncate block">
+                        {r.label || r.id}
+                        <span className="ml-1 text-[10px] text-t-tertiary font-normal">
+                          ({r.minRam}+ GB)
+                        </span>
+                      </span>
+                      <span className="text-[11px] text-t-tertiary">{r.description}</span>
+                    </div>
+                    <button
+                      onClick={() => onDownload(r.id)}
+                      className="shrink-0 px-2 py-0.5 text-[11px] font-medium border border-border-default text-t-tertiary hover:text-t-primary transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-badge)",
+                        transitionDuration: "var(--transition-speed)",
+                      }}
+                    >
+                      Download
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
