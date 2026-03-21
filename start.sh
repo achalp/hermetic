@@ -835,7 +835,60 @@ case "$SETUP_LOCAL" in
     ;;
 esac
 
-# ── 6. Install dependencies ──────────────────────────────
+# ── 6. llmfit (hardware-aware model recommendations) ─────
+step "Checking llmfit"
+
+if command -v llmfit &>/dev/null; then
+  ok "llmfit already installed ($(llmfit --version 2>/dev/null || echo 'unknown version'))"
+else
+  echo ""
+  echo -e "    ${BOLD}llmfit${RESET} recommends the best local models for your hardware."
+  echo -e "    ${DIM}It detects your RAM/GPU and scores models by fit, speed, and quality.${RESET}"
+  echo ""
+  echo -e "    ${BOLD}1)${RESET} Install now"
+  echo -e "    ${BOLD}2)${RESET} Skip"
+  echo ""
+  echo -n "    Choose [1]: "
+  read -r LLMFIT_CHOICE
+
+  case "${LLMFIT_CHOICE:-1}" in
+    2)
+      ok "Skipped — model recommendations will fall back to a static list"
+      ;;
+    *)
+      if command -v brew &>/dev/null; then
+        echo -e "    ${DIM}Installing via Homebrew...${RESET}"
+        if brew install llmfit 2>&1 | tail -3; then
+          ok "llmfit installed"
+        else
+          warn "Homebrew install failed, trying install script..."
+          if curl -fsSL https://llmfit.axjns.dev/install.sh | sh 2>&1 | tail -3; then
+            ok "llmfit installed"
+          else
+            warn "Could not install llmfit — model recommendations will use a static list"
+          fi
+        fi
+      else
+        echo -e "    ${DIM}Installing via install script...${RESET}"
+        if curl -fsSL https://llmfit.axjns.dev/install.sh | sh 2>&1 | tail -3; then
+          # Refresh PATH for local install
+          for p in "$HOME/.local/bin" "$HOME/.cargo/bin"; do
+            [[ -d "$p" ]] && [[ ":$PATH:" != *":$p:"* ]] && export PATH="$p:$PATH"
+          done
+          if command -v llmfit &>/dev/null; then
+            ok "llmfit installed"
+          else
+            warn "Install finished but 'llmfit' not found in PATH — try opening a new terminal"
+          fi
+        else
+          warn "Could not install llmfit — model recommendations will use a static list"
+        fi
+      fi
+      ;;
+  esac
+fi
+
+# ── 7. Install dependencies ──────────────────────────────
 step "Installing dependencies"
 
 if [ -d node_modules ] && [ -f node_modules/.package-lock.json ]; then
@@ -845,7 +898,7 @@ else
   ok "Done"
 fi
 
-# ── 7. Build sandbox ─────────────────────────────────────
+# ── 8. Build sandbox ─────────────────────────────────────
 if [ "$RUNTIME" = "docker" ]; then
   step "Building Python sandbox"
 
@@ -869,7 +922,7 @@ elif [ "$RUNTIME" = "microsandbox" ]; then
   ok "Sandbox will be warmed up after server starts"
 fi
 
-# ── 8. Launch ─────────────────────────────────────────────
+# ── 9. Launch ─────────────────────────────────────────────
 step "Starting app"
 
 echo ""
