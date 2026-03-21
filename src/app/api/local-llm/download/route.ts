@@ -1,4 +1,57 @@
 import { spawn, execSync } from "child_process";
+import type { ChildProcess } from "child_process";
+
+// ── Active download tracker ─────────────────────────────────────
+// Tracks spawned download processes so the UI can detect ongoing downloads
+// even after page refresh / stream disconnect.
+
+export interface ActiveDownload {
+  backend: string;
+  model: string;
+  pid: number;
+  startedAt: number;
+  progress: number;
+  status: string;
+}
+
+const activeDownloads = new Map<string, { proc: ChildProcess; info: ActiveDownload }>();
+
+function trackDownload(backend: string, model: string, proc: ChildProcess): void {
+  const key = `${backend}:${model}`;
+  const info: ActiveDownload = {
+    backend,
+    model,
+    pid: proc.pid ?? 0,
+    startedAt: Date.now(),
+    progress: 0,
+    status: "Downloading...",
+  };
+  activeDownloads.set(key, { proc, info });
+  proc.on("close", () => activeDownloads.delete(key));
+  proc.on("error", () => activeDownloads.delete(key));
+}
+
+function updateDownloadProgress(
+  backend: string,
+  model: string,
+  progress: number,
+  status: string
+): void {
+  const entry = activeDownloads.get(`${backend}:${model}`);
+  if (entry) {
+    entry.info.progress = progress;
+    entry.info.status = status;
+  }
+}
+
+/** Get all active downloads, optionally filtered by backend */
+export function getActiveDownloads(backend?: string): ActiveDownload[] {
+  const results: ActiveDownload[] = [];
+  for (const { info } of activeDownloads.values()) {
+    if (!backend || info.backend === backend) results.push(info);
+  }
+  return results;
+}
 
 /**
  * Find a working Python that can download from HuggingFace.
@@ -114,6 +167,7 @@ export async function POST(request: Request) {
         emit({ status: `Downloading ${model}...`, progress: 0 });
 
         const proc = spawnHfDownload(model);
+        trackDownload("mlx", model, proc);
 
         let lastLine = "";
         proc.stderr?.on("data", (chunk: Buffer) => {
@@ -122,9 +176,12 @@ export async function POST(request: Request) {
           // Try to parse percentage from huggingface-cli output
           const pctMatch = lastLine.match(/(\d+)%/);
           if (pctMatch) {
-            emit({ status: `Downloading...`, progress: parseInt(pctMatch[1]) });
+            const pct = parseInt(pctMatch[1]);
+            emit({ status: `Downloading...`, progress: pct });
+            updateDownloadProgress("mlx", model, pct, "Downloading...");
           } else {
             emit({ status: lastLine.slice(0, 100) });
+            updateDownloadProgress("mlx", model, 0, lastLine.slice(0, 100));
           }
         });
 
@@ -206,13 +263,18 @@ print(path)
           });
         }
 
+        trackDownload("llama-cpp", model, proc);
+
         proc.stderr?.on("data", (chunk: Buffer) => {
           const text = chunk.toString().trim();
           const pctMatch = text.match(/(\d+)%/);
           if (pctMatch) {
-            emit({ status: "Downloading...", progress: parseInt(pctMatch[1]) });
+            const pct = parseInt(pctMatch[1]);
+            emit({ status: "Downloading...", progress: pct });
+            updateDownloadProgress("llama-cpp", model, pct, "Downloading...");
           } else if (text) {
             emit({ status: text.slice(0, 100) });
+            updateDownloadProgress("llama-cpp", model, 0, text.slice(0, 100));
           }
         });
 
