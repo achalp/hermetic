@@ -618,59 +618,55 @@ export function LocalBackendSection({
         )}
 
         {/* Downloaded models — pick which model to start with (MLX / llama.cpp) */}
-        {backend !== "ollama" &&
-          models.length > 0 &&
-          !isDownloading &&
-          !starting &&
-          !isServerStarting && (
-            <div className="mb-3">
-              <label className="mb-1.5 block text-xs font-medium text-t-secondary">
-                Downloaded Models
-              </label>
-              <div className="space-y-1">
-                {models.map((m) => (
-                  <div
-                    key={m.name}
-                    className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
-                    style={{ borderRadius: "var(--radius-badge)" }}
-                  >
-                    <div className="min-w-0">
-                      <span className="text-xs font-medium text-t-primary truncate block">
-                        {m.name}
-                      </span>
-                      {formatSize(m.size) && (
-                        <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => startServer(m.name)}
-                        disabled={starting}
-                        className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
-                        style={{
-                          borderRadius: "var(--radius-badge)",
-                          transitionDuration: "var(--transition-speed)",
-                        }}
-                      >
-                        Start
-                      </button>
-                      <button
-                        onClick={() => deleteModel(m.name)}
-                        className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
-                        style={{
-                          borderRadius: "var(--radius-badge)",
-                          transitionDuration: "var(--transition-speed)",
-                        }}
-                        title="Delete model"
-                      >
-                        &times;
-                      </button>
-                    </div>
+        {backend !== "ollama" && models.length > 0 && !isDownloading && !starting && (
+          <div className="mb-3">
+            <label className="mb-1.5 block text-xs font-medium text-t-secondary">
+              Downloaded Models
+            </label>
+            <div className="space-y-1">
+              {models.map((m) => (
+                <div
+                  key={m.name}
+                  className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
+                  style={{ borderRadius: "var(--radius-badge)" }}
+                >
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-t-primary truncate block">
+                      {m.name}
+                    </span>
+                    {formatSize(m.size) && (
+                      <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
+                    )}
                   </div>
-                ))}
-              </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => startServer(m.name)}
+                      disabled={starting}
+                      className="px-2 py-0.5 text-[11px] font-medium bg-accent-subtle text-accent-text hover:bg-accent hover:text-white disabled:opacity-40 transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-badge)",
+                        transitionDuration: "var(--transition-speed)",
+                      }}
+                    >
+                      Start
+                    </button>
+                    <button
+                      onClick={() => deleteModel(m.name)}
+                      className="px-1.5 py-0.5 text-[11px] font-medium text-t-tertiary hover:text-error-text transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-badge)",
+                        transitionDuration: "var(--transition-speed)",
+                      }}
+                      title="Delete model"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
         {/* Download progress */}
         {pulling && (
@@ -728,7 +724,7 @@ export function LocalBackendSection({
         )}
 
         {/* Recommended models (llmfit-powered) */}
-        {backend !== "ollama" && !isDownloading && !starting && !isServerStarting && (
+        {backend !== "ollama" && !isDownloading && !starting && (
           <LlmfitRecommendations
             models={llmfitModels}
             loading={llmfitLoading}
@@ -744,7 +740,7 @@ export function LocalBackendSection({
         )}
 
         {/* Custom model download — skip Ollama when not running */}
-        {backend !== "ollama" && !isDownloading && !starting && !isServerStarting && (
+        {backend !== "ollama" && !isDownloading && !starting && (
           <div className="mb-3">
             <label className="mb-1 block text-xs font-medium text-t-secondary">
               Download Custom Model
