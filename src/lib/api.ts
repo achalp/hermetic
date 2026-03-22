@@ -10,6 +10,7 @@ import type {
   SheetRelationship,
   WarehouseConnectionConfig,
   WarehouseTableInfo,
+  WarehouseTableSchema,
 } from "@/lib/types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
@@ -270,6 +271,7 @@ export interface ConnectWarehouseResult {
   warehouse_id: string;
   warehouse_type: string;
   tables: WarehouseTableInfo[];
+  table_schemas: WarehouseTableSchema[];
   table_count: number;
   total_columns: number;
 }
@@ -291,4 +293,28 @@ export async function disconnectWarehouse(warehouseId: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ warehouse_id: warehouseId }),
   });
+}
+
+export interface WarehouseSampleResult {
+  headers: string[];
+  rows: string[][];
+}
+
+export async function getWarehouseSample(
+  warehouseId: string,
+  tableName: string
+): Promise<WarehouseSampleResult> {
+  const res = await fetch(
+    `/api/warehouse/sample?warehouse_id=${encodeURIComponent(warehouseId)}&table=${encodeURIComponent(tableName)}`
+  );
+  return json<WarehouseSampleResult>(res);
+}
+
+export interface WarehousePresetResult {
+  preset: WarehouseConnectionConfig | null;
+}
+
+export async function getWarehousePreset(signal?: AbortSignal): Promise<WarehousePresetResult> {
+  const res = await fetch("/api/warehouse/presets", { signal });
+  return json<WarehousePresetResult>(res);
 }

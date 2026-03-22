@@ -324,7 +324,7 @@ export default function Home() {
               onWorkbookSelected={handleWorkbookUpload}
               onCancel={cancelSheetPicker}
             />
-          ) : !isUploaded && !showSaved ? (
+          ) : !isUploaded && !showSaved && !warehouse.isConnected ? (
             <div className="space-y-4">
               {/* Data source mode toggle */}
               <div className="flex gap-1 rounded-lg bg-surface-secondary p-1 max-w-xs">
@@ -356,11 +356,14 @@ export default function Home() {
                 <WarehouseConnectPanel
                   isConnected={warehouse.isConnected}
                   isConnecting={warehouse.isConnecting}
+                  warehouseId={warehouse.warehouseId}
                   tables={warehouse.tables}
+                  tableSchemas={warehouse.tableSchemas}
                   tableCount={warehouse.tableCount}
                   totalColumns={warehouse.totalColumns}
                   warehouseType={warehouse.warehouseType}
                   error={warehouse.error}
+                  preset={warehouse.preset}
                   onConnect={warehouse.connect}
                   onDisconnect={warehouse.disconnect}
                 />
@@ -385,11 +388,14 @@ export default function Home() {
                 <WarehouseConnectPanel
                   isConnected={warehouse.isConnected}
                   isConnecting={warehouse.isConnecting}
+                  warehouseId={warehouse.warehouseId}
                   tables={warehouse.tables}
+                  tableSchemas={warehouse.tableSchemas}
                   tableCount={warehouse.tableCount}
                   totalColumns={warehouse.totalColumns}
                   warehouseType={warehouse.warehouseType}
                   error={warehouse.error}
+                  preset={warehouse.preset}
                   onConnect={warehouse.connect}
                   onDisconnect={warehouse.disconnect}
                 />

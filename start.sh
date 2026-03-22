@@ -787,7 +787,132 @@ if ! grep -q "^SANDBOX_RUNTIME=" .env.local 2>/dev/null; then
   fi
 fi
 
-# ── 5. Local inference backend (optional) ────────────────
+# ── 5. Data warehouse (optional) ─────────────────────────
+step "Data warehouse connection"
+
+HAS_WAREHOUSE=false
+if [ -f .env.local ] && grep -q "^WAREHOUSE_TYPE=" .env.local 2>/dev/null; then
+  WH_TYPE=$(grep "^WAREHOUSE_TYPE=" .env.local | cut -d= -f2)
+  ok "Saved warehouse connection: $WH_TYPE (one-click connect in the app)"
+  HAS_WAREHOUSE=true
+fi
+
+if ! $HAS_WAREHOUSE; then
+  echo ""
+  echo -e "    ${DIM}Connect to a data warehouse to query with natural language.${RESET}"
+  echo -e "    ${DIM}You can also configure this later in the app.${RESET}"
+  echo ""
+  echo -e "    ${BOLD}1)${RESET} PostgreSQL ${DIM}— also Redshift, Neon, Supabase${RESET}"
+  echo -e "    ${BOLD}2)${RESET} ClickHouse"
+  echo -e "    ${BOLD}3)${RESET} BigQuery"
+  echo -e "    ${BOLD}s)${RESET} Skip ${DIM}— connect later in the app${RESET}"
+  echo ""
+  echo -n "    Choose [s]: "
+  read -r WH_CHOICE
+
+  case "$WH_CHOICE" in
+    1)
+      echo ""
+      echo -n "    Host [localhost]: "
+      read -r WH_HOST
+      WH_HOST="${WH_HOST:-localhost}"
+      echo -n "    Port [5432]: "
+      read -r WH_PORT
+      WH_PORT="${WH_PORT:-5432}"
+      echo -n "    Database: "
+      read -r WH_DB
+      echo -n "    User [postgres]: "
+      read -r WH_USER
+      WH_USER="${WH_USER:-postgres}"
+      echo -n "    Password: "
+      read -rs WH_PASS
+      echo ""
+      echo -n "    Schema [public]: "
+      read -r WH_SCHEMA
+      WH_SCHEMA="${WH_SCHEMA:-public}"
+      echo -n "    SSL? [y/N]: "
+      read -r WH_SSL
+      WH_SSL_VAL="false"
+      case "$WH_SSL" in y|Y|yes) WH_SSL_VAL="true" ;; esac
+
+      if [ -z "$WH_DB" ]; then
+        warn "Database name is required. Skipping."
+      else
+        cat >> .env.local <<WHEOF
+WAREHOUSE_TYPE=postgresql
+WAREHOUSE_PG_HOST=$WH_HOST
+WAREHOUSE_PG_PORT=$WH_PORT
+WAREHOUSE_PG_DATABASE=$WH_DB
+WAREHOUSE_PG_USER=$WH_USER
+WAREHOUSE_PG_PASSWORD=$WH_PASS
+WAREHOUSE_PG_SCHEMA=$WH_SCHEMA
+WAREHOUSE_PG_SSL=$WH_SSL_VAL
+WHEOF
+        ok "PostgreSQL connection saved to .env.local"
+      fi
+      ;;
+    2)
+      echo ""
+      echo -n "    Host [localhost]: "
+      read -r WH_HOST
+      WH_HOST="${WH_HOST:-localhost}"
+      echo -n "    Port [8123]: "
+      read -r WH_PORT
+      WH_PORT="${WH_PORT:-8123}"
+      echo -n "    Database [default]: "
+      read -r WH_DB
+      WH_DB="${WH_DB:-default}"
+      echo -n "    User [default]: "
+      read -r WH_USER
+      WH_USER="${WH_USER:-default}"
+      echo -n "    Password: "
+      read -rs WH_PASS
+      echo ""
+      echo -n "    SSL? [y/N]: "
+      read -r WH_SSL
+      WH_SSL_VAL="false"
+      case "$WH_SSL" in y|Y|yes) WH_SSL_VAL="true" ;; esac
+
+      cat >> .env.local <<WHEOF
+WAREHOUSE_TYPE=clickhouse
+WAREHOUSE_CH_HOST=$WH_HOST
+WAREHOUSE_CH_PORT=$WH_PORT
+WAREHOUSE_CH_DATABASE=$WH_DB
+WAREHOUSE_CH_USER=$WH_USER
+WAREHOUSE_CH_PASSWORD=$WH_PASS
+WAREHOUSE_CH_SSL=$WH_SSL_VAL
+WHEOF
+      ok "ClickHouse connection saved to .env.local"
+      ;;
+    3)
+      echo ""
+      echo -n "    GCP Project ID: "
+      read -r WH_PROJECT
+      echo -n "    BigQuery Dataset: "
+      read -r WH_DATASET
+      echo -e "    ${DIM}Paste your service account JSON key (or path to .json file):${RESET}"
+      echo -n "    Credentials: "
+      read -r WH_CREDS
+
+      if [ -z "$WH_PROJECT" ] || [ -z "$WH_DATASET" ] || [ -z "$WH_CREDS" ]; then
+        warn "All fields required. Skipping."
+      else
+        cat >> .env.local <<WHEOF
+WAREHOUSE_TYPE=bigquery
+WAREHOUSE_BQ_PROJECT=$WH_PROJECT
+WAREHOUSE_BQ_DATASET=$WH_DATASET
+WAREHOUSE_BQ_CREDENTIALS_JSON=$WH_CREDS
+WHEOF
+        ok "BigQuery connection saved to .env.local"
+      fi
+      ;;
+    *)
+      ok "Skipped — connect to a warehouse any time in the app"
+      ;;
+  esac
+fi
+
+# ── 6. Local inference backend (optional) ────────────────
 step "Local inference backend"
 
 echo ""
@@ -835,7 +960,7 @@ case "$SETUP_LOCAL" in
     ;;
 esac
 
-# ── 6. llmfit (hardware-aware model recommendations) ─────
+# ── 7. llmfit (hardware-aware model recommendations) ─────
 step "Checking llmfit"
 
 if command -v llmfit &>/dev/null; then
@@ -888,7 +1013,7 @@ else
   esac
 fi
 
-# ── 7. Install dependencies ──────────────────────────────
+# ── 8. Install dependencies ──────────────────────────────
 step "Installing dependencies"
 
 if [ -d node_modules ] && [ -f node_modules/.package-lock.json ]; then
@@ -898,7 +1023,7 @@ else
   ok "Done"
 fi
 
-# ── 8. Build sandbox ─────────────────────────────────────
+# ── 9. Build sandbox ─────────────────────────────────────
 if [ "$RUNTIME" = "docker" ]; then
   step "Building Python sandbox"
 
@@ -922,7 +1047,7 @@ elif [ "$RUNTIME" = "microsandbox" ]; then
   ok "Sandbox will be warmed up after server starts"
 fi
 
-# ── 9. Launch ─────────────────────────────────────────────
+# ── 10. Launch ────────────────────────────────────────────
 step "Starting app"
 
 echo ""

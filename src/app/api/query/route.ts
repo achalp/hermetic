@@ -93,8 +93,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── Warehouse path: generate SQL → execute → store as CSV ──────
-    let warehouseSQL: string | undefined;
+    // ── Warehouse: validate early (before streaming) ──────
+    let warehouseState: {
+      warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
+      connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
+    } | null = null;
+
     if (warehouseId) {
       const warehouse = getStoredWarehouse(warehouseId);
       if (!warehouse) {
@@ -110,101 +114,13 @@ export async function POST(request: Request) {
           headers: { "Content-Type": "application/json" },
         });
       }
-
-      // Stage 1: LLM generates SQL from question + all table schemas
-      try {
-        warehouseSQL = await generateSQL(
-          warehouse.tableSchemas,
-          question,
-          warehouse.config.type,
-          codeGenModel
-        );
-        logger.debug("Generated SQL", { sql: warehouseSQL });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "SQL generation failed";
-        return new Response(JSON.stringify({ error: `SQL generation failed: ${msg}` }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      // Stage 2: Execute SQL against warehouse → CSV
-      let csvContent: string;
-      try {
-        csvContent = await connector.executeSQL(warehouseSQL);
-        if (!csvContent || csvContent.trim() === "") {
-          return new Response(JSON.stringify({ error: "SQL query returned no results" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "SQL execution failed";
-        return new Response(
-          JSON.stringify({
-            error: `SQL execution failed: ${msg}\n\nGenerated SQL:\n${warehouseSQL}`,
-          }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      // Stage 3: Parse CSV → extract schema → store as regular CSV
-      const parsed = parseCSV(csvContent);
-      const newCsvId = randomUUID();
-      const schema = extractSchema(parsed, newCsvId, `warehouse_query_result`);
-      schema.source_type = "warehouse";
-      schema.warehouse_type = warehouse.config.type;
-      await storeCSV(newCsvId, csvContent, schema);
-      csvId = newCsvId;
-    }
-
-    // ── File path: load stored CSV ─────────────────────────────────
-    const stored = getStoredCSV(csvId!);
-    if (!stored) {
-      return new Response(
-        JSON.stringify({ error: "CSV not found or expired. Please re-upload." }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const csvContent = await getCSVContent(csvId!);
-    if (!csvContent) {
-      return new Response(JSON.stringify({ error: "CSV content not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    // Fetch GeoJSON sidecar if the upload was GeoJSON
-    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
-
-    // Check for workbook manifest (multi-sheet analysis)
-    const manifest = getWorkbookManifest(csvId!);
-    let additionalFiles: AdditionalFile[] | undefined;
-    let workbookContext: string | undefined;
-
-    if (manifest) {
-      additionalFiles = [];
-      // Build a map of sheet name → exact sandbox file path for the LLM
-      const sheetPaths = new Map<string, string>();
-      for (const sheet of manifest.sheets) {
-        if (sheet.csvId === csvId) {
-          sheetPaths.set(sheet.name, "/data/input.csv");
-          continue;
-        }
-        const content = await getCSVContent(sheet.csvId);
-        if (content) {
-          const safeName = sanitizeSheetName(sheet.name);
-          const filePath = `/data/sheets/${safeName}.csv`;
-          additionalFiles.push({ path: filePath, content });
-          sheetPaths.set(sheet.name, filePath);
-        }
-      }
-      workbookContext = buildWorkbookContext(manifest, schemaMode, sheetPaths);
+      warehouseState = { warehouse, connector };
     }
 
     // Stream immediately — emit progress patches as the pipeline runs, then stream LLM output
     const encoder = new TextEncoder();
+    const isWarehouse = !!warehouseState;
+    const totalSteps = isWarehouse ? 5 : 3;
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -222,17 +138,129 @@ export async function POST(request: Request) {
         const emitProgress = (stage: string, step: number) => {
           const patch =
             step === 1
-              ? { op: "add", path: "/state", value: { __progress: { stage, step, total: 3 } } }
-              : { op: "replace", path: "/state/__progress", value: { stage, step, total: 3 } };
+              ? {
+                  op: "add",
+                  path: "/state",
+                  value: { __progress: { stage, step, total: totalSteps } },
+                }
+              : {
+                  op: "replace",
+                  path: "/state/__progress",
+                  value: { stage, step, total: totalSteps },
+                };
           emit(JSON.stringify(patch) + "\n");
         };
 
         try {
+          // ── Warehouse path: generate SQL → execute → store as CSV ──
+          if (warehouseState) {
+            const { warehouse, connector } = warehouseState;
+
+            // Step 1/5: Generate SQL
+            emitProgress("generating_sql", 1);
+            logger.info("Warehouse query: generating SQL", {
+              warehouseType: warehouse.config.type,
+              tableCount: warehouse.tableSchemas.length,
+              question,
+            });
+
+            let warehouseSQL: string;
+            try {
+              warehouseSQL = await generateSQL(
+                warehouse.tableSchemas,
+                question,
+                warehouse.config.type,
+                codeGenModel
+              );
+              logger.info("Warehouse query: SQL generated", { sql: warehouseSQL });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "SQL generation failed";
+              logger.error("Warehouse query: SQL generation failed", { error: msg });
+              throw new Error(`SQL generation failed: ${msg}`);
+            }
+
+            if (closed) return;
+
+            // Step 2/5: Execute SQL
+            emitProgress("querying_warehouse", 2);
+            logger.info("Warehouse query: executing SQL");
+
+            let warehouseCsvContent: string;
+            try {
+              warehouseCsvContent = await connector.executeSQL(warehouseSQL);
+              if (!warehouseCsvContent || warehouseCsvContent.trim() === "") {
+                throw new Error("SQL query returned no results");
+              }
+              const rowCount = warehouseCsvContent.split("\n").length - 2; // minus header and trailing newline
+              logger.info("Warehouse query: SQL executed", { rows: rowCount });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "SQL execution failed";
+              logger.error("Warehouse query: SQL execution failed", {
+                error: msg,
+                sql: warehouseSQL,
+              });
+              throw new Error(`SQL execution failed: ${msg}\n\nGenerated SQL:\n${warehouseSQL}`);
+            }
+
+            // Parse CSV → extract schema → store as regular CSV
+            const parsed = parseCSV(warehouseCsvContent);
+            const newCsvId = randomUUID();
+            const schema = extractSchema(parsed, newCsvId, `warehouse_query_result`);
+            schema.source_type = "warehouse";
+            schema.warehouse_type = warehouse.config.type;
+            await storeCSV(newCsvId, warehouseCsvContent, schema);
+            csvId = newCsvId;
+
+            logger.info("Warehouse query: data stored as CSV", {
+              csvId: newCsvId,
+              columns: schema.columns.length,
+            });
+          }
+
+          // ── Load CSV (file upload or warehouse result) ──────────
+          const stored = getStoredCSV(csvId!);
+          if (!stored) {
+            throw new Error("CSV not found or expired. Please re-upload.");
+          }
+
+          const csvContent = await getCSVContent(csvId!);
+          if (!csvContent) {
+            throw new Error("CSV content not found");
+          }
+
+          // Fetch GeoJSON sidecar if the upload was GeoJSON
+          const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
+
+          // Check for workbook manifest (multi-sheet analysis)
+          const manifest = getWorkbookManifest(csvId!);
+          let additionalFiles: AdditionalFile[] | undefined;
+          let workbookContext: string | undefined;
+
+          if (manifest) {
+            additionalFiles = [];
+            const sheetPaths = new Map<string, string>();
+            for (const sheet of manifest.sheets) {
+              if (sheet.csvId === csvId) {
+                sheetPaths.set(sheet.name, "/data/input.csv");
+                continue;
+              }
+              const content = await getCSVContent(sheet.csvId);
+              if (content) {
+                const safeName = sanitizeSheetName(sheet.name);
+                const filePath = `/data/sheets/${safeName}.csv`;
+                additionalFiles.push({ path: filePath, content });
+                sheetPaths.set(sheet.name, filePath);
+              }
+            }
+            workbookContext = buildWorkbookContext(manifest, schemaMode, sheetPaths);
+          }
+
           // Map orchestrator stages to progress updates
+          const stepOffset = isWarehouse ? 2 : 0;
           const onStage = (stage: string) => {
-            if (stage === "generating_code") emitProgress("analyzing", 1);
-            else if (stage === "executing") emitProgress("computing", 2);
-            else if (stage === "retrying") emitProgress("retrying", 2);
+            if (stage === "generating_code") emitProgress("analyzing", stepOffset + 1);
+            else if (stage === "executing") emitProgress("computing", stepOffset + 2);
+            else if (stage === "retrying") emitProgress("retrying", stepOffset + 2);
           };
 
           // Run the code-gen + sandbox pipeline
@@ -604,7 +632,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
           ];
 
           // Emit "composing" progress before LLM streaming begins
-          emitProgress("composing", 3);
+          emitProgress("composing", stepOffset + 3);
 
           const llmResult = streamText({
             model: getModel(uiComposeModel),
