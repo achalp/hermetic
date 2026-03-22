@@ -112,7 +112,7 @@ export function ResponsePanel({
     if (questionSeq === 0 || questionSeq === lastSeqRef.current) return;
     lastSeqRef.current = questionSeq;
 
-    if (!csvId || !question) return;
+    if ((!csvId && !warehouseId) || !question) return;
 
     // Build updated history before sending (avoid async setState race)
     let historyToSend = conversationHistoryRef.current;
@@ -403,18 +403,35 @@ export function ResponsePanel({
   );
 }
 
-const PIPELINE_STEPS = [
+const FILE_PIPELINE_STEPS = [
   { stage: "analyzing", label: "Analyzed your data", activeLabel: "Analyzing your data..." },
   { stage: "computing", label: "Ran computations", activeLabel: "Running computations..." },
   { stage: "composing", label: "Composed dashboard", activeLabel: "Composing dashboard..." },
 ] as const;
 
-// Map retrying stage to step 2
-const STAGE_TO_STEP: Record<string, number> = {
+const WAREHOUSE_PIPELINE_STEPS = [
+  { stage: "generating_sql", label: "Generated SQL query", activeLabel: "Generating SQL query..." },
+  { stage: "querying_warehouse", label: "Queried warehouse", activeLabel: "Querying warehouse..." },
+  { stage: "analyzing", label: "Analyzed results", activeLabel: "Analyzing results..." },
+  { stage: "computing", label: "Ran computations", activeLabel: "Running computations..." },
+  { stage: "composing", label: "Composed dashboard", activeLabel: "Composing dashboard..." },
+] as const;
+
+// Map stage names to step numbers per pipeline type
+const FILE_STAGE_TO_STEP: Record<string, number> = {
   analyzing: 1,
   computing: 2,
   retrying: 2,
   composing: 3,
+};
+
+const WAREHOUSE_STAGE_TO_STEP: Record<string, number> = {
+  generating_sql: 1,
+  querying_warehouse: 2,
+  analyzing: 3,
+  computing: 4,
+  retrying: 4,
+  composing: 5,
 };
 
 const RETRYING_LABEL = "Fixing and retrying...";
@@ -451,12 +468,15 @@ function PipelineProgress({
     );
   }
 
-  const currentStep = STAGE_TO_STEP[progress.stage] ?? progress.step;
+  const isWarehousePipeline = progress.total === 5;
+  const pipelineSteps = isWarehousePipeline ? WAREHOUSE_PIPELINE_STEPS : FILE_PIPELINE_STEPS;
+  const stageToStep = isWarehousePipeline ? WAREHOUSE_STAGE_TO_STEP : FILE_STAGE_TO_STEP;
+  const currentStep = stageToStep[progress.stage] ?? progress.step;
   const isRetrying = progress.stage === "retrying";
 
   return (
     <div className="space-y-1.5 text-sm" role="status" aria-live="polite">
-      {PIPELINE_STEPS.map((step, i) => {
+      {pipelineSteps.map((step, i) => {
         const stepNum = i + 1;
         const isCompleted = stepNum < currentStep;
         const isUpcoming = stepNum > currentStep;
@@ -491,7 +511,8 @@ function PipelineProgress({
         }
 
         // Active
-        const label = isRetrying && stepNum === 2 ? RETRYING_LABEL : step.activeLabel;
+        const retryStep = isWarehousePipeline ? 4 : 2;
+        const label = isRetrying && stepNum === retryStep ? RETRYING_LABEL : step.activeLabel;
         return (
           <div key={step.stage} className="flex items-center gap-2 text-accent font-medium">
             <SpinnerIcon />

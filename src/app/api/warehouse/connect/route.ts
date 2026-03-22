@@ -1,7 +1,11 @@
 import { randomUUID } from "crypto";
 import { createConnector } from "@/lib/warehouse/connector";
 import { storeWarehouse } from "@/lib/warehouse/storage";
+import { saveWarehouseToEnv } from "@/lib/warehouse/persist-env";
+import { inferRelationships } from "@/lib/warehouse/infer-relationships";
 import type { WarehouseConnectionConfig } from "@/lib/types";
+
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
@@ -40,6 +44,10 @@ export async function POST(request: Request) {
       return Response.json({ error: `Failed to introspect tables: ${msg}` }, { status: 500 });
     }
 
+    // Infer FK relationships from column naming conventions
+    // (supplements native FKs from PostgreSQL; primary source for ClickHouse/BigQuery)
+    tableSchemas = inferRelationships(tableSchemas);
+
     const warehouseId = randomUUID();
     storeWarehouse(
       {
@@ -52,10 +60,16 @@ export async function POST(request: Request) {
       connector
     );
 
+    // Persist credentials to .env.local so user doesn't have to re-enter on next run
+    saveWarehouseToEnv(config).catch(() => {
+      // Non-fatal — connection still works, just won't persist
+    });
+
     return Response.json({
       warehouse_id: warehouseId,
       warehouse_type: config.type,
       tables,
+      table_schemas: tableSchemas,
       table_count: tables.length,
       total_columns: tableSchemas.reduce((sum, t) => sum + t.columns.length, 0),
     });

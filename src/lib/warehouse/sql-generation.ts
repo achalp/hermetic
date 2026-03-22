@@ -14,12 +14,17 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
         .join("\n");
 
       const pk = t.primary_key?.length ? `  PRIMARY KEY (${t.primary_key.join(", ")})` : "";
+
+      // For FK references, use fully qualified table names for BigQuery
       const fks = t.foreign_keys?.length
         ? t.foreign_keys
-            .map(
-              (fk) =>
-                `  FOREIGN KEY (${fk.column}) REFERENCES ${fk.references_table}(${fk.references_column})`
-            )
+            .map((fk) => {
+              const refTable =
+                warehouseType === "bigquery"
+                  ? `\`${t.schema}.${fk.references_table}\``
+                  : fk.references_table;
+              return `  FOREIGN KEY (${fk.column}) REFERENCES ${refTable}(${fk.references_column})`;
+            })
             .join("\n")
         : "";
 
@@ -27,7 +32,11 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
       const rowNote =
         t.row_count_estimate > 0 ? ` -- ~${t.row_count_estimate.toLocaleString()} rows` : "";
 
-      return `${t.schema}.${t.name}${rowNote}\n(\n${cols}${constraints ? "\n" + constraints : ""}\n)`;
+      // Use fully qualified names for BigQuery (backtick-quoted project.dataset.table)
+      const tableName =
+        warehouseType === "bigquery" ? `\`${t.schema}.${t.name}\`` : `${t.schema}.${t.name}`;
+
+      return `${tableName}${rowNote}\n(\n${cols}${constraints ? "\n" + constraints : ""}\n)`;
     })
     .join("\n\n");
 }

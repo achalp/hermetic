@@ -1,16 +1,25 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import type { WarehouseType, WarehouseConnectionConfig, WarehouseTableInfo } from "@/lib/types";
+import { useState, useCallback, useEffect } from "react";
+import type {
+  WarehouseType,
+  WarehouseConnectionConfig,
+  WarehouseTableInfo,
+  WarehouseTableSchema,
+} from "@/lib/types";
+import { getWarehouseSample } from "@/lib/api";
 
 interface WarehouseConnectPanelProps {
   isConnected: boolean;
   isConnecting: boolean;
+  warehouseId: string | null;
   tables: WarehouseTableInfo[];
+  tableSchemas: WarehouseTableSchema[];
   tableCount: number;
   totalColumns: number;
   warehouseType: WarehouseType | null;
   error: string | null;
+  preset?: WarehouseConnectionConfig | null;
   onConnect: (config: WarehouseConnectionConfig) => void;
   onDisconnect: () => void;
 }
@@ -26,20 +35,25 @@ const TAB_LABELS: Record<Tab, string> = {
 export function WarehouseConnectPanel({
   isConnected,
   isConnecting,
+  warehouseId,
   tables,
+  tableSchemas,
   tableCount,
   totalColumns,
   warehouseType,
   error,
+  preset,
   onConnect,
   onDisconnect,
 }: WarehouseConnectPanelProps) {
-  const [tab, setTab] = useState<Tab>("postgresql");
+  const [tab, setTab] = useState<Tab>(preset?.type ?? "postgresql");
 
   if (isConnected) {
     return (
-      <ConnectedSummary
+      <DataDictionary
+        warehouseId={warehouseId}
         tables={tables}
+        tableSchemas={tableSchemas}
         tableCount={tableCount}
         totalColumns={totalColumns}
         warehouseType={warehouseType}
@@ -50,6 +64,33 @@ export function WarehouseConnectPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Saved connection — one-click connect */}
+      {preset && (
+        <button
+          onClick={() => onConnect(preset)}
+          disabled={isConnecting}
+          className="flex items-center justify-between rounded-lg border border-accent/30 bg-accent/5 px-4 py-3 text-left transition-colors hover:bg-accent/10 disabled:opacity-50"
+        >
+          <div>
+            <span className="text-sm font-medium text-t-primary">
+              {TAB_LABELS[preset.type]} — saved connection
+            </span>
+            <span className="ml-2 text-xs text-t-tertiary">
+              {preset.type === "postgresql"
+                ? `${preset.host}:${preset.port}/${preset.database}`
+                : preset.type === "bigquery"
+                  ? `${preset.projectId}.${preset.dataset}`
+                  : `${preset.host}:${preset.port}/${preset.database}`}
+            </span>
+          </div>
+          <span className="text-xs font-medium text-accent">
+            {isConnecting ? "Connecting..." : "Connect"}
+          </span>
+        </button>
+      )}
+
+      {error && <p className="text-xs text-error-text">{error}</p>}
+
       {/* Tabs */}
       <div className="flex gap-1 rounded-lg bg-surface-secondary p-1">
         {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
@@ -67,39 +108,92 @@ export function WarehouseConnectPanel({
         ))}
       </div>
 
-      {/* Forms */}
       {tab === "postgresql" && (
-        <PostgresForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
+        <PostgresForm
+          isConnecting={isConnecting}
+          error={preset ? null : error}
+          onConnect={onConnect}
+          defaults={preset?.type === "postgresql" ? preset : undefined}
+        />
       )}
       {tab === "bigquery" && (
-        <BigQueryForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
+        <BigQueryForm
+          isConnecting={isConnecting}
+          error={preset ? null : error}
+          onConnect={onConnect}
+          defaults={preset?.type === "bigquery" ? preset : undefined}
+        />
       )}
       {tab === "clickhouse" && (
-        <ClickHouseForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
+        <ClickHouseForm
+          isConnecting={isConnecting}
+          error={preset ? null : error}
+          onConnect={onConnect}
+          defaults={preset?.type === "clickhouse" ? preset : undefined}
+        />
       )}
     </div>
   );
 }
 
-// ── Connected Summary ────────────────────────────────────────
+// ── Data Dictionary ──────────────────────────────────────────
 
-function ConnectedSummary({
+const TYPE_COLORS: Record<string, string> = {
+  number: "bg-blue-500/15 text-blue-400",
+  integer: "bg-blue-500/15 text-blue-400",
+  float: "bg-blue-500/15 text-blue-400",
+  string: "bg-emerald-500/15 text-emerald-400",
+  text: "bg-emerald-500/15 text-emerald-400",
+  date: "bg-purple-500/15 text-purple-400",
+  timestamp: "bg-purple-500/15 text-purple-400",
+  boolean: "bg-amber-500/15 text-amber-400",
+  bool: "bg-amber-500/15 text-amber-400",
+};
+
+function getTypeBadgeClass(type: string): string {
+  const lower = type.toLowerCase();
+  for (const [key, cls] of Object.entries(TYPE_COLORS)) {
+    if (lower.includes(key)) return cls;
+  }
+  return "bg-surface-secondary text-t-tertiary";
+}
+
+function DataDictionary({
+  warehouseId,
   tables,
+  tableSchemas,
   tableCount,
   totalColumns,
   warehouseType,
   onDisconnect,
 }: {
+  warehouseId: string | null;
   tables: WarehouseTableInfo[];
+  tableSchemas: WarehouseTableSchema[];
   tableCount: number;
   totalColumns: number;
   warehouseType: WarehouseType | null;
   onDisconnect: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expandedTable, setExpandedTable] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+
+  // Build a lookup from table name → schema
+  const schemaMap = new Map(tableSchemas.map((s) => [s.name, s]));
+
+  // Filter tables and columns
+  const filterLower = filter.toLowerCase();
+  const filteredTables = filter
+    ? tables.filter((t) => {
+        if (t.name.toLowerCase().includes(filterLower)) return true;
+        const schema = schemaMap.get(t.name);
+        return schema?.columns.some((c) => c.name.toLowerCase().includes(filterLower));
+      })
+    : tables;
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border-primary p-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 rounded-full bg-green-500" />
@@ -111,6 +205,9 @@ function ConnectedSummary({
                 ? "BigQuery"
                 : "ClickHouse"}
           </span>
+          <span className="text-xs text-t-tertiary">
+            {tableCount} tables / {totalColumns} columns
+          </span>
         </div>
         <button
           onClick={onDisconnect}
@@ -120,33 +217,61 @@ function ConnectedSummary({
         </button>
       </div>
 
-      <div className="flex gap-4 text-xs text-t-secondary">
-        <span>{tableCount} tables</span>
-        <span>{totalColumns} columns</span>
-      </div>
+      {/* Search */}
+      <input
+        type="text"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="Search tables and columns..."
+        className="w-full rounded-md border border-border-primary bg-surface-primary px-3 py-1.5 text-xs text-t-primary placeholder:text-t-tertiary focus:border-accent focus:outline-none"
+      />
 
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-xs text-accent hover:text-accent-hover text-left"
-      >
-        {expanded ? "Hide tables" : "Show tables"}
-      </button>
+      {/* Table list */}
+      <div className="max-h-80 overflow-y-auto rounded-lg border border-border-primary">
+        {filteredTables.map((t) => {
+          const schema = schemaMap.get(t.name);
+          const isExpanded = expandedTable === t.name;
 
-      {expanded && (
-        <div className="max-h-48 overflow-y-auto rounded border border-border-primary">
-          {tables.map((t) => (
-            <div
-              key={`${t.schema}.${t.name}`}
-              className="flex items-center justify-between border-b border-border-primary px-3 py-1.5 last:border-b-0"
-            >
-              <span className="font-mono text-xs text-t-primary">{t.name}</span>
-              <span className="text-xs text-t-tertiary">
-                {formatRowCount(t.row_count_estimate)}
-              </span>
+          return (
+            <div key={t.name} className="border-b border-border-primary last:border-b-0">
+              {/* Table header row */}
+              <button
+                onClick={() => setExpandedTable(isExpanded ? null : t.name)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-secondary transition-colors"
+              >
+                <svg
+                  className={`h-3 w-3 text-t-tertiary shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M8 5l8 7-8 7z" />
+                </svg>
+                <span className="font-mono text-xs font-medium text-t-primary">{t.name}</span>
+                <span className="text-xs text-t-tertiary ml-auto">
+                  {schema?.columns.length ?? t.column_count} cols
+                  {t.row_count_estimate > 0 && <> / {formatRowCount(t.row_count_estimate)}</>}
+                </span>
+              </button>
+
+              {/* Expanded: columns + sample data */}
+              {isExpanded && schema && (
+                <TableDetail
+                  warehouseId={warehouseId}
+                  tableName={t.name}
+                  schema={schema}
+                  filterText={filterLower}
+                />
+              )}
             </div>
-          ))}
-        </div>
-      )}
+          );
+        })}
+
+        {filteredTables.length === 0 && (
+          <div className="px-3 py-4 text-center text-xs text-t-tertiary">
+            No tables or columns match &ldquo;{filter}&rdquo;
+          </div>
+        )}
+      </div>
 
       <p className="text-xs text-t-tertiary">
         Ask any question — SQL will be generated automatically across all {tableCount} tables.
@@ -155,7 +280,140 @@ function ConnectedSummary({
   );
 }
 
+function TableDetail({
+  warehouseId,
+  tableName,
+  schema,
+  filterText,
+}: {
+  warehouseId: string | null;
+  tableName: string;
+  schema: WarehouseTableSchema;
+  filterText: string;
+}) {
+  const [sampleData, setSampleData] = useState<{ headers: string[]; rows: string[][] } | null>(
+    null
+  );
+  const [loadingSample, setLoadingSample] = useState(false);
+  const [showSample, setShowSample] = useState(false);
+
+  const pkSet = new Set(schema.primary_key ?? []);
+  const fkMap = new Map(
+    (schema.foreign_keys ?? []).map((fk) => [
+      fk.column,
+      `${fk.references_table}.${fk.references_column}`,
+    ])
+  );
+
+  const loadSample = useCallback(async () => {
+    if (sampleData || !warehouseId) return;
+    setLoadingSample(true);
+    try {
+      const data = await getWarehouseSample(warehouseId, tableName);
+      setSampleData(data);
+    } catch {
+      setSampleData({ headers: [], rows: [] });
+    } finally {
+      setLoadingSample(false);
+    }
+  }, [warehouseId, tableName, sampleData]);
+
+  const handleToggleSample = useCallback(() => {
+    if (!showSample && !sampleData) {
+      loadSample();
+    }
+    setShowSample(!showSample);
+  }, [showSample, sampleData, loadSample]);
+
+  return (
+    <div className="border-t border-border-primary bg-surface-secondary/50 px-3 py-2 space-y-2">
+      {/* Column list */}
+      <div className="space-y-0.5">
+        {schema.columns.map((col) => {
+          const isPK = pkSet.has(col.name);
+          const fkRef = fkMap.get(col.name);
+          const highlight = filterText && col.name.toLowerCase().includes(filterText);
+
+          return (
+            <div
+              key={col.name}
+              className={`flex items-center gap-2 rounded px-1.5 py-0.5 text-xs ${highlight ? "bg-accent/10" : ""}`}
+            >
+              <span className={`font-mono ${highlight ? "text-accent" : "text-t-primary"}`}>
+                {col.name}
+              </span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${getTypeBadgeClass(col.type)}`}
+              >
+                {col.type}
+              </span>
+              {isPK && (
+                <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
+                  PK
+                </span>
+              )}
+              {fkRef && (
+                <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-medium text-cyan-400">
+                  FK→{fkRef}
+                </span>
+              )}
+              {col.nullable && <span className="text-[10px] text-t-tertiary">null</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Sample data toggle */}
+      <button
+        onClick={handleToggleSample}
+        className="text-[11px] text-accent hover:text-accent-hover"
+      >
+        {loadingSample ? "Loading..." : showSample ? "Hide sample" : "Preview 5 rows"}
+      </button>
+
+      {/* Sample data table */}
+      {showSample && sampleData && sampleData.rows.length > 0 && (
+        <div className="overflow-x-auto rounded border border-border-primary">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="bg-surface-secondary">
+                {sampleData.headers.map((h) => (
+                  <th
+                    key={h}
+                    className="px-2 py-1 text-left font-mono font-medium text-t-secondary whitespace-nowrap"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sampleData.rows.map((row, i) => (
+                <tr key={i} className="border-t border-border-primary">
+                  {row.map((cell, j) => (
+                    <td
+                      key={j}
+                      className="px-2 py-1 font-mono text-t-primary whitespace-nowrap max-w-[200px] truncate"
+                    >
+                      {cell || <span className="text-t-tertiary italic">null</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {showSample && sampleData && sampleData.rows.length === 0 && (
+        <p className="text-[11px] text-t-tertiary italic">No data in table</p>
+      )}
+    </div>
+  );
+}
+
 function formatRowCount(n: number): string {
+  if (n >= 1_000_000_000) return `~${(n / 1_000_000_000).toFixed(1)}B rows`;
   if (n >= 1_000_000) return `~${(n / 1_000_000).toFixed(1)}M rows`;
   if (n >= 1_000) return `~${(n / 1_000).toFixed(1)}K rows`;
   if (n > 0) return `~${n} rows`;
@@ -189,10 +447,12 @@ function PostgresForm({
   isConnecting,
   error,
   onConnect,
+  defaults,
 }: {
   isConnecting: boolean;
   error: string | null;
   onConnect: (config: WarehouseConnectionConfig) => void;
+  defaults?: import("@/lib/types").PostgresConnectionConfig;
 }) {
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
@@ -217,34 +477,73 @@ function PostgresForm({
       <div className="grid grid-cols-3 gap-3">
         <div className="col-span-2">
           <label className={labelClass}>Host</label>
-          <input name="host" required placeholder="localhost" className={inputClass} />
+          <input
+            name="host"
+            required
+            placeholder="localhost"
+            defaultValue={defaults?.host}
+            className={inputClass}
+          />
         </div>
         <div>
           <label className={labelClass}>Port</label>
-          <input name="port" type="number" defaultValue={5432} className={inputClass} />
+          <input
+            name="port"
+            type="number"
+            defaultValue={defaults?.port ?? 5432}
+            className={inputClass}
+          />
         </div>
       </div>
       <div>
         <label className={labelClass}>Database</label>
-        <input name="database" required placeholder="mydb" className={inputClass} />
+        <input
+          name="database"
+          required
+          placeholder="mydb"
+          defaultValue={defaults?.database}
+          className={inputClass}
+        />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>User</label>
-          <input name="user" required placeholder="postgres" className={inputClass} />
+          <input
+            name="user"
+            required
+            placeholder="postgres"
+            defaultValue={defaults?.user}
+            className={inputClass}
+          />
         </div>
         <div>
           <label className={labelClass}>Password</label>
-          <input name="password" type="password" className={inputClass} />
+          <input
+            name="password"
+            type="password"
+            defaultValue={defaults?.password}
+            className={inputClass}
+          />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>Schema</label>
-          <input name="schema" placeholder="public" className={inputClass} />
+          <input
+            name="schema"
+            placeholder="public"
+            defaultValue={defaults?.schema}
+            className={inputClass}
+          />
         </div>
         <div className="flex items-end gap-2 pb-1">
-          <input name="ssl" type="checkbox" id="pg-ssl" className="accent-accent" />
+          <input
+            name="ssl"
+            type="checkbox"
+            id="pg-ssl"
+            defaultChecked={defaults?.ssl}
+            className="accent-accent"
+          />
           <label htmlFor="pg-ssl" className={labelClass}>
             SSL
           </label>
@@ -260,10 +559,12 @@ function BigQueryForm({
   isConnecting,
   error,
   onConnect,
+  defaults,
 }: {
   isConnecting: boolean;
   error: string | null;
   onConnect: (config: WarehouseConnectionConfig) => void;
+  defaults?: import("@/lib/types").BigQueryConnectionConfig;
 }) {
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
@@ -283,11 +584,23 @@ function BigQueryForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       <div>
         <label className={labelClass}>Project ID</label>
-        <input name="projectId" required placeholder="my-gcp-project" className={inputClass} />
+        <input
+          name="projectId"
+          required
+          placeholder="my-gcp-project"
+          defaultValue={defaults?.projectId}
+          className={inputClass}
+        />
       </div>
       <div>
         <label className={labelClass}>Dataset</label>
-        <input name="dataset" required placeholder="my_dataset" className={inputClass} />
+        <input
+          name="dataset"
+          required
+          placeholder="my_dataset"
+          defaultValue={defaults?.dataset}
+          className={inputClass}
+        />
       </div>
       <div>
         <label className={labelClass}>Service Account JSON</label>
@@ -296,6 +609,7 @@ function BigQueryForm({
           required
           rows={4}
           placeholder="Paste your service account JSON key here..."
+          defaultValue={defaults?.credentialsJson}
           className={`${inputClass} resize-none font-mono text-xs`}
         />
       </div>
@@ -309,10 +623,12 @@ function ClickHouseForm({
   isConnecting,
   error,
   onConnect,
+  defaults,
 }: {
   isConnecting: boolean;
   error: string | null;
   onConnect: (config: WarehouseConnectionConfig) => void;
+  defaults?: import("@/lib/types").ClickHouseConnectionConfig;
 }) {
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
@@ -336,29 +652,63 @@ function ClickHouseForm({
       <div className="grid grid-cols-3 gap-3">
         <div className="col-span-2">
           <label className={labelClass}>Host</label>
-          <input name="host" required placeholder="play.clickhouse.com" className={inputClass} />
+          <input
+            name="host"
+            required
+            placeholder="play.clickhouse.com"
+            defaultValue={defaults?.host}
+            className={inputClass}
+          />
         </div>
         <div>
           <label className={labelClass}>Port</label>
-          <input name="port" type="number" defaultValue={8123} className={inputClass} />
+          <input
+            name="port"
+            type="number"
+            defaultValue={defaults?.port ?? 8123}
+            className={inputClass}
+          />
         </div>
       </div>
       <div>
         <label className={labelClass}>Database</label>
-        <input name="database" required placeholder="default" className={inputClass} />
+        <input
+          name="database"
+          required
+          placeholder="default"
+          defaultValue={defaults?.database}
+          className={inputClass}
+        />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={labelClass}>User</label>
-          <input name="user" required placeholder="default" className={inputClass} />
+          <input
+            name="user"
+            required
+            placeholder="default"
+            defaultValue={defaults?.user}
+            className={inputClass}
+          />
         </div>
         <div>
           <label className={labelClass}>Password</label>
-          <input name="password" type="password" className={inputClass} />
+          <input
+            name="password"
+            type="password"
+            defaultValue={defaults?.password}
+            className={inputClass}
+          />
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <input name="ssl" type="checkbox" id="ch-ssl" className="accent-accent" />
+        <input
+          name="ssl"
+          type="checkbox"
+          id="ch-ssl"
+          defaultChecked={defaults?.ssl}
+          className="accent-accent"
+        />
         <label htmlFor="ch-ssl" className={labelClass}>
           SSL
         </label>
