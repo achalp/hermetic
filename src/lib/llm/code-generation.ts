@@ -48,8 +48,13 @@ export function cleanGeneratedCode(raw: string): string {
 /**
  * Fix filenames in generated code: local models sometimes use the original
  * filename (e.g. "/data/sales.csv") instead of the expected "/data/input.csv".
+ * They also sometimes double the extension (e.g. "/data/input.csv.csv").
  */
 export function fixUpFilenames(code: string, originalFilename: string): string {
+  // Fix double extensions first — models see "Filename: data.csv" in the prompt
+  // and construct paths like "/data/data.csv.csv" or "/data/input.csv.csv"
+  code = code.replace(/\/data\/([^"'\s]+)\.csv\.csv/g, "/data/$1.csv");
+
   if (!originalFilename || originalFilename === "input.csv") return code;
   // Replace /data/<original-filename> with /data/input.csv
   // Handle both the exact name and common variations (with/without extension)
