@@ -1,5 +1,5 @@
 import { getRuntimeConfig } from "@/lib/runtime-config";
-import { readdirSync, statSync } from "fs";
+import { readdirSync, statSync, mkdirSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 
@@ -71,18 +71,30 @@ print(json.dumps({"repos": repos}))
 function listCachedGgufModels(): { name: string; size: number; modified_at: string }[] {
   const dir = join(process.cwd(), "data", "models", "gguf");
   try {
+    // Ensure directory exists
+    mkdirSync(dir, { recursive: true });
+
     const files = readdirSync(dir, { recursive: true }) as string[];
-    return files
-      .filter((f) => f.endsWith(".gguf"))
-      .map((f) => {
-        const fullPath = join(dir, f);
-        const s = statSync(fullPath);
-        return {
-          name: f,
-          size: s.size,
-          modified_at: s.mtime.toISOString(),
-        };
-      });
+    return (
+      files
+        .filter((f) => typeof f === "string" && f.endsWith(".gguf"))
+        .map((f) => {
+          const fullPath = join(dir, f);
+          try {
+            const s = statSync(fullPath);
+            return {
+              // Use the relative path from gguf dir — this is what startServer will resolve
+              name: f,
+              size: s.size,
+              modified_at: s.mtime.toISOString(),
+            };
+          } catch {
+            return { name: f, size: 0, modified_at: "" };
+          }
+        })
+        // Sort by most recently modified first
+        .sort((a, b) => (b.modified_at > a.modified_at ? 1 : -1))
+    );
   } catch {
     return [];
   }
@@ -158,29 +170,37 @@ export async function GET(request: Request) {
   }
 
   if (backend === "llama-cpp") {
-    // First try the running server, then fall back to local scan
+    // Always scan the filesystem for cached GGUF files — this is the source of truth.
+    // The server's /v1/models only shows the currently loaded model (not all cached ones).
+    const cached = listCachedGgufModels();
+
+    // If server is running, also check which model is currently loaded
     const rc = getRuntimeConfig();
     const baseUrl = rc.llamaCpp?.baseUrl;
     if (baseUrl) {
       try {
         const controller = new AbortController();
         const t = setTimeout(() => controller.abort(), 2000);
-        const res = await fetch(`${baseUrl}/v1/models`, { signal: controller.signal });
+        // Use /health instead of /v1/models — more reliable across llama.cpp versions
+        const res = await fetch(`${baseUrl}/health`, { signal: controller.signal });
         clearTimeout(t);
         if (res.ok) {
-          const data = await res.json();
-          const models = (data.data ?? []).map((m: { id: string }) => ({
-            name: m.id,
-            size: 0,
-            modified_at: "",
-          }));
-          if (models.length > 0) return Response.json({ models });
+          // Server is healthy — mark the active model in the list
+          const activeModel = rc.llamaCpp?.activeModel;
+          if (activeModel) {
+            // Ensure the active model appears in the list even if path resolution differs
+            const hasActive = cached.some(
+              (m) => m.name === activeModel || activeModel.includes(m.name)
+            );
+            if (!hasActive) {
+              cached.unshift({ name: activeModel, size: 0, modified_at: new Date().toISOString() });
+            }
+          }
         }
       } catch {
-        // fall through
+        // fall through — server not reachable
       }
     }
-    const cached = listCachedGgufModels();
     return Response.json({ models: cached });
   }
 

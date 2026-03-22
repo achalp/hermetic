@@ -17,7 +17,7 @@ const mockSetRuntimeConfig = vi.fn((partial: Record<string, unknown>) => {
 });
 vi.mock("@/lib/runtime-config", () => ({
   getRuntimeConfig: () => mockConfig,
-  setRuntimeConfig: (...args: unknown[]) => mockSetRuntimeConfig(...args),
+  setRuntimeConfig: (partial: Record<string, unknown>) => mockSetRuntimeConfig(partial),
 }));
 
 // Mock logger
@@ -88,9 +88,11 @@ describe("process-manager", () => {
       );
 
       mockFetch.mockClear();
+      // llama-cpp uses /health endpoint
+      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ status: "ok" }) });
       await healthCheck("llama-cpp");
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining("/v1/models"),
+        expect.stringContaining("/health"),
         expect.any(Object)
       );
     });
@@ -336,6 +338,145 @@ describe("process-manager", () => {
     it("returns empty array for unknown backend", async () => {
       const { getServerLogs } = await import("../llm/process-manager");
       expect(getServerLogs("nonexistent")).toEqual([]);
+    });
+  });
+
+  describe("resolveGgufModelPath", () => {
+    it("returns absolute paths as-is", async () => {
+      const { resolveGgufModelPath } = await import("../llm/process-manager");
+      expect(resolveGgufModelPath("/absolute/path/model.gguf")).toBe("/absolute/path/model.gguf");
+    });
+
+    it("resolves bare .gguf filename to GGUF_DIR", async () => {
+      const { resolveGgufModelPath } = await import("../llm/process-manager");
+      const result = resolveGgufModelPath("model-Q4_K_M.gguf");
+      // Should resolve relative to data/models/gguf
+      expect(result).toContain("data/models/gguf");
+      expect(result).toContain("model-Q4_K_M.gguf");
+    });
+
+    it("handles HF repo ID format", async () => {
+      const { resolveGgufModelPath } = await import("../llm/process-manager");
+      const result = resolveGgufModelPath("bartowski/Llama-3.2-3B-Instruct-GGUF");
+      // Should resolve to something under data/models/gguf
+      expect(result).toContain("data/models/gguf");
+    });
+  });
+
+  describe("healthCheck for llama-cpp", () => {
+    it("uses /health endpoint for llama-cpp", async () => {
+      const { healthCheck } = await import("../llm/process-manager");
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: "ok" }),
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const result = await healthCheck("llama-cpp");
+      expect(result).toBe(true);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/health"),
+        expect.any(Object)
+      );
+    });
+
+    it("returns false when llama-cpp is loading model", async () => {
+      const { healthCheck } = await import("../llm/process-manager");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ status: "loading model" }),
+        })
+      );
+
+      expect(await healthCheck("llama-cpp")).toBe(false);
+    });
+
+    it("returns true when llama-cpp status is ok", async () => {
+      const { healthCheck } = await import("../llm/process-manager");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ status: "ok" }),
+        })
+      );
+
+      expect(await healthCheck("llama-cpp")).toBe(true);
+    });
+  });
+
+  describe("startServer llama-cpp", () => {
+    it("validates GGUF file exists before spawning", async () => {
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === "string" && cmd.includes("which llama-server"))
+          return "/usr/local/bin/llama-server";
+        if (typeof cmd === "string" && cmd.includes("lsof")) throw new Error("not found");
+        return "";
+      });
+
+      const { startServer } = await import("../llm/process-manager");
+      // Non-existent model path should throw
+      await expect(
+        startServer("llama-cpp", { model: "nonexistent-model-that-does-not-exist.gguf" })
+      ).rejects.toThrow(/GGUF model file not found/);
+    });
+
+    it("throws when llama-server binary is not found", async () => {
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === "string" && cmd.includes("lsof")) throw new Error("not found");
+        throw new Error("not found");
+      });
+
+      const { startServer } = await import("../llm/process-manager");
+      await expect(startServer("llama-cpp", { model: "test.gguf" })).rejects.toThrow(
+        /llama-server binary not found/
+      );
+    });
+
+    it("includes -ngl 99 for GPU offloading", async () => {
+      // Create a temporary GGUF file to pass validation
+      const fs = await import("fs");
+      const path = await import("path");
+      const ggufDir = path.join(process.cwd(), "data", "models", "gguf");
+      fs.mkdirSync(ggufDir, { recursive: true });
+      const testFile = path.join(ggufDir, "test-model.gguf");
+      fs.writeFileSync(testFile, "fake gguf data");
+
+      try {
+        const mockProc = {
+          pid: 12345,
+          exitCode: null,
+          killed: false,
+          unref: vi.fn(),
+          stdout: { on: vi.fn() },
+          stderr: { on: vi.fn() },
+          on: vi.fn(),
+          kill: vi.fn(),
+        };
+        mockSpawn.mockReturnValue(mockProc);
+        mockExecSync.mockImplementation((cmd: string) => {
+          if (typeof cmd === "string" && cmd.includes("which llama-server"))
+            return "/usr/local/bin/llama-server";
+          if (typeof cmd === "string" && cmd.includes("lsof")) throw new Error("not found");
+          return "";
+        });
+
+        const { startServer } = await import("../llm/process-manager");
+        await startServer("llama-cpp", { model: "test-model.gguf" });
+
+        const spawnCall = mockSpawn.mock.calls.find(
+          (c: unknown[]) => Array.isArray(c[1]) && (c[1] as string[]).includes("-ngl")
+        );
+        expect(spawnCall).toBeDefined();
+        const args = spawnCall![1] as string[];
+        expect(args).toContain("-ngl");
+        expect(args[args.indexOf("-ngl") + 1]).toBe("99");
+        expect(args).toContain("--parallel");
+      } finally {
+        fs.rmSync(testFile, { force: true });
+      }
     });
   });
 });
