@@ -1,94 +1,117 @@
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, writeFile, unlink } from "fs/promises";
 import { join } from "path";
+import { randomUUID } from "crypto";
 import type { WarehouseConnectionConfig } from "@/lib/types";
 
-const ENV_LOCAL_PATH = join(process.cwd(), ".env.local");
+const CONNECTIONS_PATH = join(process.cwd(), ".warehouse-connections.json");
 
-/** All WAREHOUSE_* keys we manage */
-const WAREHOUSE_KEYS = [
-  "WAREHOUSE_TYPE",
-  "WAREHOUSE_PG_HOST",
-  "WAREHOUSE_PG_PORT",
-  "WAREHOUSE_PG_DATABASE",
-  "WAREHOUSE_PG_USER",
-  "WAREHOUSE_PG_PASSWORD",
-  "WAREHOUSE_PG_SCHEMA",
-  "WAREHOUSE_PG_SSL",
-  "WAREHOUSE_BQ_PROJECT",
-  "WAREHOUSE_BQ_DATASET",
-  "WAREHOUSE_BQ_CREDENTIALS_JSON",
-  "WAREHOUSE_CH_HOST",
-  "WAREHOUSE_CH_PORT",
-  "WAREHOUSE_CH_DATABASE",
-  "WAREHOUSE_CH_USER",
-  "WAREHOUSE_CH_PASSWORD",
-  "WAREHOUSE_CH_SSL",
-];
-
-/**
- * Save warehouse connection config to .env.local so it persists across restarts.
- * Replaces any existing WAREHOUSE_* lines.
- */
-export async function saveWarehouseToEnv(config: WarehouseConnectionConfig): Promise<void> {
-  let existing = "";
-  try {
-    existing = await readFile(ENV_LOCAL_PATH, "utf-8");
-  } catch {
-    // file doesn't exist yet
-  }
-
-  // Remove all existing WAREHOUSE_* lines
-  const lines = existing.split("\n").filter((line) => {
-    const key = line.split("=")[0]?.trim();
-    return !WAREHOUSE_KEYS.includes(key);
-  });
-
-  // Remove trailing blank lines, then add one
-  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
-    lines.pop();
-  }
-  lines.push("");
-
-  // Add new warehouse config
-  const newLines = await configToEnvLines(config);
-  lines.push(...newLines, "");
-
-  await writeFile(ENV_LOCAL_PATH, lines.join("\n"), "utf-8");
+export interface SavedConnection {
+  id: string;
+  label: string;
+  config: WarehouseConnectionConfig;
+  createdAt: string;
 }
 
-async function configToEnvLines(config: WarehouseConnectionConfig): Promise<string[]> {
+/** Read all saved connections */
+export async function loadConnections(): Promise<SavedConnection[]> {
+  try {
+    const raw = await readFile(CONNECTIONS_PATH, "utf-8");
+    return JSON.parse(raw) as SavedConnection[];
+  } catch {
+    // Also migrate from legacy .env.local WAREHOUSE_* vars if present
+    const legacy = loadLegacyFromEnv();
+    if (legacy) {
+      const migrated: SavedConnection[] = [
+        {
+          id: randomUUID(),
+          label: buildLabel(legacy),
+          config: legacy,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      await writeFile(CONNECTIONS_PATH, JSON.stringify(migrated, null, 2), "utf-8");
+      return migrated;
+    }
+    return [];
+  }
+}
+
+/** Save a new connection (deduplicates by host+db or project+dataset) */
+export async function saveConnection(config: WarehouseConnectionConfig): Promise<SavedConnection> {
+  const connections = await loadConnections();
+  const label = buildLabel(config);
+
+  // Check for duplicate — same type + same target
+  const existingIdx = connections.findIndex((c) => buildLabel(c.config) === label);
+  if (existingIdx >= 0) {
+    // Update existing
+    connections[existingIdx].config = config;
+    connections[existingIdx].createdAt = new Date().toISOString();
+    await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
+    return connections[existingIdx];
+  }
+
+  const saved: SavedConnection = {
+    id: randomUUID(),
+    label,
+    config,
+    createdAt: new Date().toISOString(),
+  };
+  connections.push(saved);
+  await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
+  return saved;
+}
+
+/** Remove a saved connection by id */
+export async function removeConnection(id: string): Promise<void> {
+  const connections = await loadConnections();
+  const filtered = connections.filter((c) => c.id !== id);
+  if (filtered.length === 0) {
+    await unlink(CONNECTIONS_PATH).catch(() => {});
+  } else {
+    await writeFile(CONNECTIONS_PATH, JSON.stringify(filtered, null, 2), "utf-8");
+  }
+}
+
+function buildLabel(config: WarehouseConnectionConfig): string {
   switch (config.type) {
     case "postgresql":
-      return [
-        `WAREHOUSE_TYPE=postgresql`,
-        `WAREHOUSE_PG_HOST=${config.host}`,
-        `WAREHOUSE_PG_PORT=${config.port}`,
-        `WAREHOUSE_PG_DATABASE=${config.database}`,
-        `WAREHOUSE_PG_USER=${config.user}`,
-        `WAREHOUSE_PG_PASSWORD=${config.password}`,
-        `WAREHOUSE_PG_SCHEMA=${config.schema ?? "public"}`,
-        `WAREHOUSE_PG_SSL=${config.ssl ? "true" : "false"}`,
-      ];
-    case "bigquery": {
-      // Save credentials JSON to a separate file (too large/complex for env var)
-      const credsPath = join(process.cwd(), ".bigquery-credentials.json");
-      await writeFile(credsPath, config.credentialsJson, "utf-8");
-      return [
-        `WAREHOUSE_TYPE=bigquery`,
-        `WAREHOUSE_BQ_PROJECT=${config.projectId}`,
-        `WAREHOUSE_BQ_DATASET=${config.dataset}`,
-        `WAREHOUSE_BQ_CREDENTIALS_JSON=${credsPath}`,
-      ];
-    }
+      return `PostgreSQL: ${config.host}/${config.database}`;
+    case "bigquery":
+      return `BigQuery: ${config.projectId}.${config.dataset}`;
     case "clickhouse":
-      return [
-        `WAREHOUSE_TYPE=clickhouse`,
-        `WAREHOUSE_CH_HOST=${config.host}`,
-        `WAREHOUSE_CH_PORT=${config.port}`,
-        `WAREHOUSE_CH_DATABASE=${config.database}`,
-        `WAREHOUSE_CH_USER=${config.user}`,
-        `WAREHOUSE_CH_PASSWORD=${config.password}`,
-        `WAREHOUSE_CH_SSL=${config.ssl ? "true" : "false"}`,
-      ];
+      return `ClickHouse: ${config.host}/${config.database}`;
+  }
+}
+
+/** Legacy: read single connection from WAREHOUSE_* env vars */
+function loadLegacyFromEnv(): WarehouseConnectionConfig | null {
+  const type = process.env.WAREHOUSE_TYPE;
+  if (!type) return null;
+
+  switch (type) {
+    case "postgresql":
+      return {
+        type: "postgresql",
+        host: process.env.WAREHOUSE_PG_HOST ?? "localhost",
+        port: Number(process.env.WAREHOUSE_PG_PORT) || 5432,
+        database: process.env.WAREHOUSE_PG_DATABASE ?? "",
+        user: process.env.WAREHOUSE_PG_USER ?? "",
+        password: process.env.WAREHOUSE_PG_PASSWORD ?? "",
+        ssl: process.env.WAREHOUSE_PG_SSL === "true",
+        schema: process.env.WAREHOUSE_PG_SCHEMA ?? "public",
+      };
+    case "clickhouse":
+      return {
+        type: "clickhouse",
+        host: process.env.WAREHOUSE_CH_HOST ?? "localhost",
+        port: Number(process.env.WAREHOUSE_CH_PORT) || 8123,
+        database: process.env.WAREHOUSE_CH_DATABASE ?? "default",
+        user: process.env.WAREHOUSE_CH_USER ?? "default",
+        password: process.env.WAREHOUSE_CH_PASSWORD ?? "",
+        ssl: process.env.WAREHOUSE_CH_SSL === "true",
+      };
+    default:
+      return null;
   }
 }

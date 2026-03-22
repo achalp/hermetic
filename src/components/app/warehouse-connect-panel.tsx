@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import type {
   WarehouseType,
   WarehouseConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
 } from "@/lib/types";
-import { getWarehouseSample } from "@/lib/api";
+import { getWarehouseSample, type SavedConnectionInfo } from "@/lib/api";
 
 interface WarehouseConnectPanelProps {
   isConnected: boolean;
@@ -19,9 +19,10 @@ interface WarehouseConnectPanelProps {
   totalColumns: number;
   warehouseType: WarehouseType | null;
   error: string | null;
-  preset?: WarehouseConnectionConfig | null;
+  savedConnections: SavedConnectionInfo[];
   onConnect: (config: WarehouseConnectionConfig) => void;
   onDisconnect: () => void;
+  onDeleteSaved: (id: string) => void;
 }
 
 type Tab = "postgresql" | "bigquery" | "clickhouse";
@@ -42,11 +43,22 @@ export function WarehouseConnectPanel({
   totalColumns,
   warehouseType,
   error,
-  preset,
+  savedConnections,
   onConnect,
   onDisconnect,
+  onDeleteSaved,
 }: WarehouseConnectPanelProps) {
-  const [tab, setTab] = useState<Tab>(preset?.type ?? "postgresql");
+  const [tab, setTab] = useState<Tab>((savedConnections[0]?.config.type as Tab) ?? "postgresql");
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const handleConnectSaved = useCallback(
+    (saved: SavedConnectionInfo) => {
+      setConnectingId(saved.id);
+      onConnect(saved.config);
+    },
+    [onConnect]
+  );
 
   if (isConnected) {
     return (
@@ -64,29 +76,74 @@ export function WarehouseConnectPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Saved connection — one-click connect */}
-      {preset && (
-        <button
-          onClick={() => onConnect(preset)}
-          disabled={isConnecting}
-          className="flex items-center justify-between rounded-lg border border-accent/30 bg-accent/5 px-4 py-3 text-left transition-colors hover:bg-accent/10 disabled:opacity-50"
-        >
-          <div>
-            <span className="text-sm font-medium text-t-primary">
-              {TAB_LABELS[preset.type]} — saved connection
-            </span>
-            <span className="ml-2 text-xs text-t-tertiary">
-              {preset.type === "postgresql"
-                ? `${preset.host}:${preset.port}/${preset.database}`
-                : preset.type === "bigquery"
-                  ? `${preset.projectId}.${preset.dataset}`
-                  : `${preset.host}:${preset.port}/${preset.database}`}
-            </span>
-          </div>
-          <span className="text-xs font-medium text-accent">
-            {isConnecting ? "Connecting..." : "Connect"}
-          </span>
-        </button>
+      {/* Saved connections */}
+      {savedConnections.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-t-secondary">Saved connections</p>
+          {savedConnections.map((saved) => {
+            const isThisConnecting = isConnecting && connectingId === saved.id;
+            const isEditing = editingId === saved.id;
+            return (
+              <div key={saved.id} className="rounded-lg border border-accent/30 bg-accent/5">
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <button
+                    onClick={() => handleConnectSaved(saved)}
+                    disabled={isConnecting}
+                    className="flex flex-1 items-center justify-between text-left transition-colors hover:opacity-80 disabled:opacity-50"
+                  >
+                    <span className="text-sm font-medium text-t-primary">{saved.label}</span>
+                    <span className="text-xs font-medium text-accent">
+                      {isThisConnecting ? "Connecting..." : "Connect"}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setEditingId(isEditing ? null : saved.id)}
+                    disabled={isConnecting}
+                    className="shrink-0 text-xs text-t-tertiary hover:text-t-primary transition-colors disabled:opacity-50"
+                  >
+                    {isEditing ? "Cancel" : "Edit"}
+                  </button>
+                  <button
+                    onClick={() => onDeleteSaved(saved.id)}
+                    disabled={isConnecting}
+                    className="shrink-0 text-xs text-t-tertiary hover:text-error-text transition-colors disabled:opacity-50"
+                    title="Delete saved connection"
+                  >
+                    Forget
+                  </button>
+                </div>
+                {isEditing && (
+                  <div className="border-t border-accent/20 px-3 py-3">
+                    {saved.config.type === "postgresql" && (
+                      <PostgresForm
+                        isConnecting={isConnecting}
+                        error={error}
+                        onConnect={onConnect}
+                        defaults={saved.config}
+                      />
+                    )}
+                    {saved.config.type === "bigquery" && (
+                      <BigQueryForm
+                        isConnecting={isConnecting}
+                        error={error}
+                        onConnect={onConnect}
+                        defaults={saved.config}
+                      />
+                    )}
+                    {saved.config.type === "clickhouse" && (
+                      <ClickHouseForm
+                        isConnecting={isConnecting}
+                        error={error}
+                        onConnect={onConnect}
+                        defaults={saved.config}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {error && <p className="text-xs text-error-text">{error}</p>}
@@ -109,28 +166,13 @@ export function WarehouseConnectPanel({
       </div>
 
       {tab === "postgresql" && (
-        <PostgresForm
-          isConnecting={isConnecting}
-          error={preset ? null : error}
-          onConnect={onConnect}
-          defaults={preset?.type === "postgresql" ? preset : undefined}
-        />
+        <PostgresForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
       )}
       {tab === "bigquery" && (
-        <BigQueryForm
-          isConnecting={isConnecting}
-          error={preset ? null : error}
-          onConnect={onConnect}
-          defaults={preset?.type === "bigquery" ? preset : undefined}
-        />
+        <BigQueryForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
       )}
       {tab === "clickhouse" && (
-        <ClickHouseForm
-          isConnecting={isConnecting}
-          error={preset ? null : error}
-          onConnect={onConnect}
-          defaults={preset?.type === "clickhouse" ? preset : undefined}
-        />
+        <ClickHouseForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
       )}
     </div>
   );
@@ -431,6 +473,13 @@ function FormError({ error }: { error: string | null }) {
   return <p className="text-xs text-error-text">{error}</p>;
 }
 
+interface FormProps {
+  isConnecting: boolean;
+  error: string | null;
+  onConnect: (config: WarehouseConnectionConfig) => void;
+  defaults?: WarehouseConnectionConfig;
+}
+
 function ConnectButton({ isConnecting }: { isConnecting: boolean }) {
   return (
     <button
@@ -443,17 +492,8 @@ function ConnectButton({ isConnecting }: { isConnecting: boolean }) {
   );
 }
 
-function PostgresForm({
-  isConnecting,
-  error,
-  onConnect,
-  defaults,
-}: {
-  isConnecting: boolean;
-  error: string | null;
-  onConnect: (config: WarehouseConnectionConfig) => void;
-  defaults?: import("@/lib/types").PostgresConnectionConfig;
-}) {
+function PostgresForm({ isConnecting, error, onConnect, defaults }: FormProps) {
+  const pg = defaults?.type === "postgresql" ? defaults : undefined;
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
@@ -481,18 +521,13 @@ function PostgresForm({
             name="host"
             required
             placeholder="localhost"
-            defaultValue={defaults?.host}
+            defaultValue={pg?.host}
             className={inputClass}
           />
         </div>
         <div>
           <label className={labelClass}>Port</label>
-          <input
-            name="port"
-            type="number"
-            defaultValue={defaults?.port ?? 5432}
-            className={inputClass}
-          />
+          <input name="port" type="number" defaultValue={pg?.port ?? 5432} className={inputClass} />
         </div>
       </div>
       <div>
@@ -501,7 +536,7 @@ function PostgresForm({
           name="database"
           required
           placeholder="mydb"
-          defaultValue={defaults?.database}
+          defaultValue={pg?.database}
           className={inputClass}
         />
       </div>
@@ -512,7 +547,7 @@ function PostgresForm({
             name="user"
             required
             placeholder="postgres"
-            defaultValue={defaults?.user}
+            defaultValue={pg?.user}
             className={inputClass}
           />
         </div>
@@ -521,7 +556,7 @@ function PostgresForm({
           <input
             name="password"
             type="password"
-            defaultValue={defaults?.password}
+            defaultValue={pg?.password}
             className={inputClass}
           />
         </div>
@@ -532,7 +567,7 @@ function PostgresForm({
           <input
             name="schema"
             placeholder="public"
-            defaultValue={defaults?.schema}
+            defaultValue={pg?.schema}
             className={inputClass}
           />
         </div>
@@ -541,7 +576,7 @@ function PostgresForm({
             name="ssl"
             type="checkbox"
             id="pg-ssl"
-            defaultChecked={defaults?.ssl}
+            defaultChecked={pg?.ssl}
             className="accent-accent"
           />
           <label htmlFor="pg-ssl" className={labelClass}>
@@ -555,17 +590,8 @@ function PostgresForm({
   );
 }
 
-function BigQueryForm({
-  isConnecting,
-  error,
-  onConnect,
-  defaults,
-}: {
-  isConnecting: boolean;
-  error: string | null;
-  onConnect: (config: WarehouseConnectionConfig) => void;
-  defaults?: import("@/lib/types").BigQueryConnectionConfig;
-}) {
+function BigQueryForm({ isConnecting, error, onConnect, defaults }: FormProps) {
+  const bq = defaults?.type === "bigquery" ? defaults : undefined;
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
@@ -588,7 +614,7 @@ function BigQueryForm({
           name="projectId"
           required
           placeholder="my-gcp-project"
-          defaultValue={defaults?.projectId}
+          defaultValue={bq?.projectId}
           className={inputClass}
         />
       </div>
@@ -598,7 +624,7 @@ function BigQueryForm({
           name="dataset"
           required
           placeholder="my_dataset"
-          defaultValue={defaults?.dataset}
+          defaultValue={bq?.dataset}
           className={inputClass}
         />
       </div>
@@ -609,7 +635,7 @@ function BigQueryForm({
           required
           rows={4}
           placeholder="Paste your service account JSON key here..."
-          defaultValue={defaults?.credentialsJson}
+          defaultValue={bq?.credentialsJson}
           className={`${inputClass} resize-none font-mono text-xs`}
         />
       </div>
@@ -619,17 +645,8 @@ function BigQueryForm({
   );
 }
 
-function ClickHouseForm({
-  isConnecting,
-  error,
-  onConnect,
-  defaults,
-}: {
-  isConnecting: boolean;
-  error: string | null;
-  onConnect: (config: WarehouseConnectionConfig) => void;
-  defaults?: import("@/lib/types").ClickHouseConnectionConfig;
-}) {
+function ClickHouseForm({ isConnecting, error, onConnect, defaults }: FormProps) {
+  const ch = defaults?.type === "clickhouse" ? defaults : undefined;
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
@@ -656,18 +673,13 @@ function ClickHouseForm({
             name="host"
             required
             placeholder="play.clickhouse.com"
-            defaultValue={defaults?.host}
+            defaultValue={ch?.host}
             className={inputClass}
           />
         </div>
         <div>
           <label className={labelClass}>Port</label>
-          <input
-            name="port"
-            type="number"
-            defaultValue={defaults?.port ?? 8123}
-            className={inputClass}
-          />
+          <input name="port" type="number" defaultValue={ch?.port ?? 8123} className={inputClass} />
         </div>
       </div>
       <div>
@@ -676,7 +688,7 @@ function ClickHouseForm({
           name="database"
           required
           placeholder="default"
-          defaultValue={defaults?.database}
+          defaultValue={ch?.database}
           className={inputClass}
         />
       </div>
@@ -687,7 +699,7 @@ function ClickHouseForm({
             name="user"
             required
             placeholder="default"
-            defaultValue={defaults?.user}
+            defaultValue={ch?.user}
             className={inputClass}
           />
         </div>
@@ -696,7 +708,7 @@ function ClickHouseForm({
           <input
             name="password"
             type="password"
-            defaultValue={defaults?.password}
+            defaultValue={ch?.password}
             className={inputClass}
           />
         </div>
@@ -706,7 +718,7 @@ function ClickHouseForm({
           name="ssl"
           type="checkbox"
           id="ch-ssl"
-          defaultChecked={defaults?.ssl}
+          defaultChecked={ch?.ssl}
           className="accent-accent"
         />
         <label htmlFor="ch-ssl" className={labelClass}>

@@ -310,11 +310,27 @@ export async function getWarehouseSample(
   return json<WarehouseSampleResult>(res);
 }
 
-export interface WarehousePresetResult {
-  preset: WarehouseConnectionConfig | null;
+export interface SavedConnectionInfo {
+  id: string;
+  label: string;
+  config: WarehouseConnectionConfig;
+  createdAt: string;
 }
 
-export async function getWarehousePreset(signal?: AbortSignal): Promise<WarehousePresetResult> {
+export async function getSavedConnections(signal?: AbortSignal): Promise<SavedConnectionInfo[]> {
   const res = await fetch("/api/warehouse/presets", { signal });
-  return json<WarehousePresetResult>(res);
+  const data = await json<{ connections: SavedConnectionInfo[] }>(res);
+  return data.connections;
+}
+
+export async function deleteSavedConnection(id: string): Promise<void> {
+  const res = await fetch("/api/warehouse/presets", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Delete failed", res.status);
+  }
 }

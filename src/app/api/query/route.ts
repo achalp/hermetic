@@ -21,7 +21,7 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import type { ConversationEntry, SchemaMode, CSVSchema } from "@/lib/types";
+import type { ConversationEntry, SchemaMode } from "@/lib/types";
 import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
@@ -151,6 +151,8 @@ export async function POST(request: Request) {
           emit(JSON.stringify(patch) + "\n");
         };
 
+        let warehouseSQL: string | undefined;
+
         try {
           // ── Warehouse path: generate SQL → execute → store as CSV ──
           if (warehouseState) {
@@ -163,8 +165,6 @@ export async function POST(request: Request) {
               tableCount: warehouse.tableSchemas.length,
               question,
             });
-
-            let warehouseSQL: string;
             try {
               warehouseSQL = await generateSQL(
                 warehouse.tableSchemas,
@@ -215,6 +215,15 @@ export async function POST(request: Request) {
               csvId: newCsvId,
               columns: schema.columns.length,
             });
+
+            // Emit the generated csvId so the client can use it for artifacts
+            emit(
+              JSON.stringify({
+                op: "add",
+                path: "/state/__warehouse_csv_id",
+                value: newCsvId,
+              }) + "\n"
+            );
           }
 
           // ── Load CSV (file upload or warehouse result) ──────────
@@ -291,6 +300,7 @@ export async function POST(request: Request) {
             chart_data: executionResult.chart_data as Record<string, unknown>,
             datasets: (executionResult.datasets ?? {}) as Record<string, Record<string, unknown>[]>,
             execution_ms: executionResult.execution_ms ?? 0,
+            sql: warehouseSQL,
           });
           const imageKeys = Object.keys(executionResult.images);
           const datasets = executionResult.datasets;

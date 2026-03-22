@@ -7,6 +7,8 @@ export interface CachedArtifacts {
   chart_data: Record<string, unknown>;
   datasets: Record<string, Record<string, unknown>[]>;
   execution_ms: number;
+  /** SQL query generated for warehouse data sources */
+  sql?: string;
 }
 
 interface CacheEntry extends CachedArtifacts {
@@ -39,5 +41,6 @@ export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
     chart_data: entry.chart_data,
     datasets: entry.datasets,
     execution_ms: entry.execution_ms,
+    sql: entry.sql,
   };
 }

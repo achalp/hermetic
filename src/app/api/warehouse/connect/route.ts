@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { createConnector } from "@/lib/warehouse/connector";
 import { storeWarehouse } from "@/lib/warehouse/storage";
-import { saveWarehouseToEnv } from "@/lib/warehouse/persist-env";
+import { saveConnection } from "@/lib/warehouse/persist-env";
 import { inferRelationships } from "@/lib/warehouse/infer-relationships";
 import type { WarehouseConnectionConfig } from "@/lib/types";
 
@@ -60,8 +60,8 @@ export async function POST(request: Request) {
       connector
     );
 
-    // Persist credentials to .env.local so user doesn't have to re-enter on next run
-    saveWarehouseToEnv(config).catch(() => {
+    // Persist to .warehouse-connections.json so user doesn't re-enter on next run
+    saveConnection(config).catch(() => {
       // Non-fatal — connection still works, just won't persist
     });
 
