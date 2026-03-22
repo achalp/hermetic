@@ -34,8 +34,12 @@ const DEFAULT_PORTS: Record<string, number> = {
   ollama: 11434,
 };
 
-/** Grace period after spawn before we declare the process dead */
-const STARTUP_GRACE_MS = 15_000;
+/** Grace period after spawn before we declare the process dead.
+ * MLX/llama.cpp servers download model weights on first start (can take minutes),
+ * then load the model into GPU memory (30-120+ seconds). During this entire time
+ * the process is alive but not responding to health checks. 5 minutes covers
+ * even large model downloads + cold-load on lower-end Apple Silicon. */
+const STARTUP_GRACE_MS = 5 * 60_000;
 
 /** Check if a process with the given PID is still alive */
 function isPidAlive(pid: number): boolean {
