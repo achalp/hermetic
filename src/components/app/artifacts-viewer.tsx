@@ -15,7 +15,7 @@ interface ArtifactsViewerProps {
   artifacts: CachedArtifacts;
 }
 
-type Tab = "code" | "data";
+type Tab = "sql" | "code" | "data";
 
 const TOKEN_STYLES: Record<TokenType, React.CSSProperties | undefined> = {
   comment: { color: "var(--syntax-comment)", fontStyle: "italic" },
@@ -161,18 +161,26 @@ function DataSection({
 }
 
 export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
-  const [tab, setTab] = useState<Tab>("code");
+  const [tab, setTab] = useState<Tab>(artifacts.sql ? "sql" : "code");
   const [copied, setCopied] = useState(false);
 
+  const copyTarget = tab === "sql" ? (artifacts.sql ?? "") : artifacts.code;
+
   const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(artifacts.code);
+    await navigator.clipboard.writeText(copyTarget);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [artifacts.code]);
+  }, [copyTarget]);
 
   const handleDownloadPy = useCallback(() => {
     downloadCodeAsFile(artifacts.code, `${sanitizeFilename(artifacts.question)}.py`);
   }, [artifacts.code, artifacts.question]);
+
+  const handleDownloadSql = useCallback(() => {
+    if (artifacts.sql) {
+      downloadCodeAsFile(artifacts.sql, `${sanitizeFilename(artifacts.question)}.sql`);
+    }
+  }, [artifacts.sql, artifacts.question]);
 
   // Build data sections
   const dataSections = useMemo(() => {
@@ -245,6 +253,19 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
     >
       {/* Tab bar */}
       <div className="flex items-center border-b border-border-default">
+        {artifacts.sql && (
+          <button
+            onClick={() => setTab("sql")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              tab === "sql"
+                ? "border-b-2 border-accent text-accent"
+                : "text-t-secondary hover:text-t-primary"
+            }`}
+            style={{ transitionDuration: "var(--transition-speed)" }}
+          >
+            SQL
+          </button>
+        )}
         <button
           onClick={() => setTab("code")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -254,7 +275,7 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
           }`}
           style={{ transitionDuration: "var(--transition-speed)" }}
         >
-          Code
+          Python
         </button>
         <button
           onClick={() => setTab("data")}
@@ -273,6 +294,46 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
           </span>
         )}
       </div>
+
+      {/* SQL tab */}
+      {tab === "sql" && artifacts.sql && (
+        <div>
+          <div className="flex items-center gap-2 border-b border-table-divider px-4 py-2">
+            <button
+              onClick={handleCopy}
+              className="bg-surface-btn px-2.5 py-1 text-xs font-medium text-t-btn hover:bg-surface-btn-hover transition-colors"
+              style={{
+                borderRadius: "var(--radius-badge)",
+                transitionDuration: "var(--transition-speed)",
+              }}
+            >
+              {copied ? "\u2713 Copied" : "Copy"}
+            </button>
+            <button
+              onClick={handleDownloadSql}
+              className="bg-surface-btn px-2.5 py-1 text-xs font-medium text-t-btn hover:bg-surface-btn-hover transition-colors"
+              style={{
+                borderRadius: "var(--radius-badge)",
+                transitionDuration: "var(--transition-speed)",
+              }}
+            >
+              Download .sql
+            </button>
+          </div>
+          <div className="overflow-x-auto p-4">
+            <div className="flex text-xs leading-5">
+              <div className="select-none pr-4 text-right text-t-tertiary">
+                {artifacts.sql.split("\n").map((_, i) => (
+                  <div key={i}>{i + 1}</div>
+                ))}
+              </div>
+              <pre className="flex-1">
+                <code className="text-t-primary">{artifacts.sql}</code>
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Code tab */}
       {tab === "code" && (

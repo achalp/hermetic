@@ -69,26 +69,6 @@ export function ResponsePanel({
   const lastSeqRef = useRef(0);
   const dashboardRef = useRef<HTMLDivElement>(null);
 
-  const {
-    saving,
-    saveMessage,
-    exporting,
-    handleSave,
-    handleExportPdf,
-    handleExportDocx,
-    handleExportPptx,
-  } = useSaveExport({ csvId, currentSpecRef, currentQuestionRef, dashboardRef, onSaved });
-
-  const {
-    showArtifacts,
-    setShowArtifacts,
-    artifacts,
-    setArtifacts,
-    artifactsLoading,
-    artifactsError,
-    handleToggleArtifacts,
-  } = useArtifacts({ csvId });
-
   const { spec, isStreaming, error, send, clear } = useUIStream({
     api: "/api/query",
     onComplete: (completedSpec) => {
@@ -100,6 +80,37 @@ export function ResponsePanel({
       setPreviousSpec(null);
       onStreamEnd?.();
     },
+  });
+
+  // For warehouse queries, the csvId is generated server-side and emitted in the stream
+  const warehouseCsvId = (spec?.state as Record<string, unknown> | undefined)
+    ?.__warehouse_csv_id as string | undefined;
+  const effectiveCsvId = csvId ?? warehouseCsvId ?? null;
+
+  const {
+    showArtifacts,
+    setShowArtifacts,
+    artifacts,
+    setArtifacts,
+    artifactsLoading,
+    artifactsError,
+    handleToggleArtifacts,
+  } = useArtifacts({ csvId: effectiveCsvId });
+
+  const {
+    saving,
+    saveMessage,
+    exporting,
+    handleSave,
+    handleExportPdf,
+    handleExportDocx,
+    handleExportPptx,
+  } = useSaveExport({
+    csvId: effectiveCsvId,
+    currentSpecRef,
+    currentQuestionRef,
+    dashboardRef,
+    onSaved,
   });
 
   // Keep current question in sync

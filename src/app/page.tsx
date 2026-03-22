@@ -363,9 +363,10 @@ export default function Home() {
                   totalColumns={warehouse.totalColumns}
                   warehouseType={warehouse.warehouseType}
                   error={warehouse.error}
-                  preset={warehouse.preset}
+                  savedConnections={warehouse.savedConnections}
                   onConnect={warehouse.connect}
                   onDisconnect={warehouse.disconnect}
+                  onDeleteSaved={warehouse.deleteSaved}
                 />
               )}
             </div>
@@ -395,9 +396,10 @@ export default function Home() {
                   totalColumns={warehouse.totalColumns}
                   warehouseType={warehouse.warehouseType}
                   error={warehouse.error}
-                  preset={warehouse.preset}
+                  savedConnections={warehouse.savedConnections}
                   onConnect={warehouse.connect}
                   onDisconnect={warehouse.disconnect}
+                  onDeleteSaved={warehouse.deleteSaved}
                 />
               )}
 
