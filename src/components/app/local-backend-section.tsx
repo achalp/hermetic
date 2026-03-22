@@ -67,6 +67,7 @@ export function LocalBackendSection({
     status?: string;
     version?: string;
     baseUrl?: string;
+    activeModel?: string;
     pid?: number;
     systemRamGb?: number;
     logs?: string[];
@@ -501,7 +502,14 @@ export function LocalBackendSection({
           {isServerStarting ? (
             <>
               <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
-              <span className="text-xs font-medium text-t-secondary">{startingLabel}</span>
+              <span className="text-xs font-medium text-t-secondary">
+                {startingLabel}
+                {status.activeModel && (
+                  <span className="font-normal text-t-tertiary ml-1">
+                    ({status.activeModel.split("/").pop()})
+                  </span>
+                )}
+              </span>
             </>
           ) : (
             <>
@@ -630,8 +638,8 @@ export function LocalBackendSection({
                   className="flex items-center justify-between gap-2 px-2 py-1.5 border border-border-default"
                   style={{ borderRadius: "var(--radius-badge)" }}
                 >
-                  <div className="min-w-0">
-                    <span className="text-xs font-medium text-t-primary truncate block">
+                  <div className="min-w-0 flex-1" title={m.name}>
+                    <span className="text-xs font-medium text-t-primary break-all block">
                       {m.name}
                     </span>
                     {formatSize(m.size) && (
