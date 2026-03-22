@@ -1,5 +1,11 @@
 import { execSync } from "child_process";
-import { healthCheck, isRunning, getServerLogs } from "@/lib/llm/process-manager";
+import {
+  healthCheck,
+  isRunning,
+  isWithinStartupGrace,
+  isStarting,
+  getServerLogs,
+} from "@/lib/llm/process-manager";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 import { getActiveDownloads } from "@/app/api/local-llm/download/route";
 
@@ -8,7 +14,10 @@ let cachedRamGb: number | null = null;
 function getSystemRamGb(): number {
   if (cachedRamGb !== null) return cachedRamGb;
   try {
-    const bytes = parseInt(execSync("sysctl -n hw.memsize", { encoding: "utf-8" }).trim(), 10);
+    const bytes = parseInt(
+      execSync("sysctl -n hw.memsize", { encoding: "utf-8", timeout: 3000 }).trim(),
+      10
+    );
     cachedRamGb = Math.round(bytes / (1024 * 1024 * 1024));
   } catch {
     cachedRamGb = 0;
@@ -58,11 +67,14 @@ export async function GET(request: Request) {
     }
   }
 
-  // Three states: stopped, starting (process alive but not healthy), ready
+  // Four states: stopped, starting (process alive or within grace period), ready, crashed
   let status: string;
   if (healthy) {
     status = "ready";
-  } else if (processAlive) {
+  } else if (processAlive || isWithinStartupGrace(backend) || isStarting(backend)) {
+    // Process is alive but not responding yet, OR we just spawned it (grace period).
+    // This prevents false "stopped" status during the first few seconds of startup
+    // when the process exists but hasn't bound the port yet.
     status = "starting";
   } else {
     status = "stopped";

@@ -157,6 +157,17 @@ export function LocalBackendSection({
     return () => clearInterval(interval);
   }, [needsPolling, checkStatus]);
 
+  /** Save model config without starting server — used after server is already running */
+  const saveModelConfig = async (modelName: string) => {
+    const res = await fetch("/api/local-llm/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backend, enabled: true, activeModel: modelName }),
+    });
+    if (!res.ok) throw new Error("Failed to save config");
+    onProviderChange(backend, modelName);
+  };
+
   const activateModel = async (modelName: string) => {
     setError(null);
     try {
@@ -166,13 +177,7 @@ export function LocalBackendSection({
         await startServer(modelName);
         return;
       }
-      const res = await fetch("/api/local-llm/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, enabled: true, activeModel: modelName }),
-      });
-      if (!res.ok) throw new Error("Failed to save config");
-      onProviderChange(backend, modelName);
+      await saveModelConfig(modelName);
     } catch {
       setError("Failed to activate model");
     }
@@ -194,7 +199,22 @@ export function LocalBackendSection({
 
   const [startingStatus, setStartingStatus] = useState<string | null>(null);
 
+  // AbortController ref for cancelling the startup polling loop on unmount
+  const startAbortRef = useRef<AbortController | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      startAbortRef.current?.abort();
+    };
+  }, []);
+
   const startServer = async (modelName: string) => {
+    // Cancel any previous startup polling
+    startAbortRef.current?.abort();
+    const abortController = new AbortController();
+    startAbortRef.current = abortController;
+
     setError(null);
     setStarting(true);
     setStartingStatus("Launching server...");
@@ -208,6 +228,7 @@ export function LocalBackendSection({
           backend,
           model: modelName || (backend === "ollama" ? "default" : recommended[0]?.id || "default"),
         }),
+        signal: abortController.signal,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to start server");
@@ -215,16 +236,31 @@ export function LocalBackendSection({
       // Poll status until ready (model loading can take minutes for MLX/llama.cpp)
       setStartingStatus("Waiting for server...");
       const maxWaitMs = 5 * 60_000; // 5 minutes
-      const start = Date.now();
-      while (Date.now() - start < maxWaitMs) {
+      const startTime = Date.now();
+      while (Date.now() - startTime < maxWaitMs) {
+        // Check if component unmounted or a new start was triggered
+        if (abortController.signal.aborted) return;
+
         await new Promise((r) => setTimeout(r, 2000));
-        const statusRes = await fetch(`/api/local-llm/status?backend=${backend}`);
-        const statusData = await statusRes.json();
+        if (abortController.signal.aborted) return;
+
+        let statusData;
+        try {
+          const statusRes = await fetch(`/api/local-llm/status?backend=${backend}`, {
+            signal: abortController.signal,
+          });
+          statusData = await statusRes.json();
+        } catch (fetchErr) {
+          // If aborted, exit silently
+          if (abortController.signal.aborted) return;
+          throw fetchErr;
+        }
 
         if (statusData.status === "ready") {
           await checkStatus();
+          // Save config directly — do NOT call activateModel (which calls startServer → infinite loop)
           if (modelName) {
-            await activateModel(modelName);
+            await saveModelConfig(modelName);
           }
           setStartingStatus(null);
           return;
@@ -262,13 +298,9 @@ export function LocalBackendSection({
             .map((l: string) => l.replace(/^\[(stdout|stderr)\]\s*/, ""));
           setStartLogs(cleaned);
 
-          // Look for percentage patterns in logs (HuggingFace downloads, etc.)
-          // Patterns: "45%|", "Downloading: 45%", "XX/YY bytes", percentage in progress bars
           let pct: number | null = null;
           for (let i = cleaned.length - 1; i >= 0; i--) {
-            const line = cleaned[i];
-            // Match "XX%" pattern (e.g., "45%|████" or "Downloading: 72%")
-            const pctMatch = line.match(/(\d{1,3})%/);
+            const pctMatch = cleaned[i].match(/(\d{1,3})%/);
             if (pctMatch) {
               pct = parseInt(pctMatch[1], 10);
               break;
@@ -276,7 +308,6 @@ export function LocalBackendSection({
           }
           setStartProgress(pct);
 
-          // Use last meaningful line as status text
           const lastLine = cleaned[cleaned.length - 1]?.slice(0, 120) ?? "";
           if (pct !== null) {
             setStartingStatus(`Downloading model... ${pct}%`);
@@ -288,10 +319,14 @@ export function LocalBackendSection({
 
       throw new Error("Server did not become ready within 5 minutes");
     } catch (err) {
+      // Don't show error if we were just aborted (component unmount / new start)
+      if (abortController.signal.aborted) return;
       setError(err instanceof Error ? err.message : "Failed to start server");
       setStartingStatus(null);
     } finally {
-      setStarting(false);
+      if (!abortController.signal.aborted) {
+        setStarting(false);
+      }
     }
   };
 

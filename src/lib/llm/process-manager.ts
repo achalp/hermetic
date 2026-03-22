@@ -8,6 +8,7 @@ import { existsSync } from "fs";
 import { join, isAbsolute } from "path";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 
 const MAX_LOG_LINES = 200;
 
@@ -15,17 +16,26 @@ const MAX_LOG_LINES = 200;
 const g = globalThis as unknown as {
   __llmProcesses?: Map<string, ChildProcess>;
   __llmServerLogs?: Map<string, string[]>;
+  __llmStartLocks?: Map<string, boolean>;
+  __llmStartTimestamps?: Map<string, number>;
 };
 if (!g.__llmProcesses) g.__llmProcesses = new Map();
 if (!g.__llmServerLogs) g.__llmServerLogs = new Map();
+if (!g.__llmStartLocks) g.__llmStartLocks = new Map();
+if (!g.__llmStartTimestamps) g.__llmStartTimestamps = new Map();
 const processes = g.__llmProcesses;
 const serverLogs = g.__llmServerLogs;
+const startLocks = g.__llmStartLocks;
+const startTimestamps = g.__llmStartTimestamps;
 
 const DEFAULT_PORTS: Record<string, number> = {
   mlx: 8080,
   "llama-cpp": 8081,
   ollama: 11434,
 };
+
+/** Grace period after spawn before we declare the process dead */
+const STARTUP_GRACE_MS = 15_000;
 
 /** Check if a process with the given PID is still alive */
 function isPidAlive(pid: number): boolean {
@@ -37,27 +47,17 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-/** Poll a URL until it responds OK, timeout, or shouldAbort returns true */
-async function waitForReady(
-  url: string,
-  timeoutMs = 60_000,
-  shouldAbort?: () => boolean
-): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (shouldAbort?.()) return false;
-    try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(t);
-      if (res.ok) return true;
-    } catch {
-      // not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 1000));
+/** Check if a port is already in use */
+function isPortInUse(port: number): boolean {
+  try {
+    const output = execSync(`lsof -ti :${port} 2>/dev/null`, {
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim();
+    return output.length > 0;
+  } catch {
+    return false;
   }
-  return false;
 }
 
 /** Health check a running backend */
@@ -111,6 +111,21 @@ export function isRunning(backend: string): boolean {
   return false;
 }
 
+/**
+ * Check if we're within the startup grace period.
+ * Prevents premature "stopped" status when server is still initializing.
+ */
+export function isWithinStartupGrace(backend: string): boolean {
+  const ts = startTimestamps.get(backend);
+  if (!ts) return false;
+  return Date.now() - ts < STARTUP_GRACE_MS;
+}
+
+/** Check if a start operation is already in progress */
+export function isStarting(backend: string): boolean {
+  return startLocks.get(backend) === true;
+}
+
 export interface StartOptions {
   model: string;
   port?: number;
@@ -127,150 +142,214 @@ export async function startServer(
   backend: "mlx" | "llama-cpp" | "ollama",
   options: StartOptions
 ): Promise<{ pid: number; baseUrl: string }> {
-  const port = options.port ?? DEFAULT_PORTS[backend];
-  const baseUrl = `http://localhost:${port}`;
+  // Prevent concurrent starts — the most common source of race conditions
+  if (startLocks.get(backend)) {
+    logger.warn(`startServer: ${backend} start already in progress, ignoring duplicate call`);
+    const rc = getRuntimeConfig();
+    const config = backend === "mlx" ? rc.mlx : backend === "llama-cpp" ? rc.llamaCpp : rc.ollama;
+    return {
+      pid: config?.pid ?? 0,
+      baseUrl: config?.baseUrl || `http://localhost:${DEFAULT_PORTS[backend]}`,
+    };
+  }
 
-  // Stop existing process if any
-  await stopServer(backend);
+  startLocks.set(backend, true);
+  startTimestamps.set(backend, Date.now());
 
-  let proc: ChildProcess;
+  try {
+    const port = options.port ?? DEFAULT_PORTS[backend];
+    const baseUrl = `http://127.0.0.1:${port}`;
 
-  if (backend === "ollama") {
-    // Spawn `ollama serve`
-    proc = spawn("ollama", ["serve"], {
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, OLLAMA_HOST: `0.0.0.0:${port}` },
-    });
-  } else if (backend === "mlx") {
-    // Prefer the standalone mlx_lm.server command (works with Homebrew installs),
-    // fall back to python3 -m mlx_lm.server (works with pip installs)
-    let mlxCmd: string;
-    let mlxArgs: string[];
-    try {
-      execSync("which mlx_lm.server", { stdio: "ignore" });
-      mlxCmd = "mlx_lm.server";
-      mlxArgs = [
-        "--model",
-        options.model,
-        "--port",
-        String(port),
-        "--host",
-        "0.0.0.0",
-        "--max-tokens",
-        "16384",
-      ];
-    } catch {
-      mlxCmd = "python3";
-      mlxArgs = [
-        "-m",
-        "mlx_lm.server",
-        "--model",
-        options.model,
-        "--port",
-        String(port),
-        "--host",
-        "0.0.0.0",
-        "--max-tokens",
-        "16384",
-      ];
+    // Stop existing process if any
+    await stopServer(backend);
+
+    // Wait briefly for port to free up after stop
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Check if port is still in use by something else
+    if (isPortInUse(port)) {
+      const occupant = findPidByPort(port);
+      throw new Error(
+        `Port ${port} is already in use${occupant ? ` by PID ${occupant}` : ""}. ` +
+          `Stop the existing process or configure a different port.`
+      );
     }
 
-    proc = spawn(mlxCmd, mlxArgs, {
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } else {
-    const binary = options.binaryPath || "llama-server";
-    let modelPath = options.modelPath || options.model;
-    // Resolve bare GGUF filenames against the default model directory
-    if (!isAbsolute(modelPath) && !existsSync(modelPath)) {
-      const resolved = join(process.cwd(), "data", "models", "gguf", modelPath);
-      if (existsSync(resolved)) modelPath = resolved;
+    let proc: ChildProcess;
+
+    if (backend === "ollama") {
+      proc = spawn("ollama", ["serve"], {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, OLLAMA_HOST: `127.0.0.1:${port}` },
+      });
+    } else if (backend === "mlx") {
+      // Prefer the standalone mlx_lm.server command (works with Homebrew installs),
+      // fall back to python3 -m mlx_lm.server (works with pip installs)
+      let mlxCmd: string;
+      let mlxArgs: string[];
+      try {
+        execSync("which mlx_lm.server", { stdio: "ignore", timeout: 5000 });
+        mlxCmd = "mlx_lm.server";
+        mlxArgs = ["--model", options.model, "--port", String(port), "--host", "127.0.0.1"];
+      } catch {
+        mlxCmd = "python3";
+        mlxArgs = [
+          "-m",
+          "mlx_lm.server",
+          "--model",
+          options.model,
+          "--port",
+          String(port),
+          "--host",
+          "127.0.0.1",
+        ];
+      }
+
+      // Add cache limit to prevent OOM — use 90% of system RAM as ceiling.
+      // MLX models use unified memory; without a limit, large models consume
+      // everything and the process gets SIGABRT'd by macOS jetsam.
+      try {
+        const memBytes = parseInt(
+          execSync("sysctl -n hw.memsize", { encoding: "utf-8", timeout: 3000 }).trim(),
+          10
+        );
+        const cacheLimitGb = Math.max(4, Math.floor((memBytes / 1024 ** 3) * 0.9));
+        mlxArgs.push("--cache-limit", `${cacheLimitGb}gb`);
+      } catch {
+        // If we can't detect RAM, don't set a limit — MLX will manage
+        logger.warn("startServer: could not detect system RAM for cache limit");
+      }
+
+      proc = spawn(mlxCmd, mlxArgs, {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+    } else {
+      const binary = options.binaryPath || "llama-server";
+      let modelPath = options.modelPath || options.model;
+      if (!isAbsolute(modelPath) && !existsSync(modelPath)) {
+        const resolved = join(process.cwd(), "data", "models", "gguf", modelPath);
+        if (existsSync(resolved)) modelPath = resolved;
+      }
+      const ctxLen = options.contextLength ?? LOCAL_CTX_SIZE;
+      proc = spawn(
+        binary,
+        ["-m", modelPath, "--port", String(port), "--host", "127.0.0.1", "-c", String(ctxLen)],
+        { detached: true, stdio: ["ignore", "pipe", "pipe"] }
+      );
     }
-    const ctxLen = options.contextLength ?? LOCAL_CTX_SIZE;
-    proc = spawn(
-      binary,
-      ["-m", modelPath, "--port", String(port), "--host", "0.0.0.0", "-c", String(ctxLen)],
-      { detached: true, stdio: ["ignore", "pipe", "pipe"] }
+
+    // Don't let the child keep the parent alive
+    proc.unref();
+
+    // Guard against spawn failure (e.g., binary not found)
+    if (!proc.pid) {
+      throw new Error(
+        `Failed to spawn ${backend} server process. ` +
+          `Ensure ${backend === "mlx" ? "mlx_lm" : backend} is installed.`
+      );
+    }
+
+    const pid = proc.pid;
+    processes.set(backend, proc);
+
+    // Capture stdout/stderr into a ring buffer for diagnostics
+    const logs: string[] = [];
+    serverLogs.set(backend, logs);
+
+    const appendLog = (stream: string, data: Buffer) => {
+      const lines = data
+        .toString()
+        .split(/[\r\n]+/)
+        .filter(Boolean);
+      for (const line of lines) {
+        logs.push(`[${stream}] ${line}`);
+        if (logs.length > MAX_LOG_LINES) logs.shift();
+      }
+    };
+
+    proc.stdout?.on("data", (data: Buffer) => appendLog("stdout", data));
+    proc.stderr?.on("data", (data: Buffer) => appendLog("stderr", data));
+
+    // Watch for early exit — wait briefly to catch immediate failures
+    // (bad model path, missing dependencies, port conflict, etc.)
+    const earlyExitPromise = new Promise<{ code: number | null; signal: string | null } | null>(
+      (resolve) => {
+        const timer = setTimeout(() => resolve(null), 2000);
+        proc.on("exit", (code, signal) => {
+          clearTimeout(timer);
+          resolve({ code, signal });
+        });
+      }
     );
-  }
 
-  // Don't let the child keep the parent alive
-  proc.unref();
-
-  const pid = proc.pid!;
-  processes.set(backend, proc);
-
-  // Capture stdout/stderr into a ring buffer for diagnostics
-  const logs: string[] = [];
-  serverLogs.set(backend, logs);
-
-  const appendLog = (stream: string, data: Buffer) => {
-    // Split on both \n and \r to capture HuggingFace download progress bars
-    const lines = data
-      .toString()
-      .split(/[\r\n]+/)
-      .filter(Boolean);
-    for (const line of lines) {
-      logs.push(`[${stream}] ${line}`);
-      if (logs.length > MAX_LOG_LINES) logs.shift();
+    // Save PID and config
+    if (backend === "ollama") {
+      setRuntimeConfig({
+        ollama: { enabled: true, baseUrl, activeModel: options.model, pid },
+      });
+    } else if (backend === "mlx") {
+      setRuntimeConfig({
+        mlx: { enabled: true, baseUrl, activeModel: options.model, pid },
+      });
+    } else {
+      setRuntimeConfig({
+        llamaCpp: {
+          enabled: true,
+          baseUrl,
+          activeModel: options.model,
+          pid,
+          binaryPath: options.binaryPath,
+        },
+      });
     }
-  };
 
-  proc.stdout?.on("data", (data: Buffer) => appendLog("stdout", data));
-  proc.stderr?.on("data", (data: Buffer) => appendLog("stderr", data));
+    // Check for early crash (within 2 seconds)
+    const earlyExit = await earlyExitPromise;
+    if (earlyExit) {
+      const lastLogs = logs.slice(-5).join("\n");
+      const exitInfo =
+        earlyExit.signal === "SIGABRT"
+          ? "Process was killed (SIGABRT) — likely out of memory. Try a smaller model."
+          : earlyExit.code !== 0
+            ? `Process exited with code ${earlyExit.code}.`
+            : "Process exited unexpectedly.";
 
-  // Track early exit
-  const earlyExit: { value: { code: number | null; signal: string | null } | null } = {
-    value: null,
-  };
-  proc.on("exit", (code, signal) => {
-    earlyExit.value = { code, signal };
-  });
+      // Clean up config
+      if (backend === "mlx") {
+        setRuntimeConfig({ mlx: { enabled: false, baseUrl: "", activeModel: "", pid: undefined } });
+      } else if (backend === "llama-cpp") {
+        setRuntimeConfig({
+          llamaCpp: { enabled: false, baseUrl: "", activeModel: "", pid: undefined },
+        });
+      } else {
+        setRuntimeConfig({
+          ollama: { enabled: false, baseUrl: "", activeModel: "", pid: undefined },
+        });
+      }
 
-  // Save PID and config
-  if (backend === "ollama") {
-    setRuntimeConfig({
-      ollama: {
-        enabled: true,
-        baseUrl,
-        activeModel: options.model,
-        pid,
-      },
+      throw new Error(
+        `${backend} server failed to start. ${exitInfo}${lastLogs ? "\n\nLogs:\n" + lastLogs : ""}`
+      );
+    }
+
+    logger.info(`startServer: ${backend} spawned with PID ${pid}`, {
+      model: options.model,
+      port,
+      baseUrl,
     });
-  } else if (backend === "mlx") {
-    setRuntimeConfig({
-      mlx: {
-        enabled: true,
-        baseUrl,
-        activeModel: options.model,
-        pid,
-      },
-    });
-  } else {
-    setRuntimeConfig({
-      llamaCpp: {
-        enabled: true,
-        baseUrl,
-        activeModel: options.model,
-        pid,
-        binaryPath: options.binaryPath,
-      },
-    });
+
+    return { pid, baseUrl };
+  } finally {
+    startLocks.set(backend, false);
   }
-
-  // Don't block — return immediately. The client should poll /api/local-llm/status
-  // to know when the server is ready. Model loading can take minutes for large models.
-  // If the process exits early, the next status check will detect it.
-
-  return { pid, baseUrl };
 }
 
 /** Find PID of a process listening on a given port (macOS/Linux) */
 function findPidByPort(port: number): number | null {
   try {
-    // macOS: lsof -ti :PORT; Linux: fuser PORT/tcp
     const output = execSync(`lsof -ti :${port} 2>/dev/null || fuser ${port}/tcp 2>/dev/null`, {
       encoding: "utf-8",
       timeout: 3000,
@@ -284,6 +363,8 @@ function findPidByPort(port: number): number | null {
 
 /** Stop a backend server subprocess */
 export async function stopServer(backend: string): Promise<void> {
+  logger.info(`stopServer: stopping ${backend}`);
+
   // Kill tracked process
   const proc = processes.get(backend);
   if (proc && proc.exitCode === null) {
@@ -312,7 +393,6 @@ export async function stopServer(backend: string): Promise<void> {
           : undefined;
   if (pid && isPidAlive(pid)) {
     try {
-      // Kill the process group (negative PID) since we spawn detached
       process.kill(-pid, "SIGTERM");
     } catch {
       try {
@@ -342,6 +422,7 @@ export async function stopServer(backend: string): Promise<void> {
     if (port) {
       const orphanPid = findPidByPort(port);
       if (orphanPid && orphanPid !== pid && isPidAlive(orphanPid)) {
+        logger.info(`stopServer: killing orphan process ${orphanPid} on port ${port}`);
         try {
           process.kill(orphanPid, "SIGTERM");
         } catch {
@@ -358,6 +439,9 @@ export async function stopServer(backend: string): Promise<void> {
       }
     }
   }
+
+  // Clear startup tracking
+  startTimestamps.delete(backend);
 
   // Clear PID from config
   if (backend === "ollama") {
@@ -378,12 +462,19 @@ export function getServerLogs(backend: string): string[] {
   return serverLogs.get(backend) ?? [];
 }
 
-// Cleanup on process exit
+// Cleanup on process exit — must be synchronous (no await)
 if (typeof process !== "undefined") {
   const cleanup = () => {
-    for (const [backend] of processes) {
+    for (const [, proc] of processes) {
       try {
-        stopServer(backend);
+        if (proc.pid && proc.exitCode === null) {
+          // Use synchronous kill — exit handlers can't await
+          try {
+            process.kill(-proc.pid, "SIGTERM");
+          } catch {
+            proc.kill("SIGTERM");
+          }
+        }
       } catch {
         // best effort
       }

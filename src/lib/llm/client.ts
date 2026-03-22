@@ -368,6 +368,11 @@ function ollamaFetch(baseUrl: string) {
   };
 }
 
+/** Timeout for initial connection + response headers from local LLM server */
+const LOCAL_REQUEST_TIMEOUT_MS = 120_000; // 2 minutes — model inference can be slow
+/** Timeout for individual stream chunk reads — if no data for this long, server is hung */
+const LOCAL_STREAM_STALL_TIMEOUT_MS = 60_000; // 1 minute between chunks
+
 /**
  * Custom fetch for local OpenAI-compatible servers (MLX, llama.cpp):
  * intercepts SDK requests to /responses and redirects them to
@@ -418,40 +423,81 @@ function localOpenAIFetch(baseUrl: string) {
       messages: (messages as Array<{ role: string; content: string }>).length,
     });
 
+    // Use AbortController with timeout to prevent hanging requests.
+    // MLX server can hang when overloaded or during model loading.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LOCAL_REQUEST_TIMEOUT_MS);
+
     let ccRes: Response;
     try {
       ccRes = await globalThis.fetch(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(ccBody),
+        signal: controller.signal,
       });
     } catch (err) {
+      clearTimeout(timeout);
       const errDetail = err instanceof Error ? err.message : String(err);
-      logger.error("localOpenAIFetch connection error", { error: errDetail });
-      // Server crashed or is unreachable — likely OOM / Metal GPU error.
-      // Use 422 (not 5xx) so the AI SDK does NOT retry — a crashed server
+      const isAborted = err instanceof Error && err.name === "AbortError";
+      const isConnRefused =
+        err instanceof Error &&
+        (err.message.includes("ECONNREFUSED") || err.message.includes("ECONNRESET"));
+
+      logger.error("localOpenAIFetch connection error", {
+        error: errDetail,
+        isAborted,
+        isConnRefused,
+      });
+
+      let msg: string;
+      if (isAborted) {
+        msg =
+          "Local LLM server did not respond within 2 minutes. " +
+          "The model may be too large or the server may be hung. Try restarting in Settings.";
+      } else if (isConnRefused) {
+        msg =
+          "Local LLM server is not running. It may have crashed (out of memory) or was stopped. " +
+          "Restart it in Settings, or try a smaller model.";
+      } else {
+        msg =
+          "Local LLM server crashed or is unreachable (likely out of memory). " +
+          "Try a smaller model in Settings.";
+      }
+
+      // Use 422 (not 5xx) so the AI SDK does NOT retry — a crashed/hung server
       // won't recover on its own and retrying just wastes time.
-      const msg =
-        "Local LLM server crashed or is unreachable (likely out of memory). " +
-        "Try a smaller model in Settings.";
       return new Response(JSON.stringify({ error: { message: msg, type: "connection_error" } }), {
         status: 422,
         headers: { "Content-Type": "application/json" },
       });
     }
 
+    // Clear the connection timeout (response headers received)
+    clearTimeout(timeout);
+
     logger.debug("localOpenAIFetch response", { status: ccRes.status, ok: ccRes.ok });
 
     if (!ccRes.ok) {
-      // Translate error into a format the AI SDK can extract a message from
       const errText = await ccRes.text().catch(() => "");
       let errMsg: string;
-      try {
-        const errJson = JSON.parse(errText);
-        errMsg = errJson.error?.message ?? errJson.error ?? errText;
-      } catch {
-        errMsg = errText || `Local LLM server returned HTTP ${ccRes.status}`;
+
+      // Handle MLX-specific error codes
+      if (ccRes.status === 503) {
+        errMsg =
+          "Local LLM server is busy (model may still be loading). Please wait and try again.";
+      } else if (ccRes.status === 429) {
+        errMsg =
+          "Local LLM server is overloaded. Wait for the current request to finish before sending another.";
+      } else {
+        try {
+          const errJson = JSON.parse(errText);
+          errMsg = errJson.error?.message ?? errJson.error ?? errText;
+        } catch {
+          errMsg = errText || `Local LLM server returned HTTP ${ccRes.status}`;
+        }
       }
+
       return new Response(
         JSON.stringify({ error: { message: errMsg, type: "server_error", code: ccRes.status } }),
         { status: ccRes.status, headers: { "Content-Type": "application/json" } }
@@ -572,7 +618,18 @@ function localOpenAIFetch(baseUrl: string) {
         let streamError: string | null = null;
         try {
           while (true) {
-            const { done, value } = await reader.read();
+            // Read with stall timeout — if no data arrives for 60s, the server
+            // is hung (common MLX failure mode with large prompts or OOM)
+            const readResult = await Promise.race([
+              reader.read(),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error("Stream stalled — no data received for 60 seconds")),
+                  LOCAL_STREAM_STALL_TIMEOUT_MS
+                )
+              ),
+            ]);
+            const { done, value } = readResult;
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
@@ -599,17 +656,30 @@ function localOpenAIFetch(baseUrl: string) {
                   });
                 }
               } catch {
-                /* skip */
+                /* skip malformed SSE lines */
               }
             }
           }
         } catch (err) {
-          // Stream interrupted — server likely crashed mid-inference (OOM / Metal GPU error)
-          streamError =
-            err instanceof Error &&
-            (err.message.includes("ECONNRESET") || err.message.includes("terminated"))
-              ? "\n\n[Server crashed during inference — the model may be too large for available memory. Try a smaller model.]"
-              : `\n\n[Stream interrupted: ${err instanceof Error ? err.message : err}]`;
+          // Stream interrupted — server crashed, stalled, or OOM'd
+          const errMsg = err instanceof Error ? err.message : String(err);
+          logger.error("localOpenAIFetch stream error", {
+            error: errMsg,
+            textSoFar: fullText.length,
+          });
+
+          if (errMsg.includes("Stream stalled")) {
+            streamError =
+              "\n\n[Server stopped responding. It may be overloaded or out of memory. Try a smaller model or shorter prompt.]";
+          } else if (errMsg.includes("ECONNRESET") || errMsg.includes("terminated")) {
+            streamError =
+              "\n\n[Server crashed during inference — the model may be too large for available memory. Try a smaller model.]";
+          } else {
+            streamError = `\n\n[Stream interrupted: ${errMsg}]`;
+          }
+
+          // Cancel the reader to release resources
+          reader.cancel().catch(() => {});
         }
 
         if (streamError && !fullText) {
