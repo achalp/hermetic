@@ -469,12 +469,31 @@ export function LocalBackendSection({
       for (let i = serverLogs.length - 1; i >= 0; i--) {
         const pctMatch = serverLogs[i].match(/(\d{1,3})%/);
         if (pctMatch) {
-          serverProgress = parseInt(pctMatch[1], 10);
+          const pct = parseInt(pctMatch[1], 10);
+          // Treat 0% as indeterminate — mlx_lm.server's tqdm shows
+          // "Fetching N files: 0%" until an entire file completes.
+          // Individual multi-GB file downloads use \r carriage returns
+          // that don't get captured. Showing a frozen 0% bar is confusing.
+          if (pct > 0) {
+            serverProgress = pct;
+          }
           break;
         }
       }
       serverProgressStatus = serverLogs[serverLogs.length - 1]?.slice(0, 120) ?? "";
     }
+
+    // Determine a descriptive status for the starting phase
+    const logText = serverLogs.join(" ");
+    const isDownloadingFiles = /Fetching \d+ files|Downloading|HTTP Request/i.test(logText);
+    const isLoadingModel = /loading|Loading model|Tokenizer|tokenizer/i.test(logText);
+    const startingLabel = isDownloadingFiles
+      ? serverProgress !== null
+        ? `Downloading model... ${serverProgress}%`
+        : "Downloading model files..."
+      : isLoadingModel
+        ? "Loading model into memory..."
+        : "Starting...";
 
     return (
       <div>
@@ -482,11 +501,7 @@ export function LocalBackendSection({
           {isServerStarting ? (
             <>
               <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
-              <span className="text-xs font-medium text-t-secondary">
-                {serverProgress !== null
-                  ? `Downloading model... ${serverProgress}%`
-                  : "Starting..."}
-              </span>
+              <span className="text-xs font-medium text-t-secondary">{startingLabel}</span>
             </>
           ) : (
             <>
@@ -506,7 +521,7 @@ export function LocalBackendSection({
               className="h-1.5 w-full bg-surface-input overflow-hidden mb-2"
               style={{ borderRadius: "var(--radius-badge)" }}
             >
-              {serverProgress !== null ? (
+              {serverProgress !== null && serverProgress > 0 ? (
                 <div
                   className="h-full bg-accent transition-all"
                   style={{
