@@ -67,14 +67,31 @@ export async function GET(request: Request) {
     }
   }
 
+  // Extra PID-alive check: isRunning() uses in-memory process map first,
+  // which can lose references during Next.js HMR. Fall back to checking
+  // the saved PID directly from config as an additional safety net.
+  let pidStillAlive = false;
+  if (!processAlive && config?.pid) {
+    try {
+      process.kill(config.pid, 0); // signal 0 = just check if alive
+      pidStillAlive = true;
+    } catch {
+      // process is dead
+    }
+  }
+
   // Four states: stopped, starting (process alive or within grace period), ready, crashed
   let status: string;
   if (healthy) {
     status = "ready";
-  } else if (processAlive || isWithinStartupGrace(backend) || isStarting(backend)) {
+  } else if (
+    processAlive ||
+    pidStillAlive ||
+    isWithinStartupGrace(backend) ||
+    isStarting(backend)
+  ) {
     // Process is alive but not responding yet, OR we just spawned it (grace period).
-    // This prevents false "stopped" status during the first few seconds of startup
-    // when the process exists but hasn't bound the port yet.
+    // This covers: model downloading, model loading into GPU, port binding.
     status = "starting";
   } else {
     status = "stopped";
