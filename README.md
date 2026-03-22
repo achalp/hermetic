@@ -1,6 +1,6 @@
 # Hermetic
 
-Upload CSV, Excel, or GeoJSON files, ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via Ollama.
+Upload CSV, Excel, or GeoJSON files — or connect to PostgreSQL, BigQuery, and ClickHouse data warehouses — ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via Ollama.
 
 ![Dashboard with stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
 ![Dashboard with box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
@@ -26,6 +26,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **30+ chart types.** Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree.
 - **3D visualizations.** Scatter3D, Surface3D, Globe3D, deck.gl maps.
 - **Geographic maps.** Pigeon-maps markers and GeoJSON polygons, deck.gl layers (hexagon, column, arc, scatterplot, heatmap).
+- **Data warehouses.** Connect to PostgreSQL, BigQuery, or ClickHouse. SQL is generated automatically from natural language, with cross-table JOINs.
 - **Multiple file formats.** CSV, Excel (multi-sheet workbooks), GeoJSON, JSON.
 - **Drill-down navigation.** Click chart segments to explore deeper.
 - **Client-side filtering.** DataController enables instant cross-filtering across dashboards.
@@ -34,6 +35,163 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Themes.** Vanilla, Stamen, Info is Beautiful, Pentagram (light and dark).
 - **Model selection.** Choose models for code generation and UI composition.
 - **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
+
+## Data Warehouses
+
+In addition to file uploads, Hermetic can connect directly to data warehouses. Ask questions in natural language and Hermetic generates SQL automatically, executes it against your warehouse, then analyzes and visualizes the results.
+
+Supported warehouses: **PostgreSQL**, **BigQuery**, **ClickHouse**.
+
+### Connecting
+
+In the app, click **Connect Warehouse**, choose your warehouse type, enter credentials, and click **Connect**. Hermetic introspects all tables (columns, types, primary keys, foreign keys) so the LLM can generate cross-table JOINs.
+
+Credentials are saved automatically after a successful connection. On subsequent runs, saved connections appear as one-click buttons. You can edit or delete saved connections from the UI.
+
+### How it works
+
+```
+User asks question
+    → LLM generates dialect-aware SQL (across all tables)
+    → Server executes SQL against the warehouse
+    → Results flow as CSV into the existing pandas pipeline
+    → Analysis code runs in sandbox → interactive dashboard
+```
+
+The SQL is available in the **Artifacts** panel (SQL tab) alongside the Python analysis code.
+
+### PostgreSQL
+
+Works with PostgreSQL, Amazon Redshift, Neon, Supabase, AlloyDB, CockroachDB, and any PostgreSQL wire-compatible database.
+
+**Connection fields:**
+
+| Field    | Example     | Notes                     |
+| -------- | ----------- | ------------------------- |
+| Host     | `localhost` | Hostname or IP            |
+| Port     | `5432`      | Default: 5432             |
+| Database | `mydb`      |                           |
+| User     | `postgres`  |                           |
+| Password |             |                           |
+| Schema   | `public`    | Default: public           |
+| SSL      | unchecked   | Check for cloud databases |
+
+**Environment variables** (optional, for `start.sh` or `.env.local`):
+
+```bash
+WAREHOUSE_TYPE=postgresql
+WAREHOUSE_PG_HOST=localhost
+WAREHOUSE_PG_PORT=5432
+WAREHOUSE_PG_DATABASE=mydb
+WAREHOUSE_PG_USER=postgres
+WAREHOUSE_PG_PASSWORD=secret
+WAREHOUSE_PG_SCHEMA=public
+WAREHOUSE_PG_SSL=false
+```
+
+**Sample dataset — Pagila (DVD rental):**
+
+```bash
+# Start a local PostgreSQL with the Pagila sample database
+docker run -d --name pagila \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 \
+  postgresai/extended-postgres:16
+
+# Load the Pagila dataset
+docker exec -i pagila psql -U postgres -c "CREATE DATABASE pagila;"
+curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/master/pagila-schema.sql | docker exec -i pagila psql -U postgres -d pagila
+curl -sL https://raw.githubusercontent.com/devrimgunduz/pagila/master/pagila-data.sql | docker exec -i pagila psql -U postgres -d pagila
+```
+
+Then connect with: host `localhost`, port `5432`, database `pagila`, user `postgres`, password `postgres`.
+
+Try asking: _"What are the top 10 most rented films and their total revenue?"_
+
+### ClickHouse
+
+**Connection fields:**
+
+| Field    | Example               | Notes                      |
+| -------- | --------------------- | -------------------------- |
+| Host     | `play.clickhouse.com` | Hostname or IP             |
+| Port     | `443`                 | 8123 (HTTP) or 443 (HTTPS) |
+| Database | `default`             |                            |
+| User     | `play`                |                            |
+| Password |                       | Leave empty for playground |
+| SSL      | checked               | Required for port 443      |
+
+**Environment variables** (optional):
+
+```bash
+WAREHOUSE_TYPE=clickhouse
+WAREHOUSE_CH_HOST=play.clickhouse.com
+WAREHOUSE_CH_PORT=443
+WAREHOUSE_CH_DATABASE=default
+WAREHOUSE_CH_USER=play
+WAREHOUSE_CH_PASSWORD=
+WAREHOUSE_CH_SSL=true
+```
+
+**Free sample dataset — ClickHouse Playground:**
+
+No setup needed. Connect to `play.clickhouse.com` (port `443`, user `play`, no password, SSL on). This public playground has dozens of pre-loaded datasets:
+
+| Table                            | Description              | Rows   |
+| -------------------------------- | ------------------------ | ------ |
+| `uk_price_paid`                  | UK property transactions | 28M+   |
+| `trips`                          | NYC taxi trips           | 3B+    |
+| `cell_towers`                    | OpenCellID cell towers   | 43M+   |
+| `dns`                            | DNS query logs           | 1M+    |
+| `github_events`                  | GitHub event stream      | 200M+  |
+| `stock`                          | Daily stock prices       | varies |
+| `menu`, `menu_page`, `menu_item` | NYC restaurant menus     | varies |
+| `opensky`                        | Flight tracking data     | 60M+   |
+
+Try asking: _"Show the average property price trend by year in London"_ (against `uk_price_paid`)
+
+### BigQuery
+
+**Connection fields:**
+
+| Field                | Example                              | Notes                                     |
+| -------------------- | ------------------------------------ | ----------------------------------------- |
+| Project ID           | `my-gcp-project`                     | Your GCP project (for billing)            |
+| Dataset              | `bigquery-public-data.stackoverflow` | Use `project.dataset` for public datasets |
+| Service Account JSON | `{ "type": "service_account", ... }` | Paste JSON key or path to `.json` file    |
+
+**Environment variables** (optional):
+
+```bash
+WAREHOUSE_TYPE=bigquery
+WAREHOUSE_BQ_PROJECT=my-gcp-project
+WAREHOUSE_BQ_DATASET=bigquery-public-data.stackoverflow
+WAREHOUSE_BQ_CREDENTIALS_JSON=/path/to/service-account.json
+```
+
+**Setup (5 minutes):**
+
+1. Create a GCP project at [console.cloud.google.com](https://console.cloud.google.com) (free tier, no credit card for public datasets)
+2. Go to **IAM & Admin > Service Accounts** > Create service account
+3. Grant roles: **BigQuery Job User** + **BigQuery Data Viewer**
+4. **Keys** > Add Key > Create new key > JSON — download the file
+5. In Hermetic, enter your project ID, dataset, and paste the JSON key
+
+**Free public datasets** (no data to load — already available):
+
+| Dataset                                        | Description            |
+| ---------------------------------------------- | ---------------------- |
+| `bigquery-public-data.stackoverflow`           | Stack Overflow posts   |
+| `bigquery-public-data.github_repos`            | GitHub repository data |
+| `bigquery-public-data.austin_crime`            | Austin crime reports   |
+| `bigquery-public-data.chicago_taxi_trips`      | Chicago taxi data      |
+| `bigquery-public-data.usa_names`               | US baby names by year  |
+| `bigquery-public-data.new_york_subway`         | NYC subway ridership   |
+| `bigquery-public-data.google_analytics_sample` | GA web analytics       |
+
+Enter the dataset as `bigquery-public-data.stackoverflow` (the `project.dataset` format tells Hermetic to query from that project while billing your project).
+
+Try asking: _"What are the most popular programming language tags by year?"_
 
 ## Quick Start
 
@@ -126,6 +284,7 @@ src/
     csv/                CSV parsing and schema extraction
     excel/              Excel file handling
     geojson/            GeoJSON parsing
+    warehouse/          Data warehouse connectors (PostgreSQL, BigQuery, ClickHouse)
     llm/                LLM integration and prompt generation
     pipeline/           Query orchestration (code-gen, sandbox, UI compose)
     sandbox/            Code execution (Docker / E2B / Microsandbox)
@@ -134,11 +293,18 @@ src/
 
 ### How It Works
 
+**File uploads:**
+
 1. **Upload.** CSV, Excel (multi-sheet), GeoJSON, or JSON file is parsed, schema extracted, and stored in memory.
 2. **Query.** User question + schema sent to your configured LLM for Python code generation.
 3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, and scikit-learn.
 4. **Compose.** Execution results sent to the LLM for UI composition as a JSON-Render spec.
 5. **Render.** JSON-Render spec streamed to the browser and rendered as interactive React components.
+
+**Warehouse queries** add two steps before the standard pipeline:
+
+1. **SQL Generation.** User question + all table schemas (columns, types, PKs, FKs) sent to the LLM to generate a dialect-aware SQL query.
+2. **SQL Execution.** Query runs against the warehouse. Results flow as CSV into the standard pipeline (steps 2-5 above).
 
 Saved visualizations can be updated with new data files. If the schema matches, the saved code is re-executed directly without LLM calls.
 
