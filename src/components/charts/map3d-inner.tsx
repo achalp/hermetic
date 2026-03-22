@@ -1,17 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
-import { luma } from "@luma.gl/core";
-import { webgl2Adapter } from "@luma.gl/webgl";
+// Must be imported before any @deck.gl/* to force WebGL2
+import "@/lib/deckgl-init";
+
+import { useMemo, useState, useEffect, useCallback } from "react";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, ArcLayer, ColumnLayer } from "@deck.gl/layers";
 import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
-
-// Force deck.gl v9 to use WebGL2 instead of WebGPU
-luma.registerAdapters([webgl2Adapter]);
 
 interface Map3DInnerProps {
   data: Record<string, unknown>[];
@@ -41,7 +39,21 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 export function Map3DInner(props: Map3DInnerProps) {
+  const [ready, setReady] = useState(false);
   const chartColors = useChartColors();
+
+  // Delay mount to let the container get a stable size before DeckGL creates its canvas.
+  // This avoids the luma.gl ResizeObserver race where device.limits is undefined.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setReady(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const handleError = useCallback((error: Error) => {
+    // Suppress the luma.gl maxTextureDimension2D race condition error
+    if (error?.message?.includes("maxTextureDimension2D")) return;
+    console.error("DeckGL error:", error);
+  }, []);
   const {
     data,
     lat_key,
@@ -210,9 +222,18 @@ export function Map3DInner(props: Map3DInnerProps) {
     chartColors,
   ]);
 
+  if (!ready) {
+    return <div style={{ width: "100%", height: height ?? 500 }} />;
+  }
+
   return (
     <div style={{ position: "relative", width: "100%", height: height ?? 500 }}>
-      <DeckGL initialViewState={viewState} controller layers={[tileLayer, dataLayer]} />
+      <DeckGL
+        initialViewState={viewState}
+        controller
+        layers={[tileLayer, dataLayer]}
+        onError={handleError}
+      />
     </div>
   );
 }
