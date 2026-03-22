@@ -370,16 +370,24 @@ export async function startServer(
         ];
       }
 
-      // Add cache limit to prevent OOM — use 90% of system RAM as ceiling.
-      // MLX models use unified memory; without a limit, large models consume
-      // everything and the process gets SIGABRT'd by macOS jetsam.
+      // Set Metal cache limit via environment variable to prevent OOM.
+      // mlx_lm.server doesn't have a --cache-limit CLI flag, but MLX
+      // respects the MLX_METAL_CACHE_LIMIT env var (bytes) to cap GPU
+      // memory usage. Without this, large models consume all unified
+      // memory and get SIGABRT'd by macOS jetsam.
+      const mlxEnv = { ...process.env };
       try {
         const memBytes = parseInt(
           execSync("sysctl -n hw.memsize", { encoding: "utf-8", timeout: 3000 }).trim(),
           10
         );
-        const cacheLimitGb = Math.max(4, Math.floor((memBytes / 1024 ** 3) * 0.9));
-        mlxArgs.push("--cache-limit", `${cacheLimitGb}gb`);
+        // Use 90% of system RAM as the Metal cache ceiling
+        const cacheLimitBytes = Math.max(4 * 1024 ** 3, Math.floor(memBytes * 0.9));
+        mlxEnv.MLX_METAL_CACHE_LIMIT = String(cacheLimitBytes);
+        logger.info("startServer: MLX Metal cache limit set", {
+          limitGb: Math.round(cacheLimitBytes / 1024 ** 3),
+          systemGb: Math.round(memBytes / 1024 ** 3),
+        });
       } catch {
         // If we can't detect RAM, don't set a limit — MLX will manage
         logger.warn("startServer: could not detect system RAM for cache limit");
@@ -388,7 +396,7 @@ export async function startServer(
       proc = spawn(mlxCmd, mlxArgs, {
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
+        env: mlxEnv,
       });
     } else {
       // --- llama.cpp server ---

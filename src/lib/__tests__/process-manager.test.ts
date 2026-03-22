@@ -198,21 +198,25 @@ describe("process-manager", () => {
       expect(result.baseUrl).toContain("127.0.0.1");
     });
 
-    it("includes --cache-limit for MLX based on system RAM", async () => {
+    it("sets MLX_METAL_CACHE_LIMIT env var based on system RAM", async () => {
       mockSpawn.mockReturnValue(makeMockProc());
       setupMlxExecSync();
 
       const { startServer } = await import("../llm/process-manager");
       await startServer("mlx", { model: "test-model" });
 
+      // Verify spawn was called with env containing MLX_METAL_CACHE_LIMIT
       const spawnCall = mockSpawn.mock.calls.find(
-        (c: unknown[]) => Array.isArray(c[1]) && (c[1] as string[]).includes("--cache-limit")
+        (c: unknown[]) =>
+          c[2] && typeof c[2] === "object" && "env" in (c[2] as Record<string, unknown>)
       );
       expect(spawnCall).toBeDefined();
-      const args = spawnCall![1] as string[];
-      const cacheIdx = args.indexOf("--cache-limit");
-      // 90% of 32GB = 28GB
-      expect(args[cacheIdx + 1]).toBe("28gb");
+      const env = (spawnCall![2] as { env: Record<string, string> }).env;
+      expect(env.MLX_METAL_CACHE_LIMIT).toBeDefined();
+      // 90% of 32GB ≈ 28.8GB in bytes
+      const limitBytes = parseInt(env.MLX_METAL_CACHE_LIMIT, 10);
+      expect(limitBytes).toBeGreaterThan(20 * 1024 ** 3);
+      expect(limitBytes).toBeLessThan(33 * 1024 ** 3);
     });
 
     it("detects early process crash and throws", async () => {
