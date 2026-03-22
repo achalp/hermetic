@@ -482,10 +482,13 @@ function localOpenAIFetch(baseUrl: string) {
       const errText = await ccRes.text().catch(() => "");
       let errMsg: string;
 
-      // Handle MLX-specific error codes
+      // Handle local server error codes (MLX and llama.cpp)
       if (ccRes.status === 503) {
+        // llama-server returns 503 when all slots are busy or model is still loading.
+        // MLX returns 503 during model load. Either way, it's a transient condition.
         errMsg =
-          "Local LLM server is busy (model may still be loading). Please wait and try again.";
+          "Local LLM server is busy (all inference slots occupied, or model still loading). " +
+          "Wait for the current request to finish, then try again.";
       } else if (ccRes.status === 429) {
         errMsg =
           "Local LLM server is overloaded. Wait for the current request to finish before sending another.";

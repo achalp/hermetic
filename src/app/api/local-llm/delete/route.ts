@@ -1,5 +1,4 @@
-import { execSync } from "child_process";
-import { rmSync, readdirSync } from "fs";
+import { rmSync } from "fs";
 import { join } from "path";
 
 export async function POST(request: Request) {
@@ -54,6 +53,8 @@ export async function POST(request: Request) {
 
   if (backend === "llama-cpp") {
     // GGUF files in data/models/gguf/
+    // The model name might be a bare filename ("model.gguf") or a relative path
+    // from a HF download ("subdir/model.gguf")
     const ggufDir = join(process.cwd(), "data", "models", "gguf");
     const fullPath = join(ggufDir, model);
 
@@ -61,7 +62,8 @@ export async function POST(request: Request) {
       if (!fullPath.startsWith(ggufDir)) {
         return Response.json({ error: "Invalid model path" }, { status: 400 });
       }
-      rmSync(fullPath, { force: true });
+      // Use recursive: true in case the model is in a subdirectory from HF download
+      rmSync(fullPath, { recursive: true, force: true });
       return Response.json({ success: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete model";

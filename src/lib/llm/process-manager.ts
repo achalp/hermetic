@@ -4,7 +4,7 @@
  * Persists PIDs to runtime config so processes survive Next.js hot reloads.
  */
 import { spawn, execSync, type ChildProcess } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join, isAbsolute } from "path";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
@@ -74,7 +74,10 @@ export async function healthCheck(backend: string): Promise<boolean> {
     healthUrl = `${baseUrl}/v1/models`;
   } else if (backend === "llama-cpp") {
     baseUrl = rc.llamaCpp?.baseUrl || `http://localhost:${DEFAULT_PORTS["llama-cpp"]}`;
-    healthUrl = `${baseUrl}/v1/models`;
+    // llama-server's /health endpoint is the reliable way to check status.
+    // Returns {"status":"ok"} when ready, {"status":"loading model"} during load,
+    // or {"status":"error"} on failure. /v1/models may not exist on all builds.
+    healthUrl = `${baseUrl}/health`;
   } else {
     return false;
   }
@@ -84,7 +87,21 @@ export async function healthCheck(backend: string): Promise<boolean> {
     const t = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(healthUrl, { signal: controller.signal });
     clearTimeout(t);
-    return res.ok;
+    if (!res.ok) return false;
+
+    // llama-server /health returns {"status":"ok"} when ready,
+    // {"status":"loading model"} during startup — treat loading as not ready
+    if (backend === "llama-cpp") {
+      try {
+        const data = await res.json();
+        return data.status === "ok";
+      } catch {
+        // If we can't parse JSON, accept the 200 as healthy
+        return true;
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }
@@ -124,6 +141,153 @@ export function isWithinStartupGrace(backend: string): boolean {
 /** Check if a start operation is already in progress */
 export function isStarting(backend: string): boolean {
   return startLocks.get(backend) === true;
+}
+
+/** GGUF model directory */
+const GGUF_DIR = join(process.cwd(), "data", "models", "gguf");
+
+/**
+ * Resolve the llama-server binary path. Checks multiple locations:
+ * 1. Explicit binaryPath from user config
+ * 2. "llama-server" on PATH (Homebrew/system install)
+ * 3. Bundled binary at data/bin/llama-server
+ */
+function resolveLlamaServerBinary(binaryPath?: string): string {
+  if (binaryPath) {
+    if (existsSync(binaryPath)) return binaryPath;
+    // Might be just the name — try which
+    try {
+      return execSync(`which ${binaryPath}`, { encoding: "utf-8", timeout: 3000 }).trim();
+    } catch {
+      throw new Error(
+        `llama-server binary not found at "${binaryPath}". ` +
+          `Install it via Homebrew (brew install llama.cpp) or provide the correct path.`
+      );
+    }
+  }
+
+  // Check PATH
+  try {
+    return execSync("which llama-server", { encoding: "utf-8", timeout: 3000 }).trim();
+  } catch {
+    // not on PATH
+  }
+
+  // Check bundled location
+  const bundled = join(process.cwd(), "data", "bin", "llama-server");
+  if (existsSync(bundled)) return bundled;
+
+  throw new Error(
+    "llama-server binary not found. Install it:\n" +
+      "  • Homebrew: brew install llama.cpp\n" +
+      "  • Or download from: https://github.com/ggml-org/llama.cpp/releases"
+  );
+}
+
+/**
+ * Resolve a GGUF model path from various input formats:
+ * - Absolute path → use directly
+ * - Bare filename (e.g. "model-Q4_K_M.gguf") → look in GGUF_DIR
+ * - HF repo ID (e.g. "bartowski/Llama-GGUF") → scan GGUF_DIR for matching files
+ *
+ * When a repo has multiple GGUF files (different quant levels), picks the best one:
+ * Q4_K_M > Q4_K_S > Q5_K_M > Q5_K_S > Q6_K > Q8_0 > any other
+ */
+export function resolveGgufModelPath(model: string): string {
+  // Absolute path — use directly
+  if (isAbsolute(model)) return model;
+
+  // Bare filename — check in GGUF_DIR
+  if (model.endsWith(".gguf")) {
+    const direct = join(GGUF_DIR, model);
+    if (existsSync(direct)) return direct;
+    // Search recursively for this filename
+    return findGgufFile(model) || direct;
+  }
+
+  // HF repo ID like "bartowski/Llama-3.2-3B-Instruct-GGUF"
+  // The HF CLI downloads to GGUF_DIR with the original filenames.
+  // We need to find the actual .gguf file(s) and pick the best quant.
+  const ggufFile = findBestGgufForRepo(model);
+  if (ggufFile) return ggufFile;
+
+  // Last resort — try the model string as-is in GGUF_DIR
+  const fallback = join(GGUF_DIR, model);
+  if (existsSync(fallback)) return fallback;
+
+  // Return the path where we'd expect it — caller will check existsSync
+  return join(GGUF_DIR, model);
+}
+
+/** Preferred GGUF quant levels for llama.cpp (best quality/speed tradeoff first) */
+const QUANT_PREFERENCE = [
+  "Q4_K_M",
+  "Q4_K_S",
+  "Q5_K_M",
+  "Q5_K_S",
+  "Q6_K",
+  "Q8_0",
+  "Q3_K_M",
+  "Q2_K",
+  "IQ4_XS",
+];
+
+/**
+ * Search GGUF_DIR recursively for a specific filename.
+ */
+function findGgufFile(filename: string): string | null {
+  try {
+    const files = readdirSync(GGUF_DIR, { recursive: true }) as string[];
+    for (const f of files) {
+      if (typeof f === "string" && f.endsWith(filename)) {
+        return join(GGUF_DIR, f);
+      }
+    }
+  } catch {
+    // dir doesn't exist
+  }
+  return null;
+}
+
+/**
+ * Find the best GGUF file matching a HF repo ID.
+ * Scans GGUF_DIR for files whose names match the repo's model pattern,
+ * then picks the best quantization level.
+ */
+function findBestGgufForRepo(repoId: string): string | null {
+  try {
+    if (!existsSync(GGUF_DIR)) return null;
+    const files = (readdirSync(GGUF_DIR, { recursive: true }) as string[]).filter(
+      (f) => typeof f === "string" && f.endsWith(".gguf")
+    );
+    if (files.length === 0) return null;
+
+    // Extract the model name from the repo ID (e.g. "bartowski/Llama-3.2-3B-Instruct-GGUF" → "Llama-3.2-3B-Instruct")
+    const repoName = repoId.split("/").pop() || "";
+    const baseName = repoName.replace(/-GGUF$/i, "").toLowerCase();
+
+    // Filter to files that match this model
+    const matching = files.filter((f) => {
+      const lower = f.toLowerCase();
+      return lower.includes(baseName) || lower.includes(baseName.replace(/-/g, "_"));
+    });
+
+    const candidates = matching.length > 0 ? matching : files;
+
+    // If only one GGUF file, use it
+    if (candidates.length === 1) return join(GGUF_DIR, candidates[0]);
+
+    // Pick by quant preference
+    for (const quant of QUANT_PREFERENCE) {
+      const match = candidates.find((f) => f.toUpperCase().includes(quant));
+      if (match) return join(GGUF_DIR, match);
+    }
+
+    // Fall back to first file
+    return join(GGUF_DIR, candidates[0]);
+  } catch {
+    return null;
+  }
 }
 
 export interface StartOptions {
@@ -227,18 +391,46 @@ export async function startServer(
         env: { ...process.env },
       });
     } else {
-      const binary = options.binaryPath || "llama-server";
-      let modelPath = options.modelPath || options.model;
-      if (!isAbsolute(modelPath) && !existsSync(modelPath)) {
-        const resolved = join(process.cwd(), "data", "models", "gguf", modelPath);
-        if (existsSync(resolved)) modelPath = resolved;
+      // --- llama.cpp server ---
+      // 1. Resolve binary path
+      const binary = resolveLlamaServerBinary(options.binaryPath);
+
+      // 2. Resolve model path: the "model" field may be a HF repo ID
+      //    (e.g. "bartowski/Llama-3.2-3B-Instruct-GGUF"), a bare GGUF filename,
+      //    or an absolute path. We need to find the actual .gguf file on disk.
+      const modelPath = resolveGgufModelPath(options.modelPath || options.model);
+
+      // 3. Validate the GGUF file actually exists
+      if (!existsSync(modelPath)) {
+        throw new Error(
+          `GGUF model file not found: ${modelPath}\n` +
+            `The model may not be downloaded yet, or the filename doesn't match. ` +
+            `Download the model first, then try again.`
+        );
       }
+
       const ctxLen = options.contextLength ?? LOCAL_CTX_SIZE;
-      proc = spawn(
-        binary,
-        ["-m", modelPath, "--port", String(port), "--host", "127.0.0.1", "-c", String(ctxLen)],
-        { detached: true, stdio: ["ignore", "pipe", "pipe"] }
-      );
+      const llamaArgs = [
+        "-m",
+        modelPath,
+        "--port",
+        String(port),
+        "--host",
+        "127.0.0.1",
+        "-c",
+        String(ctxLen),
+        "--parallel",
+        "1", // explicit single-slot — prevents ambiguous 503 errors
+        "-ngl",
+        "99", // offload all layers to Metal GPU (Apple Silicon) or CUDA
+      ];
+
+      logger.info("startServer: llama-cpp spawn", { binary, modelPath, args: llamaArgs });
+
+      proc = spawn(binary, llamaArgs, {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
     }
 
     // Don't let the child keep the parent alive

@@ -380,7 +380,19 @@ export async function POST(request: Request) {
       );
     }
 
+    // Ensure GGUF directory exists before downloading
+    const localDir = `${process.cwd()}/data/models/gguf`;
+    try {
+      const { mkdirSync } = await import("fs");
+      mkdirSync(localDir, { recursive: true });
+    } catch {
+      // ignore — will fail later if truly inaccessible
+    }
+
     // Download GGUF from HuggingFace
+    // Key improvement: only download ONE quant file (Q4_K_M preferred) instead
+    // of all *.gguf files. GGUF repos often have 10+ quant variants totaling
+    // 50-100+ GB — downloading all of them is the #1 cause of stuck downloads.
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       start(controller) {
@@ -407,30 +419,32 @@ export async function POST(request: Request) {
 
         const { python, hasCli } = findHfPython();
         const repoId = model.split("/").slice(0, 2).join("/");
-        const localDir = `${process.cwd()}/data/models/gguf`;
+
+        // Build a glob pattern that selects ONE good quant file instead of all GGUFs.
+        // Priority: Q4_K_M > Q4_K_S > Q5_K_M > Q8_0 > any .gguf
+        // Use --include with a specific pattern to download just one variant.
+        const quantPattern = "*Q4_K_M*.gguf";
 
         let proc: ReturnType<typeof spawn>;
         if (hasCli) {
           const cmd = python === "huggingface-cli" ? "huggingface-cli" : python;
-          const args =
+          const baseArgs =
             python === "huggingface-cli"
-              ? ["download", repoId, "--include", "*.gguf", "--local-dir", localDir]
-              : [
-                  "-m",
-                  "huggingface_hub.commands.huggingface_cli",
-                  "download",
-                  repoId,
-                  "--include",
-                  "*.gguf",
-                  "--local-dir",
-                  localDir,
-                ];
+              ? ["download", repoId]
+              : ["-m", "huggingface_hub.commands.huggingface_cli", "download", repoId];
+
+          // Try Q4_K_M first; the process-manager's resolveGgufModelPath will
+          // find whatever file was actually downloaded.
+          const args = [...baseArgs, "--include", quantPattern, "--local-dir", localDir];
+
+          logger.info("download: llama-cpp spawn", { cmd, args: args.join(" ") });
           proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
         } else {
+          // Fallback: inline snapshot_download — use allow_patterns for single quant
           const script = `
 import sys
 from huggingface_hub import snapshot_download
-path = snapshot_download(sys.argv[1], allow_patterns=["*.gguf"], local_dir=sys.argv[2])
+path = snapshot_download(sys.argv[1], allow_patterns=["${quantPattern}"], local_dir=sys.argv[2])
 print(path)
 `;
           proc = spawn(python, ["-c", script, repoId, localDir], {
@@ -510,7 +524,13 @@ print(path)
           if (code === 0) {
             emit({ status: "Download complete", progress: 100, done: true });
           } else {
-            emit({ status: `Download failed (exit code ${code})`, error: true });
+            // If Q4_K_M wasn't available, the download exits non-zero.
+            // Log it so the user knows to try a different quant.
+            logger.warn(`download: llama-cpp download exited with code ${code} for ${model}`);
+            emit({
+              status: `Download failed (exit code ${code}). The repo may not have a Q4_K_M quant — try downloading a specific GGUF file.`,
+              error: true,
+            });
           }
           close();
         });
