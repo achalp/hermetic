@@ -35,6 +35,7 @@ yarn-error.log*
 .env*
 !.env.example
 .bigquery-credentials.json
+.warehouse-connections.json
 
 # runtime config & user data
 data/
