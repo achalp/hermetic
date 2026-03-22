@@ -105,6 +105,10 @@ export function LocalBackendSection({
   const checkStatus = useCallback(async () => {
     try {
       const res = await fetch(`/api/local-llm/status?backend=${backend}`);
+      if (!res.ok) {
+        // Rate-limited or server error — don't overwrite valid status with error response
+        return;
+      }
       const data = await res.json();
       setStatus(data);
       // Always fetch models (managed backends can list cached models even when off)
@@ -249,6 +253,10 @@ export function LocalBackendSection({
           const statusRes = await fetch(`/api/local-llm/status?backend=${backend}`, {
             signal: abortController.signal,
           });
+          if (!statusRes.ok) {
+            // Rate-limited or server error — skip this poll cycle, don't fail
+            continue;
+          }
           statusData = await statusRes.json();
         } catch (fetchErr) {
           // If aborted, exit silently

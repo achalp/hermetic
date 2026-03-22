@@ -7,7 +7,7 @@ import type { NextRequest } from "next/server";
  */
 const rateMap = new Map<string, { count: number; resetAt: number }>();
 
-const RATE_LIMIT = 30; // requests per window
+const RATE_LIMIT = 60; // requests per window (raised from 30 — UI polling alone can exceed 30)
 const RATE_WINDOW_MS = 60_000; // 1 minute
 
 function isRateLimited(ip: string): boolean {
@@ -26,15 +26,26 @@ function isRateLimited(ip: string): boolean {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Only rate-limit API routes
+  // Only rate-limit API routes — but exempt internal polling endpoints.
+  // The local-llm status/models/platform routes are called by the UI's
+  // polling loop every 3 seconds during server startup, easily exceeding
+  // any reasonable rate limit. These are localhost-only internal calls
+  // that don't need abuse protection.
   if (pathname.startsWith("/api/")) {
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const isInternalPolling =
+      pathname.startsWith("/api/local-llm/") ||
+      pathname.startsWith("/api/providers") ||
+      pathname.startsWith("/api/ollama/");
 
-    if (isRateLimited(ip)) {
-      return NextResponse.json(
-        { error: "Too many requests. Please try again later." },
-        { status: 429 }
-      );
+    if (!isInternalPolling) {
+      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+
+      if (isRateLimited(ip)) {
+        return NextResponse.json(
+          { error: "Too many requests. Please try again later." },
+          { status: 429 }
+        );
+      }
     }
   }
 
