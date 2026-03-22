@@ -151,6 +151,13 @@ export async function POST(request: Request) {
           emit(JSON.stringify(patch) + "\n");
         };
 
+        // Keepalive: send a no-op comment every 15 seconds to prevent
+        // browsers/proxies from closing the connection during slow LLM
+        // calls (llama.cpp code generation can take 2-3+ minutes).
+        const keepalive = setInterval(() => {
+          emit(": keepalive\n");
+        }, 15_000);
+
         let warehouseSQL: string | undefined;
 
         try {
@@ -864,6 +871,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
           }
         }
 
+        clearInterval(keepalive);
         if (!closed) {
           try {
             controller.close();
