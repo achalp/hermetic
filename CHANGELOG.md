@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive dashboard generation with charts, tables, and insights
 - Chart types: bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick
 - 3D visualizations: scatter3D, surface3D, globe, deck.gl maps
-- Geographic visualizations: pigeon-maps, deck.gl layers
+- Geographic visualizations: MapLibre GL, deck.gl layers
 - Drill-down navigation between dashboard levels
 - Export to PDF, DOCX, PPTX, PNG, SVG
 - Save and reload visualizations

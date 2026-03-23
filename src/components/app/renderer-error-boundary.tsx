@@ -19,10 +19,15 @@ export class RendererErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: Error): State {
+    // Suppress the luma.gl race condition — it resolves on the next resize tick
+    if (error?.message?.includes("maxTextureDimension2D")) {
+      return { hasError: false, error: null };
+    }
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    if (error?.message?.includes("maxTextureDimension2D")) return;
     console.error("Renderer error:", error, errorInfo);
   }
 

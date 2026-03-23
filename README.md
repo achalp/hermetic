@@ -277,7 +277,7 @@ src/
       artifacts/        Execution artifacts viewer
   components/
     app/                Application shell (upload, query, response, settings)
-    charts/             Chart components (Nivo, Plotly, deck.gl, pigeon-maps)
+    charts/             Chart components (Nivo, Plotly, deck.gl, MapLibre GL)
     controllers/        DataController for client-side filtering
     inputs/             Form inputs (Select, NumberInput, Toggle)
   lib/
@@ -429,7 +429,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 | Surface3D | 3D surface plots                              | Plotly         |
 | Globe3D   | Points and arcs on a 3D globe                 | react-globe.gl |
 | Map3D     | Hexagon, column, arc, scatter, heatmap layers | deck.gl        |
-| MapView   | Markers and GeoJSON polygons on a 2D map      | pigeon-maps    |
+| MapView   | Markers and GeoJSON polygons on a 2D map      | MapLibre GL    |
 
 ### Display
 
@@ -472,7 +472,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 - [Plotly.js](https://plotly.com/javascript/) (15 chart types including 3D)
 - [deck.gl](https://deck.gl/) for large-scale geospatial layers
 - [react-globe.gl](https://github.com/vasturiano/react-globe.gl) for 3D globe rendering
-- [pigeon-maps](https://pigeon-maps.js.org/) for 2D tile maps
+- [MapLibre GL JS](https://maplibre.org/) via [react-map-gl](https://visgl.github.io/react-map-gl/) for 2D vector tile maps
 - [Three.js](https://threejs.org/) (peer dependency for globe and deck.gl)
 
 **Data tables**
