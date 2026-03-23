@@ -22,6 +22,7 @@ import {
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { ConversationEntry, SchemaMode } from "@/lib/types";
+import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const conversationHistory: ConversationEntry[] | undefined = context?.conversation_history;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";
+    const purpose: string = context?.purpose ?? "infographic";
 
     // When Ollama or openai-compatible is active, skip Claude model ID validation
     // since getModel() will use the Ollama/custom model directly
@@ -476,7 +478,7 @@ Use "$chartData:<key>" placeholders ONLY when pre-populating initial /computed/*
     : `
 When referencing chart data in component props, use the string "$chartData:<key>" as the data value. It will be replaced with the actual array at render time. For example: "data": "$chartData:bar_data"
 For HeatMap z/x_labels/y_labels, use "$chartData:heatmap.z", "$chartData:heatmap.x_labels", etc.
-For Globe3D: use "$chartData:<key>.points" for the points prop and "$chartData:<key>.arcs" for the arcs prop. Example: "points": "$chartData:globe.points", "arcs": "$chartData:globe.arcs".
+For Globe3D: use "$chartData:points" for the points prop and "$chartData:arcs" for the arcs prop. The Python code should output chart_data["points"] and chart_data["arcs"] as top-level keys.
 For Surface3D: use "$chartData:<key>.z", "$chartData:<key>.x_labels", "$chartData:<key>.y_labels".`
 }
 
@@ -567,7 +569,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
                 ]
               : []),
             "Do NOT fabricate large data arrays (e.g. GeoJSON boundaries, coordinate tables) that are not in the chart_data or results. Small scalar values from results (for StatCard, TextBlock, etc.) are fine to inline.",
-            "Design the layout like a data infographic that flows top-to-bottom as a narrative. Lead with whatever is most impactful for the question — a chart, stat cards, or a key insight. TextBlock headings are optional, not required. Vary the opening by question type: comparisons can lead with a chart, trend questions with a line chart, summaries with stat cards. Interleave TextBlock (variant: insight) annotations between visualizations to narrate the story, rather than clustering all text at the end.",
+            getPurposePrompt(purpose),
             "Use StatCard for key metrics. Group them in a LayoutGrid (columns: 2-4).",
             "Use the appropriate chart type for the data shape.",
             "Add Annotation components for outliers, notable patterns, or caveats.",
@@ -638,7 +640,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
               : 'Use MapView when data contains geographic coordinates (lat/lng). Pass markers as [{lat, lng, label, color}]. Only pass geojson if GeoJSON geometry is present in the chart_data — do NOT fabricate or inline GeoJSON. For choropleth maps (polygons colored by a numeric property), set color_key to the property name and optionally color_scale to [low_color, high_color]. Example: {"geojson": "$chartData:geojson", "color_key": "population", "color_scale": ["#f7fbff", "#08306b"]}.',
             useDataController
               ? 'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Include filter columns as extra properties on each point object (e.g. {lat, lng, label, region: row["region"]}). Add a DataController output: {statePath: "/computed/globe", format: "globeData", sourceStatePath: "/datasets/globe"}. Globe3D reads points: {"$state": "/computed/globe/points"}, arcs: {"$state": "/computed/globe/arcs"}. Pre-populate /computed/globe in initial state with "$chartData:globe". globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).'
-              : 'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Wire props using $chartData placeholders: "points": "$chartData:<key>.points", "arcs": "$chartData:<key>.arcs". Do NOT pass polygons unless the user explicitly asks for country boundary overlays — points and arcs are sufficient for most use cases. globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).',
+              : 'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Wire props using $chartData placeholders: "points": "$chartData:points", "arcs": "$chartData:arcs". The Python code should output chart_data["points"] and/or chart_data["arcs"] as top-level keys. Do NOT pass polygons unless the user explicitly asks for country boundary overlays — points and arcs are sufficient for most use cases. globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).',
             "Use Map3D for dense geospatial data needing 3D aggregation. layer_type: 'hexagon' for hexagonal density, 'column' for extruded bars at locations, 'arc' for origin-destination flows, 'scatterplot' for points on map, 'heatmap' for density. Use instead of MapView when data has hundreds+ of points or needs aggregation.",
             "Use Scatter3D when there are three numeric variables to explore in 3D. Supports group_key for coloring by category and size_key for a 4th dimension.",
             useDataController
@@ -675,10 +677,18 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             }
 
             // Replace $chartData:<key> placeholders with actual data
+            const hasChartPlaceholder = processed.includes("$chartData:");
+            if (hasChartPlaceholder) {
+              logger.debug("chartData replacement: scanning line", {
+                line: processed.slice(0, 200),
+                availableKeys: Object.keys(executionResult.chart_data),
+              });
+            }
             for (const [key, value] of Object.entries(executionResult.chart_data)) {
               // Handle top-level keys: "$chartData:scatter"
               const placeholder = `"$chartData:${key}"`;
               if (processed.includes(placeholder)) {
+                logger.debug("chartData replacement: matched", { key, placeholder });
                 processed = processed.replaceAll(placeholder, JSON.stringify(value));
               }
               // Handle nested keys: "$chartData:heatmap.z"
@@ -686,10 +696,53 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
                 for (const [subKey, subVal] of Object.entries(value as Record<string, unknown>)) {
                   const subPlaceholder = `"$chartData:${key}.${subKey}"`;
                   if (processed.includes(subPlaceholder)) {
+                    logger.debug("chartData replacement: matched nested", {
+                      key,
+                      subKey,
+                      subPlaceholder,
+                    });
                     processed = processed.replaceAll(subPlaceholder, JSON.stringify(subVal));
                   }
                 }
               }
+            }
+            // Fallback: resolve unmatched placeholders by assembling from available keys.
+            // e.g. "$chartData:globe" → {points: chart_data.points, arcs: chart_data.arcs}
+            if (processed.includes("$chartData:")) {
+              const fallbackRegex = /"\$chartData:([^"]+)"/g;
+              processed = processed.replace(fallbackRegex, (_match, keyPath: string) => {
+                // Check if the placeholder refers to a composite object
+                // that should be assembled from individual top-level keys
+                const chart = executionResult.chart_data;
+                if (keyPath === "globe" || keyPath === "globe_data") {
+                  const assembled: Record<string, unknown> = {};
+                  if ("points" in chart) assembled.points = chart.points;
+                  if ("arcs" in chart) assembled.arcs = chart.arcs;
+                  if (Object.keys(assembled).length > 0) {
+                    logger.debug("chartData replacement: assembled composite", {
+                      keyPath,
+                      keys: Object.keys(assembled),
+                    });
+                    return JSON.stringify(assembled);
+                  }
+                }
+                // Generic fallback: if keyPath matches no key, try without underscores/hyphens
+                const normalized = keyPath.toLowerCase().replace(/[-_]/g, "");
+                for (const [k, v] of Object.entries(chart)) {
+                  if (k.toLowerCase().replace(/[-_]/g, "") === normalized) {
+                    logger.debug("chartData replacement: fuzzy matched", {
+                      keyPath,
+                      matchedKey: k,
+                    });
+                    return JSON.stringify(v);
+                  }
+                }
+                logger.warn("chartData replacement: unresolved placeholder", {
+                  keyPath,
+                  availableKeys: Object.keys(chart),
+                });
+                return _match;
+              });
             }
 
             // Replace $result:<key> placeholders with actual values from execution results.
