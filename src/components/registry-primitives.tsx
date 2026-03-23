@@ -76,6 +76,11 @@ export interface TextBlockProps {
   variant?: "body" | "insight" | "warning" | "heading" | null;
 }
 
+export interface SectionBreakProps {
+  variant?: "line" | "space" | "dotted" | null;
+  label?: string | null;
+}
+
 export interface AnnotationProps {
   title: string;
   content: string;
@@ -220,6 +225,29 @@ export function TextBlockComponent({ props }: { props: TextBlockProps }) {
       style={variant === "heading" ? { fontWeight: "var(--font-heading-weight)" } : undefined}
     >
       <p className="whitespace-pre-wrap">{props.content}</p>
+    </div>
+  );
+}
+
+// ── SectionBreak ──────────────────────────────────────────────
+
+export function SectionBreakComponent({ props }: { props: SectionBreakProps }) {
+  const variant = props.variant ?? "line";
+  if (variant === "space") {
+    return <div className="py-4" />;
+  }
+  const lineStyle = variant === "dotted" ? "border-dotted" : "border-solid";
+  return (
+    <div className="flex items-center gap-3 py-4">
+      <hr className={`flex-1 border-t ${lineStyle} border-border-default`} />
+      {props.label && (
+        <>
+          <span className="text-xs font-medium uppercase tracking-wider text-t-tertiary">
+            {props.label}
+          </span>
+          <hr className={`flex-1 border-t ${lineStyle} border-border-default`} />
+        </>
+      )}
     </div>
   );
 }

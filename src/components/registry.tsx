@@ -8,6 +8,7 @@ import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import {
   StatCardComponent,
   TextBlockComponent,
+  SectionBreakComponent,
   AnnotationComponent,
   TrendIndicatorComponent,
   SelectControlComponent,
@@ -199,6 +200,7 @@ const { registry } = defineRegistry(catalog, {
     ),
     StatCard: ({ props }) => <StatCardComponent props={props} />,
     TextBlock: ({ props }) => <TextBlockComponent props={props} />,
+    SectionBreak: ({ props }) => <SectionBreakComponent props={props} />,
     DataTable: ({ props }) => <DataTableComponent props={props} />,
     BarChart: ({ props, emit, on }) => {
       const inner = (sel?: { selectedValue: string | null; onSelect: (v: string) => void }) => (
