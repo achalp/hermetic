@@ -47,6 +47,14 @@ export const catalog = defineCatalog(schema, {
       }),
       description: 'Narrative text. Use variant "heading" for titles, "insight" for analysis.',
     },
+    SectionBreak: {
+      props: z.object({
+        variant: z.enum(["line", "space", "dotted"]).nullable(),
+        label: z.string().nullable(),
+      }),
+      description:
+        'Visual section divider. Use between major sections in presentation and report modes. Variant "line" (default) draws a horizontal rule, "space" adds whitespace, "dotted" draws a dotted line. Optional label appears centered on the line.',
+    },
     DataTable: {
       props: z.object({
         columns: z.array(z.string()),
