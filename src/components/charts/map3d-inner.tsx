@@ -3,7 +3,7 @@
 // Must be imported before any @deck.gl/* to force WebGL2
 import "@/lib/deckgl-init";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, ArcLayer, ColumnLayer } from "@deck.gl/layers";
 import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
@@ -38,8 +38,29 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
+/** Format a property key for display: snake_case → Title Case */
+function formatKey(key: string): string {
+  return key.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Format a property value for display */
+function formatVal(value: unknown): string {
+  if (typeof value === "number") return value.toLocaleString();
+  if (value == null) return "—";
+  return String(value);
+}
+
+interface PickedFeature {
+  x: number;
+  y: number;
+  properties: Record<string, unknown>;
+}
+
 export function Map3DInner(props: Map3DInnerProps) {
   const [ready, setReady] = useState(false);
+  const [hoverInfo, setHoverInfo] = useState<PickedFeature | null>(null);
+  const [clickInfo, setClickInfo] = useState<PickedFeature | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const chartColors = useChartColors();
 
   // Delay mount to let the container get a stable size before DeckGL creates its canvas.
@@ -136,7 +157,8 @@ export function Map3DInner(props: Map3DInnerProps) {
           id: "hexagon-layer",
           data,
           getPosition,
-          gpuAggregation: false, // WebGL2 doesn't support GPU aggregation
+          pickable: true,
+          gpuAggregation: false,
           extruded: true,
           radius: radius ?? 1000,
           elevationScale: elevation_scale ?? 4,
@@ -152,6 +174,7 @@ export function Map3DInner(props: Map3DInnerProps) {
           id: "column-layer",
           data,
           getPosition,
+          pickable: true,
           getElevation: (d: Record<string, unknown>) =>
             value_key ? Number(d[value_key]) || 0 : 100,
           getFillColor: (d: Record<string, unknown>) =>
@@ -175,6 +198,9 @@ export function Map3DInner(props: Map3DInnerProps) {
           getSourceColor: () => hexToRgb(chartColors[0]),
           getTargetColor: () => hexToRgb(chartColors[1]),
           getWidth: 2,
+          pickable: true,
+          autoHighlight: true,
+          highlightColor: [255, 255, 255, 80],
           opacity: opacity ?? 0.8,
         });
 
@@ -183,6 +209,7 @@ export function Map3DInner(props: Map3DInnerProps) {
           id: "scatterplot-layer",
           data,
           getPosition,
+          pickable: true,
           getFillColor: (d: Record<string, unknown>) =>
             [...getColor(d), 200] as [number, number, number, number],
           getRadius: (d: Record<string, unknown>) =>
@@ -198,6 +225,7 @@ export function Map3DInner(props: Map3DInnerProps) {
           id: "heatmap-layer",
           data,
           getPosition,
+          pickable: true,
           getWeight: (d: Record<string, unknown>) => (value_key ? Number(d[value_key]) || 1 : 1),
           gpuAggregation: false,
           radiusPixels: radius ? Math.min(radius, 100) : 30,
@@ -222,6 +250,57 @@ export function Map3DInner(props: Map3DInnerProps) {
     chartColors,
   ]);
 
+  const extractProperties = useCallback(
+    (info: { object?: unknown }): Record<string, unknown> | null => {
+      const obj = info.object;
+      if (!obj || typeof obj !== "object") return null;
+      const rec = obj as Record<string, unknown>;
+      // For aggregation layers (hexagon), show aggregated stats
+      if (Array.isArray(rec.points)) {
+        return {
+          Count: rec.points.length,
+          ...(rec.elevationValue != null ? { Value: rec.elevationValue } : {}),
+        };
+      }
+      // For regular layers, show all non-internal properties
+      const result: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rec)) {
+        if (typeof v === "function" || typeof v === "object") continue;
+        result[k] = v;
+      }
+      return Object.keys(result).length > 0 ? result : null;
+    },
+    []
+  );
+
+  const onHover = useCallback(
+    (info: { object?: unknown; x: number; y: number }) => {
+      if (!info.object) {
+        setHoverInfo(null);
+        return;
+      }
+      const properties = extractProperties(info);
+      if (properties) {
+        setHoverInfo({ x: info.x, y: info.y, properties });
+      }
+    },
+    [extractProperties]
+  );
+
+  const onDeckClick = useCallback(
+    (info: { object?: unknown; x: number; y: number }) => {
+      if (!info.object) {
+        setClickInfo(null);
+        return;
+      }
+      const properties = extractProperties(info);
+      if (properties) {
+        setClickInfo({ x: info.x, y: info.y, properties });
+      }
+    },
+    [extractProperties]
+  );
+
   if (!ready) {
     return <div style={{ width: "100%", height: height ?? 500 }} />;
   }
@@ -233,7 +312,76 @@ export function Map3DInner(props: Map3DInnerProps) {
         controller
         layers={[tileLayer, dataLayer]}
         onError={handleError}
+        onHover={onHover}
+        onClick={onDeckClick}
+        getCursor={({ isHovering }: { isHovering: boolean }) => (isHovering ? "pointer" : "grab")}
       />
+      {/* Hover tooltip */}
+      {hoverInfo && !clickInfo && (
+        <div
+          style={{
+            position: "absolute",
+            left: hoverInfo.x + 12,
+            top: hoverInfo.y + 12,
+            pointerEvents: "none",
+            zIndex: 10,
+            maxWidth: 260,
+          }}
+          className="rounded bg-surface-1 border border-border-default px-2 py-1.5 text-xs text-t-primary shadow-lg"
+        >
+          {Object.entries(hoverInfo.properties).map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3">
+              <span className="text-t-secondary font-medium">{formatKey(k)}</span>
+              <span>{formatVal(v)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Click popup */}
+      {clickInfo && (
+        <div
+          ref={popoverRef}
+          style={{
+            position: "absolute",
+            left: Math.min(
+              clickInfo.x,
+              (typeof window !== "undefined" ? window.innerWidth : 800) - 300
+            ),
+            top: clickInfo.y,
+            zIndex: 20,
+            minWidth: 180,
+            maxWidth: 280,
+            maxHeight: 240,
+            overflow: "auto",
+          }}
+          className="rounded-lg bg-surface-1 border border-border-default shadow-xl text-xs text-t-primary"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between sticky top-0 bg-surface-1 px-3 py-2 border-b border-border-default">
+            <span className="font-semibold text-sm">Properties</span>
+            <button
+              className="text-t-secondary hover:text-t-primary ml-2 text-base leading-none"
+              onClick={() => setClickInfo(null)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="px-3 py-2">
+            <table className="w-full">
+              <tbody>
+                {Object.entries(clickInfo.properties).map(([k, v]) => (
+                  <tr key={k} className="border-b border-border-default last:border-0">
+                    <td className="pr-2 py-1 text-t-secondary font-medium whitespace-nowrap align-top">
+                      {formatKey(k)}
+                    </td>
+                    <td className="py-1 text-right align-top">{formatVal(v)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

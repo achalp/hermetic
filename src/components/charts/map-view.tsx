@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { Map, Marker, Overlay, GeoJson } from "pigeon-maps";
+import MapGL, {
+  Source,
+  Layer,
+  Marker,
+  Popup,
+  type MapRef,
+  type MapLayerMouseEvent,
+} from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
 
 interface MarkerItem {
@@ -38,10 +47,12 @@ interface EventHandle {
   shouldPreventDefault: boolean;
 }
 
+const BASEMAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+
 function computeBounds(
   markers: MarkerItem[] | null | undefined,
   geojson: Record<string, unknown> | null | undefined
-): { center: [number, number]; zoom: number } {
+): { center: [number, number]; zoom: number; bbox: [[number, number], [number, number]] | null } {
   const lats: number[] = [];
   const lngs: number[] = [];
 
@@ -58,7 +69,6 @@ function computeBounds(
     const collectCoords = (obj: unknown): void => {
       if (Array.isArray(obj)) {
         if (obj.length >= 2 && typeof obj[0] === "number" && typeof obj[1] === "number") {
-          // GeoJSON coordinates are [lng, lat]
           lngs.push(obj[0] as number);
           lats.push(obj[1] as number);
         } else {
@@ -80,7 +90,7 @@ function computeBounds(
   }
 
   if (lats.length === 0) {
-    return { center: [0, 0], zoom: 2 };
+    return { center: [0, 0], zoom: 2, bbox: null };
   }
 
   const minLat = Math.min(...lats);
@@ -96,7 +106,13 @@ function computeBounds(
   const zoom = Math.floor(Math.log2(360 / Math.max(lngSpan, latSpan * 1.5)));
   const clampedZoom = Math.max(1, Math.min(18, zoom));
 
-  return { center: [centerLat, centerLng], zoom: clampedZoom };
+  // bbox as [[sw_lng, sw_lat], [ne_lng, ne_lat]] for MapLibre fitBounds
+  const bbox: [[number, number], [number, number]] = [
+    [minLng, minLat],
+    [maxLng, maxLat],
+  ];
+
+  return { center: [centerLat, centerLng], zoom: clampedZoom, bbox };
 }
 
 /** Compute the centroid (center of bounding box) of a GeoJSON feature's geometry */
@@ -141,22 +157,33 @@ function parseHex(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-/** Linearly interpolate between two hex colors at t ∈ [0, 1] */
-function lerpColor(c1: [number, number, number], c2: [number, number, number], t: number): string {
-  const r = Math.round(c1[0] + (c2[0] - c1[0]) * t);
-  const g = Math.round(c1[1] + (c2[1] - c1[1]) * t);
-  const b = Math.round(c1[2] + (c2[2] - c1[2]) * t);
-  return `rgb(${r},${g},${b})`;
+/** Darken a hex color by 30% */
+function darkenHex(hex: string): string {
+  const [r, g, b] = parseHex(hex);
+  const dr = Math.round(r * 0.7);
+  const dg = Math.round(g * 0.7);
+  const db = Math.round(b * 0.7);
+  return `#${dr.toString(16).padStart(2, "0")}${dg.toString(16).padStart(2, "0")}${db.toString(16).padStart(2, "0")}`;
 }
 
-/** Darken an rgb(...) color by 30% for stroke */
-function darkenRgb(rgb: string): string {
-  const match = rgb.match(/rgb\((\d+),(\d+),(\d+)\)/);
-  if (!match) return rgb;
-  const r = Math.round(Number(match[1]) * 0.7);
-  const g = Math.round(Number(match[2]) * 0.7);
-  const b = Math.round(Number(match[3]) * 0.7);
-  return `rgb(${r},${g},${b})`;
+/** Simple SVG map pin */
+function PinMarker({ color, size = 28 }: { color: string; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size * 1.4}
+      viewBox="0 0 24 34"
+      style={{ transform: "translate(-50%, -100%)", cursor: "pointer" }}
+    >
+      <path
+        d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z"
+        fill={color}
+        stroke="white"
+        strokeWidth="1.5"
+      />
+      <circle cx="12" cy="12" r="4.5" fill="white" />
+    </svg>
+  );
 }
 
 export function MapViewComponent({
@@ -171,72 +198,49 @@ export function MapViewComponent({
   const clickHandle = on?.("click");
   const isDrillable = clickHandle?.bound ?? false;
   const chartColors = useChartColors();
+  const mapRef = useRef<MapRef>(null);
+  const hoveredFeatureId = useRef<number | null>(null);
 
   const [hoveredMarker, setHoveredMarker] = useState<number | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<{
     properties: Record<string, unknown>;
-    anchor: [number, number];
+    anchor: [number, number]; // [lat, lng]
   } | null>(null);
 
-  const handleGeoJsonClick = useCallback(
-    ({ event, payload }: { event: unknown; payload: unknown }) => {
-      // Stop propagation so the map background click doesn't dismiss immediately
-      if (event && typeof event === "object" && "stopPropagation" in event) {
-        (event as Event).stopPropagation();
-      }
-      const feature = payload as {
-        geometry?: Record<string, unknown>;
-        properties?: Record<string, unknown>;
-      };
-      if (!feature?.geometry) return;
-      const anchor = computeCentroid(feature.geometry);
-      const properties = (feature.properties ?? {}) as Record<string, unknown>;
-
-      // Toggle: clicking same feature dismisses
-      setSelectedFeature((prev) => {
-        if (prev && prev.anchor[0] === anchor[0] && prev.anchor[1] === anchor[1]) return null;
-        return { properties, anchor };
-      });
-    },
-    []
+  const currentMarkers = useMemo(
+    () =>
+      Array.isArray(props.markers)
+        ? props.markers.filter((m) => isFinite(m.lat) && isFinite(m.lng))
+        : [],
+    [props.markers]
   );
-
-  // Ref to block native wheel/touch events from reaching the map
-  const popoverRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = popoverRef.current;
-    if (!el) return;
-    const stopWheel = (e: WheelEvent) => {
-      e.stopPropagation();
-    };
-    const stopTouch = (e: TouchEvent) => {
-      e.stopPropagation();
-    };
-    el.addEventListener("wheel", stopWheel, { passive: false });
-    el.addEventListener("touchstart", stopTouch, { passive: false });
-    el.addEventListener("touchmove", stopTouch, { passive: false });
-    return () => {
-      el.removeEventListener("wheel", stopWheel);
-      el.removeEventListener("touchstart", stopTouch);
-      el.removeEventListener("touchmove", stopTouch);
-    };
-  }, [selectedFeature]);
-
-  const markers = Array.isArray(props.markers) ? props.markers : [];
   const height = props.height ?? 400;
 
-  const bounds = useMemo(
-    () => computeBounds(props.markers, props.geojson),
-    [props.markers, props.geojson]
+  // Cache last-known-good data so the map never unmounts on transient null props.
+  // Uses the React-endorsed "adjusting state during render" pattern to avoid
+  // effects and refs, which the lint rules prohibit in render context.
+  const [cachedGeoJson, setCachedGeoJson] = useState<Record<string, unknown> | null>(
+    props.geojson ?? null
   );
+  const [cachedMarkers, setCachedMarkers] = useState<MarkerItem[]>(currentMarkers);
+  if (props.geojson && props.geojson !== cachedGeoJson) {
+    setCachedGeoJson(props.geojson);
+  }
+  if (currentMarkers.length > 0 && currentMarkers !== cachedMarkers) {
+    setCachedMarkers(currentMarkers);
+  }
+
+  const markers = currentMarkers.length > 0 ? currentMarkers : cachedMarkers;
+  const geojson = props.geojson ?? cachedGeoJson;
+
+  const bounds = useMemo(() => computeBounds(markers, geojson), [markers, geojson]);
 
   // Pre-compute min/max for choropleth color_key
   const colorRange = useMemo(() => {
-    if (!props.color_key || !props.geojson) return null;
-    const features = (props.geojson as { features?: unknown[] })?.features;
+    if (!props.color_key || !geojson) return null;
+    const features = (geojson as { features?: unknown[] })?.features;
     if (!Array.isArray(features) || features.length === 0) return null;
 
-    // Resolve the actual property key: try exact match, then case-insensitive
     const resolveKey = (): string | null => {
       const first = features[0] as { properties?: Record<string, unknown> };
       const propKeys = Object.keys(first?.properties ?? {});
@@ -244,9 +248,8 @@ export function MapViewComponent({
       const lower = props.color_key!.toLowerCase();
       const match = propKeys.find((k) => k.toLowerCase() === lower);
       if (match) return match;
-      // Fallback: find first numeric property with variance
       for (const k of propKeys) {
-        if (k.startsWith("_")) continue; // skip internal keys
+        if (k.startsWith("_")) continue;
         const vals = features.map((f) =>
           Number((f as { properties?: Record<string, unknown> })?.properties?.[k])
         );
@@ -270,13 +273,176 @@ export function MapViewComponent({
     }
     if (!isFinite(min) || !isFinite(max)) return null;
     const scale = props.color_scale ?? ["#fee0d2", "#de2d26"];
-    return { min, max, key: resolvedKey, low: parseHex(scale[0]), high: parseHex(scale[1]) };
-  }, [props.color_key, props.geojson, props.color_scale]);
+    return { min, max, key: resolvedKey, low: scale[0], high: scale[1] };
+  }, [props.color_key, geojson, props.color_scale]);
 
   const center: [number, number] = props.center ?? bounds.center;
   const zoom = props.zoom ?? bounds.zoom;
 
-  const hasData = markers.length > 0 || props.geojson;
+  // Fit map to data bounds whenever data changes
+  const mapLoaded = useRef(false);
+  useEffect(() => {
+    if (!mapLoaded.current) return;
+    const map = mapRef.current;
+    if (!map || !bounds.bbox) return;
+    map.fitBounds(bounds.bbox, { padding: 40, duration: 0 });
+  }, [bounds]);
+
+  // --- MapLibre layer paint specs ---
+
+  const fillPaint = useMemo(() => {
+    if (colorRange) {
+      return {
+        "fill-color": [
+          "interpolate",
+          ["linear"],
+          ["get", colorRange.key],
+          colorRange.min,
+          colorRange.low,
+          colorRange.max,
+          colorRange.high,
+        ],
+        "fill-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 0.9, 0.65],
+      } as any;
+    }
+    return {
+      "fill-color": props.geojson_style?.fill ?? chartColors[0],
+      "fill-opacity": [
+        "case",
+        ["boolean", ["feature-state", "hover"], false],
+        Math.min(1, (props.geojson_style?.fillOpacity ?? 0.5) + 0.25),
+        props.geojson_style?.fillOpacity ?? 0.5,
+      ],
+    } as any;
+  }, [colorRange, props.geojson_style, chartColors]);
+
+  const linePaint = useMemo(() => {
+    const baseWidth = props.geojson_style?.strokeWidth ?? 2;
+    if (colorRange) {
+      return {
+        "line-color": [
+          "case",
+          [
+            "any",
+            ["==", ["geometry-type"], "LineString"],
+            ["==", ["geometry-type"], "MultiLineString"],
+          ],
+          [
+            "interpolate",
+            ["linear"],
+            ["get", colorRange.key],
+            colorRange.min,
+            colorRange.low,
+            colorRange.max,
+            colorRange.high,
+          ],
+          [
+            "interpolate",
+            ["linear"],
+            ["get", colorRange.key],
+            colorRange.min,
+            darkenHex(colorRange.low),
+            colorRange.max,
+            darkenHex(colorRange.high),
+          ],
+        ],
+        "line-width": [
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          baseWidth + 1,
+          baseWidth,
+        ],
+      } as any;
+    }
+    return {
+      "line-color": props.geojson_style?.stroke ?? props.geojson_style?.fill ?? chartColors[0],
+      "line-width": [
+        "case",
+        ["boolean", ["feature-state", "hover"], false],
+        baseWidth + 1,
+        baseWidth,
+      ],
+    } as any;
+  }, [colorRange, props.geojson_style, chartColors]);
+
+  const circlePaint = useMemo(() => {
+    if (colorRange) {
+      return {
+        "circle-color": [
+          "interpolate",
+          ["linear"],
+          ["get", colorRange.key],
+          colorRange.min,
+          colorRange.low,
+          colorRange.max,
+          colorRange.high,
+        ],
+        "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 7, 5],
+        "circle-stroke-color": "#fff",
+        "circle-stroke-width": 1.5,
+        "circle-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 1, 0.8],
+      } as any;
+    }
+    return {
+      "circle-color": props.geojson_style?.fill ?? chartColors[0],
+      "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 7, 5],
+      "circle-stroke-color": "#fff",
+      "circle-stroke-width": 1.5,
+      "circle-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 1, 0.8],
+    } as any;
+  }, [colorRange, props.geojson_style, chartColors]);
+
+  // --- Hover / click handlers ---
+
+  const interactiveLayerIds = useMemo(
+    () => (geojson ? ["geojson-fill", "geojson-line", "geojson-line-hit", "geojson-circle"] : []),
+    [geojson]
+  );
+
+  const onMouseMove = useCallback((e: MapLayerMouseEvent) => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    if (hoveredFeatureId.current !== null) {
+      map.setFeatureState({ source: "geojson", id: hoveredFeatureId.current }, { hover: false });
+      hoveredFeatureId.current = null;
+    }
+
+    if (e.features && e.features.length > 0) {
+      const feature = e.features[0];
+      hoveredFeatureId.current = feature.id as number;
+      map.setFeatureState({ source: "geojson", id: feature.id as number }, { hover: true });
+      map.getCanvas().style.cursor = "pointer";
+    } else {
+      map.getCanvas().style.cursor = "";
+    }
+  }, []);
+
+  const onMouseOut = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || hoveredFeatureId.current === null) return;
+    map.setFeatureState({ source: "geojson", id: hoveredFeatureId.current }, { hover: false });
+    hoveredFeatureId.current = null;
+    map.getCanvas().style.cursor = "";
+  }, []);
+
+  const onMapClick = useCallback((e: MapLayerMouseEvent) => {
+    if (!e.features || e.features.length === 0) {
+      setSelectedFeature(null);
+      return;
+    }
+    const feature = e.features[0];
+    const geometry = feature.geometry as unknown as Record<string, unknown>;
+    const centroid = computeCentroid(geometry);
+    const properties = (feature.properties ?? {}) as Record<string, unknown>;
+
+    setSelectedFeature((prev) => {
+      if (prev && prev.anchor[0] === centroid[0] && prev.anchor[1] === centroid[1]) return null;
+      return { properties, anchor: centroid };
+    });
+  }, []);
+
+  const hasData = markers.length > 0 || geojson;
   if (!hasData) {
     return <div style={{ height }} />;
   }
@@ -298,116 +464,131 @@ export function MapViewComponent({
         </h3>
       )}
       <div className="overflow-hidden rounded-lg border border-border-default" style={{ height }}>
-        <Map
-          defaultCenter={center}
-          defaultZoom={zoom}
-          height={height}
-          onClick={() => setSelectedFeature(null)}
+        <MapGL
+          ref={mapRef}
+          initialViewState={{
+            latitude: isFinite(center[0]) ? center[0] : 0,
+            longitude: isFinite(center[1]) ? center[1] : 0,
+            zoom: isFinite(zoom) ? zoom : 2,
+          }}
+          style={{ width: "100%", height: "100%" }}
+          mapStyle={BASEMAP_STYLE}
+          interactiveLayerIds={interactiveLayerIds}
+          onLoad={() => {
+            mapLoaded.current = true;
+            if (bounds.bbox) {
+              mapRef.current?.fitBounds(bounds.bbox, { padding: 40, duration: 0 });
+            }
+          }}
+          onMouseMove={onMouseMove}
+          onMouseOut={onMouseOut}
+          onClick={onMapClick}
         >
-          {props.geojson && (
-            <GeoJson
-              data={props.geojson}
-              onClick={handleGeoJsonClick}
-              styleCallback={(
-                feature: { properties?: Record<string, unknown> } | undefined,
-                hover: boolean
-              ) => {
-                const hoverBoost = hover ? 0.25 : 0;
-                // Choropleth mode: color features by a numeric property
-                if (colorRange && feature?.properties) {
-                  const val = Number(feature.properties[colorRange.key]);
-                  if (!isNaN(val)) {
-                    const span = colorRange.max - colorRange.min;
-                    const t = span > 0 ? (val - colorRange.min) / span : 0.5;
-                    const fill = lerpColor(colorRange.low, colorRange.high, t);
-                    return {
-                      fill,
-                      stroke: darkenRgb(fill),
-                      strokeWidth: hover ? 2 : 1,
-                      fillOpacity: Math.min(1, 0.7 + hoverBoost),
-                      cursor: "pointer",
-                    };
-                  }
-                  // color_key set but value missing for this feature — gray fallback
-                  return {
-                    fill: "#9ca3af",
-                    stroke: "#6b7280",
-                    strokeWidth: 1,
-                    fillOpacity: 0.3,
-                    cursor: "pointer",
-                  };
+          {geojson && (
+            <Source
+              id="geojson"
+              type="geojson"
+              data={geojson as unknown as GeoJSON.FeatureCollection}
+              generateId
+            >
+              <Layer
+                id="geojson-fill"
+                type="fill"
+                filter={
+                  [
+                    "any",
+                    ["==", ["geometry-type"], "Polygon"],
+                    ["==", ["geometry-type"], "MultiPolygon"],
+                  ] as any
                 }
-                // Default uniform styling
-                return {
-                  fill: props.geojson_style?.fill ?? chartColors[0],
-                  stroke: props.geojson_style?.stroke ?? chartColors[0],
-                  strokeWidth: hover
-                    ? (props.geojson_style?.strokeWidth ?? 2) + 1
-                    : (props.geojson_style?.strokeWidth ?? 2),
-                  fillOpacity: Math.min(1, (props.geojson_style?.fillOpacity ?? 0.5) + hoverBoost),
-                  cursor: "pointer",
-                };
-              }}
-            />
+                paint={fillPaint}
+              />
+              <Layer id="geojson-line" type="line" paint={linePaint} />
+              {/* Invisible wide line for easier click/hover targeting */}
+              <Layer
+                id="geojson-line-hit"
+                type="line"
+                paint={{ "line-color": "transparent", "line-width": 12 } as any}
+              />
+              <Layer
+                id="geojson-circle"
+                type="circle"
+                filter={
+                  [
+                    "any",
+                    ["==", ["geometry-type"], "Point"],
+                    ["==", ["geometry-type"], "MultiPoint"],
+                  ] as any
+                }
+                paint={circlePaint}
+              />
+            </Source>
           )}
 
           {markers.map((m, i) => {
             const color = m.color ? resolveColor(m.color) : chartColors[i % chartColors.length];
-
             return (
-              <Marker
-                key={i}
-                anchor={[m.lat, m.lng]}
-                color={color}
-                width={36}
-                onMouseOver={() => setHoveredMarker(i)}
-                onMouseOut={() => setHoveredMarker(null)}
-              />
+              <Marker key={i} latitude={m.lat} longitude={m.lng} anchor="bottom">
+                <div
+                  onMouseEnter={() => setHoveredMarker(i)}
+                  onMouseLeave={() => setHoveredMarker(null)}
+                >
+                  <PinMarker color={color} />
+                </div>
+              </Marker>
             );
           })}
 
           {hoveredMarker !== null && markers[hoveredMarker]?.label && (
-            <Overlay
-              anchor={[markers[hoveredMarker].lat, markers[hoveredMarker].lng]}
-              offset={[0, -40]}
+            <Popup
+              latitude={markers[hoveredMarker].lat}
+              longitude={markers[hoveredMarker].lng}
+              offset={[0, -40] as [number, number]}
+              closeButton={false}
+              closeOnClick={false}
+              className="map-marker-tooltip"
             >
-              <div className="pointer-events-none rounded bg-surface-1 border border-border-default px-2 py-1 text-xs text-t-primary shadow-lg">
-                {markers[hoveredMarker].label}
-              </div>
-            </Overlay>
+              <div className="text-xs text-gray-900">{markers[hoveredMarker].label}</div>
+            </Popup>
           )}
 
-          {selectedFeature && (
-            <Overlay anchor={selectedFeature.anchor} offset={[0, -10]}>
-              <div
-                ref={popoverRef}
-                className="rounded-lg bg-surface-1 border border-border-default shadow-xl text-xs text-t-primary"
-                style={{ minWidth: 180, maxWidth: 280, maxHeight: 240, overflow: "auto" }}
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => e.stopPropagation()}
+          {selectedFeature &&
+            isFinite(selectedFeature.anchor[0]) &&
+            isFinite(selectedFeature.anchor[1]) && (
+              <Popup
+                latitude={selectedFeature.anchor[0]}
+                longitude={selectedFeature.anchor[1]}
+                offset={[0, -10] as [number, number]}
+                closeButton={false}
+                closeOnClick={false}
+                maxWidth="280px"
+                className="map-feature-popup"
               >
-                <div className="flex items-center justify-between sticky top-0 bg-surface-1 px-3 py-2 border-b border-border-default">
-                  <span className="font-semibold text-sm">Feature Properties</span>
-                  <button
-                    className="text-t-secondary hover:text-t-primary ml-2 text-base leading-none"
-                    onClick={() => setSelectedFeature(null)}
-                  >
-                    ×
-                  </button>
-                </div>
-                <div className="px-3 py-2">
+                <div
+                  className="text-xs"
+                  style={{ minWidth: 180, maxHeight: 220, overflow: "auto" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between pb-1 mb-1 border-b border-gray-200">
+                    <span className="font-semibold text-sm text-gray-900">Feature Properties</span>
+                    <button
+                      className="text-gray-400 hover:text-gray-700 ml-2 text-base leading-none"
+                      onClick={() => setSelectedFeature(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
                   {Object.entries(selectedFeature.properties).length === 0 ? (
-                    <span className="text-t-secondary italic">No properties</span>
+                    <span className="text-gray-400 italic">No properties</span>
                   ) : (
                     <table className="w-full">
                       <tbody>
                         {Object.entries(selectedFeature.properties).map(([key, value]) => (
-                          <tr key={key} className="border-b border-border-default last:border-0">
-                            <td className="pr-2 py-1 text-t-secondary font-medium whitespace-nowrap align-top">
+                          <tr key={key} className="border-b border-gray-100 last:border-0">
+                            <td className="pr-2 py-1 text-gray-500 font-medium whitespace-nowrap align-top">
                               {formatPropertyKey(key)}
                             </td>
-                            <td className="py-1 text-right align-top">
+                            <td className="py-1 text-right align-top text-gray-900">
                               {formatPropertyValue(value)}
                             </td>
                           </tr>
@@ -416,10 +597,9 @@ export function MapViewComponent({
                     </table>
                   )}
                 </div>
-              </div>
-            </Overlay>
-          )}
-        </Map>
+              </Popup>
+            )}
+        </MapGL>
       </div>
     </div>
   );
