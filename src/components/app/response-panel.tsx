@@ -41,6 +41,7 @@ interface ResponsePanelProps {
   codeGenModel?: ModelId;
   uiComposeModel?: ModelId;
   sandboxRuntime?: SandboxRuntimeId;
+  purpose?: string;
   onRerun?: () => void;
   loadedVizId?: string | null;
 }
@@ -58,6 +59,7 @@ export function ResponsePanel({
   codeGenModel,
   uiComposeModel,
   sandboxRuntime,
+  purpose = "infographic",
   onRerun,
   loadedVizId,
 }: ResponsePanelProps) {
@@ -155,6 +157,7 @@ export function ResponsePanel({
       code_gen_model: codeGenModel,
       ui_compose_model: uiComposeModel,
       sandbox_runtime: sandboxRuntime,
+      purpose,
     });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,6 +199,7 @@ export function ResponsePanel({
         code_gen_model: codeGenModel,
         ui_compose_model: uiComposeModel,
         sandbox_runtime: sandboxRuntime,
+        purpose,
       });
     };
 

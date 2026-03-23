@@ -22,6 +22,7 @@ import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { useWarehouse } from "@/hooks/use-warehouse";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
+import { PURPOSE_MODES, DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
 import { checkLlmReady, getLocalBackendConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
 import {
   CODE_GEN_MODEL,
@@ -71,6 +72,7 @@ export default function Home() {
     pendingRerunVizId,
   } = pageState;
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
+  const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
   const [codeGenModel, setCodeGenModel] = useState<ModelId>(CODE_GEN_MODEL);
   const [uiComposeModel, setUiComposeModel] = useState<ModelId>(UI_COMPOSE_MODEL);
   const [sandboxRuntime, setSandboxRuntime] = useState<SandboxRuntimeId>(() => {
@@ -430,6 +432,33 @@ export default function Home() {
                 initialValue={currentQuestion}
               />
 
+              {/* Purpose mode selector */}
+              <div
+                className="flex flex-wrap items-center gap-1.5"
+                role="radiogroup"
+                aria-label="Output purpose"
+              >
+                {Object.values(PURPOSE_MODES).map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={purpose === mode.id}
+                    title={mode.description}
+                    onClick={() => setPurpose(mode.id)}
+                    disabled={isAnalyzing}
+                    className={`px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                      purpose === mode.id
+                        ? "bg-accent text-white"
+                        : "bg-surface-1 text-t-secondary border border-border-default hover:border-accent hover:text-t-primary"
+                    }`}
+                    style={{ borderRadius: "var(--radius-badge)" }}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+
               <ResponsePanel
                 csvId={csvId}
                 warehouseId={warehouse.warehouseId}
@@ -443,6 +472,7 @@ export default function Home() {
                 codeGenModel={codeGenModel}
                 uiComposeModel={uiComposeModel}
                 sandboxRuntime={sandboxRuntime}
+                purpose={purpose}
                 onRerun={handleRerunFromToolbar}
                 loadedVizId={loadedVizId}
               />
