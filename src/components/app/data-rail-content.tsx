@@ -236,19 +236,10 @@ export function DataRailContent({
           <div style={{ flex: 1, overflowY: "auto" }}>{detailContent}</div>
         </div>
       ) : isHorizontalSplit ? (
-        /* Narrow (380px): horizontal split — tables on top, detail below */
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-          <div
-            style={{
-              maxHeight: 160,
-              overflowY: "auto",
-              flexShrink: 0,
-              borderBottom: "1px solid var(--color-surface-dark-2)",
-            }}
-          >
-            <TableList tables={tables} active={activeTable} onSelect={setActiveTable} />
-          </div>
-          <div style={{ flex: 1, overflowY: "auto" }}>{detailContent}</div>
+        /* Narrow (380px): single scroll — tables then detail, all scrollable */
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          <TableList tables={tables} active={activeTable} onSelect={setActiveTable} />
+          <div style={{ borderTop: "1px solid var(--color-surface-dark-2)" }}>{detailContent}</div>
         </div>
       ) : (
         /* Non-warehouse: single scroll */
