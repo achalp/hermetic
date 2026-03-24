@@ -13,7 +13,7 @@ function useIsMounted() {
 }
 
 const SWATCH_CONFIG: Record<string, { color: string; radius: string }> = {
-  vanilla: { color: "#6366f1", radius: "12px" },
+  vanilla: { color: "#059669", radius: "12px" },
   stamen: { color: "#204ce5", radius: "4px" },
   iib: { color: "#e53935", radius: "16px" },
   pentagram: { color: "#000000", radius: "0" },
