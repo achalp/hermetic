@@ -489,6 +489,7 @@ export default function Home() {
             rows: t.row_count_estimate?.toLocaleString() ?? "–",
           }))}
           warehouseSchemas={warehouse.tableSchemas}
+          warehouseId={warehouse.warehouseId}
         />
       </DataRail>
 
