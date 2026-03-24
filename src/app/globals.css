@@ -936,6 +936,18 @@ body {
   background: var(--bg-panel);
 }
 
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @keyframes indeterminate {
   0% {
     transform: translateX(-100%);
@@ -970,6 +982,47 @@ body {
     padding-left: 24px !important;
     padding-right: 24px !important;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Source card hover
+   ═══════════════════════════════════════════════════════════ */
+.source-card-hover:hover {
+  border-color: var(--color-accent) !important;
+  background: var(--color-accent-subtle) !important;
+}
+
+/* Force dark-surface styling for local-backend section inside the settings drawer */
+.dark-surface-override,
+.dark-surface-override input,
+.dark-surface-override select,
+.dark-surface-override textarea,
+.dark-surface-override button {
+  color: var(--color-surface-dark-text);
+}
+.dark-surface-override .text-t-primary {
+  color: var(--color-surface-dark-text) !important;
+}
+.dark-surface-override .text-t-secondary {
+  color: var(--color-surface-dark-text2) !important;
+}
+.dark-surface-override .text-t-tertiary {
+  color: var(--color-surface-dark-text3) !important;
+}
+.dark-surface-override .bg-surface-input,
+.dark-surface-override input,
+.dark-surface-override select {
+  background: var(--color-surface-dark-2) !important;
+  border-color: var(--color-surface-dark-3) !important;
+}
+.dark-surface-override .border-border-default {
+  border-color: var(--color-surface-dark-3) !important;
+}
+.dark-surface-override .bg-accent-subtle {
+  background: rgba(5, 150, 105, 0.15) !important;
+}
+.dark-surface-override .text-accent-text {
+  color: var(--color-accent) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════

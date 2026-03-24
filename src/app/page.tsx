@@ -20,6 +20,7 @@ import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
 import { StyleSelector } from "@/components/app/style-selector";
 import { useSaveExport } from "@/hooks/use-save-export";
+import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -114,7 +115,7 @@ export default function Home() {
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
-  void showArtifactsPanel; // read in upcoming ArtifactsPanel wiring
+  const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -731,6 +732,16 @@ export default function Home() {
               This prevents mount/unmount cycles that abort in-flight streams. */}
           {hasData && (
             <div className={isState3 || isState4 ? "py-8" : "hidden"}>
+              {/* Follow-up question input — ABOVE results for quick access */}
+              {isState4 && !isAnalyzing && (
+                <div className="mb-6 w-full max-w-[700px] mx-auto">
+                  <QueryInput
+                    onSubmit={handleGuardedQuery}
+                    disabled={!hasData}
+                    isLoading={isAnalyzing}
+                  />
+                </div>
+              )}
               <div ref={dashboardRef}>
                 <ResponsePanel
                   csvId={csvId}
@@ -750,20 +761,22 @@ export default function Home() {
                   loadedVizId={loadedVizId}
                 />
               </div>
-              {/* Follow-up question input — visible in State 4 */}
-              {isState4 && !isAnalyzing && (
-                <div className="mt-6 w-full max-w-[700px] mx-auto">
-                  <QueryInput
-                    onSubmit={handleGuardedQuery}
-                    disabled={!hasData}
-                    isLoading={isAnalyzing}
-                  />
-                </div>
-              )}
             </div>
           )}
         </main>
       </MainContent>
+
+      {/* Artifacts Panel (bottom sheet) */}
+      <ArtifactsPanel
+        open={showArtifactsPanel}
+        fullscreen={artifactsFullscreen}
+        onClose={() => setShowArtifactsPanel(false)}
+        onToggleFullscreen={() => setArtifactsFullscreen((f) => !f)}
+        artifacts={{
+          sql: loadedArtifacts?.sql ?? undefined,
+          code: loadedArtifacts?.code ?? undefined,
+        }}
+      />
     </>
   );
 }
