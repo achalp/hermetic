@@ -31,17 +31,15 @@ function getStoredMode(): ColorMode {
 
 function applyMode(mode: ColorMode) {
   const html = document.documentElement;
-  // Remove dark attribute first
-  html.removeAttribute("data-mode");
 
   if (mode === "dark") {
     html.setAttribute("data-mode", "dark");
-  } else if (mode === "system") {
-    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      html.setAttribute("data-mode", "dark");
-    }
+  } else if (mode === "light") {
+    html.setAttribute("data-mode", "light");
+  } else {
+    // system — follow OS
+    html.removeAttribute("data-mode");
   }
-  // "light" = no data-mode attribute → CSS defaults to light
 
   // Debug: log the actual state
   console.log(
