@@ -19,6 +19,7 @@ import { SavedConnections } from "@/components/app/saved-connections";
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
 import { StyleSelector } from "@/components/app/style-selector";
+import { useSaveExport } from "@/hooks/use-save-export";
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -102,11 +103,18 @@ export default function Home() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const rerunVizIdRef = useRef<string | null>(null);
 
+  const dashboardRef = useRef<HTMLDivElement>(null);
+  const currentSpecRef = useRef<Spec | null>(loadedSpec ?? null);
+  const currentQuestionRef = useRef<string | null>(currentQuestion);
+
   // ── New redesign state ──────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [railExpanded, setRailExpanded] = useState(false);
   const [railFullscreen, setRailFullscreen] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
+  void showArtifactsPanel; // read in upcoming ArtifactsPanel wiring
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -128,6 +136,37 @@ export default function Home() {
   }, []);
 
   const anyPanelOpen = settingsOpen || railExpanded;
+
+  const {
+    saving,
+    exporting,
+    handleSave: doSave,
+    handleExportPdf,
+    handleExportDocx,
+    handleExportPptx,
+  } = useSaveExport({
+    csvId,
+    currentSpecRef,
+    currentQuestionRef,
+    dashboardRef,
+    onSaved: handleSaved,
+  });
+
+  // Sync refs for save/export (must be in effect, not render)
+  useEffect(() => {
+    currentQuestionRef.current = currentQuestion;
+  }, [currentQuestion]);
+  useEffect(() => {
+    currentSpecRef.current = loadedSpec ?? null;
+  }, [loadedSpec]);
+
+  // Close export dropdown on outside click
+  useEffect(() => {
+    if (!showExportDropdown) return;
+    const handler = () => setTimeout(() => setShowExportDropdown(false), 0);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [showExportDropdown]);
 
   // ── Existing effects & callbacks (unchanged) ────────────────
   useEffect(() => {
@@ -399,6 +438,72 @@ export default function Home() {
                 New
               </button>
             )}
+            {/* State 4 actions: Save, Export, Artifacts */}
+            {isState4 && (
+              <>
+                <button
+                  onClick={doSave}
+                  disabled={saving || !!exporting}
+                  className="text-sm font-medium text-t-secondary hover:text-accent transition-colors disabled:opacity-50"
+                >
+                  {saving ? "✓" : "Save"}
+                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowExportDropdown((v) => !v)}
+                    className="text-sm font-medium text-t-secondary hover:text-accent transition-colors"
+                  >
+                    Export ▾
+                  </button>
+                  {showExportDropdown && (
+                    <div
+                      className="absolute right-0 top-full mt-1 border border-border-default bg-surface-1 py-1"
+                      style={{
+                        borderRadius: "var(--radius-button)",
+                        boxShadow: "var(--shadow-elevated)",
+                        zIndex: "var(--z-export-dropdown)",
+                        minWidth: 140,
+                      }}
+                    >
+                      {[
+                        { label: "PDF", fn: handleExportPdf },
+                        { label: "DOCX", fn: handleExportDocx },
+                        { label: "PPTX", fn: handleExportPptx },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          onClick={() => {
+                            item.fn();
+                            setShowExportDropdown(false);
+                          }}
+                          disabled={!!exporting}
+                          className="block w-full px-4 py-2 text-left text-sm text-t-primary hover:bg-accent-subtle transition-colors disabled:opacity-50"
+                        >
+                          {exporting === item.label.toLowerCase()
+                            ? `Exporting ${item.label}...`
+                            : item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setShowArtifactsPanel((v) => !v)}
+                  className="p-1 text-t-secondary hover:text-accent transition-colors"
+                  title="View artifacts (SQL, code, data)"
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" />
+                  </svg>
+                </button>
+              </>
+            )}
             {/* Settings drawer toggle */}
             <button
               onClick={settingsOpen ? closeSettings : openSettings}
@@ -626,23 +731,35 @@ export default function Home() {
               This prevents mount/unmount cycles that abort in-flight streams. */}
           {hasData && (
             <div className={isState3 || isState4 ? "py-8" : "hidden"}>
-              <ResponsePanel
-                csvId={csvId}
-                warehouseId={warehouse.warehouseId}
-                question={currentQuestion}
-                questionSeq={questionSeq}
-                onStreamEnd={handleStreamEnd}
-                loadedSpec={loadedSpec}
-                loadedArtifacts={loadedArtifacts}
-                onSaved={handleSaved}
-                schemaMode={schemaMode}
-                codeGenModel={codeGenModel}
-                uiComposeModel={uiComposeModel}
-                sandboxRuntime={sandboxRuntime}
-                purpose={purpose}
-                onRerun={handleRerunFromToolbar}
-                loadedVizId={loadedVizId}
-              />
+              <div ref={dashboardRef}>
+                <ResponsePanel
+                  csvId={csvId}
+                  warehouseId={warehouse.warehouseId}
+                  question={currentQuestion}
+                  questionSeq={questionSeq}
+                  onStreamEnd={handleStreamEnd}
+                  loadedSpec={loadedSpec}
+                  loadedArtifacts={loadedArtifacts}
+                  onSaved={handleSaved}
+                  schemaMode={schemaMode}
+                  codeGenModel={codeGenModel}
+                  uiComposeModel={uiComposeModel}
+                  sandboxRuntime={sandboxRuntime}
+                  purpose={purpose}
+                  onRerun={handleRerunFromToolbar}
+                  loadedVizId={loadedVizId}
+                />
+              </div>
+              {/* Follow-up question input — visible in State 4 */}
+              {isState4 && !isAnalyzing && (
+                <div className="mt-6 w-full max-w-[700px] mx-auto">
+                  <QueryInput
+                    onSubmit={handleGuardedQuery}
+                    disabled={!hasData}
+                    isLoading={isAnalyzing}
+                  />
+                </div>
+              )}
             </div>
           )}
         </main>
