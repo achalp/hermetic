@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { CollapsibleSection } from "@/components/app/collapsible-section";
 import { SchemaSection } from "@/components/app/data-explorer/schema-section";
 import { ProfileSection } from "@/components/app/data-explorer/profile-section";
@@ -28,8 +28,8 @@ interface DataRailContentProps {
   sheets?: { name: string; rows: number }[];
   relationships?: { from: string; to: string }[];
   tables?: { name: string; rows: string }[];
-  /** Full warehouse table schemas for deriving per-table detail */
   warehouseSchemas?: WarehouseTableSchemaInfo[];
+  warehouseId?: string | null;
   onSheetSelect?: (name: string) => void;
   activeItem?: string;
 }
@@ -71,26 +71,54 @@ export function DataRailContent({
   sheets,
   tables,
   warehouseSchemas,
+  warehouseId,
   onSheetSelect,
   activeItem,
 }: DataRailContentProps) {
-  // Internal state for warehouse table selection
   const [activeTable, setActiveTable] = useState<string>(tables?.[0]?.name ?? "");
+  const [whSampleData, setWhSampleData] = useState<{ columns: string[]; rows: string[][] } | null>(
+    null
+  );
+  const [sampleFetchKey, setSampleFetchKey] = useState("");
 
   const selectedTable = sourceType === "warehouse" ? activeTable : undefined;
 
+  // Clear sample data when not in warehouse mode
+  const shouldFetchSample = sourceType === "warehouse" && !!warehouseId && !!selectedTable;
+  if (!shouldFetchSample && whSampleData !== null) {
+    setWhSampleData(null);
+  }
+
+  // Fetch sample data when warehouse table selection changes
+  const fetchKey = shouldFetchSample ? `${warehouseId}:${selectedTable}` : "";
+  useEffect(() => {
+    if (!fetchKey) return;
+    const controller = new AbortController();
+    const [wId, tbl] = fetchKey.split(":");
+    fetch(`/api/warehouse/sample?warehouse_id=${wId}&table=${encodeURIComponent(tbl)}`, {
+      signal: controller.signal,
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!controller.signal.aborted) {
+          setWhSampleData({ columns: data.headers ?? [], rows: data.rows ?? [] });
+          setSampleFetchKey(fetchKey);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [fetchKey]);
+
   // Derive schema/profile for the selected warehouse table
   const whTableData = useMemo(() => {
-    if (sourceType !== "warehouse" || !warehouseSchemas || !selectedTable) {
-      return null;
-    }
+    if (sourceType !== "warehouse" || !warehouseSchemas || !selectedTable) return null;
     const ts = warehouseSchemas.find((t) => t.name === selectedTable);
     if (!ts) return null;
 
     const cols = ts.columns.slice(0, 8).map((c) => ({
       name: c.name,
       type: normalizeType(c.type),
-      sample: c.type, // show the raw type as "sample" since we don't have actual values
+      sample: c.type,
     }));
     const moreCols = Math.max(0, ts.columns.length - 8);
     const chips = [
@@ -98,29 +126,28 @@ export function DataRailContent({
       `${ts.columns.length} columns`,
       ...(ts.primary_key?.length ? [`PK: ${ts.primary_key.join(", ")}`] : []),
     ];
-    const fkRelationships = ts.foreign_keys?.map((fk) => ({
-      from: `${ts.name}.${fk.column}`,
-      to: `${fk.references_table}.${fk.references_column}`,
-    }));
-
-    return { cols, moreCols, chips, fkRelationships };
+    return { cols, moreCols, chips };
   }, [sourceType, warehouseSchemas, selectedTable]);
 
-  // Choose what to show based on source type
   const displaySchema = sourceType === "warehouse" ? whTableData?.cols : schema;
   const displayMore = sourceType === "warehouse" ? whTableData?.moreCols : moreColumns;
   const displayChips = sourceType === "warehouse" ? whTableData?.chips : profileChips;
   const displaySampleCols =
-    sourceType === "warehouse" ? whTableData?.cols?.slice(0, 5).map((c) => c.name) : sampleColumns;
-  const displaySampleRows = sourceType === "warehouse" ? [] : sampleRows;
+    sourceType === "warehouse" ? whSampleData?.columns?.slice(0, 6) : sampleColumns;
+  const displaySampleRows =
+    sourceType === "warehouse" ? whSampleData?.rows?.slice(0, 5) : sampleRows;
+
+  const isWarehouseWithTables = sourceType === "warehouse" && tables && tables.length > 0;
 
   return (
-    <div>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Source name */}
       <div
         style={{
           padding: "12px 20px",
           fontSize: 13,
           color: "var(--color-surface-dark-text2)",
+          flexShrink: 0,
         }}
       >
         {sourceIcons[sourceType]} {sourceName}
@@ -130,21 +157,64 @@ export function DataRailContent({
         <SheetTabs sheets={sheets} active={activeItem ?? ""} onSelect={onSheetSelect} />
       )}
 
-      {sourceType === "warehouse" && tables && (
-        <TableList tables={tables} active={activeTable} onSelect={(name) => setActiveTable(name)} />
+      {isWarehouseWithTables ? (
+        /* Split layout for warehouse: table list (scrollable) + detail (scrollable) */
+        <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+          {/* Left: table list with independent scroll */}
+          <div
+            style={{
+              width: 140,
+              flexShrink: 0,
+              overflowY: "auto",
+              borderRight: "1px solid var(--color-surface-dark-2)",
+            }}
+          >
+            <TableList tables={tables} active={activeTable} onSelect={setActiveTable} />
+          </div>
+
+          {/* Right: schema/profile/sample with independent scroll */}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            <CollapsibleSection title="SCHEMA" defaultOpen>
+              <SchemaSection columns={displaySchema ?? []} moreCount={displayMore} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="PROFILE" defaultOpen>
+              <ProfileSection chips={displayChips ?? []} distributions={distributions ?? []} />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="SAMPLE" defaultOpen>
+              {fetchKey && sampleFetchKey !== fetchKey ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--color-surface-dark-text4)",
+                    padding: "8px 0",
+                  }}
+                >
+                  Loading sample...
+                </div>
+              ) : (
+                <SampleSection columns={displaySampleCols ?? []} rows={displaySampleRows ?? []} />
+              )}
+            </CollapsibleSection>
+          </div>
+        </div>
+      ) : (
+        /* Non-warehouse or no tables: single scroll */
+        <>
+          <CollapsibleSection title="SCHEMA" defaultOpen>
+            <SchemaSection columns={displaySchema ?? []} moreCount={displayMore} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="PROFILE" defaultOpen>
+            <ProfileSection chips={displayChips ?? []} distributions={distributions ?? []} />
+          </CollapsibleSection>
+
+          <CollapsibleSection title="SAMPLE" defaultOpen={false}>
+            <SampleSection columns={displaySampleCols ?? []} rows={displaySampleRows ?? []} />
+          </CollapsibleSection>
+        </>
       )}
-
-      <CollapsibleSection title="SCHEMA" defaultOpen>
-        <SchemaSection columns={displaySchema ?? []} moreCount={displayMore} />
-      </CollapsibleSection>
-
-      <CollapsibleSection title="PROFILE" defaultOpen>
-        <ProfileSection chips={displayChips ?? []} distributions={distributions ?? []} />
-      </CollapsibleSection>
-
-      <CollapsibleSection title="SAMPLE" defaultOpen={false}>
-        <SampleSection columns={displaySampleCols ?? []} rows={displaySampleRows ?? []} />
-      </CollapsibleSection>
     </div>
   );
 }
