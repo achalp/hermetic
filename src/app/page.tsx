@@ -271,9 +271,11 @@ export default function Home() {
   // ── Derived state ───────────────────────────────────────────
   const hasData = isUploaded || warehouse.isConnected;
   const isState1 = !hasData && !showSheetPicker && !showSaved && !loadingViz && !rerunningViz;
-  const isState2 = hasData && !isAnalyzing && !loadedSpec;
+  // hasResults: true when there are results to display (queried or loaded a viz)
+  const hasResults = questionSeq > 0 || !!loadedSpec;
+  const isState2 = hasData && !isAnalyzing && !hasResults;
   const isState3 = isAnalyzing;
-  const isState4 = hasData && !isAnalyzing && !!loadedSpec;
+  const isState4 = hasData && !isAnalyzing && hasResults;
 
   // Build profile strip items from schema or warehouse
   const profileItems: string[] = [];
