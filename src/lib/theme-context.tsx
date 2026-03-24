@@ -6,7 +6,7 @@ export type ThemeId = "vanilla" | "stamen" | "iib" | "pentagram";
 export type ColorMode = "light" | "dark" | "system";
 
 export const THEMES: { id: ThemeId; label: string; description: string }[] = [
-  { id: "vanilla", label: "Vanilla", description: "Clean defaults" },
+  { id: "vanilla", label: "Focus", description: "Clean & confident" },
   { id: "stamen", label: "Stamen", description: "Cartographic precision" },
   { id: "iib", label: "Info is Beautiful", description: "Vivid & encyclopedic" },
   { id: "pentagram", label: "Pentagram", description: "Reductive authority" },
@@ -31,23 +31,17 @@ function getStoredMode(): ColorMode {
 
 function applyMode(mode: ColorMode) {
   const html = document.documentElement;
+  // Remove both attributes first, then set the appropriate one
+  html.removeAttribute("data-mode");
+
   if (mode === "dark") {
     html.setAttribute("data-mode", "dark");
-    html.style.colorScheme = "dark";
-  } else if (mode === "light") {
-    html.removeAttribute("data-mode");
-    html.style.colorScheme = "light";
-  } else {
-    // system
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    if (prefersDark) {
+  } else if (mode === "system") {
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
       html.setAttribute("data-mode", "dark");
-      html.style.colorScheme = "dark";
-    } else {
-      html.removeAttribute("data-mode");
-      html.style.colorScheme = "light";
     }
   }
+  // "light" = no data-mode attribute → CSS defaults to light
 }
 
 interface ThemeContextValue {
