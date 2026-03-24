@@ -279,6 +279,20 @@ export function ResponsePanel({
   }
 
   if (!activeSpec && !isStreaming && !previousSpec) {
+    // During the brief gap between mount and first stream chunk, show a loading state
+    // instead of returning null (which causes a blank screen flash)
+    if (questionSeq > 0) {
+      return (
+        <div
+          className="flex items-center gap-2 text-sm text-accent"
+          role="status"
+          aria-live="polite"
+        >
+          <SpinnerIcon />
+          Starting analysis...
+        </div>
+      );
+    }
     return null;
   }
 
