@@ -622,9 +622,10 @@ export default function Home() {
             </div>
           )}
 
-          {/* ═══ STATE 3 + 4: ResponsePanel handles both progress and results ═══ */}
-          {(isState3 || isState4) && (
-            <div className="py-8">
+          {/* ResponsePanel: always mounted once data exists, hidden in States 1-2.
+              This prevents mount/unmount cycles that abort in-flight streams. */}
+          {hasData && (
+            <div className={isState3 || isState4 ? "py-8" : "hidden"}>
               <ResponsePanel
                 csvId={csvId}
                 warehouseId={warehouse.warehouseId}
