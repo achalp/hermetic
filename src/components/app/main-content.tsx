@@ -15,8 +15,8 @@ export function MainContent({ blurred, railVisible, children }: MainContentProps
       style={{
         paddingTop: 56,
         marginRight: railVisible ? 48 : undefined,
-        filter: blurred ? "blur(6px)" : undefined,
-        opacity: blurred ? 0.6 : undefined,
+        filter: blurred ? "blur(3px)" : undefined,
+        opacity: blurred ? 0.75 : undefined,
         pointerEvents: blurred ? "none" : undefined,
         transition: "filter 0.3s ease, opacity 0.3s ease, margin-right 0.3s ease",
       }}
