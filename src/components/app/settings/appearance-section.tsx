@@ -1,6 +1,16 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { useTheme, THEMES, type ColorMode } from "@/lib/theme-context";
+
+const emptySubscribe = () => () => {};
+function useIsMounted() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+}
 
 const SWATCH_CONFIG: Record<string, { color: string; radius: string }> = {
   vanilla: { color: "#6366f1", radius: "12px" },
@@ -17,6 +27,9 @@ const MODES: { value: ColorMode; label: string }[] = [
 
 export function AppearanceSection() {
   const { theme, setTheme, mode, setMode } = useTheme();
+  // Defer render to avoid SSR/client hydration mismatch when stored theme differs from default
+  const mounted = useIsMounted();
+  if (!mounted) return null;
 
   return (
     <div>
