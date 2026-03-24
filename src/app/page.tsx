@@ -19,7 +19,6 @@ import { SavedConnections } from "@/components/app/saved-connections";
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
 import { StyleSelector } from "@/components/app/style-selector";
-// WorkingIndicator removed — ResponsePanel's PipelineProgress shows real status
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(

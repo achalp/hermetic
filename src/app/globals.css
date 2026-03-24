@@ -948,3 +948,48 @@ body {
 @utility animate-indeterminate {
   animation: indeterminate 1.5s ease-in-out infinite;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Responsive layout adjustments
+   ═══════════════════════════════════════════════════════════ */
+
+/* Mobile: stack source cards, tighter padding */
+@media (max-width: 767px) {
+  .source-cards-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .main-inner {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
+
+/* Tablet: narrower content */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .main-inner {
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Focus-visible ring for keyboard navigation
+   ═══════════════════════════════════════════════════════════ */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Reduced motion: disable all transitions and animations
+   ═══════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

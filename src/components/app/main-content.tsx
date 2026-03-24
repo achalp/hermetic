@@ -21,7 +21,9 @@ export function MainContent({ blurred, railVisible, children }: MainContentProps
         transition: "filter 0.3s ease, opacity 0.3s ease, margin-right 0.3s ease",
       }}
     >
-      <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px" }}>{children}</div>
+      <div className="main-inner" style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px" }}>
+        {children}
+      </div>
     </div>
   );
 }

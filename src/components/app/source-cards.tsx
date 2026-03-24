@@ -11,7 +11,10 @@ const hoverClass = "hover:border-[var(--color-accent)] hover:bg-[var(--color-acc
 
 export function SourceCards({ onFileDrop, onWarehouseClick }: SourceCardsProps) {
   return (
-    <div className="grid w-full" style={{ gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 700 }}>
+    <div
+      className="source-cards-grid grid w-full"
+      style={{ gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 700 }}
+    >
       {/* Upload a file */}
       <button
         onClick={onFileDrop}
