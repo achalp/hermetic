@@ -11,8 +11,19 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+/** Convert a value to a CSV-safe string, handling nulls properly */
+function csvValue(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  return s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")
+    ? `"${s.replace(/"/g, '""')}"`
+    : s;
+}
+
 export function createPostgresConnector(config: PostgresConnectionConfig): WarehouseConnector {
-  const client = new pg.Client({
+  // Use Pool instead of Client for automatic connection management,
+  // reconnection on failure, and proper connection lifecycle handling.
+  const pool = new pg.Pool({
     host: config.host,
     port: config.port,
     database: config.database,
@@ -20,28 +31,28 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
     password: config.password,
     ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
     connectionTimeoutMillis: 10_000,
-    query_timeout: 60_000,
+    max: 3, // small pool — this is an analytical tool, not a web server
+    idleTimeoutMillis: 60_000,
+    // Server-side statement timeout: kills long-running queries on the PG server itself.
+    // This is critical — the Node.js query_timeout only cancels the client-side wait,
+    // but the query keeps running on the server. statement_timeout kills it server-side.
+    options: "-c statement_timeout=120000",
   });
 
-  let connected = false;
   const schemaName = config.schema ?? "public";
-
-  async function ensureConnected() {
-    if (!connected) {
-      await client.connect();
-      connected = true;
-    }
-  }
 
   return {
     async testConnection() {
-      await ensureConnected();
-      await client.query("SELECT 1");
+      const client = await pool.connect();
+      try {
+        await client.query("SELECT 1");
+      } finally {
+        client.release();
+      }
     },
 
     async listTables(): Promise<WarehouseTableInfo[]> {
-      await ensureConnected();
-      const res = await client.query(
+      const res = await pool.query(
         `SELECT c.relname AS name,
                 c.reltuples::bigint AS row_count,
                 count(a.attname)::int AS column_count
@@ -49,7 +60,7 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
          JOIN pg_namespace n ON n.oid = c.relnamespace
          JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
          WHERE n.nspname = $1
-           AND c.relkind IN ('r', 'v', 'm')
+           AND c.relkind IN ('r')
          GROUP BY c.relname, c.reltuples
          ORDER BY c.relname`,
         [schemaName]
@@ -63,23 +74,26 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
     },
 
     async introspectAllTables(): Promise<WarehouseTableSchema[]> {
-      await ensureConnected();
-
       // Get all columns for all tables in one query
-      const colRes = await client.query(
+      const colRes = await pool.query(
         `SELECT table_name, column_name, data_type, is_nullable
          FROM information_schema.columns
          WHERE table_schema = $1
+           AND table_name IN (
+             SELECT c.relname FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $1 AND c.relkind = 'r'
+           )
          ORDER BY table_name, ordinal_position`,
         [schemaName]
       );
 
       // Get row counts
-      const countRes = await client.query(
+      const countRes = await pool.query(
         `SELECT c.relname AS name, c.reltuples::bigint AS row_count
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE n.nspname = $1 AND c.relkind IN ('r', 'v', 'm')`,
+         WHERE n.nspname = $1 AND c.relkind = 'r'`,
         [schemaName]
       );
       const rowCounts = new Map(
@@ -87,7 +101,7 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
       );
 
       // Get primary keys
-      const pkRes = await client.query(
+      const pkRes = await pool.query(
         `SELECT tc.table_name, kcu.column_name
          FROM information_schema.table_constraints tc
          JOIN information_schema.key_column_usage kcu
@@ -104,7 +118,7 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
       }
 
       // Get foreign keys
-      const fkRes = await client.query(
+      const fkRes = await pool.query(
         `SELECT tc.table_name, kcu.column_name,
                 ccu.table_name AS references_table, ccu.column_name AS references_column
          FROM information_schema.table_constraints tc
@@ -158,30 +172,20 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
     },
 
     async executeSQL(sql: string): Promise<string> {
-      await ensureConnected();
-      const res = await client.query(sql);
+      const res = await pool.query(sql);
 
       if (!res.rows.length) return "";
 
       const headers = res.fields.map((f) => f.name);
-      const lines = [headers.join(",")];
+      const lines = [headers.map(csvValue).join(",")];
       for (const row of res.rows) {
-        const vals = headers.map((h) => {
-          const v = String(row[h] ?? "");
-          return v.includes(",") || v.includes('"') || v.includes("\n")
-            ? `"${v.replace(/"/g, '""')}"`
-            : v;
-        });
-        lines.push(vals.join(","));
+        lines.push(headers.map((h) => csvValue(row[h])).join(","));
       }
       return lines.join("\n") + "\n";
     },
 
     async close() {
-      if (connected) {
-        await client.end().catch(() => {});
-        connected = false;
-      }
+      await pool.end().catch(() => {});
     },
   };
 }

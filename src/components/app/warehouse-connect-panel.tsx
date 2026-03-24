@@ -25,12 +25,14 @@ interface WarehouseConnectPanelProps {
   onDeleteSaved: (id: string) => void;
 }
 
-type Tab = "postgresql" | "bigquery" | "clickhouse";
+type Tab = "postgresql" | "bigquery" | "clickhouse" | "trino" | "hive";
 
 const TAB_LABELS: Record<Tab, string> = {
   postgresql: "PostgreSQL",
   bigquery: "BigQuery",
   clickhouse: "ClickHouse",
+  trino: "Trino",
+  hive: "Hive",
 };
 
 export function WarehouseConnectPanel({
@@ -138,6 +140,22 @@ export function WarehouseConnectPanel({
                         defaults={saved.config}
                       />
                     )}
+                    {saved.config.type === "trino" && (
+                      <TrinoForm
+                        isConnecting={isConnecting}
+                        error={error}
+                        onConnect={onConnect}
+                        defaults={saved.config}
+                      />
+                    )}
+                    {saved.config.type === "hive" && (
+                      <HiveForm
+                        isConnecting={isConnecting}
+                        error={error}
+                        onConnect={onConnect}
+                        defaults={saved.config}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -173,6 +191,12 @@ export function WarehouseConnectPanel({
       )}
       {tab === "clickhouse" && (
         <ClickHouseForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
+      )}
+      {tab === "trino" && (
+        <TrinoForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
+      )}
+      {tab === "hive" && (
+        <HiveForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
       )}
     </div>
   );
@@ -724,6 +748,193 @@ function ClickHouseForm({ isConnecting, error, onConnect, defaults }: FormProps)
         <label htmlFor="ch-ssl" className={labelClass}>
           SSL
         </label>
+      </div>
+      <FormError error={error} />
+      <ConnectButton isConnecting={isConnecting} />
+    </form>
+  );
+}
+
+function TrinoForm({ isConnecting, error, onConnect, defaults }: FormProps) {
+  const tr = defaults?.type === "trino" ? defaults : undefined;
+  const handleSubmit = useCallback(
+    (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const fd = new FormData(e.currentTarget);
+      onConnect({
+        type: "trino",
+        host: fd.get("host") as string,
+        port: Number(fd.get("port")) || 8080,
+        user: fd.get("user") as string,
+        catalog: fd.get("catalog") as string,
+        schema: (fd.get("schema") as string) || "default",
+        password: (fd.get("password") as string) || undefined,
+        ssl: fd.get("ssl") === "on",
+      });
+    },
+    [onConnect]
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2">
+          <label className={labelClass}>Host</label>
+          <input
+            name="host"
+            required
+            placeholder="trino-coordinator"
+            defaultValue={tr?.host}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Port</label>
+          <input name="port" type="number" defaultValue={tr?.port ?? 8080} className={inputClass} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Catalog</label>
+          <input
+            name="catalog"
+            required
+            placeholder="hive"
+            defaultValue={tr?.catalog}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Schema</label>
+          <input
+            name="schema"
+            placeholder="default"
+            defaultValue={tr?.schema ?? "default"}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>User</label>
+          <input
+            name="user"
+            required
+            placeholder="trino"
+            defaultValue={tr?.user}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Password (optional)</label>
+          <input
+            name="password"
+            type="password"
+            defaultValue={tr?.password}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          name="ssl"
+          type="checkbox"
+          id="trino-ssl"
+          defaultChecked={tr?.ssl}
+          className="accent-accent"
+        />
+        <label htmlFor="trino-ssl" className={labelClass}>
+          SSL
+        </label>
+      </div>
+      <FormError error={error} />
+      <ConnectButton isConnecting={isConnecting} />
+    </form>
+  );
+}
+
+function HiveForm({ isConnecting, error, onConnect, defaults }: FormProps) {
+  const hv = defaults?.type === "hive" ? defaults : undefined;
+  const handleSubmit = useCallback(
+    (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const fd = new FormData(e.currentTarget);
+      onConnect({
+        type: "hive",
+        host: fd.get("host") as string,
+        port: Number(fd.get("port")) || 10000,
+        database: (fd.get("database") as string) || "default",
+        user: fd.get("user") as string,
+        password: (fd.get("password") as string) || undefined,
+        auth: (fd.get("auth") as "NONE" | "NOSASL" | "LDAP" | "KERBEROS") || "NONE",
+      });
+    },
+    [onConnect]
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2">
+          <label className={labelClass}>Host</label>
+          <input
+            name="host"
+            required
+            placeholder="hiveserver2.example.com"
+            defaultValue={hv?.host}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Port</label>
+          <input
+            name="port"
+            type="number"
+            defaultValue={hv?.port ?? 10000}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Database</label>
+          <input
+            name="database"
+            placeholder="default"
+            defaultValue={hv?.database ?? "default"}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Auth Method</label>
+          <select name="auth" defaultValue={hv?.auth ?? "NONE"} className={inputClass}>
+            <option value="NONE">None (plain)</option>
+            <option value="NOSASL">No SASL</option>
+            <option value="LDAP">LDAP</option>
+            <option value="KERBEROS">Kerberos</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>User</label>
+          <input
+            name="user"
+            required
+            placeholder="hive"
+            defaultValue={hv?.user}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Password (optional)</label>
+          <input
+            name="password"
+            type="password"
+            defaultValue={hv?.password}
+            className={inputClass}
+          />
+        </div>
       </div>
       <FormError error={error} />
       <ConnectButton isConnecting={isConnecting} />

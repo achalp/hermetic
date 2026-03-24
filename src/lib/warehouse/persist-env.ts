@@ -81,6 +81,10 @@ function buildLabel(config: WarehouseConnectionConfig): string {
       return `BigQuery: ${config.projectId}.${config.dataset}`;
     case "clickhouse":
       return `ClickHouse: ${config.host}/${config.database}`;
+    case "trino":
+      return `Trino: ${config.host}/${config.catalog}.${config.schema}`;
+    case "hive":
+      return `Hive: ${config.host}/${config.database}`;
   }
 }
 

@@ -196,7 +196,7 @@ export interface WorkbookManifest {
 
 // ── Warehouse types ────────────────────────────────────────────────
 
-export type WarehouseType = "postgresql" | "bigquery" | "clickhouse";
+export type WarehouseType = "postgresql" | "bigquery" | "clickhouse" | "trino" | "hive";
 
 export interface PostgresConnectionConfig {
   type: "postgresql";
@@ -226,10 +226,33 @@ export interface ClickHouseConnectionConfig {
   ssl?: boolean;
 }
 
+export interface TrinoConnectionConfig {
+  type: "trino";
+  host: string;
+  port: number;
+  user: string;
+  catalog: string;
+  schema: string;
+  password?: string;
+  ssl?: boolean;
+}
+
+export interface HiveConnectionConfig {
+  type: "hive";
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password?: string;
+  auth?: "NONE" | "NOSASL" | "LDAP" | "KERBEROS";
+}
+
 export type WarehouseConnectionConfig =
   | PostgresConnectionConfig
   | BigQueryConnectionConfig
-  | ClickHouseConnectionConfig;
+  | ClickHouseConnectionConfig
+  | TrinoConnectionConfig
+  | HiveConnectionConfig;
 
 export interface WarehouseTableInfo {
   schema: string;

@@ -32,9 +32,18 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
       const rowNote =
         t.row_count_estimate > 0 ? ` -- ~${t.row_count_estimate.toLocaleString()} rows` : "";
 
-      // Use fully qualified names for BigQuery (backtick-quoted project.dataset.table)
-      const tableName =
-        warehouseType === "bigquery" ? `\`${t.schema}.${t.name}\`` : `${t.schema}.${t.name}`;
+      // Use fully qualified names with proper quoting per dialect
+      let tableName: string;
+      if (warehouseType === "bigquery") {
+        tableName = `\`${t.schema}.${t.name}\``;
+      } else if (warehouseType === "trino") {
+        // Trino uses "catalog"."schema"."table" — schema field contains "catalog.schema"
+        tableName = `"${t.schema}"."${t.name}"`;
+      } else if (warehouseType === "hive") {
+        tableName = `\`${t.schema}\`.\`${t.name}\``;
+      } else {
+        tableName = `${t.schema}.${t.name}`;
+      }
 
       return `${tableName}${rowNote}\n(\n${cols}${constraints ? "\n" + constraints : ""}\n)`;
     })
@@ -45,6 +54,8 @@ const DIALECT_NOTES: Record<WarehouseType, string> = {
   postgresql: `Use PostgreSQL syntax. Use double quotes for identifiers if needed. Use :: for type casts. Use LIMIT for row limits.`,
   bigquery: `Use Google BigQuery Standard SQL. Use backtick-quoted identifiers (\`project.dataset.table\`). Use LIMIT for row limits. Use APPROX_COUNT_DISTINCT for approximate counts. Date functions: DATE(), TIMESTAMP(), EXTRACT().`,
   clickhouse: `Use ClickHouse SQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. Aggregation functions: countDistinct(), avg(), quantile(). Date functions: toDate(), toDateTime(), toYear(). IMPORTANT: When doing arithmetic (division, multiplication, percentage) on Decimal columns, ALWAYS cast operands to Float64 first using toFloat64() to avoid Decimal overflow errors. Example: toFloat64(price - open) / toFloat64(open) instead of (price - open) / open.`,
+  trino: `Use Trino (Presto) SQL syntax. Use double quotes for identifiers. Use catalog.schema.table fully qualified names. Use LIMIT for row limits. Use APPROX_DISTINCT for approximate counts. Cast with CAST(x AS type). Date functions: date(), current_date, date_trunc(). String: concat(), substr(). Arrays: ARRAY[], UNNEST().`,
+  hive: `Use HiveQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. String concat: concat(). Date functions: to_date(), date_format(), datediff(). No INTERSECT or EXCEPT. For exploding arrays use LATERAL VIEW EXPLODE. Use CAST to avoid integer division. Subqueries in WHERE are supported but correlated subqueries are limited.`,
 };
 
 function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {

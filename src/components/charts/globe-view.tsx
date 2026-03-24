@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useSyncExternalStore, useState } from "react";
+import { useRef, useEffect, useMemo, useSyncExternalStore, useState } from "react";
 import dynamic from "next/dynamic";
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
 
@@ -81,43 +81,75 @@ export function Globe3DComponent({ props }: { props: Globe3DProps }) {
     return () => ro.disconnect();
   }, []);
 
+  // Coerce to numbers, filter out invalid entries
+  const points = useMemo(
+    () =>
+      Array.isArray(props.points)
+        ? props.points
+            .map((p) => ({ ...p, lat: Number(p.lat), lng: Number(p.lng) }))
+            .filter((p) => isFinite(p.lat) && isFinite(p.lng))
+        : [],
+    [props.points]
+  );
+  const arcs = useMemo(
+    () =>
+      Array.isArray(props.arcs)
+        ? props.arcs
+            .map((a) => ({
+              ...a,
+              start_lat: Number(a.start_lat),
+              start_lng: Number(a.start_lng),
+              end_lat: Number(a.end_lat),
+              end_lng: Number(a.end_lng),
+            }))
+            .filter(
+              (a) =>
+                isFinite(a.start_lat) &&
+                isFinite(a.end_lat) &&
+                isFinite(a.start_lng) &&
+                isFinite(a.end_lng)
+            )
+        : [],
+    [props.arcs]
+  );
+  const hasData = points.length > 0 || arcs.length > 0;
+
+  // Auto-rotate and auto-zoom to data extent
   useEffect(() => {
     const globe = globeEl.current;
-    if (globe && typeof globe.controls === "function") {
+    if (!globe) return;
+
+    if (typeof globe.controls === "function") {
       const controls = globe.controls();
       controls.autoRotate = autoRotate;
       controls.autoRotateSpeed = 0.5;
     }
-  }, [autoRotate]);
 
-  // Defensive: props may still be $chartData placeholder strings if replacement failed
-  const points = Array.isArray(props.points)
-    ? props.points.filter(
-        (p) =>
-          typeof p.lat === "number" && typeof p.lng === "number" && !isNaN(p.lat) && !isNaN(p.lng)
-      )
-    : [];
-  const arcs = Array.isArray(props.arcs)
-    ? props.arcs.filter(
-        (a) =>
-          typeof a.start_lat === "number" &&
-          typeof a.end_lat === "number" &&
-          !isNaN(a.start_lat) &&
-          !isNaN(a.end_lat)
-      )
-    : [];
-  const hasData = points.length > 0 || arcs.length > 0;
+    if (!hasData) return;
 
-  if (!hasData) {
-    return (
-      <div
-        className="flex items-center justify-center rounded-lg border border-border-default text-sm text-t-tertiary"
-        style={{ height }}
-      >
-        No geographic data to display
-      </div>
-    );
-  }
+    // Compute center and zoom from all data points
+    const allLats: number[] = [];
+    const allLngs: number[] = [];
+    for (const p of points) {
+      allLats.push(p.lat);
+      allLngs.push(p.lng);
+    }
+    for (const a of arcs) {
+      allLats.push(a.start_lat, a.end_lat);
+      allLngs.push(a.start_lng, a.end_lng);
+    }
+
+    if (allLats.length > 0 && typeof globe.pointOfView === "function") {
+      const centerLat = (Math.min(...allLats) + Math.max(...allLats)) / 2;
+      const centerLng = (Math.min(...allLngs) + Math.max(...allLngs)) / 2;
+      const latSpan = Math.max(...allLats) - Math.min(...allLats);
+      const lngSpan = Math.max(...allLngs) - Math.min(...allLngs);
+      const span = Math.max(latSpan, lngSpan, 0.1);
+      // Altitude: higher for wider spans, lower for local data
+      const altitude = Math.max(0.1, Math.min(span * 0.15, 2.5));
+      globe.pointOfView({ lat: centerLat, lng: centerLng, altitude }, 1000);
+    }
+  }, [autoRotate, hasData, points, arcs]);
 
   // Normalize point sizes to a visible range (0.2–1.5 globe-radius units).
   // The LLM may pass raw values like passenger counts (287,000) which would
@@ -135,14 +167,42 @@ export function Globe3DComponent({ props }: { props: Globe3DProps }) {
     size: 0.2 + ((rawSizes[i] - minRaw) / sizeRange) * 1.3,
   }));
 
-  const arcsData = arcs.map((a) => ({
+  const arcsData = arcs.map((a, i) => ({
     startLat: a.start_lat,
     startLng: a.start_lng,
     endLat: a.end_lat,
     endLng: a.end_lng,
     label: a.label ?? "",
-    color: a.color ? resolveColor(a.color) : chartColors[0],
+    color: a.color ? resolveColor(a.color) : chartColors[i % chartColors.length],
   }));
+
+  // Compute geographic span for parametric arc/point sizing
+  const geoSpan = useMemo(() => {
+    const allLats: number[] = [];
+    const allLngs: number[] = [];
+    for (const p of points) {
+      allLats.push(p.lat);
+      allLngs.push(p.lng);
+    }
+    for (const a of arcs) {
+      allLats.push(a.start_lat, a.end_lat);
+      allLngs.push(a.start_lng, a.end_lng);
+    }
+    if (allLats.length === 0) return 180; // full globe
+    const latSpan = Math.max(...allLats) - Math.min(...allLats);
+    const lngSpan = Math.max(...allLngs) - Math.min(...allLngs);
+    return Math.max(latSpan, lngSpan, 0.01);
+  }, [points, arcs]);
+
+  // Parametric: local data (small span) → thin arcs, low altitude;
+  // global data (large span) → thicker arcs, higher altitude
+  const isLocal = geoSpan < 5;
+  const arcStrokeWidth = isLocal ? 0.5 : geoSpan < 20 ? 0.5 : 0.5;
+  const arcAltScale = isLocal ? 0.02 : geoSpan < 20 ? 0.15 : 0.25;
+  const pointAlt = isLocal ? 0.002 : 0.01;
+  const pointRadiusScale = isLocal ? 0.03 : geoSpan < 20 ? 0.1 : 0.2;
+  // For local data, use minimal globe style (no blurry raster zoom)
+  const effectiveStyle = isLocal ? "minimal" : style;
 
   return (
     <div className="w-full">
@@ -156,23 +216,27 @@ export function Globe3DComponent({ props }: { props: Globe3DProps }) {
       )}
       <div
         ref={containerRef}
-        className="overflow-hidden rounded-lg border border-border-default"
+        className="relative overflow-hidden rounded-lg border border-border-default"
         style={{ height }}
       >
-        {containerWidth > 0 && (
+        {!hasData ? (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-t-tertiary">
+            {props.points || props.arcs ? "Loading globe..." : "No geographic data to display"}
+          </div>
+        ) : containerWidth > 0 ? (
           <Globe
             ref={globeEl}
             width={containerWidth}
             height={height}
-            globeImageUrl={GLOBE_IMAGES[style]}
+            globeImageUrl={GLOBE_IMAGES[effectiveStyle]}
             backgroundColor={dark ? "#111827" : "#f9fafb"}
             pointsData={pointsData}
             pointLat="lat"
             pointLng="lng"
             pointLabel="label"
             pointColor="color"
-            pointRadius="size"
-            pointAltitude={0.01}
+            pointRadius={pointRadiusScale}
+            pointAltitude={pointAlt}
             arcsData={arcsData}
             arcStartLat="startLat"
             arcStartLng="startLng"
@@ -180,11 +244,13 @@ export function Globe3DComponent({ props }: { props: Globe3DProps }) {
             arcEndLng="endLng"
             arcLabel="label"
             arcColor="color"
-            arcDashLength={0.4}
-            arcDashGap={0.2}
-            arcDashAnimateTime={1500}
+            arcStroke={arcStrokeWidth}
+            arcAltitudeAutoScale={arcAltScale}
+            arcDashLength={isLocal ? 1 : 0.6}
+            arcDashGap={isLocal ? 0 : 0.3}
+            arcDashAnimateTime={isLocal ? 0 : 2000}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
