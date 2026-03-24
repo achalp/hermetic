@@ -6,8 +6,7 @@ interface SourceCardsProps {
 }
 
 const cardBase =
-  "flex flex-col items-center gap-3 cursor-pointer text-center transition-all duration-200";
-const hoverClass = "hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-subtle)]";
+  "source-card-hover flex flex-col items-center gap-3 cursor-pointer text-center transition-all duration-200";
 
 export function SourceCards({ onFileDrop, onWarehouseClick }: SourceCardsProps) {
   return (
@@ -18,7 +17,7 @@ export function SourceCards({ onFileDrop, onWarehouseClick }: SourceCardsProps) 
       {/* Upload a file */}
       <button
         onClick={onFileDrop}
-        className={`${cardBase} ${hoverClass}`}
+        className={cardBase}
         style={{
           background: "var(--color-surface-1)",
           border: "2px dashed var(--color-border-default)",
@@ -54,7 +53,7 @@ export function SourceCards({ onFileDrop, onWarehouseClick }: SourceCardsProps) 
       {/* Connect a warehouse */}
       <button
         onClick={onWarehouseClick}
-        className={`${cardBase} ${hoverClass}`}
+        className={cardBase}
         style={{
           background: "var(--color-surface-1)",
           border: "2px solid var(--color-border-default)",

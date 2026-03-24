@@ -239,7 +239,7 @@ export function InferenceSection({
           </button>
         ))}
       </div>
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 14 }} className="dark-surface-override">
         <LocalBackendSection
           backend={activeBackendTab}
           onProviderChange={handleLocalProviderChange}

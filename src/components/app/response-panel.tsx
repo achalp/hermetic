@@ -490,9 +490,24 @@ function PipelineProgress({
           ? "Updating dashboard..."
           : "Building visualization...";
     return (
-      <div className="flex items-center gap-2 text-sm text-accent" role="status" aria-live="polite">
-        <SpinnerIcon />
-        {message}
+      <div
+        className="flex flex-col items-center justify-center gap-3 py-20"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex gap-1.5">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="inline-block h-2 w-2 rounded-full bg-accent"
+              style={{
+                animation: "pulse 1.2s ease-in-out infinite",
+                animationDelay: `${i * 0.2}s`,
+              }}
+            />
+          ))}
+        </div>
+        <span className="text-sm text-t-secondary">{message}</span>
       </div>
     );
   }
@@ -504,7 +519,11 @@ function PipelineProgress({
   const isRetrying = progress.stage === "retrying";
 
   return (
-    <div className="space-y-1.5 text-sm" role="status" aria-live="polite">
+    <div
+      className="flex flex-col items-center py-16 space-y-1.5 text-sm"
+      role="status"
+      aria-live="polite"
+    >
       {pipelineSteps.map((step, i) => {
         const stepNum = i + 1;
         const isCompleted = stepNum < currentStep;
