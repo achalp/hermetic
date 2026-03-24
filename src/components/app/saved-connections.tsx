@@ -6,10 +6,11 @@ interface SavedConnectionsProps {
 }
 
 const dotColors: Record<string, string> = {
-  PostgreSQL: "#3b82f6",
-  BigQuery: "#f59e0b",
-  ClickHouse: "#10b981",
-  Trino: "#8b5cf6",
+  postgresql: "#3b82f6",
+  bigquery: "#f59e0b",
+  clickhouse: "#10b981",
+  trino: "#8b5cf6",
+  hive: "#d97706",
 };
 
 export function SavedConnections({ connections, onConnect }: SavedConnectionsProps) {

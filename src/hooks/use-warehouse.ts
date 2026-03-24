@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type {
   WarehouseConnectionConfig,
   WarehouseTableInfo,
@@ -41,16 +41,15 @@ export function useWarehouse() {
     error: null,
     savedConnections: [],
   });
-  const loaded = useRef(false);
 
   // Load saved connections on mount
   useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
     const controller = new AbortController();
     getSavedConnections(controller.signal)
       .then((connections) => {
-        setState((prev) => ({ ...prev, savedConnections: connections }));
+        if (!controller.signal.aborted) {
+          setState((prev) => ({ ...prev, savedConnections: connections }));
+        }
       })
       .catch(() => {});
     return () => controller.abort();
