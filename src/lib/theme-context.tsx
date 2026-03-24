@@ -40,16 +40,6 @@ function applyMode(mode: ColorMode) {
     // system — follow OS
     html.removeAttribute("data-mode");
   }
-
-  // Debug: log the actual state
-  console.log(
-    "[hermetic] applyMode:",
-    mode,
-    "→ data-mode =",
-    html.getAttribute("data-mode") ?? "(none)",
-    "| data-theme =",
-    html.getAttribute("data-theme")
-  );
 }
 
 interface ThemeContextValue {
