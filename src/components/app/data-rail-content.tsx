@@ -134,10 +134,8 @@ export function DataRailContent({
   const displaySchema = sourceType === "warehouse" ? whTableData?.cols : schema;
   const displayMore = sourceType === "warehouse" ? whTableData?.moreCols : moreColumns;
   const displayChips = sourceType === "warehouse" ? whTableData?.chips : profileChips;
-  const displaySampleCols =
-    sourceType === "warehouse" ? whSampleData?.columns?.slice(0, 6) : sampleColumns;
-  const displaySampleRows =
-    sourceType === "warehouse" ? whSampleData?.rows?.slice(0, 5) : sampleRows;
+  const displaySampleCols = sourceType === "warehouse" ? whSampleData?.columns : sampleColumns;
+  const displaySampleRows = sourceType === "warehouse" ? whSampleData?.rows : sampleRows;
 
   const isWarehouseWithTables = sourceType === "warehouse" && tables && tables.length > 0;
   const isVerticalSplit = isWarehouseWithTables && fullscreen;

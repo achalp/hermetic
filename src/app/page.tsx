@@ -475,10 +475,10 @@ export default function Home() {
           schema={railSchema}
           moreColumns={railMoreColumns}
           profileChips={profileItems}
-          sampleColumns={schema?.columns.slice(0, 5).map((c) => c.name)}
+          sampleColumns={schema?.columns.map((c) => c.name)}
           sampleRows={schema?.sample_rows
-            ?.slice(0, 3)
-            .map((row) => schema.columns.slice(0, 5).map((c) => String(row[c.name] ?? "")))}
+            ?.slice(0, 5)
+            .map((row) => schema.columns.map((c) => String(row[c.name] ?? "")))}
           sheets={excelMeta?.sheets.map((s) => ({ name: s.name, rows: s.rowCount }))}
           relationships={excelMeta?.relationships.map((r) => ({
             from: `${r.sourceSheet}.${r.sourceColumn}`,
