@@ -7,18 +7,18 @@
    ═══════════════════════════════════════════════════════════ */
 @theme {
   /* Surface & text */
-  --color-surface-0: #f9fafb;
+  --color-surface-0: #f8faf9;
   --color-surface-1: #ffffff;
   --color-surface-2: #f3f4f6;
   --color-t-primary: #111827;
   --color-t-secondary: #6b7280;
   --color-t-tertiary: #9ca3af;
 
-  /* Accent */
-  --color-accent: #6366f1;
-  --color-accent-hover: #4f46e5;
-  --color-accent-subtle: #eef2ff;
-  --color-accent-text: #4338ca;
+  /* Accent — Emerald (matches design spec) */
+  --color-accent: #059669;
+  --color-accent-hover: #047857;
+  --color-accent-subtle: #ecfdf5;
+  --color-accent-text: #047857;
 
   /* Borders & chrome */
   --color-border-default: #e5e7eb;
@@ -68,12 +68,12 @@
 
   /* Border radius */
   --radius-card: 12px;
-  --radius-input: 12px;
-  --radius-badge: 6px;
+  --radius-input: 14px;
+  --radius-badge: 8px;
 
   /* Shadows */
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.1);
 
   /* Dark surfaces (drawers, rails, panels — always dark regardless of mode) */
   --color-surface-dark: #1e293b;
@@ -115,8 +115,8 @@
   --z-export-dropdown: 260;
 
   --border-card: 1px solid var(--color-border-default);
-  --ring-focus: 0 0 0 2px #c7d2fe;
-  --radius-button: 12px;
+  --ring-focus: 0 0 0 2px rgba(5, 150, 105, 0.25);
+  --radius-button: 8px;
   --transition-speed: 150ms;
   --surface-card-border: 1px solid var(--color-border-default);
   --rule-color: transparent;
@@ -127,7 +127,7 @@
   --gap-component: var(--spacing-section);
 
   /* Typography tokens */
-  --font-heading-weight: 600;
+  --font-heading-weight: 800;
   --font-label-weight: 500;
   --font-label-transform: none;
   --font-label-tracking: 0;
@@ -135,8 +135,8 @@
   --chart-title-weight: 600;
   --stat-value-weight: 700;
 
-  /* Page background gradient — Vanilla: cool indigo wash */
-  --bg-page: linear-gradient(168deg, #f9fafb 0%, #eef0f7 50%, #f0f0fa 100%);
+  /* Page background — clean, barely green-tinted */
+  --bg-page: #f8faf9;
 
   /* Panel background — solid gradient from same family as page */
   --bg-panel: linear-gradient(180deg, #ffffff 0%, #f8f9fd 100%);
@@ -164,14 +164,14 @@
     --color-t-primary: #f9fafb;
     --color-t-secondary: #9ca3af;
     --color-t-tertiary: #6b7280;
-    --color-accent: #818cf8;
-    --color-accent-hover: #6366f1;
-    --color-accent-subtle: rgba(99, 102, 241, 0.1);
-    --color-accent-text: #a5b4fc;
+    --color-accent: #34d399;
+    --color-accent-hover: #10b981;
+    --color-accent-subtle: rgba(5, 150, 105, 0.12);
+    --color-accent-text: #6ee7b7;
     --color-border-default: #374151;
-    --ring-focus: 0 0 0 2px rgba(99, 102, 241, 0.3);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2);
-    --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --ring-focus: 0 0 0 2px rgba(5, 150, 105, 0.3);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.2);
+    --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4);
     --color-table-header-bg: #1f2937;
     --color-table-row-hover: #1f2937;
     --color-table-divider: #1f2937;
@@ -182,8 +182,8 @@
     --color-surface-dropzone: #111827;
     --color-border-dropzone: #374151;
     --color-surface-dropdown: #1f2937;
-    --bg-page: linear-gradient(168deg, #030712 0%, #0a0e1f 50%, #080c19 100%);
-    --bg-panel: linear-gradient(180deg, #111827 0%, #0f1629 100%);
+    --bg-page: #0f1117;
+    --bg-panel: #111827;
     --syntax-comment: #9ca3af;
     --syntax-string: #4ade80;
     --syntax-keyword: #c084fc;
