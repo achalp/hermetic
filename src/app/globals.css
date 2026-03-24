@@ -843,6 +843,21 @@ body {
   min-height: 100vh;
 }
 
+/* Explicit dark mode override for body — fallback if variable cascade fails */
+html[data-mode="dark"] body {
+  background: #0f1117;
+  color: #f9fafb;
+}
+html[data-mode="dark"][data-theme="stamen"] body {
+  background: #0a1220;
+}
+html[data-mode="dark"][data-theme="iib"] body {
+  background: #0d0d1a;
+}
+html[data-mode="dark"][data-theme="pentagram"] body {
+  background: #000000;
+}
+
 /* ═══════════════════════════════════════════════════════════
    Theme-specific structural rules
    ═══════════════════════════════════════════════════════════ */
