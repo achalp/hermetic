@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { AVAILABLE_MODELS, AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId, LLMProviderId, LocalBackendId } from "@/lib/constants";
 import { LocalBackendSection } from "@/components/app/local-backend-section";
@@ -73,28 +73,26 @@ export function InferenceSection({
 }: InferenceSectionProps) {
   // Provider info
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(null);
-  const providerFetched = useRef(false);
 
   useEffect(() => {
-    if (providerFetched.current) return;
-    providerFetched.current = true;
     const controller = new AbortController();
     getProviders(controller.signal)
-      .then((data) => setProviderInfo(data))
+      .then((data) => {
+        if (!controller.signal.aborted) setProviderInfo(data);
+      })
       .catch(() => {});
     return () => controller.abort();
   }, []);
 
   // Runtime status
   const [runtimes, setRuntimes] = useState<RuntimeStatus[]>([]);
-  const runtimesFetched = useRef(false);
 
   useEffect(() => {
-    if (runtimesFetched.current) return;
-    runtimesFetched.current = true;
     const controller = new AbortController();
     getRuntimes(controller.signal)
-      .then((data) => setRuntimes(data))
+      .then((data) => {
+        if (!controller.signal.aborted) setRuntimes(data);
+      })
       .catch(() => {});
     return () => controller.abort();
   }, []);
@@ -112,20 +110,20 @@ export function InferenceSection({
   // Local backend tabs
   const [activeBackendTab, setActiveBackendTab] = useState<LocalBackendId>("mlx");
   const [platform, setPlatform] = useState<{ os: string; arch: string } | null>(null);
-  const platformFetched = useRef(false);
 
   useEffect(() => {
-    if (platformFetched.current) return;
-    platformFetched.current = true;
-    fetch("/api/local-llm/platform")
+    const controller = new AbortController();
+    fetch("/api/local-llm/platform", { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
+        if (controller.signal.aborted) return;
         setPlatform(data);
         if (!(data.os === "darwin" && data.arch === "arm64")) {
           setActiveBackendTab((prev) => (prev === "mlx" ? "llama-cpp" : prev));
         }
       })
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   const handleLocalProviderChange = useCallback(
