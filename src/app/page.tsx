@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import type { Spec } from "@json-render/react";
-import { CSVUploadPanel } from "@/components/app/csv-upload-panel";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { QueryInput } from "@/components/app/query-input";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
@@ -95,6 +94,7 @@ export default function Home() {
   const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
   const [llmWarning, setLlmWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const rerunVizIdRef = useRef<string | null>(null);
 
   // ── New redesign state ──────────────────────────────────────
@@ -326,6 +326,29 @@ export default function Home() {
         className="hidden"
         onChange={handleRerunFileSelected}
       />
+      {/* Hidden file input for initial upload (triggered by SourceCard click) */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept=".csv,.xlsx,.geojson,.json"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const formData = new FormData();
+          formData.append("file", file);
+          fetch("/api/upload", { method: "POST", body: formData })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.excel_id) {
+                handleExcelSheets(data.excel_id, file.name, data.sheets, data.relationships ?? []);
+              } else if (data.csv_id && data.schema) {
+                handleUpload(data.csv_id, data.schema);
+              }
+            })
+            .catch((err) => console.error("Upload failed:", err));
+        }}
+      />
 
       {/* Top Bar */}
       <TopBar
@@ -521,9 +544,8 @@ export default function Home() {
 
               <SourceCards
                 onFileDrop={() => {
-                  // Trigger hidden file input via CSVUploadPanel's logic
-                  // For now, we render CSVUploadPanel hidden and trigger it
-                  document.getElementById("csv-upload-trigger")?.click();
+                  if (uploadInputRef.current) uploadInputRef.current.value = "";
+                  uploadInputRef.current?.click();
                 }}
                 onWarehouseClick={() => setShowWarehouseForm((v) => !v)}
               />
@@ -548,12 +570,6 @@ export default function Home() {
                 }
               />
 
-              {/* Hidden CSV upload panel — triggered by source card click */}
-              <div className="hidden">
-                <CSVUploadPanel onUpload={handleUpload} onExcelSheets={handleExcelSheets} />
-              </div>
-
-              {/* Visible drop zone for drag-drop (overlays the source card) */}
               <div className="text-center text-sm text-t-tertiary">
                 🔒 Sealed. Your data stays local.
               </div>
