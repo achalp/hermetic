@@ -633,11 +633,12 @@ export default function Home() {
           )}
 
           {/* ═══ STATE 3: Working ═══ */}
+          {/* ═══ STATE 3: Working (overlay while ResponsePanel streams) ═══ */}
           {isState3 && <WorkingIndicator status={workingStatus} />}
 
-          {/* ═══ STATE 4: Results ═══ */}
-          {isState4 && (
-            <div className="py-8">
+          {/* ═══ ResponsePanel: mounted during analysis AND results ═══ */}
+          {(isState3 || isState4) && (
+            <div className={isState3 ? "hidden" : "py-8"}>
               <ResponsePanel
                 csvId={csvId}
                 warehouseId={warehouse.warehouseId}
