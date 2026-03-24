@@ -4,7 +4,7 @@ import { Drawer } from "./drawer";
 import { CollapsibleSection } from "./collapsible-section";
 import { AppearanceSection } from "./settings/appearance-section";
 import { ConnectedSourcesSection } from "./settings/connected-sources-section";
-import { ModelsSection } from "./settings/models-section";
+import { InferenceSection } from "./settings/inference-section";
 import { AnalysisDefaultsSection } from "./settings/analysis-defaults-section";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { SchemaMode } from "@/lib/types";
@@ -12,12 +12,15 @@ import type { SchemaMode } from "@/lib/types";
 interface SettingsDrawerProps {
   open: boolean;
   onClose: () => void;
-  /* Models */
+  /* Inference */
   codeGenModel: ModelId;
   uiComposeModel: ModelId;
   onCodeGenModelChange: (model: ModelId) => void;
   onUiComposeModelChange: (model: ModelId) => void;
-  availableModels: { id: string; label: string }[];
+  sandboxRuntime: SandboxRuntimeId;
+  onSandboxRuntimeChange: (runtime: SandboxRuntimeId) => void;
+  ollamaModel: string | null;
+  onOllamaModelChange: (model: string | null) => void;
   /* Analysis defaults */
   defaultStyle: string;
   onDefaultStyleChange: (style: string) => void;
@@ -40,7 +43,10 @@ export function SettingsDrawer({
   uiComposeModel,
   onCodeGenModelChange,
   onUiComposeModelChange,
-  availableModels,
+  sandboxRuntime,
+  onSandboxRuntimeChange,
+  ollamaModel,
+  onOllamaModelChange,
   defaultStyle,
   onDefaultStyleChange,
   schemaMode,
@@ -54,9 +60,22 @@ export function SettingsDrawer({
   onDeleteSaved,
 }: SettingsDrawerProps) {
   return (
-    <Drawer open={open} onClose={onClose} title="Settings" width={360}>
+    <Drawer open={open} onClose={onClose} title="Settings" width={380}>
       <CollapsibleSection title="Appearance" defaultOpen>
         <AppearanceSection />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Inference" defaultOpen>
+        <InferenceSection
+          codeGenModel={codeGenModel}
+          uiComposeModel={uiComposeModel}
+          onCodeGenModelChange={onCodeGenModelChange}
+          onUiComposeModelChange={onUiComposeModelChange}
+          sandboxRuntime={sandboxRuntime}
+          onSandboxRuntimeChange={onSandboxRuntimeChange}
+          ollamaModel={ollamaModel}
+          onOllamaModelChange={onOllamaModelChange}
+        />
       </CollapsibleSection>
 
       <CollapsibleSection title="Connected Sources" defaultOpen={false}>
@@ -68,16 +87,6 @@ export function SettingsDrawer({
           onConnect={onConnect}
           onDisconnect={onDisconnect}
           onDeleteSaved={onDeleteSaved}
-        />
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Models" defaultOpen={false}>
-        <ModelsSection
-          codeGenModel={codeGenModel}
-          uiComposeModel={uiComposeModel}
-          onCodeGenModelChange={(m) => onCodeGenModelChange(m as ModelId)}
-          onUiComposeModelChange={(m) => onUiComposeModelChange(m as ModelId)}
-          availableModels={availableModels}
         />
       </CollapsibleSection>
 

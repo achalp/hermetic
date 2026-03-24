@@ -6,7 +6,6 @@ import type { Spec } from "@json-render/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { QueryInput } from "@/components/app/query-input";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
-import { SettingsPanel } from "@/components/app/settings-panel";
 
 // New redesign components
 import { TopBar } from "@/components/app/top-bar";
@@ -37,7 +36,6 @@ import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
   DEFAULT_SANDBOX_RUNTIME,
-  AVAILABLE_MODELS,
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
@@ -92,7 +90,6 @@ export default function Home() {
     return DEFAULT_SANDBOX_RUNTIME;
   });
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
-  const openSettingsRef = useRef<(() => void) | null>(null);
   const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
   const [llmWarning, setLlmWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -152,12 +149,12 @@ export default function Home() {
       const readiness = await checkLlmReady();
       if (!readiness.ready) {
         setLlmWarning(readiness.message ?? "LLM is not available.");
-        openSettingsRef.current?.();
+        openSettings();
         return;
       }
       handleQuery(question);
     },
-    [handleQuery]
+    [handleQuery, openSettings]
   );
 
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
@@ -402,26 +399,11 @@ export default function Home() {
                 New
               </button>
             )}
-            {/* Inference settings (old panel — provider, local models, runtime) */}
-            <SettingsPanel
-              codeGenModel={codeGenModel}
-              uiComposeModel={uiComposeModel}
-              onCodeGenModelChange={setCodeGenModel}
-              onUiComposeModelChange={setUiComposeModel}
-              sandboxRuntime={sandboxRuntime}
-              onSandboxRuntimeChange={handleRuntimeChange}
-              ollamaModel={ollamaModel}
-              onOllamaModelChange={setOllamaModel}
-              schemaMode={schemaMode}
-              onSchemaModeChange={setSchemaMode}
-              openRef={openSettingsRef}
-            />
-            {/* Appearance/defaults drawer */}
+            {/* Settings drawer toggle */}
             <button
               onClick={settingsOpen ? closeSettings : openSettings}
               className="p-1 transition-colors text-t-secondary hover:text-t-primary"
-              aria-label="Appearance settings"
-              title="Appearance & defaults"
+              aria-label="Settings"
             >
               <svg
                 className="h-5 w-5"
@@ -430,8 +412,8 @@ export default function Home() {
                 strokeWidth="1.8"
                 viewBox="0 0 24 24"
               >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
               </svg>
             </button>
           </div>
@@ -446,7 +428,10 @@ export default function Home() {
         uiComposeModel={uiComposeModel}
         onCodeGenModelChange={setCodeGenModel}
         onUiComposeModelChange={setUiComposeModel}
-        availableModels={AVAILABLE_MODELS.map((m) => ({ id: m.id, label: m.label }))}
+        sandboxRuntime={sandboxRuntime}
+        onSandboxRuntimeChange={handleRuntimeChange}
+        ollamaModel={ollamaModel}
+        onOllamaModelChange={setOllamaModel}
         defaultStyle={purpose}
         onDefaultStyleChange={setPurpose}
         schemaMode={schemaMode}
