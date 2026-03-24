@@ -129,7 +129,7 @@ export function InferenceSection({
   const handleLocalProviderChange = useCallback(
     (_provider: LocalBackendId, model: string) => {
       onOllamaModelChange(model || null);
-      providerFetched.current = false;
+      // Re-fetch provider info to reflect the change
       getProviders()
         .then((data) => setProviderInfo(data))
         .catch(() => {});
