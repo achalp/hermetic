@@ -490,6 +490,7 @@ export default function Home() {
           }))}
           warehouseSchemas={warehouse.tableSchemas}
           warehouseId={warehouse.warehouseId}
+          fullscreen={railFullscreen}
         />
       </DataRail>
 

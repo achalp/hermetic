@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { CollapsibleSection } from "@/components/app/collapsible-section";
 import { SchemaSection } from "@/components/app/data-explorer/schema-section";
 import { ProfileSection } from "@/components/app/data-explorer/profile-section";
@@ -30,6 +30,7 @@ interface DataRailContentProps {
   tables?: { name: string; rows: string }[];
   warehouseSchemas?: WarehouseTableSchemaInfo[];
   warehouseId?: string | null;
+  fullscreen?: boolean;
   onSheetSelect?: (name: string) => void;
   activeItem?: string;
 }
@@ -72,6 +73,7 @@ export function DataRailContent({
   tables,
   warehouseSchemas,
   warehouseId,
+  fullscreen,
   onSheetSelect,
   activeItem,
 }: DataRailContentProps) {
@@ -138,6 +140,57 @@ export function DataRailContent({
     sourceType === "warehouse" ? whSampleData?.rows?.slice(0, 5) : sampleRows;
 
   const isWarehouseWithTables = sourceType === "warehouse" && tables && tables.length > 0;
+  const isVerticalSplit = isWarehouseWithTables && fullscreen;
+  const isHorizontalSplit = isWarehouseWithTables && !fullscreen;
+
+  // Draggable divider for vertical split (fullscreen mode)
+  const [leftWidth, setLeftWidth] = useState(220);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, width: 0 });
+
+  const onDividerMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      dragStart.current = { x: e.clientX, width: leftWidth };
+      setIsDragging(true);
+      e.preventDefault();
+    },
+    [leftWidth]
+  );
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const delta = e.clientX - dragStart.current.x;
+      setLeftWidth(Math.max(120, Math.min(500, dragStart.current.width + delta)));
+    };
+    const onUp = () => setIsDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isDragging]);
+
+  const detailContent = (
+    <>
+      <CollapsibleSection title="SCHEMA" defaultOpen>
+        <SchemaSection columns={displaySchema ?? []} moreCount={displayMore} />
+      </CollapsibleSection>
+      <CollapsibleSection title="PROFILE" defaultOpen>
+        <ProfileSection chips={displayChips ?? []} distributions={distributions ?? []} />
+      </CollapsibleSection>
+      <CollapsibleSection title="SAMPLE" defaultOpen={isWarehouseWithTables}>
+        {fetchKey && sampleFetchKey !== fetchKey ? (
+          <div style={{ fontSize: 12, color: "var(--color-surface-dark-text4)", padding: "8px 0" }}>
+            Loading sample...
+          </div>
+        ) : (
+          <SampleSection columns={displaySampleCols ?? []} rows={displaySampleRows ?? []} />
+        )}
+      </CollapsibleSection>
+    </>
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -157,63 +210,49 @@ export function DataRailContent({
         <SheetTabs sheets={sheets} active={activeItem ?? ""} onSelect={onSheetSelect} />
       )}
 
-      {isWarehouseWithTables ? (
-        /* Split layout for warehouse: table list (scrollable) + detail (scrollable) */
+      {isVerticalSplit ? (
+        /* Fullscreen: vertical split with draggable divider */
         <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-          {/* Left: table list with independent scroll */}
+          <div style={{ width: leftWidth, flexShrink: 0, overflowY: "auto" }}>
+            <TableList tables={tables} active={activeTable} onSelect={setActiveTable} />
+          </div>
+          {/* Draggable divider */}
+          <div
+            onMouseDown={onDividerMouseDown}
+            style={{
+              width: 5,
+              flexShrink: 0,
+              cursor: "col-resize",
+              background: isDragging ? "var(--color-accent)" : "var(--color-surface-dark-2)",
+              transition: isDragging ? "none" : "background 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              if (!isDragging) e.currentTarget.style.background = "var(--color-surface-dark-3)";
+            }}
+            onMouseLeave={(e) => {
+              if (!isDragging) e.currentTarget.style.background = "var(--color-surface-dark-2)";
+            }}
+          />
+          <div style={{ flex: 1, overflowY: "auto" }}>{detailContent}</div>
+        </div>
+      ) : isHorizontalSplit ? (
+        /* Narrow (380px): horizontal split — tables on top, detail below */
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           <div
             style={{
-              width: 140,
-              flexShrink: 0,
+              maxHeight: 160,
               overflowY: "auto",
-              borderRight: "1px solid var(--color-surface-dark-2)",
+              flexShrink: 0,
+              borderBottom: "1px solid var(--color-surface-dark-2)",
             }}
           >
             <TableList tables={tables} active={activeTable} onSelect={setActiveTable} />
           </div>
-
-          {/* Right: schema/profile/sample with independent scroll */}
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            <CollapsibleSection title="SCHEMA" defaultOpen>
-              <SchemaSection columns={displaySchema ?? []} moreCount={displayMore} />
-            </CollapsibleSection>
-
-            <CollapsibleSection title="PROFILE" defaultOpen>
-              <ProfileSection chips={displayChips ?? []} distributions={distributions ?? []} />
-            </CollapsibleSection>
-
-            <CollapsibleSection title="SAMPLE" defaultOpen>
-              {fetchKey && sampleFetchKey !== fetchKey ? (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--color-surface-dark-text4)",
-                    padding: "8px 0",
-                  }}
-                >
-                  Loading sample...
-                </div>
-              ) : (
-                <SampleSection columns={displaySampleCols ?? []} rows={displaySampleRows ?? []} />
-              )}
-            </CollapsibleSection>
-          </div>
+          <div style={{ flex: 1, overflowY: "auto" }}>{detailContent}</div>
         </div>
       ) : (
-        /* Non-warehouse or no tables: single scroll */
-        <>
-          <CollapsibleSection title="SCHEMA" defaultOpen>
-            <SchemaSection columns={displaySchema ?? []} moreCount={displayMore} />
-          </CollapsibleSection>
-
-          <CollapsibleSection title="PROFILE" defaultOpen>
-            <ProfileSection chips={displayChips ?? []} distributions={distributions ?? []} />
-          </CollapsibleSection>
-
-          <CollapsibleSection title="SAMPLE" defaultOpen={false}>
-            <SampleSection columns={displaySampleCols ?? []} rows={displaySampleRows ?? []} />
-          </CollapsibleSection>
-        </>
+        /* Non-warehouse: single scroll */
+        <>{detailContent}</>
       )}
     </div>
   );
