@@ -207,11 +207,27 @@ export function pickTickValues(
 function useDarkMode(): boolean {
   return useSyncExternalStore(
     (cb) => {
+      // Listen for both system preference changes AND data-mode attribute changes
       const mq = window.matchMedia("(prefers-color-scheme: dark)");
       mq.addEventListener("change", cb);
-      return () => mq.removeEventListener("change", cb);
+      const observer = new MutationObserver(cb);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-mode"],
+      });
+      return () => {
+        mq.removeEventListener("change", cb);
+        observer.disconnect();
+      };
     },
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+    () => {
+      // Check explicit data-mode first, then fall back to system preference
+      const mode = document.documentElement.getAttribute("data-mode");
+      if (mode === "dark") return true;
+      if (mode === "light") return false;
+      // No data-mode = "system" → check OS preference
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    },
     () => false
   );
 }

@@ -44,6 +44,7 @@ interface ResponsePanelProps {
   purpose?: string;
   onRerun?: () => void;
   loadedVizId?: string | null;
+  onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
 }
 
 export function ResponsePanel({
@@ -62,6 +63,7 @@ export function ResponsePanel({
   purpose = "infographic",
   onRerun,
   loadedVizId,
+  onArtifactsChange,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   const currentSpecRef = useRef<Spec | null>(null);
@@ -237,6 +239,11 @@ export function ResponsePanel({
       currentSpecRef.current = null;
     }
   }, [loadedSpec, loadedArtifacts, setArtifacts, setShowArtifacts]);
+
+  // Notify parent when artifacts change
+  useEffect(() => {
+    onArtifactsChange?.(artifacts);
+  }, [artifacts, onArtifactsChange]);
 
   const handleBackWithRestore = useCallback(
     (toIndex: number) => {

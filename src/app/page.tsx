@@ -116,6 +116,7 @@ export default function Home() {
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
   const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
+  const [liveArtifacts, setLiveArtifacts] = useState<{ sql?: string; code?: string } | null>(null);
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -759,6 +760,9 @@ export default function Home() {
                   purpose={purpose}
                   onRerun={handleRerunFromToolbar}
                   loadedVizId={loadedVizId}
+                  onArtifactsChange={(a) =>
+                    setLiveArtifacts(a ? { sql: a.sql, code: a.code } : null)
+                  }
                 />
               </div>
             </div>
@@ -773,8 +777,8 @@ export default function Home() {
         onClose={() => setShowArtifactsPanel(false)}
         onToggleFullscreen={() => setArtifactsFullscreen((f) => !f)}
         artifacts={{
-          sql: loadedArtifacts?.sql ?? undefined,
-          code: loadedArtifacts?.code ?? undefined,
+          sql: liveArtifacts?.sql ?? loadedArtifacts?.sql ?? undefined,
+          code: liveArtifacts?.code ?? loadedArtifacts?.code ?? undefined,
         }}
       />
     </>
