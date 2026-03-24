@@ -102,8 +102,6 @@
    These are read via var() in inline styles, not as Tailwind utilities
    ═══════════════════════════════════════════════════════════ */
 :root {
-  color-scheme: light;
-
   /* Z-index scale */
   --z-base: 1;
   --z-rail: 180;
