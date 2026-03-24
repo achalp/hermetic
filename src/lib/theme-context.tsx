@@ -31,7 +31,7 @@ function getStoredMode(): ColorMode {
 
 function applyMode(mode: ColorMode) {
   const html = document.documentElement;
-  // Remove both attributes first, then set the appropriate one
+  // Remove dark attribute first
   html.removeAttribute("data-mode");
 
   if (mode === "dark") {
@@ -42,6 +42,16 @@ function applyMode(mode: ColorMode) {
     }
   }
   // "light" = no data-mode attribute → CSS defaults to light
+
+  // Debug: log the actual state
+  console.log(
+    "[hermetic] applyMode:",
+    mode,
+    "→ data-mode =",
+    html.getAttribute("data-mode") ?? "(none)",
+    "| data-theme =",
+    html.getAttribute("data-theme")
+  );
 }
 
 interface ThemeContextValue {
