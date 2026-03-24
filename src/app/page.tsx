@@ -31,7 +31,14 @@ import { useWarehouse } from "@/hooks/use-warehouse";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
-import { checkLlmReady, getLocalBackendConfig, loadViz, rerunViz, saveViz } from "@/lib/api";
+import {
+  checkLlmReady,
+  getLocalBackendConfig,
+  loadViz,
+  rerunViz,
+  saveViz,
+  uploadFile,
+} from "@/lib/api";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -329,21 +336,26 @@ export default function Home() {
         type="file"
         accept=".csv,.xlsx,.geojson,.json"
         className="hidden"
-        onChange={(e) => {
+        onChange={async (e) => {
           const file = e.target.files?.[0];
           if (!file) return;
-          const formData = new FormData();
-          formData.append("file", file);
-          fetch("/api/upload", { method: "POST", body: formData })
-            .then((res) => res.json())
-            .then((data) => {
-              if (data.excel_id) {
-                handleExcelSheets(data.excel_id, file.name, data.sheets, data.relationships ?? []);
-              } else if (data.csv_id && data.schema) {
-                handleUpload(data.csv_id, data.schema);
-              }
-            })
-            .catch((err) => console.error("Upload failed:", err));
+          try {
+            const formData = new FormData();
+            formData.append("csv", file);
+            const data = await uploadFile(formData);
+            if (data.excel_id && data.sheets) {
+              handleExcelSheets(
+                data.excel_id,
+                data.filename ?? file.name,
+                data.sheets,
+                data.relationships ?? []
+              );
+            } else if (data.csv_id && data.schema) {
+              handleUpload(data.csv_id, data.schema);
+            }
+          } catch (err) {
+            console.error("Upload failed:", err);
+          }
         }}
       />
 
