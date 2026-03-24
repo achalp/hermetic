@@ -11,7 +11,10 @@ export async function POST(request: Request) {
   try {
     const config: WarehouseConnectionConfig = await request.json();
 
-    if (!config?.type || !["postgresql", "bigquery", "clickhouse"].includes(config.type)) {
+    if (
+      !config?.type ||
+      !["postgresql", "bigquery", "clickhouse", "trino", "hive"].includes(config.type)
+    ) {
       return Response.json({ error: "Invalid warehouse type" }, { status: 400 });
     }
 

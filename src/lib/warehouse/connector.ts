@@ -6,6 +6,8 @@ import type {
 import { createPostgresConnector } from "./postgres";
 import { createBigQueryConnector } from "./bigquery";
 import { createClickHouseConnector } from "./clickhouse";
+import { createTrinoConnector } from "./trino";
+import { createHiveConnector } from "./hive";
 
 export interface WarehouseConnector {
   testConnection(): Promise<void>;
@@ -25,5 +27,9 @@ export function createConnector(config: WarehouseConnectionConfig): WarehouseCon
       return createBigQueryConnector(config);
     case "clickhouse":
       return createClickHouseConnector(config);
+    case "trino":
+      return createTrinoConnector(config);
+    case "hive":
+      return createHiveConnector(config);
   }
 }
