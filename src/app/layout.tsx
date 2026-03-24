@@ -28,7 +28,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("gud-theme");if(t&&["vanilla","stamen","iib","pentagram"].includes(t)){document.documentElement.setAttribute("data-theme",t)}}catch(e){}})()`,
+            __html: `(function(){try{var t=localStorage.getItem("gud-theme");if(t&&["vanilla","stamen","iib","pentagram"].includes(t)){document.documentElement.setAttribute("data-theme",t)}var m=localStorage.getItem("gud-mode");if(m==="dark"){document.documentElement.setAttribute("data-mode","dark");document.documentElement.style.colorScheme="dark"}else if(m==="light"){document.documentElement.style.colorScheme="light"}else{if(window.matchMedia("(prefers-color-scheme:dark)").matches){document.documentElement.setAttribute("data-mode","dark");document.documentElement.style.colorScheme="dark"}}}catch(e){}})()`,
           }}
         />
       </head>
