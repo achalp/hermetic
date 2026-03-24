@@ -19,7 +19,7 @@ import { SavedConnections } from "@/components/app/saved-connections";
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
 import { StyleSelector } from "@/components/app/style-selector";
-import { WorkingIndicator } from "@/components/app/working-indicator";
+// WorkingIndicator removed — ResponsePanel's PipelineProgress shows real status
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -108,7 +108,6 @@ export default function Home() {
   const [railExpanded, setRailExpanded] = useState(false);
   const [railFullscreen, setRailFullscreen] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
-  const [workingStatus, setWorkingStatus] = useState("Analyzing...");
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -268,19 +267,7 @@ export default function Home() {
     }
   }, [isAnalyzing, pendingRerunVizId, csvId, loadedSpec, currentQuestion, dispatch]);
 
-  // Working status animation — all setState calls are inside async callbacks (setTimeout)
-  useEffect(() => {
-    if (!isAnalyzing) return;
-    // Reset on every new analysis via setTimeout(0) to satisfy lint (not synchronous in effect body)
-    const t0 = setTimeout(() => setWorkingStatus("Analyzing..."), 0);
-    const t1 = setTimeout(() => setWorkingStatus("Composing..."), 1500);
-    const t2 = setTimeout(() => setWorkingStatus("Almost done..."), 3000);
-    return () => {
-      clearTimeout(t0);
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [isAnalyzing, questionSeq]);
+  // Status now driven by ResponsePanel's PipelineProgress (real pipeline stages)
 
   // ── Derived state ───────────────────────────────────────────
   const hasData = isUploaded || warehouse.isConnected;
@@ -632,13 +619,9 @@ export default function Home() {
             </div>
           )}
 
-          {/* ═══ STATE 3: Working ═══ */}
-          {/* ═══ STATE 3: Working (overlay while ResponsePanel streams) ═══ */}
-          {isState3 && <WorkingIndicator status={workingStatus} />}
-
-          {/* ═══ ResponsePanel: mounted during analysis AND results ═══ */}
+          {/* ═══ STATE 3 + 4: ResponsePanel handles both progress and results ═══ */}
           {(isState3 || isState4) && (
-            <div className={isState3 ? "hidden" : "py-8"}>
+            <div className="py-8">
               <ResponsePanel
                 csvId={csvId}
                 warehouseId={warehouse.warehouseId}
