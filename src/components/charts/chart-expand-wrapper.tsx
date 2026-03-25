@@ -171,7 +171,8 @@ export function ChartExpandWrapper({ title, children }: ChartExpandWrapperProps)
       {expanded &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex flex-col bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 flex flex-col bg-black/50 backdrop-blur-sm"
+            style={{ zIndex: 999 }}
             onClick={(e) => {
               if (e.target === e.currentTarget) close();
             }}
