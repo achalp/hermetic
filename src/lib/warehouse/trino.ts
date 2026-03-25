@@ -16,6 +16,11 @@ function csvValue(v: unknown): string {
     : s;
 }
 
+/** Escape a SQL string literal value (prevents injection via config values) */
+function escapeSqlString(s: string): string {
+  return s.replace(/'/g, "''");
+}
+
 export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseConnector {
   const protocol = config.ssl ? "https" : "http";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,7 +72,7 @@ export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseCo
       const { rows } = await runQuery(
         `SELECT table_name
          FROM ${catalogName}.information_schema.tables
-         WHERE table_schema = '${schemaName}'
+         WHERE table_schema = '${escapeSqlString(schemaName)}'
            AND table_type IN ('BASE TABLE', 'TABLE')
          ORDER BY table_name`
       );
@@ -76,7 +81,7 @@ export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseCo
       const { rows: colRows } = await runQuery(
         `SELECT table_name, count(*) AS col_count
          FROM ${catalogName}.information_schema.columns
-         WHERE table_schema = '${schemaName}'
+         WHERE table_schema = '${escapeSqlString(schemaName)}'
          GROUP BY table_name`
       );
       const colCounts = new Map<string, number>();
@@ -97,7 +102,7 @@ export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseCo
       const { rows: colRows } = await runQuery(
         `SELECT table_name, column_name, data_type, is_nullable
          FROM ${catalogName}.information_schema.columns
-         WHERE table_schema = '${schemaName}'
+         WHERE table_schema = '${escapeSqlString(schemaName)}'
          ORDER BY table_name, ordinal_position`
       );
 

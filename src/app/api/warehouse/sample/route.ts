@@ -43,7 +43,7 @@ function buildSampleQuery(table: string, dbType: string): string {
     case "postgresql":
       return `SELECT * FROM "${table.replace(/"/g, '""')}" LIMIT 5`;
     case "bigquery":
-      return `SELECT * FROM \`${table}\` LIMIT 5`;
+      return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
     case "clickhouse":
       return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
     case "trino":
@@ -51,7 +51,7 @@ function buildSampleQuery(table: string, dbType: string): string {
     case "hive":
       return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
     default:
-      return `SELECT * FROM "${table}" LIMIT 5`;
+      return `SELECT * FROM "${table.replace(/"/g, '""')}" LIMIT 5`;
   }
 }
 
