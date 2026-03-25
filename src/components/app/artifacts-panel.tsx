@@ -34,7 +34,7 @@ export function ArtifactsPanel({
         }}
       />
 
-      {/* Bottom sheet */}
+      {/* Bottom sheet — dark surface per design spec */}
       <div
         style={{
           position: "fixed",
@@ -42,24 +42,22 @@ export function ArtifactsPanel({
           left: 0,
           right: 0,
           height: fullscreen ? "calc(100vh - 56px)" : "55vh",
-          background: "var(--bg-page)",
-          color: "var(--color-t-primary)",
+          background: "var(--color-surface-dark)",
+          color: "var(--color-surface-dark-text)",
           zIndex: "var(--z-artifacts)" as never,
           transform: open ? "translateY(0)" : "translateY(100%)",
           transition: "transform 0.3s ease, height 0.3s ease",
           borderRadius: fullscreen ? 0 : "12px 12px 0 0",
           display: "flex",
           flexDirection: "column",
-          boxShadow: "0 -4px 24px rgba(0,0,0,0.15)",
-          borderTop: "1px solid var(--color-border-default)",
         }}
       >
-        {/* Header bar */}
+        {/* Header */}
         <div
           className="flex items-center justify-between"
           style={{
-            padding: "10px 20px",
-            borderBottom: "1px solid var(--color-border-default)",
+            padding: "12px 24px",
+            borderBottom: "1px solid var(--color-surface-dark-2)",
             flexShrink: 0,
           }}
         >
@@ -68,8 +66,20 @@ export function ArtifactsPanel({
             <button
               onClick={onToggleFullscreen}
               aria-label="Toggle fullscreen"
-              className="text-t-secondary hover:text-t-primary transition-colors"
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 4,
+                color: "var(--color-surface-dark-text3)",
+                transition: "color 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--color-surface-dark-text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--color-surface-dark-text3)";
+              }}
             >
               <svg
                 width="16"
@@ -85,7 +95,6 @@ export function ArtifactsPanel({
             <button
               onClick={onClose}
               aria-label="Close"
-              className="text-t-secondary hover:text-t-primary transition-colors"
               style={{
                 background: "none",
                 border: "none",
@@ -93,6 +102,14 @@ export function ArtifactsPanel({
                 fontSize: 20,
                 padding: 4,
                 lineHeight: 1,
+                color: "var(--color-surface-dark-text3)",
+                transition: "color 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--color-surface-dark-text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--color-surface-dark-text3)";
               }}
             >
               ×
@@ -100,12 +117,15 @@ export function ArtifactsPanel({
           </div>
         </div>
 
-        {/* Body — reuse the existing ArtifactsViewer */}
-        <div style={{ flex: 1, overflow: "auto" }}>
+        {/* Body — ArtifactsViewer with dark surface override */}
+        <div className="dark-surface-override" style={{ flex: 1, overflow: "auto" }}>
           {artifacts ? (
             <ArtifactsViewer artifacts={artifacts} />
           ) : (
-            <div className="flex items-center justify-center h-full text-t-tertiary text-sm">
+            <div
+              className="flex items-center justify-center h-full"
+              style={{ fontSize: 13, color: "var(--color-surface-dark-text3)" }}
+            >
               No artifacts available. Run a query first.
             </div>
           )}
