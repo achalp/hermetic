@@ -20,7 +20,7 @@ import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
 import { StyleSelector } from "@/components/app/style-selector";
 import { useSaveExport } from "@/hooks/use-save-export";
-import { ArtifactsPanel } from "@/components/app/artifacts-panel";
+// ArtifactsPanel removed — ResponsePanel manages its own artifacts view
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -114,9 +114,7 @@ export default function Home() {
   const [railFullscreen, setRailFullscreen] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
-  const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
-  const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
-  const [liveArtifacts, setLiveArtifacts] = useState<{ sql?: string; code?: string } | null>(null);
+  const artifactsToggleRef = useRef<(() => void) | null>(null);
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -490,7 +488,7 @@ export default function Home() {
                   )}
                 </div>
                 <button
-                  onClick={() => setShowArtifactsPanel((v) => !v)}
+                  onClick={() => artifactsToggleRef.current?.()}
                   className="p-1 text-t-secondary hover:text-accent transition-colors"
                   title="View artifacts (SQL, code, data)"
                 >
@@ -760,27 +758,13 @@ export default function Home() {
                   purpose={purpose}
                   onRerun={handleRerunFromToolbar}
                   loadedVizId={loadedVizId}
-                  onArtifactsChange={(a) =>
-                    setLiveArtifacts(a ? { sql: a.sql, code: a.code } : null)
-                  }
+                  artifactsToggleRef={artifactsToggleRef}
                 />
               </div>
             </div>
           )}
         </main>
       </MainContent>
-
-      {/* Artifacts Panel (bottom sheet) */}
-      <ArtifactsPanel
-        open={showArtifactsPanel}
-        fullscreen={artifactsFullscreen}
-        onClose={() => setShowArtifactsPanel(false)}
-        onToggleFullscreen={() => setArtifactsFullscreen((f) => !f)}
-        artifacts={{
-          sql: liveArtifacts?.sql ?? loadedArtifacts?.sql ?? undefined,
-          code: liveArtifacts?.code ?? loadedArtifacts?.code ?? undefined,
-        }}
-      />
     </>
   );
 }

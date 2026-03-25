@@ -72,7 +72,12 @@ export function PieChartComponent({
       }
       return null;
     })
-    .filter((d): d is { id: string; value: number } => d !== null && !isNaN(d.value));
+    .filter((d): d is { id: string; value: number } => d !== null && !isNaN(d.value))
+    // Deduplicate ids: append index suffix for duplicates to avoid React key warnings
+    .map((d, i, arr) => {
+      const dupesBefore = arr.slice(0, i).filter((x) => x.id === d.id).length;
+      return dupesBefore > 0 ? { ...d, id: `${d.id} (${dupesBefore + 1})` } : d;
+    });
 
   const themeColors = useChartColors();
   const baseColors = props.colors
