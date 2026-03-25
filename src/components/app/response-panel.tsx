@@ -390,39 +390,7 @@ export function ResponsePanel({
             </ActionProvider>
           </StateProvider>
 
-          {/* Save & Export buttons */}
-          {activeSpec && !isStreaming && (
-            <div className="mt-4 flex items-center gap-2 border-t border-border-default pt-4">
-              <ActionButton onClick={handleSave} disabled={saving || !!exporting}>
-                {saving ? "Saving..." : "Save"}
-              </ActionButton>
-              <ActionButton onClick={handleExportPdf} disabled={!!exporting}>
-                {exporting === "pdf" ? "Exporting..." : "Export PDF"}
-              </ActionButton>
-              <ActionButton onClick={handleExportDocx} disabled={!!exporting}>
-                {exporting === "docx" ? "Exporting..." : "Export DOCX"}
-              </ActionButton>
-              <ActionButton onClick={handleExportPptx} disabled={!!exporting}>
-                {exporting === "pptx" ? "Exporting..." : "Export PPTX"}
-              </ActionButton>
-              <ActionButton onClick={handleToggleArtifacts} disabled={artifactsLoading}>
-                {artifactsLoading
-                  ? "Loading..."
-                  : showArtifacts
-                    ? "Hide Artifacts"
-                    : "View Artifacts"}
-              </ActionButton>
-              {loadedVizId && onRerun && <ActionButton onClick={onRerun}>Update Data</ActionButton>}
-              {saveMessage && (
-                <span
-                  className={`text-xs ${saveMessage === "Saved!" ? "text-success-text" : "text-error-text"}`}
-                >
-                  {saveMessage}
-                </span>
-              )}
-              {artifactsError && <span className="text-xs text-error-text">{artifactsError}</span>}
-            </div>
-          )}
+          {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
         </Card>
       )}
 
