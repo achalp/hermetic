@@ -20,7 +20,8 @@ import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
 import { StyleSelector } from "@/components/app/style-selector";
 import { useSaveExport } from "@/hooks/use-save-export";
-// ArtifactsPanel removed — ResponsePanel manages its own artifacts view
+import { ArtifactsPanel } from "@/components/app/artifacts-panel";
+import { useArtifacts } from "@/hooks/use-artifacts";
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -114,7 +115,9 @@ export default function Home() {
   const [railFullscreen, setRailFullscreen] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
-  const artifactsToggleRef = useRef<(() => void) | null>(null);
+  const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
+  const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
+  const [effectiveCsvId, setEffectiveCsvId] = useState<string | null>(null);
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -151,6 +154,9 @@ export default function Home() {
     dashboardRef,
     onSaved: handleSaved,
   });
+
+  // Page-level artifacts — uses effectiveCsvId reported by ResponsePanel
+  const pageArtifacts = useArtifacts({ csvId: effectiveCsvId });
 
   // Sync refs for save/export (must be in effect, not render)
   useEffect(() => {
@@ -488,7 +494,14 @@ export default function Home() {
                   )}
                 </div>
                 <button
-                  onClick={() => artifactsToggleRef.current?.()}
+                  onClick={async () => {
+                    if (!showArtifactsPanel) {
+                      await pageArtifacts.handleToggleArtifacts();
+                      setShowArtifactsPanel(true);
+                    } else {
+                      setShowArtifactsPanel(false);
+                    }
+                  }}
                   className="p-1 text-t-secondary hover:text-accent transition-colors"
                   title="View artifacts (SQL, code, data)"
                 >
@@ -758,13 +771,25 @@ export default function Home() {
                   purpose={purpose}
                   onRerun={handleRerunFromToolbar}
                   loadedVizId={loadedVizId}
-                  artifactsToggleRef={artifactsToggleRef}
+                  onEffectiveCsvIdChange={setEffectiveCsvId}
                 />
               </div>
             </div>
           )}
         </main>
       </MainContent>
+
+      {/* Artifacts Panel — bottom sheet per design spec */}
+      <ArtifactsPanel
+        open={showArtifactsPanel}
+        fullscreen={artifactsFullscreen}
+        onClose={() => setShowArtifactsPanel(false)}
+        onToggleFullscreen={() => setArtifactsFullscreen((f) => !f)}
+        artifacts={{
+          sql: pageArtifacts.artifacts?.sql ?? loadedArtifacts?.sql ?? undefined,
+          code: pageArtifacts.artifacts?.code ?? loadedArtifacts?.code ?? undefined,
+        }}
+      />
     </>
   );
 }

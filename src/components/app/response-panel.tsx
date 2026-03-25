@@ -45,8 +45,8 @@ interface ResponsePanelProps {
   onRerun?: () => void;
   loadedVizId?: string | null;
   onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
-  /** Ref for parent to imperatively toggle artifacts */
-  artifactsToggleRef?: React.MutableRefObject<(() => void) | null>;
+  /** Report the effective csvId (includes warehouse-generated csvId) */
+  onEffectiveCsvIdChange?: (csvId: string | null) => void;
 }
 
 export function ResponsePanel({
@@ -66,7 +66,7 @@ export function ResponsePanel({
   onRerun,
   loadedVizId,
   onArtifactsChange,
-  artifactsToggleRef,
+  onEffectiveCsvIdChange,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   const currentSpecRef = useRef<Spec | null>(null);
@@ -248,13 +248,10 @@ export function ResponsePanel({
     onArtifactsChange?.(artifacts);
   }, [artifacts, onArtifactsChange]);
 
-  // Expose artifacts toggle to parent via ref
+  // Report effectiveCsvId to parent (needed for page-level artifacts panel)
   useEffect(() => {
-    if (artifactsToggleRef) artifactsToggleRef.current = handleToggleArtifacts;
-    return () => {
-      if (artifactsToggleRef) artifactsToggleRef.current = null;
-    };
-  }, [artifactsToggleRef, handleToggleArtifacts]);
+    onEffectiveCsvIdChange?.(effectiveCsvId);
+  }, [effectiveCsvId, onEffectiveCsvIdChange]);
 
   const handleBackWithRestore = useCallback(
     (toIndex: number) => {
