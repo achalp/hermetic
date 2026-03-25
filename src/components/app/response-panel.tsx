@@ -537,55 +537,56 @@ function PipelineProgress({
   const isRetrying = progress.stage === "retrying";
 
   return (
-    <div
-      className="flex flex-col items-center py-16 space-y-1.5 text-sm"
-      role="status"
-      aria-live="polite"
-    >
-      {pipelineSteps.map((step, i) => {
-        const stepNum = i + 1;
-        const isCompleted = stepNum < currentStep;
-        const isUpcoming = stepNum > currentStep;
+    <div className="flex justify-center py-16" role="status" aria-live="polite">
+      <div
+        className="grid gap-x-8 gap-y-1.5 text-sm"
+        style={{ gridTemplateColumns: "repeat(2, auto)" }}
+      >
+        {pipelineSteps.map((step, i) => {
+          const stepNum = i + 1;
+          const isCompleted = stepNum < currentStep;
+          const isUpcoming = stepNum > currentStep;
 
-        if (isUpcoming) {
+          if (isUpcoming) {
+            return (
+              <div key={step.stage} className="flex items-center gap-2 text-t-tertiary">
+                <span className="inline-block h-4 w-4" />
+                {step.label}
+              </div>
+            );
+          }
+
+          if (isCompleted) {
+            return (
+              <div key={step.stage} className="flex items-center gap-2 text-t-secondary">
+                <svg
+                  className="h-4 w-4 text-success-text"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                {step.label}
+              </div>
+            );
+          }
+
+          // Active
+          const retryStep = isWarehousePipeline ? 4 : 2;
+          const label = isRetrying && stepNum === retryStep ? RETRYING_LABEL : step.activeLabel;
           return (
-            <div key={step.stage} className="flex items-center gap-2 text-t-tertiary">
-              <span className="inline-block h-4 w-4" />
-              {step.label}
+            <div key={step.stage} className="flex items-center gap-2 text-accent font-medium">
+              <SpinnerIcon />
+              {label}
             </div>
           );
-        }
-
-        if (isCompleted) {
-          return (
-            <div key={step.stage} className="flex items-center gap-2 text-t-secondary">
-              <svg
-                className="h-4 w-4 text-success-text"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              {step.label}
-            </div>
-          );
-        }
-
-        // Active
-        const retryStep = isWarehousePipeline ? 4 : 2;
-        const label = isRetrying && stepNum === retryStep ? RETRYING_LABEL : step.activeLabel;
-        return (
-          <div key={step.stage} className="flex items-center gap-2 text-accent font-medium">
-            <SpinnerIcon />
-            {label}
-          </div>
-        );
-      })}
+        })}
+      </div>
     </div>
   );
 }
