@@ -992,75 +992,38 @@ body {
   background: var(--color-accent-subtle) !important;
 }
 
-/* Force dark-surface styling for local-backend section inside the settings drawer */
-.dark-surface-override,
-.dark-surface-override input,
-.dark-surface-override select,
-.dark-surface-override textarea,
-.dark-surface-override button {
-  color: var(--color-surface-dark-text);
-}
-.dark-surface-override .text-t-primary {
-  color: var(--color-surface-dark-text) !important;
-}
-.dark-surface-override .text-t-secondary {
-  color: var(--color-surface-dark-text2) !important;
-}
-.dark-surface-override .text-t-tertiary {
-  color: var(--color-surface-dark-text3) !important;
-}
-.dark-surface-override .bg-surface-input,
-.dark-surface-override input,
-.dark-surface-override select {
-  background: var(--color-surface-dark-2) !important;
-  border-color: var(--color-surface-dark-3) !important;
-}
-.dark-surface-override .border-border-default {
-  border-color: var(--color-surface-dark-3) !important;
-}
-.dark-surface-override .bg-accent-subtle {
-  background: rgba(5, 150, 105, 0.15) !important;
-}
-.dark-surface-override .text-accent-text {
-  color: var(--color-accent) !important;
-}
-/* ArtifactsViewer overrides for dark bottom sheet */
-.dark-surface-override .theme-card,
-.dark-surface-override .bg-surface-1 {
-  background: var(--color-surface-dark-2) !important;
-  border-color: var(--color-surface-dark-3) !important;
-}
-.dark-surface-override .bg-table-header-bg {
-  background: var(--color-surface-dark-3) !important;
-}
-.dark-surface-override .border-table-divider {
-  border-color: var(--color-surface-dark-3) !important;
-}
-.dark-surface-override .text-t-btn {
-  color: var(--color-surface-dark-text2) !important;
-}
-.dark-surface-override .bg-surface-btn {
-  background: var(--color-surface-dark-3) !important;
-}
-.dark-surface-override .bg-surface-btn-hover {
-  background: var(--color-surface-dark-3) !important;
-}
-.dark-surface-override .text-accent {
-  color: var(--color-accent) !important;
-}
-.dark-surface-override .border-accent {
-  border-color: var(--color-accent) !important;
-}
-.dark-surface-override .text-success-text {
-  color: #10b981 !important;
-}
-.dark-surface-override .text-error-text {
-  color: #f87171 !important;
-}
-.dark-surface-override pre,
-.dark-surface-override code {
-  background: transparent !important;
-  color: var(--color-surface-dark-text2) !important;
+/* ═══════════════════════════════════════════════════════════
+   Dark surface override — always-dark context for drawers,
+   rails, and the artifacts bottom sheet. Reassigns CSS custom
+   properties so ALL Tailwind utilities resolve to dark values
+   within this scope. Mode-independent (stays dark in light mode).
+   ═══════════════════════════════════════════════════════════ */
+.dark-surface-override {
+  --color-surface-0: var(--color-surface-dark);
+  --color-surface-1: var(--color-surface-dark-2);
+  --color-surface-2: var(--color-surface-dark-3);
+  --color-t-primary: var(--color-surface-dark-text);
+  --color-t-secondary: var(--color-surface-dark-text2);
+  --color-t-tertiary: var(--color-surface-dark-text3);
+  --color-border-default: var(--color-surface-dark-3);
+  --color-table-header-bg: var(--color-surface-dark-3);
+  --color-table-divider: var(--color-surface-dark-3);
+  --color-table-row-hover: var(--color-surface-dark-2);
+  --color-surface-btn: var(--color-surface-dark-3);
+  --color-surface-btn-hover: var(--color-surface-dark-2);
+  --color-t-btn: var(--color-surface-dark-text2);
+  --color-surface-input: var(--color-surface-dark-2);
+  --color-surface-dropdown: var(--color-surface-dark-2);
+  --color-accent-subtle: rgba(5, 150, 105, 0.15);
+  --bg-page: var(--color-surface-dark);
+  --bg-panel: var(--color-surface-dark);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
+  /* Syntax highlighting: always bright-on-dark */
+  --syntax-comment: #9ca3af;
+  --syntax-string: #4ade80;
+  --syntax-keyword: #c084fc;
+  --syntax-builtin: #60a5fa;
+  --syntax-number: #fbbf24;
 }
 
 /* ═══════════════════════════════════════════════════════════
