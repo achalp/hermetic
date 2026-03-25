@@ -785,10 +785,7 @@ export default function Home() {
         fullscreen={artifactsFullscreen}
         onClose={() => setShowArtifactsPanel(false)}
         onToggleFullscreen={() => setArtifactsFullscreen((f) => !f)}
-        artifacts={{
-          sql: pageArtifacts.artifacts?.sql ?? loadedArtifacts?.sql ?? undefined,
-          code: pageArtifacts.artifacts?.code ?? loadedArtifacts?.code ?? undefined,
-        }}
+        artifacts={pageArtifacts.artifacts ?? loadedArtifacts ?? null}
       />
     </>
   );
