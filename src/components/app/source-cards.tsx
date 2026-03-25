@@ -83,7 +83,7 @@ export function SourceCards({ onFileDrop, onWarehouseClick }: SourceCardsProps) 
           Connect a warehouse
         </span>
         <span style={{ fontSize: 13, color: "var(--color-t-secondary)" }}>
-          PostgreSQL &middot; BigQuery &middot; ClickHouse &middot; Trino
+          PostgreSQL &middot; BigQuery &middot; ClickHouse &middot; Trino &middot; Hive
         </span>
       </button>
     </div>
