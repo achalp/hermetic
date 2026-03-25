@@ -1025,6 +1025,10 @@ body {
   --syntax-builtin: #60a5fa;
   --syntax-number: #fbbf24;
 }
+.dark-surface-override pre,
+.dark-surface-override code {
+  background: transparent;
+}
 
 /* ═══════════════════════════════════════════════════════════
    Focus-visible ring for keyboard navigation
