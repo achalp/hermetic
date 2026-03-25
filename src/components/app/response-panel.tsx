@@ -45,6 +45,8 @@ interface ResponsePanelProps {
   onRerun?: () => void;
   loadedVizId?: string | null;
   onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
+  /** Ref for parent to imperatively toggle artifacts */
+  artifactsToggleRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export function ResponsePanel({
@@ -64,6 +66,7 @@ export function ResponsePanel({
   onRerun,
   loadedVizId,
   onArtifactsChange,
+  artifactsToggleRef,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   const currentSpecRef = useRef<Spec | null>(null);
@@ -244,6 +247,14 @@ export function ResponsePanel({
   useEffect(() => {
     onArtifactsChange?.(artifacts);
   }, [artifacts, onArtifactsChange]);
+
+  // Expose artifacts toggle to parent via ref
+  useEffect(() => {
+    if (artifactsToggleRef) artifactsToggleRef.current = handleToggleArtifacts;
+    return () => {
+      if (artifactsToggleRef) artifactsToggleRef.current = null;
+    };
+  }, [artifactsToggleRef, handleToggleArtifacts]);
 
   const handleBackWithRestore = useCallback(
     (toIndex: number) => {
