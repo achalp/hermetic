@@ -23,6 +23,7 @@ import { useSaveExport } from "@/hooks/use-save-export";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { generateSuggestions, generateWarehouseSuggestions } from "@/lib/suggest-questions";
+import { AnalysisHistory, type HistoryEntry } from "@/components/app/analysis-history";
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -119,6 +120,7 @@ export default function Home() {
   const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
   const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
   const [effectiveCsvId, setEffectiveCsvId] = useState<string | null>(null);
+  const [analysisHistory, setAnalysisHistory] = useState<HistoryEntry[]>([]);
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -795,6 +797,13 @@ export default function Home() {
               This prevents mount/unmount cycles that abort in-flight streams. */}
           {hasData && (
             <div className={isState3 || isState4 ? "py-8" : "hidden"}>
+              {/* Analysis history — shows previous question/result pairs */}
+              {isState4 && analysisHistory.length > 1 && (
+                <AnalysisHistory
+                  entries={analysisHistory.slice(0, -1)}
+                  onReplay={handleGuardedQuery}
+                />
+              )}
               {/* Follow-up question input — ABOVE results for quick access */}
               {isState4 && !isAnalyzing && (
                 <div className="mb-6 w-full max-w-[700px] mx-auto">
@@ -823,6 +832,9 @@ export default function Home() {
                   onRerun={handleRerunFromToolbar}
                   loadedVizId={loadedVizId}
                   onEffectiveCsvIdChange={setEffectiveCsvId}
+                  onAnalysisComplete={(entry) =>
+                    setAnalysisHistory((prev) => [...prev, { ...entry, timestamp: Date.now() }])
+                  }
                 />
               </div>
             </div>

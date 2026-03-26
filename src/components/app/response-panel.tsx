@@ -45,8 +45,8 @@ interface ResponsePanelProps {
   onRerun?: () => void;
   loadedVizId?: string | null;
   onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
-  /** Report the effective csvId (includes warehouse-generated csvId) */
   onEffectiveCsvIdChange?: (csvId: string | null) => void;
+  onAnalysisComplete?: (entry: { question: string; spec: Spec }) => void;
 }
 
 export function ResponsePanel({
@@ -67,6 +67,7 @@ export function ResponsePanel({
   loadedVizId,
   onArtifactsChange,
   onEffectiveCsvIdChange,
+  onAnalysisComplete,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   const currentSpecRef = useRef<Spec | null>(null);
@@ -82,6 +83,12 @@ export function ResponsePanel({
       currentSpecRef.current = completedSpec;
       setPreviousSpec(null);
       onStreamEnd?.();
+      if (completedSpec?.root && currentQuestionRef.current) {
+        onAnalysisComplete?.({
+          question: currentQuestionRef.current,
+          spec: JSON.parse(JSON.stringify(completedSpec)),
+        });
+      }
     },
     onError: () => {
       setPreviousSpec(null);
