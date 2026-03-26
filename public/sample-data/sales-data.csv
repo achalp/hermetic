@@ -1,0 +1,507 @@
+date,region,product,channel,revenue,units,customer_segment,deal_stage,sales_rep
+2023-01-01,North America,Enterprise Suite,Direct,98234.50,9,Enterprise,Won,Sarah Chen
+2023-01-01,Europe,Growth Plan,Partner,34521.00,28,SMB,Won,James Wilson
+2023-01-01,Asia Pacific,Starter Kit,Online,4120.75,78,Consumer,Won,Maria Garcia
+2023-01-01,North America,Pro Tools,Direct,62480.00,15,Enterprise,Won,Alex Kim
+2023-01-01,Latin America,Starter Kit,Online,2890.50,52,Consumer,Won,David Brown
+2023-01-01,Europe,Enterprise Suite,Partner,71230.00,6,Enterprise,Won,Lisa Park
+2023-01-01,Middle East,Growth Plan,Online,18450.25,16,SMB,Lost,Michael Torres
+2023-01-01,North America,Starter Kit,Online,6540.00,95,Consumer,Won,Rachel Adams
+2023-01-01,Asia Pacific,Pro Tools,Partner,35670.80,11,SMB,Won,Sarah Chen
+2023-01-01,North America,Growth Plan,Direct,42100.00,24,Enterprise,Won,James Wilson
+2023-01-01,Europe,Starter Kit,Online,5230.40,82,Consumer,Won,Maria Garcia
+2023-01-01,Latin America,Pro Tools,Partner,22340.00,8,SMB,Pending,Alex Kim
+2023-01-01,Middle East,Enterprise Suite,Direct,54200.00,4,Enterprise,Won,David Brown
+2023-01-01,North America,Growth Plan,Partner,38760.50,21,SMB,Won,Lisa Park
+2023-01-01,Asia Pacific,Enterprise Suite,Direct,67890.00,5,Enterprise,Won,Michael Torres
+2023-01-01,Europe,Pro Tools,Direct,51230.75,14,Enterprise,Won,Rachel Adams
+2023-01-01,North America,Starter Kit,Online,7120.00,102,Consumer,Lost,Sarah Chen
+2023-01-01,Latin America,Growth Plan,Online,15680.25,14,SMB,Won,James Wilson
+2023-01-01,Middle East,Starter Kit,Online,3210.00,58,Consumer,Won,Maria Garcia
+2023-01-01,Asia Pacific,Growth Plan,Partner,26540.00,19,SMB,Won,Alex Kim
+2023-01-01,North America,Enterprise Suite,Direct,112450.00,11,Enterprise,Won,David Brown
+2023-02-01,North America,Enterprise Suite,Direct,105670.25,10,Enterprise,Won,Lisa Park
+2023-02-01,Europe,Growth Plan,Partner,37890.00,30,SMB,Won,Michael Torres
+2023-02-01,Asia Pacific,Starter Kit,Online,4560.50,84,Consumer,Won,Rachel Adams
+2023-02-01,North America,Pro Tools,Direct,68920.00,16,Enterprise,Won,Sarah Chen
+2023-02-01,Latin America,Enterprise Suite,Direct,48750.00,3,Enterprise,Won,James Wilson
+2023-02-01,Europe,Starter Kit,Online,5670.80,88,Consumer,Won,Maria Garcia
+2023-02-01,Middle East,Pro Tools,Partner,28450.00,10,SMB,Won,Alex Kim
+2023-02-01,North America,Growth Plan,Online,44230.50,26,SMB,Won,David Brown
+2023-02-01,Asia Pacific,Enterprise Suite,Partner,72340.00,6,Enterprise,Lost,Lisa Park
+2023-02-01,North America,Starter Kit,Online,7890.25,108,Consumer,Won,Michael Torres
+2023-02-01,Europe,Pro Tools,Direct,55670.00,15,SMB,Won,Rachel Adams
+2023-02-01,Latin America,Growth Plan,Online,16340.75,13,SMB,Won,Sarah Chen
+2023-02-01,Middle East,Enterprise Suite,Direct,58900.00,5,Enterprise,Won,James Wilson
+2023-02-01,North America,Pro Tools,Partner,71240.00,18,Enterprise,Won,Maria Garcia
+2023-02-01,Asia Pacific,Growth Plan,Partner,28910.50,20,SMB,Pending,Alex Kim
+2023-02-01,Europe,Enterprise Suite,Direct,82340.00,7,Enterprise,Won,David Brown
+2023-02-01,North America,Growth Plan,Direct,46780.00,27,Enterprise,Won,Lisa Park
+2023-02-01,Latin America,Starter Kit,Online,3120.25,56,Consumer,Won,Michael Torres
+2023-02-01,Middle East,Growth Plan,Online,19870.00,15,SMB,Won,Rachel Adams
+2023-02-01,Asia Pacific,Pro Tools,Direct,38450.50,12,SMB,Won,Sarah Chen
+2023-02-01,North America,Enterprise Suite,Partner,95600.00,8,Enterprise,Won,James Wilson
+2023-03-01,North America,Enterprise Suite,Direct,118450.00,11,Enterprise,Won,Maria Garcia
+2023-03-01,Europe,Growth Plan,Partner,41230.50,32,SMB,Won,Alex Kim
+2023-03-01,Asia Pacific,Starter Kit,Online,5120.75,92,Consumer,Won,David Brown
+2023-03-01,North America,Pro Tools,Direct,74560.00,17,Enterprise,Won,Lisa Park
+2023-03-01,Latin America,Enterprise Suite,Partner,52340.00,4,Enterprise,Won,Michael Torres
+2023-03-01,Europe,Starter Kit,Online,6230.40,94,Consumer,Won,Rachel Adams
+2023-03-01,Middle East,Pro Tools,Partner,31240.00,11,SMB,Won,Sarah Chen
+2023-03-01,North America,Growth Plan,Direct,48900.25,28,Enterprise,Won,James Wilson
+2023-03-01,Asia Pacific,Enterprise Suite,Direct,78450.00,6,Enterprise,Won,Maria Garcia
+2023-03-01,North America,Starter Kit,Online,8340.50,112,Consumer,Won,Alex Kim
+2023-03-01,Europe,Pro Tools,Direct,58670.00,16,SMB,Won,David Brown
+2023-03-01,Latin America,Growth Plan,Online,18230.75,15,SMB,Lost,Lisa Park
+2023-03-01,Middle East,Enterprise Suite,Direct,62340.00,5,Enterprise,Won,Michael Torres
+2023-03-01,North America,Pro Tools,Partner,76890.00,19,Enterprise,Won,Rachel Adams
+2023-03-01,Asia Pacific,Growth Plan,Partner,31240.50,22,SMB,Won,Sarah Chen
+2023-03-01,Europe,Enterprise Suite,Direct,89670.00,8,Enterprise,Won,James Wilson
+2023-03-01,North America,Growth Plan,Online,50120.00,29,SMB,Won,Maria Garcia
+2023-03-01,Latin America,Starter Kit,Online,3450.25,60,Consumer,Won,Alex Kim
+2023-03-01,Middle East,Growth Plan,Partner,21340.00,16,SMB,Pending,David Brown
+2023-03-01,Asia Pacific,Pro Tools,Direct,41230.80,13,Enterprise,Won,Lisa Park
+2023-03-01,North America,Enterprise Suite,Direct,124560.00,12,Enterprise,Won,Michael Torres
+2023-04-01,North America,Enterprise Suite,Direct,128340.50,12,Enterprise,Won,Rachel Adams
+2023-04-01,Europe,Growth Plan,Partner,44560.00,34,SMB,Won,Sarah Chen
+2023-04-01,Asia Pacific,Starter Kit,Online,5560.75,96,Consumer,Won,James Wilson
+2023-04-01,North America,Pro Tools,Direct,78920.00,18,Enterprise,Won,Maria Garcia
+2023-04-01,Latin America,Enterprise Suite,Direct,55670.00,4,Enterprise,Won,Alex Kim
+2023-04-01,Europe,Starter Kit,Online,6780.40,98,Consumer,Won,David Brown
+2023-04-01,Middle East,Pro Tools,Partner,33450.25,12,SMB,Won,Lisa Park
+2023-04-01,North America,Growth Plan,Direct,52340.00,30,Enterprise,Won,Michael Torres
+2023-04-01,Asia Pacific,Enterprise Suite,Partner,82340.00,7,Enterprise,Won,Rachel Adams
+2023-04-01,North America,Starter Kit,Online,8890.50,116,Consumer,Won,Sarah Chen
+2023-04-01,Europe,Pro Tools,Direct,61230.75,17,SMB,Won,James Wilson
+2023-04-01,Latin America,Growth Plan,Online,19560.00,16,SMB,Won,Maria Garcia
+2023-04-01,Middle East,Enterprise Suite,Direct,65890.00,5,Enterprise,Lost,Alex Kim
+2023-04-01,North America,Pro Tools,Partner,81240.00,20,Enterprise,Won,David Brown
+2023-04-01,Asia Pacific,Growth Plan,Online,33450.50,23,SMB,Won,Lisa Park
+2023-04-01,Europe,Enterprise Suite,Direct,94560.00,8,Enterprise,Won,Michael Torres
+2023-04-01,North America,Growth Plan,Partner,53890.25,31,SMB,Won,Rachel Adams
+2023-04-01,Latin America,Starter Kit,Online,3780.00,62,Consumer,Won,Sarah Chen
+2023-04-01,Middle East,Growth Plan,Partner,22890.50,17,SMB,Won,James Wilson
+2023-04-01,Asia Pacific,Pro Tools,Direct,43560.00,14,SMB,Won,Maria Garcia
+2023-04-01,North America,Enterprise Suite,Direct,132450.00,13,Enterprise,Won,Alex Kim
+2023-05-01,North America,Enterprise Suite,Direct,138670.25,13,Enterprise,Won,David Brown
+2023-05-01,Europe,Growth Plan,Partner,47230.00,36,SMB,Won,Lisa Park
+2023-05-01,Asia Pacific,Starter Kit,Online,5980.50,100,Consumer,Won,Michael Torres
+2023-05-01,North America,Pro Tools,Direct,83450.00,19,Enterprise,Won,Rachel Adams
+2023-05-01,Latin America,Enterprise Suite,Partner,58340.00,4,Enterprise,Won,Sarah Chen
+2023-05-01,Europe,Starter Kit,Online,7120.80,102,Consumer,Won,James Wilson
+2023-05-01,Middle East,Pro Tools,Partner,35670.00,13,SMB,Won,Maria Garcia
+2023-05-01,North America,Growth Plan,Direct,55670.25,32,Enterprise,Won,Alex Kim
+2023-05-01,Asia Pacific,Enterprise Suite,Direct,86780.00,7,Enterprise,Won,David Brown
+2023-05-01,North America,Starter Kit,Online,9340.50,120,Consumer,Pending,Lisa Park
+2023-05-01,Europe,Pro Tools,Direct,64560.75,18,SMB,Won,Michael Torres
+2023-05-01,Latin America,Growth Plan,Online,20890.00,17,SMB,Won,Rachel Adams
+2023-05-01,Middle East,Enterprise Suite,Direct,69230.00,6,Enterprise,Won,Sarah Chen
+2023-05-01,North America,Pro Tools,Partner,85670.00,21,Enterprise,Won,James Wilson
+2023-05-01,Asia Pacific,Growth Plan,Partner,35230.50,24,SMB,Won,Maria Garcia
+2023-05-01,Europe,Enterprise Suite,Direct,98900.00,9,Enterprise,Won,Alex Kim
+2023-05-01,North America,Growth Plan,Online,57340.00,33,SMB,Won,David Brown
+2023-05-01,Latin America,Starter Kit,Online,4120.25,66,Consumer,Won,Lisa Park
+2023-05-01,Middle East,Growth Plan,Partner,24560.00,18,SMB,Lost,Michael Torres
+2023-05-01,Asia Pacific,Pro Tools,Direct,46230.80,15,Enterprise,Won,Rachel Adams
+2023-05-01,North America,Enterprise Suite,Direct,142340.00,14,Enterprise,Won,Sarah Chen
+2023-06-01,North America,Enterprise Suite,Direct,148900.50,14,Enterprise,Won,James Wilson
+2023-06-01,Europe,Growth Plan,Partner,49670.00,38,SMB,Won,Maria Garcia
+2023-06-01,Asia Pacific,Starter Kit,Online,6340.75,104,Consumer,Won,Alex Kim
+2023-06-01,North America,Pro Tools,Direct,87890.00,20,Enterprise,Won,David Brown
+2023-06-01,Latin America,Enterprise Suite,Direct,61230.00,5,Enterprise,Won,Lisa Park
+2023-06-01,Europe,Starter Kit,Online,7560.40,106,Consumer,Won,Michael Torres
+2023-06-01,Middle East,Pro Tools,Partner,37890.25,14,SMB,Won,Rachel Adams
+2023-06-01,North America,Growth Plan,Direct,58900.00,34,Enterprise,Won,Sarah Chen
+2023-06-01,Asia Pacific,Enterprise Suite,Partner,91230.00,8,Enterprise,Won,James Wilson
+2023-06-01,North America,Starter Kit,Online,9780.50,124,Consumer,Won,Maria Garcia
+2023-06-01,Europe,Pro Tools,Direct,67890.75,19,SMB,Won,Alex Kim
+2023-06-01,Latin America,Growth Plan,Online,22340.00,18,SMB,Won,David Brown
+2023-06-01,Middle East,Enterprise Suite,Direct,72560.00,6,Enterprise,Won,Lisa Park
+2023-06-01,North America,Pro Tools,Partner,89450.00,22,Enterprise,Won,Michael Torres
+2023-06-01,Asia Pacific,Growth Plan,Online,37450.50,25,SMB,Won,Rachel Adams
+2023-06-01,Europe,Enterprise Suite,Direct,103450.00,9,Enterprise,Won,Sarah Chen
+2023-06-01,North America,Growth Plan,Partner,60120.25,35,SMB,Won,James Wilson
+2023-06-01,Latin America,Starter Kit,Online,4450.00,68,Consumer,Pending,Maria Garcia
+2023-06-01,Middle East,Growth Plan,Partner,26120.50,19,SMB,Won,Alex Kim
+2023-06-01,Asia Pacific,Pro Tools,Direct,48670.00,16,SMB,Won,David Brown
+2023-06-01,North America,Enterprise Suite,Direct,152340.00,15,Enterprise,Won,Lisa Park
+2023-07-01,North America,Enterprise Suite,Direct,134560.25,13,Enterprise,Won,Michael Torres
+2023-07-01,Europe,Growth Plan,Partner,44890.00,33,SMB,Won,Rachel Adams
+2023-07-01,Asia Pacific,Starter Kit,Online,5670.50,94,Consumer,Won,Sarah Chen
+2023-07-01,North America,Pro Tools,Direct,79230.00,18,Enterprise,Won,James Wilson
+2023-07-01,Latin America,Enterprise Suite,Direct,54890.00,4,Enterprise,Lost,Maria Garcia
+2023-07-01,Europe,Starter Kit,Online,6890.80,96,Consumer,Won,Alex Kim
+2023-07-01,Middle East,Pro Tools,Partner,34120.00,12,SMB,Won,David Brown
+2023-07-01,North America,Growth Plan,Direct,53230.25,31,Enterprise,Won,Lisa Park
+2023-07-01,Asia Pacific,Enterprise Suite,Partner,82560.00,7,Enterprise,Won,Michael Torres
+2023-07-01,North America,Starter Kit,Online,8670.50,114,Consumer,Won,Rachel Adams
+2023-07-01,Europe,Pro Tools,Direct,61560.75,17,SMB,Won,Sarah Chen
+2023-07-01,Latin America,Growth Plan,Online,19890.00,16,SMB,Won,James Wilson
+2023-07-01,Middle East,Enterprise Suite,Direct,66340.00,5,Enterprise,Won,Maria Garcia
+2023-07-01,North America,Pro Tools,Partner,82340.00,20,Enterprise,Won,Alex Kim
+2023-07-01,Asia Pacific,Growth Plan,Partner,32120.50,22,SMB,Won,David Brown
+2023-07-01,Europe,Enterprise Suite,Direct,91230.00,8,Enterprise,Won,Lisa Park
+2023-07-01,North America,Growth Plan,Online,54890.00,32,SMB,Won,Michael Torres
+2023-07-01,Latin America,Starter Kit,Online,3560.25,60,Consumer,Won,Rachel Adams
+2023-07-01,Middle East,Growth Plan,Online,23120.00,17,SMB,Won,Sarah Chen
+2023-07-01,Asia Pacific,Pro Tools,Direct,42340.80,14,Enterprise,Won,James Wilson
+2023-07-01,North America,Enterprise Suite,Direct,138900.00,14,Enterprise,Won,Maria Garcia
+2023-08-01,North America,Enterprise Suite,Direct,126890.50,12,Enterprise,Won,Alex Kim
+2023-08-01,Europe,Growth Plan,Partner,42340.00,31,SMB,Won,David Brown
+2023-08-01,Asia Pacific,Starter Kit,Online,5340.75,90,Consumer,Won,Lisa Park
+2023-08-01,North America,Pro Tools,Direct,75670.00,17,Enterprise,Won,Michael Torres
+2023-08-01,Latin America,Enterprise Suite,Partner,51230.00,3,Enterprise,Won,Rachel Adams
+2023-08-01,Europe,Starter Kit,Online,6560.40,92,Consumer,Won,Sarah Chen
+2023-08-01,Middle East,Pro Tools,Partner,32340.25,11,SMB,Lost,James Wilson
+2023-08-01,North America,Growth Plan,Direct,50890.00,29,Enterprise,Won,Maria Garcia
+2023-08-01,Asia Pacific,Enterprise Suite,Direct,78900.00,6,Enterprise,Won,Alex Kim
+2023-08-01,North America,Starter Kit,Online,8230.50,110,Consumer,Won,David Brown
+2023-08-01,Europe,Pro Tools,Direct,58670.75,16,SMB,Won,Lisa Park
+2023-08-01,Latin America,Growth Plan,Online,18890.00,15,SMB,Won,Michael Torres
+2023-08-01,Middle East,Enterprise Suite,Direct,63450.00,5,Enterprise,Won,Rachel Adams
+2023-08-01,North America,Pro Tools,Partner,78560.00,19,Enterprise,Won,Sarah Chen
+2023-08-01,Asia Pacific,Growth Plan,Partner,30340.50,21,SMB,Won,James Wilson
+2023-08-01,Europe,Enterprise Suite,Direct,87560.00,7,Enterprise,Won,Maria Garcia
+2023-08-01,North America,Growth Plan,Online,52120.25,30,SMB,Won,Alex Kim
+2023-08-01,Latin America,Starter Kit,Online,3340.00,58,Consumer,Pending,David Brown
+2023-08-01,Middle East,Growth Plan,Partner,21890.50,16,SMB,Won,Lisa Park
+2023-08-01,Asia Pacific,Pro Tools,Direct,40120.00,13,SMB,Won,Michael Torres
+2023-08-01,North America,Enterprise Suite,Direct,131230.00,13,Enterprise,Won,Rachel Adams
+2023-09-01,North America,Enterprise Suite,Direct,148670.25,14,Enterprise,Won,Sarah Chen
+2023-09-01,Europe,Growth Plan,Partner,49450.00,37,SMB,Won,James Wilson
+2023-09-01,Asia Pacific,Starter Kit,Online,6230.50,103,Consumer,Won,Maria Garcia
+2023-09-01,North America,Pro Tools,Direct,87340.00,20,Enterprise,Won,Alex Kim
+2023-09-01,Latin America,Enterprise Suite,Direct,60890.00,5,Enterprise,Won,David Brown
+2023-09-01,Europe,Starter Kit,Online,7450.80,105,Consumer,Won,Lisa Park
+2023-09-01,Middle East,Pro Tools,Partner,37560.00,13,SMB,Won,Michael Torres
+2023-09-01,North America,Growth Plan,Direct,58340.25,33,Enterprise,Won,Rachel Adams
+2023-09-01,Asia Pacific,Enterprise Suite,Partner,90120.00,8,Enterprise,Won,Sarah Chen
+2023-09-01,North America,Starter Kit,Online,9670.50,122,Consumer,Won,James Wilson
+2023-09-01,Europe,Pro Tools,Direct,67230.75,19,SMB,Won,Maria Garcia
+2023-09-01,Latin America,Growth Plan,Online,22120.00,18,SMB,Won,Alex Kim
+2023-09-01,Middle East,Enterprise Suite,Direct,71890.00,6,Enterprise,Lost,David Brown
+2023-09-01,North America,Pro Tools,Partner,88670.00,21,Enterprise,Won,Lisa Park
+2023-09-01,Asia Pacific,Growth Plan,Online,36890.50,25,SMB,Won,Michael Torres
+2023-09-01,Europe,Enterprise Suite,Direct,102340.00,9,Enterprise,Won,Rachel Adams
+2023-09-01,North America,Growth Plan,Partner,59560.00,34,SMB,Won,Sarah Chen
+2023-09-01,Latin America,Starter Kit,Online,4340.25,67,Consumer,Won,James Wilson
+2023-09-01,Middle East,Growth Plan,Partner,25890.50,18,SMB,Won,Maria Garcia
+2023-09-01,Asia Pacific,Pro Tools,Direct,48120.80,16,Enterprise,Won,Alex Kim
+2023-09-01,North America,Enterprise Suite,Direct,151890.00,15,Enterprise,Won,David Brown
+2023-10-01,North America,Enterprise Suite,Direct,162340.50,15,Enterprise,Won,Lisa Park
+2023-10-01,Europe,Growth Plan,Partner,54230.00,40,SMB,Won,Michael Torres
+2023-10-01,Asia Pacific,Starter Kit,Online,6890.75,110,Consumer,Won,Rachel Adams
+2023-10-01,North America,Pro Tools,Direct,95670.00,22,Enterprise,Won,Sarah Chen
+2023-10-01,Latin America,Enterprise Suite,Direct,66780.00,5,Enterprise,Won,James Wilson
+2023-10-01,Europe,Starter Kit,Online,8120.40,112,Consumer,Won,Maria Garcia
+2023-10-01,Middle East,Pro Tools,Partner,41230.25,15,SMB,Won,Alex Kim
+2023-10-01,North America,Growth Plan,Direct,63890.00,36,Enterprise,Won,David Brown
+2023-10-01,Asia Pacific,Enterprise Suite,Partner,98670.00,9,Enterprise,Won,Lisa Park
+2023-10-01,North America,Starter Kit,Online,10560.50,130,Consumer,Won,Michael Torres
+2023-10-01,Europe,Pro Tools,Direct,73450.75,20,SMB,Won,Rachel Adams
+2023-10-01,Latin America,Growth Plan,Online,24230.00,19,SMB,Pending,Sarah Chen
+2023-10-01,Middle East,Enterprise Suite,Direct,78560.00,6,Enterprise,Won,James Wilson
+2023-10-01,North America,Pro Tools,Partner,96890.00,23,Enterprise,Won,Maria Garcia
+2023-10-01,Asia Pacific,Growth Plan,Partner,40230.50,27,SMB,Won,Alex Kim
+2023-10-01,Europe,Enterprise Suite,Direct,112340.00,10,Enterprise,Won,David Brown
+2023-10-01,North America,Growth Plan,Online,65120.25,37,SMB,Won,Lisa Park
+2023-10-01,Latin America,Starter Kit,Online,4780.00,72,Consumer,Won,Michael Torres
+2023-10-01,Middle East,Growth Plan,Partner,28340.50,19,SMB,Won,Rachel Adams
+2023-10-01,Asia Pacific,Pro Tools,Direct,52670.80,17,Enterprise,Won,Sarah Chen
+2023-10-01,North America,Enterprise Suite,Direct,168450.00,16,Enterprise,Won,James Wilson
+2023-11-01,North America,Enterprise Suite,Direct,178560.25,17,Enterprise,Won,Maria Garcia
+2023-11-01,Europe,Growth Plan,Partner,59120.00,43,SMB,Won,Alex Kim
+2023-11-01,Asia Pacific,Starter Kit,Online,7560.50,118,Consumer,Won,David Brown
+2023-11-01,North America,Pro Tools,Direct,104230.00,24,Enterprise,Won,Lisa Park
+2023-11-01,Latin America,Enterprise Suite,Direct,72340.00,6,Enterprise,Won,Michael Torres
+2023-11-01,Europe,Starter Kit,Online,8890.80,120,Consumer,Won,Rachel Adams
+2023-11-01,Middle East,Pro Tools,Partner,44890.00,16,SMB,Won,Sarah Chen
+2023-11-01,North America,Growth Plan,Direct,69560.25,39,Enterprise,Won,James Wilson
+2023-11-01,Asia Pacific,Enterprise Suite,Partner,106780.00,9,Enterprise,Won,Maria Garcia
+2023-11-01,North America,Starter Kit,Online,11340.50,138,Consumer,Won,Alex Kim
+2023-11-01,Europe,Pro Tools,Direct,79670.75,22,SMB,Won,David Brown
+2023-11-01,Latin America,Growth Plan,Online,26450.00,20,SMB,Won,Lisa Park
+2023-11-01,Middle East,Enterprise Suite,Direct,85230.00,7,Enterprise,Won,Michael Torres
+2023-11-01,North America,Pro Tools,Partner,105670.00,25,Enterprise,Won,Rachel Adams
+2023-11-01,Asia Pacific,Growth Plan,Online,43670.50,29,SMB,Lost,Sarah Chen
+2023-11-01,Europe,Enterprise Suite,Direct,121890.00,11,Enterprise,Won,James Wilson
+2023-11-01,North America,Growth Plan,Partner,70890.25,40,SMB,Won,Maria Garcia
+2023-11-01,Latin America,Starter Kit,Online,5230.00,76,Consumer,Won,Alex Kim
+2023-11-01,Middle East,Growth Plan,Partner,30890.50,20,SMB,Won,David Brown
+2023-11-01,Asia Pacific,Pro Tools,Direct,57230.00,18,Enterprise,Won,Lisa Park
+2023-11-01,North America,Enterprise Suite,Direct,182340.00,18,Enterprise,Won,Michael Torres
+2023-12-01,North America,Enterprise Suite,Direct,198670.50,19,Enterprise,Won,Rachel Adams
+2023-12-01,Europe,Growth Plan,Partner,65780.00,48,SMB,Won,Sarah Chen
+2023-12-01,Asia Pacific,Starter Kit,Online,8450.75,128,Consumer,Won,James Wilson
+2023-12-01,North America,Pro Tools,Direct,115890.00,26,Enterprise,Won,Maria Garcia
+2023-12-01,Latin America,Enterprise Suite,Direct,79560.00,6,Enterprise,Won,Alex Kim
+2023-12-01,Europe,Starter Kit,Online,9890.80,132,Consumer,Won,David Brown
+2023-12-01,Middle East,Pro Tools,Partner,49670.25,17,SMB,Won,Lisa Park
+2023-12-01,North America,Growth Plan,Direct,76340.00,42,Enterprise,Won,Michael Torres
+2023-12-01,Asia Pacific,Enterprise Suite,Partner,117890.00,10,Enterprise,Won,Rachel Adams
+2023-12-01,North America,Starter Kit,Online,12560.50,148,Consumer,Won,Sarah Chen
+2023-12-01,Europe,Pro Tools,Direct,87340.75,24,Enterprise,Won,James Wilson
+2023-12-01,Latin America,Growth Plan,Online,29120.00,22,SMB,Won,Maria Garcia
+2023-12-01,Middle East,Enterprise Suite,Direct,93670.00,8,Enterprise,Won,Alex Kim
+2023-12-01,North America,Pro Tools,Partner,116780.00,27,Enterprise,Won,David Brown
+2023-12-01,Asia Pacific,Growth Plan,Partner,48120.50,32,SMB,Won,Lisa Park
+2023-12-01,Europe,Enterprise Suite,Direct,134560.00,12,Enterprise,Won,Michael Torres
+2023-12-01,North America,Growth Plan,Online,78230.25,44,SMB,Won,Rachel Adams
+2023-12-01,Latin America,Starter Kit,Online,5780.00,82,Consumer,Pending,Sarah Chen
+2023-12-01,Middle East,Growth Plan,Partner,34120.50,22,SMB,Won,James Wilson
+2023-12-01,Asia Pacific,Pro Tools,Direct,63120.00,20,SMB,Won,Maria Garcia
+2023-12-01,North America,Enterprise Suite,Direct,345670.00,22,Enterprise,Won,Alex Kim
+2023-12-01,Europe,Enterprise Suite,Partner,142350.00,13,Enterprise,Won,David Brown
+2024-01-01,North America,Enterprise Suite,Direct,128450.50,12,Enterprise,Won,Lisa Park
+2024-01-01,Europe,Growth Plan,Partner,44890.00,36,SMB,Won,Michael Torres
+2024-01-01,Asia Pacific,Starter Kit,Online,5340.75,101,Consumer,Won,Rachel Adams
+2024-01-01,North America,Pro Tools,Direct,81230.00,20,Enterprise,Won,Sarah Chen
+2024-01-01,Latin America,Starter Kit,Online,3760.50,68,Consumer,Won,James Wilson
+2024-01-01,Europe,Enterprise Suite,Partner,92560.00,8,Enterprise,Won,Maria Garcia
+2024-01-01,Middle East,Growth Plan,Online,23890.25,21,SMB,Won,Alex Kim
+2024-01-01,North America,Starter Kit,Online,8490.00,124,Consumer,Won,David Brown
+2024-01-01,Asia Pacific,Pro Tools,Partner,46340.80,14,SMB,Won,Lisa Park
+2024-01-01,North America,Growth Plan,Direct,54670.00,31,Enterprise,Won,Michael Torres
+2024-01-01,Europe,Starter Kit,Online,6790.40,107,Consumer,Lost,Rachel Adams
+2024-01-01,Latin America,Pro Tools,Partner,29040.00,10,SMB,Won,Sarah Chen
+2024-01-01,Middle East,Enterprise Suite,Direct,70460.00,5,Enterprise,Won,James Wilson
+2024-01-01,North America,Growth Plan,Partner,50380.50,27,SMB,Won,Maria Garcia
+2024-01-01,Asia Pacific,Enterprise Suite,Direct,88260.00,7,Enterprise,Won,Alex Kim
+2024-01-01,Europe,Pro Tools,Direct,66600.75,18,Enterprise,Won,David Brown
+2024-01-01,North America,Starter Kit,Online,9260.00,133,Consumer,Won,Lisa Park
+2024-01-01,Latin America,Growth Plan,Online,20380.25,18,SMB,Won,Michael Torres
+2024-01-01,Middle East,Starter Kit,Online,4170.00,75,Consumer,Won,Rachel Adams
+2024-01-01,Asia Pacific,Growth Plan,Partner,34500.00,25,SMB,Pending,Sarah Chen
+2024-01-01,North America,Enterprise Suite,Direct,146190.00,14,Enterprise,Won,James Wilson
+2024-02-01,North America,Enterprise Suite,Direct,137370.25,13,Enterprise,Won,Maria Garcia
+2024-02-01,Europe,Growth Plan,Partner,49260.00,39,SMB,Won,Alex Kim
+2024-02-01,Asia Pacific,Starter Kit,Online,5930.50,109,Consumer,Won,David Brown
+2024-02-01,North America,Pro Tools,Direct,89600.00,21,Enterprise,Won,Lisa Park
+2024-02-01,Latin America,Enterprise Suite,Direct,63380.00,4,Enterprise,Won,Michael Torres
+2024-02-01,Europe,Starter Kit,Online,7370.80,114,Consumer,Won,Rachel Adams
+2024-02-01,Middle East,Pro Tools,Partner,36990.00,13,SMB,Won,Sarah Chen
+2024-02-01,North America,Growth Plan,Online,57500.50,34,SMB,Won,James Wilson
+2024-02-01,Asia Pacific,Enterprise Suite,Partner,94040.00,8,Enterprise,Won,Maria Garcia
+2024-02-01,North America,Starter Kit,Online,10260.25,140,Consumer,Won,Alex Kim
+2024-02-01,Europe,Pro Tools,Direct,72370.00,20,SMB,Won,David Brown
+2024-02-01,Latin America,Growth Plan,Online,21240.75,17,SMB,Won,Lisa Park
+2024-02-01,Middle East,Enterprise Suite,Direct,76570.00,6,Enterprise,Won,Michael Torres
+2024-02-01,North America,Pro Tools,Partner,92610.00,23,Enterprise,Won,Rachel Adams
+2024-02-01,Asia Pacific,Growth Plan,Partner,37580.50,26,SMB,Won,Sarah Chen
+2024-02-01,Europe,Enterprise Suite,Direct,107040.00,9,Enterprise,Won,James Wilson
+2024-02-01,North America,Growth Plan,Direct,60810.00,35,Enterprise,Won,Maria Garcia
+2024-02-01,Latin America,Starter Kit,Online,4060.25,73,Consumer,Won,Alex Kim
+2024-02-01,Middle East,Growth Plan,Online,25830.00,20,SMB,Lost,David Brown
+2024-02-01,Asia Pacific,Pro Tools,Direct,49990.50,16,SMB,Won,Lisa Park
+2024-02-01,North America,Enterprise Suite,Partner,124280.00,10,Enterprise,Won,Michael Torres
+2024-03-01,North America,Enterprise Suite,Direct,154190.00,14,Enterprise,Won,Rachel Adams
+2024-03-01,Europe,Growth Plan,Partner,53600.50,42,SMB,Won,Sarah Chen
+2024-03-01,Asia Pacific,Starter Kit,Online,6660.75,120,Consumer,Won,James Wilson
+2024-03-01,North America,Pro Tools,Direct,96930.00,22,Enterprise,Won,Maria Garcia
+2024-03-01,Latin America,Enterprise Suite,Partner,68040.00,5,Enterprise,Won,Alex Kim
+2024-03-01,Europe,Starter Kit,Online,8100.40,122,Consumer,Won,David Brown
+2024-03-01,Middle East,Pro Tools,Partner,40610.00,14,SMB,Won,Lisa Park
+2024-03-01,North America,Growth Plan,Direct,63570.25,36,Enterprise,Won,Michael Torres
+2024-03-01,Asia Pacific,Enterprise Suite,Direct,101990.00,8,Enterprise,Won,Rachel Adams
+2024-03-01,North America,Starter Kit,Online,10840.50,146,Consumer,Won,Sarah Chen
+2024-03-01,Europe,Pro Tools,Direct,76270.00,21,SMB,Won,James Wilson
+2024-03-01,Latin America,Growth Plan,Online,23700.75,20,SMB,Won,Maria Garcia
+2024-03-01,Middle East,Enterprise Suite,Direct,81040.00,7,Enterprise,Won,Alex Kim
+2024-03-01,North America,Pro Tools,Partner,99960.00,25,Enterprise,Won,David Brown
+2024-03-01,Asia Pacific,Growth Plan,Partner,40610.50,29,SMB,Won,Lisa Park
+2024-03-01,Europe,Enterprise Suite,Direct,116570.00,10,Enterprise,Won,Michael Torres
+2024-03-01,North America,Growth Plan,Online,65160.00,38,SMB,Won,Rachel Adams
+2024-03-01,Latin America,Starter Kit,Online,4490.25,78,Consumer,Pending,Sarah Chen
+2024-03-01,Middle East,Growth Plan,Partner,27740.00,21,SMB,Won,James Wilson
+2024-03-01,Asia Pacific,Pro Tools,Direct,53600.80,17,Enterprise,Won,Maria Garcia
+2024-03-01,North America,Enterprise Suite,Direct,161930.00,16,Enterprise,Won,Alex Kim
+2024-04-01,North America,Enterprise Suite,Direct,166840.50,16,Enterprise,Won,David Brown
+2024-04-01,Europe,Growth Plan,Partner,57930.00,44,SMB,Won,Lisa Park
+2024-04-01,Asia Pacific,Starter Kit,Online,7230.75,125,Consumer,Won,Michael Torres
+2024-04-01,North America,Pro Tools,Direct,102600.00,23,Enterprise,Won,Rachel Adams
+2024-04-01,Latin America,Enterprise Suite,Direct,72370.00,5,Enterprise,Won,Sarah Chen
+2024-04-01,Europe,Starter Kit,Online,8810.40,127,Consumer,Won,James Wilson
+2024-04-01,Middle East,Pro Tools,Partner,43490.25,16,SMB,Won,Maria Garcia
+2024-04-01,North America,Growth Plan,Direct,68040.00,39,Enterprise,Won,Alex Kim
+2024-04-01,Asia Pacific,Enterprise Suite,Partner,107040.00,9,Enterprise,Won,David Brown
+2024-04-01,North America,Starter Kit,Online,11560.50,151,Consumer,Won,Lisa Park
+2024-04-01,Europe,Pro Tools,Direct,79600.75,22,SMB,Won,Michael Torres
+2024-04-01,Latin America,Growth Plan,Online,25430.00,21,SMB,Won,Rachel Adams
+2024-04-01,Middle East,Enterprise Suite,Direct,85660.00,7,Enterprise,Lost,Sarah Chen
+2024-04-01,North America,Pro Tools,Partner,105610.00,26,Enterprise,Won,James Wilson
+2024-04-01,Asia Pacific,Growth Plan,Online,43490.50,30,SMB,Won,Maria Garcia
+2024-04-01,Europe,Enterprise Suite,Direct,122930.00,10,Enterprise,Won,Alex Kim
+2024-04-01,North America,Growth Plan,Partner,70060.25,40,SMB,Won,David Brown
+2024-04-01,Latin America,Starter Kit,Online,4910.00,81,Consumer,Won,Lisa Park
+2024-04-01,Middle East,Growth Plan,Partner,29760.50,22,SMB,Won,Michael Torres
+2024-04-01,Asia Pacific,Pro Tools,Direct,56630.00,18,SMB,Won,Rachel Adams
+2024-04-01,North America,Enterprise Suite,Direct,172190.00,17,Enterprise,Won,Sarah Chen
+2024-05-01,North America,Enterprise Suite,Direct,180270.25,17,Enterprise,Won,James Wilson
+2024-05-01,Europe,Growth Plan,Partner,61400.00,47,SMB,Won,Maria Garcia
+2024-05-01,Asia Pacific,Starter Kit,Online,7770.50,130,Consumer,Won,Alex Kim
+2024-05-01,North America,Pro Tools,Direct,108490.00,25,Enterprise,Won,David Brown
+2024-05-01,Latin America,Enterprise Suite,Partner,75840.00,5,Enterprise,Won,Lisa Park
+2024-05-01,Europe,Starter Kit,Online,9260.80,133,Consumer,Won,Michael Torres
+2024-05-01,Middle East,Pro Tools,Partner,46370.00,17,SMB,Won,Rachel Adams
+2024-05-01,North America,Growth Plan,Direct,72370.25,42,Enterprise,Won,Sarah Chen
+2024-05-01,Asia Pacific,Enterprise Suite,Direct,112810.00,9,Enterprise,Won,James Wilson
+2024-05-01,North America,Starter Kit,Online,12140.50,156,Consumer,Won,Maria Garcia
+2024-05-01,Europe,Pro Tools,Direct,83930.75,23,SMB,Pending,Alex Kim
+2024-05-01,Latin America,Growth Plan,Online,27160.00,22,SMB,Won,David Brown
+2024-05-01,Middle East,Enterprise Suite,Direct,90000.00,8,Enterprise,Won,Lisa Park
+2024-05-01,North America,Pro Tools,Partner,111370.00,27,Enterprise,Won,Michael Torres
+2024-05-01,Asia Pacific,Growth Plan,Partner,45800.50,31,SMB,Won,Rachel Adams
+2024-05-01,Europe,Enterprise Suite,Direct,128570.00,12,Enterprise,Won,Sarah Chen
+2024-05-01,North America,Growth Plan,Online,74540.00,43,SMB,Won,James Wilson
+2024-05-01,Latin America,Starter Kit,Online,5360.25,86,Consumer,Won,Maria Garcia
+2024-05-01,Middle East,Growth Plan,Partner,31930.00,23,SMB,Won,Alex Kim
+2024-05-01,Asia Pacific,Pro Tools,Direct,60100.80,20,Enterprise,Won,David Brown
+2024-05-01,North America,Enterprise Suite,Direct,185040.00,18,Enterprise,Won,Lisa Park
+2024-06-01,North America,Enterprise Suite,Direct,193570.50,18,Enterprise,Won,Michael Torres
+2024-06-01,Europe,Growth Plan,Partner,64570.00,49,SMB,Won,Rachel Adams
+2024-06-01,Asia Pacific,Starter Kit,Online,2470.75,31,Consumer,Won,Sarah Chen
+2024-06-01,North America,Pro Tools,Direct,114250.00,26,Enterprise,Won,James Wilson
+2024-06-01,Latin America,Enterprise Suite,Direct,79600.00,6,Enterprise,Won,Maria Garcia
+2024-06-01,Europe,Starter Kit,Online,9830.40,138,Consumer,Won,Alex Kim
+2024-06-01,Middle East,Pro Tools,Partner,49270.25,18,SMB,Won,David Brown
+2024-06-01,North America,Growth Plan,Direct,76570.00,44,Enterprise,Won,Lisa Park
+2024-06-01,Asia Pacific,Enterprise Suite,Partner,35540.00,3,Enterprise,Won,Michael Torres
+2024-06-01,North America,Starter Kit,Online,12710.50,161,Consumer,Won,Rachel Adams
+2024-06-01,Europe,Pro Tools,Direct,88260.75,25,SMB,Won,Sarah Chen
+2024-06-01,Latin America,Growth Plan,Online,29040.00,23,SMB,Won,James Wilson
+2024-06-01,Middle East,Enterprise Suite,Direct,94330.00,8,Enterprise,Won,Maria Garcia
+2024-06-01,North America,Pro Tools,Partner,115890.00,29,Enterprise,Won,Alex Kim
+2024-06-01,Asia Pacific,Growth Plan,Online,14590.50,8,SMB,Won,David Brown
+2024-06-01,Europe,Enterprise Suite,Direct,134490.00,12,Enterprise,Won,Lisa Park
+2024-06-01,North America,Growth Plan,Partner,78160.25,46,SMB,Won,Michael Torres
+2024-06-01,Latin America,Starter Kit,Online,5790.00,88,Consumer,Won,Rachel Adams
+2024-06-01,Middle East,Growth Plan,Partner,33960.50,25,SMB,Lost,Sarah Chen
+2024-06-01,Asia Pacific,Pro Tools,Direct,18940.00,5,SMB,Won,James Wilson
+2024-06-01,North America,Enterprise Suite,Direct,197840.00,20,Enterprise,Won,Maria Garcia
+2024-07-01,North America,Enterprise Suite,Direct,174930.25,16,Enterprise,Won,Alex Kim
+2024-07-01,Europe,Growth Plan,Partner,58360.00,43,SMB,Won,David Brown
+2024-07-01,Asia Pacific,Starter Kit,Online,2210.50,28,Consumer,Won,Lisa Park
+2024-07-01,North America,Pro Tools,Direct,103000.00,24,Enterprise,Won,Michael Torres
+2024-07-01,Latin America,Enterprise Suite,Direct,71360.00,5,Enterprise,Won,Rachel Adams
+2024-07-01,Europe,Starter Kit,Online,8960.80,125,Consumer,Won,Sarah Chen
+2024-07-01,Middle East,Pro Tools,Partner,44360.00,15,SMB,Won,James Wilson
+2024-07-01,North America,Growth Plan,Direct,69200.25,40,Enterprise,Won,Maria Garcia
+2024-07-01,Asia Pacific,Enterprise Suite,Partner,32180.00,3,Enterprise,Lost,Alex Kim
+2024-07-01,North America,Starter Kit,Online,11270.50,148,Consumer,Won,David Brown
+2024-07-01,Europe,Pro Tools,Direct,80030.75,22,SMB,Won,Lisa Park
+2024-07-01,Latin America,Growth Plan,Online,25860.00,21,SMB,Won,Michael Torres
+2024-07-01,Middle East,Enterprise Suite,Direct,86240.00,7,Enterprise,Won,Rachel Adams
+2024-07-01,North America,Pro Tools,Partner,107040.00,26,Enterprise,Won,Sarah Chen
+2024-07-01,Asia Pacific,Growth Plan,Partner,12520.50,7,SMB,Won,James Wilson
+2024-07-01,Europe,Enterprise Suite,Direct,118600.00,10,Enterprise,Won,Maria Garcia
+2024-07-01,North America,Growth Plan,Online,71360.00,42,SMB,Won,Alex Kim
+2024-07-01,Latin America,Starter Kit,Online,4630.25,78,Consumer,Won,David Brown
+2024-07-01,Middle East,Growth Plan,Online,30050.00,22,SMB,Won,Lisa Park
+2024-07-01,Asia Pacific,Pro Tools,Direct,16510.80,5,Enterprise,Won,Michael Torres
+2024-07-01,North America,Enterprise Suite,Direct,180570.00,18,Enterprise,Won,Rachel Adams
+2024-08-01,North America,Enterprise Suite,Direct,164960.50,16,Enterprise,Won,Sarah Chen
+2024-08-01,Europe,Growth Plan,Partner,55040.00,40,SMB,Won,James Wilson
+2024-08-01,Asia Pacific,Starter Kit,Online,6940.75,117,Consumer,Won,Maria Garcia
+2024-08-01,North America,Pro Tools,Direct,98370.00,22,Enterprise,Won,Alex Kim
+2024-08-01,Latin America,Enterprise Suite,Partner,66600.00,4,Enterprise,Won,David Brown
+2024-08-01,Europe,Starter Kit,Online,8530.40,120,Consumer,Won,Lisa Park
+2024-08-01,Middle East,Pro Tools,Partner,42040.25,14,SMB,Won,Michael Torres
+2024-08-01,North America,Growth Plan,Direct,66160.00,38,Enterprise,Won,Rachel Adams
+2024-08-01,Asia Pacific,Enterprise Suite,Direct,102570.00,8,Enterprise,Won,Sarah Chen
+2024-08-01,North America,Starter Kit,Online,10700.50,143,Consumer,Pending,James Wilson
+2024-08-01,Europe,Pro Tools,Direct,76270.75,21,SMB,Won,Maria Garcia
+2024-08-01,Latin America,Growth Plan,Online,24560.00,20,SMB,Won,Alex Kim
+2024-08-01,Middle East,Enterprise Suite,Direct,82490.00,7,Enterprise,Won,David Brown
+2024-08-01,North America,Pro Tools,Partner,102130.00,25,Enterprise,Won,Lisa Park
+2024-08-01,Asia Pacific,Growth Plan,Partner,39440.50,27,SMB,Won,Michael Torres
+2024-08-01,Europe,Enterprise Suite,Direct,113830.00,9,Enterprise,Won,Rachel Adams
+2024-08-01,North America,Growth Plan,Online,67760.25,39,SMB,Won,Sarah Chen
+2024-08-01,Latin America,Starter Kit,Online,4340.00,75,Consumer,Won,James Wilson
+2024-08-01,Middle East,Growth Plan,Partner,28460.50,21,SMB,Won,Maria Garcia
+2024-08-01,Asia Pacific,Pro Tools,Direct,52160.00,17,SMB,Won,Alex Kim
+2024-08-01,North America,Enterprise Suite,Direct,170600.00,17,Enterprise,Won,David Brown
+2024-09-01,North America,Enterprise Suite,Direct,193270.25,18,Enterprise,Won,Lisa Park
+2024-09-01,Europe,Growth Plan,Partner,64300.00,48,SMB,Won,Michael Torres
+2024-09-01,Asia Pacific,Starter Kit,Online,8100.50,134,Consumer,Won,Rachel Adams
+2024-09-01,North America,Pro Tools,Direct,113540.00,26,Enterprise,Won,Sarah Chen
+2024-09-01,Latin America,Enterprise Suite,Direct,79160.00,6,Enterprise,Won,James Wilson
+2024-09-01,Europe,Starter Kit,Online,9690.80,137,Consumer,Won,Maria Garcia
+2024-09-01,Middle East,Pro Tools,Partner,48830.00,17,SMB,Won,Alex Kim
+2024-09-01,North America,Growth Plan,Direct,75840.25,43,Enterprise,Won,David Brown
+2024-09-01,Asia Pacific,Enterprise Suite,Partner,117160.00,10,Enterprise,Won,Lisa Park
+2024-09-01,North America,Starter Kit,Online,12570.50,159,Consumer,Won,Michael Torres
+2024-09-01,Europe,Pro Tools,Direct,87400.75,25,SMB,Won,Rachel Adams
+2024-09-01,Latin America,Growth Plan,Online,28760.00,23,SMB,Won,Sarah Chen
+2024-09-01,Middle East,Enterprise Suite,Direct,93460.00,8,Enterprise,Won,James Wilson
+2024-09-01,North America,Pro Tools,Partner,115270.00,27,Enterprise,Won,Maria Garcia
+2024-09-01,Asia Pacific,Growth Plan,Online,47960.50,33,SMB,Won,Alex Kim
+2024-09-01,Europe,Enterprise Suite,Direct,133040.00,12,Enterprise,Lost,David Brown
+2024-09-01,North America,Growth Plan,Partner,77430.00,44,SMB,Won,Lisa Park
+2024-09-01,Latin America,Starter Kit,Online,5640.25,87,Consumer,Won,Michael Torres
+2024-09-01,Middle East,Growth Plan,Partner,33660.50,23,SMB,Won,Rachel Adams
+2024-09-01,Asia Pacific,Pro Tools,Direct,62560.80,21,Enterprise,Won,Sarah Chen
+2024-09-01,North America,Enterprise Suite,Direct,197440.00,20,Enterprise,Won,James Wilson
+2024-10-01,North America,Enterprise Suite,Direct,211040.50,20,Enterprise,Won,Maria Garcia
+2024-10-01,Europe,Growth Plan,Partner,70500.00,52,SMB,Won,Alex Kim
+2024-10-01,Asia Pacific,Starter Kit,Online,8960.75,143,Consumer,Won,David Brown
+2024-10-01,North America,Pro Tools,Direct,124370.00,29,Enterprise,Won,Lisa Park
+2024-10-01,Latin America,Enterprise Suite,Direct,86810.00,7,Enterprise,Won,Michael Torres
+2024-10-01,Europe,Starter Kit,Online,10560.40,146,Consumer,Won,Rachel Adams
+2024-10-01,Middle East,Pro Tools,Partner,53600.25,19,SMB,Won,Sarah Chen
+2024-10-01,North America,Growth Plan,Direct,83060.00,47,Enterprise,Won,James Wilson
+2024-10-01,Asia Pacific,Enterprise Suite,Partner,128270.00,12,Enterprise,Won,Maria Garcia
+2024-10-01,North America,Starter Kit,Online,13730.50,169,Consumer,Won,Alex Kim
+2024-10-01,Europe,Pro Tools,Direct,95490.75,26,SMB,Won,David Brown
+2024-10-01,Latin America,Growth Plan,Online,31500.00,25,SMB,Pending,Lisa Park
+2024-10-01,Middle East,Enterprise Suite,Direct,102130.00,8,Enterprise,Won,Michael Torres
+2024-10-01,North America,Pro Tools,Partner,125960.00,30,Enterprise,Won,Rachel Adams
+2024-10-01,Asia Pacific,Growth Plan,Partner,52300.50,35,SMB,Won,Sarah Chen
+2024-10-01,Europe,Enterprise Suite,Direct,146040.00,13,Enterprise,Won,James Wilson
+2024-10-01,North America,Growth Plan,Online,84660.25,48,SMB,Won,Maria Garcia
+2024-10-01,Latin America,Starter Kit,Online,6210.00,94,Consumer,Won,Alex Kim
+2024-10-01,Middle East,Growth Plan,Partner,36840.50,25,SMB,Won,David Brown
+2024-10-01,Asia Pacific,Pro Tools,Direct,68470.80,22,Enterprise,Won,Lisa Park
+2024-10-01,North America,Enterprise Suite,Direct,378420.00,28,Enterprise,Won,Michael Torres
+2024-11-01,North America,Enterprise Suite,Direct,232030.25,22,Enterprise,Won,Rachel Adams
+2024-11-01,Europe,Growth Plan,Partner,76860.00,56,SMB,Won,Sarah Chen
+2024-11-01,Asia Pacific,Starter Kit,Online,9830.50,154,Consumer,Won,James Wilson
+2024-11-01,North America,Pro Tools,Direct,135500.00,31,Enterprise,Won,Maria Garcia
+2024-11-01,Latin America,Enterprise Suite,Direct,94040.00,8,Enterprise,Won,Alex Kim
+2024-11-01,Europe,Starter Kit,Online,11560.80,156,Consumer,Won,David Brown
+2024-11-01,Middle East,Pro Tools,Partner,58360.00,21,SMB,Won,Lisa Park
+2024-11-01,North America,Growth Plan,Direct,90430.25,51,Enterprise,Won,Michael Torres
+2024-11-01,Asia Pacific,Enterprise Suite,Partner,138810.00,12,Enterprise,Won,Rachel Adams
+2024-11-01,North America,Starter Kit,Online,14740.50,179,Consumer,Won,Sarah Chen
+2024-11-01,Europe,Pro Tools,Direct,103560.75,29,SMB,Won,James Wilson
+2024-11-01,Latin America,Growth Plan,Online,34390.00,26,SMB,Won,Maria Garcia
+2024-11-01,Middle East,Enterprise Suite,Direct,110800.00,9,Enterprise,Won,Alex Kim
+2024-11-01,North America,Pro Tools,Partner,137370.00,33,Enterprise,Won,David Brown
+2024-11-01,Asia Pacific,Growth Plan,Online,56770.50,38,SMB,Lost,Lisa Park
+2024-11-01,Europe,Enterprise Suite,Direct,158460.00,14,Enterprise,Won,Michael Torres
+2024-11-01,North America,Growth Plan,Partner,92160.25,52,SMB,Won,Rachel Adams
+2024-11-01,Latin America,Starter Kit,Online,6800.00,99,Consumer,Won,Sarah Chen
+2024-11-01,Middle East,Growth Plan,Partner,40160.50,26,SMB,Won,James Wilson
+2024-11-01,Asia Pacific,Pro Tools,Direct,74400.00,23,Enterprise,Won,Maria Garcia
+2024-11-01,North America,Enterprise Suite,Direct,436780.00,30,Enterprise,Won,Alex Kim
+2024-12-01,North America,Enterprise Suite,Direct,258270.50,25,Enterprise,Won,David Brown
+2024-12-01,Europe,Growth Plan,Partner,85510.00,62,SMB,Won,Lisa Park
+2024-12-01,Asia Pacific,Starter Kit,Online,10990.75,166,Consumer,Won,Michael Torres
+2024-12-01,North America,Pro Tools,Direct,150660.00,34,Enterprise,Won,Rachel Adams
+2024-12-01,Latin America,Enterprise Suite,Direct,103430.00,8,Enterprise,Won,Sarah Chen
+2024-12-01,Europe,Starter Kit,Online,12860.80,172,Consumer,Won,James Wilson
+2024-12-01,Middle East,Pro Tools,Partner,64570.25,22,SMB,Won,Maria Garcia
+2024-12-01,North America,Growth Plan,Direct,99240.00,55,Enterprise,Won,Alex Kim
+2024-12-01,Asia Pacific,Enterprise Suite,Partner,153260.00,13,Enterprise,Won,David Brown
+2024-12-01,North America,Starter Kit,Online,16330.50,192,Consumer,Won,Lisa Park
+2024-12-01,Europe,Pro Tools,Direct,113540.75,31,Enterprise,Won,Michael Torres
+2024-12-01,Latin America,Growth Plan,Online,37860.00,29,SMB,Won,Rachel Adams
+2024-12-01,Middle East,Enterprise Suite,Direct,121770.00,10,Enterprise,Won,Sarah Chen
+2024-12-01,North America,Pro Tools,Partner,151800.00,36,Enterprise,Won,James Wilson
+2024-12-01,Asia Pacific,Growth Plan,Partner,62560.50,42,SMB,Won,Maria Garcia
+2024-12-01,Europe,Enterprise Suite,Direct,174930.00,16,Enterprise,Won,Alex Kim
+2024-12-01,North America,Growth Plan,Online,101700.25,57,SMB,Won,David Brown
+2024-12-01,Latin America,Starter Kit,Online,7510.00,107,Consumer,Pending,Lisa Park
+2024-12-01,Middle East,Growth Plan,Partner,44360.50,29,SMB,Won,Michael Torres
+2024-12-01,Asia Pacific,Pro Tools,Direct,82050.00,26,SMB,Won,Rachel Adams
+2024-12-01,North America,Enterprise Suite,Direct,265440.00,27,Enterprise,Won,Sarah Chen
+2024-12-01,Europe,Enterprise Suite,Partner,185060.00,17,Enterprise,Won,James Wilson
