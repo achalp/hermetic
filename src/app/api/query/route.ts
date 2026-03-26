@@ -602,6 +602,7 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             "For multivariate exploration across many dimensions, use ParallelCoordinates (data rows, dimensions: string[], group_key for coloring).",
             "For progress against targets with qualitative ranges, use BulletChart (data: [{label, value, target?, ranges}]). Use for KPI dashboards.",
             "For ML decision trees or decision flowcharts, use DecisionTree (recursive tree: {label, value?, condition?, children?}). Do NOT use ChartImage.",
+            'Always include a final TextBlock (variant: "body") that explains the methodology in plain, non-technical English. Describe: how many rows were analyzed, which columns were used for grouping or aggregation, what operations were performed (totals, averages, counts, etc.), and any rows excluded due to missing data. Use simple language — no code references, no terms like DataFrame or groupby. Example: "This analysis looked at 12,847 sales records. Revenue was totaled by quarter using the close_date column. 3 records with missing values were excluded. The growth rate was calculated by comparing each quarter to the same quarter in the prior year."',
             "Keep total component count under 20.",
             "Wrap everything in a LayoutColumn as the root element.",
             "Output ONLY raw JSONL lines. Do NOT wrap in markdown code fences.",
