@@ -3,12 +3,13 @@
 interface SourceCardsProps {
   onFileDrop: () => void;
   onWarehouseClick: () => void;
+  onSampleData?: () => void;
 }
 
 const cardBase =
   "source-card-hover flex flex-col items-center gap-3 cursor-pointer text-center transition-all duration-200";
 
-export function SourceCards({ onFileDrop, onWarehouseClick }: SourceCardsProps) {
+export function SourceCards({ onFileDrop, onWarehouseClick, onSampleData }: SourceCardsProps) {
   return (
     <div
       className="source-cards-grid grid w-full"
@@ -86,6 +87,31 @@ export function SourceCards({ onFileDrop, onWarehouseClick }: SourceCardsProps) 
           PostgreSQL &middot; BigQuery &middot; ClickHouse &middot; Trino &middot; Hive
         </span>
       </button>
+      {onSampleData && (
+        <button
+          onClick={onSampleData}
+          className="transition-colors"
+          style={{
+            gridColumn: "1 / -1",
+            padding: "12px",
+            fontSize: 14,
+            color: "var(--color-accent)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            textAlign: "center",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.textDecoration = "underline";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.textDecoration = "none";
+          }}
+        >
+          or try with sample data →
+        </button>
+      )}
     </div>
   );
 }
