@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { Spec } from "@json-render/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
@@ -22,6 +22,7 @@ import { StyleSelector } from "@/components/app/style-selector";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 import { useArtifacts } from "@/hooks/use-artifacts";
+import { generateSuggestions, generateWarehouseSuggestions } from "@/lib/suggest-questions";
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -225,6 +226,22 @@ export default function Home() {
     setShowWarehouseForm(false);
   }, [reset, warehouse, resetPage]);
 
+  const handleSampleData = useCallback(async () => {
+    try {
+      const response = await fetch("/sample-data/sales-data.csv");
+      const blob = await response.blob();
+      const file = new File([blob], "sales-data.csv", { type: "text/csv" });
+      const formData = new FormData();
+      formData.append("csv", file);
+      const data = await uploadFile(formData);
+      if (data.csv_id && data.schema) {
+        handleUpload(data.csv_id, data.schema);
+      }
+    } catch (err) {
+      console.error("Sample data load failed:", err);
+    }
+  }, [handleUpload]);
+
   const handleLoadViz = useCallback(
     async (vizId: string) => {
       dispatch({ type: "LOAD_VIZ_START" });
@@ -336,6 +353,15 @@ export default function Home() {
     profileItems.push(`${warehouse.tableCount} tables`);
     profileItems.push(`${warehouse.totalColumns} columns`);
   }
+
+  // Data-specific question suggestions
+  const suggestions = useMemo(() => {
+    if (schema) return generateSuggestions(schema);
+    if (warehouse.isConnected && warehouse.tableSchemas.length > 0) {
+      return generateWarehouseSuggestions(warehouse.tableSchemas);
+    }
+    return [];
+  }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
 
   // Source label for top bar pill
   const sourceLabel = schema
@@ -669,6 +695,7 @@ export default function Home() {
                   uploadInputRef.current?.click();
                 }}
                 onWarehouseClick={() => setShowWarehouseForm((v) => !v)}
+                onSampleData={handleSampleData}
               />
 
               <SavedConnections
@@ -726,6 +753,30 @@ export default function Home() {
                   >
                     Dismiss
                   </button>
+                </div>
+              )}
+
+              {/* Data-specific question suggestions */}
+              {suggestions.length > 0 && (
+                <div className="mb-4 flex flex-wrap justify-center gap-2 w-full max-w-[700px]">
+                  {suggestions.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => handleGuardedQuery(q)}
+                      className="source-card-hover text-sm transition-colors"
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: "var(--radius-pill)",
+                        border: "1px solid var(--color-border-default)",
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-t-secondary)",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {q}
+                    </button>
+                  ))}
                 </div>
               )}
 
