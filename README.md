@@ -6,7 +6,9 @@
 
 ![Ask screen with LLM-generated question suggestions](docs/ask-suggestions.png)
 
-![Dashboard with scatter chart and artifacts panel showing SQL](docs/artifacts.png)
+![Dashboard with scatter chart, radar chart, insights, and statistical test](docs/dashboard.png)
+
+![Artifacts panel with syntax-highlighted SQL query](docs/artifacts.png)
 
 ![Data explorer rail with table list, schema, and sample data](docs/data-explorer.png)
 
