@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
+
 interface SchemaSectionProps {
   columns: { name: string; type: string; sample: string }[];
   moreCount?: number;
+  allColumns?: { name: string; type: string; sample: string }[];
 }
 
 const typeBadgeStyles: Record<string, { background: string; color: string }> = {
@@ -11,8 +14,10 @@ const typeBadgeStyles: Record<string, { background: string; color: string }> = {
   date: { background: "rgba(251,191,36,0.2)", color: "#fbbf24" },
 };
 
-export function SchemaSection({ columns, moreCount }: SchemaSectionProps) {
-  const visible = columns.slice(0, 8);
+export function SchemaSection({ columns, moreCount, allColumns }: SchemaSectionProps) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded && allColumns ? allColumns : columns;
+  const canExpand = (moreCount ?? 0) > 0 && allColumns && allColumns.length > columns.length;
 
   return (
     <div>
@@ -78,10 +83,22 @@ export function SchemaSection({ columns, moreCount }: SchemaSectionProps) {
           })}
         </tbody>
       </table>
-      {moreCount != null && moreCount > 0 && (
-        <div style={{ fontSize: 12, color: "var(--color-accent)", marginTop: 4 }}>
-          +{moreCount} more
-        </div>
+      {canExpand && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            fontSize: 12,
+            color: "var(--color-accent)",
+            marginTop: 4,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            padding: 0,
+          }}
+        >
+          {expanded ? "Show less" : `+${moreCount} more`}
+        </button>
       )}
     </div>
   );
