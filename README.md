@@ -2,8 +2,17 @@
 
 **Ask your data anything.** Upload CSV, Excel, or GeoJSON files — or connect to PostgreSQL, BigQuery, ClickHouse, Trino, or Hive warehouses — ask questions in natural language, and get interactive dashboards. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via MLX, llama.cpp, or Ollama.
 
-![Dashboard with stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
-![Dashboard with box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
+![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
+
+![Ask screen with LLM-generated question suggestions](docs/ask-suggestions.png)
+
+![Dashboard with scatter chart and artifacts panel showing SQL](docs/artifacts.png)
+
+![Data explorer rail with table list, schema, and sample data](docs/data-explorer.png)
+
+![Settings drawer with themes, mode toggle, and connected sources](docs/settings.png)
+
+![Saved visualizations with load, update, and delete actions](docs/saved-vizs.png)
 
 ## Philosophy
 
