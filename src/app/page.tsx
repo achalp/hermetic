@@ -414,9 +414,9 @@ export default function Home() {
 
   // Source label for top bar pill
   const sourceLabel = schema
-    ? `✓ ${schema.filename ?? "data"} · ${schema.row_count.toLocaleString()} rows`
+    ? `✓ ${schema.filename ?? "data"} · ${schema.row_count.toLocaleString()} rows · ${schema.columns.length} columns`
     : warehouse.isConnected
-      ? `✓ ${warehouse.warehouseType ?? "Warehouse"} · ${warehouse.tableCount} tables`
+      ? `✓ ${warehouse.warehouseType ?? "Warehouse"} · ${warehouse.tableCount} tables · ${warehouse.totalColumns} columns`
       : "";
 
   // Build data rail schema from CSV schema or warehouse
@@ -779,8 +779,6 @@ export default function Home() {
               className="flex flex-col items-center justify-center"
               style={{ minHeight: "calc(100vh - 56px)", paddingBottom: 80 }}
             >
-              <ProfileStrip items={profileItems} />
-
               <div className="mb-6">
                 <StyleSelector selected={purpose} onSelect={setPurpose} />
               </div>
@@ -805,9 +803,18 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Data-specific question suggestions */}
+              <div className="w-full max-w-[700px]">
+                <QueryInput
+                  onSubmit={handleGuardedQuery}
+                  disabled={!hasData}
+                  isLoading={isAnalyzing}
+                  initialValue={currentQuestion}
+                />
+              </div>
+
+              {/* Data-specific question suggestions — below input */}
               {suggestions.length > 0 && (
-                <div className="mb-4 flex flex-wrap justify-center gap-2 w-full max-w-[700px]">
+                <div className="mt-4 flex flex-wrap justify-center gap-2 w-full max-w-[700px]">
                   {suggestions.map((q) => (
                     <button
                       key={q}
@@ -828,15 +835,6 @@ export default function Home() {
                   ))}
                 </div>
               )}
-
-              <div className="w-full max-w-[700px]">
-                <QueryInput
-                  onSubmit={handleGuardedQuery}
-                  disabled={!hasData}
-                  isLoading={isAnalyzing}
-                  initialValue={currentQuestion}
-                />
-              </div>
             </div>
           )}
 
