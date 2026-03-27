@@ -82,12 +82,13 @@ export function SourceCards({
 
       {/* Connect a warehouse — with saved connections tray */}
       <div
+        className="source-card-hover"
         style={{
           background: "var(--color-surface-1)",
           border: "2px solid var(--color-border-default)",
           borderRadius: "var(--radius-card)",
           overflow: "hidden",
-          transition: "border-color 0.2s",
+          transition: "border-color 0.2s, background 0.2s",
         }}
       >
         {/* Main clickable area */}
