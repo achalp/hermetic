@@ -814,20 +814,22 @@ export default function Home() {
 
               {/* Data-specific question suggestions — below input */}
               {suggestions.length > 0 && (
-                <div className="mt-4 flex flex-wrap justify-center gap-2 w-full max-w-[700px]">
+                <div className="mt-3 flex flex-wrap justify-center gap-1.5 w-full max-w-[700px]">
                   {suggestions.map((q) => (
                     <button
                       key={q}
                       onClick={() => handleGuardedQuery(q)}
-                      className="source-card-hover text-sm transition-colors"
+                      className="source-card-hover transition-colors"
                       style={{
-                        padding: "6px 14px",
-                        borderRadius: "var(--radius-pill)",
-                        border: "1px solid var(--color-border-default)",
-                        background: "var(--color-surface-1)",
-                        color: "var(--color-t-secondary)",
+                        padding: "5px 12px",
+                        borderRadius: 99,
+                        border: "none",
+                        background: "var(--color-accent-subtle)",
+                        color: "var(--color-accent-text)",
                         cursor: "pointer",
                         fontFamily: "inherit",
+                        fontSize: 12,
+                        whiteSpace: "nowrap",
                       }}
                     >
                       {q}
