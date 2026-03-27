@@ -1016,12 +1016,8 @@ fi
 # ── 8. Install dependencies ──────────────────────────────
 step "Installing dependencies"
 
-if [ -d node_modules ] && [ -f node_modules/.package-lock.json ]; then
-  ok "node_modules already exists — skipping (delete node_modules to force reinstall)"
-else
-  npm install --loglevel=error
-  ok "Done"
-fi
+npm install --loglevel=error
+ok "Done"
 
 # ── 9. Build sandbox ─────────────────────────────────────
 if [ "$RUNTIME" = "docker" ]; then
