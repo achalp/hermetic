@@ -12,14 +12,19 @@ interface HistoryEntry {
 interface AnalysisHistoryProps {
   entries: HistoryEntry[];
   onReplay: (question: string) => void;
+  onRemove: (timestamp: number) => void;
 }
 
 export type { HistoryEntry };
 
-export function AnalysisHistory({ entries, onReplay }: AnalysisHistoryProps) {
+export function AnalysisHistory({ entries, onReplay, onRemove }: AnalysisHistoryProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   if (entries.length === 0) return null;
+
+  const visible = showAll ? entries : entries.slice(-3);
+  const hiddenCount = entries.length - 3;
 
   return (
     <div className="mb-6">
@@ -30,102 +35,162 @@ export function AnalysisHistory({ entries, onReplay }: AnalysisHistoryProps) {
           letterSpacing: "0.06em",
           color: "var(--color-t-tertiary)",
           marginBottom: 8,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
         }}
       >
-        Previous analyses ({entries.length})
-      </div>
-      <div className="flex flex-col gap-2">
-        {entries.map((entry, i) => (
-          <div
-            key={entry.timestamp}
+        <span>Previous analyses ({entries.length})</span>
+        {hiddenCount > 0 && !showAll && (
+          <button
+            onClick={() => setShowAll(true)}
             style={{
-              border: "1px solid var(--color-border-default)",
-              borderRadius: "var(--radius-card)",
-              background: "var(--color-surface-1)",
-              overflow: "hidden",
+              fontSize: 11,
+              color: "var(--color-accent)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              textTransform: "none",
+              letterSpacing: "normal",
             }}
           >
-            <button
-              onClick={() => setExpandedIndex(expandedIndex === i ? null : i)}
-              className="flex w-full items-center justify-between text-left transition-colors"
+            Show all
+          </button>
+        )}
+        {showAll && hiddenCount > 0 && (
+          <button
+            onClick={() => setShowAll(false)}
+            style={{
+              fontSize: 11,
+              color: "var(--color-t-tertiary)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              textTransform: "none",
+              letterSpacing: "normal",
+            }}
+          >
+            Show less
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-2">
+        {visible.map((entry) => {
+          const idx = entries.indexOf(entry);
+          const isExpanded = expandedIndex === idx;
+          return (
+            <div
+              key={entry.timestamp}
               style={{
-                padding: "10px 14px",
-                fontSize: 14,
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                color: "var(--color-t-primary)",
+                border: "1px solid var(--color-border-default)",
+                borderRadius: "var(--radius-card)",
+                background: "var(--color-surface-1)",
+                overflow: "hidden",
               }}
             >
-              <span className="flex-1 truncate" style={{ fontWeight: 500 }}>
-                {entry.question}
-              </span>
-              <div className="flex items-center gap-2 shrink-0 ml-3">
-                <span style={{ fontSize: 11, color: "var(--color-t-tertiary)" }}>
-                  {new Date(entry.timestamp).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "var(--color-t-tertiary)",
-                    transform: expandedIndex === i ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 0.2s",
-                  }}
-                >
-                  ▾
-                </span>
-              </div>
-            </button>
-            {expandedIndex === i && (
               <div
-                style={{
-                  padding: "8px 14px 12px",
-                  borderTop: "1px solid var(--color-border-default)",
-                }}
+                className="flex w-full items-center text-left"
+                style={{ padding: "8px 10px 8px 14px", gap: 8 }}
               >
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "var(--color-t-secondary)",
-                    marginBottom: 8,
-                  }}
-                >
-                  {summarizeSpecContent(entry.spec)}
-                </div>
                 <button
-                  onClick={() => onReplay(entry.question)}
+                  onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                  className="flex flex-1 items-center justify-between transition-colors"
                   style={{
                     fontSize: 13,
-                    color: "var(--color-accent)",
                     background: "none",
                     border: "none",
                     cursor: "pointer",
                     fontFamily: "inherit",
+                    color: "var(--color-t-primary)",
                     padding: 0,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.textDecoration = "underline";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.textDecoration = "none";
+                    textAlign: "left",
+                    minWidth: 0,
                   }}
                 >
-                  Re-run this question →
+                  <span className="flex-1 truncate" style={{ fontWeight: 500 }}>
+                    {entry.question}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "var(--color-t-tertiary)",
+                      flexShrink: 0,
+                      marginLeft: 8,
+                    }}
+                  >
+                    {new Date(entry.timestamp).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </button>
+                {/* Delete button */}
+                <button
+                  onClick={() => onRemove(entry.timestamp)}
+                  title="Remove"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--color-t-tertiary)",
+                    fontSize: 14,
+                    padding: "2px 4px",
+                    lineHeight: 1,
+                    flexShrink: 0,
+                    transition: "color 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = "var(--color-error-text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = "var(--color-t-tertiary)";
+                  }}
+                >
+                  ×
                 </button>
               </div>
-            )}
-          </div>
-        ))}
+              {isExpanded && (
+                <div
+                  style={{
+                    padding: "4px 14px 10px",
+                    borderTop: "1px solid var(--color-border-default)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: "var(--color-t-secondary)", marginBottom: 6 }}>
+                    {summarizeSpecContent(entry.spec)}
+                  </div>
+                  <button
+                    onClick={() => onReplay(entry.question)}
+                    style={{
+                      fontSize: 12,
+                      color: "var(--color-accent)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      padding: 0,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.textDecoration = "underline";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.textDecoration = "none";
+                    }}
+                  >
+                    Re-run →
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-/** Extract a brief summary from a spec (count of components, types used) */
 function summarizeSpecContent(spec: Spec): string {
   if (!spec?.elements) return "Dashboard";
   const types = new Set<string>();
