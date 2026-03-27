@@ -366,6 +366,7 @@ export default function Home() {
   }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
 
   const [llmSuggestions, setLlmSuggestions] = useState<string[] | null>(null);
+  const [llmFailed, setLlmFailed] = useState(false);
   const [prevSchemaKey, setPrevSchemaKey] = useState<string | null>(null);
   const schemaKey = schema
     ? `csv:${schema.csv_id}`
@@ -374,13 +375,21 @@ export default function Home() {
       : null;
   if (schemaKey !== prevSchemaKey) {
     setPrevSchemaKey(schemaKey);
-    if (!schemaKey) setLlmSuggestions(null);
+    if (schemaKey) {
+      setLlmSuggestions(null);
+      setLlmFailed(false);
+    }
   }
 
-  // Fetch LLM-powered suggestions when data loads
+  // Fetch LLM-powered suggestions; fall back to heuristics on failure or 8s timeout
   useEffect(() => {
     if (!schemaKey) return;
     const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+      setLlmFailed(true);
+    }, 8000);
+
     const body = schema
       ? {
           schema: {
@@ -400,17 +409,26 @@ export default function Home() {
     })
       .then((res) => res.json())
       .then((data) => {
+        clearTimeout(timeout);
         if (!controller.signal.aborted && data.questions?.length) {
           setLlmSuggestions(data.questions);
+        } else {
+          setLlmFailed(true);
         }
       })
-      .catch(() => {});
-    return () => controller.abort();
+      .catch(() => {
+        clearTimeout(timeout);
+        if (!controller.signal.aborted) setLlmFailed(true);
+      });
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemaKey]);
 
-  // Use LLM suggestions when available, fall back to heuristic
-  const suggestions = llmSuggestions ?? heuristicSuggestions;
+  // LLM first; heuristics only if LLM failed or timed out
+  const suggestions = llmSuggestions ?? (llmFailed ? heuristicSuggestions : []);
 
   // Source label for top bar pill
   const sourceLabel = schema
