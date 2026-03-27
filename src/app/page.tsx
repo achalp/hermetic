@@ -356,14 +356,61 @@ export default function Home() {
     profileItems.push(`${warehouse.totalColumns} columns`);
   }
 
-  // Data-specific question suggestions
-  const suggestions = useMemo(() => {
+  // Data-specific question suggestions: heuristic (instant) + LLM (async upgrade)
+  const heuristicSuggestions = useMemo(() => {
     if (schema) return generateSuggestions(schema);
     if (warehouse.isConnected && warehouse.tableSchemas.length > 0) {
       return generateWarehouseSuggestions(warehouse.tableSchemas);
     }
     return [];
   }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
+
+  const [llmSuggestions, setLlmSuggestions] = useState<string[] | null>(null);
+  const [prevSchemaKey, setPrevSchemaKey] = useState<string | null>(null);
+  const schemaKey = schema
+    ? `csv:${schema.csv_id}`
+    : warehouse.isConnected
+      ? `wh:${warehouse.warehouseId}`
+      : null;
+  if (schemaKey !== prevSchemaKey) {
+    setPrevSchemaKey(schemaKey);
+    if (!schemaKey) setLlmSuggestions(null);
+  }
+
+  // Fetch LLM-powered suggestions when data loads
+  useEffect(() => {
+    if (!schemaKey) return;
+    const controller = new AbortController();
+    const body = schema
+      ? {
+          schema: {
+            row_count: schema.row_count,
+            columns: schema.columns,
+            detected_domain: schema.detected_domain,
+            correlations: schema.correlations,
+          },
+        }
+      : { warehouseSchema: warehouse.tableSchemas };
+
+    fetch("/api/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!controller.signal.aborted && data.questions?.length) {
+          setLlmSuggestions(data.questions);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemaKey]);
+
+  // Use LLM suggestions when available, fall back to heuristic
+  const suggestions = llmSuggestions ?? heuristicSuggestions;
 
   // Source label for top bar pill
   const sourceLabel = schema
