@@ -1,6 +1,6 @@
 # Hermetic
 
-Upload CSV, Excel, or GeoJSON files — or connect to PostgreSQL, BigQuery, and ClickHouse data warehouses — ask questions in natural language, and get interactive dashboards. Works with cloud LLM providers (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via Ollama.
+**Ask your data anything.** Upload CSV, Excel, or GeoJSON files — or connect to PostgreSQL, BigQuery, ClickHouse, Trino, or Hive warehouses — ask questions in natural language, and get interactive dashboards. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via MLX, llama.cpp, or Ollama.
 
 ![Dashboard with stat cards, filters, trend lines, bar charts, and pie chart](docs/dashboard-top.png)
 ![Dashboard with box plots, heatmap, and scatter chart](docs/dashboard-bottom.png)
@@ -19,34 +19,56 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 ## Features
 
-- **Natural language queries.** Ask questions about your data and get visual answers.
-- **Interactive dashboards.** Auto-generated charts, tables, stat cards, and insights.
-- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints.
-- **Local models via Ollama.** Run offline with Qwen, Llama, DeepSeek, or any Ollama-supported model. Detect, pull, and activate models from the Settings UI.
+### For Non-Technical Users
+
+- **Ask your data anything.** Type a question in plain English — no SQL, no code, no formulas.
+- **Smart question suggestions.** After uploading data, the LLM analyzes your schema and suggests specific, insightful questions tailored to your actual columns and patterns.
+- **Try with sample data.** One-click sample dataset to explore Hermetic without needing your own data.
+- **Analysis history.** Every question and its results are preserved in a scrollable session history. Re-run any previous question with one click.
+- **Show your work.** Every analysis includes a plain-English methodology explanation — how many rows were analyzed, which columns were used, what operations were performed.
+- **Six output styles.** Choose how results are presented: Dashboard, Narrative, Summary, Deep dive, Slides, or Report.
+- **Light / Dark / System mode.** Toggle between light and dark themes, or follow your OS preference.
+
+### Data Sources
+
+- **File uploads.** CSV, Excel (multi-sheet workbooks with relationship detection), GeoJSON, JSON.
+- **Data warehouses.** PostgreSQL, BigQuery, ClickHouse, Trino, Hive. SQL generated automatically from natural language, with cross-table JOINs.
+- **Saved connections.** One-click reconnect to previously used warehouses — visible directly in the connection card.
+- **Data explorer.** Collapsible right-side rail showing schema (column names, types, samples), data profile (row counts, distributions), and sample rows. Supports Excel sheet tabs and warehouse table navigation with split-panel layout.
+
+### Visualization
+
 - **30+ chart types.** Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree.
 - **3D visualizations.** Scatter3D, Surface3D, Globe3D, deck.gl maps.
-- **Geographic maps.** Pigeon-maps markers and GeoJSON polygons, deck.gl layers (hexagon, column, arc, scatterplot, heatmap).
-- **Data warehouses.** Connect to PostgreSQL, BigQuery, or ClickHouse. SQL is generated automatically from natural language, with cross-table JOINs.
-- **Multiple file formats.** CSV, Excel (multi-sheet workbooks), GeoJSON, JSON.
+- **Geographic maps.** MapLibre GL vector tile maps with GeoJSON overlays, deck.gl layers (hexagon, column, arc, scatterplot, heatmap) with click/hover interactivity.
+- **Adaptive dashboards.** The LLM composes layouts tailored to each question — bar charts for comparisons, line charts for trends, stat cards for KPIs.
 - **Drill-down navigation.** Click chart segments to explore deeper.
 - **Client-side filtering.** DataController enables instant cross-filtering across dashboards.
-- **Save and update data.** Persist visualizations and re-run them with new data files. Schema-compatible updates skip LLM calls.
-- **Export.** PDF, DOCX, PPTX. Individual charts can be downloaded as PNG.
-- **Themes.** Vanilla, Stamen, Info is Beautiful, Pentagram (light and dark).
-- **Model selection.** Choose models for code generation and UI composition.
+
+### Operations
+
+- **Save and export.** Save visualizations, export as PDF, DOCX, or PPTX. Individual charts downloadable as PNG.
+- **Artifacts viewer.** Bottom sheet panel with syntax-highlighted SQL, Python code, and computed data tables. Copy to clipboard or export as CSV/XLSX.
+- **Update data.** Re-run saved visualizations with new data files. Schema-compatible updates skip LLM calls.
+
+### Configuration
+
+- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints.
+- **Local models.** MLX (Apple Silicon), llama.cpp, or Ollama. Detect, download, and activate models from the Settings drawer.
+- **Four themes.** Focus (emerald, default), Stamen (cartographic), Info is Beautiful (vivid), Pentagram (reductive). Each with light and dark variants.
 - **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
 
 ## Data Warehouses
 
 In addition to file uploads, Hermetic can connect directly to data warehouses. Ask questions in natural language and Hermetic generates SQL automatically, executes it against your warehouse, then analyzes and visualizes the results.
 
-Supported warehouses: **PostgreSQL**, **BigQuery**, **ClickHouse**.
+Supported warehouses: **PostgreSQL**, **BigQuery**, **ClickHouse**, **Trino**, **Hive**.
 
 ### Connecting
 
-In the app, click **Connect Warehouse**, choose your warehouse type, enter credentials, and click **Connect**. Hermetic introspects all tables (columns, types, primary keys, foreign keys) so the LLM can generate cross-table JOINs.
+On the home screen, the **Connect a warehouse** card shows your saved connections as one-click pills. Click one to connect instantly. To add a new connection, click the card and fill in the type-specific form (host, port, credentials). Hermetic introspects all tables (columns, types, primary keys, foreign keys) so the LLM can generate cross-table JOINs.
 
-Credentials are saved automatically after a successful connection. On subsequent runs, saved connections appear as one-click buttons. You can edit or delete saved connections from the UI.
+Credentials are saved automatically after a successful connection. Saved connections are managed from the Settings drawer.
 
 ### How it works
 
@@ -276,7 +298,15 @@ src/
       vizs/             Saved visualization CRUD
       artifacts/        Execution artifacts viewer
   components/
-    app/                Application shell (upload, query, response, settings)
+    app/                Application shell
+      top-bar.tsx       Persistent header with actions
+      source-cards.tsx  File upload + warehouse connect cards
+      settings-drawer.tsx  Right-side settings panel
+      data-rail.tsx     Collapsible data explorer rail
+      data-explorer/    Schema, profile, sample, sheet/table views
+      artifacts-panel.tsx  Bottom sheet for SQL/code/data
+      analysis-history.tsx  Session history of past analyses
+      suggestion-pills.tsx  LLM-generated question suggestions
     charts/             Chart components (Nivo, Plotly, deck.gl, MapLibre GL)
     controllers/        DataController for client-side filtering
     inputs/             Form inputs (Select, NumberInput, Toggle)
@@ -284,11 +314,13 @@ src/
     csv/                CSV parsing and schema extraction
     excel/              Excel file handling
     geojson/            GeoJSON parsing
-    warehouse/          Data warehouse connectors (PostgreSQL, BigQuery, ClickHouse)
+    warehouse/          Data warehouse connectors (PostgreSQL, BigQuery, ClickHouse, Trino, Hive)
     llm/                LLM integration and prompt generation
     pipeline/           Query orchestration (code-gen, sandbox, UI compose)
     sandbox/            Code execution (Docker / E2B / Microsandbox)
     saved/              Saved visualization storage and versioning
+    suggest-questions.ts  Heuristic question suggestion fallback
+    purpose-prompts.ts  Output style definitions (Dashboard, Narrative, etc.)
 ```
 
 ### How It Works
@@ -354,9 +386,9 @@ Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from a
 | `OPENAI_API_KEY`         | No                            |             | API key for the endpoint (not needed for Ollama)                                     |
 | `OPENAI_MODEL`           | If provider=openai-compatible |             | Model name (e.g. `llama3.3`, `gpt-4o`)                                               |
 
-### Ollama (Local Models)
+### Local Models (MLX / llama.cpp / Ollama)
 
-No environment variables needed. Open **Settings > Local Models (Ollama)** to detect, pull, and activate models directly from the UI.
+No environment variables needed. Open **Settings > Inference > Local Models** to detect, download, and activate models directly from the UI. MLX is available on Apple Silicon Macs. All three backends are managed from the same settings panel.
 
 1. Install Ollama: `brew install ollama` (macOS) or see [ollama.com](https://ollama.com)
 2. Start the server: `ollama serve`
@@ -437,6 +469,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 | -------------- | ------------------------------------- | -------------- |
 | StatCard       | Single KPI with trend                 | Custom         |
 | TextBlock      | Markdown or plain text                | Custom         |
+| SectionBreak   | Visual section divider                | Custom         |
 | Annotation     | Contextual notes                      | Custom         |
 | TrendIndicator | Directional change indicator          | Custom         |
 | DataTable      | Sortable, filterable, paginated table | TanStack Table |
