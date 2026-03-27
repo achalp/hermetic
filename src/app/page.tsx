@@ -510,24 +510,26 @@ export default function Home() {
         }
         right={
           <div className="flex items-center gap-3">
-            {showSaved && (
-              <button
-                onClick={toggleSaved}
-                className="text-sm font-medium text-accent"
-                style={{ transitionDuration: "var(--transition-speed)" }}
+            <button
+              onClick={toggleSaved}
+              className={`p-1 transition-colors ${showSaved ? "text-accent" : "text-t-secondary hover:text-t-primary"}`}
+              title="Saved visualizations"
+              aria-label="Saved visualizations"
+            >
+              <svg
+                className="h-5 w-5"
+                fill={showSaved ? "currentColor" : "none"}
+                stroke="currentColor"
+                strokeWidth="1.8"
+                viewBox="0 0 24 24"
               >
-                Saved
-              </button>
-            )}
-            {!showSaved && (
-              <button
-                onClick={toggleSaved}
-                className="text-sm font-medium text-t-secondary hover:text-t-primary transition-colors"
-                style={{ transitionDuration: "var(--transition-speed)" }}
-              >
-                Saved
-              </button>
-            )}
+                <path
+                  d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
             {hasData && (
               <button
                 onClick={handleReset}
