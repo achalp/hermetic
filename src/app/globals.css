@@ -1002,6 +1002,16 @@ body {
   border-color: var(--color-accent) !important;
   background: var(--color-accent-subtle) !important;
 }
+/* Saved connection pills get a stronger bg when the card is hovered */
+.source-card-hover:hover .saved-conn-pill {
+  background: var(--color-surface-1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.saved-conn-pill:hover {
+  background: var(--color-accent) !important;
+  color: white !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
 
 /* ═══════════════════════════════════════════════════════════
    Dark surface override — always-dark context for drawers,
