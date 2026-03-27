@@ -139,7 +139,7 @@ export function SourceCards({
                     e.stopPropagation();
                     onSavedConnect?.(c.id);
                   }}
-                  className="flex items-center gap-1.5 transition-colors source-card-hover"
+                  className="flex items-center gap-1.5 transition-all saved-conn-pill"
                   style={{
                     padding: "3px 10px",
                     borderRadius: 99,
