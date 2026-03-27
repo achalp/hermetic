@@ -530,15 +530,6 @@ export default function Home() {
                 />
               </svg>
             </button>
-            {hasData && (
-              <button
-                onClick={handleReset}
-                className="text-sm text-t-secondary hover:text-t-primary transition-colors"
-                style={{ transitionDuration: "var(--transition-speed)" }}
-              >
-                New
-              </button>
-            )}
             {/* State 4 actions: Save, Export, Artifacts */}
             {isState4 && (
               <>
