@@ -1000,12 +1000,17 @@ body {
    ═══════════════════════════════════════════════════════════ */
 .source-card-hover:hover {
   border-color: var(--color-accent) !important;
+}
+/* Only apply bg highlight to cards without a saved-connections tray */
+button.source-card-hover:hover {
   background: var(--color-accent-subtle) !important;
 }
-/* Saved connection pills get a stronger bg when the card is hovered */
-.source-card-hover:hover .saved-conn-pill {
-  background: var(--color-surface-1) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+/* Saved connection pills: distinct hover */
+.saved-conn-pill {
+  transition:
+    background 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
 }
 .saved-conn-pill:hover {
   background: var(--color-accent) !important;
