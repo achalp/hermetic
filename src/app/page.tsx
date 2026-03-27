@@ -439,11 +439,13 @@ export default function Home() {
       : "";
 
   // Build data rail schema from CSV schema or warehouse
-  const railSchema = schema?.columns.slice(0, 8).map((c) => ({
+  const mapSchemaCol = (c: { name: string; dtype: string; sample_values?: string[] }) => ({
     name: c.name,
     type: c.dtype === "number" ? "number" : c.dtype === "date" ? "date" : "text",
     sample: c.sample_values?.[0] ?? "",
-  }));
+  });
+  const railSchema = schema?.columns.slice(0, 8).map(mapSchemaCol);
+  const railAllSchema = schema?.columns.map(mapSchemaCol);
   const railMoreColumns = schema ? Math.max(0, schema.columns.length - 8) : 0;
 
   // ── Render ──────────────────────────────────────────────────
@@ -678,6 +680,7 @@ export default function Home() {
               : (schema?.filename ?? "data")
           }
           schema={railSchema}
+          allSchema={railAllSchema}
           moreColumns={railMoreColumns}
           profileChips={profileItems}
           sampleColumns={schema?.columns.map((c) => c.name)}

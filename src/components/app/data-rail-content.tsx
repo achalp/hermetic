@@ -20,6 +20,7 @@ interface DataRailContentProps {
   sourceType: "csv" | "excel" | "warehouse";
   sourceName: string;
   schema?: { name: string; type: string; sample: string }[];
+  allSchema?: { name: string; type: string; sample: string }[];
   moreColumns?: number;
   profileChips?: string[];
   distributions?: { name: string; percent: number; range: string }[];
@@ -64,6 +65,7 @@ export function DataRailContent({
   sourceType,
   sourceName,
   schema,
+  allSchema,
   moreColumns,
   profileChips,
   distributions,
@@ -117,21 +119,24 @@ export function DataRailContent({
     const ts = warehouseSchemas.find((t) => t.name === selectedTable);
     if (!ts) return null;
 
-    const cols = ts.columns.slice(0, 8).map((c) => ({
+    const mapCol = (c: { name: string; type: string }) => ({
       name: c.name,
       type: normalizeType(c.type),
       sample: c.type,
-    }));
+    });
+    const cols = ts.columns.slice(0, 8).map(mapCol);
+    const allCols = ts.columns.map(mapCol);
     const moreCols = Math.max(0, ts.columns.length - 8);
     const chips = [
       `${ts.row_count_estimate.toLocaleString()} rows`,
       `${ts.columns.length} columns`,
       ...(ts.primary_key?.length ? [`PK: ${ts.primary_key.join(", ")}`] : []),
     ];
-    return { cols, moreCols, chips };
+    return { cols, allCols, moreCols, chips };
   }, [sourceType, warehouseSchemas, selectedTable]);
 
   const displaySchema = sourceType === "warehouse" ? whTableData?.cols : schema;
+  const displayAllSchema = sourceType === "warehouse" ? whTableData?.allCols : allSchema;
   const displayMore = sourceType === "warehouse" ? whTableData?.moreCols : moreColumns;
   const displayChips = sourceType === "warehouse" ? whTableData?.chips : profileChips;
   const displaySampleCols = sourceType === "warehouse" ? whSampleData?.columns : sampleColumns;
@@ -173,7 +178,11 @@ export function DataRailContent({
   const detailContent = (
     <>
       <CollapsibleSection title="SCHEMA" defaultOpen>
-        <SchemaSection columns={displaySchema ?? []} moreCount={displayMore} />
+        <SchemaSection
+          columns={displaySchema ?? []}
+          moreCount={displayMore}
+          allColumns={displayAllSchema}
+        />
       </CollapsibleSection>
       <CollapsibleSection title="PROFILE" defaultOpen>
         <ProfileSection chips={displayChips ?? []} distributions={distributions ?? []} />
