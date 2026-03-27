@@ -15,7 +15,7 @@ import { SettingsDrawer } from "@/components/app/settings-drawer";
 import { DataRail } from "@/components/app/data-rail";
 import { DataRailContent } from "@/components/app/data-rail-content";
 import { SourceCards } from "@/components/app/source-cards";
-import { SavedConnections } from "@/components/app/saved-connections";
+
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
 import { StyleSelector } from "@/components/app/style-selector";
@@ -757,16 +757,13 @@ export default function Home() {
                 }}
                 onWarehouseClick={() => setShowWarehouseForm((v) => !v)}
                 onSampleData={handleSampleData}
-              />
-
-              <SavedConnections
-                connections={warehouse.savedConnections.map((c) => ({
+                savedConnections={warehouse.savedConnections.map((c) => ({
                   id: c.id,
                   type: c.config.type,
                   name: c.label,
                   host: "host" in c.config ? c.config.host : c.config.type,
                 }))}
-                onConnect={(id) => {
+                onSavedConnect={(id) => {
                   const saved = warehouse.savedConnections.find((c) => c.id === id);
                   if (saved) warehouse.connect(saved.config);
                 }}
