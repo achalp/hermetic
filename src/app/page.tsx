@@ -835,6 +835,9 @@ export default function Home() {
                 <AnalysisHistory
                   entries={analysisHistory.slice(0, -1)}
                   onReplay={handleGuardedQuery}
+                  onRemove={(ts) =>
+                    setAnalysisHistory((prev) => prev.filter((e) => e.timestamp !== ts))
+                  }
                 />
               )}
               {/* Follow-up question input — ABOVE results for quick access */}
