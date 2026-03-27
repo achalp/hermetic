@@ -787,8 +787,8 @@ export default function Home() {
           {/* ═══ STATE 2: Ask ═══ */}
           {isState2 && (
             <div
-              className="flex flex-col items-center justify-center"
-              style={{ minHeight: "calc(100vh - 56px)", paddingBottom: 80 }}
+              className="flex flex-col items-center"
+              style={{ minHeight: "calc(100vh - 56px)", paddingTop: "calc(35vh - 56px)" }}
             >
               <div className="mb-6">
                 <StyleSelector selected={purpose} onSelect={setPurpose} />
@@ -823,7 +823,7 @@ export default function Home() {
                 />
               </div>
 
-              {/* Data-specific question suggestions — below input */}
+              {/* Data-specific question suggestions — below input, no layout shift */}
               {suggestions.length > 0 && (
                 <div className="mt-3 flex flex-wrap justify-center gap-1.5 w-full max-w-[700px]">
                   {suggestions.map((q) => (
