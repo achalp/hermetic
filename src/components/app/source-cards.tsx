@@ -35,8 +35,9 @@ export function SourceCards({
   savedConnections,
   onSavedConnect,
 }: SourceCardsProps) {
-  const [showSaved, setShowSaved] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const hasSaved = savedConnections && savedConnections.length > 0;
+  const hasOverflow = savedConnections && savedConnections.length > 3;
 
   return (
     <div
@@ -88,13 +89,6 @@ export function SourceCards({
           overflow: "hidden",
           transition: "border-color 0.2s",
         }}
-        onMouseEnter={() => {
-          if (hasSaved) setShowSaved(true);
-        }}
-        onMouseLeave={() => setShowSaved(false)}
-        onTouchStart={() => {
-          if (hasSaved) setShowSaved((v) => !v);
-        }}
       >
         {/* Main clickable area */}
         <button
@@ -133,80 +127,63 @@ export function SourceCards({
           </span>
         </button>
 
-        {/* Saved connections tray — revealed on hover/touch */}
+        {/* Saved connections — always visible, up to 3 shown */}
         {hasSaved && (
-          <div
-            style={{
-              maxHeight: showSaved ? 120 : 0,
-              opacity: showSaved ? 1 : 0,
-              overflow: "hidden",
-              transition: "max-height 0.25s ease, opacity 0.2s ease",
-              borderTop: showSaved
-                ? "1px solid var(--color-border-default)"
-                : "1px solid transparent",
-            }}
-          >
-            <div style={{ padding: "10px 16px" }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  color: "var(--color-t-tertiary)",
-                  marginBottom: 6,
-                }}
-              >
-                Saved
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {savedConnections.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSavedConnect?.(c.id);
-                    }}
-                    className="flex items-center gap-1.5 transition-colors"
+          <div style={{ borderTop: "1px solid var(--color-border-default)", padding: "10px 16px" }}>
+            <div className="flex flex-wrap gap-1.5">
+              {(expanded ? savedConnections : savedConnections.slice(0, 3)).map((c) => (
+                <button
+                  key={c.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSavedConnect?.(c.id);
+                  }}
+                  className="flex items-center gap-1.5 transition-colors source-card-hover"
+                  style={{
+                    padding: "3px 10px",
+                    borderRadius: 99,
+                    border: "none",
+                    background: "var(--color-accent-subtle)",
+                    color: "var(--color-accent-text)",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    fontSize: 11,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span
                     style={{
-                      padding: "3px 10px",
-                      borderRadius: 99,
-                      border: "none",
-                      background: "var(--color-accent-subtle)",
-                      color: "var(--color-accent-text)",
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      fontSize: 11,
-                      whiteSpace: "nowrap",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: dotColors[c.type] ?? "var(--color-t-tertiary)",
+                      flexShrink: 0,
                     }}
-                  >
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        background: dotColors[c.type] ?? "var(--color-t-tertiary)",
-                        flexShrink: 0,
-                      }}
-                    />
-                    {c.name}
-                  </button>
-                ))}
-              </div>
+                  />
+                  {c.name}
+                </button>
+              ))}
+              {hasOverflow && !expanded && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setExpanded(true);
+                  }}
+                  style={{
+                    padding: "3px 10px",
+                    borderRadius: 99,
+                    border: "none",
+                    background: "transparent",
+                    color: "var(--color-t-tertiary)",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    fontSize: 11,
+                  }}
+                >
+                  +{savedConnections.length - 3} more
+                </button>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Small indicator when tray is hidden */}
-        {hasSaved && !showSaved && (
-          <div
-            style={{
-              padding: "0 0 10px",
-              textAlign: "center",
-              fontSize: 11,
-              color: "var(--color-t-tertiary)",
-            }}
-          >
-            {savedConnections.length} saved
           </div>
         )}
       </div>
