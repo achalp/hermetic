@@ -734,7 +734,30 @@ export default function Home() {
           )}
 
           {/* ═══ STATE 1: Connect Your Data ═══ */}
-          {isState1 && (
+          {isState1 && warehouse.isConnecting && (
+            <div
+              className="flex flex-col items-center justify-center gap-3"
+              style={{ minHeight: "calc(100vh - 56px)" }}
+            >
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="inline-block h-2 w-2 rounded-full bg-accent"
+                    style={{
+                      animation: "pulse 1.2s ease-in-out infinite",
+                      animationDelay: `${i * 0.2}s`,
+                    }}
+                  />
+                ))}
+              </div>
+              <span className="text-sm text-t-secondary">Connecting to warehouse...</span>
+              {warehouse.error && (
+                <span className="text-sm text-error-text">{warehouse.error}</span>
+              )}
+            </div>
+          )}
+          {isState1 && !warehouse.isConnecting && (
             <div
               className="flex flex-col items-center justify-center gap-8"
               style={{ minHeight: "calc(100vh - 56px)" }}
