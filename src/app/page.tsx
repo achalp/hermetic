@@ -735,7 +735,7 @@ export default function Home() {
                   letterSpacing: "-0.5px",
                 }}
               >
-                What&apos;s hiding in your data?
+                Ask your data anything.
               </h1>
 
               <SourceCards
