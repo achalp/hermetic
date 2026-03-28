@@ -620,8 +620,10 @@ export async function stopServer(backend: string): Promise<void> {
     }
   }
 
-  // Last resort: find orphan process by port (handles cases where PID was lost)
-  if (backend !== "ollama") {
+  // Last resort: find orphan process by port (handles cases where PID was lost
+  // after HMR). Only do this if we had a stored PID (evidence we spawned it),
+  // to avoid killing externally-managed services (e.g. systemd Ollama).
+  if (backend !== "ollama" || pid) {
     const port = DEFAULT_PORTS[backend];
     if (port) {
       const orphanPid = findPidByPort(port);

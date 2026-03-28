@@ -368,10 +368,11 @@ function ollamaFetch(baseUrl: string) {
   };
 }
 
-/** Timeout for initial connection + response headers from local LLM server */
-const LOCAL_REQUEST_TIMEOUT_MS = 120_000; // 2 minutes — model inference can be slow
+/** Timeout for initial connection + response headers from local LLM server.
+ *  Large models (e.g. 30B on CPU) can take 5+ minutes for first response. */
+const LOCAL_REQUEST_TIMEOUT_MS = 10 * 60_000; // 10 minutes
 /** Timeout for individual stream chunk reads — if no data for this long, server is hung */
-const LOCAL_STREAM_STALL_TIMEOUT_MS = 60_000; // 1 minute between chunks
+const LOCAL_STREAM_STALL_TIMEOUT_MS = 5 * 60_000; // 5 minutes between chunks
 
 /**
  * Custom fetch for local OpenAI-compatible servers (MLX, llama.cpp):
@@ -444,8 +445,14 @@ function localOpenAIFetch(baseUrl: string) {
         err instanceof Error &&
         (err.message.includes("ECONNREFUSED") || err.message.includes("ECONNRESET"));
 
+      // Node's fetch wraps the real error in .cause — log it for debugging
+      const cause =
+        err instanceof Error && "cause" in err
+          ? ((err.cause as Error)?.message ?? err.cause)
+          : undefined;
       logger.error("localOpenAIFetch connection error", {
         error: errDetail,
+        cause,
         isAborted,
         isConnRefused,
       });
@@ -453,16 +460,14 @@ function localOpenAIFetch(baseUrl: string) {
       let msg: string;
       if (isAborted) {
         msg =
-          "Local LLM server did not respond within 2 minutes. " +
+          "Local LLM server did not respond in time. " +
           "The model may be too large or the server may be hung. Try restarting in Settings.";
       } else if (isConnRefused) {
         msg =
           "Local LLM server is not running. It may have crashed (out of memory) or was stopped. " +
           "Restart it in Settings, or try a smaller model.";
       } else {
-        msg =
-          "Local LLM server crashed or is unreachable (likely out of memory). " +
-          "Try a smaller model in Settings.";
+        msg = `Local LLM request failed: ${errDetail}` + (cause ? ` (${cause})` : "");
       }
 
       // Use 422 (not 5xx) so the AI SDK does NOT retry — a crashed/hung server
@@ -785,41 +790,35 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
  * 3. Error if nothing configured
  */
 export function getActiveProvider(): LLMProviderId {
+  const validProviders = [
+    "anthropic",
+    "bedrock",
+    "vertex",
+    "openai-compatible",
+    "mlx",
+    "llama-cpp",
+    "ollama",
+  ];
+
+  // Check runtime config for user-selected provider (from Settings UI).
+  // This takes priority over env vars so the UI dropdown actually works.
+  const rc = getRuntimeConfig();
+  if (rc.activeProvider) {
+    if (validProviders.includes(rc.activeProvider)) {
+      return rc.activeProvider as LLMProviderId;
+    }
+  }
+
+  // Explicit LLM_PROVIDER env var (used as default before user picks in UI)
   const explicit = process.env.LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase() as LLMProviderId;
-    const validProviders = [
-      "anthropic",
-      "bedrock",
-      "vertex",
-      "openai-compatible",
-      "mlx",
-      "llama-cpp",
-      "ollama",
-    ];
     if (!validProviders.includes(normalized)) {
       throw new Error(
         `Invalid LLM_PROVIDER "${explicit}". Must be one of: ${validProviders.join(", ")}`
       );
     }
     return normalized;
-  }
-
-  // Check runtime config for user-selected provider (from Settings UI)
-  const rc = getRuntimeConfig();
-  if (rc.activeProvider) {
-    const validProviders = [
-      "anthropic",
-      "bedrock",
-      "vertex",
-      "openai-compatible",
-      "mlx",
-      "llama-cpp",
-      "ollama",
-    ];
-    if (validProviders.includes(rc.activeProvider)) {
-      return rc.activeProvider as LLMProviderId;
-    }
   }
 
   // Check runtime config for local backends — user explicitly enabled in UI
