@@ -89,13 +89,35 @@ export function getActiveDownloads(backend?: string): ActiveDownload[] {
  * Returns the python command and whether it has the full CLI module
  * or only the snapshot_download API.
  */
-function findHfPython(): { python: string; hasCli: boolean } {
-  // 1. Standalone huggingface-cli on PATH
-  try {
-    execSync("which huggingface-cli", { stdio: "ignore", timeout: 5000 });
-    return { python: "huggingface-cli", hasCli: true };
-  } catch {
-    /* not found */
+/**
+ * Find a working way to download from HuggingFace.
+ * - `standalone`: a CLI binary (huggingface-cli or hf) that accepts `download` subcommand
+ * - `pythonCli`: a python interpreter with huggingface_hub.commands module
+ * - `pythonApi`: a python interpreter with snapshot_download only
+ */
+function findHfDownloader(): {
+  cmd: string;
+  mode: "standalone" | "pythonCli" | "pythonApi";
+} | null {
+  // 1. Standalone CLI tools on PATH (huggingface-cli or newer "hf" command)
+  //    Also check ~/.local/bin where pipx installs to.
+  const home = process.env.HOME || "";
+  const cliCandidates = [
+    "huggingface-cli",
+    "hf",
+    ...(home ? [`${home}/.local/bin/huggingface-cli`, `${home}/.local/bin/hf`] : []),
+  ];
+  for (const cli of cliCandidates) {
+    try {
+      if (cli.startsWith("/")) {
+        execSync(`test -x ${cli}`, { stdio: "ignore", timeout: 5000 });
+      } else {
+        execSync(`which ${cli}`, { stdio: "ignore", timeout: 5000 });
+      }
+      return { cmd: cli, mode: "standalone" };
+    } catch {
+      /* not found */
+    }
   }
 
   // 2. Check various pythons for the full CLI module, then snapshot_download
@@ -108,7 +130,7 @@ function findHfPython(): { python: string; hasCli: boolean } {
   for (const py of pythons) {
     try {
       execSync(`${py} -c "import huggingface_hub.commands"`, { stdio: "ignore", timeout: 5000 });
-      return { python: py, hasCli: true };
+      return { cmd: py, mode: "pythonCli" };
     } catch {
       /* not found */
     }
@@ -120,40 +142,35 @@ function findHfPython(): { python: string; hasCli: boolean } {
         stdio: "ignore",
         timeout: 5000,
       });
-      return { python: py, hasCli: false };
+      return { cmd: py, mode: "pythonApi" };
     } catch {
       /* not found */
     }
   }
 
-  return { python: "python3", hasCli: false };
+  return null;
 }
 
-/** Spawn a download process for a HuggingFace model */
-function spawnHfDownload(model: string): ReturnType<typeof spawn> {
-  const { python, hasCli } = findHfPython();
+/** Spawn a download process for a HuggingFace model. Returns null if deps are missing. */
+function spawnHfDownload(model: string): ReturnType<typeof spawn> | null {
+  const hf = findHfDownloader();
+  if (!hf) return null;
 
-  if (hasCli) {
-    if (python === "huggingface-cli") {
-      return spawn("huggingface-cli", ["download", model], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    }
-    return spawn(python, ["-m", "huggingface_hub.commands.huggingface_cli", "download", model], {
+  if (hf.mode === "standalone") {
+    return spawn(hf.cmd, ["download", model], { stdio: ["ignore", "pipe", "pipe"] });
+  }
+  if (hf.mode === "pythonCli") {
+    return spawn(hf.cmd, ["-m", "huggingface_hub.commands.huggingface_cli", "download", model], {
       stdio: ["ignore", "pipe", "pipe"],
     });
   }
-
-  // Fallback: inline snapshot_download script
   const script = `
 import sys
 from huggingface_hub import snapshot_download
 path = snapshot_download(sys.argv[1])
 print(path)
 `;
-  return spawn(python, ["-c", script, model], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  return spawn(hf.cmd, ["-c", script, model], { stdio: ["ignore", "pipe", "pipe"] });
 }
 
 /**
@@ -264,10 +281,10 @@ export async function POST(request: Request) {
 
         const proc = spawnHfDownload(model);
 
-        // Guard against spawn failure
-        if (!proc.pid) {
+        // Guard against missing deps or spawn failure
+        if (!proc || !proc.pid) {
           emit({
-            status: "Failed to start download process. Is Python/huggingface-cli installed?",
+            status: "huggingface-hub is not installed. Run: pip install huggingface-hub",
             error: true,
           });
           close();
@@ -417,7 +434,15 @@ export async function POST(request: Request) {
 
         emit({ status: `Downloading ${model}...`, progress: 0 });
 
-        const { python, hasCli } = findHfPython();
+        const hf = findHfDownloader();
+        if (!hf) {
+          emit({
+            status: "huggingface-hub is not installed. Run: pip install huggingface-hub",
+            error: true,
+          });
+          close();
+          return;
+        }
         const repoId = model.split("/").slice(0, 2).join("/");
 
         // Build a glob pattern that selects ONE good quant file instead of all GGUFs.
@@ -426,19 +451,23 @@ export async function POST(request: Request) {
         const quantPattern = "*Q4_K_M*.gguf";
 
         let proc: ReturnType<typeof spawn>;
-        if (hasCli) {
-          const cmd = python === "huggingface-cli" ? "huggingface-cli" : python;
-          const baseArgs =
-            python === "huggingface-cli"
-              ? ["download", repoId]
-              : ["-m", "huggingface_hub.commands.huggingface_cli", "download", repoId];
-
-          // Try Q4_K_M first; the process-manager's resolveGgufModelPath will
-          // find whatever file was actually downloaded.
-          const args = [...baseArgs, "--include", quantPattern, "--local-dir", localDir];
-
-          logger.info("download: llama-cpp spawn", { cmd, args: args.join(" ") });
-          proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+        if (hf.mode === "standalone") {
+          const args = ["download", repoId, "--include", quantPattern, "--local-dir", localDir];
+          logger.info("download: llama-cpp spawn", { cmd: hf.cmd, args: args.join(" ") });
+          proc = spawn(hf.cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+        } else if (hf.mode === "pythonCli") {
+          const args = [
+            "-m",
+            "huggingface_hub.commands.huggingface_cli",
+            "download",
+            repoId,
+            "--include",
+            quantPattern,
+            "--local-dir",
+            localDir,
+          ];
+          logger.info("download: llama-cpp spawn", { cmd: hf.cmd, args: args.join(" ") });
+          proc = spawn(hf.cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
         } else {
           // Fallback: inline snapshot_download — use allow_patterns for single quant
           const script = `
@@ -447,14 +476,14 @@ from huggingface_hub import snapshot_download
 path = snapshot_download(sys.argv[1], allow_patterns=["${quantPattern}"], local_dir=sys.argv[2])
 print(path)
 `;
-          proc = spawn(python, ["-c", script, repoId, localDir], {
+          proc = spawn(hf.cmd, ["-c", script, repoId, localDir], {
             stdio: ["ignore", "pipe", "pipe"],
           });
         }
 
         if (!proc.pid) {
           emit({
-            status: "Failed to start download process. Is Python/huggingface-cli installed?",
+            status: "Failed to start download process",
             error: true,
           });
           close();

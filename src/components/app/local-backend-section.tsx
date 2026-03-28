@@ -69,6 +69,7 @@ export function LocalBackendSection({
     baseUrl?: string;
     activeModel?: string;
     pid?: number;
+    managed?: boolean;
     systemRamGb?: number;
     logs?: string[];
     downloads?: Array<{ model: string; progress: number; status: string }>;
@@ -343,11 +344,15 @@ export function LocalBackendSection({
     setError(null);
     setStopping(true);
     try {
-      await fetch("/api/local-llm/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend }),
-      });
+      // Only kill the process if we spawned it. External services
+      // (e.g. Ollama running as a system service) should just be deactivated.
+      if (status?.managed !== false) {
+        await fetch("/api/local-llm/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ backend }),
+        });
+      }
       await deactivate();
       await checkStatus();
     } catch {
@@ -402,16 +407,15 @@ export function LocalBackendSection({
               break;
             }
           } catch (e) {
-            if (e instanceof Error && e.message !== "Download failed") continue;
-            throw e;
+            if (e instanceof Error) throw e;
           }
         }
       }
 
       reader.cancel();
       await fetchModels();
-    } catch {
-      setError(`Failed to download ${modelName}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to download ${modelName}`);
     } finally {
       setPulling(null);
       setPullProgress(0);
@@ -609,7 +613,7 @@ export function LocalBackendSection({
           ))}
 
         {/* Start Server button — hidden while starting */}
-        {!starting && !isDownloading && !isServerStarting && (
+        {!starting && !isServerStarting && (
           <div className="mb-3">
             <button
               onClick={() => startServer(models[0]?.name ?? recommended[0]?.id ?? "")}
@@ -626,7 +630,7 @@ export function LocalBackendSection({
         )}
 
         {/* Downloaded models — pick which model to start with (MLX / llama.cpp) */}
-        {backend !== "ollama" && models.length > 0 && !isDownloading && !starting && (
+        {backend !== "ollama" && models.length > 0 && !starting && (
           <div className="mb-3">
             <label className="mb-1.5 block text-xs font-medium text-t-secondary">
               Downloaded Models
@@ -836,7 +840,7 @@ export function LocalBackendSection({
             transitionDuration: "var(--transition-speed)",
           }}
         >
-          {stopping ? "..." : "Stop"}
+          {stopping ? "..." : status?.managed === false ? "Deactivate" : "Stop"}
         </button>
       </div>
 

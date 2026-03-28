@@ -115,6 +115,10 @@ export async function GET(request: Request) {
   // Check for active downloads for this backend
   const downloads = getActiveDownloads(backend);
 
+  // Whether the app spawned this process (vs an external system service).
+  // True when we have a tracked process or a saved PID that's still alive.
+  const managed = processAlive || pidStillAlive || !!config?.pid;
+
   return Response.json({
     running: healthy,
     status,
@@ -122,6 +126,7 @@ export async function GET(request: Request) {
     baseUrl,
     activeModel: config?.activeModel || "",
     pid: config?.pid,
+    managed,
     ...(systemRamGb > 0 && { systemRamGb }),
     ...(version && { version }),
     ...(logs.length > 0 && { logs }),
