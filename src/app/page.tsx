@@ -186,25 +186,25 @@ export default function Home() {
     // Clean up URL
     window.history.replaceState({}, "", "/");
 
-    // Load the history entry
+    // Load the history entry (same pattern as handleLoadViz)
+    dispatch({ type: "LOAD_VIZ_START" });
     loadHistoryEntry(restoreId)
       .then((data) => {
-        if (data.csvId && data.schema) {
+        if (data.csvId) {
           handleUpload(data.csvId, data.schema as unknown as import("@/lib/types").CSVSchema);
         }
-        if (data.spec) {
-          dispatch({
-            type: "LOAD_VIZ_SUCCESS",
-            question: data.meta.question,
-            spec: data.spec as unknown as import("@json-render/react").Spec,
-            artifacts:
-              (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
-              null,
-          });
-        }
+        dispatch({
+          type: "LOAD_VIZ_SUCCESS",
+          question: data.meta.question,
+          spec: data.spec as unknown as import("@json-render/react").Spec,
+          artifacts:
+            (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
+            null,
+        });
       })
       .catch((err) => {
         console.error("Failed to restore history entry:", err);
+        dispatch({ type: "LOAD_VIZ_ERROR" });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
