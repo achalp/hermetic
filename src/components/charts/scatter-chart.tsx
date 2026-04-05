@@ -136,7 +136,7 @@ export function ScatterChartComponent({
 
   return (
     <div
-      className={`w-full${isDrillable ? " cursor-pointer" : ""}`}
+      className={`w-full${isDrillable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
       onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
@@ -150,7 +150,10 @@ export function ScatterChartComponent({
           )}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveScatterPlot
           data={nivoData}
           colors={colors}
