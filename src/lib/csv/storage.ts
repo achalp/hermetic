@@ -38,7 +38,9 @@ export async function storeCSV(csvId: string, csvText: string, schema: CSVSchema
 export function getStoredCSV(csvId: string): StoredCSV | undefined {
   const entry = store.get(csvId);
   if (!entry) return undefined;
-  if (Date.now() - entry.createdAt > CSV_TTL_MS) {
+  // Local files don't expire — the data is still on disk
+  const isLocal = !!(entry.localPath || entry.localFolderPath);
+  if (!isLocal && Date.now() - entry.createdAt > CSV_TTL_MS) {
     store.delete(csvId);
     unlink(entry.filePath).catch(() => {});
     // Also clean up sidecar GeoJSON file if present
