@@ -57,6 +57,18 @@ export function LineChartComponent({
   const series = toNivoLineSeries(data, props.x_key, props.y_keys);
   const curve = CURVE_MAP[props.curve ?? "monotone"];
   const tickValues = pickTickValues(data, props.x_key);
+  const hasRotatedLabels = !!tickValues;
+  const hasLegend = props.y_keys.length > 1;
+
+  // Compute legend item width from longest key name
+  const maxKeyLen = hasLegend ? Math.max(...props.y_keys.map((k) => k.length)) : 0;
+  const legendItemWidth = Math.max(100, Math.min(180, maxKeyLen * 8 + 24));
+
+  // Truncate long x-axis labels
+  const truncateLabel = (v: string | number): string => {
+    const s = String(v);
+    return s.length > 16 ? s.slice(0, 15) + "\u2026" : s;
+  };
 
   if (data.length === 0) {
     return <div style={{ height: chart.height }} />;
@@ -87,7 +99,12 @@ export function LineChartComponent({
           colors={colors}
           curve={curve}
           lineWidth={chart.lineWidth}
-          margin={chart.margin}
+          margin={{
+            ...chart.margin,
+            bottom: hasRotatedLabels
+              ? chart.margin.bottom + (hasLegend ? 70 : 40)
+              : chart.margin.bottom + (hasLegend ? 30 : 0),
+          }}
           xScale={{ type: "point" }}
           yScale={{ type: "linear", min: "auto", max: "auto" }}
           theme={theme}
@@ -96,7 +113,8 @@ export function LineChartComponent({
           axisBottom={{
             tickSize: chart.axisTickSize,
             tickPadding: 5,
-            tickRotation: tickValues ? -45 : 0,
+            tickRotation: hasRotatedLabels ? -45 : 0,
+            format: hasRotatedLabels ? truncateLabel : undefined,
             ...(tickValues ? { tickValues } : {}),
           }}
           axisLeft={{
@@ -113,13 +131,13 @@ export function LineChartComponent({
           useMesh
           enableSlices="x"
           legends={
-            props.y_keys.length > 1
+            hasLegend
               ? [
                   {
-                    anchor: "bottom",
-                    direction: "row",
-                    translateY: 46,
-                    itemWidth: 100,
+                    anchor: "bottom" as const,
+                    direction: "row" as const,
+                    translateY: hasRotatedLabels ? 90 : 56,
+                    itemWidth: legendItemWidth,
                     itemHeight: 20,
                     symbolSize: chart.legendSymbolSize,
                   },
