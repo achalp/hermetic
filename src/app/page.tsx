@@ -18,7 +18,7 @@ import { SourceCards } from "@/components/app/source-cards";
 import { LocalFileBrowser } from "@/components/app/local-file-browser";
 
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
-import { ProfileStrip } from "@/components/app/profile-strip";
+
 import { StyleSelector } from "@/components/app/style-selector";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
@@ -45,6 +45,8 @@ import {
   saveViz,
   uploadFile,
   extractLocalSchema,
+  saveHistoryEntry,
+  loadHistoryEntry,
 } from "@/lib/api";
 import {
   CODE_GEN_MODEL,
@@ -173,6 +175,39 @@ export default function Home() {
   useEffect(() => {
     currentSpecRef.current = loadedSpec ?? null;
   }, [loadedSpec]);
+
+  // ── Restore from history (?restore=id) ────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const restoreId = params.get("restore");
+    if (!restoreId) return;
+
+    // Clean up URL
+    window.history.replaceState({}, "", "/");
+
+    // Load the history entry
+    loadHistoryEntry(restoreId)
+      .then((data) => {
+        if (data.csvId && data.schema) {
+          handleUpload(data.csvId, data.schema as unknown as import("@/lib/types").CSVSchema);
+        }
+        if (data.spec) {
+          dispatch({
+            type: "LOAD_VIZ_SUCCESS",
+            question: data.meta.question,
+            spec: data.spec as unknown as import("@json-render/react").Spec,
+            artifacts:
+              (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
+              null,
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to restore history entry:", err);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Close export dropdown on outside click
   useEffect(() => {
@@ -545,6 +580,23 @@ export default function Home() {
         }
         right={
           <div className="flex items-center gap-3">
+            <a
+              href="/history"
+              className="p-1 transition-colors text-t-secondary hover:text-t-primary"
+              title="Analysis history"
+              aria-label="Analysis history"
+            >
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                viewBox="0 0 24 24"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </a>
             <button
               onClick={toggleSaved}
               className={`p-1 transition-colors ${showSaved ? "text-accent" : "text-t-secondary hover:text-t-primary"}`}
@@ -949,9 +1001,14 @@ export default function Home() {
                   onRerun={handleRerunFromToolbar}
                   loadedVizId={loadedVizId}
                   onEffectiveCsvIdChange={setEffectiveCsvId}
-                  onAnalysisComplete={(entry) =>
-                    setAnalysisHistory((prev) => [...prev, { ...entry, timestamp: Date.now() }])
-                  }
+                  onAnalysisComplete={(entry) => {
+                    setAnalysisHistory((prev) => [...prev, { ...entry, timestamp: Date.now() }]);
+                    // Auto-persist to disk (fire-and-forget)
+                    const cid = effectiveCsvId ?? csvId;
+                    if (cid) {
+                      saveHistoryEntry(cid, entry.spec, entry.question).catch(() => {});
+                    }
+                  }}
                 />
               </div>
             </div>

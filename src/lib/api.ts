@@ -5,6 +5,7 @@
 
 import type {
   CSVSchema,
+  HistoryMeta,
   SavedVizMeta,
   SheetInfo,
   SheetRelationship,
@@ -263,6 +264,48 @@ export async function checkLlmReady(): Promise<LlmReadiness> {
       message: `Local LLM server (${provider.activeLabel}) is not running. Start it in Settings.`,
     };
   }
+}
+
+// ── Analysis History ──────────────────────────────────────────
+
+export async function listHistory(signal?: AbortSignal): Promise<HistoryMeta[]> {
+  const res = await fetch("/api/history", { signal });
+  const data = await json<{ entries: HistoryMeta[] }>(res);
+  return data.entries;
+}
+
+export interface LoadedHistory {
+  meta: HistoryMeta;
+  spec: Record<string, unknown>;
+  artifacts?: Record<string, unknown>;
+  schema: Record<string, unknown>;
+  csvId?: string;
+}
+
+export async function loadHistoryEntry(id: string): Promise<LoadedHistory> {
+  const res = await fetch(`/api/history/${id}`);
+  return json<LoadedHistory>(res);
+}
+
+export async function deleteHistoryEntry(id: string): Promise<void> {
+  const res = await fetch(`/api/history/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Delete failed", res.status);
+  }
+}
+
+export async function saveHistoryEntry(
+  csvId: string,
+  spec: unknown,
+  question: string
+): Promise<{ meta?: HistoryMeta; skipped?: boolean }> {
+  const res = await fetch("/api/history/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csvId, spec, question }),
+  });
+  return json<{ meta?: HistoryMeta; skipped?: boolean }>(res);
 }
 
 // ── Local File Browser ────────────────────────────────────────

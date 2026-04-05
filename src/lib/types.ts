@@ -160,6 +160,23 @@ export interface ConversationEntry {
   specSummary: string;
 }
 
+// ── Analysis history types ─────────────────────────────────────
+
+export interface HistoryMeta {
+  id: string;
+  question: string;
+  timestamp: number;
+  sourceFile: string;
+  sourceType: "upload" | "local" | "warehouse";
+  localPath?: string;
+  warehouseType?: WarehouseType;
+  rowCount: number;
+  columnCount: number;
+  chartTypes: string[];
+  executionMs: number;
+  specSummary: string;
+}
+
 export interface SavedVizMeta {
   vizId: string;
   question: string;
