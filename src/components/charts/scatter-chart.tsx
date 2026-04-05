@@ -95,6 +95,10 @@ export function ScatterChartComponent({
 
   const colors = nivoData.map((s) => s.color);
 
+  // Cap legend entries — too many groups make the legend cover the chart
+  const MAX_LEGEND_GROUPS = 10;
+  const showLegend = groupNames.length > 1 && groupNames.length <= MAX_LEGEND_GROUPS;
+
   // Regression line as a custom SVG layer
   const regression = props.show_regression ? linearRegression(points) : null;
 
@@ -145,7 +149,7 @@ export function ScatterChartComponent({
           colors={colors}
           margin={{
             top: chart.margin.top,
-            right: chart.margin.right,
+            right: showLegend ? 140 : chart.margin.right,
             bottom: chart.margin.bottom + 10,
             left: chart.margin.left + 10,
           }}
@@ -181,15 +185,15 @@ export function ScatterChartComponent({
             ...(regression ? [regressionLayer] : []),
           ]}
           legends={
-            groupNames.length > 1
+            showLegend
               ? [
                   {
-                    anchor: "bottom-right" as const,
+                    anchor: "right" as const,
                     direction: "column" as const,
-                    translateX: 0,
+                    translateX: 130,
                     translateY: 0,
-                    itemWidth: 100,
-                    itemHeight: 20,
+                    itemWidth: 120,
+                    itemHeight: 18,
                     symbolSize: chart.legendSymbolSize,
                   },
                 ]
