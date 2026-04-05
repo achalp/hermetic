@@ -3,6 +3,7 @@
 import { ResponsiveScatterPlot, ScatterPlotCustomSvgLayer } from "@nivo/scatterplot";
 import { useChartColors, useTrendColors, useNivoTheme, formatAxisNumber } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface ScatterChartProps {
   title?: string | null;
@@ -58,6 +59,7 @@ export function ScatterChartComponent({
   const { chart } = tc;
   const chartColors = useChartColors();
   const trendColors = useTrendColors();
+  const isExpanded = useChartExpanded();
 
   const rawData = Array.isArray(props.data) ? props.data : [];
   if (rawData.length === 0) {
@@ -95,9 +97,14 @@ export function ScatterChartComponent({
 
   const colors = nivoData.map((s) => s.color);
 
-  // Cap legend entries — too many groups make the legend cover the chart
-  const MAX_LEGEND_GROUPS = 10;
-  const showLegend = groupNames.length > 1 && groupNames.length <= MAX_LEGEND_GROUPS;
+  // Legend strategy:
+  // - Inline (not expanded): show right-side legend for ≤10 groups, hide for more
+  // - Expanded: always show legend at bottom, wrapping horizontally
+  const MAX_INLINE_LEGEND_GROUPS = 10;
+  const hasMultipleGroups = groupNames.length > 1;
+  const showInlineLegend =
+    hasMultipleGroups && !isExpanded && groupNames.length <= MAX_INLINE_LEGEND_GROUPS;
+  const showExpandedLegend = hasMultipleGroups && isExpanded;
 
   // Regression line as a custom SVG layer
   const regression = props.show_regression ? linearRegression(points) : null;
@@ -149,8 +156,10 @@ export function ScatterChartComponent({
           colors={colors}
           margin={{
             top: chart.margin.top,
-            right: showLegend ? 140 : chart.margin.right,
-            bottom: chart.margin.bottom + 10,
+            right: showInlineLegend ? 140 : chart.margin.right,
+            bottom: showExpandedLegend
+              ? chart.margin.bottom + 30 + Math.ceil(groupNames.length / 4) * 22
+              : chart.margin.bottom + 10,
             left: chart.margin.left + 10,
           }}
           xScale={{ type: "linear", min: "auto", max: "auto" }}
@@ -185,7 +194,7 @@ export function ScatterChartComponent({
             ...(regression ? [regressionLayer] : []),
           ]}
           legends={
-            showLegend
+            showInlineLegend
               ? [
                   {
                     anchor: "right" as const,
@@ -197,7 +206,20 @@ export function ScatterChartComponent({
                     symbolSize: chart.legendSymbolSize,
                   },
                 ]
-              : []
+              : showExpandedLegend
+                ? [
+                    {
+                      anchor: "bottom" as const,
+                      direction: "row" as const,
+                      translateX: 0,
+                      translateY: 20 + Math.ceil(groupNames.length / 4) * 22,
+                      itemWidth: 140,
+                      itemHeight: 20,
+                      symbolSize: chart.legendSymbolSize,
+                      itemsSpacing: 8,
+                    },
+                  ]
+                : []
           }
         />
       </div>

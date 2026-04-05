@@ -1,8 +1,23 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { copyChartToClipboard, downloadChartAsPng } from "@/lib/export-utils";
+
+const ExpandedContext = createContext(false);
+
+/** Returns true when the chart is rendered in the fullscreen expanded overlay. */
+export function useChartExpanded(): boolean {
+  return useContext(ExpandedContext);
+}
 
 interface ChartExpandWrapperProps {
   title?: string | null;
@@ -249,7 +264,9 @@ export function ChartExpandWrapper({ title, children }: ChartExpandWrapperProps)
 
               {/* Chart area */}
               <div className="flex-1 overflow-auto" style={{ padding: "var(--padding-card)" }}>
-                <div className="h-full w-full min-h-[70vh]">{children}</div>
+                <ExpandedContext.Provider value={true}>
+                  <div className="h-full w-full min-h-[70vh]">{children}</div>
+                </ExpandedContext.Provider>
               </div>
             </div>
           </div>,
