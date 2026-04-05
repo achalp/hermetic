@@ -4,6 +4,7 @@ import { ResponsiveTreeMap } from "@nivo/treemap";
 import { useNivoTheme, useChartColors } from "@/lib/chart-theme";
 import { resolveColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface TreemapChartProps {
   title: string | null;
@@ -17,6 +18,7 @@ interface TreemapChartProps {
 export function TreemapChartComponent({ props }: { props: TreemapChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const themeColors = useChartColors();
   const colors = props.colors ? resolveColors(props.colors) : themeColors;
 
@@ -25,7 +27,7 @@ export function TreemapChartComponent({ props }: { props: TreemapChartProps }) {
   }
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -34,7 +36,10 @@ export function TreemapChartComponent({ props }: { props: TreemapChartProps }) {
           {props.title}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveTreeMap
           data={props.data as { name: string; children?: unknown[] }}
           identity="name"

@@ -3,6 +3,7 @@
 import { ResponsiveSankey } from "@nivo/sankey";
 import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface SankeyChartProps {
   title: string | null;
@@ -16,6 +17,7 @@ interface SankeyChartProps {
 export function SankeyChartComponent({ props }: { props: SankeyChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const nodes = (Array.isArray(props.nodes) ? props.nodes : []).map((n) => ({
     ...n,
     label: n.label ?? undefined,
@@ -29,7 +31,7 @@ export function SankeyChartComponent({ props }: { props: SankeyChartProps }) {
   }
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -38,7 +40,10 @@ export function SankeyChartComponent({ props }: { props: SankeyChartProps }) {
           {props.title}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveSankey
           data={{ nodes, links }}
           theme={theme}

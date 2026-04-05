@@ -3,6 +3,7 @@
 import { ResponsiveBar } from "@nivo/bar";
 import { useColorMap, useNivoTheme, formatAxisNumber, pickTickValues } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface BarChartProps {
   title?: string | null;
@@ -40,6 +41,7 @@ export function BarChartComponent({
   const theme = useNivoTheme();
   const config = useThemeConfig();
   const { chart } = config;
+  const isExpanded = useChartExpanded();
 
   const raw = Array.isArray(props.data) ? props.data : [];
   // Deduplicate rows by indexBy key — Nivo uses it as React key so duplicates
@@ -108,7 +110,7 @@ export function BarChartComponent({
 
   return (
     <div
-      className={`w-full${isDrillable || isSelectable ? " cursor-pointer" : ""}`}
+      className={`w-full${isDrillable || isSelectable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
       onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
@@ -125,7 +127,10 @@ export function BarChartComponent({
           )}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveBar
           data={data as Record<string, string | number>[]}
           keys={props.y_keys}

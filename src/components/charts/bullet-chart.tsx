@@ -2,6 +2,7 @@
 
 import { useNivoTheme, useChartColors, resolveColor } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface BulletChartProps {
   title: string | null;
@@ -14,6 +15,7 @@ interface BulletChartProps {
 export function BulletChartComponent({ props }: { props: BulletChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const themeColors = useChartColors();
   const data = Array.isArray(props.data) ? props.data : [];
 
@@ -34,7 +36,7 @@ export function BulletChartComponent({ props }: { props: BulletChartProps }) {
   const barAreaWidth = svgWidth - labelWidth - 20;
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"

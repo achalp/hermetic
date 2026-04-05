@@ -2,6 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { Plotly3DChart } from "./plotly-3d-wrapper";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface Surface3DProps {
   title?: string | null;
@@ -17,6 +18,8 @@ interface Surface3DProps {
 }
 
 export function Surface3DChartComponent({ props }: { props: Surface3DProps }) {
+  const isExpanded = useChartExpanded();
+
   if (!props.z || props.z.length === 0) {
     return <div style={{ height: 500 }} />;
   }
@@ -51,7 +54,7 @@ export function Surface3DChartComponent({ props }: { props: Surface3DProps }) {
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -60,7 +63,9 @@ export function Surface3DChartComponent({ props }: { props: Surface3DProps }) {
           {props.title}
         </h3>
       )}
-      <Plotly3DChart data={traces} layout={layout} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <Plotly3DChart data={traces} layout={layout} height={isExpanded ? undefined : 500} />
+      </div>
     </div>
   );
 }

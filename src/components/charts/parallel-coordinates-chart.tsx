@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface ParallelCoordinatesChartProps {
   title: string | null;
@@ -16,6 +17,7 @@ interface ParallelCoordinatesChartProps {
 export function ParallelCoordinatesComponent({ props }: { props: ParallelCoordinatesChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const rows = useMemo(() => (Array.isArray(props.data) ? props.data : []), [props.data]);
   const dims = useMemo(() => props.dimensions ?? [], [props.dimensions]);
 
@@ -72,7 +74,7 @@ export function ParallelCoordinatesComponent({ props }: { props: ParallelCoordin
   const lineOpacity = props.line_opacity ?? 0.4;
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -83,7 +85,7 @@ export function ParallelCoordinatesComponent({ props }: { props: ParallelCoordin
       )}
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        style={{ width: "100%", height: chart.height }}
+        style={{ width: "100%", height: isExpanded ? "100%" : chart.height }}
         preserveAspectRatio="xMidYMid meet"
       >
         <g transform={`translate(${margin.left},${margin.top})`}>

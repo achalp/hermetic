@@ -19,6 +19,39 @@ export function useChartExpanded(): boolean {
   return useContext(ExpandedContext);
 }
 
+/**
+ * Returns the height to use for the chart container.
+ * In expanded mode, returns undefined (so the chart fills its flex parent).
+ * In inline mode, returns the theme's fixed chart height.
+ */
+export function useChartHeight(themeHeight: number): number | undefined {
+  const expanded = useContext(ExpandedContext);
+  return expanded ? undefined : themeHeight;
+}
+
+/**
+ * Returns className and style overrides for chart outer wrapper in expanded mode.
+ */
+export function useExpandedChartLayout(): {
+  outerClassName: string;
+  innerClassName: string;
+  innerStyle: React.CSSProperties | undefined;
+} {
+  const expanded = useContext(ExpandedContext);
+  if (expanded) {
+    return {
+      outerClassName: "h-full flex flex-col",
+      innerClassName: "flex-1 min-h-0",
+      innerStyle: undefined,
+    };
+  }
+  return {
+    outerClassName: "",
+    innerClassName: "",
+    innerStyle: undefined,
+  };
+}
+
 interface ChartExpandWrapperProps {
   title?: string | null;
   children: ReactNode;

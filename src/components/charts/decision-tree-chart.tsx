@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useNivoTheme, useChartColors, resolveColor } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface TreeNode {
   label: string;
@@ -90,6 +91,7 @@ function getTreeBounds(ln: LayoutNode): { minX: number; maxX: number; maxY: numb
 export function DecisionTreeComponent({ props }: { props: DecisionTreeChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const themeColors = useChartColors();
 
   const nodeW = props.node_width ?? 140;
@@ -194,7 +196,7 @@ export function DecisionTreeComponent({ props }: { props: DecisionTreeChartProps
   }
 
   return (
-    <div className="w-full overflow-x-auto">
+    <div className={`w-full overflow-x-auto${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -205,7 +207,11 @@ export function DecisionTreeComponent({ props }: { props: DecisionTreeChartProps
       )}
       <svg
         viewBox={`0 0 ${svgW} ${svgH}`}
-        style={{ width: "100%", height: Math.max(chart.height, svgH), minWidth: svgW }}
+        style={{
+          width: "100%",
+          height: isExpanded ? "100%" : Math.max(chart.height, svgH),
+          minWidth: svgW,
+        }}
         preserveAspectRatio="xMidYMin meet"
       >
         <g transform={`translate(${offsetX},${offsetY})`}>{renderNode(root, 0)}</g>

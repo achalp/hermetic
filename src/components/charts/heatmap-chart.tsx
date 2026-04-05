@@ -3,6 +3,7 @@
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface HeatMapChartProps {
   title?: string | null;
@@ -17,6 +18,7 @@ interface HeatMapChartProps {
 
 export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   if (!props.z || props.z.length === 0 || !props.x_labels || !props.y_labels)
     return <div style={{ height: chart.height }} />;
 
@@ -56,7 +58,7 @@ export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
   };
 
   return (
-    <div className="w-full min-w-0">
+    <div className={`w-full min-w-0${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -65,7 +67,9 @@ export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

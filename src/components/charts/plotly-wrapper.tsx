@@ -34,7 +34,7 @@ const PLOTLY_CONFIG: Partial<Config> = {
 export function PlotlyChart({
   data,
   layout,
-  height = 350,
+  height,
 }: {
   data: Data[];
   layout?: Partial<Layout>;
@@ -86,7 +86,7 @@ export function PlotlyChart({
   };
 
   return (
-    <div ref={containerRef} style={{ height, minWidth: 0, width: "100%" }}>
+    <div ref={containerRef} style={{ height: height ?? "100%", minWidth: 0, width: "100%" }}>
       <PlotlyPlot
         data={data}
         layout={mergedLayout}

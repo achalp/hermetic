@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface HistogramChartProps {
   title?: string | null;
@@ -17,6 +18,7 @@ interface HistogramChartProps {
 
 export function HistogramChartComponent({ props }: { props: HistogramChartProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const rows = Array.isArray(props.data) ? props.data : [];
 
   const groups = new Map<string, number[]>();
@@ -51,7 +53,7 @@ export function HistogramChartComponent({ props }: { props: HistogramChartProps 
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -60,7 +62,9 @@ export function HistogramChartComponent({ props }: { props: HistogramChartProps 
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

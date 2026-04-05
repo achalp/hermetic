@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface RidgelineChartProps {
   title: string | null;
@@ -16,6 +17,7 @@ interface RidgelineChartProps {
 
 export function RidgelineChartComponent({ props }: { props: RidgelineChartProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const rows = Array.isArray(props.data) ? props.data : [];
 
   const groups = new Map<string, number[]>();
@@ -52,7 +54,7 @@ export function RidgelineChartComponent({ props }: { props: RidgelineChartProps 
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -61,7 +63,9 @@ export function RidgelineChartComponent({ props }: { props: RidgelineChartProps 
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
 import { resolveColor } from "@/lib/chart-theme";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface WaterfallChartProps {
   title: string | null;
@@ -16,6 +17,7 @@ interface WaterfallChartProps {
 
 export function WaterfallChartComponent({ props }: { props: WaterfallChartProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
 
   if (data.length === 0) return <div style={{ height: chart.height }} />;
@@ -48,7 +50,7 @@ export function WaterfallChartComponent({ props }: { props: WaterfallChartProps 
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -57,7 +59,13 @@ export function WaterfallChartComponent({ props }: { props: WaterfallChartProps 
           {props.title}
         </h3>
       )}
-      <PlotlyFinanceChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyFinanceChart
+          data={traces}
+          layout={layout}
+          height={isExpanded ? undefined : chart.height}
+        />
+      </div>
     </div>
   );
 }

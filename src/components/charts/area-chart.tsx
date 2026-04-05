@@ -9,6 +9,7 @@ import {
   formatAxisNumber,
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface AreaChartProps {
   title?: string | null;
@@ -40,6 +41,7 @@ export function AreaChartComponent({
   const theme = useNivoTheme();
   const tc = useThemeConfig();
   const { chart } = tc;
+  const isExpanded = useChartExpanded();
 
   const raw = Array.isArray(props.data) ? props.data : [];
   const data = raw.filter((row) => row[props.x_key] != null);
@@ -53,7 +55,7 @@ export function AreaChartComponent({
 
   return (
     <div
-      className={`w-full${isDrillable ? " cursor-pointer" : ""}`}
+      className={`w-full${isDrillable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
       onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
@@ -67,7 +69,10 @@ export function AreaChartComponent({
           )}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveLine
           data={series}
           colors={colors}

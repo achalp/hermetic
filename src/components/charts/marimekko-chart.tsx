@@ -3,6 +3,7 @@
 import { ResponsiveMarimekko } from "@nivo/marimekko";
 import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface MarimekkoChartProps {
   title: string | null;
@@ -16,6 +17,7 @@ interface MarimekkoChartProps {
 export function MarimekkoChartComponent({ props }: { props: MarimekkoChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
   const dimIds = (props.dimensions ?? []).map((d) => d.id);
   const colors = useColorMap(dimIds, props.color_map);
@@ -25,7 +27,7 @@ export function MarimekkoChartComponent({ props }: { props: MarimekkoChartProps 
   }
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -34,7 +36,10 @@ export function MarimekkoChartComponent({ props }: { props: MarimekkoChartProps 
           {props.title}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveMarimekko
           data={data as Record<string, string | number>[]}
           id={props.id_key}

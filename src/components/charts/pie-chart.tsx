@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { ResponsivePie } from "@nivo/pie";
 import { resolveColors, useChartColors, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface PieChartProps {
   title?: string | null;
@@ -40,6 +41,7 @@ export function PieChartComponent({
   const baseTheme = useNivoTheme();
   const tc = useThemeConfig();
   const { chart } = tc;
+  const isExpanded = useChartExpanded();
 
   // Pie needs smaller label text than bar/line charts to avoid clipping
   const theme = useMemo(
@@ -100,7 +102,7 @@ export function PieChartComponent({
 
   return (
     <div
-      className={`w-full${isDrillable || isSelectable ? " cursor-pointer" : ""}`}
+      className={`w-full${isDrillable || isSelectable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
       onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
@@ -117,7 +119,10 @@ export function PieChartComponent({
           )}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsivePie
           data={nivoData}
           colors={colors}

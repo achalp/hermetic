@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { resolveColor } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface DumbbellChartProps {
   title: string | null;
@@ -17,6 +18,7 @@ interface DumbbellChartProps {
 
 export function DumbbellChartComponent({ props }: { props: DumbbellChartProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
 
   if (data.length === 0) return <div style={{ height: chart.height }} />;
@@ -65,7 +67,7 @@ export function DumbbellChartComponent({ props }: { props: DumbbellChartProps })
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -74,7 +76,9 @@ export function DumbbellChartComponent({ props }: { props: DumbbellChartProps })
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

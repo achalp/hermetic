@@ -3,6 +3,7 @@
 import { ResponsiveRadar } from "@nivo/radar";
 import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface RadarChartProps {
   title: string | null;
@@ -18,6 +19,7 @@ interface RadarChartProps {
 export function RadarChartComponent({ props }: { props: RadarChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
   const colors = useColorMap(props.keys, props.color_map);
 
@@ -26,7 +28,7 @@ export function RadarChartComponent({ props }: { props: RadarChartProps }) {
   }
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -35,7 +37,10 @@ export function RadarChartComponent({ props }: { props: RadarChartProps }) {
           {props.title}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveRadar
           data={data as Record<string, string | number>[]}
           keys={props.keys}

@@ -3,6 +3,7 @@
 import { ResponsiveChord } from "@nivo/chord";
 import { useNivoTheme, useChartColors, resolveColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface ChordChartProps {
   title: string | null;
@@ -16,6 +17,7 @@ interface ChordChartProps {
 export function ChordChartComponent({ props }: { props: ChordChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const themeColors = useChartColors();
   const colors = props.colors ? resolveColors(props.colors) : themeColors;
 
@@ -24,7 +26,7 @@ export function ChordChartComponent({ props }: { props: ChordChartProps }) {
   }
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -33,7 +35,10 @@ export function ChordChartComponent({ props }: { props: ChordChartProps }) {
           {props.title}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveChord
           data={props.matrix}
           keys={props.keys}

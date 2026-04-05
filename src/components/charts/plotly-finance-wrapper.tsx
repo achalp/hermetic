@@ -30,7 +30,7 @@ const PLOTLY_CONFIG: Partial<Config> = {
 export function PlotlyFinanceChart({
   data,
   layout,
-  height = 400,
+  height,
 }: {
   data: Data[];
   layout?: Partial<Layout>;
@@ -52,7 +52,7 @@ export function PlotlyFinanceChart({
   };
 
   return (
-    <div style={{ height }}>
+    <div style={{ height: height ?? "100%" }}>
       <PlotlyPlot
         data={data}
         layout={mergedLayout}

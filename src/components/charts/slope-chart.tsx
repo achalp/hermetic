@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface SlopeChartProps {
   title: string | null;
@@ -15,6 +16,7 @@ interface SlopeChartProps {
 
 export function SlopeChartComponent({ props }: { props: SlopeChartProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
   const labels = data.map((d) => d.label);
   const colors = useColorMap(labels, props.color_map);
@@ -45,7 +47,7 @@ export function SlopeChartComponent({ props }: { props: SlopeChartProps }) {
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -54,7 +56,9 @@ export function SlopeChartComponent({ props }: { props: SlopeChartProps }) {
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

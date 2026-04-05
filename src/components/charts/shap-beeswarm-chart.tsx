@@ -3,6 +3,7 @@
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface ShapBeeswarmProps {
   title: string | null;
@@ -13,6 +14,7 @@ interface ShapBeeswarmProps {
 
 export function ShapBeeswarmComponent({ props }: { props: ShapBeeswarmProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
 
   if (data.length === 0) return <div style={{ height: chart.height }} />;
@@ -79,7 +81,7 @@ export function ShapBeeswarmComponent({ props }: { props: ShapBeeswarmProps }) {
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -88,7 +90,9 @@ export function ShapBeeswarmComponent({ props }: { props: ShapBeeswarmProps }) {
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import type { Data, Layout } from "plotly.js";
 import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
 import { useTrendColors } from "@/lib/chart-theme";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface CandlestickChartProps {
   title?: string | null;
@@ -38,6 +39,7 @@ function parseDate(val: unknown): Date | null {
 
 export function CandlestickChartComponent({ props }: { props: CandlestickChartProps }) {
   const trend = useTrendColors();
+  const isExpanded = useChartExpanded();
   const rows = Array.isArray(props.data) ? props.data : [];
   if (rows.length === 0) return <div style={{ height: 400 }} />;
 
@@ -106,7 +108,7 @@ export function CandlestickChartComponent({ props }: { props: CandlestickChartPr
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -115,7 +117,13 @@ export function CandlestickChartComponent({ props }: { props: CandlestickChartPr
           {props.title}
         </h3>
       )}
-      <PlotlyFinanceChart data={traces} layout={layout} height={chartHeight} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyFinanceChart
+          data={traces}
+          layout={layout}
+          height={isExpanded ? undefined : chartHeight}
+        />
+      </div>
     </div>
   );
 }

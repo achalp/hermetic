@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { ResponsiveCalendar } from "@nivo/calendar";
 import { useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface CalendarChartProps {
   title: string | null;
@@ -18,6 +19,7 @@ interface CalendarChartProps {
 export function CalendarChartComponent({ props }: { props: CalendarChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
 
   // Derive from/to from data when not provided
@@ -50,7 +52,7 @@ export function CalendarChartComponent({ props }: { props: CalendarChartProps })
   const borderColor = isDark ? "#374151" : "#ffffff";
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -59,7 +61,10 @@ export function CalendarChartComponent({ props }: { props: CalendarChartProps })
           {props.title}
         </h3>
       )}
-      <div style={{ height: calendarHeight }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : calendarHeight }}
+      >
         <ResponsiveCalendar
           data={data}
           from={from}

@@ -37,7 +37,7 @@ export function Plotly3DChart({
   height?: number;
 }) {
   const sceneLayout = usePlotly3DScene();
-  const h = height ?? 500;
+  const h = height;
 
   const mergedLayout: Partial<Layout> = {
     ...(sceneLayout as Partial<Layout>),
@@ -49,7 +49,7 @@ export function Plotly3DChart({
   };
 
   return (
-    <div style={{ height: h }}>
+    <div style={{ height: h ?? "100%" }}>
       <Plotly3DPlot
         data={data}
         layout={mergedLayout}

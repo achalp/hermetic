@@ -3,6 +3,7 @@
 import { ResponsiveStream } from "@nivo/stream";
 import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface StreamChartProps {
   title: string | null;
@@ -16,6 +17,7 @@ interface StreamChartProps {
 export function StreamChartComponent({ props }: { props: StreamChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
   const colors = useColorMap(props.keys, props.color_map);
 
@@ -24,7 +26,7 @@ export function StreamChartComponent({ props }: { props: StreamChartProps }) {
   }
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -33,7 +35,10 @@ export function StreamChartComponent({ props }: { props: StreamChartProps }) {
           {props.title}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveStream
           data={data as Record<string, number>[]}
           keys={props.keys}

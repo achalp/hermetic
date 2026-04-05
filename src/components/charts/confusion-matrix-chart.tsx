@@ -3,6 +3,7 @@
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface ConfusionMatrixProps {
   title: string | null;
@@ -14,6 +15,7 @@ interface ConfusionMatrixProps {
 
 export function ConfusionMatrixComponent({ props }: { props: ConfusionMatrixProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
 
   if (!props.matrix || props.matrix.length === 0 || !props.labels || props.labels.length === 0) {
     return <div style={{ height: chart.height }} />;
@@ -66,7 +68,7 @@ export function ConfusionMatrixComponent({ props }: { props: ConfusionMatrixProp
   };
 
   return (
-    <div className="w-full min-w-0">
+    <div className={`w-full min-w-0${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -75,7 +77,9 @@ export function ConfusionMatrixComponent({ props }: { props: ConfusionMatrixProp
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

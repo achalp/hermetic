@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface RocCurveProps {
   title: string | null;
@@ -15,6 +16,7 @@ interface RocCurveProps {
 
 export function RocCurveComponent({ props }: { props: RocCurveProps }) {
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const curves = Array.isArray(props.curves) ? props.curves : [];
   const labels = curves.map((c) => c.label);
   const colors = useColorMap(labels, props.color_map);
@@ -60,7 +62,7 @@ export function RocCurveComponent({ props }: { props: RocCurveProps }) {
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -69,7 +71,9 @@ export function RocCurveComponent({ props }: { props: RocCurveProps }) {
           {props.title}
         </h3>
       )}
-      <PlotlyChart data={traces} layout={layout} height={chart.height} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <PlotlyChart data={traces} layout={layout} height={isExpanded ? undefined : chart.height} />
+      </div>
     </div>
   );
 }

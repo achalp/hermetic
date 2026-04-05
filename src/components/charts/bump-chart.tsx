@@ -3,6 +3,7 @@
 import { ResponsiveBump } from "@nivo/bump";
 import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface BumpChartProps {
   title: string | null;
@@ -15,6 +16,7 @@ interface BumpChartProps {
 export function BumpChartComponent({ props }: { props: BumpChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
   const ids = data.map((d) => d.id);
   const colors = useColorMap(ids, props.color_map);
@@ -24,7 +26,7 @@ export function BumpChartComponent({ props }: { props: BumpChartProps }) {
   }
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -33,7 +35,10 @@ export function BumpChartComponent({ props }: { props: BumpChartProps }) {
           {props.title}
         </h3>
       )}
-      <div style={{ height: chart.height }}>
+      <div
+        className={isExpanded ? "flex-1" : ""}
+        style={{ height: isExpanded ? undefined : chart.height }}
+      >
         <ResponsiveBump
           data={data}
           theme={theme}

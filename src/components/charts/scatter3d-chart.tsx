@@ -3,6 +3,7 @@
 import type { Data, Layout } from "plotly.js";
 import { Plotly3DChart } from "./plotly-3d-wrapper";
 import { useColorMap, useChartColors } from "@/lib/chart-theme";
+import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface Scatter3DProps {
   title?: string | null;
@@ -21,6 +22,7 @@ interface Scatter3DProps {
 
 export function Scatter3DChartComponent({ props }: { props: Scatter3DProps }) {
   const chartColors = useChartColors();
+  const isExpanded = useChartExpanded();
   const data = Array.isArray(props.data) ? props.data : [];
 
   // Build groups unconditionally so useColorMap is always called
@@ -82,7 +84,7 @@ export function Scatter3DChartComponent({ props }: { props: Scatter3DProps }) {
   };
 
   return (
-    <div className="w-full">
+    <div className={`w-full${isExpanded ? " h-full flex flex-col" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"
@@ -91,7 +93,9 @@ export function Scatter3DChartComponent({ props }: { props: Scatter3DProps }) {
           {props.title}
         </h3>
       )}
-      <Plotly3DChart data={traces} layout={layout} />
+      <div className={isExpanded ? "flex-1" : ""}>
+        <Plotly3DChart data={traces} layout={layout} height={isExpanded ? undefined : 500} />
+      </div>
     </div>
   );
 }
