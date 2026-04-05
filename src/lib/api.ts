@@ -265,6 +265,75 @@ export async function checkLlmReady(): Promise<LlmReadiness> {
   }
 }
 
+// ── Local File Browser ────────────────────────────────────────
+
+export interface LocalFileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size?: number;
+  mtime?: number;
+  extension?: string;
+  isParquetFolder?: boolean;
+  isHivePartitioned?: boolean;
+}
+
+export interface BrowseResult {
+  path: string;
+  entries: LocalFileEntry[];
+}
+
+export async function browseLocalFiles(path?: string): Promise<BrowseResult> {
+  const params = path ? `?path=${encodeURIComponent(path)}` : "";
+  const res = await fetch(`/api/local-files/browse${params}`);
+  return json<BrowseResult>(res);
+}
+
+export interface LocalFileSelection {
+  path: string;
+  name: string;
+  size: number;
+  mtime: number;
+  extension: string;
+  isDirectory: boolean;
+  isParquetFolder: boolean;
+  isHivePartitioned?: boolean;
+  info?: string;
+}
+
+export async function selectLocalFile(
+  path: string,
+  type: "file" | "folder"
+): Promise<LocalFileSelection> {
+  const res = await fetch("/api/local-files/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, type }),
+  });
+  return json<LocalFileSelection>(res);
+}
+
+export interface LocalSchemaResult {
+  csv_id?: string;
+  schema?: CSVSchema;
+  excel_id?: string;
+  filename?: string;
+  sheets?: SheetInfo[];
+  relationships?: SheetRelationship[];
+}
+
+export async function extractLocalSchema(
+  path: string,
+  type: "file" | "folder"
+): Promise<LocalSchemaResult> {
+  const res = await fetch("/api/local-files/schema", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, type }),
+  });
+  return json<LocalSchemaResult>(res);
+}
+
 // ── Warehouse ────────────────────────────────────────────────
 
 export interface ConnectWarehouseResult {

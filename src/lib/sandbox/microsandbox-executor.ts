@@ -7,7 +7,7 @@ import { logger } from "@/lib/logger";
 
 const SANDBOX_NAME = "hermetic";
 
-const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-learn"];
+const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-learn", "duckdb"];
 
 /**
  * Module-level persistent sandbox. Created once, reused across queries.

@@ -1,3 +1,6 @@
+export const ALLOWED_LOCAL_EXTENSIONS = [".parquet", ".csv", ".xlsx", ".geojson", ".json"] as const;
+export const LOCAL_MOUNT_PATH = "/data/local"; // mount point inside sandbox container
+
 export const WAREHOUSE_MAX_ROWS = 50_000; // max rows to extract from a warehouse table
 export const MAX_CSV_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
 export const MAX_CSV_SIZE_LABEL = "100MB";

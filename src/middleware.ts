@@ -31,6 +31,21 @@ export function middleware(request: NextRequest) {
   // polling loop every 3 seconds during server startup, easily exceeding
   // any reasonable rate limit. These are localhost-only internal calls
   // that don't need abuse protection.
+  // Origin check for local file browser routes (DNS rebinding protection)
+  if (pathname.startsWith("/api/local-files/")) {
+    const origin = request.headers.get("origin");
+    if (origin) {
+      try {
+        const url = new URL(origin);
+        if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+          return NextResponse.json({ error: "Local access only" }, { status: 403 });
+        }
+      } catch {
+        return NextResponse.json({ error: "Local access only" }, { status: 403 });
+      }
+    }
+  }
+
   if (pathname.startsWith("/api/")) {
     const isInternalPolling =
       pathname.startsWith("/api/local-llm/") ||

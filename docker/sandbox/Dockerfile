@@ -7,7 +7,8 @@ RUN pip install --no-cache-dir \
     scipy==1.15.2 \
     matplotlib==3.10.1 \
     seaborn==0.13.2 \
-    scikit-learn==1.6.1
+    scikit-learn==1.6.1 \
+    duckdb==1.2.2
 
 # Create non-root user for sandbox execution
 RUN groupadd -r sandbox && useradd -r -g sandbox -d /data -s /sbin/nologin sandbox

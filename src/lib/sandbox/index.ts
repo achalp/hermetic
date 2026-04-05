@@ -62,9 +62,23 @@ export function executeSandbox(
   runtime?: SandboxRuntimeId,
   geojsonContent?: string | null,
   additionalFiles?: AdditionalFile[],
-  csvId?: string
+  csvId?: string,
+  localMountPath?: string
 ): Promise<ExecutionResult> {
   const rt = runtime ?? getActiveSandboxRuntime();
+
+  // Local file bind-mount: only supported on Docker, bypass warm path
+  // (can't add volumes to a running container)
+  if (localMountPath) {
+    if (rt !== "docker") {
+      return Promise.resolve({
+        success: false,
+        error: "Local file browsing is only supported with the Docker sandbox runtime.",
+        execution_ms: 0,
+      });
+    }
+    return dockerExecutor(csvContent, code, geojsonContent, additionalFiles, localMountPath);
+  }
 
   // Route through warm manager when available (not for E2B)
   if (rt !== "e2b" && csvId) {

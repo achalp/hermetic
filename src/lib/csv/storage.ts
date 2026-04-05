@@ -73,6 +73,48 @@ export async function getGeoJSONContent(csvId: string): Promise<string | null> {
   }
 }
 
+/**
+ * Store a reference to a local file (no content copy).
+ * Used for local file browser selections where data is bind-mounted.
+ */
+export function storeLocalFileRef(
+  csvId: string,
+  schema: CSVSchema,
+  localPath: string,
+  mtime: number,
+  isFolder: boolean,
+  isHivePartitioned?: boolean
+): void {
+  store.set(csvId, {
+    schema,
+    filePath: "", // no temp file — data accessed via bind-mount
+    createdAt: Date.now(),
+    localPath: isFolder ? undefined : localPath,
+    localFolderPath: isFolder ? localPath : undefined,
+    localMtime: mtime,
+    isParquet: true,
+    isHivePartitioned,
+  });
+}
+
+/**
+ * Check if a stored entry is a local file reference.
+ */
+export function isLocalFile(csvId: string): boolean {
+  const entry = store.get(csvId);
+  return !!entry && !!(entry.localPath || entry.localFolderPath);
+}
+
+/**
+ * Get the local host path for a stored local file entry.
+ * Returns the file path or folder path.
+ */
+export function getLocalFilePath(csvId: string): string | undefined {
+  const entry = store.get(csvId);
+  if (!entry) return undefined;
+  return entry.localPath || entry.localFolderPath;
+}
+
 export function storeWorkbookManifest(primaryCsvId: string, manifest: WorkbookManifest): void {
   manifestStore.set(primaryCsvId, manifest);
 }

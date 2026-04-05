@@ -30,13 +30,22 @@ export async function runPipeline(
   runtime?: SandboxRuntimeId,
   geojsonContent?: string | null,
   additionalFiles?: AdditionalFile[],
-  workbookContext?: string
+  workbookContext?: string,
+  localMountPath?: string,
+  localFileContext?: string
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code
   onStage?.("generating_code");
   let code: string;
   try {
-    code = await generateAnalysisCode(schema, question, mode, model, workbookContext);
+    code = await generateAnalysisCode(
+      schema,
+      question,
+      mode,
+      model,
+      workbookContext,
+      localFileContext
+    );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     // Log the full error including any nested cause/errors for debugging
@@ -60,7 +69,10 @@ export async function runPipeline(
   }
 
   // Step 2: Execute in sandbox
-  logger.debug("Generated code", { chars: code.length });
+  logger.debug("Generated code", { chars: code.length, localMount: !!localMountPath });
+  if (localMountPath) {
+    logger.info("Local file execution", { localMountPath, fullCode: code });
+  }
   onStage?.("executing");
   let result = await executeSandbox(
     csvContent,
@@ -68,16 +80,19 @@ export async function runPipeline(
     runtime,
     geojsonContent,
     additionalFiles,
-    schema.csv_id
+    schema.csv_id,
+    localMountPath
   );
 
   // Step 3: Retry once on failure
   if (!result.success) {
     onStage?.("retrying");
+    const retrySystemExtra = localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "";
     const retryResult = await generateText({
       model: getModel(model),
       system:
-        "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.",
+        "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing." +
+        retrySystemExtra,
       prompt: buildRetryPrompt(code, result.error, schema),
       temperature: 0,
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
@@ -92,7 +107,8 @@ export async function runPipeline(
       runtime,
       geojsonContent,
       additionalFiles,
-      schema.csv_id
+      schema.csv_id,
+      localMountPath
     );
 
     if (!result.success) {

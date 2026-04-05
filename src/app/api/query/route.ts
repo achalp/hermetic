@@ -7,6 +7,7 @@ import {
   getGeoJSONContent,
   getWorkbookManifest,
   storeCSV,
+  isLocalFile,
 } from "@/lib/csv/storage";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
@@ -32,7 +33,7 @@ import { randomUUID } from "crypto";
 import { extractSchema } from "@/lib/csv/schema";
 import { parseCSV } from "@/lib/csv/parser";
 
-export const maxDuration = 60;
+export const maxDuration = 300; // 5 min — large Parquet datasets need more time
 
 interface DrillDownContext {
   parent_question: string;
@@ -241,8 +242,49 @@ export async function POST(request: Request) {
             throw new Error("CSV not found or expired. Please re-upload.");
           }
 
-          const csvContent = await getCSVContent(csvId!);
-          if (!csvContent) {
+          // Determine if this is a local file (bind-mount path)
+          const isLocal = isLocalFile(csvId!);
+          let localMountPath: string | undefined;
+
+          if (isLocal) {
+            // Local file: resolve the host path for bind-mount.
+            // For local files, data is accessed via bind-mount, not content string.
+            const hostPath = stored.localFolderPath || stored.localPath;
+            if (!hostPath) {
+              throw new Error("Local file path not found");
+            }
+
+            // Mtime check: invalidate if source file changed
+            if (stored.localMtime) {
+              try {
+                const { stat } = await import("node:fs/promises");
+                const { dirname } = await import("node:path");
+                const pathToCheck = stored.localFolderPath || stored.localPath!;
+                const info = await stat(pathToCheck);
+                if (info.mtimeMs !== stored.localMtime) {
+                  throw new Error(
+                    "Source file has been modified since schema was extracted. Please re-select the file."
+                  );
+                }
+              } catch (err) {
+                if (err instanceof Error && err.message.includes("re-select")) throw err;
+                // stat failed — file may have been removed
+                throw new Error("Source file is no longer accessible. Please re-select the file.");
+              }
+            }
+
+            // For single files, mount the parent directory
+            // For folders, mount the folder itself
+            if (stored.localFolderPath) {
+              localMountPath = stored.localFolderPath;
+            } else if (stored.localPath) {
+              const { dirname } = await import("node:path");
+              localMountPath = dirname(stored.localPath);
+            }
+          }
+
+          const csvContent = isLocal ? "" : await getCSVContent(csvId!);
+          if (!isLocal && !csvContent) {
             throw new Error("CSV content not found");
           }
 
@@ -281,10 +323,52 @@ export async function POST(request: Request) {
             else if (stage === "retrying") emitProgress("retrying", stepOffset + 2);
           };
 
+          // Build local file context for LLM prompt (tells it where to read data)
+          let localFileContext: string | undefined;
+          if (isLocal && localMountPath) {
+            const { basename } = await import("node:path");
+            if (stored.localFolderPath) {
+              const hiveFlag = stored.isHivePartitioned ? ", hive_partitioning=true" : "";
+              const readExpr = `read_parquet('/data/local/**/*.parquet'${hiveFlag})`;
+              const isLarge = stored.schema.row_count > 1_000_000;
+              localFileContext =
+                `This is a ${stored.isHivePartitioned ? "Hive-partitioned " : ""}folder of Parquet files mounted at /data/local/.\n` +
+                `Total rows: ${stored.schema.row_count.toLocaleString()}.\n` +
+                `FIRST, create a DuckDB view ONCE at the top of the script:\n` +
+                `  duckdb.sql("CREATE OR REPLACE VIEW data AS SELECT * FROM ${readExpr}")\n` +
+                `Then query the view. If the question targets a subset (e.g. specific users, date range), ` +
+                `materialize the filtered subset into a temp table FIRST for speed:\n` +
+                `  duckdb.sql("CREATE TEMP TABLE filtered AS SELECT * FROM data WHERE ...")\n` +
+                `  Then run all subsequent queries against 'filtered' instead of 'data'.\n` +
+                (stored.isHivePartitioned
+                  ? `Partition columns (e.g. year, month) are automatically available as columns via Hive partitioning. USE them in WHERE clauses to filter efficiently.\n`
+                  : "") +
+                (isLarge
+                  ? `CRITICAL: This is a large dataset (${stored.schema.row_count.toLocaleString()} rows). You MUST use DuckDB SQL with WHERE, GROUP BY, or LIMIT to reduce data BEFORE calling .df(). NEVER SELECT * without a LIMIT or aggregation. Aggregate in SQL, convert only the small result to pandas. Keep total queries to 3 or fewer — combine aggregations into a single query when possible.\n`
+                  : "") +
+                `Do NOT read from /data/input.csv — the data is in Parquet format at /data/local/.\n` +
+                `Do NOT use pd.read_parquet() — use duckdb.sql() for this dataset.`;
+            } else if (stored.localPath) {
+              const fname = basename(stored.localPath);
+              const ext = fname.toLowerCase().split(".").pop();
+              if (ext === "parquet") {
+                localFileContext =
+                  `This is a Parquet file mounted at /data/local/${fname}.\n` +
+                  `Read with: duckdb.sql("SELECT * FROM read_parquet('/data/local/${fname}')").df()\n` +
+                  `Do NOT read from /data/input.csv — the data is in Parquet format at /data/local/${fname}.`;
+              } else {
+                localFileContext =
+                  `The data file is mounted at /data/local/${fname}.\n` +
+                  `Read with: pd.read_csv("/data/local/${fname}")\n` +
+                  `Do NOT read from /data/input.csv — the data is at /data/local/${fname}.`;
+              }
+            }
+          }
+
           // Run the code-gen + sandbox pipeline
           const pipelineResult = await runPipeline(
             stored.schema,
-            csvContent,
+            csvContent || "",
             question,
             onStage,
             schemaMode,
@@ -292,7 +376,9 @@ export async function POST(request: Request) {
             sandboxRuntime,
             geojsonContent,
             additionalFiles,
-            workbookContext
+            workbookContext,
+            localMountPath,
+            localFileContext
           );
 
           if (closed) return;

@@ -67,12 +67,13 @@ export async function generateAnalysisCode(
   question: string,
   mode: SchemaMode = "metadata",
   model: string = CODE_GEN_MODEL,
-  workbookContext?: string
+  workbookContext?: string,
+  localFileContext?: string
 ): Promise<string> {
   const result = await generateText({
     model: getModel(model),
     system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
-    prompt: buildCodeGenUserPrompt(schema, question, mode, workbookContext),
+    prompt: buildCodeGenUserPrompt(schema, question, mode, workbookContext, localFileContext),
     temperature: 0,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });

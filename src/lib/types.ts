@@ -125,6 +125,16 @@ export interface StoredCSV {
   schema: CSVSchema;
   filePath: string;
   createdAt: number;
+  /** For local files: host filesystem path (not copied into temp) */
+  localPath?: string;
+  /** For local Parquet folders: host directory path */
+  localFolderPath?: string;
+  /** mtime at schema extraction time, for cache invalidation */
+  localMtime?: number;
+  /** Whether this is a Parquet file/folder */
+  isParquet?: boolean;
+  /** Whether this is a Hive-partitioned Parquet dataset */
+  isHivePartitioned?: boolean;
 }
 
 export type PipelineStage =

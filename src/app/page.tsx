@@ -15,6 +15,7 @@ import { SettingsDrawer } from "@/components/app/settings-drawer";
 import { DataRail } from "@/components/app/data-rail";
 import { DataRailContent } from "@/components/app/data-rail-content";
 import { SourceCards } from "@/components/app/source-cards";
+import { LocalFileBrowser } from "@/components/app/local-file-browser";
 
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { ProfileStrip } from "@/components/app/profile-strip";
@@ -43,6 +44,7 @@ import {
   rerunViz,
   saveViz,
   uploadFile,
+  extractLocalSchema,
 } from "@/lib/api";
 import {
   CODE_GEN_MODEL,
@@ -104,6 +106,8 @@ export default function Home() {
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
   const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
   const [llmWarning, setLlmWarning] = useState<string | null>(null);
+  const [showLocalBrowser, setShowLocalBrowser] = useState(false);
+  const [isExtractingLocalSchema, setIsExtractingLocalSchema] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const rerunVizIdRef = useRef<string | null>(null);
@@ -227,7 +231,35 @@ export default function Home() {
     resetPage();
     setLoadedVizId(null);
     setShowWarehouseForm(false);
+    setShowLocalBrowser(false);
+    setIsExtractingLocalSchema(false);
   }, [reset, warehouse, resetPage]);
+
+  const handleLocalFileSelect = useCallback(
+    async (path: string, type: "file" | "folder") => {
+      setIsExtractingLocalSchema(true);
+      try {
+        const data = await extractLocalSchema(path, type);
+        if (data.csv_id && data.schema) {
+          handleUpload(data.csv_id, data.schema);
+          setShowLocalBrowser(false);
+        } else if (data.excel_id && data.sheets) {
+          handleExcelSheets(
+            data.excel_id,
+            data.filename ?? "local.xlsx",
+            data.sheets!,
+            data.relationships ?? []
+          );
+          setShowLocalBrowser(false);
+        }
+      } catch (err) {
+        console.error("Local file schema extraction failed:", err);
+      } finally {
+        setIsExtractingLocalSchema(false);
+      }
+    },
+    [handleUpload, handleExcelSheets]
+  );
 
   const handleSampleData = useCallback(async () => {
     try {
@@ -736,6 +768,14 @@ export default function Home() {
             />
           )}
 
+          {/* Local File Browser */}
+          <LocalFileBrowser
+            open={showLocalBrowser}
+            onClose={() => setShowLocalBrowser(false)}
+            onSelect={handleLocalFileSelect}
+            isExtracting={isExtractingLocalSchema}
+          />
+
           {/* ═══ STATE 1: Connect Your Data ═══ */}
           {isState1 && warehouse.isConnecting && (
             <div
@@ -782,6 +822,21 @@ export default function Home() {
                   uploadInputRef.current?.click();
                 }}
                 onWarehouseClick={() => setShowWarehouseForm((v) => !v)}
+                onLocalBrowse={() => {
+                  if (sandboxRuntime !== "docker") {
+                    const label =
+                      sandboxRuntime === "e2b"
+                        ? "E2B (Cloud)"
+                        : sandboxRuntime === "microsandbox"
+                          ? "Microsandbox"
+                          : sandboxRuntime;
+                    alert(
+                      `Local file browsing requires the Docker runtime.\n\nCurrent runtime: ${label}.\nSwitch to Docker in Settings or re-run ./start.sh.`
+                    );
+                    return;
+                  }
+                  setShowLocalBrowser(true);
+                }}
                 onSampleData={handleSampleData}
                 savedConnections={warehouse.savedConnections.map((c) => ({
                   id: c.id,

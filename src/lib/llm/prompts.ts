@@ -217,7 +217,8 @@ Rules:
   - When aggregating (sum, mean, etc.), verify the result is not NaN/0 due to type issues. If a numeric column is stored as strings with formatting (e.g. "$1,234"), strip non-numeric characters first: df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^0-9.\-]', '', regex=True), errors='coerce').
   - For workbook joins, verify the join produced rows: assert len(merged) > 0 or fall back gracefully.
 - Do NOT use print() at all. Write the final JSON output to "/data/output.json" using: json.dump(output, open("/data/output.json", "w"), default=str, allow_nan=False). Replace NaN/None values in DataFrames before serialization: df = df.fillna("") or df = df.where(df.notna(), None).
-- Do not install packages. Available: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn.
+- Do not install packages. Available: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, duckdb.
+- DuckDB is available via \`import duckdb\`. Use \`duckdb.sql()\` for SQL queries on data. It can read Parquet files (\`duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')")\`), CSV files (\`duckdb.sql("SELECT * FROM read_csv('/data/input.csv')")\`), and query pandas DataFrames by variable name (\`duckdb.sql("SELECT * FROM df WHERE x > 1")\`). Convert DuckDB results to pandas with \`.df()\`. Use DuckDB when SQL is more natural than pandas (complex joins, window functions, large aggregations).
 - Always include datasets.main in the output: the working DataFrame converted to row-objects via df.head(5000).to_dict(orient="records"). This enables client-side interactive filtering. If you filter the data for the analysis, use the ORIGINAL unfiltered DataFrame for datasets.main.${
     hasWorkbookContext
       ? `
@@ -385,7 +386,8 @@ export function buildCodeGenUserPrompt(
   schema: CSVSchema,
   question: string,
   mode: SchemaMode = "metadata",
-  workbookContext?: string
+  workbookContext?: string,
+  localFileContext?: string
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
@@ -419,11 +421,13 @@ A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.$
 Column types are database-native (high fidelity). The data has been loaded as CSV at /data/input.csv.\n`
       : "";
 
+  const localFileSection = localFileContext ? `\n## Data Location\n${localFileContext}\n` : "";
+
   const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
 
   return `## ${headerLabel}
 Filename: ${schema.filename}
-Rows: ${schema.row_count}${domainSection}${warehouseSection}
+Rows: ${schema.row_count}${domainSection}${warehouseSection}${localFileSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}

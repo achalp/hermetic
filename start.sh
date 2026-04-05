@@ -516,10 +516,69 @@ if [ "$RUNTIME" = "docker" ]; then
 
   if ! docker info &>/dev/null 2>&1; then
     warn "Docker is installed but not running."
-    echo ""
-    echo -e "    ${BOLD}Start Docker Desktop${RESET}, then re-run this script."
-    echo ""
-    fail "Docker daemon not running."
+
+    DOCKER_STARTED=false
+
+    # Try Colima first (available on macOS and Linux)
+    if command -v colima &>/dev/null; then
+      echo -e "    Starting Colima..."
+      colima start 2>/dev/null &
+      echo -ne "    Waiting for Docker daemon"
+      for i in $(seq 1 30); do
+        if docker info &>/dev/null 2>&1; then
+          echo ""
+          ok "Docker daemon is running (via Colima)"
+          DOCKER_STARTED=true
+          break
+        fi
+        echo -n "."
+        sleep 2
+      done
+    fi
+
+    # Try Docker Desktop on macOS
+    if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Darwin" ] && [ -d "/Applications/Docker.app" ]; then
+      echo -e "    Starting Docker Desktop..."
+      open -a Docker
+      echo -ne "    Waiting for Docker daemon"
+      for i in $(seq 1 30); do
+        if docker info &>/dev/null 2>&1; then
+          echo ""
+          ok "Docker daemon is running (via Docker Desktop)"
+          DOCKER_STARTED=true
+          break
+        fi
+        echo -n "."
+        sleep 2
+      done
+    fi
+
+    # Try systemd on Linux
+    if [ "$DOCKER_STARTED" = false ] && [ "$(uname)" = "Linux" ] && command -v systemctl &>/dev/null; then
+      echo -e "    Starting Docker via systemctl..."
+      sudo systemctl start docker 2>/dev/null
+      sleep 2
+      if docker info &>/dev/null 2>&1; then
+        ok "Docker daemon is running (via systemctl)"
+        DOCKER_STARTED=true
+      fi
+    fi
+
+    if [ "$DOCKER_STARTED" = false ]; then
+      echo ""
+      echo -e "    Start the Docker daemon with one of:"
+      echo -e "      ${BOLD}colima start${RESET}              (Colima)"
+      if [ "$(uname)" = "Darwin" ]; then
+        echo -e "      ${BOLD}open -a Docker${RESET}            (Docker Desktop)"
+      fi
+      if [ "$(uname)" = "Linux" ]; then
+        echo -e "      ${BOLD}sudo systemctl start docker${RESET} (systemd)"
+      fi
+      echo ""
+      echo -e "    Then re-run this script."
+      echo ""
+      fail "Docker daemon not running."
+    fi
   fi
 
   ok "Docker daemon is running"
@@ -1023,13 +1082,9 @@ ok "Done"
 if [ "$RUNTIME" = "docker" ]; then
   step "Building Python sandbox"
 
-  if docker image inspect hermetic-sandbox &>/dev/null; then
-    ok "hermetic-sandbox image already exists"
-  else
-    echo -e "    ${DIM}(first time only — installs Python + data science libs)${RESET}"
-    docker build -t hermetic-sandbox ./docker/sandbox/ -q
-    ok "Built hermetic-sandbox image"
-  fi
+  echo -e "    ${DIM}(rebuilds if Dockerfile changed, cached otherwise)${RESET}"
+  docker build -t hermetic-sandbox ./docker/sandbox/ -q
+  ok "Sandbox image ready"
 elif [ "$RUNTIME" = "microsandbox" ]; then
   step "Preparing microsandbox"
 
@@ -1051,7 +1106,7 @@ echo -e "    ${DIM}Runtime: $RUNTIME${RESET}"
 
 if [ "$RUNTIME" = "microsandbox" ]; then
   # Start dev server in background so we can warm up the sandbox
-  npm run dev &
+  npm run dev -- -H 127.0.0.1 &
   DEV_PID=$!
 
   # Wait for server to be ready
@@ -1097,5 +1152,5 @@ else
   # Open browser after a short delay (in background)
   (sleep 3 && open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000" 2>/dev/null || true) &
 
-  exec npm run dev
+  exec npm run dev -- -H 127.0.0.1
 fi
