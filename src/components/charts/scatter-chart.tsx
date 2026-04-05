@@ -98,13 +98,13 @@ export function ScatterChartComponent({
   const colors = nivoData.map((s) => s.color);
 
   // Legend strategy:
-  // - Inline (not expanded): show right-side legend for ≤10 groups, hide for more
-  // - Expanded: always show legend at bottom, wrapping horizontally
+  // - Inline (not expanded): show right-side Nivo legend for ≤10 groups, hide for more
+  // - Expanded: render a custom HTML legend below the chart that wraps naturally
   const MAX_INLINE_LEGEND_GROUPS = 10;
   const hasMultipleGroups = groupNames.length > 1;
   const showInlineLegend =
     hasMultipleGroups && !isExpanded && groupNames.length <= MAX_INLINE_LEGEND_GROUPS;
-  const showExpandedLegend = hasMultipleGroups && isExpanded;
+  const showCustomLegend = hasMultipleGroups && isExpanded;
 
   // Regression line as a custom SVG layer
   const regression = props.show_regression ? linearRegression(points) : null;
@@ -160,9 +160,7 @@ export function ScatterChartComponent({
           margin={{
             top: chart.margin.top,
             right: showInlineLegend ? 140 : chart.margin.right,
-            bottom: showExpandedLegend
-              ? chart.margin.bottom + 30 + Math.ceil(groupNames.length / 4) * 22
-              : chart.margin.bottom + 10,
+            bottom: chart.margin.bottom + 10,
             left: chart.margin.left + 10,
           }}
           xScale={{ type: "linear", min: "auto", max: "auto" }}
@@ -209,23 +207,49 @@ export function ScatterChartComponent({
                     symbolSize: chart.legendSymbolSize,
                   },
                 ]
-              : showExpandedLegend
-                ? [
-                    {
-                      anchor: "bottom" as const,
-                      direction: "row" as const,
-                      translateX: 0,
-                      translateY: 20 + Math.ceil(groupNames.length / 4) * 22,
-                      itemWidth: 140,
-                      itemHeight: 20,
-                      symbolSize: chart.legendSymbolSize,
-                      itemsSpacing: 8,
-                    },
-                  ]
-                : []
+              : []
           }
         />
       </div>
+      {/* Custom HTML legend for expanded mode — wraps naturally with flexbox */}
+      {showCustomLegend && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "6px 16px",
+            padding: "12px 8px",
+            maxHeight: 120,
+            overflowY: "auto",
+            borderTop: "1px solid var(--color-border-default)",
+          }}
+        >
+          {nivoData.map((series) => (
+            <span
+              key={series.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: "var(--color-t-secondary)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 2,
+                  background: series.color,
+                  flexShrink: 0,
+                }}
+              />
+              {String(series.id)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
