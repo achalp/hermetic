@@ -1,7 +1,7 @@
 "use client";
 
 import { ResponsiveBar } from "@nivo/bar";
-import { useColorMap, useNivoTheme, formatAxisNumber } from "@/lib/chart-theme";
+import { useColorMap, useNivoTheme, formatAxisNumber, pickTickValues } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 
 interface BarChartProps {
@@ -80,8 +80,22 @@ export function BarChartComponent({
     ? Math.min(220, Math.max(90, ...data.map((d) => String(d[props.x_key] ?? "").length * 8 + 10)))
     : chart.margin.left;
 
-  // For vertical bars with many categories, rotate labels
+  // For vertical bars with many categories, apply smart label handling
   const manyCategories = !isHorizontal && data.length > 8;
+  const veryManyCategories = !isHorizontal && data.length > 25;
+
+  // Sample tick values for bar charts with many categories (same as line/area)
+  const tickValues = !isHorizontal
+    ? pickTickValues(data, props.x_key, veryManyCategories ? 15 : 12)
+    : undefined;
+
+  // Truncate long labels to prevent overlap
+  const truncateLabel = (v: string | number): string => {
+    const s = String(v);
+    if (!manyCategories) return s;
+    const max = veryManyCategories ? 12 : 18;
+    return s.length > max ? s.slice(0, max - 1) + "\u2026" : s;
+  };
 
   // Ensure value scale always includes 0 so bars render correctly with all-negative or all-positive data
   const allValues = data.flatMap((d) => props.y_keys.map((k) => Number(d[k]) || 0));
@@ -123,7 +137,11 @@ export function BarChartComponent({
           margin={{
             top: chart.margin.top,
             right: chart.margin.right,
-            bottom: manyCategories ? chart.margin.bottom + 50 : chart.margin.bottom,
+            bottom: veryManyCategories
+              ? chart.margin.bottom + 80
+              : manyCategories
+                ? chart.margin.bottom + 50
+                : chart.margin.bottom,
             left: leftMargin,
           }}
           padding={chart.barPadding}
@@ -134,8 +152,13 @@ export function BarChartComponent({
           axisBottom={{
             tickSize: chart.axisTickSize,
             tickPadding: 5,
-            tickRotation: manyCategories ? -45 : 0,
-            ...(isHorizontal ? { format: formatAxisNumber, tickValues: 5 } : {}),
+            tickRotation: veryManyCategories ? -90 : manyCategories ? -45 : 0,
+            ...(isHorizontal
+              ? { format: formatAxisNumber, tickValues: 5 }
+              : {
+                  format: truncateLabel,
+                  ...(tickValues ? { tickValues } : {}),
+                }),
           }}
           axisLeft={{
             tickSize: chart.axisTickSize,
