@@ -4,6 +4,7 @@ import { loadHistoryEntry, deleteHistoryEntry } from "@/lib/history/storage";
 import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
+import { appendConversationTurn, buildTurnFromArtifacts } from "@/lib/pipeline/conversation-cache";
 import { v4 as uuidv4 } from "uuid";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -28,9 +29,25 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       } catch {
         // File may no longer exist — still return the entry for static viewing
       }
+    } else if (entry.meta.sourceType === "warehouse") {
+      // Warehouse: store a placeholder so the csvId exists for handleUpload,
+      // but actual data will come from re-executing SQL via an active connection.
+      // Use a header-only CSV so getCSVContent returns a truthy string.
+      const headerLine = entry.schema.columns.map((c: { name: string }) => c.name).join(",") + "\n";
+      const warehouseSchema = { ...entry.schema, source_type: "warehouse" as const };
+      await storeCSV(csvId, headerLine, warehouseSchema);
     } else {
-      // Warehouse or unknown: store schema only so handleUpload works
-      await storeCSV(csvId, "", entry.schema);
+      // Unknown source: store schema with minimal CSV
+      const headerLine = entry.schema.columns.map((c: { name: string }) => c.name).join(",") + "\n";
+      await storeCSV(csvId, headerLine, entry.schema);
+    }
+
+    // Seed conversation cache so follow-up questions have context
+    if (entry.artifacts) {
+      appendConversationTurn(
+        csvId,
+        buildTurnFromArtifacts(entry.meta.question, entry.artifacts, entry.spec)
+      );
     }
 
     return NextResponse.json({

@@ -8,6 +8,7 @@ import type {
   BooleanMeta,
   WorkbookManifest,
   DataDomain,
+  ConversationTurn,
 } from "@/lib/types";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 
@@ -438,22 +439,57 @@ ${question}`;
 
 // ── User prompt (chat follow-up) ──────────────────────────────────
 
+function formatConversationTurns(turns: ConversationTurn[]): string {
+  return turns
+    .map((turn, i) => {
+      const lines: string[] = [`### Turn ${i + 1}: "${turn.question}"`];
+
+      const summary = turn.analysisSummary;
+      if (summary) {
+        const resultEntries = Object.entries(summary.resultKeys ?? {});
+        if (resultEntries.length > 0) {
+          lines.push(
+            `Computed results: ${resultEntries.map(([k, t]) => `${k} (${t})`).join(", ")}`
+          );
+        }
+
+        const chartEntries = Object.entries(summary.chartDataShapes ?? {});
+        if (chartEntries.length > 0) {
+          lines.push("Computed chart data:");
+          for (const [k, shape] of chartEntries) {
+            lines.push(`  - ${k}: ${shape.rows} rows, columns [${shape.columns.join(", ")}]`);
+          }
+        }
+      }
+
+      if (turn.specSummary) {
+        lines.push(`Dashboard showed:\n${turn.specSummary}`);
+      }
+
+      return lines.join("\n");
+    })
+    .join("\n\n");
+}
+
 export function buildCodeGenChatPrompt(
   schema: CSVSchema,
   question: string,
-  history: string[],
+  turns: ConversationTurn[],
   mode: SchemaMode = "metadata",
-  workbookContext?: string
+  workbookContext?: string,
+  localFileContext?: string
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
   const historySection =
-    history.length > 0
-      ? `## Conversation Context
-The user has asked the following questions in this conversation (most recent last):
-${history.map((q, i) => `${i + 1}. ${q}`).join("\n")}
+    turns.length > 0
+      ? `## Prior Analysis Context
+The user is asking a follow-up question. Here is what was analyzed previously:
 
-The current question may be a follow-up. Consider previous questions for context (e.g. "change that to a bar chart" refers to the previous analysis, "also show trends" means add to what was discussed).
+${formatConversationTurns(turns)}
+
+Generate fresh code that reads the same source data and addresses the new question.
+Build on the prior analysis: if the user references previous results (e.g. "break that down by region", "also show trends"), use the context above to understand what "that" refers to and what was already computed.
 
 `
       : "";
@@ -488,11 +524,13 @@ A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.$
 Column types are database-native (high fidelity). The data has been loaded as CSV at /data/input.csv.\n`
       : "";
 
+  const localFileSection = localFileContext ? `\n## Data Location\n${localFileContext}\n` : "";
+
   const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
 
   return `${historySection}## ${headerLabel}
 Filename: ${schema.filename}
-Rows: ${schema.row_count}${domainSection}${warehouseSection}
+Rows: ${schema.row_count}${domainSection}${warehouseSection}${localFileSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}

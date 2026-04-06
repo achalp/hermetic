@@ -6,7 +6,7 @@ import {
   buildCodeGenChatPrompt,
 } from "./prompts";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
-import type { CSVSchema, SchemaMode } from "@/lib/types";
+import type { CSVSchema, ConversationTurn, SchemaMode } from "@/lib/types";
 
 /**
  * Clean LLM-generated code by stripping markdown fences, chat template
@@ -68,31 +68,18 @@ export async function generateAnalysisCode(
   mode: SchemaMode = "metadata",
   model: string = CODE_GEN_MODEL,
   workbookContext?: string,
-  localFileContext?: string
+  localFileContext?: string,
+  priorTurns?: ConversationTurn[]
 ): Promise<string> {
+  const hasTurns = priorTurns && priorTurns.length > 0;
+  const prompt = hasTurns
+    ? buildCodeGenChatPrompt(schema, question, priorTurns, mode, workbookContext, localFileContext)
+    : buildCodeGenUserPrompt(schema, question, mode, workbookContext, localFileContext);
+
   const result = await generateText({
     model: getModel(model),
     system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
-    prompt: buildCodeGenUserPrompt(schema, question, mode, workbookContext, localFileContext),
-    temperature: 0,
-    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-  });
-
-  return fixUpFilenames(cleanGeneratedCode(result.text), schema.filename);
-}
-
-export async function generateAnalysisCodeWithHistory(
-  schema: CSVSchema,
-  question: string,
-  history: string[],
-  mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL,
-  workbookContext?: string
-): Promise<string> {
-  const result = await generateText({
-    model: getModel(model),
-    system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
-    prompt: buildCodeGenChatPrompt(schema, question, history, mode, workbookContext),
+    prompt,
     temperature: 0,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });

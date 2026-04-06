@@ -11,10 +11,9 @@ import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DrillDownParams, ConversationEntry, SchemaMode } from "@/lib/types";
+import type { DrillDownParams, SchemaMode } from "@/lib/types";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { summarizeSpec } from "@/lib/spec-summary";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
@@ -72,7 +71,7 @@ export function ResponsePanel({
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   const currentSpecRef = useRef<Spec | null>(null);
   const currentQuestionRef = useRef<string | null>(question);
-  const conversationHistoryRef = useRef<ConversationEntry[]>([]);
+  // Conversation history is now managed server-side via the conversation cache.
   const [previousSpec, setPreviousSpec] = useState<Spec | null>(null);
   const lastSeqRef = useRef(0);
   const dashboardRef = useRef<HTMLDivElement>(null);
@@ -139,18 +138,8 @@ export function ResponsePanel({
 
     if ((!csvId && !warehouseId) || !question) return;
 
-    // Build updated history before sending (avoid async setState race)
-    let historyToSend = conversationHistoryRef.current;
+    // Show previous spec dimmed while streaming
     if (currentSpecRef.current) {
-      const summary = summarizeSpec(currentSpecRef.current);
-      const newEntry: ConversationEntry = {
-        question: currentQuestionRef.current ?? "Analysis",
-        specSummary: summary,
-      };
-      historyToSend = [...historyToSend, newEntry];
-      conversationHistoryRef.current = historyToSend;
-
-      // Show previous spec dimmed while streaming
       setPreviousSpec(currentSpecRef.current);
     }
 
@@ -160,11 +149,11 @@ export function ResponsePanel({
     setArtifacts(null);
     setShowArtifacts(false);
 
+    // Conversation history is managed server-side (keyed by csvId)
     send("", {
       csv_id: csvId,
       warehouse_id: warehouseId ?? undefined,
       question: question,
-      conversation_history: historyToSend.length > 0 ? historyToSend : undefined,
       schema_mode: schemaMode,
       code_gen_model: codeGenModel,
       ui_compose_model: uiComposeModel,
@@ -226,7 +215,6 @@ export function ResponsePanel({
     setDrillStack([]);
     currentSpecRef.current = null;
     setPreviousSpec(null);
-    conversationHistoryRef.current = [];
   }, [clear]);
 
   // Restored spec for drill-back or loaded viz
@@ -239,7 +227,6 @@ export function ResponsePanel({
       setRestoredSpec(loadedSpec);
       setDrillStack([]);
       setPreviousSpec(null);
-      conversationHistoryRef.current = [];
       // Seed artifacts from saved viz (if available)
       setArtifacts(loadedArtifacts ?? null);
       setShowArtifacts(false);

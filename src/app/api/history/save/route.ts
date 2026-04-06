@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { getStoredCSV, getCSVContent } from "@/lib/csv/storage";
 import { getCachedCode } from "@/lib/pipeline/code-cache";
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { getConversationTurns } from "@/lib/pipeline/conversation-cache";
 import { saveHistoryEntry } from "@/lib/history/storage";
+import { summarizeSpec } from "@/lib/spec-summary";
+import type { Spec } from "@json-render/react";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
@@ -55,6 +58,17 @@ export async function POST(request: Request) {
       csvContent,
       executionMs: artifacts?.execution_ms ?? 0,
     });
+
+    // Update the latest conversation turn's specSummary now that the spec is available.
+    // The turn was appended during execution with an empty specSummary because
+    // the spec hadn't been streamed yet.
+    const turns = getConversationTurns(csvId);
+    if (turns.length > 0) {
+      const lastTurn = turns[turns.length - 1];
+      if (!lastTurn.specSummary && spec) {
+        lastTurn.specSummary = summarizeSpec(spec as unknown as Spec);
+      }
+    }
 
     logger.info("History entry saved", { id: meta.id, question: meta.question.slice(0, 50) });
     return NextResponse.json({ meta });

@@ -160,6 +160,20 @@ export interface ConversationEntry {
   specSummary: string;
 }
 
+/** Structured record of a single analysis turn for follow-up context */
+export interface ConversationTurn {
+  question: string;
+  /** What the code computed — compact shapes, not raw data */
+  analysisSummary: {
+    /** result keys with their JS types: {total_revenue: "number", top_region: "string"} */
+    resultKeys: Record<string, string>;
+    /** For each chart_data key: column names and row count */
+    chartDataShapes: Record<string, { columns: string[]; rows: number }>;
+  };
+  /** Compact text tree of the dashboard layout (from summarizeSpec) */
+  specSummary: string;
+}
+
 // ── Analysis history types ─────────────────────────────────────
 
 export interface HistoryMeta {

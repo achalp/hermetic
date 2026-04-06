@@ -10,6 +10,7 @@ import { prepareWarmSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { WorkbookManifest, SheetInfo, SheetRelationship } from "@/lib/types";
+import { appendConversationTurn, buildTurnFromArtifacts } from "@/lib/pipeline/conversation-cache";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -31,6 +32,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       workbookInfo = await restoreWorkbook(csvId, normalizedCsv, viz.workbook);
     } else {
       prepareWarmSandbox(csvId, normalizedCsv, getActiveSandboxRuntime());
+    }
+
+    // Seed conversation cache so follow-up questions have context
+    if (viz.artifacts) {
+      appendConversationTurn(
+        csvId,
+        buildTurnFromArtifacts(viz.meta.question, viz.artifacts, viz.spec)
+      );
     }
 
     return NextResponse.json({

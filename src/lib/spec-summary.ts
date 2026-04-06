@@ -11,8 +11,9 @@ interface UIElementLike {
  * Much smaller than sending the full JSON to the LLM.
  */
 export function summarizeSpec(spec: Spec): string {
+  const elements = spec.elements as Record<string, UIElementLike> | undefined;
+  if (!elements || !spec.root) return "";
   const lines: string[] = [];
-  const elements = spec.elements as Record<string, UIElementLike>;
   walkElement(spec.root, elements, lines, 0);
   return lines.join("\n");
 }

@@ -536,6 +536,7 @@ export default function Home() {
     if (schemaKey) {
       setLlmSuggestions(null);
       setLlmFailed(false);
+      setAnalysisHistory([]);
     }
   }
 

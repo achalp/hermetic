@@ -1,6 +1,5 @@
 import {
   generateAnalysisCode,
-  generateAnalysisCodeWithHistory,
   cleanGeneratedCode,
   fixUpFilenames,
 } from "@/lib/llm/code-generation";
@@ -11,7 +10,7 @@ import { generateText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import type { CSVSchema, SandboxExecutionResult, SchemaMode } from "@/lib/types";
+import type { CSVSchema, ConversationTurn, SandboxExecutionResult, SchemaMode } from "@/lib/types";
 import { logger } from "@/lib/logger";
 
 export interface PipelineResult {
@@ -32,7 +31,8 @@ export async function runPipeline(
   additionalFiles?: AdditionalFile[],
   workbookContext?: string,
   localMountPath?: string,
-  localFileContext?: string
+  localFileContext?: string,
+  priorTurns?: ConversationTurn[]
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code
   onStage?.("generating_code");
@@ -44,7 +44,8 @@ export async function runPipeline(
       mode,
       model,
       workbookContext,
-      localFileContext
+      localFileContext,
+      priorTurns
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -109,101 +110,6 @@ export async function runPipeline(
       additionalFiles,
       schema.csv_id,
       localMountPath
-    );
-
-    if (!result.success) {
-      throw new Error(`Analysis failed after retry: ${result.error}`);
-    }
-
-    code = retryCode;
-  }
-
-  return {
-    executionResult: result,
-    generatedCode: code,
-    question,
-  };
-}
-
-export async function runChatPipeline(
-  schema: CSVSchema,
-  csvContent: string,
-  question: string,
-  conversationHistory: string[],
-  onStage?: (stage: string) => void,
-  mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL,
-  runtime?: SandboxRuntimeId,
-  geojsonContent?: string | null,
-  additionalFiles?: AdditionalFile[],
-  workbookContext?: string
-): Promise<PipelineResult> {
-  // Step 1: Generate analysis code with conversation context
-  onStage?.("generating_code");
-  let code: string;
-  try {
-    code = await generateAnalysisCodeWithHistory(
-      schema,
-      question,
-      conversationHistory,
-      mode,
-      model,
-      workbookContext
-    );
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const details: Record<string, unknown> = {
-      error: msg,
-      name: err instanceof Error ? err.name : typeof err,
-    };
-    if (err && typeof err === "object" && "errors" in err) {
-      const nested = (err as { errors: unknown[] }).errors;
-      details.nested = nested.map((e) =>
-        e instanceof Error ? { name: e.name, message: e.message } : String(e)
-      );
-    }
-    if (err instanceof Error && err.cause) {
-      details.cause = err.cause instanceof Error ? err.cause.message : String(err.cause);
-    }
-    logger.error("Code generation failed", details);
-    throw new Error(
-      msg || "LLM failed to generate code — check that the model server is running and responsive."
-    );
-  }
-
-  // Step 2: Execute in sandbox
-  onStage?.("executing");
-  let result = await executeSandbox(
-    csvContent,
-    code,
-    runtime,
-    geojsonContent,
-    additionalFiles,
-    schema.csv_id
-  );
-
-  // Step 3: Retry once on failure
-  if (!result.success) {
-    onStage?.("retrying");
-    const retryResult = await generateText({
-      model: getModel(model),
-      system:
-        "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.",
-      prompt: buildRetryPrompt(code, result.error, schema),
-      temperature: 0,
-      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-    });
-
-    const retryCode = fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename);
-
-    onStage?.("executing");
-    result = await executeSandbox(
-      csvContent,
-      retryCode,
-      runtime,
-      geojsonContent,
-      additionalFiles,
-      schema.csv_id
     );
 
     if (!result.success) {

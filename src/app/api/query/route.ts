@@ -22,7 +22,12 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import type { ConversationEntry, SchemaMode } from "@/lib/types";
+import type { ConversationTurn, SchemaMode } from "@/lib/types";
+import {
+  getConversationTurns,
+  appendConversationTurn,
+  buildTurnFromArtifacts,
+} from "@/lib/pipeline/conversation-cache";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
@@ -52,7 +57,6 @@ export async function POST(request: Request) {
     const warehouseId: string | undefined = context?.warehouse_id;
     const question: string = context?.question ?? prompt ?? "";
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
-    const conversationHistory: ConversationEntry[] | undefined = context?.conversation_history;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";
     const purpose: string = context?.purpose ?? "infographic";
 
@@ -285,7 +289,12 @@ export async function POST(request: Request) {
 
           const csvContent = isLocal ? "" : await getCSVContent(csvId!);
           if (!isLocal && !csvContent) {
-            throw new Error("CSV content not found");
+            if (stored.schema.source_type === "warehouse") {
+              throw new Error(
+                "This analysis was from a warehouse query. Please connect to the warehouse first, then ask your question."
+              );
+            }
+            throw new Error("CSV content not found. Please re-upload your data.");
           }
 
           // Fetch GeoJSON sidecar if the upload was GeoJSON
@@ -365,6 +374,9 @@ export async function POST(request: Request) {
             }
           }
 
+          // Load prior conversation turns for follow-up context
+          const priorTurns = csvId ? getConversationTurns(csvId) : [];
+
           // Run the code-gen + sandbox pipeline
           const pipelineResult = await runPipeline(
             stored.schema,
@@ -378,7 +390,8 @@ export async function POST(request: Request) {
             additionalFiles,
             workbookContext,
             localMountPath,
-            localFileContext
+            localFileContext,
+            priorTurns.length > 0 ? priorTurns : undefined
           );
 
           if (closed) return;
@@ -388,7 +401,7 @@ export async function POST(request: Request) {
 
           // Cache artifacts for the artifacts viewer
           const { executionResult } = pipelineResult;
-          cacheArtifacts(csvId!, {
+          const cachedArtifactData = {
             code: pipelineResult.generatedCode,
             question,
             results: executionResult.results as Record<string, unknown>,
@@ -396,7 +409,18 @@ export async function POST(request: Request) {
             datasets: (executionResult.datasets ?? {}) as Record<string, Record<string, unknown>[]>,
             execution_ms: executionResult.execution_ms ?? 0,
             sql: warehouseSQL,
-          });
+          };
+          cacheArtifacts(csvId!, cachedArtifactData);
+
+          // Append this turn to the conversation cache for follow-up context.
+          // specSummary is empty here because the UI spec hasn't been streamed yet —
+          // it will be populated by the client via the update endpoint after rendering.
+          // The analysisSummary (resultKeys + chartDataShapes) is the critical part
+          // that tells the code gen LLM what was computed.
+          if (csvId) {
+            const turn = buildTurnFromArtifacts(question, cachedArtifactData, {});
+            appendConversationTurn(csvId, turn);
+          }
           const imageKeys = Object.keys(executionResult.images);
           const datasets = executionResult.datasets;
           const mainDataset = datasets?.main;
@@ -596,13 +620,13 @@ ${drillDownContext.chart_title ? `- Source chart: ${drillDownContext.chart_title
 Focus the analysis specifically on data where ${drillDownContext.filter_column} = "${drillDownContext.filter_value}". Provide detailed breakdown and insights for this specific segment.`;
           }
 
-          // Append conversation history for follow-ups
-          if (conversationHistory && conversationHistory.length > 0) {
+          // Append conversation history for follow-ups (from server-side cache)
+          if (priorTurns.length > 0) {
             userPrompt += `
 
 ## Conversation History
 The user is asking a follow-up question. Previous turns in this conversation:
-${conversationHistory.map((entry, i) => `### Turn ${i + 1}: "${entry.question}"\nDashboard showed:\n${entry.specSummary}`).join("\n\n")}
+${priorTurns.map((turn, i) => `### Turn ${i + 1}: "${turn.question}"\nDashboard showed:\n${turn.specSummary}`).join("\n\n")}
 
 Build on the prior analysis. Evolve the dashboard to address the new question while maintaining continuity with previous insights where relevant.`;
           }
@@ -824,11 +848,11 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
                     return JSON.stringify(v);
                   }
                 }
-                logger.warn("chartData replacement: unresolved placeholder", {
+                logger.warn("chartData replacement: unresolved placeholder, replacing with null", {
                   keyPath,
                   availableKeys: Object.keys(chart),
                 });
-                return _match;
+                return "null";
               });
             }
 
