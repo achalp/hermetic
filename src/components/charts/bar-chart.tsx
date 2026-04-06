@@ -109,6 +109,11 @@ export function BarChartComponent({
   const dataMin = Math.min(0, ...allValues);
   const dataMax = Math.max(0, ...allValues);
 
+  // Compute legend item width from longest key name
+  const hasLegend = props.y_keys.length > 1;
+  const maxKeyLen = hasLegend ? Math.max(...props.y_keys.map((k) => k.length)) : 0;
+  const legendItemWidth = Math.max(100, Math.min(200, maxKeyLen * 8 + 24));
+
   if (data.length === 0) {
     return <div style={{ height: chart.height }} />;
   }
@@ -147,11 +152,12 @@ export function BarChartComponent({
           margin={{
             top: chart.margin.top,
             right: chart.margin.right,
-            bottom: veryManyCategories
-              ? chart.margin.bottom + 80
-              : manyCategories
-                ? chart.margin.bottom + 50
-                : chart.margin.bottom,
+            bottom:
+              (veryManyCategories
+                ? chart.margin.bottom + 80
+                : manyCategories
+                  ? chart.margin.bottom + 50
+                  : chart.margin.bottom) + (hasLegend ? 30 : 0),
             left: leftMargin,
           }}
           padding={chart.barPadding}
@@ -185,14 +191,14 @@ export function BarChartComponent({
           }}
           enableLabel={false}
           legends={
-            props.y_keys.length > 1
+            hasLegend
               ? [
                   {
                     dataFrom: "keys",
                     anchor: "bottom",
                     direction: "row",
-                    translateY: 46,
-                    itemWidth: 100,
+                    translateY: veryManyCategories ? 96 : manyCategories ? 66 : 46,
+                    itemWidth: legendItemWidth,
                     itemHeight: 20,
                     symbolSize: chart.legendSymbolSize,
                   },
