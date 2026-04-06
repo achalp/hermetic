@@ -36,6 +36,9 @@ export interface SaveInput {
   artifacts?: CachedArtifacts;
   schemaFingerprint?: string;
   workbook?: SavedWorkbook;
+  sourceType?: "upload" | "local" | "warehouse";
+  localPath?: string;
+  sql?: string;
 }
 
 export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta> {
@@ -51,6 +54,9 @@ export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta>
     versionCount: 1,
     latestVersionTs: now,
     schemaFingerprint: input.schemaFingerprint,
+    sourceType: input.sourceType,
+    localPath: input.localPath,
+    sql: input.sql,
   };
 
   const writes = [
@@ -77,6 +83,9 @@ export interface SaveVersionInput {
   spec: Record<string, unknown>;
   artifacts?: CachedArtifacts;
   schemaFingerprint: string;
+  sourceType?: "upload" | "local" | "warehouse";
+  localPath?: string;
+  sql?: string;
 }
 
 /**
@@ -115,6 +124,10 @@ export async function saveNewVersion(
     versionCount: (meta.versionCount ?? 1) + 1,
     latestVersionTs: now,
     schemaFingerprint: input.schemaFingerprint,
+    // Preserve or update source info for refresh
+    sourceType: input.sourceType ?? meta.sourceType,
+    localPath: input.localPath ?? meta.localPath,
+    sql: input.sql ?? meta.sql,
   };
 
   const writes = [

@@ -175,6 +175,7 @@ export interface HistoryMeta {
   chartTypes: string[];
   executionMs: number;
   specSummary: string;
+  description?: string;
 }
 
 export interface SavedVizMeta {
@@ -185,6 +186,12 @@ export interface SavedVizMeta {
   versionCount?: number;
   latestVersionTs?: number;
   schemaFingerprint?: string;
+  /** How the data was originally sourced */
+  sourceType?: "upload" | "local" | "warehouse";
+  /** Host filesystem path for local file sources */
+  localPath?: string;
+  /** SQL query for warehouse sources (used during refresh) */
+  sql?: string;
 }
 
 // ── Excel types ─────────────────────────────────────────────────────

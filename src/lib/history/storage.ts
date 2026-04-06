@@ -3,7 +3,7 @@ import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { HistoryMeta, CSVSchema, WarehouseType } from "@/lib/types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { summarizeSpec } from "@/lib/spec-summary";
+import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 import type { Spec } from "@json-render/react";
 
 const HISTORY_DIR = join(process.cwd(), "data", "history");
@@ -96,6 +96,7 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
     chartTypes: extractChartTypes(input.spec),
     executionMs: input.executionMs,
     specSummary: summarizeSpec(input.spec as unknown as Spec),
+    description: extractDescription(input.spec as unknown as Spec),
   };
 
   const writes = [

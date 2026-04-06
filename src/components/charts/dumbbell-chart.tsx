@@ -27,40 +27,55 @@ export function DumbbellChartComponent({ props }: { props: DumbbellChartProps })
   const sColor = resolveColor(props.start_color ?? "#6366f1");
   const eColor = resolveColor(props.end_color ?? "#f43f5e");
 
-  const traces: Data[] = [];
-
-  // Connecting lines
+  // Build a single connecting-lines trace using null separators so Plotly
+  // sees all category labels in one trace and builds a unified axis.
+  const lineX: (number | string | null)[] = [];
+  const lineY: (number | string | null)[] = [];
   for (const d of data) {
-    traces.push({
+    if (lineX.length > 0) {
+      lineX.push(null);
+      lineY.push(null);
+    }
+    if (isHorizontal) {
+      lineX.push(d.start, d.end);
+      lineY.push(d.label, d.label);
+    } else {
+      lineX.push(d.label, d.label);
+      lineY.push(d.start, d.end);
+    }
+  }
+
+  const traces: Data[] = [
+    // Connecting lines (single trace)
+    {
       type: "scatter" as const,
-      x: isHorizontal ? [d.start, d.end] : [d.label, d.label],
-      y: isHorizontal ? [d.label, d.label] : [d.start, d.end],
+      x: lineX,
+      y: lineY,
       mode: "lines" as const,
       line: { color: "#9ca3af", width: 2 },
       showlegend: false,
       hoverinfo: "skip" as const,
-    });
-  }
-
-  // Start dots
-  traces.push({
-    type: "scatter" as const,
-    x: isHorizontal ? data.map((d) => d.start) : data.map((d) => d.label),
-    y: isHorizontal ? data.map((d) => d.label) : data.map((d) => d.start),
-    mode: "markers" as const,
-    name: props.start_label ?? "Start",
-    marker: { color: sColor, size: 12 },
-  });
-
-  // End dots
-  traces.push({
-    type: "scatter" as const,
-    x: isHorizontal ? data.map((d) => d.end) : data.map((d) => d.label),
-    y: isHorizontal ? data.map((d) => d.label) : data.map((d) => d.end),
-    mode: "markers" as const,
-    name: props.end_label ?? "End",
-    marker: { color: eColor, size: 12 },
-  });
+      connectgaps: false,
+    } as Data,
+    // Start dots
+    {
+      type: "scatter" as const,
+      x: isHorizontal ? data.map((d) => d.start) : data.map((d) => d.label),
+      y: isHorizontal ? data.map((d) => d.label) : data.map((d) => d.start),
+      mode: "markers" as const,
+      name: props.start_label ?? "Start",
+      marker: { color: sColor, size: 12 },
+    },
+    // End dots
+    {
+      type: "scatter" as const,
+      x: isHorizontal ? data.map((d) => d.end) : data.map((d) => d.label),
+      y: isHorizontal ? data.map((d) => d.label) : data.map((d) => d.end),
+      mode: "markers" as const,
+      name: props.end_label ?? "End",
+      marker: { color: eColor, size: 12 },
+    },
+  ];
 
   const layout: Partial<Layout> = {
     showlegend: true,

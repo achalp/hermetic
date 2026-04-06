@@ -77,3 +77,35 @@ function extractLabel(component: string, props: Record<string, unknown>): string
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "\u2026" : s;
 }
+
+/**
+ * Extract the LLM-generated methodology text from the spec.
+ * The methodology is the final TextBlock with variant "body" (the LLM is
+ * instructed to end with a plain-English methodology paragraph).
+ * Falls back to concatenating all body-variant TextBlocks if only one exists.
+ */
+export function extractDescription(spec: Spec): string {
+  const elements = spec.elements as Record<string, UIElementLike>;
+  if (!elements) return "";
+
+  // Collect body-variant TextBlocks in document order by walking the tree
+  const bodyTexts: string[] = [];
+  const walkForBody = (key: string) => {
+    const el = elements[key];
+    if (!el) return;
+    if (el.type === "TextBlock") {
+      const variant = el.props?.variant ?? "body";
+      if (variant === "body" && el.props?.content) {
+        bodyTexts.push(String(el.props.content));
+      }
+    }
+    if (el.children) {
+      for (const child of el.children) walkForBody(child);
+    }
+  };
+  walkForBody(spec.root);
+
+  // The methodology is typically the last body TextBlock
+  if (bodyTexts.length > 0) return bodyTexts[bodyTexts.length - 1];
+  return "";
+}

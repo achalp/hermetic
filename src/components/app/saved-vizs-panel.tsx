@@ -7,10 +7,11 @@ import { listVizs, deleteViz } from "@/lib/api";
 interface SavedVizsPanelProps {
   onLoad: (vizId: string) => void;
   onRerun: (vizId: string) => void;
+  onRefresh: (vizId: string) => void;
   refreshKey: number;
 }
 
-export function SavedVizsPanel({ onLoad, onRerun, refreshKey }: SavedVizsPanelProps) {
+export function SavedVizsPanel({ onLoad, onRerun, onRefresh, refreshKey }: SavedVizsPanelProps) {
   const [vizs, setVizs] = useState<SavedVizMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -103,6 +104,16 @@ export function SavedVizsPanel({ onLoad, onRerun, refreshKey }: SavedVizsPanelPr
               }}
             >
               Load
+            </button>
+            <button
+              onClick={() => onRefresh(viz.vizId)}
+              className="bg-accent-subtle px-3 py-1.5 text-xs font-medium text-accent-text hover:bg-accent/10 transition-colors"
+              style={{
+                borderRadius: "var(--radius-badge)",
+                transitionDuration: "var(--transition-speed)",
+              }}
+            >
+              Re-run
             </button>
             <button
               onClick={() => onRerun(viz.vizId)}

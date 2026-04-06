@@ -330,22 +330,21 @@ export default function HistoryPage() {
                         </div>
                       )}
 
-                      {/* Spec summary */}
-                      {entry.specSummary && (
-                        <pre
+                      {/* Analysis description */}
+                      {(entry.description || entry.specSummary) && (
+                        <div
                           style={{
-                            fontSize: 12,
+                            fontSize: 13,
                             color: "var(--color-t-secondary)",
                             whiteSpace: "pre-wrap",
-                            fontFamily: "var(--font-geist-mono)",
-                            lineHeight: 1.5,
+                            lineHeight: 1.6,
                             marginBottom: 12,
-                            maxHeight: 150,
+                            maxHeight: 200,
                             overflow: "auto",
                           }}
                         >
-                          {entry.specSummary}
-                        </pre>
+                          {entry.description || entry.specSummary}
+                        </div>
                       )}
 
                       {/* Local path */}
@@ -376,6 +375,26 @@ export default function HistoryPage() {
                           }}
                         >
                           Restore
+                        </a>
+                        <a
+                          href={`/?rerun_history=${entry.id}`}
+                          title={
+                            entry.sourceType === "warehouse"
+                              ? "Requires an active warehouse connection"
+                              : "Re-execute the analysis code with current data"
+                          }
+                          style={{
+                            padding: "6px 14px",
+                            borderRadius: 6,
+                            border: "1px solid var(--color-accent)",
+                            background: "transparent",
+                            color: "var(--color-accent)",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            textDecoration: "none",
+                          }}
+                        >
+                          Re-run
                         </a>
                         <button
                           onClick={(e) => {

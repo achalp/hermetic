@@ -47,6 +47,17 @@ export async function POST(request: Request) {
     const artifacts = getCachedArtifacts(csvId);
     const fingerprint = schemaFingerprint(stored.schema);
 
+    // Determine source type for refresh support
+    const isLocal = !!(stored.localPath || stored.localFolderPath);
+    const isWarehouse = stored.schema.source_type === "warehouse";
+    const sourceType: "upload" | "local" | "warehouse" = isLocal
+      ? "local"
+      : isWarehouse
+        ? "warehouse"
+        : "upload";
+    const localPath = stored.localPath || stored.localFolderPath;
+    const sql = artifacts?.sql;
+
     // Check for workbook manifest — if present, persist all sheets
     const workbook = await buildSavedWorkbook(csvId);
 
@@ -59,6 +70,9 @@ export async function POST(request: Request) {
         spec,
         artifacts: artifacts ?? undefined,
         schemaFingerprint: fingerprint,
+        sourceType,
+        localPath,
+        sql,
       });
       return NextResponse.json({ meta });
     }
@@ -72,6 +86,9 @@ export async function POST(request: Request) {
       artifacts: artifacts ?? undefined,
       schemaFingerprint: fingerprint,
       workbook,
+      sourceType,
+      localPath,
+      sql,
     });
 
     return NextResponse.json({ meta });

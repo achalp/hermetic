@@ -78,8 +78,13 @@ export function BarChartComponent({
   const isHorizontal = layout === "horizontal";
 
   // Compute left margin: for horizontal bars, measure the longest category label
+  const maxLabelChars = isHorizontal
+    ? Math.max(0, ...data.map((d) => String(d[props.x_key] ?? "").length))
+    : 0;
+  const hLabelLimit = isExpanded ? 60 : 40;
+  const displayChars = Math.min(maxLabelChars, hLabelLimit);
   const leftMargin = isHorizontal
-    ? Math.min(220, Math.max(90, ...data.map((d) => String(d[props.x_key] ?? "").length * 8 + 10)))
+    ? Math.min(isExpanded ? 420 : 300, Math.max(90, displayChars * 7 + 16))
     : chart.margin.left;
 
   // For vertical bars with many categories, apply smart label handling
@@ -169,7 +174,14 @@ export function BarChartComponent({
             tickSize: chart.axisTickSize,
             tickPadding: 5,
             tickRotation: 0,
-            ...(!isHorizontal ? { format: formatAxisNumber, tickValues: 5 } : {}),
+            ...(!isHorizontal
+              ? { format: formatAxisNumber, tickValues: 5 }
+              : {
+                  format: (v: string | number) => {
+                    const s = String(v);
+                    return s.length > hLabelLimit ? s.slice(0, hLabelLimit - 1) + "\u2026" : s;
+                  },
+                }),
           }}
           enableLabel={false}
           legends={

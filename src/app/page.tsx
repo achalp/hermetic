@@ -41,12 +41,14 @@ import {
   checkLlmReady,
   getLocalBackendConfig,
   loadViz,
+  refreshViz,
   rerunViz,
   saveViz,
   uploadFile,
   extractLocalSchema,
   saveHistoryEntry,
   loadHistoryEntry,
+  refreshHistoryEntry,
 } from "@/lib/api";
 import {
   CODE_GEN_MODEL,
@@ -107,6 +109,9 @@ export default function Home() {
   });
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
   const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
+  const [refreshStage, setRefreshStage] = useState<
+    "loading" | "querying" | "executing" | "composing" | null
+  >(null);
   const [llmWarning, setLlmWarning] = useState<string | null>(null);
   const [showLocalBrowser, setShowLocalBrowser] = useState(false);
   const [isExtractingLocalSchema, setIsExtractingLocalSchema] = useState(false);
@@ -205,6 +210,59 @@ export default function Home() {
       .catch((err) => {
         console.error("Failed to restore history entry:", err);
         dispatch({ type: "LOAD_VIZ_ERROR" });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Re-run from history (?rerun_history=id) ────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const rerunId = params.get("rerun_history");
+    if (!rerunId) return;
+
+    window.history.replaceState({}, "", "/");
+
+    // First load the entry to check source type before attempting refresh
+    loadHistoryEntry(rerunId)
+      .then(async (data) => {
+        const isWarehouse = data.meta.sourceType === "warehouse";
+        const canRefresh = !isWarehouse || !!warehouse.warehouseId;
+
+        if (canRefresh) {
+          dispatch({ type: "RERUN_START" });
+          setRefreshStage("loading");
+          await new Promise((r) => setTimeout(r, 100));
+          setRefreshStage("executing");
+          const result = await refreshHistoryEntry(rerunId, warehouse.warehouseId, sandboxRuntime);
+          setRefreshStage("composing");
+          handleUpload(result.csvId, result.schema as unknown as import("@/lib/types").CSVSchema);
+          dispatch({
+            type: "RERUN_FAST_SUCCESS",
+            spec: result.spec as unknown as import("@json-render/react").Spec,
+            artifacts:
+              (result.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
+              null,
+          });
+          setRefreshStage(null);
+        } else {
+          // Warehouse without active connection — just restore
+          if (data.csvId) {
+            handleUpload(data.csvId, data.schema as unknown as import("@/lib/types").CSVSchema);
+          }
+          dispatch({
+            type: "LOAD_VIZ_SUCCESS",
+            question: data.meta.question,
+            spec: data.spec as unknown as import("@json-render/react").Spec,
+            artifacts:
+              (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
+              null,
+          });
+        }
+      })
+      .catch(() => {
+        setRefreshStage(null);
+        dispatch({ type: "RERUN_ERROR" });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -382,6 +440,38 @@ export default function Home() {
   const handleRerunFromToolbar = useCallback(() => {
     if (loadedVizId) handleRerunViz(loadedVizId);
   }, [loadedVizId, handleRerunViz]);
+
+  const handleRefreshViz = useCallback(
+    async (vizId: string) => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      dispatch({ type: "RERUN_START" });
+      setRefreshStage("loading");
+      try {
+        // Brief delay so "loading" stage is visible before the fetch begins
+        await new Promise((r) => setTimeout(r, 100));
+        setRefreshStage("executing");
+        const result = await refreshViz(vizId, warehouse.warehouseId, sandboxRuntime);
+        setRefreshStage("composing");
+        handleUpload(result.csvId, result.schema);
+        dispatch({
+          type: "RERUN_FAST_SUCCESS",
+          spec: result.spec as unknown as Spec,
+          artifacts: result.artifacts ?? null,
+        });
+        setLoadedVizId(vizId);
+      } catch (err) {
+        console.error("Refresh failed:", err);
+        dispatch({ type: "RERUN_ERROR" });
+      } finally {
+        setRefreshStage(null);
+      }
+    },
+    [dispatch, handleUpload, warehouse.warehouseId, sandboxRuntime]
+  );
+
+  const handleRefreshFromToolbar = useCallback(() => {
+    if (loadedVizId) handleRefreshViz(loadedVizId);
+  }, [loadedVizId, handleRefreshViz]);
 
   // Auto-save after incompatible rerun
   useEffect(() => {
@@ -617,9 +707,18 @@ export default function Home() {
                 />
               </svg>
             </button>
-            {/* State 4 actions: Save, Export, Artifacts */}
+            {/* State 4 actions: Re-run, Save, Export, Artifacts */}
             {isState4 && (
               <>
+                {loadedVizId && (
+                  <button
+                    onClick={handleRefreshFromToolbar}
+                    disabled={rerunningViz}
+                    className="text-sm font-medium text-t-secondary hover:text-accent transition-colors disabled:opacity-50"
+                  >
+                    {rerunningViz ? "Re-running..." : "Re-run"}
+                  </button>
+                )}
                 <button
                   onClick={doSave}
                   disabled={saving || !!exporting}
@@ -795,17 +894,19 @@ export default function Home() {
               <SavedVizsPanel
                 onLoad={handleLoadViz}
                 onRerun={handleRerunViz}
+                onRefresh={handleRefreshViz}
                 refreshKey={savedRefreshKey}
               />
             </div>
           )}
 
           {/* Loading states */}
-          {(loadingViz || rerunningViz) && (
+          {loadingViz && (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-accent">
-              {rerunningViz ? "Re-running with new data..." : "Loading saved visualization..."}
+              Loading saved visualization...
             </div>
           )}
+          {rerunningViz && <RefreshProgress stage={refreshStage} />}
 
           {/* Sheet Picker (Excel flow) */}
           {showSheetPicker && excelMeta && (
@@ -1025,5 +1126,93 @@ export default function Home() {
         artifacts={pageArtifacts.artifacts ?? loadedArtifacts ?? null}
       />
     </>
+  );
+}
+
+// ── Refresh progress stepper ──────────────────────────────────
+
+const REFRESH_STEPS = [
+  { key: "loading", label: "Loaded saved analysis", activeLabel: "Loading saved analysis..." },
+  { key: "executing", label: "Ran computations", activeLabel: "Running computations..." },
+  { key: "composing", label: "Composed dashboard", activeLabel: "Composing dashboard..." },
+] as const;
+
+function RefreshProgress({
+  stage,
+}: {
+  stage: "loading" | "querying" | "executing" | "composing" | null;
+}) {
+  const stageIndex =
+    stage === "loading"
+      ? 0
+      : stage === "querying"
+        ? 0
+        : stage === "executing"
+          ? 1
+          : stage === "composing"
+            ? 2
+            : -1;
+
+  return (
+    <div className="flex justify-center py-16" role="status" aria-live="polite">
+      <div
+        className="grid gap-x-8 gap-y-1.5 text-sm"
+        style={{ gridTemplateColumns: "repeat(2, auto)" }}
+      >
+        {REFRESH_STEPS.map((step, i) => {
+          const isCompleted = i < stageIndex;
+          const isActive = i === stageIndex;
+
+          if (isCompleted) {
+            return (
+              <div key={step.key} className="flex items-center gap-2 text-t-secondary">
+                <svg
+                  className="h-4 w-4 text-success-text"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                {step.label}
+              </div>
+            );
+          }
+
+          if (isActive) {
+            return (
+              <div key={step.key} className="flex items-center gap-2 font-medium text-accent">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                {step.activeLabel}
+              </div>
+            );
+          }
+
+          return (
+            <div key={step.key} className="flex items-center gap-2 text-t-tertiary">
+              <span className="inline-block h-4 w-4" />
+              {step.label}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

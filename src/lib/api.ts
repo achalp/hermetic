@@ -181,6 +181,33 @@ export async function rerunViz(
   return json<RerunResult>(res);
 }
 
+// ── Refresh (re-run without LLM) ─────────────────────────────
+
+export interface RefreshResult {
+  spec: Record<string, unknown>;
+  artifacts: CachedArtifacts;
+  csvId: string;
+  schema: CSVSchema;
+  historyId: string;
+  executionMs: number;
+}
+
+export async function refreshViz(
+  vizId: string,
+  warehouseId?: string | null,
+  sandboxRuntime?: string
+): Promise<RefreshResult> {
+  const res = await fetch(`/api/vizs/${vizId}/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      warehouseId: warehouseId ?? undefined,
+      sandboxRuntime: sandboxRuntime ?? undefined,
+    }),
+  });
+  return json<RefreshResult>(res);
+}
+
 // ── Artifacts ──────────────────────────────────────────────────
 
 export async function getArtifacts(csvId: string): Promise<CachedArtifacts> {
@@ -285,6 +312,22 @@ export interface LoadedHistory {
 export async function loadHistoryEntry(id: string): Promise<LoadedHistory> {
   const res = await fetch(`/api/history/${id}`);
   return json<LoadedHistory>(res);
+}
+
+export async function refreshHistoryEntry(
+  historyId: string,
+  warehouseId?: string | null,
+  sandboxRuntime?: string
+): Promise<RefreshResult> {
+  const res = await fetch(`/api/history/${historyId}/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      warehouseId: warehouseId ?? undefined,
+      sandboxRuntime: sandboxRuntime ?? undefined,
+    }),
+  });
+  return json<RefreshResult>(res);
 }
 
 export async function deleteHistoryEntry(id: string): Promise<void> {
