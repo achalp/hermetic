@@ -96,7 +96,7 @@ export const catalog = defineCatalog(schema, {
         curve: z.enum(["linear", "monotone", "step"]).nullable(),
       }),
       description:
-        "Line chart for trends over time. Each y_key becomes a line. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
+        "Line chart for trends over time. Each y_key becomes a line. Data should be wide-format: each row has {x_key: value, y_key1: number, y_key2: number, ...}. Pivot long-format data before passing. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
     },
     AreaChart: {
       props: z.object({
@@ -109,7 +109,7 @@ export const catalog = defineCatalog(schema, {
         opacity: z.number().nullable(),
       }),
       description:
-        "Area chart, like line chart with filled regions below lines. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
+        "Area chart, like line chart with filled regions below lines. Data should be wide-format: each row has {x_key: value, y_key1: number, y_key2: number, ...}. Pivot long-format data before passing. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
     },
     PieChart: {
       props: z.object({

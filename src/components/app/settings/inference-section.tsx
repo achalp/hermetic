@@ -19,7 +19,7 @@ interface InferenceSectionProps {
 
 const S = {
   label: {
-    fontSize: 11,
+    fontSize: 12,
     textTransform: "uppercase" as const,
     letterSpacing: "0.08em",
     color: "var(--color-surface-dark-text4)",
@@ -57,7 +57,7 @@ const S = {
     borderRadius: 4,
     display: "inline-block",
   },
-  hint: { fontSize: 11, color: "var(--color-surface-dark-text4)", marginTop: 4 },
+  hint: { fontSize: 12, color: "var(--color-surface-dark-text4)", marginTop: 4 },
   divider: { borderTop: "1px solid var(--color-surface-dark-2)", margin: "14px 0" },
 };
 

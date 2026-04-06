@@ -39,7 +39,7 @@ export function SheetTabs({ sheets, active, onSelect, relationships }: SheetTabs
             }}
           >
             {sheet.name}
-            <span style={{ fontSize: 11, color: "var(--color-surface-dark-text4)", marginLeft: 8 }}>
+            <span style={{ fontSize: 12, color: "var(--color-surface-dark-text4)", marginLeft: 8 }}>
               {sheet.rows.toLocaleString()}
             </span>
           </button>
@@ -49,7 +49,7 @@ export function SheetTabs({ sheets, active, onSelect, relationships }: SheetTabs
         <>
           <div
             style={{
-              fontSize: 11,
+              fontSize: 12,
               textTransform: "uppercase",
               color: "var(--color-surface-dark-text4)",
               padding: "12px 16px 4px",

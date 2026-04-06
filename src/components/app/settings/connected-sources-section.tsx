@@ -108,7 +108,7 @@ export function ConnectedSourcesSection({
             >
               <span>
                 {conn.name}{" "}
-                <span style={{ fontSize: 11, color: "var(--color-surface-dark-text4)" }}>
+                <span style={{ fontSize: 12, color: "var(--color-surface-dark-text4)" }}>
                   {conn.type}
                 </span>
               </span>

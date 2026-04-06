@@ -62,6 +62,18 @@ export function fixUpFilenames(code: string, originalFilename: string): string {
   return code.replace(new RegExp(`/data/${escaped}`, "g"), "/data/input.csv");
 }
 
+/**
+ * Ensure DuckDB read_csv calls include an explicit delimiter to prevent
+ * auto-detection failures on small result sets (e.g. 1-2 rows from warehouse queries).
+ */
+export function fixReadCsvDelimiter(code: string): string {
+  // Match read_csv('...' or read_csv("..." that don't already have a delimiter/delim/sep arg
+  return code.replace(/read_csv\((['""][^)]*?['""]\s*)\)/g, (match, inner) => {
+    if (/delimiter|delim|sep\s*=/.test(match)) return match;
+    return `read_csv(${inner}, delimiter=',')`;
+  });
+}
+
 export async function generateAnalysisCode(
   schema: CSVSchema,
   question: string,
@@ -84,5 +96,5 @@ export async function generateAnalysisCode(
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
-  return fixUpFilenames(cleanGeneratedCode(result.text), schema.filename);
+  return fixReadCsvDelimiter(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename));
 }

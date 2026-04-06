@@ -45,11 +45,17 @@ export function parseCSV(text: string): ParsedCSV {
   });
 
   if (result.errors.length > 0) {
-    const critical = result.errors.find((e) => e.type === "Delimiter");
+    const critical = result.errors.find(
+      (e) => e.type === "Delimiter" && !e.message.includes("Unable to auto-detect")
+    );
     if (critical) {
       throw new Error(`CSV parse error: ${critical.message}`);
     }
-    // FieldMismatch (extra/missing fields per row) is non-fatal —
+    // "Unable to auto-detect delimiting character" is non-fatal — PapaParse
+    // defaults to ',' and still parses correctly. This happens with single-column
+    // CSVs (e.g. warehouse queries returning one column) where there are no
+    // delimiter characters to detect.
+    // FieldMismatch (extra/missing fields per row) is also non-fatal —
     // papaparse still parses the data, extra fields are dropped.
   }
 

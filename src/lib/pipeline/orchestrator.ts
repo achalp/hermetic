@@ -2,6 +2,7 @@ import {
   generateAnalysisCode,
   cleanGeneratedCode,
   fixUpFilenames,
+  fixReadCsvDelimiter,
 } from "@/lib/llm/code-generation";
 import { buildRetryPrompt } from "@/lib/llm/prompts";
 import { executeSandbox } from "@/lib/sandbox";
@@ -99,7 +100,9 @@ export async function runPipeline(
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     });
 
-    const retryCode = fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename);
+    const retryCode = fixReadCsvDelimiter(
+      fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
+    );
 
     onStage?.("executing");
     result = await executeSandbox(

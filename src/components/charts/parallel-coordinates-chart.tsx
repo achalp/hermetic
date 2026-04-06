@@ -119,14 +119,15 @@ export function ParallelCoordinatesComponent({ props }: { props: ParallelCoordin
               <g key={di}>
                 <line x1={x} y1={0} x2={x} y2={innerH} stroke={textFill} opacity={0.3} />
                 <text x={x} y={-10} textAnchor="middle" fill={textFill} fontSize={11}>
-                  {s.dim}
+                  {s.dim.length > 12 ? s.dim.slice(0, 10) + "…" : s.dim}
+                  <title>{s.dim}</title>
                 </text>
                 <text
                   x={x}
                   y={innerH + 14}
                   textAnchor="middle"
                   fill={textFill}
-                  fontSize={9}
+                  fontSize={11}
                   opacity={0.6}
                 >
                   {s.min.toFixed(1)}
@@ -136,7 +137,7 @@ export function ParallelCoordinatesComponent({ props }: { props: ParallelCoordin
                   y={-2}
                   textAnchor="middle"
                   fill={textFill}
-                  fontSize={9}
+                  fontSize={11}
                   opacity={0.6}
                   dy="-4"
                 >

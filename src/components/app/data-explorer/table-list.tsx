@@ -49,7 +49,7 @@ export function TableList({ tables, active, onSelect }: TableListProps) {
             >
               {table.name}
             </span>
-            <span style={{ fontSize: 10, color: "var(--color-surface-dark-text4)" }}>
+            <span style={{ fontSize: 12, color: "var(--color-surface-dark-text4)" }}>
               {table.rows}
             </span>
           </button>

@@ -153,12 +153,72 @@ export function resolveColorMap(
  * Transform flat records into nivo line/area series format.
  * Input:  [{ month: "Jan", sales: 10, profit: 5 }, ...]
  * Output: [{ id: "sales", data: [{ x: "Jan", y: 10 }] }, { id: "profit", data: [...] }]
+ *
+ * Also handles long-format data by auto-pivoting when y_keys don't exist as
+ * columns but match values in a category column.
  */
 export function toNivoLineSeries(
   data: Record<string, unknown>[],
   xKey: string,
   yKeys: string[]
 ): { id: string; data: { x: string | number; y: number | null }[] }[] {
+  // Check if y_keys exist as actual columns in the data (wide format)
+  const firstRow = data[0];
+  const isWideFormat = firstRow && yKeys.some((k) => k in firstRow);
+
+  if (isWideFormat) {
+    return yKeys.map((key) => ({
+      id: key,
+      data: data
+        .filter((row) => row[xKey] != null)
+        .map((row, i) => ({
+          x: (row[xKey] as string | number) ?? i,
+          y: row[key] != null ? Number(row[key]) : null,
+        })),
+    }));
+  }
+
+  // Auto-pivot: detect long-format data where y_keys are values in a category column.
+  // Find the category column (string column whose values match y_keys) and value column.
+  const cols = Object.keys(firstRow ?? {}).filter((k) => k !== xKey);
+  const yKeySet = new Set(yKeys);
+  let categoryCol: string | null = null;
+  let valueCol: string | null = null;
+
+  for (const col of cols) {
+    const vals = new Set(data.map((r) => String(r[col])));
+    if (yKeys.every((k) => vals.has(k))) {
+      categoryCol = col;
+      break;
+    }
+  }
+
+  if (categoryCol) {
+    // Value column: first numeric column that isn't xKey or categoryCol
+    for (const col of cols) {
+      if (col === categoryCol) continue;
+      if (data.some((r) => r[col] != null && !isNaN(Number(r[col])))) {
+        valueCol = col;
+        break;
+      }
+    }
+  }
+
+  if (categoryCol && valueCol) {
+    // Group by category, then map x → y
+    return yKeys.map((key) => {
+      const rows = data.filter((r) => String(r[categoryCol]) === key && r[xKey] != null);
+      return {
+        id: key,
+        data: rows.map((row, i) => ({
+          x: (row[xKey] as string | number) ?? i,
+          y: row[valueCol] != null ? Number(row[valueCol]) : null,
+        })),
+      };
+    });
+  }
+
+  // Fallback: treat y_keys as columns (original behavior)
   return yKeys.map((key) => ({
     id: key,
     data: data

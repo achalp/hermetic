@@ -47,7 +47,7 @@ export function PieChartComponent({
   const theme = useMemo(
     () => ({
       ...baseTheme,
-      labels: { text: { fontSize: 10, fill: baseTheme.text?.fill as string } },
+      labels: { text: { fontSize: 11, fill: baseTheme.text?.fill as string } },
     }),
     [baseTheme]
   );

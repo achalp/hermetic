@@ -41,6 +41,23 @@ try:
     _pd.DataFrame.cov = _safe_cov
 except ImportError:
     pass
+try:
+    import duckdb as _duckdb_mod
+    import re as _re_mod
+    _orig_duckdb_sql = _duckdb_mod.sql
+    _rc_pat = _re_mod.compile(r'read_csv\(([^)]+)\)')
+    def _fix_read_csv(m):
+        args = m.group(1)
+        if 'delimiter' in args or 'delim' in args or 'sep' in args:
+            return m.group(0)
+        return 'read_csv(' + args + ", delimiter=',')"
+    def _safe_duckdb_sql(query, *a, **kw):
+        if 'read_csv(' in query:
+            query = _rc_pat.sub(_fix_read_csv, query)
+        return _orig_duckdb_sql(query, *a, **kw)
+    _duckdb_mod.sql = _safe_duckdb_sql
+except ImportError:
+    pass
 `;
 
 type SandboxExecutor = (

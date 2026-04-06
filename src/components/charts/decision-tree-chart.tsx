@@ -160,7 +160,8 @@ export function DecisionTreeComponent({ props }: { props: DecisionTreeChartProps
           fontSize={11}
           fontWeight={600}
         >
-          {ln.node.label.length > 18 ? ln.node.label.slice(0, 16) + "..." : ln.node.label}
+          {ln.node.label.length > 18 ? ln.node.label.slice(0, 16) + "…" : ln.node.label}
+          {ln.node.label.length > 18 && <title>{ln.node.label}</title>}
         </text>
         {/* Condition or value */}
         {ln.node.condition && (
@@ -170,10 +171,13 @@ export function DecisionTreeComponent({ props }: { props: DecisionTreeChartProps
             textAnchor="middle"
             dominantBaseline="middle"
             fill={textFill}
-            fontSize={9}
+            fontSize={11}
             opacity={0.7}
           >
-            {ln.node.condition}
+            {ln.node.condition.length > 20
+              ? ln.node.condition.slice(0, 18) + "…"
+              : ln.node.condition}
+            {ln.node.condition.length > 20 && <title>{ln.node.condition}</title>}
           </text>
         )}
         {ln.node.value != null && !ln.node.condition && (
@@ -183,7 +187,7 @@ export function DecisionTreeComponent({ props }: { props: DecisionTreeChartProps
             textAnchor="middle"
             dominantBaseline="middle"
             fill={textFill}
-            fontSize={10}
+            fontSize={11}
             opacity={0.8}
           >
             {String(ln.node.value)}
