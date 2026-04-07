@@ -3,7 +3,7 @@
 import type { Data, Layout } from "plotly.js";
 import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
-import { resolveColor } from "@/lib/chart-theme";
+import { resolveColor, unwrapChartData } from "@/lib/chart-theme";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface WaterfallChartProps {
@@ -18,7 +18,7 @@ interface WaterfallChartProps {
 export function WaterfallChartComponent({ props }: { props: WaterfallChartProps }) {
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data);
 
   if (data.length === 0) return <div style={{ height: chart.height }} />;
 

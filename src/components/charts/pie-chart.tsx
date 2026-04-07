@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { ResponsivePie } from "@nivo/pie";
-import { resolveColors, useChartColors, useNivoTheme } from "@/lib/chart-theme";
+import { resolveColors, useChartColors, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -52,7 +52,7 @@ export function PieChartComponent({
     [baseTheme]
   );
 
-  const rawData = Array.isArray(props.data) ? props.data : [];
+  const rawData = unwrapChartData(props.data);
 
   // Normalize data: the LLM may use keys other than "label"/"value".
   // Try to infer the correct keys from the first row.

@@ -1,7 +1,7 @@
 "use client";
 
 import { ResponsiveRadar } from "@nivo/radar";
-import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
+import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -20,7 +20,7 @@ export function RadarChartComponent({ props }: { props: RadarChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data);
   const colors = useColorMap(props.keys, props.color_map);
 
   if (data.length === 0) {

@@ -125,6 +125,25 @@ const THEME_TREND_COLORS: Record<
 };
 
 /** Resolve a named color or pass hex through */
+/**
+ * Unwrap chart data that may be a full props object ({data: [...], x_key, ...})
+ * instead of a plain array. The LLM sometimes outputs chart_data as full prop
+ * objects, and when these get injected into state for $state references,
+ * charts receive a dict instead of an array.
+ */
+export function unwrapChartData(data: unknown): Record<string, unknown>[] {
+  if (Array.isArray(data)) return data;
+  if (
+    data &&
+    typeof data === "object" &&
+    "data" in data &&
+    Array.isArray((data as Record<string, unknown>).data)
+  ) {
+    return (data as Record<string, unknown>).data as Record<string, unknown>[];
+  }
+  return [];
+}
+
 export function resolveColor(nameOrHex: string): string {
   return CHART_COLORS[nameOrHex.toLowerCase()] ?? nameOrHex;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { ResponsiveMarimekko } from "@nivo/marimekko";
-import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
+import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -18,7 +18,7 @@ export function MarimekkoChartComponent({ props }: { props: MarimekkoChartProps 
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data);
   const dimIds = (props.dimensions ?? []).map((d) => d.id);
   const colors = useColorMap(dimIds, props.color_map);
 

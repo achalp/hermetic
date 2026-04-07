@@ -1,6 +1,6 @@
 "use client";
 
-import { useNivoTheme, useChartColors, resolveColor } from "@/lib/chart-theme";
+import { useNivoTheme, useChartColors, resolveColor, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -17,7 +17,7 @@ export function BulletChartComponent({ props }: { props: BulletChartProps }) {
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
   const themeColors = useChartColors();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data) as unknown as BulletChartProps["data"];
 
   if (data.length === 0) return <div style={{ height: chart.height }} />;
 

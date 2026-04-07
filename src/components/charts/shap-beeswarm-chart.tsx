@@ -2,6 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
+import { unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -15,7 +16,7 @@ interface ShapBeeswarmProps {
 export function ShapBeeswarmComponent({ props }: { props: ShapBeeswarmProps }) {
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data) as unknown as ShapBeeswarmProps["data"];
 
   if (data.length === 0) return <div style={{ height: chart.height }} />;
 

@@ -2,7 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
-import { useColorMap } from "@/lib/chart-theme";
+import { useColorMap, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -19,7 +19,7 @@ interface BoxPlotChartProps {
 export function BoxPlotChartComponent({ props }: { props: BoxPlotChartProps }) {
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const rows = Array.isArray(props.data) ? props.data : [];
+  const rows = unwrapChartData(props.data);
 
   const groups = new Map<string, number[]>();
   for (const row of rows) {

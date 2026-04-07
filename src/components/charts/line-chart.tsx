@@ -7,6 +7,7 @@ import {
   useNivoTheme,
   pickTickValues,
   formatAxisNumber,
+  unwrapChartData,
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
@@ -51,7 +52,7 @@ export function LineChartComponent({
   const { chart } = tc;
   const isExpanded = useChartExpanded();
 
-  const raw = Array.isArray(props.data) ? props.data : [];
+  const raw = unwrapChartData(props.data);
   const data = raw.filter((row) => row[props.x_key] != null);
   const colors = useColorMap(props.y_keys, props.color_map);
   const series = toNivoLineSeries(data, props.x_key, props.y_keys);

@@ -2,7 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
-import { useTrendColors } from "@/lib/chart-theme";
+import { useTrendColors, unwrapChartData } from "@/lib/chart-theme";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface CandlestickChartProps {
@@ -40,7 +40,7 @@ function parseDate(val: unknown): Date | null {
 export function CandlestickChartComponent({ props }: { props: CandlestickChartProps }) {
   const trend = useTrendColors();
   const isExpanded = useChartExpanded();
-  const rows = Array.isArray(props.data) ? props.data : [];
+  const rows = unwrapChartData(props.data);
   if (rows.length === 0) return <div style={{ height: 400 }} />;
 
   const ohlcData: OHLCDatum[] = [];

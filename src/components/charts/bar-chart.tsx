@@ -1,7 +1,13 @@
 "use client";
 
 import { ResponsiveBar } from "@nivo/bar";
-import { useColorMap, useNivoTheme, formatAxisNumber, pickTickValues } from "@/lib/chart-theme";
+import {
+  useColorMap,
+  useNivoTheme,
+  formatAxisNumber,
+  pickTickValues,
+  unwrapChartData,
+} from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -43,7 +49,7 @@ export function BarChartComponent({
   const { chart } = config;
   const isExpanded = useChartExpanded();
 
-  const raw = Array.isArray(props.data) ? props.data : [];
+  const raw = unwrapChartData(props.data);
   // Deduplicate rows by indexBy key — Nivo uses it as React key so duplicates
   // cause "two children with the same key" errors.  Sum numeric y values.
   const data = (() => {

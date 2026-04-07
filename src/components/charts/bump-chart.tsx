@@ -1,7 +1,7 @@
 "use client";
 
 import { ResponsiveBump } from "@nivo/bump";
-import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
+import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -17,7 +17,7 @@ export function BumpChartComponent({ props }: { props: BumpChartProps }) {
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data) as unknown as BumpChartProps["data"];
   const ids = data.map((d) => d.id);
   const colors = useColorMap(ids, props.color_map);
 

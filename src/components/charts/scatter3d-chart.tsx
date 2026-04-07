@@ -2,7 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { Plotly3DChart } from "./plotly-3d-wrapper";
-import { useColorMap, useChartColors } from "@/lib/chart-theme";
+import { useColorMap, useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface Scatter3DProps {
@@ -23,7 +23,7 @@ interface Scatter3DProps {
 export function Scatter3DChartComponent({ props }: { props: Scatter3DProps }) {
   const chartColors = useChartColors();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data);
 
   // Build groups unconditionally so useColorMap is always called
   const groups = new Map<string, Record<string, unknown>[]>();

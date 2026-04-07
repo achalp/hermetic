@@ -1,7 +1,13 @@
 "use client";
 
 import { ResponsiveScatterPlot, ScatterPlotCustomSvgLayer } from "@nivo/scatterplot";
-import { useChartColors, useTrendColors, useNivoTheme, formatAxisNumber } from "@/lib/chart-theme";
+import {
+  useChartColors,
+  useTrendColors,
+  useNivoTheme,
+  formatAxisNumber,
+  unwrapChartData,
+} from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -61,7 +67,7 @@ export function ScatterChartComponent({
   const trendColors = useTrendColors();
   const isExpanded = useChartExpanded();
 
-  const rawData = Array.isArray(props.data) ? props.data : [];
+  const rawData = unwrapChartData(props.data);
   if (rawData.length === 0) {
     return <div style={{ height: chart.height }} />;
   }

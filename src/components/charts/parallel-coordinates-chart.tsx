@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
+import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -18,7 +18,7 @@ export function ParallelCoordinatesComponent({ props }: { props: ParallelCoordin
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const rows = useMemo(() => (Array.isArray(props.data) ? props.data : []), [props.data]);
+  const rows = useMemo(() => unwrapChartData(props.data), [props.data]);
   const dims = useMemo(() => props.dimensions ?? [], [props.dimensions]);
 
   const groupNames = useMemo(() => {

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { ResponsiveCalendar } from "@nivo/calendar";
-import { useNivoTheme } from "@/lib/chart-theme";
+import { useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -20,7 +20,7 @@ export function CalendarChartComponent({ props }: { props: CalendarChartProps })
   const theme = useNivoTheme();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data) as unknown as CalendarChartProps["data"];
 
   // Derive from/to from data when not provided
   const { from, to } = useMemo(() => {

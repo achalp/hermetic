@@ -2,7 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
-import { useColorMap } from "@/lib/chart-theme";
+import { useColorMap, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -17,7 +17,7 @@ interface SlopeChartProps {
 export function SlopeChartComponent({ props }: { props: SlopeChartProps }) {
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  const data = Array.isArray(props.data) ? props.data : [];
+  const data = unwrapChartData(props.data) as unknown as SlopeChartProps["data"];
   const labels = data.map((d) => d.label);
   const colors = useColorMap(labels, props.color_map);
 
