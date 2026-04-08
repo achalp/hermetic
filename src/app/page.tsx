@@ -1070,6 +1070,16 @@ export default function Home() {
                 <AnalysisHistory
                   entries={analysisHistory.slice(0, -1)}
                   onReplay={handleGuardedQuery}
+                  onRestore={(entry) => {
+                    // Spread to create a new reference so the useEffect in
+                    // ResponsePanel fires even if restoring the same entry twice.
+                    dispatch({
+                      type: "LOAD_VIZ_SUCCESS",
+                      question: entry.question,
+                      spec: { ...entry.spec },
+                      artifacts: null,
+                    });
+                  }}
                   onRemove={(ts) =>
                     setAnalysisHistory((prev) => prev.filter((e) => e.timestamp !== ts))
                   }

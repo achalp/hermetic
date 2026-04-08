@@ -12,12 +12,13 @@ interface HistoryEntry {
 interface AnalysisHistoryProps {
   entries: HistoryEntry[];
   onReplay: (question: string) => void;
+  onRestore: (entry: HistoryEntry) => void;
   onRemove: (timestamp: number) => void;
 }
 
 export type { HistoryEntry };
 
-export function AnalysisHistory({ entries, onReplay, onRemove }: AnalysisHistoryProps) {
+export function AnalysisHistory({ entries, onReplay, onRestore, onRemove }: AnalysisHistoryProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
 
@@ -161,26 +162,48 @@ export function AnalysisHistory({ entries, onReplay, onRemove }: AnalysisHistory
                   <div style={{ fontSize: 12, color: "var(--color-t-secondary)", marginBottom: 6 }}>
                     {summarizeSpecContent(entry.spec)}
                   </div>
-                  <button
-                    onClick={() => onReplay(entry.question)}
-                    style={{
-                      fontSize: 12,
-                      color: "var(--color-accent)",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      padding: 0,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.textDecoration = "underline";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.textDecoration = "none";
-                    }}
-                  >
-                    Re-run →
-                  </button>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <button
+                      onClick={() => onRestore(entry)}
+                      style={{
+                        fontSize: 12,
+                        color: "var(--color-accent)",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        padding: 0,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.textDecoration = "underline";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.textDecoration = "none";
+                      }}
+                    >
+                      Restore
+                    </button>
+                    <button
+                      onClick={() => onReplay(entry.question)}
+                      style={{
+                        fontSize: 12,
+                        color: "var(--color-t-secondary)",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        padding: 0,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.textDecoration = "underline";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.textDecoration = "none";
+                      }}
+                    >
+                      Re-run →
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

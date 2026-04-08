@@ -167,10 +167,14 @@ export function filterGlobeData(
   const pointSet = new Set(
     filteredPoints.map((pt: Record<string, unknown>) => `${pt.lat},${pt.lng}`)
   );
-  const filteredArcs = arcs.filter(
-    (arc: Record<string, unknown>) =>
-      pointSet.has(`${arc.startLat},${arc.startLng}`) && pointSet.has(`${arc.endLat},${arc.endLng}`)
-  );
+  const filteredArcs = arcs.filter((arc: Record<string, unknown>) => {
+    // Support both snake_case (raw from LLM) and camelCase (post-transform)
+    const sLat = arc.start_lat ?? arc.startLat;
+    const sLng = arc.start_lng ?? arc.startLng;
+    const eLat = arc.end_lat ?? arc.endLat;
+    const eLng = arc.end_lng ?? arc.endLng;
+    return pointSet.has(`${sLat},${sLng}`) && pointSet.has(`${eLat},${eLng}`);
+  });
 
   return { ...data, points: filteredPoints, arcs: filteredArcs };
 }

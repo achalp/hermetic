@@ -267,7 +267,9 @@ export function ResponsePanel({
     }
   }, [isStreaming]);
 
-  const activeSpec = spec ?? restoredSpec;
+  // restoredSpec takes priority when set (user clicked Restore or loaded a viz).
+  // spec from useUIStream only takes over during/after a new stream.
+  const activeSpec = restoredSpec ?? spec;
 
   if (error) {
     return (
