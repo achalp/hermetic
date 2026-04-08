@@ -60,7 +60,7 @@ export async function executeSandbox(
     logger.debug("Docker: script written");
 
     // 4. Run script
-    const execTimeout = localMountPath ? SANDBOX_TIMEOUT_MS * 4 : SANDBOX_TIMEOUT_MS;
+    const execTimeout = localMountPath ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
     logger.info("Docker: executing script", { execTimeout, localMount: !!localMountPath });
     const execResult = await run(
       "docker",
