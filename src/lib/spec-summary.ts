@@ -80,6 +80,25 @@ function truncate(s: string, max: number): string {
 }
 
 /**
+ * Return an ordered list of component type names that appear in the spec
+ * (e.g. ["StatCard", "StatCard", "BarChart", "DataTable"]). Used by the
+ * follow-up suggestion endpoint to tell the LLM what the user just saw.
+ */
+export function extractSpecComponentTypes(spec: Spec): string[] {
+  const elements = spec.elements as Record<string, UIElementLike> | undefined;
+  if (!elements || !spec.root) return [];
+  const types: string[] = [];
+  const walk = (key: string) => {
+    const el = elements[key];
+    if (!el) return;
+    types.push(el.type);
+    if (el.children) for (const child of el.children) walk(child);
+  };
+  walk(spec.root);
+  return types;
+}
+
+/**
  * Extract the LLM-generated methodology text from the spec.
  * The methodology is the final TextBlock with variant "body" (the LLM is
  * instructed to end with a plain-English methodology paragraph).

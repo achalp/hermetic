@@ -5,6 +5,7 @@ const initial = {
   currentQuestion: null,
   questionSeq: 0,
   isAnalyzing: false,
+  currentMode: "ask" as const,
   loadedSpec: null,
   loadedArtifacts: null,
   showSaved: false,
@@ -12,6 +13,8 @@ const initial = {
   loadingViz: false,
   rerunningViz: false,
   pendingRerunVizId: null,
+  rerunCode: null,
+  rerunSql: null,
 };
 
 describe("pageReducer", () => {
@@ -28,6 +31,31 @@ describe("pageReducer", () => {
     const s2 = pageReducer(s1, { type: "QUERY", question: "Q2" });
     expect(s2.questionSeq).toBe(2);
     expect(s2.currentQuestion).toBe("Q2");
+  });
+
+  it("QUERY defaults currentMode to 'ask' when no mode is given", () => {
+    const state = pageReducer(initial, { type: "QUERY", question: "Q" });
+    expect(state.currentMode).toBe("ask");
+  });
+
+  it("QUERY with mode='investigate' sets currentMode", () => {
+    const state = pageReducer(initial, {
+      type: "QUERY",
+      question: "Why did revenue dip in Q3?",
+      mode: "investigate",
+    });
+    expect(state.currentMode).toBe("investigate");
+    expect(state.isAnalyzing).toBe(true);
+  });
+
+  it("RERUN_WITH_EDITS forces currentMode back to 'ask'", () => {
+    const investigating = { ...initial, currentMode: "investigate" as const };
+    const state = pageReducer(investigating, {
+      type: "RERUN_WITH_EDITS",
+      question: "Q",
+      code: "x = 1",
+    });
+    expect(state.currentMode).toBe("ask");
   });
 
   it("STREAM_END clears isAnalyzing", () => {
@@ -98,5 +126,69 @@ describe("pageReducer", () => {
     const state = pageReducer(withLoaded, { type: "QUERY", question: "New Q" });
     expect(state.loadedSpec).toBeNull();
     expect(state.isAnalyzing).toBe(true);
+  });
+
+  describe("RERUN_WITH_EDITS", () => {
+    it("sets rerunCode and bumps questionSeq when only code is provided", () => {
+      const state = pageReducer(initial, {
+        type: "RERUN_WITH_EDITS",
+        question: "What is the total?",
+        code: "import pandas as pd\n# edited code",
+      });
+      expect(state.questionSeq).toBe(1);
+      expect(state.rerunCode).toBe("import pandas as pd\n# edited code");
+      expect(state.rerunSql).toBeNull();
+      expect(state.isAnalyzing).toBe(true);
+      expect(state.currentQuestion).toBe("What is the total?");
+      expect(state.loadedSpec).toBeNull();
+    });
+
+    it("sets rerunSql when only sql is provided", () => {
+      const state = pageReducer(initial, {
+        type: "RERUN_WITH_EDITS",
+        question: "Top customers",
+        sql: "SELECT * FROM customers WHERE active = TRUE LIMIT 10",
+      });
+      expect(state.rerunSql).toContain("SELECT");
+      expect(state.rerunCode).toBeNull();
+      expect(state.questionSeq).toBe(1);
+      expect(state.isAnalyzing).toBe(true);
+    });
+
+    it("sets both rerunCode and rerunSql when both are provided", () => {
+      const state = pageReducer(initial, {
+        type: "RERUN_WITH_EDITS",
+        question: "Q",
+        code: "x = 1",
+        sql: "SELECT 1",
+      });
+      expect(state.rerunCode).toBe("x = 1");
+      expect(state.rerunSql).toBe("SELECT 1");
+    });
+
+    it("STREAM_END clears both rerunCode and rerunSql", () => {
+      const mid = pageReducer(initial, {
+        type: "RERUN_WITH_EDITS",
+        question: "Q",
+        code: "x = 1",
+        sql: "SELECT 1",
+      });
+      const after = pageReducer(mid, { type: "STREAM_END" });
+      expect(after.rerunCode).toBeNull();
+      expect(after.rerunSql).toBeNull();
+      expect(after.isAnalyzing).toBe(false);
+    });
+
+    it("plain QUERY clears both rerunCode and rerunSql", () => {
+      const mid = pageReducer(initial, {
+        type: "RERUN_WITH_EDITS",
+        question: "Q",
+        code: "x = 1",
+        sql: "SELECT 1",
+      });
+      const fresh = pageReducer(mid, { type: "QUERY", question: "fresh question" });
+      expect(fresh.rerunCode).toBeNull();
+      expect(fresh.rerunSql).toBeNull();
+    });
   });
 });

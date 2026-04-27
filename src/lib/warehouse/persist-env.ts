@@ -85,6 +85,10 @@ function buildLabel(config: WarehouseConnectionConfig): string {
       return `Trino: ${config.host}/${config.catalog}.${config.schema}`;
     case "hive":
       return `Hive: ${config.host}/${config.database}`;
+    case "snowflake":
+      return `Snowflake: ${config.account}/${config.database}`;
+    case "databricks":
+      return `Databricks: ${config.serverHostname}/${config.catalog}`;
   }
 }
 

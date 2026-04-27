@@ -14,6 +14,8 @@ const dbTypes = [
   { value: "clickhouse", label: "\u26A1 ClickHouse" },
   { value: "trino", label: "\u{1F537} Trino" },
   { value: "hive", label: "\u{1F41D} Hive" },
+  { value: "snowflake", label: "\u2744\uFE0F Snowflake" },
+  { value: "databricks", label: "\u{1F9F1} Databricks" },
 ] as const;
 
 type DbType = (typeof dbTypes)[number]["value"];
@@ -63,6 +65,14 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
   const [credentialsJson, setCredentialsJson] = useState("");
   const [catalog, setCatalog] = useState("");
   const [auth, setAuth] = useState("NONE");
+  // Snowflake-specific
+  const [account, setAccount] = useState("");
+  const [warehouse, setWarehouse] = useState("");
+  const [role, setRole] = useState("");
+  // Databricks-specific
+  const [serverHostname, setServerHostname] = useState("");
+  const [httpPath, setHttpPath] = useState("");
+  const [token, setToken] = useState("");
 
   if (!visible) return null;
 
@@ -79,6 +89,12 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
     setCredentialsJson("");
     setCatalog("");
     setAuth("NONE");
+    setAccount("");
+    setWarehouse("");
+    setRole("");
+    setServerHostname("");
+    setHttpPath("");
+    setToken("");
   };
 
   const selectType = (t: DbType) => {
@@ -135,6 +151,26 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
           password: orUndef(password),
           auth: auth as "NONE" | "NOSASL" | "LDAP" | "KERBEROS",
         });
+      case "snowflake":
+        return onConnect({
+          type: "snowflake",
+          account,
+          user,
+          password,
+          database,
+          schema: orUndef(schema),
+          warehouse: orUndef(warehouse),
+          role: orUndef(role),
+        });
+      case "databricks":
+        return onConnect({
+          type: "databricks",
+          serverHostname,
+          httpPath,
+          token,
+          catalog,
+          schema: orUndef(schema),
+        });
     }
   };
 
@@ -168,22 +204,27 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
       case "postgresql":
         return (
           <>
-            {inp("text", "localhost", host, setHost)}
-            {inp("number", "5432", port || "", setPort, false)}
-            {inp("text", "Database", database, setDatabase)}
-            {inp("text", "postgres", user, setUser)}
+            {inp("text", "Host (e.g. localhost)", host, setHost)}
+            {inp("number", "Port (default 5432)", port || "", setPort, false)}
+            {inp("text", "Database (e.g. mydb)", database, setDatabase)}
+            {inp("text", "User (e.g. postgres)", user, setUser)}
             {inp("password", "Password", password, setPassword)}
-            {check("SSL", ssl, setSsl)}
-            {inp("text", "public", schema, setSchema, false)}
+            {check("SSL (check for cloud databases)", ssl, setSsl)}
+            {inp("text", "Schema (optional, default 'public')", schema, setSchema, false)}
           </>
         );
       case "bigquery":
         return (
           <>
-            {inp("text", "my-project-123", projectId, setProjectId)}
-            {inp("text", "analytics", dataset, setDataset)}
+            {inp("text", "Project ID (e.g. my-gcp-project)", projectId, setProjectId)}
+            {inp(
+              "text",
+              "Dataset (e.g. analytics or bigquery-public-data.stackoverflow)",
+              dataset,
+              setDataset
+            )}
             <textarea
-              placeholder="Paste service account JSON..."
+              placeholder="Service Account JSON (paste full key file contents)"
               value={credentialsJson}
               onChange={(e) => setCredentialsJson(e.target.value)}
               required
@@ -195,22 +236,22 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
       case "clickhouse":
         return (
           <>
-            {inp("text", "localhost", host, setHost)}
-            {inp("number", "8123", port || "", setPort, false)}
-            {inp("text", "default", database, setDatabase)}
-            {inp("text", "default", user, setUser)}
-            {inp("password", "Password", password, setPassword)}
-            {check("SSL", ssl, setSsl)}
+            {inp("text", "Host (e.g. play.clickhouse.com)", host, setHost)}
+            {inp("number", "Port (8123 for HTTP, 443 for HTTPS)", port || "", setPort, false)}
+            {inp("text", "Database (e.g. default)", database, setDatabase)}
+            {inp("text", "User (e.g. default or play)", user, setUser)}
+            {inp("password", "Password (empty for playground)", password, setPassword, false)}
+            {check("SSL (required for port 443)", ssl, setSsl)}
           </>
         );
       case "trino":
         return (
           <>
-            {inp("text", "localhost", host, setHost)}
-            {inp("number", "8080", port || "", setPort, false)}
-            {inp("text", "trino", user, setUser)}
-            {inp("text", "hive", catalog, setCatalog)}
-            {inp("text", "default", schema, setSchema, false)}
+            {inp("text", "Host (e.g. localhost)", host, setHost)}
+            {inp("number", "Port (default 8080)", port || "", setPort, false)}
+            {inp("text", "User (e.g. trino)", user, setUser)}
+            {inp("text", "Catalog (e.g. hive)", catalog, setCatalog)}
+            {inp("text", "Schema (default 'default')", schema, setSchema, false)}
             {inp("password", "Password (optional)", password, setPassword, false)}
             {check("SSL", ssl, setSsl)}
           </>
@@ -218,22 +259,50 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
       case "hive":
         return (
           <>
-            {inp("text", "localhost", host, setHost)}
-            {inp("number", "10000", port || "", setPort, false)}
-            {inp("text", "default", database, setDatabase, false)}
-            {inp("text", "hive", user, setUser)}
+            {inp("text", "Host (e.g. hiveserver2.example.com)", host, setHost)}
+            {inp("number", "Port (default 10000)", port || "", setPort, false)}
+            {inp("text", "Database (default 'default')", database, setDatabase, false)}
+            {inp("text", "User (e.g. hive)", user, setUser)}
             {inp("password", "Password (optional)", password, setPassword, false)}
             <select
               value={auth}
               onChange={(e) => setAuth(e.target.value)}
               style={inputStyle}
               className="focus:border-[var(--color-accent)]"
+              aria-label="Auth method"
             >
-              <option value="NONE">NONE</option>
-              <option value="NOSASL">NOSASL</option>
-              <option value="LDAP">LDAP</option>
-              <option value="KERBEROS">KERBEROS</option>
+              <option value="NONE">Auth method: NONE (plain)</option>
+              <option value="NOSASL">Auth method: NOSASL</option>
+              <option value="LDAP">Auth method: LDAP</option>
+              <option value="KERBEROS">Auth method: KERBEROS</option>
             </select>
+          </>
+        );
+      case "snowflake":
+        return (
+          <>
+            {inp("text", "Account (e.g. abc12345.us-east-1)", account, setAccount)}
+            {inp("text", "User", user, setUser)}
+            {inp("password", "Password", password, setPassword)}
+            {inp("text", "Database (e.g. SNOWFLAKE_SAMPLE_DATA)", database, setDatabase)}
+            {inp("text", "Schema (optional, default 'PUBLIC')", schema, setSchema, false)}
+            {inp("text", "Warehouse (optional, e.g. COMPUTE_WH)", warehouse, setWarehouse, false)}
+            {inp("text", "Role (optional, e.g. ANALYST)", role, setRole, false)}
+          </>
+        );
+      case "databricks":
+        return (
+          <>
+            {inp(
+              "text",
+              "Server hostname (e.g. abc-123.cloud.databricks.com)",
+              serverHostname,
+              setServerHostname
+            )}
+            {inp("text", "HTTP path (e.g. /sql/1.0/warehouses/abc123)", httpPath, setHttpPath)}
+            {inp("password", "Personal Access Token (dapi...)", token, setToken)}
+            {inp("text", "Catalog (Unity Catalog, e.g. samples)", catalog, setCatalog)}
+            {inp("text", "Schema (optional, default 'default')", schema, setSchema, false)}
           </>
         );
       default:

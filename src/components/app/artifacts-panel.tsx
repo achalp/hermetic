@@ -9,6 +9,19 @@ interface ArtifactsPanelProps {
   onClose: () => void;
   onToggleFullscreen: () => void;
   artifacts: CachedArtifacts | null;
+  /** csv_id — required to enable Edit-and-Re-run on the Code tab. */
+  csvId?: string | null;
+  sandboxRuntime?: string;
+  /** Called after a successful artifacts-only re-run. */
+  onRerunSuccess?: (artifacts: CachedArtifacts) => void;
+  /**
+   * When provided, Re-run delegates to the parent (which kicks off the
+   * full dashboard rebuild via the streaming pipeline). The argument
+   * carries either edited Python (`{code}`), edited SQL (`{sql}`), or
+   * both. When omitted, Python Re-run falls back to artifacts-only
+   * refresh; SQL Re-run requires this callback to be set.
+   */
+  onRequestRerun?: (edits: { code?: string; sql?: string }) => void;
 }
 
 export function ArtifactsPanel({
@@ -17,6 +30,10 @@ export function ArtifactsPanel({
   onClose,
   onToggleFullscreen,
   artifacts,
+  csvId,
+  sandboxRuntime,
+  onRerunSuccess,
+  onRequestRerun,
 }: ArtifactsPanelProps) {
   return (
     <>
@@ -120,7 +137,13 @@ export function ArtifactsPanel({
         {/* Body — ArtifactsViewer with dark surface override */}
         <div className="dark-surface-override" style={{ flex: 1, overflow: "auto" }}>
           {artifacts ? (
-            <ArtifactsViewer artifacts={artifacts} />
+            <ArtifactsViewer
+              artifacts={artifacts}
+              csvId={csvId}
+              sandboxRuntime={sandboxRuntime}
+              onRerunSuccess={onRerunSuccess}
+              onRequestRerun={onRequestRerun}
+            />
           ) : (
             <div
               className="flex items-center justify-center h-full"

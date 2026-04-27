@@ -215,6 +215,47 @@ export async function getArtifacts(csvId: string): Promise<CachedArtifacts> {
   return json<CachedArtifacts>(res);
 }
 
+// ── Suggestions (schema + follow-up) ──────────────────────────
+
+export interface SuggestionRequest {
+  schema?: unknown;
+  warehouseSchema?: unknown;
+}
+
+export interface FollowUpSuggestionRequest extends SuggestionRequest {
+  question: string;
+  resultsSummary?: Record<string, unknown>;
+  specSummary?: string[];
+}
+
+export async function getSuggestions(
+  body: SuggestionRequest,
+  signal?: AbortSignal
+): Promise<string[]> {
+  const res = await fetch("/api/suggest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const data = await json<{ questions: string[] }>(res);
+  return data.questions ?? [];
+}
+
+export async function getFollowUpSuggestions(
+  body: FollowUpSuggestionRequest,
+  signal?: AbortSignal
+): Promise<string[]> {
+  const res = await fetch("/api/suggest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, mode: "follow-up" }),
+    signal,
+  });
+  const data = await json<{ questions: string[] }>(res);
+  return data.questions ?? [];
+}
+
 // ── Local Backend Config ──────────────────────────────────────
 
 export interface LocalBackendConfig {
@@ -463,6 +504,124 @@ export async function getWarehouseSample(
     `/api/warehouse/sample?warehouse_id=${encodeURIComponent(warehouseId)}&table=${encodeURIComponent(tableName)}`
   );
   return json<WarehouseSampleResult>(res);
+}
+
+// ── Scheduled re-runs ──────────────────────────────────────
+
+export type ScheduleCadence =
+  | "hourly"
+  | "daily-9am"
+  | "daily-eod"
+  | "weekly-monday"
+  | "on-file-change";
+
+export interface ScheduleEntry {
+  vizId: string;
+  cadence: ScheduleCadence;
+  autoExport: ("xlsx" | "csv")[];
+  createdAt: number;
+  lastRunAt: number | null;
+  lastStatus: "success" | "error" | null;
+  lastError: string | null;
+  nextRunAt: number | null;
+}
+
+export async function listSchedules(signal?: AbortSignal): Promise<ScheduleEntry[]> {
+  const res = await fetch("/api/vizs/schedule", { signal });
+  const data = await json<{ schedules: ScheduleEntry[] }>(res);
+  return data.schedules ?? [];
+}
+
+export async function setSchedule(
+  vizId: string,
+  cadence: ScheduleCadence,
+  autoExport: ("xlsx" | "csv")[]
+): Promise<ScheduleEntry> {
+  const res = await fetch("/api/vizs/schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vizId, cadence, autoExport }),
+  });
+  const data = await json<{ ok: true; schedule: ScheduleEntry }>(res);
+  return data.schedule;
+}
+
+export async function deleteSchedule(vizId: string): Promise<void> {
+  const res = await fetch("/api/vizs/schedule", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vizId }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Failed to delete schedule", res.status);
+  }
+}
+
+export async function runScheduleNow(vizId: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch("/api/vizs/schedule/run-now", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vizId }),
+  });
+  return json<{ ok: boolean; error?: string }>(res);
+}
+
+// ── Edit-and-rerun ─────────────────────────────────────────
+
+export interface RerunArtifactsResult {
+  ok: true;
+  artifacts: CachedArtifacts;
+}
+
+export async function rerunCode(
+  csvId: string,
+  code: string,
+  sandboxRuntime?: string
+): Promise<RerunArtifactsResult> {
+  const res = await fetch("/api/query/rerun", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      csv_id: csvId,
+      code,
+      sandbox_runtime: sandboxRuntime,
+    }),
+  });
+  return json<RerunArtifactsResult>(res);
+}
+
+// ── dbt metadata ────────────────────────────────────────────
+
+export interface DbtBindingResult {
+  ok: true;
+  manifestPath: string;
+  enrichedTableCount: number;
+  totalTableCount: number;
+}
+
+export async function bindDbtManifest(
+  warehouseId: string,
+  manifestPath: string
+): Promise<DbtBindingResult> {
+  const res = await fetch("/api/warehouse/dbt-metadata", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ warehouse_id: warehouseId, manifestPath }),
+  });
+  return json<DbtBindingResult>(res);
+}
+
+export async function unbindDbtManifest(warehouseId: string): Promise<void> {
+  const res = await fetch("/api/warehouse/dbt-metadata", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ warehouse_id: warehouseId }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Failed to clear dbt manifest", res.status);
+  }
 }
 
 export interface SavedConnectionInfo {

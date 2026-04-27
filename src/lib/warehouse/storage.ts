@@ -44,3 +44,40 @@ export function removeWarehouse(warehouseId: string): void {
   }
   store.delete(warehouseId);
 }
+
+/**
+ * Update dbt manifest path on a stored warehouse and re-apply enrichment to
+ * the in-memory schemas. Returns the updated stored entry, or undefined if
+ * the warehouse is not in the store.
+ */
+export async function setDbtManifestPath(
+  warehouseId: string,
+  manifestPath: string | null
+): Promise<{ stored: StoredWarehouse; enrichedTableCount: number } | undefined> {
+  const entry = store.get(warehouseId);
+  if (!entry) return undefined;
+
+  // Wipe any prior dbt enrichment by clearing description fields (defensive —
+  // re-introspecting would also work but is slower)
+  for (const t of entry.tableSchemas) {
+    delete t.description;
+    for (const c of t.columns) delete c.description;
+  }
+
+  if (!manifestPath) {
+    delete entry.dbtManifestPath;
+    return { stored: entry, enrichedTableCount: 0 };
+  }
+
+  const { loadDbtManifest, applyDbtMetadata } = await import("./dbt-metadata");
+  const index = await loadDbtManifest(manifestPath);
+
+  // Snowflake stores `database`, BigQuery `projectId`, Databricks `catalog`,
+  // Trino `catalog` — try each in turn for matching dbt manifest entries.
+  const config = entry.config as { database?: string; projectId?: string; catalog?: string };
+  const dbName = config.database ?? config.projectId ?? config.catalog;
+
+  const enriched = applyDbtMetadata(entry.tableSchemas, index, dbName);
+  entry.dbtManifestPath = manifestPath;
+  return { stored: entry, enrichedTableCount: enriched };
+}

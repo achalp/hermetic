@@ -17,12 +17,19 @@ import {
 } from "./registry-primitives";
 import { ChartExpandWrapper } from "./charts/chart-expand-wrapper";
 import { ChartSelectionBridge } from "./charts/chart-selection-bridge";
+import { PivotSelectionBridge } from "./charts/pivot-selection-bridge";
 import { ChartImageComponent } from "./charts/chart-image";
 import { DataControllerComponent } from "./controllers/data-controller";
 import { FormControllerComponent } from "./controllers/form-controller";
 import { TextInputComponent } from "./inputs/text-input";
 import { TextAreaComponent } from "./inputs/text-area";
+import { DatePickerComponent } from "./inputs/date-picker";
+import { SliderComponent } from "./inputs/slider";
+import { ColorPickerComponent } from "./inputs/color-picker";
+import { MultiSelectComponent } from "./inputs/multi-select";
+import { RangeSliderComponent } from "./inputs/range-slider";
 import { DataTableComponent } from "./data-table";
+import { PivotTableComponent } from "./pivot-table";
 
 // Lazy-load all chart components to avoid compiling heavy deps (nivo, plotly, deck.gl, three.js)
 // on initial page load. Each chart is only compiled when first rendered.
@@ -202,6 +209,24 @@ const { registry } = defineRegistry(catalog, {
     TextBlock: ({ props }) => <TextBlockComponent props={props} />,
     SectionBreak: ({ props }) => <SectionBreakComponent props={props} />,
     DataTable: ({ props }) => <DataTableComponent props={props} />,
+    PivotTable: ({ props, emit, on }) => (
+      <PivotSelectionBridge
+        selectsRow={props.selectsRow ?? null}
+        selectsCol={props.selectsCol ?? null}
+      >
+        {(ctx) => (
+          <PivotTableComponent
+            props={props}
+            emit={emit}
+            on={on}
+            selectedRow={ctx.selectedRow}
+            selectedCol={ctx.selectedCol}
+            onSelectRow={ctx.onSelectRow}
+            onSelectCol={ctx.onSelectCol}
+          />
+        )}
+      </PivotSelectionBridge>
+    ),
     BarChart: ({ props, emit, on }) => {
       const inner = (sel?: { selectedValue: string | null; onSelect: (v: string) => void }) => (
         <ChartExpandWrapper title={props.title}>
@@ -423,6 +448,17 @@ const { registry } = defineRegistry(catalog, {
     ),
     TextInput: ({ props, bindings }) => <TextInputComponent props={props} bindings={bindings} />,
     TextArea: ({ props, bindings }) => <TextAreaComponent props={props} bindings={bindings} />,
+    DatePicker: ({ props, bindings }) => <DatePickerComponent props={props} bindings={bindings} />,
+    Slider: ({ props, bindings }) => <SliderComponent props={props} bindings={bindings} />,
+    ColorPicker: ({ props, bindings }) => (
+      <ColorPickerComponent props={props} bindings={bindings} />
+    ),
+    MultiSelect: ({ props, bindings }) => (
+      <MultiSelectComponent props={props} bindings={bindings} />
+    ),
+    RangeSlider: ({ props, bindings }) => (
+      <RangeSliderComponent props={props} bindings={bindings} />
+    ),
   },
   actions: {
     drillDown: async (params) => {

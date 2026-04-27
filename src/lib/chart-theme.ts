@@ -181,6 +181,20 @@ export function toNivoLineSeries(
   xKey: string,
   yKeys: string[]
 ): { id: string; data: { x: string | number; y: number | null }[] }[] {
+  // Collapse duplicate x-values within a series. Last-occurrence wins —
+  // when an LLM emits the same x twice (e.g. two rows both at "2024-02")
+  // the rows are usually identical anyway. Without this dedup React fires
+  // "two children with the same key" warnings inside Nivo's line layer.
+  const dedupByX = (
+    points: { x: string | number; y: number | null }[]
+  ): { x: string | number; y: number | null }[] => {
+    const map = new Map<string, { x: string | number; y: number | null }>();
+    for (const p of points) {
+      map.set(String(p.x), p);
+    }
+    return [...map.values()];
+  };
+
   // Check if y_keys exist as actual columns in the data (wide format)
   const firstRow = data[0];
   const isWideFormat = firstRow && yKeys.some((k) => k in firstRow);
@@ -188,19 +202,20 @@ export function toNivoLineSeries(
   if (isWideFormat) {
     return yKeys.map((key) => ({
       id: key,
-      data: data
-        .filter((row) => row[xKey] != null)
-        .map((row, i) => ({
-          x: (row[xKey] as string | number) ?? i,
-          y: row[key] != null ? Number(row[key]) : null,
-        })),
+      data: dedupByX(
+        data
+          .filter((row) => row[xKey] != null)
+          .map((row, i) => ({
+            x: (row[xKey] as string | number) ?? i,
+            y: row[key] != null ? Number(row[key]) : null,
+          }))
+      ),
     }));
   }
 
   // Auto-pivot: detect long-format data where y_keys are values in a category column.
   // Find the category column (string column whose values match y_keys) and value column.
   const cols = Object.keys(firstRow ?? {}).filter((k) => k !== xKey);
-  const yKeySet = new Set(yKeys);
   let categoryCol: string | null = null;
   let valueCol: string | null = null;
 
@@ -229,10 +244,12 @@ export function toNivoLineSeries(
       const rows = data.filter((r) => String(r[categoryCol]) === key && r[xKey] != null);
       return {
         id: key,
-        data: rows.map((row, i) => ({
-          x: (row[xKey] as string | number) ?? i,
-          y: row[valueCol] != null ? Number(row[valueCol]) : null,
-        })),
+        data: dedupByX(
+          rows.map((row, i) => ({
+            x: (row[xKey] as string | number) ?? i,
+            y: row[valueCol] != null ? Number(row[valueCol]) : null,
+          }))
+        ),
       };
     });
   }
@@ -240,12 +257,14 @@ export function toNivoLineSeries(
   // Fallback: treat y_keys as columns (original behavior)
   return yKeys.map((key) => ({
     id: key,
-    data: data
-      .filter((row) => row[xKey] != null)
-      .map((row, i) => ({
-        x: (row[xKey] as string | number) ?? i,
-        y: row[key] != null ? Number(row[key]) : null,
-      })),
+    data: dedupByX(
+      data
+        .filter((row) => row[xKey] != null)
+        .map((row, i) => ({
+          x: (row[xKey] as string | number) ?? i,
+          y: row[key] != null ? Number(row[key]) : null,
+        }))
+    ),
   }));
 }
 

@@ -38,18 +38,33 @@ export function useSaveExport({
     };
   }, []);
 
-  const handleSave = useCallback(async () => {
-    if (!csvId || !currentSpecRef.current) return;
+  const [lastSavedVizId, setLastSavedVizId] = useState<string | null>(null);
+
+  /**
+   * Save the current viz. Returns the saved viz's id (or null if save failed
+   * or there's nothing to save). The caller can use the returned id directly
+   * — useful for "save then schedule" flows where the schedule needs the
+   * vizId immediately, before the parent's onSaved → state-roundtrip.
+   */
+  const handleSave = useCallback(async (): Promise<string | null> => {
+    if (!csvId || !currentSpecRef.current) return null;
     setSaving(true);
     setSaveMessage(null);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     try {
-      await saveViz(csvId, currentSpecRef.current, currentQuestionRef.current ?? "Analysis");
+      const result = await saveViz(
+        csvId,
+        currentSpecRef.current,
+        currentQuestionRef.current ?? "Analysis"
+      );
       setSaveMessage("Saved!");
+      setLastSavedVizId(result.meta.vizId);
       onSaved?.();
       saveTimerRef.current = setTimeout(() => setSaveMessage(null), 2000);
+      return result.meta.vizId;
     } catch (err) {
       setSaveMessage(err instanceof ApiError ? err.message : "Save failed");
+      return null;
     } finally {
       setSaving(false);
     }
@@ -91,5 +106,6 @@ export function useSaveExport({
     handleExportPdf,
     handleExportDocx,
     handleExportPptx,
+    lastSavedVizId,
   };
 }

@@ -25,7 +25,7 @@ interface WarehouseConnectPanelProps {
   onDeleteSaved: (id: string) => void;
 }
 
-type Tab = "postgresql" | "bigquery" | "clickhouse" | "trino" | "hive";
+type Tab = "postgresql" | "bigquery" | "clickhouse" | "trino" | "hive" | "snowflake" | "databricks";
 
 const TAB_LABELS: Record<Tab, string> = {
   postgresql: "PostgreSQL",
@@ -33,6 +33,8 @@ const TAB_LABELS: Record<Tab, string> = {
   clickhouse: "ClickHouse",
   trino: "Trino",
   hive: "Hive",
+  snowflake: "Snowflake",
+  databricks: "Databricks",
 };
 
 export function WarehouseConnectPanel({
@@ -156,6 +158,22 @@ export function WarehouseConnectPanel({
                         defaults={saved.config}
                       />
                     )}
+                    {saved.config.type === "snowflake" && (
+                      <SnowflakeForm
+                        isConnecting={isConnecting}
+                        error={error}
+                        onConnect={onConnect}
+                        defaults={saved.config}
+                      />
+                    )}
+                    {saved.config.type === "databricks" && (
+                      <DatabricksForm
+                        isConnecting={isConnecting}
+                        error={error}
+                        onConnect={onConnect}
+                        defaults={saved.config}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -197,6 +215,12 @@ export function WarehouseConnectPanel({
       )}
       {tab === "hive" && (
         <HiveForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
+      )}
+      {tab === "snowflake" && (
+        <SnowflakeForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
+      )}
+      {tab === "databricks" && (
+        <DatabricksForm isConnecting={isConnecting} error={error} onConnect={onConnect} />
       )}
     </div>
   );
@@ -269,7 +293,17 @@ function DataDictionary({
               ? "PostgreSQL"
               : warehouseType === "bigquery"
                 ? "BigQuery"
-                : "ClickHouse"}
+                : warehouseType === "clickhouse"
+                  ? "ClickHouse"
+                  : warehouseType === "trino"
+                    ? "Trino"
+                    : warehouseType === "hive"
+                      ? "Hive"
+                      : warehouseType === "snowflake"
+                        ? "Snowflake"
+                        : warehouseType === "databricks"
+                          ? "Databricks"
+                          : "Warehouse"}
           </span>
           <span className="text-xs text-t-tertiary">
             {tableCount} tables / {totalColumns} columns
@@ -932,6 +966,180 @@ function HiveForm({ isConnecting, error, onConnect, defaults }: FormProps) {
             name="password"
             type="password"
             defaultValue={hv?.password}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <FormError error={error} />
+      <ConnectButton isConnecting={isConnecting} />
+    </form>
+  );
+}
+
+function SnowflakeForm({ isConnecting, error, onConnect, defaults }: FormProps) {
+  const sf = defaults?.type === "snowflake" ? defaults : undefined;
+  const handleSubmit = useCallback(
+    (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const fd = new FormData(e.currentTarget);
+      onConnect({
+        type: "snowflake",
+        account: fd.get("account") as string,
+        user: fd.get("user") as string,
+        password: fd.get("password") as string,
+        database: fd.get("database") as string,
+        schema: (fd.get("schema") as string) || undefined,
+        warehouse: (fd.get("warehouse") as string) || undefined,
+        role: (fd.get("role") as string) || undefined,
+      });
+    },
+    [onConnect]
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div>
+        <label className={labelClass}>Account</label>
+        <input
+          name="account"
+          required
+          placeholder="abc12345.us-east-1"
+          defaultValue={sf?.account}
+          className={inputClass}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>User</label>
+          <input
+            name="user"
+            required
+            placeholder="username"
+            defaultValue={sf?.user}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Password</label>
+          <input
+            name="password"
+            type="password"
+            required
+            defaultValue={sf?.password}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Database</label>
+          <input
+            name="database"
+            required
+            placeholder="MY_DB"
+            defaultValue={sf?.database}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Schema (optional)</label>
+          <input
+            name="schema"
+            placeholder="PUBLIC"
+            defaultValue={sf?.schema}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Warehouse (optional)</label>
+          <input
+            name="warehouse"
+            placeholder="COMPUTE_WH"
+            defaultValue={sf?.warehouse}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Role (optional)</label>
+          <input name="role" placeholder="ANALYST" defaultValue={sf?.role} className={inputClass} />
+        </div>
+      </div>
+      <FormError error={error} />
+      <ConnectButton isConnecting={isConnecting} />
+    </form>
+  );
+}
+
+function DatabricksForm({ isConnecting, error, onConnect, defaults }: FormProps) {
+  const db = defaults?.type === "databricks" ? defaults : undefined;
+  const handleSubmit = useCallback(
+    (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const fd = new FormData(e.currentTarget);
+      onConnect({
+        type: "databricks",
+        serverHostname: fd.get("serverHostname") as string,
+        httpPath: fd.get("httpPath") as string,
+        token: fd.get("token") as string,
+        catalog: fd.get("catalog") as string,
+        schema: (fd.get("schema") as string) || undefined,
+      });
+    },
+    [onConnect]
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div>
+        <label className={labelClass}>Server Hostname</label>
+        <input
+          name="serverHostname"
+          required
+          placeholder="abc-123.cloud.databricks.com"
+          defaultValue={db?.serverHostname}
+          className={inputClass}
+        />
+      </div>
+      <div>
+        <label className={labelClass}>HTTP Path</label>
+        <input
+          name="httpPath"
+          required
+          placeholder="/sql/1.0/warehouses/abc123"
+          defaultValue={db?.httpPath}
+          className={inputClass}
+        />
+      </div>
+      <div>
+        <label className={labelClass}>Personal Access Token</label>
+        <input
+          name="token"
+          type="password"
+          required
+          placeholder="dapi..."
+          defaultValue={db?.token}
+          className={inputClass}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Catalog (Unity Catalog)</label>
+          <input
+            name="catalog"
+            required
+            placeholder="samples"
+            defaultValue={db?.catalog}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Schema (optional)</label>
+          <input
+            name="schema"
+            placeholder="default"
+            defaultValue={db?.schema}
             className={inputClass}
           />
         </div>

@@ -107,6 +107,49 @@ function aggregate(values: unknown[], fn: AggFn): number {
 
 // ── Pipeline Operations ────────────────────────────────────────────
 
+/**
+ * Detect whether a filter value is a [low, high] numeric range tuple from
+ * a RangeSlider. Distinct from generic string[] (which is multi-select).
+ */
+function isNumericRangeTuple(val: unknown): val is [number, number] {
+  return (
+    Array.isArray(val) &&
+    val.length === 2 &&
+    typeof val[0] === "number" &&
+    typeof val[1] === "number"
+  );
+}
+
+/**
+ * Apply a filter value to a single row's column. Supports:
+ *  - `null`/`undefined`/`""`/`"All"` → no-op (filter is "all")
+ *  - `[number, number]` tuple → numeric range (RangeSlider)
+ *  - non-empty `unknown[]` array of strings/numbers → membership test (MultiSelect)
+ *  - scalar → exact-match equality (SelectControl, NumberInput)
+ *
+ * Empty arrays are treated as "all" (matches the SelectControl behavior of
+ * clearing the filter). This keeps the LLM prompt simple — the same /filters/x
+ * binding works for any control type.
+ */
+function rowMatchesFilterValue(row: Row, column: string, val: unknown): boolean {
+  if (val === undefined || val === null || val === "" || val === "All") return true;
+
+  if (Array.isArray(val)) {
+    if (val.length === 0) return true; // empty multi-select = "all"
+    if (isNumericRangeTuple(val)) {
+      const [low, high] = val;
+      const cellNum = Number(row[column]);
+      if (Number.isNaN(cellNum)) return false;
+      return cellNum >= low && cellNum <= high;
+    }
+    // Membership test (multi-select)
+    const cellStr = String(row[column]);
+    return val.some((v) => String(v) === cellStr);
+  }
+
+  return String(row[column]) === String(val);
+}
+
 export function applyFilter(
   data: Row[],
   filterValues: Record<string, unknown>,
@@ -116,7 +159,8 @@ export function applyFilter(
   for (const def of filterDefs) {
     const val = filterValues[def.key];
     if (val === undefined || val === null || val === "" || val === "All") continue;
-    result = result.filter((row) => String(row[def.column]) === String(val));
+    if (Array.isArray(val) && val.length === 0) continue;
+    result = result.filter((row) => rowMatchesFilterValue(row, def.column, val));
   }
   return result;
 }
@@ -137,7 +181,8 @@ export function filterGeoJSON(
     for (const def of filterDefs) {
       const val = filterValues[def.key];
       if (val === undefined || val === null || val === "" || val === "All") continue;
-      if (String(props[def.column] ?? "") !== String(val)) return false;
+      if (Array.isArray(val) && val.length === 0) continue;
+      if (!rowMatchesFilterValue(props as Row, def.column, val)) return false;
     }
     return true;
   });
@@ -158,7 +203,8 @@ export function filterGlobeData(
     for (const def of filterDefs) {
       const val = filterValues[def.key];
       if (val === undefined || val === null || val === "" || val === "All") continue;
-      if (String(pt[def.column] ?? "") !== String(val)) return false;
+      if (Array.isArray(val) && val.length === 0) continue;
+      if (!rowMatchesFilterValue(pt, def.column, val)) return false;
     }
     return true;
   });
@@ -192,7 +238,8 @@ export function filterSankeyData(
     for (const def of filterDefs) {
       const val = filterValues[def.key];
       if (val === undefined || val === null || val === "" || val === "All") continue;
-      if (String(node[def.column] ?? "") !== String(val)) return false;
+      if (Array.isArray(val) && val.length === 0) continue;
+      if (!rowMatchesFilterValue(node, def.column, val)) return false;
     }
     return true;
   });

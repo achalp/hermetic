@@ -66,6 +66,61 @@ export const catalog = defineCatalog(schema, {
       }),
       description: "Tabular data view with optional highlighting of extremes.",
     },
+    PivotTable: {
+      props: z.object({
+        rows: z.array(z.record(z.string(), z.unknown())),
+        rowDim: z.string(),
+        colDim: z.string(),
+        // Single-measure API (back-compat) — provide value + aggregator
+        value: z.string().nullable(),
+        aggregator: z.enum(["sum", "count", "mean", "min", "max"]).nullable(),
+        // Multi-measure API — provide measures[]; overrides value/aggregator
+        measures: z
+          .array(
+            z.object({
+              value: z.string(),
+              aggregator: z.enum(["sum", "count", "mean", "min", "max"]).nullable(),
+              label: z.string().nullable(),
+              format: z.enum(["currency", "percent", "number"]).nullable(),
+              precision: z.number().nullable(),
+            })
+          )
+          .nullable(),
+        showRowTotals: z.boolean().nullable(),
+        showColTotals: z.boolean().nullable(),
+        caption: z.string().nullable(),
+        valueFormat: z.enum(["currency", "percent", "number"]).nullable(),
+        precision: z.number().nullable(),
+        /**
+         * Cross-filter bindings. When `selectsRow.bindTo` is set, clicking a
+         * row header writes the row value to that state path; when
+         * `selectsCol.bindTo` is set, clicking a column header writes the
+         * column value to that path. Pair with a DataController upstream so
+         * the rest of the dashboard refilters when a header is clicked.
+         */
+        selectsRow: z
+          .object({
+            column: z.string(),
+            bindTo: z.string(),
+          })
+          .nullable(),
+        selectsCol: z
+          .object({
+            column: z.string(),
+            bindTo: z.string(),
+          })
+          .nullable(),
+        /** Color-grade cells low → high based on cell value (per measure). */
+        heatmap: z.boolean().nullable(),
+        /**
+         * When true, each measure column header gets a small dropdown to
+         * switch the aggregator (sum/count/mean/min/max) inline.
+         */
+        editableAggregator: z.boolean().nullable(),
+      }),
+      description:
+        'Two-dimensional crosstab. Provide LONG-FORMAT rows (one row per (rowDim, colDim) combination); the component pivots client-side. Use when the question is "X by Y" with both dimensions categorical/discrete (e.g. revenue by region by quarter, count of orders by category by status). For a single measure, set value + aggregator (sum/count/mean/min/max). For MULTIPLE measures (e.g. "show me revenue, units, and avg discount by region by quarter"), set measures: [{value, aggregator, label?, format?, precision?}, ...] — each measure becomes a sub-column under each colDim header. Optional total row + column.\n\nINTERACTIVITY: PivotTable supports four interactive features. (1) Sort: column-header clicks sort rows; the row-dim header sorts alphabetically; the Total column sorts by row total. No prop required. (2) Drill-through: hovering a cell reveals a small "↗" button that opens a modal listing the source rows aggregated into that cell. No prop required. (3) Drill-down (re-analysis): bind on.click with the drillDown action; clicking a cell will re-analyze the segment with BOTH rowDim and colDim filters applied (uses additional_filters). (4) Cross-filter via selectsRow/selectsCol: clicking a row or column header writes the dimension value to a state path so a DataController upstream can refilter the rest of the dashboard. (5) heatmap: true shades cells low→high. (6) editableAggregator: true adds an inline aggregator dropdown to each measure header.\n\nWhen the source dataset is on /datasets/main (DataController is in the dashboard), prefer reading rows from a /computed/* path so dashboard-level filters cascade into the pivot.',
+    },
     BarChart: {
       props: z.object({
         title: z.string().nullable(),
@@ -737,6 +792,60 @@ export const catalog = defineCatalog(schema, {
       }),
       description:
         "Multi-line text area for forms. Bind value with $bindState. Use inside FormController.",
+    },
+    DatePicker: {
+      props: z.object({
+        label: z.string(),
+        value: z.string(),
+        type: z.enum(["date", "datetime-local"]).nullable(),
+        min: z.string().nullable(),
+        max: z.string().nullable(),
+      }),
+      description:
+        'Date picker. Bind value with $bindState to a /filters/<column_name> path; the value is an ISO date string ("YYYY-MM-DD" for type "date", "YYYY-MM-DDTHH:MM" for "datetime-local"). Use inside DataController for date-column filters.',
+    },
+    Slider: {
+      props: z.object({
+        label: z.string(),
+        value: z.number(),
+        min: z.number(),
+        max: z.number(),
+        step: z.number().nullable(),
+        format: z.enum(["currency", "percent", "number"]).nullable(),
+      }),
+      description:
+        'Single-value numeric slider with thumb. Bind value with $bindState to a /filters/<param> path. Format hint controls the displayed value: "currency" prefixes $, "percent" suffixes %, "number" uses locale formatting.',
+    },
+    RangeSlider: {
+      props: z.object({
+        label: z.string(),
+        value: z.tuple([z.number(), z.number()]),
+        min: z.number(),
+        max: z.number(),
+        step: z.number().nullable(),
+        format: z.enum(["currency", "percent", "number"]).nullable(),
+      }),
+      description:
+        "Two-thumb numeric range slider. Bind value with $bindState to a /filters/<column> path; the value is a [low, high] tuple. Use with DataController filterRange op to filter a column to a numeric range.",
+    },
+    ColorPicker: {
+      props: z.object({
+        label: z.string(),
+        value: z.string(),
+      }),
+      description:
+        "Color input. Bind value with $bindState to a state path; value is a hex string like #3b82f6. Use for theming or visual customization controls.",
+    },
+    MultiSelect: {
+      props: z.object({
+        label: z.string(),
+        value: z.array(z.string()),
+        options: z.array(z.object({ label: z.string(), value: z.string() })),
+        placeholder: z.string().nullable(),
+        maxVisibleOptions: z.number().nullable(),
+      }),
+      description:
+        "Chip-style multi-select with type-ahead search. Bind value with $bindState to a /filters/<column> path; the value is a string[] array. Use with DataController filterIn op to keep rows where the column matches any of the selected values. Prefer over multiple SelectControls when the user is filtering on a single column with many options.",
     },
   },
   actions: {

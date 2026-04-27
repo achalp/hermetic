@@ -614,26 +614,63 @@ export function buildWorkbookContext(
 // ── Retry prompt ──────────────────────────────────────────────────
 
 export function buildRetryPrompt(originalCode: string, error: string, schema?: CSVSchema): string {
+  return buildRetryPromptMulti([{ code: originalCode, error }], schema);
+}
+
+/**
+ * Build a retry prompt that includes ALL prior failed attempts, not just the
+ * most recent one. Helps the LLM avoid going in circles — each attempt adds
+ * a constraint of "this thing didn't work either."
+ *
+ * The list is in attempt order: priorAttempts[0] is the original failed
+ * code, priorAttempts[N-1] is the most-recent failed retry.
+ */
+export function buildRetryPromptMulti(
+  priorAttempts: { code: string; error: string }[],
+  schema?: CSVSchema
+): string {
+  if (priorAttempts.length === 0) {
+    throw new Error("buildRetryPromptMulti requires at least one prior attempt");
+  }
+
   const schemaContext = schema
     ? `\n## Available Columns\nFilename: ${schema.filename} (${schema.row_count} rows)\n${schema.columns.map((c) => `- ${c.name} (${c.dtype})`).join("\n")}\n\nUse EXACTLY these column names — they are case-sensitive.\n`
     : "";
 
-  return `Your previous code failed with this error:
+  const attemptHistory = priorAttempts
+    .map((a, i) => {
+      const label =
+        priorAttempts.length === 1
+          ? "Your previous code"
+          : i === priorAttempts.length - 1
+            ? `Attempt ${i + 1} (most recent)`
+            : `Attempt ${i + 1}`;
+      // Truncate each prior code/error to keep total prompt size sane
+      const codeBlock =
+        a.code.length > 4000 ? a.code.slice(0, 4000) + "\n# ...[truncated]" : a.code;
+      const errBlock =
+        a.error.length > 1500 ? a.error.slice(0, 1500) + "\n[...truncated]" : a.error;
+      return `### ${label}\n\nCode:\n\`\`\`python\n${codeBlock}\n\`\`\`\n\nError:\n\`\`\`\n${errBlock}\n\`\`\``;
+    })
+    .join("\n\n");
 
-\`\`\`
-${error}
-\`\`\`
-${schemaContext}
-Here was your code:
-\`\`\`python
-${originalCode}
-\`\`\`
+  const reflectionPrompt =
+    priorAttempts.length > 1
+      ? `\n\n## Reflection\nYou have already tried ${priorAttempts.length} times. Each prior attempt failed for the reason shown. Do NOT repeat the same fix that already failed — review the errors and make a substantively different change.\n`
+      : "";
 
-Common fixes:
-- KeyError / column not found: check the Available Columns list above for the exact column name (case-sensitive). Use case-insensitive lookup if needed.
-- TypeError on aggregation: the column may be stored as strings — use pd.to_numeric(df[col], errors="coerce") first.
-- NaN in JSON output: use df.fillna("") or df.fillna(0) before serialization.
-- FileNotFoundError for sheets: use the exact paths from the workbook context.
+  return `Your previous code failed. Fix it.
+
+${attemptHistory}${schemaContext}${reflectionPrompt}
+## Common fixes
+- **KeyError / column not found**: use the EXACT column name from "Available Columns" above (case-sensitive). For case-insensitive matching: \`col = next((c for c in df.columns if c.lower() == "target".lower()), None)\`.
+- **TypeError on aggregation**: column is stored as strings — coerce with \`pd.to_numeric(df[col], errors="coerce")\` first.
+- **ValueError: could not convert string to float**: clean before parsing — strip currency symbols, commas: \`df[col].str.replace(r'[$,]', '', regex=True).astype(float)\`.
+- **NaN in JSON output**: use \`df.fillna("")\` or \`df.fillna(0)\` before serialization, or \`obj.where(pd.notna(obj), None)\`.
+- **AttributeError 'Series' object has no attribute X**: you're calling a DataFrame method on a Series — use \`df[[col1, col2]]\` (note double brackets) to get a DataFrame.
+- **FileNotFoundError for sheets**: use the exact paths from the workbook context.
+- **Empty result / 0 rows after filter**: your filter may be too strict; check the actual values in the column with \`df[col].unique()\` first.
+- **Code timed out**: the dataset may be large — sample first with \`df.head(10_000)\` or aggregate before plotting.
 
 Fix the code and return only the corrected Python script. No markdown fencing, no explanation.`;
 }

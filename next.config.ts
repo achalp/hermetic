@@ -6,7 +6,7 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@e2b/code-interpreter"],
+  serverExternalPackages: ["@e2b/code-interpreter", "snowflake-sdk", "@databricks/sql"],
   transpilePackages: [
     "@deck.gl/core",
     "@deck.gl/react",

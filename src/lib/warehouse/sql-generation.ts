@@ -10,7 +10,15 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
   return tables
     .map((t) => {
       const cols = t.columns
-        .map((c) => `  ${c.name} ${c.type}${c.nullable ? " NULL" : " NOT NULL"}`)
+        .map((c) => {
+          const baseLine = `  ${c.name} ${c.type}${c.nullable ? " NULL" : " NOT NULL"}`;
+          // Append column description as inline SQL comment when dbt-enriched
+          if (c.description) {
+            const oneLineDesc = c.description.replace(/\s+/g, " ").trim().slice(0, 200);
+            return `${baseLine}  -- ${oneLineDesc}`;
+          }
+          return baseLine;
+        })
         .join("\n");
 
       const pk = t.primary_key?.length ? `  PRIMARY KEY (${t.primary_key.join(", ")})` : "";
@@ -39,13 +47,23 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
       } else if (warehouseType === "trino") {
         // Trino uses "catalog"."schema"."table" — schema field contains "catalog.schema"
         tableName = `"${t.schema}"."${t.name}"`;
-      } else if (warehouseType === "hive") {
+      } else if (warehouseType === "hive" || warehouseType === "databricks") {
+        // Databricks uses three-part names; schema field is "catalog.schema"
         tableName = `\`${t.schema}\`.\`${t.name}\``;
+      } else if (warehouseType === "snowflake") {
+        // Snowflake identifiers are case-sensitive when quoted; we render unquoted
+        // (uppercase) so the LLM produces SQL that matches whatever the model server returns.
+        tableName = `${t.schema}.${t.name}`;
       } else {
         tableName = `${t.schema}.${t.name}`;
       }
 
-      return `${tableName}${rowNote}\n(\n${cols}${constraints ? "\n" + constraints : ""}\n)`;
+      // Render table-level dbt description as a SQL comment block above the CREATE
+      const tableComment = t.description
+        ? `-- ${t.description.replace(/\s+/g, " ").trim().slice(0, 400)}\n`
+        : "";
+
+      return `${tableComment}${tableName}${rowNote}\n(\n${cols}${constraints ? "\n" + constraints : ""}\n)`;
     })
     .join("\n\n");
 }
@@ -56,6 +74,8 @@ const DIALECT_NOTES: Record<WarehouseType, string> = {
   clickhouse: `Use ClickHouse SQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. Aggregation functions: countDistinct(), avg(), quantile(). Date functions: toDate(), toDateTime(), toYear(). IMPORTANT: When doing arithmetic (division, multiplication, percentage) on Decimal columns, ALWAYS cast operands to Float64 first using toFloat64() to avoid Decimal overflow errors. Example: toFloat64(price - open) / toFloat64(open) instead of (price - open) / open.`,
   trino: `Use Trino (Presto) SQL syntax. Use double quotes for identifiers. Use catalog.schema.table fully qualified names. Use LIMIT for row limits. Use APPROX_DISTINCT for approximate counts. Cast with CAST(x AS type). Date functions: date(), current_date, date_trunc(). String: concat(), substr(). Arrays: ARRAY[], UNNEST().`,
   hive: `Use HiveQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. String concat: concat(). Date functions: to_date(), date_format(), datediff(). No INTERSECT or EXCEPT. For exploding arrays use LATERAL VIEW EXPLODE. Use CAST to avoid integer division. Subqueries in WHERE are supported but correlated subqueries are limited.`,
+  snowflake: `Use Snowflake SQL. Identifiers default to UPPERCASE unless double-quoted. Use LIMIT for row limits. Use QUALIFY for window-function filtering. Use IFF(a, b, c) instead of IF. Date functions: TO_DATE(), DATEADD(unit, n, date), DATE_TRUNC(part, expr). String: ||, CONCAT(), SUBSTR(). Use APPROX_COUNT_DISTINCT for approximate counts. Variant/object functions: GET_PATH(), FLATTEN(). For percentile: PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col).`,
+  databricks: `Use Databricks SQL (Spark SQL flavor with Unity Catalog). Use three-part names \`catalog\`.\`schema\`.\`table\` for cross-schema queries. Identifiers in backticks. Use LIMIT for row limits. Date functions: date_trunc('unit', col), date_format(col, 'pattern'), date_add(col, n). Array functions: explode(), array_contains(). Use APPROX_COUNT_DISTINCT for approximate counts. PERCENTILE/PERCENTILE_APPROX for percentiles. No QUALIFY — use a subquery with ROW_NUMBER instead. String concat: concat() or ||.`,
 };
 
 function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {

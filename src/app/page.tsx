@@ -26,6 +26,7 @@ import { useArtifacts } from "@/hooks/use-artifacts";
 import { generateSuggestions, generateWarehouseSuggestions } from "@/lib/suggest-questions";
 import { AnalysisHistory, type HistoryEntry } from "@/components/app/analysis-history";
 import { SuggestionPills } from "@/components/app/suggestion-pills";
+import { SchedulePopover } from "@/components/app/schedule-popover";
 
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
@@ -39,6 +40,8 @@ import type { SchemaMode } from "@/lib/types";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
 import {
   checkLlmReady,
+  getArtifacts,
+  getFollowUpSuggestions,
   getLocalBackendConfig,
   loadViz,
   refreshViz,
@@ -50,6 +53,8 @@ import {
   loadHistoryEntry,
   refreshHistoryEntry,
 } from "@/lib/api";
+import { extractSpecComponentTypes } from "@/lib/spec-summary";
+import { summarizeAnalysisResults } from "@/lib/suggest-questions";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -88,6 +93,7 @@ export default function Home() {
     currentQuestion,
     questionSeq,
     isAnalyzing,
+    currentMode,
     loadedSpec,
     loadedArtifacts,
     showSaved,
@@ -95,6 +101,8 @@ export default function Home() {
     loadingViz,
     rerunningViz,
     pendingRerunVizId,
+    rerunCode,
+    rerunSql,
   } = pageState;
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
   const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
@@ -131,8 +139,25 @@ export default function Home() {
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
   const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
+  // Schedule popover anchored to the toolbar Schedule button. Holds the
+  // anchorRect (for positioning) and the vizId being scheduled.
+  const [scheduleState, setScheduleState] = useState<
+    | { kind: "closed" }
+    | { kind: "auto-saving" }
+    | { kind: "open"; vizId: string; anchorRect: DOMRect }
+  >({ kind: "closed" });
   const [effectiveCsvId, setEffectiveCsvId] = useState<string | null>(null);
   const [analysisHistory, setAnalysisHistory] = useState<HistoryEntry[]>([]);
+  const [followUpSuggestions, setFollowUpSuggestions] = useState<string[]>([]);
+  const [followUpKey, setFollowUpKey] = useState<string | null>(null);
+  /**
+   * The spec from the most recently completed analysis. Captured via
+   * ResponsePanel's `onAnalysisComplete` callback because the streamed
+   * spec lives inside ResponsePanel's `useUIStream` hook — it's not in
+   * page-level state. Cleared when a new analysis starts or the data
+   * source changes.
+   */
+  const [lastCompleteSpec, setLastCompleteSpec] = useState<Spec | null>(null);
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -162,6 +187,7 @@ export default function Home() {
     handleExportPdf,
     handleExportDocx,
     handleExportPptx,
+    lastSavedVizId,
   } = useSaveExport({
     csvId,
     currentSpecRef,
@@ -172,6 +198,33 @@ export default function Home() {
 
   // Page-level artifacts — uses effectiveCsvId reported by ResponsePanel
   const pageArtifacts = useArtifacts({ csvId: effectiveCsvId });
+
+  /**
+   * Open the schedule popover. If the current viz hasn't been saved yet
+   * (no vizId), auto-save first to obtain one. The popover anchors to the
+   * Schedule button via its DOMRect.
+   */
+  const handleScheduleClick = useCallback(
+    async (e: React.MouseEvent<HTMLButtonElement>) => {
+      const anchorRect = e.currentTarget.getBoundingClientRect();
+      if (loadedVizId) {
+        setScheduleState({ kind: "open", vizId: loadedVizId, anchorRect });
+        return;
+      }
+      if (lastSavedVizId) {
+        setScheduleState({ kind: "open", vizId: lastSavedVizId, anchorRect });
+        return;
+      }
+      setScheduleState({ kind: "auto-saving" });
+      const newVizId = await doSave();
+      if (!newVizId) {
+        setScheduleState({ kind: "closed" });
+        return;
+      }
+      setScheduleState({ kind: "open", vizId: newVizId, anchorRect });
+    },
+    [loadedVizId, lastSavedVizId, doSave]
+  );
 
   // Sync refs for save/export (must be in effect, not render)
   useEffect(() => {
@@ -295,7 +348,7 @@ export default function Home() {
   }, []);
 
   const handleGuardedQuery = useCallback(
-    async (question: string) => {
+    async (question: string, mode: "ask" | "investigate" = "ask") => {
       setLlmWarning(null);
       const readiness = await checkLlmReady();
       if (!readiness.ready) {
@@ -303,7 +356,7 @@ export default function Home() {
         openSettings();
         return;
       }
-      handleQuery(question);
+      handleQuery(question, mode);
     },
     [handleQuery, openSettings]
   );
@@ -487,6 +540,145 @@ export default function Home() {
         });
     }
   }, [isAnalyzing, pendingRerunVizId, csvId, loadedSpec, currentQuestion, dispatch]);
+
+  // ── Follow-up suggestions: fire after each successful analysis ────
+  // Keyed on (csvId + question) so the same analysis doesn't re-fetch on rerenders,
+  // and so a fresh question or a fresh source clears the prior follow-ups.
+  // Drives off `lastCompleteSpec` (captured from ResponsePanel.onAnalysisComplete),
+  // not pageState.loadedSpec — the latter is only set when LOADING a saved viz,
+  // not after a fresh stream.
+  //
+  // IMPORTANT: do NOT include any value that's set asynchronously inside this
+  // effect (e.g. fetched artifacts) in the deps. Otherwise the artifacts-set
+  // re-render would tear down this effect and AbortController.abort() would
+  // cancel the in-flight follow-up fetch. The artifacts fetch happens INSIDE
+  // the effect below for that reason.
+  useEffect(() => {
+    // TEMPORARY DIAGNOSTIC LOGGING — prefixed [follow-up] so it's easy to
+    // grep in the browser console. Remove once the issue is confirmed fixed.
+    console.log("[follow-up] effect tick", {
+      isAnalyzing,
+      hasLastCompleteSpec: !!lastCompleteSpec,
+      hasSpecRoot: !!lastCompleteSpec?.root,
+      currentQuestion,
+      hasSchema: !!schema,
+      warehouseTables: warehouse.tableSchemas.length,
+      effectiveCsvId,
+      csvId,
+      warehouseId: warehouse.warehouseId,
+      followUpKey,
+    });
+
+    if (isAnalyzing) {
+      console.log("[follow-up] gate: isAnalyzing → bail");
+      return;
+    }
+    if (!lastCompleteSpec || !currentQuestion) {
+      console.log("[follow-up] gate: missing spec or question → bail", {
+        hasSpec: !!lastCompleteSpec,
+        hasQuestion: !!currentQuestion,
+      });
+      return;
+    }
+    if (!schema && !warehouse.tableSchemas.length) {
+      console.log("[follow-up] gate: no schema or warehouse → bail");
+      return;
+    }
+
+    const key = `${effectiveCsvId ?? csvId ?? warehouse.warehouseId ?? ""}|${currentQuestion}`;
+    if (key === followUpKey) {
+      console.log("[follow-up] gate: key matches prior → already fetched", { key });
+      return;
+    }
+    console.log("[follow-up] all gates passed; firing fetch", { key });
+
+    setFollowUpKey(key);
+    setFollowUpSuggestions([]); // clear previous while loading
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
+    const body = schema
+      ? {
+          schema: {
+            row_count: schema.row_count,
+            columns: schema.columns,
+            detected_domain: schema.detected_domain,
+            correlations: schema.correlations,
+          },
+        }
+      : { warehouseSchema: warehouse.tableSchemas };
+
+    const cid = effectiveCsvId ?? csvId;
+    const specSummary = extractSpecComponentTypes(lastCompleteSpec);
+
+    (async () => {
+      let resultsSummary: Record<string, string> | undefined;
+      if (cid) {
+        try {
+          const artifacts = await getArtifacts(cid);
+          if (controller.signal.aborted) {
+            console.log("[follow-up] aborted after artifacts fetch");
+            return;
+          }
+          resultsSummary = summarizeAnalysisResults(artifacts.results);
+          console.log("[follow-up] artifacts fetched", {
+            keys: Object.keys(resultsSummary).length,
+          });
+        } catch (err) {
+          console.warn("[follow-up] artifacts fetch failed (continuing)", err);
+        }
+      }
+
+      try {
+        console.log("[follow-up] calling /api/suggest follow-up...");
+        const questions = await getFollowUpSuggestions(
+          {
+            ...body,
+            question: currentQuestion,
+            resultsSummary,
+            specSummary,
+          },
+          controller.signal
+        );
+        clearTimeout(timeout);
+        if (controller.signal.aborted) {
+          console.log("[follow-up] aborted before setState");
+          return;
+        }
+        console.log(`[follow-up] received ${questions.length} questions:`, questions);
+        setFollowUpSuggestions(questions);
+      } catch (err) {
+        clearTimeout(timeout);
+        console.warn("[follow-up] suggestion fetch failed", err);
+      }
+    })();
+
+    return () => {
+      console.log("[follow-up] cleanup running (controller.abort + clearTimeout)");
+      clearTimeout(timeout);
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isAnalyzing,
+    lastCompleteSpec,
+    currentQuestion,
+    effectiveCsvId,
+    csvId,
+    warehouse.warehouseId,
+  ]);
+
+  // Clear the captured spec (and follow-ups) when a new analysis starts so
+  // stale follow-ups don't linger from the previous question while the new
+  // dashboard is composing.
+  useEffect(() => {
+    console.log("[follow-up] isAnalyzing changed →", isAnalyzing);
+    if (isAnalyzing) {
+      setLastCompleteSpec(null);
+      setFollowUpSuggestions([]);
+    }
+  }, [isAnalyzing]);
 
   // Status now driven by ResponsePanel's PipelineProgress (real pipeline stages)
 
@@ -727,6 +919,14 @@ export default function Home() {
                 >
                   {saving ? "✓" : "Save"}
                 </button>
+                <button
+                  onClick={handleScheduleClick}
+                  disabled={scheduleState.kind === "auto-saving" || saving || !!exporting}
+                  className="text-sm font-medium text-t-secondary hover:text-accent transition-colors disabled:opacity-50"
+                  title="Schedule re-runs of this analysis"
+                >
+                  {scheduleState.kind === "auto-saving" ? "Saving…" : "Schedule"}
+                </button>
                 <div className="relative">
                   <button
                     onClick={() => setShowExportDropdown((v) => !v)}
@@ -829,6 +1029,7 @@ export default function Home() {
         onSchemaModeChange={setSchemaMode}
         isConnected={warehouse.isConnected}
         warehouseType={warehouse.warehouseType}
+        warehouseId={warehouse.warehouseId}
         connectionLabel={
           warehouse.warehouseType
             ? `${warehouse.warehouseType} · ${warehouse.tableCount} tables`
@@ -1101,6 +1302,7 @@ export default function Home() {
                   warehouseId={warehouse.warehouseId}
                   question={currentQuestion}
                   questionSeq={questionSeq}
+                  mode={currentMode}
                   onStreamEnd={handleStreamEnd}
                   loadedSpec={loadedSpec}
                   loadedArtifacts={loadedArtifacts}
@@ -1113,9 +1315,23 @@ export default function Home() {
                   onRerun={handleRerunFromToolbar}
                   loadedVizId={loadedVizId}
                   onEffectiveCsvIdChange={setEffectiveCsvId}
+                  rerunCode={rerunCode}
+                  rerunSql={rerunSql}
                   onAnalysisComplete={(entry) => {
+                    console.log("[follow-up] onAnalysisComplete fired", {
+                      question: entry.question,
+                      hasSpec: !!entry.spec,
+                      hasRoot: !!entry.spec?.root,
+                    });
                     setAnalysisHistory((prev) => [...prev, { ...entry, timestamp: Date.now() }]);
-                    // Auto-persist to disk (fire-and-forget)
+                    setLastCompleteSpec(entry.spec);
+                    // Sync the freshly-streamed spec into the refs that
+                    // useSaveExport reads. Without this, Save / Export /
+                    // Schedule all silently no-op for fresh streams because
+                    // pageState.loadedSpec is only set when LOADING a saved
+                    // viz, not after a fresh question.
+                    currentSpecRef.current = entry.spec;
+                    currentQuestionRef.current = entry.question;
                     const cid = effectiveCsvId ?? csvId;
                     if (cid) {
                       saveHistoryEntry(cid, entry.spec, entry.question).catch(() => {});
@@ -1123,6 +1339,16 @@ export default function Home() {
                   }}
                 />
               </div>
+              {/* Follow-up suggestions — surfaces after each successful analysis */}
+              {isState4 && !isAnalyzing && followUpSuggestions.length > 0 && (
+                <div className="mt-6 w-full max-w-[700px] mx-auto">
+                  <SuggestionPills
+                    suggestions={followUpSuggestions}
+                    onSelect={handleGuardedQuery}
+                    title="Try next"
+                  />
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -1135,7 +1361,38 @@ export default function Home() {
         onClose={() => setShowArtifactsPanel(false)}
         onToggleFullscreen={() => setArtifactsFullscreen((f) => !f)}
         artifacts={pageArtifacts.artifacts ?? loadedArtifacts ?? null}
+        csvId={effectiveCsvId ?? csvId}
+        sandboxRuntime={sandboxRuntime}
+        onRerunSuccess={(newArtifacts) => pageArtifacts.setArtifacts(newArtifacts)}
+        onRequestRerun={(edits) => {
+          // Edit-and-Rerun: dispatch a fresh stream with the edited Python,
+          // SQL, or both. Server skips the corresponding LLM step(s); the
+          // standard pipeline rebuilds the dashboard.
+          if (!currentQuestion) return;
+          if (!edits.code && !edits.sql) return;
+          dispatch({
+            type: "RERUN_WITH_EDITS",
+            question: currentQuestion,
+            code: edits.code,
+            sql: edits.sql,
+          });
+          setShowArtifactsPanel(false);
+        }}
       />
+
+      {/* Schedule popover — anchored to whichever button opened it. Auto-saves
+          the viz first if needed, then renders cadence + auto-export options. */}
+      {scheduleState.kind === "open" && (
+        <SchedulePopover
+          vizId={scheduleState.vizId}
+          anchorRect={scheduleState.anchorRect}
+          onClose={() => setScheduleState({ kind: "closed" })}
+          onChanged={() => {
+            // Bump the saved-vizs panel refresh key so its schedule indicators update
+            handleSaved();
+          }}
+        />
+      )}
     </>
   );
 }

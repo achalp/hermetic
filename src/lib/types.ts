@@ -153,6 +153,12 @@ export interface DrillDownParams {
   y_key: string | null;
   filter_column: string;
   filter_value: string | number;
+  /**
+   * Additional filters AND-combined with the primary filter. Used by 2D
+   * drill-downs (e.g. PivotTable cell = rowDim × colDim) where a single
+   * filter isn't enough to pin the segment.
+   */
+  additional_filters?: { column: string; value: string | number }[] | null;
 }
 
 export interface ConversationEntry {
@@ -244,7 +250,14 @@ export interface WorkbookManifest {
 
 // ── Warehouse types ────────────────────────────────────────────────
 
-export type WarehouseType = "postgresql" | "bigquery" | "clickhouse" | "trino" | "hive";
+export type WarehouseType =
+  | "postgresql"
+  | "bigquery"
+  | "clickhouse"
+  | "trino"
+  | "hive"
+  | "snowflake"
+  | "databricks";
 
 export interface PostgresConnectionConfig {
   type: "postgresql";
@@ -295,12 +308,39 @@ export interface HiveConnectionConfig {
   auth?: "NONE" | "NOSASL" | "LDAP" | "KERBEROS";
 }
 
+export interface SnowflakeConnectionConfig {
+  type: "snowflake";
+  /** Account identifier, e.g. "abc12345.us-east-1" */
+  account: string;
+  user: string;
+  password: string;
+  database: string;
+  schema?: string;
+  warehouse?: string;
+  role?: string;
+}
+
+export interface DatabricksConnectionConfig {
+  type: "databricks";
+  /** Server hostname, e.g. "abc-123.cloud.databricks.com" */
+  serverHostname: string;
+  /** HTTP path, e.g. "/sql/1.0/warehouses/abc123" */
+  httpPath: string;
+  /** Personal access token */
+  token: string;
+  /** Unity Catalog name */
+  catalog: string;
+  schema?: string;
+}
+
 export type WarehouseConnectionConfig =
   | PostgresConnectionConfig
   | BigQueryConnectionConfig
   | ClickHouseConnectionConfig
   | TrinoConnectionConfig
-  | HiveConnectionConfig;
+  | HiveConnectionConfig
+  | SnowflakeConnectionConfig
+  | DatabricksConnectionConfig;
 
 export interface WarehouseTableInfo {
   schema: string;
@@ -314,6 +354,8 @@ export interface WarehouseColumnInfo {
   name: string;
   type: string;
   nullable: boolean;
+  /** Optional human-readable description (sourced from dbt docs when linked) */
+  description?: string;
 }
 
 /** Full schema of a single warehouse table (for SQL generation context) */
@@ -324,6 +366,8 @@ export interface WarehouseTableSchema {
   row_count_estimate: number;
   primary_key?: string[];
   foreign_keys?: { column: string; references_table: string; references_column: string }[];
+  /** Optional human-readable description (sourced from dbt docs when linked) */
+  description?: string;
 }
 
 export interface StoredWarehouse {
@@ -333,4 +377,6 @@ export interface StoredWarehouse {
   /** Full column-level schemas for all tables — used for SQL generation */
   tableSchemas: WarehouseTableSchema[];
   createdAt: number;
+  /** Path to a dbt `manifest.json` whose docs enrich the LLM context */
+  dbtManifestPath?: string;
 }

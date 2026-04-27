@@ -50,6 +50,14 @@ function buildSampleQuery(table: string, dbType: string): string {
       return `SELECT * FROM "${table.replace(/"/g, '""')}" LIMIT 5`;
     case "hive":
       return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
+    case "snowflake":
+      // Snowflake unquoted identifiers are uppercased; pass through as-is and let
+      // the SQL parser handle case. Quote with double-quotes when caller already
+      // provided a qualified name like "db.schema.table".
+      return `SELECT * FROM ${table} LIMIT 5`;
+    case "databricks":
+      // Databricks (Spark SQL) prefers backticks for three-part Unity Catalog names.
+      return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
     default:
       return `SELECT * FROM "${table.replace(/"/g, '""')}" LIMIT 5`;
   }

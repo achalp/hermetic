@@ -32,6 +32,14 @@ interface ResponsePanelProps {
   warehouseId?: string | null;
   question: string | null;
   questionSeq: number;
+  /**
+   * Which pipeline to use for the next stream:
+   * - "ask" (default) → /api/query, single-shot
+   * - "investigate" → /api/query/investigate, multi-step plan + execute + compose
+   * The mode is captured at the moment the stream begins; switching after
+   * the question is in flight has no effect until the next questionSeq tick.
+   */
+  mode?: "ask" | "investigate";
   onStreamEnd?: () => void;
   loadedSpec?: Spec | null;
   loadedArtifacts?: CachedArtifacts | null;
@@ -46,6 +54,18 @@ interface ResponsePanelProps {
   onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
   onEffectiveCsvIdChange?: (csvId: string | null) => void;
   onAnalysisComplete?: (entry: { question: string; spec: Spec }) => void;
+  /**
+   * When set alongside a fresh `questionSeq`, ResponsePanel calls /api/query
+   * with this code in `context.code`. The server skips code-gen and runs the
+   * sandbox-execute → UI-compose path, producing a fresh dashboard from the
+   * edited code. Used by the Edit-and-Rerun feature.
+   */
+  rerunCode?: string | null;
+  /**
+   * When set, ResponsePanel sends `context.sql` so the server skips NL-to-SQL
+   * generation (warehouse sources only). Used by SQL Edit-and-Rerun.
+   */
+  rerunSql?: string | null;
 }
 
 export function ResponsePanel({
@@ -53,6 +73,7 @@ export function ResponsePanel({
   warehouseId,
   question,
   questionSeq,
+  mode = "ask",
   onStreamEnd,
   loadedSpec,
   loadedArtifacts,
@@ -67,6 +88,8 @@ export function ResponsePanel({
   onArtifactsChange,
   onEffectiveCsvIdChange,
   onAnalysisComplete,
+  rerunCode,
+  rerunSql,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   const currentSpecRef = useRef<Spec | null>(null);
@@ -76,8 +99,13 @@ export function ResponsePanel({
   const lastSeqRef = useRef(0);
   const dashboardRef = useRef<HTMLDivElement>(null);
 
+  // Route the next stream to the right pipeline. The hook reads `api` per
+  // call inside its useCallback, so toggling here before a new questionSeq
+  // is enough — no remount required.
+  const apiUrl = mode === "investigate" ? "/api/query/investigate" : "/api/query";
+
   const { spec, isStreaming, error, send, clear } = useUIStream({
-    api: "/api/query",
+    api: apiUrl,
     onComplete: (completedSpec) => {
       currentSpecRef.current = completedSpec;
       setPreviousSpec(null);
@@ -159,6 +187,10 @@ export function ResponsePanel({
       ui_compose_model: uiComposeModel,
       sandbox_runtime: sandboxRuntime,
       purpose,
+      // When set, the server uses these instead of generating fresh code/SQL.
+      // Used for Edit-and-Rerun: rebuild dashboard from edited Python and/or SQL.
+      code: rerunCode ?? undefined,
+      sql: rerunSql ?? undefined,
     });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,7 +213,12 @@ export function ResponsePanel({
         },
       ]);
 
-      const drillQuestion = `Drill down into "${params.segment_label}" (${params.filter_column} = ${params.filter_value}): analyze this segment in detail`;
+      const additionalFilters = params.additional_filters ?? [];
+      const filterDesc = [
+        `${params.filter_column} = ${params.filter_value}`,
+        ...additionalFilters.map((f) => `${f.column} = ${f.value}`),
+      ].join(", ");
+      const drillQuestion = `Drill down into "${params.segment_label}" (${filterDesc}): analyze this segment in detail`;
       currentQuestionRef.current = drillQuestion;
       currentSpecRef.current = null;
 
@@ -195,6 +232,7 @@ export function ResponsePanel({
           filter_value: params.filter_value,
           segment_label: params.segment_label,
           chart_title: params.chart_title,
+          additional_filters: additionalFilters.length > 0 ? additionalFilters : undefined,
         },
         schema_mode: schemaMode,
         code_gen_model: codeGenModel,
@@ -369,9 +407,11 @@ export function ResponsePanel({
       )}
 
       {/* Streaming indicator */}
-      {isStreaming && (
+      {isStreaming && mode === "investigate" ? (
+        <InvestigateProgress spec={activeSpec} />
+      ) : isStreaming ? (
         <PipelineProgress spec={activeSpec} drillStack={drillStack} previousSpec={previousSpec} />
-      )}
+      ) : null}
 
       {/* Active level */}
       {activeSpec?.root && activeSpec?.elements && (
@@ -549,6 +589,159 @@ function PipelineProgress({
         })}
       </div>
     </div>
+  );
+}
+
+interface PlanStep {
+  index: number;
+  question: string;
+  rationale: string;
+  status: "pending" | "running" | "done" | "failed";
+}
+
+interface PlanState {
+  approach?: string;
+  steps?: PlanStep[];
+}
+
+interface ProgressMeta {
+  stage?: string;
+  step?: number;
+  total?: number;
+}
+
+/**
+ * Live progress UI for an Investigate stream. Reads two pieces of state
+ * the server emits as patches:
+ *
+ *   /state/__plan       — { approach, steps[] } once planning is done
+ *   /state/__progress   — { stage, step, total } each phase transition
+ *
+ * Status per step is updated in-place by /api/query/investigate as it
+ * fires sub_started / sub_finished / sub_failed events.
+ */
+function InvestigateProgress({ spec }: { spec: Spec | null }) {
+  const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
+  const plan = state.__plan as PlanState | undefined;
+  const progress = state.__progress as ProgressMeta | undefined;
+  const errorMsg = state.__error as string | undefined;
+
+  // Once the dashboard root has started rendering, hide this UI — the
+  // composed content takes over.
+  if (spec?.root) return null;
+
+  const stage = progress?.stage ?? "planning";
+  const stageLabel =
+    stage === "planning"
+      ? "Planning the investigation..."
+      : stage === "investigating"
+        ? "Running sub-questions..."
+        : stage === "composing"
+          ? "Composing the unified dashboard..."
+          : "Working...";
+
+  return (
+    <div className="flex flex-col gap-4 py-10" role="status" aria-live="polite">
+      <div className="flex items-center justify-center gap-3">
+        <SpinnerIcon />
+        <span className="text-sm font-medium text-accent">{stageLabel}</span>
+      </div>
+
+      {plan?.approach && (
+        <div className="mx-auto max-w-[700px] text-center text-sm text-t-secondary">
+          {plan.approach}
+        </div>
+      )}
+
+      {plan?.steps && plan.steps.length > 0 && (
+        <ol className="mx-auto flex w-full max-w-[700px] flex-col gap-2 text-sm">
+          {plan.steps.map((step) => (
+            <li
+              key={step.index}
+              className="flex items-start gap-3 border border-border-default px-3 py-2"
+              style={{
+                borderRadius: "var(--radius-card)",
+                background:
+                  step.status === "running" ? "var(--color-accent-subtle)" : "transparent",
+              }}
+            >
+              <span className="mt-0.5 shrink-0">
+                <StepIcon status={step.status} />
+              </span>
+              <div className="flex-1">
+                <div
+                  className={
+                    step.status === "failed"
+                      ? "text-error-text"
+                      : step.status === "done"
+                        ? "text-t-secondary"
+                        : "text-t-primary"
+                  }
+                >
+                  <span className="font-medium">Step {step.index + 1}.</span> {step.question}
+                </div>
+                {step.rationale && (
+                  <div className="mt-0.5 text-xs text-t-tertiary">{step.rationale}</div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {errorMsg && (
+        <div
+          className="mx-auto max-w-[700px] border border-error-border bg-error-bg p-3 text-sm text-error-text"
+          style={{ borderRadius: "var(--radius-card)" }}
+        >
+          {errorMsg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepIcon({ status }: { status: PlanStep["status"] }) {
+  if (status === "running") return <SpinnerIcon />;
+  if (status === "done") {
+    return (
+      <svg
+        className="h-4 w-4 text-success-text"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <svg
+        className="h-4 w-4 text-error-text"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    );
+  }
+  // pending
+  return (
+    <span
+      className="inline-block h-4 w-4 rounded-full border border-border-default"
+      aria-hidden="true"
+    />
   );
 }
 

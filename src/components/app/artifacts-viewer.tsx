@@ -9,22 +9,30 @@ import {
   sanitizeFilename,
 } from "@/lib/export-utils";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { tokenizePython, type TokenType } from "@/lib/syntax-highlight";
+import { CodeEditor } from "./code-editor";
+import { rerunCode, ApiError } from "@/lib/api";
 
 interface ArtifactsViewerProps {
   artifacts: CachedArtifacts;
+  /** csv_id — required for re-run. When omitted, the editor is read-only. */
+  csvId?: string | null;
+  /** Active sandbox runtime, passed through to the rerun endpoint. */
+  sandboxRuntime?: string;
+  /** Called after a successful artifacts-only rerun with the fresh artifacts. */
+  onRerunSuccess?: (artifacts: CachedArtifacts) => void;
+  /**
+   * If provided, Re-run delegates to this callback instead of calling
+   * /api/query/rerun. Used by page.tsx to drive a full dashboard rebuild
+   * via the streaming pipeline.
+   *
+   * The argument is an object so a single callback handles both Python
+   * edits (`{code}`) and SQL edits (`{sql}`). The editor closes the
+   * artifacts panel after dispatching so the user sees the new dashboard.
+   */
+  onRequestRerun?: (edits: { code?: string; sql?: string }) => void;
 }
 
 type Tab = "sql" | "code" | "data";
-
-const TOKEN_STYLES: Record<TokenType, React.CSSProperties | undefined> = {
-  comment: { color: "var(--syntax-comment)", fontStyle: "italic" },
-  string: { color: "var(--syntax-string)" },
-  keyword: { color: "var(--syntax-keyword)", fontWeight: 600 },
-  builtin: { color: "var(--syntax-builtin)" },
-  number: { color: "var(--syntax-number)" },
-  plain: undefined,
-};
 
 function recordsToTable(records: Record<string, unknown>[]): {
   columns: string[];
@@ -160,11 +168,55 @@ function DataSection({
   );
 }
 
-export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
+export function ArtifactsViewer({
+  artifacts,
+  csvId,
+  sandboxRuntime,
+  onRerunSuccess,
+  onRequestRerun,
+}: ArtifactsViewerProps) {
   const [tab, setTab] = useState<Tab>(artifacts.sql ? "sql" : "code");
   const [copied, setCopied] = useState(false);
 
-  const copyTarget = tab === "sql" ? (artifacts.sql ?? "") : artifacts.code;
+  // Editable code state. Resets when the underlying server code changes.
+  // Use derived-state-from-props pattern (no useEffect) — track the prior
+  // server value and reset the editor when it changes.
+  const [editedCode, setEditedCode] = useState(artifacts.code);
+  const [prevServerCode, setPrevServerCode] = useState(artifacts.code);
+  if (artifacts.code !== prevServerCode) {
+    setPrevServerCode(artifacts.code);
+    setEditedCode(artifacts.code);
+  }
+
+  const codeIsDirty = editedCode !== artifacts.code;
+
+  // Editable SQL state — only meaningful when artifacts.sql is set
+  // (i.e. the source is a warehouse). Resets when the server SQL changes.
+  const [editedSql, setEditedSql] = useState(artifacts.sql ?? "");
+  const [prevServerSql, setPrevServerSql] = useState(artifacts.sql ?? "");
+  const incomingSql = artifacts.sql ?? "";
+  if (incomingSql !== prevServerSql) {
+    setPrevServerSql(incomingSql);
+    setEditedSql(incomingSql);
+  }
+
+  const sqlIsDirty = !!artifacts.sql && editedSql !== artifacts.sql;
+
+  const [rerunState, setRerunState] = useState<
+    | { kind: "idle" }
+    | { kind: "running" }
+    | { kind: "success" }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+
+  const copyTarget =
+    tab === "sql"
+      ? sqlIsDirty
+        ? editedSql
+        : (artifacts.sql ?? "")
+      : codeIsDirty
+        ? editedCode
+        : artifacts.code;
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(copyTarget);
@@ -173,14 +225,75 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
   }, [copyTarget]);
 
   const handleDownloadPy = useCallback(() => {
-    downloadCodeAsFile(artifacts.code, `${sanitizeFilename(artifacts.question)}.py`);
-  }, [artifacts.code, artifacts.question]);
+    downloadCodeAsFile(
+      codeIsDirty ? editedCode : artifacts.code,
+      `${sanitizeFilename(artifacts.question)}.py`
+    );
+  }, [artifacts.code, artifacts.question, codeIsDirty, editedCode]);
 
   const handleDownloadSql = useCallback(() => {
     if (artifacts.sql) {
-      downloadCodeAsFile(artifacts.sql, `${sanitizeFilename(artifacts.question)}.sql`);
+      downloadCodeAsFile(
+        sqlIsDirty ? editedSql : artifacts.sql,
+        `${sanitizeFilename(artifacts.question)}.sql`
+      );
     }
-  }, [artifacts.sql, artifacts.question]);
+  }, [artifacts.sql, artifacts.question, sqlIsDirty, editedSql]);
+
+  const handleDiscardCodeEdits = useCallback(() => {
+    setEditedCode(artifacts.code);
+    setRerunState({ kind: "idle" });
+  }, [artifacts.code]);
+
+  const handleDiscardSqlEdits = useCallback(() => {
+    setEditedSql(artifacts.sql ?? "");
+    setRerunState({ kind: "idle" });
+  }, [artifacts.sql]);
+
+  const handleRerunCode = useCallback(async () => {
+    if (!csvId) return;
+    if (!codeIsDirty) return;
+
+    // Path A (preferred): parent handles the rerun by dispatching to the
+    // streaming pipeline, which rebuilds the full dashboard.
+    if (onRequestRerun) {
+      onRequestRerun({ code: editedCode });
+      return;
+    }
+
+    // Path B (fallback): legacy artifacts-only refresh via /api/query/rerun.
+    setRerunState({ kind: "running" });
+    try {
+      const result = await rerunCode(csvId, editedCode, sandboxRuntime);
+      onRerunSuccess?.(result.artifacts);
+      setRerunState({ kind: "success" });
+      setTimeout(() => setRerunState({ kind: "idle" }), 3000);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
+      setRerunState({ kind: "error", message: msg });
+    }
+  }, [csvId, codeIsDirty, editedCode, sandboxRuntime, onRerunSuccess, onRequestRerun]);
+
+  const handleRerunSql = useCallback(() => {
+    if (!sqlIsDirty) return;
+
+    // SQL editing always takes the dashboard-rebuild path — the result CSV's
+    // schema may change, so artifacts-only refresh is not safe.
+    if (onRequestRerun) {
+      onRequestRerun({ sql: editedSql });
+      return;
+    }
+
+    // No fallback: SQL editing without the parent dispatch can't work,
+    // because /api/query/rerun is artifacts-only and doesn't touch the
+    // warehouse. Surface a clear error instead of silently doing nothing.
+    setRerunState({
+      kind: "error",
+      message:
+        "SQL edit requires the full dashboard rebuild path. This artifacts viewer was opened without one wired up.",
+    });
+  }, [sqlIsDirty, editedSql, onRequestRerun]);
 
   // Build data sections
   const dataSections = useMemo(() => {
@@ -244,8 +357,6 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
     await downloadMultiSheetXlsx(sheets, sanitizeFilename(artifacts.question) + "_all");
   }, [dataSections, artifacts.question]);
 
-  const lines = artifacts.code.split("\n");
-
   return (
     <div
       className="theme-card border border-border-default bg-surface-1 overflow-hidden"
@@ -295,10 +406,12 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
         )}
       </div>
 
-      {/* SQL tab */}
+      {/* SQL tab — editable when source is a warehouse and a parent rerun
+          callback is wired up. Re-run executes against the warehouse,
+          producing a fresh CSV → fresh Python code-gen → fresh dashboard. */}
       {tab === "sql" && artifacts.sql && (
         <div>
-          <div className="flex items-center gap-2 border-b border-table-divider px-4 py-2">
+          <div className="flex flex-wrap items-center gap-2 border-b border-table-divider px-4 py-2">
             <button
               onClick={handleCopy}
               className="bg-surface-btn px-2.5 py-1 text-xs font-medium text-t-btn hover:bg-surface-btn-hover transition-colors"
@@ -319,26 +432,66 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
             >
               Download .sql
             </button>
+            {sqlIsDirty && onRequestRerun && (
+              <>
+                <button
+                  onClick={handleRerunSql}
+                  className="bg-accent text-white px-2.5 py-1 text-xs font-medium hover:opacity-90 transition-opacity"
+                  style={{
+                    borderRadius: "var(--radius-badge)",
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                >
+                  Re-run
+                </button>
+                <button
+                  onClick={handleDiscardSqlEdits}
+                  className="bg-surface-btn px-2.5 py-1 text-xs font-medium text-t-btn hover:bg-surface-btn-hover transition-colors"
+                  style={{
+                    borderRadius: "var(--radius-badge)",
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                >
+                  Discard
+                </button>
+              </>
+            )}
+            {sqlIsDirty && (
+              <span
+                className="text-xs"
+                style={{ color: "var(--color-surface-dark-text3)", marginLeft: 4 }}
+              >
+                {onRequestRerun
+                  ? "edited — re-run or discard"
+                  : "edited (read-only without rerun callback)"}
+              </span>
+            )}
+            {rerunState.kind === "error" && tab === "sql" && (
+              <span style={{ fontSize: 11, color: "#f87171", marginLeft: 4 }}>
+                {rerunState.message}
+              </span>
+            )}
           </div>
-          <div className="overflow-x-auto p-4">
-            <div className="flex text-xs leading-5">
-              <div className="select-none pr-4 text-right text-t-tertiary">
-                {artifacts.sql.split("\n").map((_, i) => (
-                  <div key={i}>{i + 1}</div>
-                ))}
-              </div>
-              <pre className="flex-1">
-                <code className="text-t-primary">{artifacts.sql}</code>
-              </pre>
-            </div>
-          </div>
+          <CodeEditor
+            value={editedSql}
+            language="sql"
+            readOnly={!onRequestRerun}
+            onChange={onRequestRerun ? setEditedSql : undefined}
+            height={360}
+          />
+          {!sqlIsDirty && onRequestRerun && (
+            <p className="px-4 py-2 text-xs" style={{ color: "var(--color-surface-dark-text3)" }}>
+              Tip: edit the SQL and click Re-run to query the warehouse with your changes. The
+              dashboard rebuilds against the new result columns.
+            </p>
+          )}
         </div>
       )}
 
-      {/* Code tab */}
+      {/* Code tab — editable, with Re-run + Discard */}
       {tab === "code" && (
         <div>
-          <div className="flex items-center gap-2 border-b border-table-divider px-4 py-2">
+          <div className="flex flex-wrap items-center gap-2 border-b border-table-divider px-4 py-2">
             <button
               onClick={handleCopy}
               className="bg-surface-btn px-2.5 py-1 text-xs font-medium text-t-btn hover:bg-surface-btn-hover transition-colors"
@@ -359,30 +512,64 @@ export function ArtifactsViewer({ artifacts }: ArtifactsViewerProps) {
             >
               Download .py
             </button>
+            {codeIsDirty && csvId && (
+              <>
+                <button
+                  onClick={handleRerunCode}
+                  disabled={rerunState.kind === "running"}
+                  className="bg-accent text-white px-2.5 py-1 text-xs font-medium hover:opacity-90 transition-opacity"
+                  style={{
+                    borderRadius: "var(--radius-badge)",
+                    transitionDuration: "var(--transition-speed)",
+                    opacity: rerunState.kind === "running" ? 0.6 : 1,
+                  }}
+                >
+                  {rerunState.kind === "running" ? "Running..." : "Re-run"}
+                </button>
+                <button
+                  onClick={handleDiscardCodeEdits}
+                  className="bg-surface-btn px-2.5 py-1 text-xs font-medium text-t-btn hover:bg-surface-btn-hover transition-colors"
+                  style={{
+                    borderRadius: "var(--radius-badge)",
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                >
+                  Discard
+                </button>
+              </>
+            )}
+            {codeIsDirty && (
+              <span
+                className="text-xs"
+                style={{ color: "var(--color-surface-dark-text3)", marginLeft: 4 }}
+              >
+                {csvId ? "edited — re-run or discard" : "edited (read-only without csv)"}
+              </span>
+            )}
+            {rerunState.kind === "success" && (
+              <span style={{ fontSize: 11, color: "#10b981", marginLeft: 4 }}>
+                ✓ executed — see Data tab
+              </span>
+            )}
+            {rerunState.kind === "error" && (
+              <span style={{ fontSize: 11, color: "#f87171", marginLeft: 4 }}>
+                {rerunState.message}
+              </span>
+            )}
           </div>
-          <div className="overflow-x-auto p-4">
-            <div className="flex text-xs leading-5">
-              <div className="select-none pr-4 text-right text-t-tertiary">
-                {lines.map((_, i) => (
-                  <div key={i}>{i + 1}</div>
-                ))}
-              </div>
-              <pre className="flex-1">
-                <code>
-                  {tokenizePython(artifacts.code).map((token, i) => {
-                    const style = TOKEN_STYLES[token.type];
-                    return style ? (
-                      <span key={i} style={style}>
-                        {token.text}
-                      </span>
-                    ) : (
-                      token.text
-                    );
-                  })}
-                </code>
-              </pre>
-            </div>
-          </div>
+          <CodeEditor
+            value={editedCode}
+            language="python"
+            readOnly={!csvId}
+            onChange={setEditedCode}
+            height={360}
+          />
+          {!artifacts.sql && rerunState.kind === "idle" && csvId && (
+            <p className="px-4 py-2 text-xs" style={{ color: "var(--color-surface-dark-text3)" }}>
+              Tip: edit and Re-run to refresh the computed values shown in the Data tab. To rebuild
+              the dashboard from new code, ask a follow-up question.
+            </p>
+          )}
         </div>
       )}
 

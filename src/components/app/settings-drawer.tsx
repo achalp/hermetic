@@ -5,6 +5,7 @@ import { CollapsibleSection } from "./collapsible-section";
 import { AppearanceSection } from "./settings/appearance-section";
 import { ConnectedSourcesSection } from "./settings/connected-sources-section";
 import { InferenceSection } from "./settings/inference-section";
+// Schedule UI moved out of Settings to the dashboard toolbar + Saved Vizs panel.
 import { AnalysisDefaultsSection } from "./settings/analysis-defaults-section";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { SchemaMode } from "@/lib/types";
@@ -29,6 +30,7 @@ interface SettingsDrawerProps {
   /* Warehouse */
   isConnected: boolean;
   warehouseType: string | null;
+  warehouseId?: string | null;
   connectionLabel: string | null;
   savedConnections: { id: string; type: string; name: string; host: string }[];
   onConnect: (config: Record<string, unknown>) => void;
@@ -53,6 +55,7 @@ export function SettingsDrawer({
   onSchemaModeChange,
   isConnected,
   warehouseType,
+  warehouseId,
   connectionLabel,
   savedConnections,
   onConnect,
@@ -82,6 +85,7 @@ export function SettingsDrawer({
         <ConnectedSourcesSection
           isConnected={isConnected}
           warehouseType={warehouseType}
+          warehouseId={warehouseId}
           connectionLabel={connectionLabel}
           savedConnections={savedConnections}
           onConnect={onConnect}

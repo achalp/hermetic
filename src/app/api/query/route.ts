@@ -9,7 +9,7 @@ import {
   storeCSV,
   isLocalFile,
 } from "@/lib/csv/storage";
-import { runPipeline } from "@/lib/pipeline/orchestrator";
+import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
@@ -40,12 +40,51 @@ import { parseCSV } from "@/lib/csv/parser";
 
 export const maxDuration = 300; // 5 min — large Parquet datasets need more time
 
+/**
+ * Unwrap a `{value: X, format: "n0", label: "..."}`-style scalar wrapper to
+ * its inner primitive. Some Python code generations emit results in this
+ * shape; without unwrapping, StatCard `value` props render "[object Object]".
+ * Returns the value unchanged if it is not a recognized wrapper.
+ */
+function unwrapScalarResult(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const obj = value as Record<string, unknown>;
+  if (!("value" in obj)) return value;
+  const inner = obj.value;
+  const isScalar =
+    inner === null ||
+    typeof inner === "string" ||
+    typeof inner === "number" ||
+    typeof inner === "boolean";
+  if (!isScalar) return value;
+  const allowed = new Set([
+    "value",
+    "format",
+    "label",
+    "unit",
+    "prefix",
+    "suffix",
+    "is_integer",
+    "delta",
+    "previous",
+    "trend",
+    "icon",
+    "color",
+  ]);
+  for (const k of Object.keys(obj)) {
+    if (!allowed.has(k)) return value;
+  }
+  return inner;
+}
+
 interface DrillDownContext {
   parent_question: string;
   filter_column: string;
   filter_value: string | number;
   segment_label: string;
   chart_title: string | null;
+  /** Additional filters AND-combined with the primary filter (2D pivot drill-down). */
+  additional_filters?: { column: string; value: string | number }[] | null;
 }
 
 export async function POST(request: Request) {
@@ -59,6 +98,25 @@ export async function POST(request: Request) {
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";
     const purpose: string = context?.purpose ?? "infographic";
+    /**
+     * Optional pre-generated code. When provided, the route skips code-gen
+     * (step 1) and runs only the sandbox-execute → UI-compose path. Used by
+     * the Edit-and-Rerun feature to rebuild the dashboard from edited code.
+     */
+    const editedCode: string | undefined =
+      typeof context?.code === "string" && context.code.trim().length > 0
+        ? context.code
+        : undefined;
+
+    /**
+     * Optional pre-edited SQL (warehouse sources only). When provided, the
+     * route skips NL-to-SQL generation and uses the edited SQL directly.
+     * The result CSV's schema is re-extracted, so the downstream Python
+     * code-gen runs against the new shape. Combined with `editedCode`,
+     * both LLM steps are skipped.
+     */
+    const editedSql: string | undefined =
+      typeof context?.sql === "string" && context.sql.trim().length > 0 ? context.sql : undefined;
 
     // When Ollama or openai-compatible is active, skip Claude model ID validation
     // since getModel() will use the Ollama/custom model directly
@@ -172,25 +230,34 @@ export async function POST(request: Request) {
           if (warehouseState) {
             const { warehouse, connector } = warehouseState;
 
-            // Step 1/5: Generate SQL
+            // Step 1/5: Generate SQL — or use the edited SQL if the user
+            // supplied one via Edit-and-Rerun.
             emitProgress("generating_sql", 1);
-            logger.info("Warehouse query: generating SQL", {
-              warehouseType: warehouse.config.type,
-              tableCount: warehouse.tableSchemas.length,
-              question,
-            });
-            try {
-              warehouseSQL = await generateSQL(
-                warehouse.tableSchemas,
+            if (editedSql) {
+              warehouseSQL = editedSql;
+              logger.info("Warehouse query: using edited SQL (skipping LLM)", {
+                warehouseType: warehouse.config.type,
+                chars: editedSql.length,
+              });
+            } else {
+              logger.info("Warehouse query: generating SQL", {
+                warehouseType: warehouse.config.type,
+                tableCount: warehouse.tableSchemas.length,
                 question,
-                warehouse.config.type,
-                codeGenModel
-              );
-              logger.info("Warehouse query: SQL generated", { sql: warehouseSQL });
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : "SQL generation failed";
-              logger.error("Warehouse query: SQL generation failed", { error: msg });
-              throw new Error(`SQL generation failed: ${msg}`);
+              });
+              try {
+                warehouseSQL = await generateSQL(
+                  warehouse.tableSchemas,
+                  question,
+                  warehouse.config.type,
+                  codeGenModel
+                );
+                logger.info("Warehouse query: SQL generated", { sql: warehouseSQL });
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : "SQL generation failed";
+                logger.error("Warehouse query: SQL generation failed", { error: msg });
+                throw new Error(`SQL generation failed: ${msg}`);
+              }
             }
 
             if (closed) return;
@@ -377,22 +444,36 @@ export async function POST(request: Request) {
           // Load prior conversation turns for follow-up context
           const priorTurns = csvId ? getConversationTurns(csvId) : [];
 
-          // Run the code-gen + sandbox pipeline
-          const pipelineResult = await runPipeline(
-            stored.schema,
-            csvContent || "",
-            question,
-            onStage,
-            schemaMode,
-            codeGenModel,
-            sandboxRuntime,
-            geojsonContent,
-            additionalFiles,
-            workbookContext,
-            localMountPath,
-            localFileContext,
-            priorTurns.length > 0 ? priorTurns : undefined
-          );
+          // Run the code-gen + sandbox pipeline. When the caller supplied
+          // pre-edited code via context.code (Edit-and-Rerun), skip the
+          // code-gen step and execute the provided code directly.
+          let pipelineResult;
+          if (editedCode) {
+            onStage("executing");
+            pipelineResult = await runPipelineWithCode(editedCode, csvContent || "", question, {
+              runtime: sandboxRuntime,
+              geojsonContent,
+              additionalFiles,
+              csvId,
+              localMountPath,
+            });
+          } else {
+            pipelineResult = await runPipeline(
+              stored.schema,
+              csvContent || "",
+              question,
+              onStage,
+              schemaMode,
+              codeGenModel,
+              sandboxRuntime,
+              geojsonContent,
+              additionalFiles,
+              workbookContext,
+              localMountPath,
+              localFileContext,
+              priorTurns.length > 0 ? priorTurns : undefined
+            );
+          }
 
           if (closed) return;
 
@@ -608,16 +689,25 @@ Use a DataController component to enable instant client-side filtering. The full
 
           // Append drill-down context if present
           if (drillDownContext) {
+            const extraFilters = drillDownContext.additional_filters ?? [];
+            const filterLines = [
+              `- Filter: ${drillDownContext.filter_column} = ${drillDownContext.filter_value}`,
+              ...extraFilters.map((f) => `- Filter: ${f.column} = ${f.value}`),
+            ].join("\n");
+            const filterClause = [
+              `${drillDownContext.filter_column} = "${drillDownContext.filter_value}"`,
+              ...extraFilters.map((f) => `${f.column} = "${f.value}"`),
+            ].join(" AND ");
             userPrompt += `
 
 ## Drill-Down Context
 This is a drill-down analysis. The user clicked on a chart segment to explore deeper.
 - Parent question: ${drillDownContext.parent_question}
 - Segment clicked: "${drillDownContext.segment_label}"
-- Filter: ${drillDownContext.filter_column} = ${drillDownContext.filter_value}
+${filterLines}
 ${drillDownContext.chart_title ? `- Source chart: ${drillDownContext.chart_title}` : ""}
 
-Focus the analysis specifically on data where ${drillDownContext.filter_column} = "${drillDownContext.filter_value}". Provide detailed breakdown and insights for this specific segment.`;
+Focus the analysis specifically on data where ${filterClause}. Provide detailed breakdown and insights for this specific segment.`;
           }
 
           // Append conversation history for follow-ups (from server-side cache)
@@ -875,28 +965,35 @@ Compose a dashboard that answers the user's question. Choose the layout that bes
             };
 
             // Pass 1: standalone JSON string values like "$result:total_sales" → raw JSON value
-            // Uses [^"]+ to support keys with spaces (e.g. "$result:status.On Track")
+            // Uses [^"]+ to support keys with spaces (e.g. "$result:status.On Track").
+            // Unwraps `{value: X, format: "n0"}` wrappers so StatCard `value`
+            // props don't end up rendering as "[object Object]".
             const resultRegex = /"\$result:([^"]+)"/g;
             processed = processed.replace(resultRegex, (_match, keyPath: string) => {
               const value = resolveResultKey(keyPath.trim());
-              return value !== undefined ? JSON.stringify(value) : _match;
+              if (value === undefined) return _match;
+              return JSON.stringify(unwrapScalarResult(value));
             });
 
             // Pass 2: inline placeholders within larger strings like "F-stat: $result:f_stat"
             // These survive Pass 1 because the quotes don't wrap just the placeholder.
-            // Supports spaces in dot-separated key segments (e.g. "On Track").
-            // Each segment must start with a word char; trailing punctuation is not captured.
+            // Lookahead `[^a-zA-Z0-9_.]|$` stops at any non-key char so trailing
+            // punctuation (`)`, `%`, `:`, `;`, `]`) doesn't keep the placeholder
+            // raw in narrative text.
             const inlineResultRegex =
-              /\$result:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=[",}\s]|$)/g;
+              /\$result:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=[^a-zA-Z0-9_.]|$)/g;
             processed = processed.replace(inlineResultRegex, (_match, keyPath: string) => {
-              const value = resolveResultKey(keyPath.trim());
-              if (value === undefined) return _match;
+              const raw = resolveResultKey(keyPath.trim());
+              if (raw === undefined) return _match;
+              const value = unwrapScalarResult(raw);
               if (typeof value === "number") {
                 return Number.isInteger(value)
                   ? String(value)
                   : parseFloat(value.toFixed(4)).toString();
               }
               if (typeof value === "boolean") return value ? "Yes" : "No";
+              if (value === null) return "null";
+              if (typeof value === "object") return JSON.stringify(value);
               return String(value);
             });
 

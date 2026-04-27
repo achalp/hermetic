@@ -123,6 +123,41 @@ export function generateSuggestions(schema: CSVSchema): string[] {
   return [...new Set(suggestions)].slice(0, 5);
 }
 
+// ── Follow-up summary helpers ──────────────────────────────────────
+
+/**
+ * Build a compact key-value summary of an analysis result for the follow-up
+ * prompt. Drops large arrays/objects and caps total payload size.
+ *
+ * Caller should also pass `chart_data` first-N rows separately if the model
+ * benefits from seeing concrete values — but for the v1 prompt, just the
+ * scalar results dictionary is enough.
+ */
+export function summarizeAnalysisResults(
+  results: Record<string, unknown> | undefined,
+  maxKeys = 12,
+  maxValueLen = 120
+): Record<string, string> {
+  if (!results) return {};
+  const summary: Record<string, string> = {};
+  let count = 0;
+  for (const [key, value] of Object.entries(results)) {
+    if (count >= maxKeys) break;
+    if (value === null || value === undefined) continue;
+    let serialized: string;
+    if (typeof value === "object") {
+      // Skip large nested structures — they bloat the prompt without helping.
+      // The follow-up model just needs to know which numbers came out.
+      serialized = JSON.stringify(value).slice(0, maxValueLen);
+    } else {
+      serialized = String(value).slice(0, maxValueLen);
+    }
+    summary[key] = serialized;
+    count++;
+  }
+  return summary;
+}
+
 // ── Warehouse Suggestions ──────────────────────────────────────────
 
 const DATE_KEYWORDS = ["date", "time", "created", "updated", "timestamp", "at"];

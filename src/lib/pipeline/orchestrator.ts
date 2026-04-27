@@ -4,7 +4,7 @@ import {
   fixUpFilenames,
   fixReadCsvDelimiter,
 } from "@/lib/llm/code-generation";
-import { buildRetryPrompt } from "@/lib/llm/prompts";
+import { buildRetryPromptMulti } from "@/lib/llm/prompts";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { generateText } from "ai";
@@ -86,23 +86,46 @@ export async function runPipeline(
     localMountPath
   );
 
-  // Step 3: Retry once on failure
-  if (!result.success) {
-    onStage?.("retrying");
-    const retrySystemExtra = localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "";
-    const retryResult = await generateText({
-      model: getModel(model),
-      system:
-        "You are a data analyst. Fix the Python code based on the error. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing." +
-        retrySystemExtra,
-      prompt: buildRetryPrompt(code, result.error, schema),
-      temperature: 0,
-      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+  // Step 3: Self-correction loop. Up to MAX_RETRIES attempts. Each retry
+  // shows the LLM the FULL history of prior failed attempts (code + error),
+  // so it can avoid repeating the same fix that already failed.
+  const MAX_RETRIES = 3;
+  const priorAttempts: { code: string; error: string }[] = [];
+  let attempt = 0;
+  while (!result.success && attempt < MAX_RETRIES) {
+    priorAttempts.push({ code, error: result.error });
+    attempt++;
+    onStage?.(attempt === 1 ? "retrying" : `retrying_${attempt}`);
+    logger.info("Code execution failed — retrying", {
+      attempt,
+      maxRetries: MAX_RETRIES,
+      errorPreview: result.error.slice(0, 200),
     });
 
-    const retryCode = fixReadCsvDelimiter(
-      fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
-    );
+    const retrySystemExtra = localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "";
+    let retryCode: string;
+    try {
+      const retryResult = await generateText({
+        model: getModel(model),
+        system:
+          "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing." +
+          retrySystemExtra,
+        prompt: buildRetryPromptMulti(priorAttempts, schema),
+        temperature: 0,
+        maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+      });
+
+      retryCode = fixReadCsvDelimiter(
+        fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
+      );
+    } catch (err) {
+      // LLM call itself failed — surface the underlying sandbox error since
+      // that's what the user actually cares about diagnosing.
+      const llmErr = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Analysis failed and retry LLM call also failed.\nLast sandbox error: ${result.error}\nLLM error: ${llmErr}`
+      );
+    }
 
     onStage?.("executing");
     result = await executeSandbox(
@@ -115,11 +138,69 @@ export async function runPipeline(
       localMountPath
     );
 
-    if (!result.success) {
-      throw new Error(`Analysis failed after retry: ${result.error}`);
-    }
-
     code = retryCode;
+  }
+
+  if (!result.success) {
+    // Exhausted retries — include each attempt's error preview so the
+    // exception message is diagnosable.
+    const summary = priorAttempts
+      .map((a, i) => `Attempt ${i + 1}: ${a.error.slice(0, 200).replace(/\n/g, " ")}`)
+      .concat(`Attempt ${attempt + 1}: ${result.error.slice(0, 200).replace(/\n/g, " ")}`)
+      .join("\n");
+    throw new Error(
+      `Analysis failed after ${MAX_RETRIES} retries.\n\n${summary}\n\nFinal error:\n${result.error}`
+    );
+  }
+
+  if (attempt > 0) {
+    logger.info("Code execution succeeded after retries", { attemptsToSucceed: attempt + 1 });
+  }
+
+  return {
+    executionResult: result,
+    generatedCode: code,
+    question,
+  };
+}
+
+/**
+ * Edit-and-rerun variant: takes pre-existing code (edited by the user in
+ * the Artifacts panel), executes it in the sandbox, and returns the new
+ * artifacts. Skips code-generation entirely — no LLM calls.
+ *
+ * Unlike `runPipeline`, this does NOT retry on failure. Edited code that
+ * fails surfaces the raw sandbox error so the user can fix it and re-run.
+ */
+export async function runPipelineWithCode(
+  code: string,
+  csvContent: string,
+  question: string,
+  options: {
+    runtime?: SandboxRuntimeId;
+    geojsonContent?: string | null;
+    additionalFiles?: AdditionalFile[];
+    csvId?: string;
+    localMountPath?: string;
+  } = {}
+): Promise<PipelineResult> {
+  logger.debug("Re-executing edited code", {
+    chars: code.length,
+    localMount: !!options.localMountPath,
+  });
+
+  const result = await executeSandbox(
+    csvContent,
+    code,
+    options.runtime,
+    options.geojsonContent,
+    options.additionalFiles,
+    options.csvId,
+    options.localMountPath
+  );
+
+  if (!result.success) {
+    throw new Error(result.error || "Edited code failed to execute.");
   }
 
   return {

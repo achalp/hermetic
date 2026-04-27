@@ -11,6 +11,8 @@ const dotColors: Record<string, string> = {
   clickhouse: "#10b981",
   trino: "#8b5cf6",
   hive: "#d97706",
+  snowflake: "#29b5e8",
+  databricks: "#ff3621",
 };
 
 export function SavedConnections({ connections, onConnect }: SavedConnectionsProps) {

@@ -13,7 +13,15 @@ export async function POST(request: Request) {
 
     if (
       !config?.type ||
-      !["postgresql", "bigquery", "clickhouse", "trino", "hive"].includes(config.type)
+      ![
+        "postgresql",
+        "bigquery",
+        "clickhouse",
+        "trino",
+        "hive",
+        "snowflake",
+        "databricks",
+      ].includes(config.type)
     ) {
       return Response.json({ error: "Invalid warehouse type" }, { status: 400 });
     }

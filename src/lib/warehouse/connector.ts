@@ -8,6 +8,8 @@ import { createBigQueryConnector } from "./bigquery";
 import { createClickHouseConnector } from "./clickhouse";
 import { createTrinoConnector } from "./trino";
 import { createHiveConnector } from "./hive";
+import { createSnowflakeConnector } from "./snowflake";
+import { createDatabricksConnector } from "./databricks";
 
 export interface WarehouseConnector {
   testConnection(): Promise<void>;
@@ -31,5 +33,9 @@ export function createConnector(config: WarehouseConnectionConfig): WarehouseCon
       return createTrinoConnector(config);
     case "hive":
       return createHiveConnector(config);
+    case "snowflake":
+      return createSnowflakeConnector(config);
+    case "databricks":
+      return createDatabricksConnector(config);
   }
 }
