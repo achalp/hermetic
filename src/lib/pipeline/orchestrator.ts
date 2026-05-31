@@ -13,11 +13,23 @@ import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, ConversationTurn, SandboxExecutionResult, SchemaMode } from "@/lib/types";
 import { logger } from "@/lib/logger";
+import {
+  validateExecutionResult,
+  formatSemanticVerdictForRetry,
+} from "@/lib/pipeline/result-validator";
 
 export interface PipelineResult {
   executionResult: SandboxExecutionResult;
   generatedCode: string;
   question: string;
+  /**
+   * Set to true when the pipeline exhausted its retry budget on semantic
+   * failures (empty/NaN/zero-only results) but execution itself succeeded.
+   * The caller can surface this to the composer / UI as a warning.
+   */
+  degraded?: boolean;
+  /** When `degraded` is true, the most recent validator reason. */
+  degradedReason?: string;
 }
 
 export async function runPipeline(
@@ -89,17 +101,44 @@ export async function runPipeline(
   // Step 3: Self-correction loop. Up to MAX_RETRIES attempts. Each retry
   // shows the LLM the FULL history of prior failed attempts (code + error),
   // so it can avoid repeating the same fix that already failed.
+  //
+  // Two failure modes count against the same retry budget:
+  //   - Execution failure: result.success === false (the sandbox threw)
+  //   - Semantic failure: result.success === true but the validator
+  //     verdict says the output is degenerate (empty / NaN-only / etc.)
+  // For semantic failures, the "error" string fed to the retry prompt is
+  // the validator's reason + suggested fix, not a Python traceback.
   const MAX_RETRIES = 3;
   const priorAttempts: { code: string; error: string }[] = [];
   let attempt = 0;
-  while (!result.success && attempt < MAX_RETRIES) {
-    priorAttempts.push({ code, error: result.error });
+
+  // Initial semantic check (only when execution succeeded)
+  let semanticVerdict = result.success ? validateExecutionResult(result) : null;
+  if (semanticVerdict && !semanticVerdict.ok) {
+    logger.info("Initial result failed semantic validation", {
+      reason: semanticVerdict.reason,
+    });
+  }
+
+  while (attempt < MAX_RETRIES) {
+    // Decide whether to retry at all
+    let retryError: string;
+    if (!result.success) {
+      retryError = result.error;
+    } else if (semanticVerdict && !semanticVerdict.ok) {
+      retryError = formatSemanticVerdictForRetry(semanticVerdict);
+    } else {
+      break; // success
+    }
+
+    priorAttempts.push({ code, error: retryError });
     attempt++;
     onStage?.(attempt === 1 ? "retrying" : `retrying_${attempt}`);
-    logger.info("Code execution failed — retrying", {
+    logger.info("Pipeline retrying", {
       attempt,
       maxRetries: MAX_RETRIES,
-      errorPreview: result.error.slice(0, 200),
+      kind: result.success ? "semantic" : "execution",
+      errorPreview: retryError.slice(0, 200),
     });
 
     const retrySystemExtra = localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "";
@@ -119,11 +158,14 @@ export async function runPipeline(
         fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
       );
     } catch (err) {
-      // LLM call itself failed — surface the underlying sandbox error since
+      // LLM call itself failed — surface the underlying error since
       // that's what the user actually cares about diagnosing.
       const llmErr = err instanceof Error ? err.message : String(err);
+      const lastSandboxErr = result.success
+        ? "(execution succeeded but result was degenerate)"
+        : result.error;
       throw new Error(
-        `Analysis failed and retry LLM call also failed.\nLast sandbox error: ${result.error}\nLLM error: ${llmErr}`
+        `Analysis failed and retry LLM call also failed.\nLast sandbox error: ${lastSandboxErr}\nLLM error: ${llmErr}`
       );
     }
 
@@ -139,11 +181,12 @@ export async function runPipeline(
     );
 
     code = retryCode;
+    semanticVerdict = result.success ? validateExecutionResult(result) : null;
   }
 
+  // Execution-level failure after exhausting retries → throw, same as
+  // before. Semantic failures degrade gracefully (see below).
   if (!result.success) {
-    // Exhausted retries — include each attempt's error preview so the
-    // exception message is diagnosable.
     const summary = priorAttempts
       .map((a, i) => `Attempt ${i + 1}: ${a.error.slice(0, 200).replace(/\n/g, " ")}`)
       .concat(`Attempt ${attempt + 1}: ${result.error.slice(0, 200).replace(/\n/g, " ")}`)
@@ -154,7 +197,24 @@ export async function runPipeline(
   }
 
   if (attempt > 0) {
-    logger.info("Code execution succeeded after retries", { attemptsToSucceed: attempt + 1 });
+    logger.info("Pipeline succeeded after retries", { attemptsToSucceed: attempt + 1 });
+  }
+
+  // Semantic-failure-exhausted path: return the result with `degraded: true`
+  // so the caller (composer / UI) can surface a warning rather than treating
+  // it as a clean success.
+  if (semanticVerdict && !semanticVerdict.ok) {
+    logger.warn("Pipeline returning degraded result", {
+      reason: semanticVerdict.reason,
+      retriesUsed: attempt,
+    });
+    return {
+      executionResult: result,
+      generatedCode: code,
+      question,
+      degraded: true,
+      degradedReason: semanticVerdict.reason,
+    };
   }
 
   return {

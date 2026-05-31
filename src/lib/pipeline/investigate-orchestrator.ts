@@ -5,12 +5,14 @@
  *
  * Concurrency model:
  *
- * - Sub-questions with depends_on === null are independent — they all run
- *   in parallel via Promise.all.
- * - Sub-questions with depends_on === N wait for sub-question N to
- *   complete before starting. v1 supports a single linear predecessor
- *   per dependent (no DAGs). The "result of step N" is included as
- *   conversation context when step M (depending on N) runs.
+ * - Sub-questions with `depends_on: []` are independent — they all run
+ *   in parallel via Promise.all in wave 0.
+ * - Sub-questions with `depends_on: [N, M, ...]` wait until every listed
+ *   predecessor has completed before starting. Forms a DAG; the wave
+ *   grouping below schedules each sub-question into the earliest wave
+ *   where all of its predecessors are already done. Each completed
+ *   predecessor contributes a ConversationTurn to the dependent's
+ *   prior-turn context.
  *
  * Failure handling:
  *
@@ -33,7 +35,7 @@ export interface SubQuestionResult {
   index: number;
   question: string;
   rationale: string;
-  depends_on: number | null;
+  depends_on: number[];
   /** Set on success. */
   result?: PipelineResult;
   /** Set on failure (after all retries exhausted). */
@@ -95,6 +97,46 @@ function turnFromResult(sub: SubQuestionResult): ConversationTurn | null {
   };
 }
 
+/**
+ * Group sub-questions into dependency waves for parallel execution.
+ *
+ * - Wave 0 contains every sub-question with `depends_on: []`.
+ * - A sub-question lands in wave `max(wave-of-each-dep) + 1` so that
+ *   every predecessor is finished before it starts.
+ * - A sub-question whose `depends_on` references an unsatisfiable index
+ *   (only possible if the parser missed something, since forward deps
+ *   are stripped) is treated as independent and flushed in the next
+ *   wave alongside everything else stuck — preventing an infinite loop.
+ *
+ * Returned waves contain the ORIGINAL sub-question indices (not the
+ * sub-question objects), so callers can resolve into their own slot
+ * arrays without ambiguity if duplicate sub-question objects ever exist.
+ */
+export function groupSubQuestionsIntoWaves(subQuestions: PlannedSubQuestion[]): number[][] {
+  const waves: number[][] = [];
+  const indexInWave = new Map<number, number>();
+  const remaining = subQuestions.map((_, i) => i);
+  while (remaining.length > 0) {
+    const ready = remaining.filter((i) => {
+      const deps = subQuestions[i].depends_on;
+      if (!deps || deps.length === 0) return true;
+      return deps.every((d) => indexInWave.has(d));
+    });
+    if (ready.length === 0) {
+      logger.warn("Investigate: dependency cycle detected, flushing remaining as parallel");
+      ready.push(...remaining);
+    }
+    const waveNo = waves.length;
+    waves.push([...ready]);
+    for (const i of ready) indexInWave.set(i, waveNo);
+    for (const i of ready) {
+      const at = remaining.indexOf(i);
+      if (at >= 0) remaining.splice(at, 1);
+    }
+  }
+  return waves;
+}
+
 export async function runInvestigation(
   subQuestions: PlannedSubQuestion[],
   options: OrchestrateOptions
@@ -102,31 +144,7 @@ export async function runInvestigation(
   const total = subQuestions.length;
   options.onProgress?.({ kind: "plan_ready", total, approach: "" });
 
-  // Group sub-questions by their depends_on value. We process in waves:
-  // wave 0 = all sub-questions with depends_on == null
-  // wave N+1 = all sub-questions whose depends_on is in waves <= N
-  const waves: PlannedSubQuestion[][] = [];
-  const indexInWave = new Map<number, number>(); // sub-question index → wave number
-  const remaining = subQuestions.map((sq, i) => ({ sq, i }));
-  while (remaining.length > 0) {
-    const ready = remaining.filter(
-      ({ sq }) =>
-        sq.depends_on === null || sq.depends_on === undefined || indexInWave.has(sq.depends_on)
-    );
-    if (ready.length === 0) {
-      // Shouldn't happen with well-formed plans (planner caps depends_on < self),
-      // but guard against malformed input by treating remaining as independent.
-      logger.warn("Investigate: dependency cycle detected, flushing remaining as parallel");
-      ready.push(...remaining);
-    }
-    const waveNo = waves.length;
-    waves.push(ready.map((r) => r.sq));
-    for (const r of ready) indexInWave.set(r.i, waveNo);
-    for (const r of ready) {
-      const idx = remaining.findIndex((x) => x.i === r.i);
-      if (idx >= 0) remaining.splice(idx, 1);
-    }
-  }
+  const waveIndices = groupSubQuestionsIntoWaves(subQuestions);
 
   // Allocate result slots in original order
   const results: SubQuestionResult[] = subQuestions.map((sq, i) => ({
@@ -138,14 +156,10 @@ export async function runInvestigation(
     finishedAt: 0,
   }));
 
-  // Find original index of a sub-question (for results[] lookup)
-  const indexOf = new Map<PlannedSubQuestion, number>();
-  for (let i = 0; i < subQuestions.length; i++) indexOf.set(subQuestions[i], i);
-
-  for (const wave of waves) {
+  for (const wave of waveIndices) {
     await Promise.all(
-      wave.map(async (sq) => {
-        const i = indexOf.get(sq)!;
+      wave.map(async (i) => {
+        const sq = subQuestions[i];
         const slot = results[i];
         slot.startedAt = Date.now();
         options.onProgress?.({
@@ -155,10 +169,15 @@ export async function runInvestigation(
           question: sq.question,
         });
 
-        // Build prior-turn context from upstream completed deps
+        // Build prior-turn context from upstream completed deps. Each
+        // predecessor contributes one ConversationTurn; the code-gen
+        // prompt builder already handles arrays of turns natively.
         const priorTurns: ConversationTurn[] = [];
-        if (sq.depends_on !== null && sq.depends_on !== undefined) {
-          const t = turnFromResult(results[sq.depends_on]);
+        for (const d of sq.depends_on) {
+          const upstream = results[d];
+          // A predecessor may have failed; skip it but keep the others
+          if (!upstream || !upstream.result) continue;
+          const t = turnFromResult(upstream);
           if (t) priorTurns.push(t);
         }
 

@@ -1,0 +1,175 @@
+import { describe, it, expect } from "vitest";
+import {
+  validateExecutionResult,
+  formatSemanticVerdictForRetry,
+} from "@/lib/pipeline/result-validator";
+import type { SandboxExecutionResult } from "@/lib/types";
+
+function ok(): SandboxExecutionResult {
+  return {
+    success: true,
+    results: { total: 100 },
+    chart_data: { revenue_by_month: [{ month: "Jan", revenue: 10 }] },
+    images: {},
+    execution_ms: 50,
+  };
+}
+
+function blank(): SandboxExecutionResult {
+  return {
+    success: true,
+    results: {},
+    chart_data: {},
+    images: {},
+    execution_ms: 50,
+  };
+}
+
+describe("validateExecutionResult", () => {
+  it("accepts a healthy result", () => {
+    const v = validateExecutionResult(ok());
+    expect(v.ok).toBe(true);
+  });
+
+  it("flags execution with no results and no chart data", () => {
+    const v = validateExecutionResult(blank());
+    expect(v.ok).toBe(false);
+    if (v.ok) return;
+    expect(v.reason).toMatch(/no results or chart data/);
+    expect(v.suggestedFix).toMatch(/results dict|chart_data dict/);
+  });
+
+  it("flags an empty chart_data array (length 0)", () => {
+    const exec = ok();
+    exec.chart_data = { sales_by_quarter: [] };
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(false);
+    if (v.ok) return;
+    expect(v.reason).toMatch(/no rows/);
+    expect(v.reason).toContain("sales_by_quarter");
+  });
+
+  it("flags a single-result NaN scalar", () => {
+    const exec = ok();
+    exec.results = { mean_revenue: Number.NaN };
+    exec.chart_data = {};
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(false);
+    if (v.ok) return;
+    expect(v.reason).toContain("mean_revenue");
+    expect(v.reason).toMatch(/null\/NaN/);
+  });
+
+  it("flags single-result null and string 'nan' / 'None' / 'null'", () => {
+    const cases: unknown[] = [null, "nan", "NaN", "None", "null", "  none  "];
+    for (const value of cases) {
+      const exec = ok();
+      exec.results = { x: value };
+      exec.chart_data = {};
+      const v = validateExecutionResult(exec);
+      expect(v.ok, `value=${String(value)} should be flagged`).toBe(false);
+    }
+  });
+
+  it("does NOT flag a single null among many valid results", () => {
+    const exec = ok();
+    exec.results = { total: 100, segment_a: null, segment_b: 50 };
+    exec.chart_data = {};
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(true); // null is legit "no data for one segment"
+  });
+
+  it("flags when EVERY result value is degenerate (multi-result case)", () => {
+    const exec = ok();
+    exec.results = { a: null, b: Number.NaN, c: "nan" };
+    exec.chart_data = {};
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(false);
+    if (v.ok) return;
+    expect(v.reason).toMatch(/Every result value/);
+  });
+
+  it("flags a chart_data array (length > 1) where every numeric column is 0", () => {
+    const exec = ok();
+    exec.chart_data = {
+      revenue_by_region: [
+        { region: "N", revenue: 0 },
+        { region: "S", revenue: 0 },
+        { region: "E", revenue: 0 },
+      ],
+    };
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(false);
+    if (v.ok) return;
+    expect(v.reason).toMatch(/only zero values across 3 rows/);
+    expect(v.reason).toContain("revenue_by_region");
+  });
+
+  it("does NOT flag a length-1 chart_data array of zeros (could be a baseline KPI)", () => {
+    const exec = ok();
+    exec.chart_data = { kpi: [{ name: "growth", value: 0 }] };
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(true);
+  });
+
+  it("does NOT flag a chart_data array with non-zero numeric values among zeros", () => {
+    const exec = ok();
+    exec.chart_data = {
+      revenue: [
+        { region: "N", revenue: 0 },
+        { region: "S", revenue: 100 }, // non-zero — not degenerate
+      ],
+    };
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(true);
+  });
+
+  it("does NOT flag a chart_data array with only string columns (no numeric)", () => {
+    const exec = ok();
+    exec.chart_data = {
+      labels: [{ name: "a" }, { name: "b" }, { name: "c" }],
+    };
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(true);
+  });
+
+  it("prioritizes 'nothing at all' over more specific failures", () => {
+    // If both results AND chart_data are empty, reason should be the
+    // most fundamental message.
+    const exec = ok();
+    exec.results = {};
+    exec.chart_data = {};
+    const v = validateExecutionResult(exec);
+    if (v.ok) throw new Error("expected fail");
+    expect(v.reason).toMatch(/no results or chart data/);
+  });
+
+  it("treats null-/undefined-shaped exec.results and exec.chart_data defensively", () => {
+    // Pretend a malformed sandbox response slipped through TS — should
+    // not crash; should report the fundamental failure.
+    const exec = {
+      success: true,
+      images: {},
+      execution_ms: 50,
+    } as unknown as SandboxExecutionResult;
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(false);
+  });
+});
+
+describe("formatSemanticVerdictForRetry", () => {
+  it("returns empty string on a healthy verdict", () => {
+    expect(formatSemanticVerdictForRetry({ ok: true })).toBe("");
+  });
+
+  it("formats reason + suggested fix on a failure verdict", () => {
+    const out = formatSemanticVerdictForRetry({
+      ok: false,
+      reason: "Result is null.",
+      suggestedFix: "Check the filter.",
+    });
+    expect(out).toMatch(/Semantic failure/);
+    expect(out).toContain("Result is null.");
+    expect(out).toContain("Check the filter.");
+  });
+});

@@ -1,0 +1,143 @@
+/**
+ * Semantic result validator — pure function that inspects a successful
+ * sandbox execution and returns a verdict on whether the result looks
+ * degenerate (empty / NaN-only / all-zeros).
+ *
+ * Used by `runPipeline()` to catch the "code ran but the result is
+ * useless" case that the current exception-only retry loop misses.
+ * Semantic failures retry against the same budget as exception
+ * failures; if the budget is exhausted the pipeline returns the
+ * result with `degraded: true` rather than throwing.
+ *
+ * Conservative on purpose: we err on the side of NOT flagging things
+ * that might be legitimate (e.g. single-row KPI results) — false
+ * positives are worse than false negatives because they cost a retry
+ * cycle. Order of checks below is "most fundamental first" so the
+ * verdict's `reason` field cites the most informative failure.
+ *
+ * Out of scope (deferred):
+ *
+ * - Length-1 chart_data arrays: ambiguous (could be a KPI or could be
+ *   a broken comparison). The implementation plan calls for inspecting
+ *   chart-type hints from code-gen, but the chart type isn't actually
+ *   decided until the UI-composition step downstream. Skipping for v1.
+ */
+
+import type { SandboxExecutionResult } from "@/lib/types";
+
+export type ValidationVerdict = { ok: true } | { ok: false; reason: string; suggestedFix: string };
+
+/** True if `v` is JS NaN or one of the common stringified nullish markers. */
+function isDegenerateScalar(v: unknown): boolean {
+  if (typeof v === "number") return Number.isNaN(v);
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") {
+    const trimmed = v.trim().toLowerCase();
+    return trimmed === "nan" || trimmed === "none" || trimmed === "null";
+  }
+  return false;
+}
+
+/**
+ * True if every numeric field across every row is exactly 0 (and there's
+ * at least one numeric field). Excludes arrays where the only columns are
+ * non-numeric (e.g. a pure list of labels) — those aren't degenerate, the
+ * rendering layer just hasn't joined them with a metric yet.
+ */
+function isAllZeroRows(rows: unknown[]): boolean {
+  if (rows.length === 0) return false;
+  let sawNumeric = false;
+  for (const row of rows) {
+    if (!row || typeof row !== "object") return false;
+    for (const v of Object.values(row as Record<string, unknown>)) {
+      if (typeof v === "number") {
+        sawNumeric = true;
+        if (v !== 0) return false;
+      }
+    }
+  }
+  return sawNumeric;
+}
+
+export function validateExecutionResult(exec: SandboxExecutionResult): ValidationVerdict {
+  const resultKeys = Object.keys(exec.results ?? {});
+  const chartKeys = Object.keys(exec.chart_data ?? {});
+
+  // Check #1 — nothing at all
+  if (resultKeys.length === 0 && chartKeys.length === 0) {
+    return {
+      ok: false,
+      reason: "Execution produced no results or chart data.",
+      suggestedFix:
+        "Make sure your code writes at least one entry into the results dict or chart_data dict before exiting.",
+    };
+  }
+
+  // Check #3 — empty chart_data arrays
+  for (const k of chartKeys) {
+    const v = exec.chart_data[k];
+    if (Array.isArray(v) && v.length === 0) {
+      return {
+        ok: false,
+        reason: `Chart "${k}" has no rows.`,
+        suggestedFix:
+          "Check that your filter clauses match the data — try printing `df[col].unique()` first to confirm the values you're filtering on actually exist.",
+      };
+    }
+  }
+
+  // Check #2 — null / NaN / "nan" / "None" scalar in results
+  // Note: only flag if it's the ONLY result; a single null among many
+  // valid keys is probably legitimate ("no data for this segment").
+  if (resultKeys.length === 1) {
+    const k = resultKeys[0];
+    const v = exec.results[k];
+    if (isDegenerateScalar(v)) {
+      return {
+        ok: false,
+        reason: `Result "${k}" is null/NaN — the computation produced no usable value.`,
+        suggestedFix:
+          "Inspect the inputs to that calculation. Common causes: empty filter, missing column, type coercion failure (e.g. summing strings).",
+      };
+    }
+  } else if (resultKeys.length > 1) {
+    // Multi-result case: only flag if EVERY value is degenerate
+    const allDegenerate = resultKeys.every((k) => isDegenerateScalar(exec.results[k]));
+    if (allDegenerate) {
+      return {
+        ok: false,
+        reason: "Every result value is null or NaN.",
+        suggestedFix:
+          "The computation chain produced no valid values. Check the data filter, then the aggregation, then the type coercions.",
+      };
+    }
+  }
+
+  // Check #5 — chart_data arrays where every numeric column is 0
+  // Skip single-row arrays (could legitimately be a "zero baseline" KPI)
+  // and only flag if length > 1, which strongly suggests a broken filter
+  // or aggregation that lost the magnitudes.
+  for (const k of chartKeys) {
+    const v = exec.chart_data[k];
+    if (Array.isArray(v) && v.length > 1 && isAllZeroRows(v)) {
+      return {
+        ok: false,
+        reason: `Chart "${k}" has only zero values across ${v.length} rows.`,
+        suggestedFix:
+          "The aggregation likely lost magnitudes — check whether you're summing the right column and whether the filter narrowed to a single bucket.",
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Format a semantic verdict for inclusion in the retry prompt's
+ * attempt-history list. The string is plugged in where exception
+ * messages normally go.
+ */
+export function formatSemanticVerdictForRetry(verdict: ValidationVerdict): string {
+  if (verdict.ok) return "";
+  return `Semantic failure (no exception thrown but the result is degenerate):\n${verdict.reason}\nSuggested fix: ${verdict.suggestedFix}`;
+}

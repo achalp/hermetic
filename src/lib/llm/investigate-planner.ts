@@ -10,10 +10,15 @@
  *   the right grain of decomposition: not too coarse (becomes a single
  *   shot) and not too fine (combinatorial blow-up of LLM calls).
  *
- * - Sub-questions can be marked dependent on a prior step. The orchestrator
- *   runs independent sub-questions in parallel for speed; dependents run
- *   after their predecessor completes. v1 supports a single linear
- *   dependency chain (depends_on is one prior index) — no DAGs.
+ * - Sub-questions declare their dependencies as `depends_on: number[]` —
+ *   the indices of prior sub-questions whose results they need. Empty
+ *   array = independent (runs in wave 0). Multiple entries = wait for all
+ *   listed priors. The orchestrator schedules sub-questions in waves so
+ *   independents run in parallel and dependents follow.
+ *
+ * - Back-compat: the parser accepts the legacy `number | null` shape and
+ *   coerces it to `[]` or `[n]` so plans saved from older versions still
+ *   load.
  *
  * - The planner sees only the SCHEMA, never row values. Same privacy
  *   model as the existing code-gen path.
@@ -28,16 +33,21 @@ import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema, WarehouseTableSchema } from "@/lib/types";
 import { logger } from "@/lib/logger";
 
+/** Hard cap on how many prior sub-questions a single dependent can reference. */
+export const MAX_DEPENDS_PER_SUBQUESTION = 3;
+
 export interface PlannedSubQuestion {
   /** A focused, single-pipeline-run question. */
   question: string;
   /** Why this sub-question is part of the investigation. Visible to the user. */
   rationale: string;
   /**
-   * Index of a prior sub-question this one depends on (0-based), or null
-   * if independent. v1 supports single-predecessor chains only.
+   * Indices of prior sub-questions this one depends on (0-based, all must
+   * be `< self_index`). Empty array means independent — the sub-question
+   * runs in wave 0. Capped at MAX_DEPENDS_PER_SUBQUESTION entries; longer
+   * arrays are truncated by the parser with a logged warning.
    */
-  depends_on: number | null;
+  depends_on: number[];
 }
 
 export interface InvestigationPlan {
@@ -55,11 +65,11 @@ Each sub-question should:
 - Have a clear analytical purpose distinct from the others
 - Not duplicate work across sub-questions
 
-Mark a sub-question as depends_on: <prior-index> only when its analysis genuinely requires the result of the prior one (e.g. "Now drill into the top region from step 1"). Otherwise mark depends_on: null so they can run in parallel.
+Declare dependencies as \`depends_on\`: an array of prior sub-question indices (0-based) whose results this one needs. Use \`[]\` (empty array) for sub-questions that can run independently — those execute in parallel. Use \`[N]\` when the sub-question needs ONE prior result (e.g. "Now drill into the top region from step 1"). Use \`[N, M]\` when it genuinely needs BOTH (e.g. "Compare the top region from step 1 with the bottom region from step 2"). Cap dependencies at 3 priors per sub-question. All indices in \`depends_on\` MUST be less than the sub-question's own index.
 
 Pick decomposition styles that fit the question:
 - Investigate-an-anomaly: trend → segments → time-of-onset → correlated factors → recommendation
-- Compare-two-things: each side's metrics → side-by-side comparison → drivers of difference
+- Compare-two-things: each side's metrics (independent) → side-by-side comparison (depends_on both) → drivers of difference
 - Profile-a-segment: descriptives → distribution → outliers → context vs. rest of population
 - Trend-analysis: overall trend → by-segment trend → seasonality → outliers → year-over-year
 
@@ -70,8 +80,18 @@ Output STRICT JSON matching this schema:
     {
       "question": "single focused question",
       "rationale": "why this sub-question advances the investigation",
-      "depends_on": null
+      "depends_on": []
     }
+  ]
+}
+
+Example with a multi-dependency step:
+{
+  "approach": "Compare top and bottom performing regions side by side.",
+  "subQuestions": [
+    { "question": "Which region had the highest revenue in 2024?", "rationale": "find the top performer", "depends_on": [] },
+    { "question": "Which region had the lowest revenue in 2024?", "rationale": "find the bottom performer", "depends_on": [] },
+    { "question": "Compare the growth trajectory and seasonality of those two regions.", "rationale": "side-by-side analysis", "depends_on": [0, 1] }
   ]
 }
 
@@ -162,6 +182,45 @@ function extractJsonObject(raw: string): string {
   return s;
 }
 
+/**
+ * Coerce a raw `depends_on` value (which may be the new `number[]` form,
+ * the legacy `number | null` form, or junk) into a validated `number[]`.
+ *
+ * Rules applied (each silently drops invalid entries; never throws):
+ * - `null` / `undefined` → `[]`
+ * - A scalar number `n` → `[n]` (legacy back-compat)
+ * - A scalar string / boolean / other → `[]` (the legacy parser used to
+ *   set this to null on a string "1"; we keep the same conservative
+ *   behavior so a model that emits `"1"` doesn't silently get a dep)
+ * - An array → keep entries that are integer numbers, ≥ 0, and strictly
+ *   less than `selfIndex`. De-duplicate. Cap at MAX_DEPENDS_PER_SUBQUESTION.
+ */
+function normalizeDependsOn(raw: unknown, selfIndex: number): number[] {
+  if (raw === null || raw === undefined) return [];
+
+  // Legacy scalar form: number (>= 0, < self)
+  if (typeof raw === "number") {
+    if (Number.isInteger(raw) && raw >= 0 && raw < selfIndex) {
+      return [raw];
+    }
+    return [];
+  }
+
+  if (!Array.isArray(raw)) return [];
+
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const v of raw) {
+    if (typeof v !== "number" || !Number.isInteger(v)) continue;
+    if (v < 0 || v >= selfIndex) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+    if (out.length >= MAX_DEPENDS_PER_SUBQUESTION) break;
+  }
+  return out;
+}
+
 export interface ParsedPlanResult {
   ok: true;
   plan: InvestigationPlan;
@@ -208,10 +267,7 @@ export function parsePlannerOutput(raw: string): ParsedPlanResult | ParseError {
     const question = typeof sq.question === "string" ? sq.question.trim() : "";
     if (question.length < 5) continue;
     const rationale = typeof sq.rationale === "string" ? sq.rationale.trim() : "";
-    let depends_on: number | null = null;
-    if (typeof sq.depends_on === "number" && sq.depends_on >= 0 && sq.depends_on < i) {
-      depends_on = sq.depends_on;
-    }
+    const depends_on = normalizeDependsOn(sq.depends_on, i);
     subQuestions.push({ question, rationale, depends_on });
   }
 
@@ -269,4 +325,4 @@ export async function generatePlan(
 
 // ── Test seam ─────────────────────────────────────────────────
 
-export const __testing = { extractJsonObject, summarizeSchemaForPlanner };
+export const __testing = { extractJsonObject, summarizeSchemaForPlanner, normalizeDependsOn };
