@@ -1,6 +1,6 @@
 # Hermetic
 
-**Ask your data anything.** Upload CSV, Excel, or GeoJSON files — or connect to PostgreSQL, BigQuery, ClickHouse, Trino, or Hive warehouses — ask questions in natural language, and get interactive dashboards. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via MLX, llama.cpp, or Ollama.
+**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, or schedule a saved dashboard to refresh on a cron. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via MLX, llama.cpp, or Ollama.
 
 ![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
 
@@ -33,31 +33,44 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 ### For Non-Technical Users
 
 - **Ask your data anything.** Type a question in plain English — no SQL, no code, no formulas.
-- **Smart question suggestions.** After uploading data, the LLM analyzes your schema and suggests specific, insightful questions tailored to your actual columns and patterns.
+- **Conversational follow-ups.** Hermetic keeps conversation context server-side. "Exclude outliers and re-run", "break that down by quarter", "compare to last year" all work without re-explaining the setup.
+- **Suggested follow-ups.** After a fresh analysis, inline pills suggest the next obvious questions based on what just came back.
+- **Smart question suggestions.** After loading data, the LLM analyzes your schema and suggests specific, insightful questions tailored to your actual columns and patterns.
 - **Try with sample data.** One-click sample dataset to explore Hermetic without needing your own data.
-- **Analysis history.** Every question and its results are preserved in a scrollable session history. Re-run any previous question with one click.
 - **Show your work.** Every analysis includes a plain-English methodology explanation — how many rows were analyzed, which columns were used, what operations were performed.
 - **Six output styles.** Choose how results are presented: Dashboard, Narrative, Summary, Deep dive, Slides, or Report.
 - **Light / Dark / System mode.** Toggle between light and dark themes, or follow your OS preference.
 
+### Agentic Analysis
+
+- **Investigate agent.** One question, a full deep-dive. The planner decomposes a question into 3–7 focused sub-questions, the orchestrator runs independent ones in parallel waves and dependent ones serially, and a composer synthesizes the results into a single unified dashboard. Progress streams live as a step list with status icons. The planner sees schema and stats only — never row values.
+- **Multi-retry with reflection.** When generated code fails, the pipeline retries up to three times, carrying the full history of failed attempts forward. A reflection prompt kicks in after two failures so the model sees what it tried and why it broke, not just the original prompt.
+- **Scheduled runs.** Saved dashboards can be scheduled with node-cron. Schedule popover anchored to the dashboard toolbar, schedule pills on saved-viz cards with edit/delete in place — a dashboard you built last week refreshes itself every Monday morning.
+- **Persistent history.** Every analysis auto-saves to disk (generated code, results, visualizations). History survives restarts. Browse from a dedicated page, restore any previous result instantly, or re-run it against fresh data.
+
 ### Data Sources
 
 - **File uploads.** CSV, Excel (multi-sheet workbooks with relationship detection), GeoJSON, JSON.
-- **Data warehouses.** PostgreSQL, BigQuery, ClickHouse, Trino, Hive. SQL generated automatically from natural language, with cross-table JOINs.
-- **Saved connections.** One-click reconnect to previously used warehouses — visible directly in the connection card.
+- **Parquet and DuckDB.** Local Parquet files and Hive-partitioned folders, with a file browser to pick them. Files bind-mount directly into the sandbox (zero-copy). For datasets over ~1M rows, aggregation is pushed into DuckDB SQL before touching pandas.
+- **Data warehouses.** PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, Hive. SQL generated automatically from natural language, with cross-table JOINs and dialect-aware prompt guidance.
+- **dbt metadata enrichment.** If a dbt project is wired up, column-level descriptions are pulled into the LLM context alongside the warehouse schema.
+- **Saved connections.** One-click reconnect to previously used warehouses — visible directly in the connection card. Per-warehouse tabs and color codes in the UI.
 - **Data explorer.** Collapsible right-side rail showing schema (column names, types, samples), data profile (row counts, distributions), and sample rows. Supports Excel sheet tabs and warehouse table navigation with split-panel layout.
 
 ### Visualization
 
-- **30+ chart types.** Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree.
+- **32 chart types.** Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree.
 - **3D visualizations.** Scatter3D, Surface3D, Globe3D, deck.gl maps.
 - **Geographic maps.** MapLibre GL vector tile maps with GeoJSON overlays, deck.gl layers (hexagon, column, arc, scatterplot, heatmap) with click/hover interactivity.
+- **Interactive pivot tables.** Sort, drill-through, drill-down, cross-filter against other widgets on the same dashboard, aggregator switcher, heatmap mode, multi-value and multi-aggregator support.
 - **Adaptive dashboards.** The LLM composes layouts tailored to each question — bar charts for comparisons, line charts for trends, stat cards for KPIs.
 - **Drill-down navigation.** Click chart segments to explore deeper.
 - **Client-side filtering.** DataController enables instant cross-filtering across dashboards.
+- **Expanded mode for every chart.** All 32 chart components support full-height expanded rendering; labels truncate with tooltips instead of overlapping; WCAG-compliant font sizes throughout.
 
 ### Operations
 
+- **Edit and re-run.** If the generated Python or SQL is 90% right, edit it directly in the code editor and rebuild the whole dashboard through the standard pipeline. The server skips the generation step for whichever artifact you edited and runs everything downstream.
 - **Save and export.** Save visualizations, export as PDF, DOCX, or PPTX. Individual charts downloadable as PNG.
 - **Artifacts viewer.** Bottom sheet panel with syntax-highlighted SQL, Python code, and computed data tables. Copy to clipboard or export as CSV/XLSX.
 - **Update data.** Re-run saved visualizations with new data files. Schema-compatible updates skip LLM calls.
@@ -73,7 +86,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 In addition to file uploads, Hermetic can connect directly to data warehouses. Ask questions in natural language and Hermetic generates SQL automatically, executes it against your warehouse, then analyzes and visualizes the results.
 
-Supported warehouses: **PostgreSQL**, **BigQuery**, **ClickHouse**, **Trino**, **Hive**.
+Supported warehouses: **PostgreSQL**, **BigQuery**, **ClickHouse**, **Snowflake**, **Databricks**, **Trino**, **Hive**.
 
 ### Connecting
 
@@ -226,6 +239,44 @@ Enter the dataset as `bigquery-public-data.stackoverflow` (the `project.dataset`
 
 Try asking: _"What are the most popular programming language tags by year?"_
 
+### Snowflake
+
+**Connection fields:**
+
+| Field     | Example             | Notes                             |
+| --------- | ------------------- | --------------------------------- |
+| Account   | `xy12345.us-east-1` | Your Snowflake account identifier |
+| Username  | `analyst`           |                                   |
+| Password  |                     | Or use key-pair auth              |
+| Warehouse | `COMPUTE_WH`        |                                   |
+| Database  | `ANALYTICS`         |                                   |
+| Schema    | `PUBLIC`            |                                   |
+| Role      | `ANALYST_ROLE`      | Optional                          |
+
+### Databricks
+
+**Connection fields:**
+
+| Field           | Example                            | Notes                                     |
+| --------------- | ---------------------------------- | ----------------------------------------- |
+| Server hostname | `abc-1234.cloud.databricks.com`    | Your workspace host                       |
+| HTTP path       | `/sql/1.0/warehouses/abc123def456` | From the SQL warehouse connection details |
+| Access token    | `dapi…`                            | Personal access token                     |
+| Catalog         | `main`                             |                                           |
+| Schema          | `default`                          |                                           |
+
+### Trino / Hive
+
+Both have inline connection forms with host, port, catalog/database, and credentials. Trino works with Starburst and any Trino-compatible engine.
+
+## Parquet and Local Files
+
+Point Hermetic at a Parquet file or a Hive-partitioned folder on your local disk and analyze it without uploading.
+
+Click the **Browse local files** entry on the home screen, navigate to the file or folder, and pick it. The file is bind-mounted into the sandbox (zero-copy — no upload, no conversion). DuckDB extracts schema and statistics; for queries over ~1M rows, aggregation is pushed into DuckDB SQL before any pandas code runs.
+
+Hive-partitioned folders (e.g. `year=2024/month=01/...`) are detected as a single dataset; partition columns appear in the schema alongside the file columns.
+
 ## Quick Start
 
 ```bash
@@ -304,32 +355,62 @@ The setup script checks prerequisites, installs dependencies, sets up your chose
 src/
   app/                  Next.js App Router
     api/
-      query/            LLM query endpoint (streaming)
+      query/            LLM query endpoint (streaming, with conversation context)
       upload/           File upload endpoint
-      vizs/             Saved visualization CRUD
+      local-files/      Local file browser + Parquet/DuckDB ingest
+      warehouse/        Warehouse connection + introspection endpoints
+      vizs/             Saved visualization CRUD + scheduling
+      history/          Persistent analysis history
       artifacts/        Execution artifacts viewer
+      suggest/          Question suggestion endpoint
+      providers/        LLM provider detection
+      runtimes/         Sandbox runtime status
+      ollama/           Ollama model management
+      local-llm/        Local model (MLX / llama.cpp) management
+    history/            Persistent history page
   components/
     app/                Application shell
       top-bar.tsx       Persistent header with actions
-      source-cards.tsx  File upload + warehouse connect cards
+      source-cards.tsx  File / warehouse / local file source cards
       settings-drawer.tsx  Right-side settings panel
+      settings/         Inference, models, appearance, connected sources
       data-rail.tsx     Collapsible data explorer rail
       data-explorer/    Schema, profile, sample, sheet/table views
+      local-file-browser.tsx  File system picker for Parquet/CSV
+      schedule-popover.tsx    Cron scheduling UI for saved dashboards
+      code-editor.tsx   Edit-and-rerun Python / SQL editor
       artifacts-panel.tsx  Bottom sheet for SQL/code/data
-      analysis-history.tsx  Session history of past analyses
-      suggestion-pills.tsx  LLM-generated question suggestions
-    charts/             Chart components (Nivo, Plotly, deck.gl, MapLibre GL)
+      analysis-history.tsx  Session + persistent history of past analyses
+      saved-vizs-panel.tsx  Saved dashboards with schedule pills
+      suggestion-pills.tsx  LLM-generated question + follow-up suggestions
+    charts/             32 chart components (Nivo, Plotly, deck.gl, MapLibre GL)
+    pivot-table.tsx     Interactive pivot table (sort, drill, cross-filter)
     controllers/        DataController for client-side filtering
     inputs/             Form inputs (Select, NumberInput, Toggle)
   lib/
     csv/                CSV parsing and schema extraction
     excel/              Excel file handling
     geojson/            GeoJSON parsing
-    warehouse/          Data warehouse connectors (PostgreSQL, BigQuery, ClickHouse, Trino, Hive)
-    llm/                LLM integration and prompt generation
-    pipeline/           Query orchestration (code-gen, sandbox, UI compose)
-    sandbox/            Code execution (Docker / E2B / Microsandbox)
-    saved/              Saved visualization storage and versioning
+    parquet/            Parquet schema extraction via DuckDB
+    local-files/        Local file browser + path sandboxing
+    warehouse/          Data warehouse connectors
+      postgres, bigquery, clickhouse, snowflake, databricks, trino, hive
+      sql-generation.ts dialect-aware SQL prompts
+      dbt-metadata.ts   dbt column-description enrichment
+      infer-relationships.ts  FK/PK + heuristic relationship detection
+    llm/                LLM client, prompts, code generation
+      investigate-planner.ts   Decompose question → sub-questions
+      investigate-composer.ts  Synthesize sub-results → one dashboard
+      resolve-placeholders.ts  Hydrate composed spec with real values
+    pipeline/           Query orchestration
+      orchestrator.ts            Single-question pipeline w/ multi-retry
+      investigate-orchestrator.ts Multi-step Investigate runner
+      conversation-cache.ts      Server-side follow-up context
+      code-cache.ts              Edit-rerun cached artifacts
+      artifacts-cache.ts         Execution artifact cache
+    sandbox/            Code execution (Docker warm / E2B / Microsandbox warm)
+    saved/              Saved viz storage, versioning, scheduler (node-cron)
+    history/            Persistent on-disk history
     suggest-questions.ts  Heuristic question suggestion fallback
     purpose-prompts.ts  Output style definitions (Dashboard, Narrative, etc.)
 ```
@@ -338,18 +419,28 @@ src/
 
 **File uploads:**
 
-1. **Upload.** CSV, Excel (multi-sheet), GeoJSON, or JSON file is parsed, schema extracted, and stored in memory.
-2. **Query.** User question + schema sent to your configured LLM for Python code generation.
-3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, and scikit-learn.
+1. **Load.** CSV, Excel (multi-sheet), GeoJSON, JSON, or Parquet file is parsed, schema extracted, and stored in memory (Parquet stays on disk and is bind-mounted into the sandbox).
+2. **Query.** User question + schema (and prior conversation history, if any) sent to your configured LLM for Python code generation.
+3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, scikit-learn, and DuckDB. Failures retry up to 3× with a reflection prompt after the second attempt.
 4. **Compose.** Execution results sent to the LLM for UI composition as a JSON-Render spec.
-5. **Render.** JSON-Render spec streamed to the browser and rendered as interactive React components.
+5. **Render.** JSON-Render spec streamed to the browser and rendered as interactive React components. Every analysis auto-saves to persistent history.
 
 **Warehouse queries** add two steps before the standard pipeline:
 
-1. **SQL Generation.** User question + all table schemas (columns, types, PKs, FKs) sent to the LLM to generate a dialect-aware SQL query.
-2. **SQL Execution.** Query runs against the warehouse. Results flow as CSV into the standard pipeline (steps 2-5 above).
+1. **SQL Generation.** User question + all table schemas (columns, types, PKs, FKs, dbt descriptions if present) sent to the LLM to generate a dialect-aware SQL query.
+2. **SQL Execution.** Query runs against the warehouse. Results flow as CSV into the standard pipeline (steps 2–5 above).
 
-Saved visualizations can be updated with new data files. If the schema matches, the saved code is re-executed directly without LLM calls.
+**Investigate** runs a higher-level loop on top of the standard pipeline:
+
+1. **Plan.** The planner sees schema + stats only and decomposes the question into 3–7 sub-questions with a dependency graph.
+2. **Orchestrate.** Independent sub-questions run in parallel waves; dependent ones run serially. Each sub-question uses the standard pipeline.
+3. **Compose.** The composer synthesizes all sub-results into a single unified JSON-Render spec.
+
+**Conversational follow-ups** are handled by the conversation cache: each turn's question, generated code, and result schema are kept server-side so the next turn's LLM call has full context. "Exclude outliers and re-run" works without you restating the original setup.
+
+**Edit-and-rerun.** Open the code editor, change the Python or SQL, and re-run. The server skips the corresponding generation step and runs everything downstream.
+
+**Saved visualizations** can be updated with new data files (schema-compatible updates skip LLM calls) or scheduled to refresh on a cron (node-cron). Schedule pills appear on saved-viz cards with edit/delete in place.
 
 ## Development
 
@@ -484,6 +575,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 | Annotation     | Contextual notes                      | Custom         |
 | TrendIndicator | Directional change indicator          | Custom         |
 | DataTable      | Sortable, filterable, paginated table | TanStack Table |
+| PivotTable     | Sort, drill, cross-filter, heatmap    | Custom         |
 | ChartImage     | Rendered image from sandbox           | Custom         |
 | DataController | Client-side cross-filtering           | Custom         |
 
@@ -527,6 +619,17 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 
 - [PapaParse](https://www.papaparse.com/) for CSV
 - [ExcelJS](https://github.com/exceljs/exceljs) for Excel workbooks
+- [DuckDB](https://duckdb.org/) for Parquet, Hive-partitioned folders, and pushdown aggregation (in the sandbox)
+
+**Warehouse drivers**
+
+- [`pg`](https://node-postgres.com/) for PostgreSQL / Redshift / Neon / Supabase / AlloyDB
+- [`@google-cloud/bigquery`](https://cloud.google.com/bigquery) for BigQuery
+- [`@clickhouse/client`](https://clickhouse.com/) for ClickHouse
+- [`snowflake-sdk`](https://docs.snowflake.com/en/developer-guide/node-js/nodejs-driver) for Snowflake
+- [`@databricks/sql`](https://docs.databricks.com/en/dev-tools/nodejs-sql-driver.html) for Databricks
+- [`trino-client`](https://github.com/regadas/trino-js-client) for Trino / Starburst
+- [`hive-driver`](https://github.com/lenchv/hive-driver) for Apache Hive
 
 **Export**
 
