@@ -118,7 +118,10 @@ function flattenStepArtifacts(subResults: SubQuestionResult[]): {
     question: string;
     rationale: string;
     failed: boolean;
+    degraded: boolean;
+    removed: boolean;
     error?: string;
+    degradedReason?: string;
     resultKeys: string[];
     chartDataKeys: string[];
   }[];
@@ -128,14 +131,20 @@ function flattenStepArtifacts(subResults: SubQuestionResult[]): {
   const perStepMetadata: ReturnType<typeof flattenStepArtifacts>["perStepMetadata"] = [];
 
   for (const sub of subResults) {
+    // Sub-questions the re-planner dropped are not rendered in the dashboard —
+    // they never ran and have no data to show.
+    if (sub.removed) continue;
     const stepNo = sub.index + 1; // 1-indexed for human readability
     const prefix = `step_${stepNo}_`;
     const meta = {
       index: sub.index,
       question: sub.question,
       rationale: sub.rationale,
-      failed: !sub.result,
+      failed: !!sub.error,
+      degraded: !!sub.degraded,
+      removed: false,
       error: sub.error,
+      degradedReason: sub.degradedReason,
       resultKeys: [] as string[],
       chartDataKeys: [] as string[],
     };
@@ -177,7 +186,8 @@ Wrap everything in a LayoutColumn root. Then produce, in order:
    - The visualization(s) for that step's data (bar chart, line chart, stat cards, table — pick what fits the chart_data shape)
    - A TextBlock (variant: insight) with 1-2 sentences interpreting THIS step's finding specifically
 4. **Failed steps** — for any sub-question that failed, render an Annotation (severity: warning) noting the question and the failure reason. Do NOT skip them silently.
-5. **Conclusion** — a TextBlock (variant: body) with implications and recommended next steps.
+5. **Degraded steps** — for any sub-question marked DEGRADED, still render its visualization but ALSO add an Annotation (severity: info) above it noting the validator's concern ("empty result", "all-zero values", etc.). The number / chart MAY be correct; the validator just flagged it as suspicious.
+6. **Conclusion** — a TextBlock (variant: body) with implications and recommended next steps.
 
 ## Component & data rules
 - Each step's data is namespaced with prefix \`step_<N>_\` where N is 1-based. Reference it like "$result:step_2_total_revenue" or "$chartData:step_2_bar_data".
@@ -210,9 +220,13 @@ Question: ${m.question}
 Rationale: ${m.rationale}
 Error: ${(m.error ?? "").slice(0, 300)}`;
       }
-      return `### Step ${stepNo}
+      const degradedTag = m.degraded ? " — DEGRADED" : "";
+      const degradedNote = m.degraded
+        ? `\nDegraded: ${(m.degradedReason ?? "validator flagged this result").slice(0, 300)}`
+        : "";
+      return `### Step ${stepNo}${degradedTag}
 Question: ${m.question}
-Rationale: ${m.rationale}
+Rationale: ${m.rationale}${degradedNote}
 Result keys: ${m.resultKeys.join(", ") || "(none)"}
 Chart data keys: ${m.chartDataKeys.join(", ") || "(none)"}`;
     })
@@ -267,7 +281,13 @@ export interface ComposeStreamOutput {
     /** Plan metadata for client-side display. */
     investigation: {
       approach: string;
-      steps: { index: number; question: string; rationale: string; failed: boolean }[];
+      steps: {
+        index: number;
+        question: string;
+        rationale: string;
+        failed: boolean;
+        degraded: boolean;
+      }[];
     };
   };
 }
@@ -294,7 +314,8 @@ export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
   });
 
   logger.info("Investigate: composing dashboard", {
-    successfulSteps: perStepMetadata.filter((m) => !m.failed).length,
+    successfulSteps: perStepMetadata.filter((m) => !m.failed && !m.degraded).length,
+    degradedSteps: perStepMetadata.filter((m) => m.degraded).length,
     failedSteps: perStepMetadata.filter((m) => m.failed).length,
     resultKeys: Object.keys(mergedResults).length,
     chartDataKeys: Object.keys(mergedChartData).length,
@@ -320,6 +341,7 @@ export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
           question: m.question,
           rationale: m.rationale,
           failed: m.failed,
+          degraded: m.degraded,
         })),
       },
     },

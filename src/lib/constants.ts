@@ -16,6 +16,16 @@ export const UI_COMPOSE_MODEL = "claude-sonnet-4-6" as const;
 export const LOCAL_CTX_SIZE = 32_768; // context window for local models (Ollama, llama.cpp, MLX prompt cache)
 export const LLM_MAX_OUTPUT_TOKENS = 16_384; // max output tokens — local models default to ~256 without this
 
+// ── Investigate agent budgets ────────────────────────────────────────
+// Bounds on the agentic re-planning loop. The orchestrator calls the
+// re-planner between waves; these caps prevent runaway cost / latency
+// regardless of what the model emits.
+export const INVESTIGATE_MAX_HOPS = 2; // max re-plan rounds after the initial plan (so 3 total wave-planning calls)
+export const INVESTIGATE_MAX_SUBQUESTIONS = 10; // hard cap on total sub-questions across initial + amended
+// Composer-dispatched follow-ups: how many times the composer may ask
+// for an extra wave before being forced to compose with what it has.
+export const COMPOSER_MAX_DISPATCHES = 1;
+
 export const AVAILABLE_MODELS = [
   { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },

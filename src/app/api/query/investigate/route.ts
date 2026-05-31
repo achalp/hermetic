@@ -211,7 +211,7 @@ export async function POST(request: Request) {
             }) + "\n"
           );
 
-          // ── Step 2: Execute sub-questions ──
+          // ── Step 2: Execute sub-questions (with re-planning between waves) ──
           let stepCount = 1;
           const subResults = await runInvestigation(plan.subQuestions, {
             schema: stored.schema,
@@ -222,6 +222,8 @@ export async function POST(request: Request) {
             localFileContext,
             runtime: sandboxRuntime,
             model: codeGenModel,
+            originalQuestion: question,
+            approach: plan.approach,
             onProgress: (event) => {
               if (event.kind === "sub_started" && event.index !== undefined) {
                 stepCount++;
@@ -241,6 +243,23 @@ export async function POST(request: Request) {
                     value: "done",
                   }) + "\n"
                 );
+              } else if (event.kind === "sub_degraded" && event.index !== undefined) {
+                emit(
+                  JSON.stringify({
+                    op: "replace",
+                    path: `/state/__plan/steps/${event.index}/status`,
+                    value: "degraded",
+                  }) + "\n"
+                );
+                if (event.degradedReason) {
+                  emit(
+                    JSON.stringify({
+                      op: "add",
+                      path: `/state/__plan/steps/${event.index}/degradedReason`,
+                      value: event.degradedReason,
+                    }) + "\n"
+                  );
+                }
               } else if (event.kind === "sub_failed" && event.index !== undefined) {
                 emit(
                   JSON.stringify({
@@ -249,6 +268,51 @@ export async function POST(request: Request) {
                     value: "failed",
                   }) + "\n"
                 );
+              } else if (event.kind === "replan_decision") {
+                // Surface the re-planner's decision as a sibling entry on the plan.
+                // The UI can render this inline as a "Planner re-evaluated" step.
+                emit(
+                  JSON.stringify({
+                    op: "add",
+                    path: "/state/__plan/replan",
+                    value: {
+                      action: event.replanAction,
+                      rationale: event.replanRationale,
+                      atStepCount: stepCount,
+                    },
+                  }) + "\n"
+                );
+              } else if (event.kind === "subs_amended") {
+                // Append new steps to the visible plan and mark removed ones.
+                if (event.addedSteps) {
+                  for (const step of event.addedSteps) {
+                    emit(
+                      JSON.stringify({
+                        op: "add",
+                        path: `/state/__plan/steps/${step.index}`,
+                        value: {
+                          index: step.index,
+                          question: step.question,
+                          rationale: step.rationale,
+                          depends_on: step.depends_on,
+                          status: "pending",
+                          addedByReplanner: true,
+                        },
+                      }) + "\n"
+                    );
+                  }
+                }
+                if (event.removedIndices) {
+                  for (const idx of event.removedIndices) {
+                    emit(
+                      JSON.stringify({
+                        op: "replace",
+                        path: `/state/__plan/steps/${idx}/status`,
+                        value: "removed",
+                      }) + "\n"
+                    );
+                  }
+                }
               }
             },
           });

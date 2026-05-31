@@ -1,6 +1,87 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { groupSubQuestionsIntoWaves } from "@/lib/pipeline/investigate-orchestrator";
 import type { PlannedSubQuestion } from "@/lib/llm/investigate-planner";
+
+// ── Mocks for the agentic-loop tests below ─────────────────────────
+// runPipeline does sandbox execution + LLM calls; generateReplan does
+// an LLM call. We stub both to return deterministic results.
+
+vi.mock("@/lib/pipeline/orchestrator", () => ({
+  runPipeline: vi.fn(),
+}));
+vi.mock("@/lib/llm/investigate-planner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm/investigate-planner")>();
+  return {
+    ...actual,
+    generateReplan: vi.fn(),
+  };
+});
+
+import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
+import { runPipeline } from "@/lib/pipeline/orchestrator";
+import { generateReplan } from "@/lib/llm/investigate-planner";
+import type { CSVSchema } from "@/lib/types";
+
+const mockedRunPipeline = vi.mocked(runPipeline);
+const mockedGenerateReplan = vi.mocked(generateReplan);
+
+function freshSchema(): CSVSchema {
+  return {
+    filename: "test.csv",
+    csv_id: "test",
+    row_count: 100,
+    column_count: 1,
+    columns: [],
+    detected_domain: undefined,
+    correlations: [],
+  } as unknown as CSVSchema;
+}
+
+function pipelineOk(question: string) {
+  return Promise.resolve({
+    executionResult: {
+      success: true as const,
+      results: { value: 1 },
+      chart_data: {},
+      images: {},
+      execution_ms: 10,
+    },
+    generatedCode: "ok",
+    question,
+  });
+}
+
+function pipelineDegraded(question: string) {
+  return Promise.resolve({
+    executionResult: {
+      success: true as const,
+      results: {},
+      chart_data: {},
+      images: {},
+      execution_ms: 10,
+    },
+    generatedCode: "ok",
+    question,
+    degraded: true,
+    degradedReason: "Empty result",
+  });
+}
+
+function pipelineFail(question: string) {
+  return Promise.reject(new Error(`hard failure for ${question}`));
+}
+
+beforeEach(() => {
+  mockedRunPipeline.mockReset();
+  mockedGenerateReplan.mockReset();
+  // Default re-planner behavior: always continue
+  mockedGenerateReplan.mockResolvedValue({
+    action: "continue",
+    rationale: "no change",
+    addSubQuestions: [],
+    removeSubQuestionIndices: [],
+  });
+});
 
 function sq(question: string, depends_on: number[]): PlannedSubQuestion {
   return { question, rationale: "", depends_on };
@@ -64,5 +145,329 @@ describe("groupSubQuestionsIntoWaves", () => {
 
   it("handles an empty plan", () => {
     expect(groupSubQuestionsIntoWaves([])).toEqual([]);
+  });
+});
+
+describe("runInvestigation — agentic loop", () => {
+  it("runs all sub-questions when re-planner continues every time", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+
+    const results = await runInvestigation([sq("A", []), sq("B", []), sq("C", [0, 1])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "test-model",
+      originalQuestion: "test",
+      approach: "test approach",
+    });
+
+    expect(results).toHaveLength(3);
+    expect(results.every((r) => r.result && !r.error && !r.degraded)).toBe(true);
+    expect(mockedRunPipeline).toHaveBeenCalledTimes(3);
+  });
+
+  it("invokes the re-planner once per wave when there's pending work", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    // 3 sub-questions in 3 waves (linear) → 2 between-wave re-plan calls.
+    await runInvestigation([sq("A", []), sq("B", [0]), sq("C", [1])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+    // After wave 1 (A done, B+C pending) → call re-planner.
+    // After wave 2 (B done, C pending) → call re-planner.
+    // After wave 3 (C done, none pending) → no call.
+    expect(mockedGenerateReplan).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips re-planner when no pending sub-questions remain", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    // All independent → one wave, then nothing pending.
+    await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+    expect(mockedGenerateReplan).not.toHaveBeenCalled();
+  });
+
+  it("appends a new sub-question on amend and runs it in a subsequent wave", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+
+    let replanCallCount = 0;
+    mockedGenerateReplan.mockImplementation(async () => {
+      replanCallCount++;
+      if (replanCallCount === 1) {
+        return {
+          action: "amend",
+          rationale: "Drill into top region",
+          addSubQuestions: [
+            { question: "Drill into top finding", rationale: "r", depends_on: [0] },
+          ],
+          removeSubQuestionIndices: [],
+        };
+      }
+      return {
+        action: "continue",
+        rationale: "",
+        addSubQuestions: [],
+        removeSubQuestionIndices: [],
+      };
+    });
+
+    // Wave 0: A. After wave 0 (B is pending), re-planner runs and amends.
+    // Wave 1: B and the new sub-question C (both depend on 0, which is done).
+    const results = await runInvestigation([sq("A", []), sq("B", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // Original 2 + 1 added = 3 total sub-questions
+    expect(results).toHaveLength(3);
+    expect(results[2].question).toBe("Drill into top finding");
+    expect(results[2].depends_on).toEqual([0]);
+    expect(results[2].result).toBeTruthy(); // it ran
+  });
+
+  it("stops early when re-planner returns stop", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "stop",
+      rationale: "nothing interesting in wave 0",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [],
+    });
+
+    // Wave 0: A independent. Pending: B (depends on 0), C (depends on 0).
+    const results = await runInvestigation([sq("A", []), sq("B", [0]), sq("C", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // A ran; B and C were dropped as removed
+    expect(results[0].result).toBeTruthy();
+    expect(results[1].removed).toBe(true);
+    expect(results[2].removed).toBe(true);
+    expect(mockedRunPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes pending sub-questions via removeSubQuestionIndices", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "amend",
+      rationale: "drop one pending",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [1], // drop B which is pending (depends_on: [0])
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B", [0]), sq("C", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    expect(results[0].result).toBeTruthy();
+    expect(results[1].removed).toBe(true);
+    expect(results[2].result).toBeTruthy(); // C still ran
+  });
+
+  it("ignores remove indices that point at already-completed sub-questions", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "amend",
+      rationale: "try to remove the already-finished one",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [0], // A is already completed
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // A was NOT removed (already done); B still ran
+    expect(results[0].removed).toBeUndefined();
+    expect(results[0].result).toBeTruthy();
+    expect(results[1].result).toBeTruthy();
+  });
+
+  it("propagates degraded flag from PipelineResult to SubQuestionResult", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineDegraded(q));
+
+    const results = await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    expect(results[0].degraded).toBe(true);
+    expect(results[0].degradedReason).toBe("Empty result");
+    expect(results[0].error).toBeUndefined();
+  });
+
+  it("emits sub_degraded progress event when a sub-question is degraded", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineDegraded(q));
+    const events: string[] = [];
+
+    await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+      onProgress: (e) => events.push(e.kind),
+    });
+
+    expect(events).toContain("sub_degraded");
+    expect(events).not.toContain("sub_failed");
+  });
+
+  it("emits replan_decision progress event after each between-wave re-plan", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGenerateReplan.mockResolvedValue({
+      action: "continue",
+      rationale: "ok",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [],
+    });
+
+    const events: { kind: string; action?: string }[] = [];
+    await runInvestigation([sq("A", []), sq("B", [0]), sq("C", [1])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+      onProgress: (e) => events.push({ kind: e.kind, action: e.replanAction }),
+    });
+
+    const replanEvents = events.filter((e) => e.kind === "replan_decision");
+    expect(replanEvents.length).toBe(2); // 3 waves → 2 between-wave calls
+    for (const r of replanEvents) expect(r.action).toBe("continue");
+  });
+
+  it("emits subs_amended event with added/removed details", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "amend",
+      rationale: "amend",
+      addSubQuestions: [{ question: "New sub-question", rationale: "r", depends_on: [0] }],
+      removeSubQuestionIndices: [1],
+    });
+
+    const amendEvents: {
+      added?: number;
+      removed?: number[];
+      total?: number;
+    }[] = [];
+    await runInvestigation([sq("A", []), sq("B", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+      onProgress: (e) => {
+        if (e.kind === "subs_amended") {
+          amendEvents.push({
+            added: e.addedSteps?.length,
+            removed: e.removedIndices,
+            total: e.total,
+          });
+        }
+      },
+    });
+
+    expect(amendEvents).toHaveLength(1);
+    expect(amendEvents[0].added).toBe(1);
+    expect(amendEvents[0].removed).toEqual([1]);
+    expect(amendEvents[0].total).toBe(3);
+  });
+
+  it("enforces INVESTIGATE_MAX_SUBQUESTIONS cap on amendments", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    // Repeatedly amend with one new sub-question; the cap should stop adds.
+    mockedGenerateReplan.mockImplementation(async () => ({
+      action: "amend",
+      rationale: "more!",
+      addSubQuestions: [{ question: "Yet another sub-question", rationale: "r", depends_on: [] }],
+      removeSubQuestionIndices: [],
+    }));
+
+    const results = await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // Cap is INVESTIGATE_MAX_SUBQUESTIONS = 10 — final length cannot exceed it
+    expect(results.length).toBeLessThanOrEqual(10);
+  });
+
+  it("does not consult re-planner past INVESTIGATE_MAX_HOPS", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    // Linear chain of 5 → 4 between-wave opportunities, but cap is 2 hops.
+    await runInvestigation([sq("A", []), sq("B", [0]), sq("C", [1]), sq("D", [2]), sq("E", [3])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+    expect(mockedGenerateReplan).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not count degraded sub-questions toward the half-failure throw", async () => {
+    // 2 degraded out of 4 — should NOT throw. (Hard-fail threshold is half.)
+    let n = 0;
+    mockedRunPipeline.mockImplementation((_s, _c, q) => {
+      n++;
+      return n <= 2 ? pipelineDegraded(q) : pipelineOk(q);
+    });
+
+    await expect(
+      runInvestigation([sq("A", []), sq("B", []), sq("C", []), sq("D", [])], {
+        schema: freshSchema(),
+        csvContent: "",
+        model: "m",
+        originalQuestion: "test",
+        approach: "a",
+      })
+    ).resolves.toBeDefined();
+  });
+
+  it("throws when half or more sub-questions HARD-fail", async () => {
+    let n = 0;
+    mockedRunPipeline.mockImplementation((_s, _c, q) => {
+      n++;
+      return n <= 2 ? pipelineFail(q) : pipelineOk(q);
+    });
+
+    await expect(
+      runInvestigation([sq("A", []), sq("B", []), sq("C", []), sq("D", [])], {
+        schema: freshSchema(),
+        csvContent: "",
+        model: "m",
+        originalQuestion: "test",
+        approach: "a",
+      })
+    ).rejects.toThrow(/Investigation failed/);
   });
 });

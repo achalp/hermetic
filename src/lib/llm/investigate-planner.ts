@@ -323,6 +323,293 @@ export async function generatePlan(
   return parsed;
 }
 
+// ── Re-planner ─────────────────────────────────────────────────
+//
+// After each wave of sub-questions completes, the orchestrator asks the
+// re-planner what to do next based on what was learned. This is the
+// closed-loop bit that turns Investigate from a batch executor into an
+// agent: the plan can grow, shrink, or terminate early based on
+// intermediate findings.
+//
+// Privacy posture: same as the planner — the re-planner sees only
+// SCHEMA + RESULT SUMMARIES (key types, chart shapes). Never row
+// values.
+
+export type ReplanAction = "continue" | "amend" | "stop";
+
+export interface ReplanDecision {
+  action: ReplanAction;
+  /** 1-2 sentence explanation of why; shown to the user as a step in the live UI. */
+  rationale: string;
+  /** When action === "amend": new sub-questions to append. depends_on indices reference the FULL post-amend plan. */
+  addSubQuestions: PlannedSubQuestion[];
+  /** When action === "amend": indices of PENDING sub-questions to drop (already-executed ones cannot be removed). */
+  removeSubQuestionIndices: number[];
+}
+
+/** Per-sub-question summary passed to the re-planner — schema-only. */
+export interface SubQuestionResultSummary {
+  index: number;
+  question: string;
+  rationale: string;
+  status: "success" | "degraded" | "failed";
+  /** Compact description of result keys with their JS types. */
+  resultKeys?: Record<string, string>;
+  /** For each chart_data key: column names and row count. */
+  chartDataShapes?: Record<string, { columns: string[]; rows: number }>;
+  /** Set when status === "degraded": the validator's reason. */
+  degradedReason?: string;
+  /** Set when status === "failed": short error preview. */
+  errorPreview?: string;
+}
+
+const REPLANNER_SYSTEM_PROMPT = `You are a data analysis re-planner. You're mid-investigation. A wave of sub-questions has just completed and you must decide whether the original plan still makes sense.
+
+You will see:
+- The original user question.
+- The original plan (approach + all sub-questions with depends_on).
+- Result summaries for every sub-question completed so far (status: success / degraded / failed, plus result-key types and chart shapes — NO row values).
+- The remaining pending sub-questions.
+- The current hop count and remaining budget.
+
+Choose ONE action:
+
+1. "continue" — the plan is on track. No changes. Use this most of the time.
+
+2. "amend" — the findings suggest a follow-up that wasn't in the original plan, OR a pending sub-question is no longer informative because of what's been learned. You may:
+   - addSubQuestions: append 1-3 new sub-questions. Each new sub-question's depends_on indices may reference any sub-question that will exist after the amendment (already-completed or newly added). Cap depends_on at 3 entries per sub-question.
+   - removeSubQuestionIndices: drop 1+ PENDING sub-questions (indices listed in the "Pending sub-questions" section). You cannot remove already-completed ones.
+
+3. "stop" — nothing in the completed results suggests pursuing the remaining sub-questions. The composer should synthesize with what we have. Use this when the findings are clear-cut and remaining pending sub-questions would be busywork.
+
+Rules:
+- Do NOT duplicate the rationale of any existing sub-question. If a finding is already established, don't ask it again.
+- Each new sub-question must be answerable by ONE Python script and reference real columns from the schema.
+- depends_on indices in new sub-questions are in the FULL POST-AMEND plan numbering (existing sub-questions keep their original indices; new ones append).
+- Prefer "continue" when in doubt. Re-plans cost time and tokens.
+- If remaining budget is 0 (you've already hit the hop cap), only "continue" or "stop" are valid — "amend" will be ignored.
+
+Output STRICT JSON:
+{
+  "action": "continue" | "amend" | "stop",
+  "rationale": "1-2 sentence explanation",
+  "addSubQuestions": [],
+  "removeSubQuestionIndices": []
+}
+
+Output ONLY the JSON object. No markdown fencing, no preamble.`;
+
+function summarizeResultsForReplanner(completed: SubQuestionResultSummary[]): string {
+  if (completed.length === 0) return "(no sub-questions completed yet)";
+  const lines: string[] = [];
+  for (const r of completed) {
+    lines.push(`### Step ${r.index} — ${r.status.toUpperCase()}`);
+    lines.push(`Question: ${r.question}`);
+    if (r.rationale) lines.push(`Rationale: ${r.rationale}`);
+    if (r.status === "failed" && r.errorPreview) {
+      lines.push(`Error: ${r.errorPreview}`);
+    } else if (r.status === "degraded" && r.degradedReason) {
+      lines.push(`Degraded: ${r.degradedReason}`);
+    }
+    if (r.resultKeys && Object.keys(r.resultKeys).length > 0) {
+      const keys = Object.entries(r.resultKeys)
+        .slice(0, 10)
+        .map(([k, t]) => `${k}: ${t}`)
+        .join(", ");
+      lines.push(`Result keys: ${keys}`);
+    }
+    if (r.chartDataShapes && Object.keys(r.chartDataShapes).length > 0) {
+      const shapes = Object.entries(r.chartDataShapes)
+        .slice(0, 5)
+        .map(([k, s]) => `${k}: ${s.rows}rows × [${s.columns.slice(0, 6).join(", ")}]`)
+        .join("; ");
+      lines.push(`Chart data: ${shapes}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildReplannerUserPrompt(args: {
+  originalQuestion: string;
+  approach: string;
+  allSubQuestions: PlannedSubQuestion[];
+  completed: SubQuestionResultSummary[];
+  pendingIndices: number[];
+  schema: CSVSchema | null;
+  warehouse?: WarehouseTableSchema[];
+  hopCount: number;
+  remainingHops: number;
+  subQuestionsBudget: number;
+}): string {
+  const planLines = args.allSubQuestions
+    .map((sq, i) => `  ${i}. "${sq.question}" — depends_on: [${sq.depends_on.join(", ")}]`)
+    .join("\n");
+
+  const pendingLines =
+    args.pendingIndices.length === 0
+      ? "(none — all waves complete; this is the terminal re-plan call before composition)"
+      : args.pendingIndices.map((i) => `  ${i}. ${args.allSubQuestions[i].question}`).join("\n");
+
+  return `## Original User Question
+${args.originalQuestion}
+
+## Original Approach
+${args.approach}
+
+## Original Plan
+${planLines}
+
+## Sub-questions Completed So Far
+${summarizeResultsForReplanner(args.completed)}
+
+## Pending Sub-questions
+${pendingLines}
+
+## Schema
+${summarizeSchemaForPlanner(args.schema, args.warehouse)}
+
+## Budget
+- Re-plan hops used: ${args.hopCount} of ${args.hopCount + args.remainingHops} max
+- Sub-question budget remaining: ${args.subQuestionsBudget} (current plan: ${args.allSubQuestions.length})
+
+Decide. Output JSON only.`;
+}
+
+function parseReplannerOutput(
+  raw: string,
+  currentPlanLength: number
+): { ok: true; decision: ReplanDecision } | { ok: false; error: string } {
+  const stripped = extractJsonObject(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Re-planner output was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { ok: false, error: "Re-planner output was not an object" };
+  }
+  const obj = parsed as Record<string, unknown>;
+
+  const actionRaw = typeof obj.action === "string" ? obj.action : "";
+  let action: ReplanAction;
+  if (actionRaw === "continue" || actionRaw === "amend" || actionRaw === "stop") {
+    action = actionRaw;
+  } else {
+    return { ok: false, error: `Invalid action: ${actionRaw}` };
+  }
+
+  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim() : "";
+
+  const addSubQuestions: PlannedSubQuestion[] = [];
+  const addRaw = obj.addSubQuestions;
+  if (Array.isArray(addRaw)) {
+    // New sub-questions' indices in depends_on reference the POST-AMEND plan,
+    // i.e. their own slot is `currentPlanLength + position`. Cap at 3 added.
+    for (let pos = 0; pos < addRaw.length && pos < 3; pos++) {
+      const sq = addRaw[pos] as Record<string, unknown>;
+      if (!sq || typeof sq !== "object") continue;
+      const question = typeof sq.question === "string" ? sq.question.trim() : "";
+      if (question.length < 5) continue;
+      const rationaleS = typeof sq.rationale === "string" ? sq.rationale.trim() : "";
+      const selfIdx = currentPlanLength + pos;
+      const depends_on = normalizeDependsOn(sq.depends_on, selfIdx);
+      addSubQuestions.push({ question, rationale: rationaleS, depends_on });
+    }
+  }
+
+  const removeSubQuestionIndices: number[] = [];
+  const removeRaw = obj.removeSubQuestionIndices;
+  if (Array.isArray(removeRaw)) {
+    const seen = new Set<number>();
+    for (const v of removeRaw) {
+      if (typeof v !== "number" || !Number.isInteger(v)) continue;
+      if (v < 0 || v >= currentPlanLength) continue;
+      if (seen.has(v)) continue;
+      seen.add(v);
+      removeSubQuestionIndices.push(v);
+    }
+  }
+
+  return { ok: true, decision: { action, rationale, addSubQuestions, removeSubQuestionIndices } };
+}
+
+/**
+ * Ask the re-planner what to do given the current state of the investigation.
+ * Falls back to `continue` on any LLM or parse failure — the loop must always
+ * be able to make forward progress.
+ */
+export async function generateReplan(args: {
+  originalQuestion: string;
+  approach: string;
+  allSubQuestions: PlannedSubQuestion[];
+  completed: SubQuestionResultSummary[];
+  pendingIndices: number[];
+  schema: CSVSchema | null;
+  warehouse?: WarehouseTableSchema[];
+  hopCount: number;
+  remainingHops: number;
+  subQuestionsBudget: number;
+  model?: string;
+}): Promise<ReplanDecision> {
+  const fallback: ReplanDecision = {
+    action: "continue",
+    rationale: "Re-planner unavailable; continuing with current plan.",
+    addSubQuestions: [],
+    removeSubQuestionIndices: [],
+  };
+
+  if (args.remainingHops <= 0) {
+    // Budget exhausted; the only valid choices are continue or stop, and
+    // we can't ask the LLM here because amend would be ignored. Default
+    // to continue (cheapest, least surprising).
+    return { ...fallback, rationale: "Re-plan budget exhausted; continuing." };
+  }
+
+  logger.info("Investigate: re-planning", {
+    hopCount: args.hopCount,
+    completed: args.completed.length,
+    pending: args.pendingIndices.length,
+  });
+
+  try {
+    const result = await generateText({
+      model: getModel(args.model ?? CODE_GEN_MODEL),
+      system: REPLANNER_SYSTEM_PROMPT,
+      prompt: buildReplannerUserPrompt(args),
+      temperature: 0.3,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+    });
+    const parsed = parseReplannerOutput(result.text, args.allSubQuestions.length);
+    if (!parsed.ok) {
+      logger.warn("Investigate: re-planner parse failed; falling back to continue", {
+        error: parsed.error,
+      });
+      return fallback;
+    }
+    logger.info("Investigate: re-plan decision", {
+      action: parsed.decision.action,
+      add: parsed.decision.addSubQuestions.length,
+      remove: parsed.decision.removeSubQuestionIndices.length,
+    });
+    return parsed.decision;
+  } catch (err) {
+    logger.warn("Investigate: re-planner LLM call failed; falling back to continue", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return fallback;
+  }
+}
+
 // ── Test seam ─────────────────────────────────────────────────
 
-export const __testing = { extractJsonObject, summarizeSchemaForPlanner, normalizeDependsOn };
+export const __testing = {
+  extractJsonObject,
+  summarizeSchemaForPlanner,
+  normalizeDependsOn,
+  parseReplannerOutput,
+};

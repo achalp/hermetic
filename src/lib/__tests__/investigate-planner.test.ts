@@ -5,7 +5,7 @@ import {
   __testing,
 } from "@/lib/llm/investigate-planner";
 
-const { extractJsonObject, normalizeDependsOn } = __testing;
+const { extractJsonObject, normalizeDependsOn, parseReplannerOutput } = __testing;
 
 describe("normalizeDependsOn", () => {
   it("returns [] for null/undefined/strings/booleans", () => {
@@ -207,5 +207,152 @@ describe("parsePlannerOutput", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/missing subQuestions/);
+  });
+});
+
+describe("parseReplannerOutput", () => {
+  it("accepts a continue decision", () => {
+    const raw = JSON.stringify({
+      action: "continue",
+      rationale: "Plan on track.",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [],
+    });
+    const r = parseReplannerOutput(raw, 3);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.decision.action).toBe("continue");
+    expect(r.decision.addSubQuestions).toHaveLength(0);
+    expect(r.decision.removeSubQuestionIndices).toHaveLength(0);
+  });
+
+  it("accepts a stop decision", () => {
+    const raw = JSON.stringify({
+      action: "stop",
+      rationale: "Findings clear.",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [],
+    });
+    const r = parseReplannerOutput(raw, 4);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.decision.action).toBe("stop");
+  });
+
+  it("accepts an amend decision with new sub-questions", () => {
+    // currentPlanLength = 3 → new sub-questions start at index 3.
+    // First new (index 3) can depend on [0, 1, 2]; second new (index 4)
+    // can depend on [0, 1, 2, 3].
+    const raw = JSON.stringify({
+      action: "amend",
+      rationale: "Drill into top region.",
+      addSubQuestions: [
+        {
+          question: "Drill into top region",
+          rationale: "explore further",
+          depends_on: [0, 1],
+        },
+        {
+          question: "Compare with the drill-down result",
+          rationale: "tie back",
+          depends_on: [3],
+        },
+      ],
+      removeSubQuestionIndices: [2],
+    });
+    const r = parseReplannerOutput(raw, 3);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.decision.action).toBe("amend");
+    expect(r.decision.addSubQuestions).toHaveLength(2);
+    expect(r.decision.addSubQuestions[0].depends_on).toEqual([0, 1]);
+    expect(r.decision.addSubQuestions[1].depends_on).toEqual([3]);
+    expect(r.decision.removeSubQuestionIndices).toEqual([2]);
+  });
+
+  it("strips forward depends_on in newly added sub-questions", () => {
+    // currentPlanLength = 2, position 0 → selfIndex = 2.
+    // depends_on: [5] is forward → dropped to [].
+    const raw = JSON.stringify({
+      action: "amend",
+      rationale: "",
+      addSubQuestions: [{ question: "New sub-question", rationale: "", depends_on: [5] }],
+      removeSubQuestionIndices: [],
+    });
+    const r = parseReplannerOutput(raw, 2);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.decision.addSubQuestions[0].depends_on).toEqual([]);
+  });
+
+  it("caps added sub-questions at 3", () => {
+    const raw = JSON.stringify({
+      action: "amend",
+      rationale: "",
+      addSubQuestions: Array.from({ length: 8 }, (_, k) => ({
+        question: `New question ${k} with enough chars`,
+        rationale: "",
+        depends_on: [],
+      })),
+      removeSubQuestionIndices: [],
+    });
+    const r = parseReplannerOutput(raw, 1);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.decision.addSubQuestions).toHaveLength(3);
+  });
+
+  it("filters out-of-range remove indices and dedupes", () => {
+    const raw = JSON.stringify({
+      action: "amend",
+      rationale: "",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [0, 0, 1, 5, -1, "x"],
+    });
+    const r = parseReplannerOutput(raw, 3);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.decision.removeSubQuestionIndices).toEqual([0, 1]);
+  });
+
+  it("rejects malformed JSON", () => {
+    const r = parseReplannerOutput("not json {{{", 3);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/not valid JSON/);
+  });
+
+  it("rejects an invalid action value", () => {
+    const raw = JSON.stringify({
+      action: "explode",
+      rationale: "",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [],
+    });
+    const r = parseReplannerOutput(raw, 3);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/Invalid action/);
+  });
+
+  it("handles markdown-fenced output", () => {
+    const inner = JSON.stringify({
+      action: "continue",
+      rationale: "Looking good.",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [],
+    });
+    const raw = "Here is my decision:\n```json\n" + inner + "\n```";
+    const r = parseReplannerOutput(raw, 3);
+    expect(r.ok).toBe(true);
+  });
+
+  it("drops new sub-questions with too-short text", () => {
+    const raw = JSON.stringify({
+      action: "amend",
+      rationale: "",
+      addSubQuestions: [
+        { question: "Hi?", rationale: "", depends_on: [] }, // 3 chars → drop
+        { question: "Long enough question text", rationale: "", depends_on: [] },
+      ],
+      removeSubQuestionIndices: [],
+    });
+    const r = parseReplannerOutput(raw, 2);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.decision.addSubQuestions).toHaveLength(1);
   });
 });
