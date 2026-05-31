@@ -44,14 +44,20 @@ import { runPipeline } from "./orchestrator";
 import type { PipelineResult } from "./orchestrator";
 import type { AdditionalFile } from "@/lib/sandbox";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import { INVESTIGATE_MAX_HOPS, INVESTIGATE_MAX_SUBQUESTIONS } from "@/lib/constants";
+import {
+  INVESTIGATE_MAX_HOPS,
+  INVESTIGATE_MAX_SUBQUESTIONS,
+  COMPOSER_MAX_DISPATCHES,
+} from "@/lib/constants";
 import type { CSVSchema, ConversationTurn, WarehouseTableSchema } from "@/lib/types";
 import {
   generateReplan,
+  type InvestigationPlan,
   type PlannedSubQuestion,
   type ReplanDecision,
   type SubQuestionResultSummary,
 } from "@/lib/llm/investigate-planner";
+import { gapCheckComposer } from "@/lib/llm/investigate-composer";
 import { logger } from "@/lib/logger";
 
 export interface SubQuestionResult {
@@ -82,6 +88,7 @@ export interface InvestigateProgressEvent {
     | "sub_degraded"
     | "replan_decision"
     | "subs_amended"
+    | "composer_dispatched"
     | "all_done";
   /** Sub-question index (when applicable). */
   index?: number;
@@ -99,10 +106,12 @@ export interface InvestigateProgressEvent {
   replanAction?: "continue" | "amend" | "stop";
   /** Re-plan rationale (for replan_decision). */
   replanRationale?: string;
-  /** Newly added sub-questions, in order of insertion (for subs_amended). */
+  /** Newly added sub-questions, in order of insertion (for subs_amended / composer_dispatched). */
   addedSteps?: { index: number; question: string; rationale: string; depends_on: number[] }[];
   /** Indices removed from pending (for subs_amended). */
   removedIndices?: number[];
+  /** Composer's rationale for the dispatch (for composer_dispatched). */
+  composerRationale?: string;
 }
 
 interface OrchestrateOptions {
@@ -538,6 +547,76 @@ export async function runInvestigation(
         // any added sub-questions whose deps are already satisfied.
       }
       // "continue": no change; loop proceeds to next wave naturally.
+    }
+  }
+
+  // ── Composer-dispatched follow-ups (Item #4) ──────────────────────
+  // After the wave loop terminates and before composition, give the
+  // composer ONE chance to inspect the artifacts and ask for additional
+  // sub-questions if the existing results aren't sufficient for a
+  // coherent dashboard. Bounded by COMPOSER_MAX_DISPATCHES; the dispatched
+  // sub-questions run as one final wave and the orchestrator returns
+  // the augmented results.
+  if (
+    COMPOSER_MAX_DISPATCHES > 0 &&
+    subQuestions.length < INVESTIGATE_MAX_SUBQUESTIONS &&
+    // Only call gap-check if SOMETHING ran successfully — no point asking
+    // about gaps in an empty result set.
+    completed.size > 0
+  ) {
+    const plan: InvestigationPlan = {
+      approach: options.approach,
+      subQuestions: subQuestions.filter((_, i) => !removed.has(i)),
+    };
+    const gap = await gapCheckComposer({
+      originalQuestion: options.originalQuestion,
+      plan,
+      schema: options.schema,
+      subResults: results.filter((r) => !r.removed),
+    });
+
+    if (gap.needs.length > 0) {
+      // Dispatch as a final amendment. Re-use the existing apply logic
+      // with a synthetic ReplanDecision so the cap and bookkeeping work
+      // identically.
+      const dispatchDecision: ReplanDecision = {
+        action: "amend",
+        rationale: gap.rationale,
+        addSubQuestions: gap.needs,
+        removeSubQuestionIndices: [],
+      };
+      const changed = applyAmendment(
+        dispatchDecision,
+        subQuestions,
+        results,
+        completed,
+        removed,
+        options
+      );
+
+      if (changed) {
+        options.onProgress?.({
+          kind: "composer_dispatched",
+          total: subQuestions.length,
+          composerRationale: gap.rationale,
+        });
+
+        // Run one final wave for the dispatched sub-questions. We bypass
+        // the re-planner here on purpose — composer-dispatched follow-ups
+        // are a single, terminal extension, not the start of another loop.
+        const finalWave = nextWaveIndices(subQuestions, completed, failed, removed);
+        if (finalWave.length > 0) {
+          await Promise.all(
+            finalWave.map((i) =>
+              runOneSubQuestion(i, results, subQuestions, options, subQuestions.length)
+            )
+          );
+          for (const i of finalWave) {
+            if (results[i].error) failed.add(i);
+            else completed.add(i);
+          }
+        }
+      }
     }
   }
 

@@ -313,6 +313,20 @@ export async function POST(request: Request) {
                     );
                   }
                 }
+              } else if (event.kind === "composer_dispatched") {
+                // Surface the composer's gap-check decision. Newly added steps
+                // arrive via a sibling subs_amended event with addedByReplanner.
+                // Override the flag on those steps to indicate composer-source.
+                emit(
+                  JSON.stringify({
+                    op: "add",
+                    path: "/state/__plan/composerDispatch",
+                    value: {
+                      rationale: event.composerRationale,
+                      atStepCount: stepCount,
+                    },
+                  }) + "\n"
+                );
               }
             },
           });

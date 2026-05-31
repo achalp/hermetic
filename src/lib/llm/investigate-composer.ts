@@ -16,13 +16,13 @@
  * to reference (e.g. `$result:step_2_total_revenue`).
  */
 
-import { streamText } from "ai";
+import { streamText, generateText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { UI_COMPOSE_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema } from "@/lib/types";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
-import type { InvestigationPlan } from "@/lib/llm/investigate-planner";
+import type { InvestigationPlan, PlannedSubQuestion } from "@/lib/llm/investigate-planner";
 import { logger } from "@/lib/logger";
 
 // ── Helpers (mirrors the inline ones in /api/query/route.ts) ─────────
@@ -291,6 +291,194 @@ export interface ComposeStreamOutput {
     };
   };
 }
+
+// ── Gap-check (composer-dispatched follow-ups) ───────────────────────
+//
+// Before the composer commits to producing a final dashboard, it gets
+// one chance to inspect the completed sub-question artifacts and
+// request a small number of additional sub-questions if the existing
+// results are missing something needed for a coherent narrative.
+// The orchestrator dispatches at most COMPOSER_MAX_DISPATCHES extra
+// waves total; this is the final closing of the agentic loop after
+// the re-planner's between-wave amendments (item #3).
+
+export interface GapCheckResult {
+  /** Up to 2 follow-up sub-questions the composer wants run before composing. Empty array means "compose now". */
+  needs: PlannedSubQuestion[];
+  /** 1-2 sentence explanation of why, shown in logs and (optionally) to the user. */
+  rationale: string;
+}
+
+const GAP_CHECK_SYSTEM_PROMPT = `You are about to compose a unified investigation dashboard. Before you commit, do a sanity check: do the completed sub-question results contain everything you need to write a coherent narrative answer to the user's question?
+
+You will see:
+- The original user question.
+- Per-step metadata + result keys + chart data shapes for every completed sub-question.
+
+Answer one of:
+
+1. \`needs: []\` — results are sufficient. Compose now. Use this most of the time.
+
+2. \`needs: [1-2 follow-up sub-questions]\` — there's a SPECIFIC missing piece without which the dashboard would be misleading or incomplete. Common cases:
+   - You have churn counts but no denominators, so you can't compute rates.
+   - You have a comparison but the time window for one side wasn't returned.
+   - You have a leading indicator but no lagging confirmation.
+
+Strict rules:
+- Each requested sub-question must be answerable by ONE Python script. Reference REAL columns from the original schema.
+- depends_on indices in new sub-questions reference the EXISTING completed steps (0..N-1). New sub-questions don't depend on each other (no cross-references in this batch).
+- Do NOT duplicate any existing sub-question's rationale.
+- Maximum 2 follow-ups. Be conservative — every follow-up costs another round of code generation + sandbox execution.
+- If you're unsure, prefer needs: [] and let the composer work with what it has.
+
+Output STRICT JSON:
+{
+  "needs": [
+    { "question": "...", "rationale": "what gap this closes", "depends_on": [] }
+  ],
+  "rationale": "1-2 sentences on what's missing (or 'all sufficient' if needs is empty)"
+}
+
+Output ONLY the JSON object. No markdown fencing, no preamble.`;
+
+function buildGapCheckUserPrompt(args: {
+  originalQuestion: string;
+  plan: InvestigationPlan;
+  schema: CSVSchema;
+  perStepMetadata: ReturnType<typeof flattenStepArtifacts>["perStepMetadata"];
+}): string {
+  const stepBlocks = args.perStepMetadata
+    .map((m) => {
+      const stepNo = m.index + 1;
+      if (m.failed) {
+        return `### Step ${stepNo} — FAILED\n${m.question}\nError: ${(m.error ?? "").slice(0, 200)}`;
+      }
+      return `### Step ${stepNo}${m.degraded ? " — DEGRADED" : ""}
+${m.question}
+Result keys: ${m.resultKeys.join(", ") || "(none)"}
+Chart data keys: ${m.chartDataKeys.join(", ") || "(none)"}`;
+    })
+    .join("\n\n");
+
+  return `## Original Question
+${args.originalQuestion}
+
+## Completed Sub-question Artifacts
+${stepBlocks}
+
+## Original Schema
+${args.schema.filename} (${args.schema.row_count.toLocaleString()} rows)
+Columns: ${args.schema.columns
+    .slice(0, 30)
+    .map((c) => c.name)
+    .join(", ")}
+
+Decide. Output JSON only.`;
+}
+
+function parseGapCheckOutput(raw: string, existingStepCount: number): GapCheckResult {
+  let parsed: unknown;
+  try {
+    // Reuse the same json-extraction logic the planner uses (markdown fences etc).
+    // We inline a minimal version here to avoid a circular import dependency.
+    let s = raw.trim();
+    const fence = s.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fence) s = fence[1].trim();
+    const firstBrace = s.indexOf("{");
+    const lastBrace = s.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      s = s.slice(firstBrace, lastBrace + 1);
+    }
+    parsed = JSON.parse(s);
+  } catch {
+    return { needs: [], rationale: "Gap-check output was not valid JSON; composing as-is." };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { needs: [], rationale: "Gap-check output malformed; composing as-is." };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const rationale = typeof obj.rationale === "string" ? obj.rationale.trim() : "";
+  const needs: PlannedSubQuestion[] = [];
+  const raw_needs = obj.needs;
+  if (Array.isArray(raw_needs)) {
+    for (const item of raw_needs.slice(0, 2)) {
+      if (!item || typeof item !== "object") continue;
+      const sq = item as Record<string, unknown>;
+      const question = typeof sq.question === "string" ? sq.question.trim() : "";
+      if (question.length < 5) continue;
+      const r = typeof sq.rationale === "string" ? sq.rationale.trim() : "";
+      // depends_on references existing completed steps (0..existingStepCount-1)
+      const deps_raw = sq.depends_on;
+      let depends_on: number[] = [];
+      if (Array.isArray(deps_raw)) {
+        const seen = new Set<number>();
+        for (const d of deps_raw) {
+          if (typeof d !== "number" || !Number.isInteger(d)) continue;
+          if (d < 0 || d >= existingStepCount) continue;
+          if (seen.has(d)) continue;
+          seen.add(d);
+          depends_on.push(d);
+          if (depends_on.length >= 3) break;
+        }
+      } else if (typeof deps_raw === "number" && Number.isInteger(deps_raw)) {
+        if (deps_raw >= 0 && deps_raw < existingStepCount) depends_on = [deps_raw];
+      }
+      needs.push({ question, rationale: r, depends_on });
+    }
+  }
+  return { needs, rationale };
+}
+
+/**
+ * Ask the composer whether the completed artifacts are sufficient for a
+ * coherent dashboard. Returns `{ needs: [] }` to signal "compose now" or
+ * `{ needs: [...] }` to request 1-2 follow-up sub-questions.
+ *
+ * Falls back to `{ needs: [] }` on any LLM or parse failure — forward
+ * progress > correctness, same posture as the re-planner.
+ */
+export async function gapCheckComposer(args: ComposeArgs): Promise<GapCheckResult> {
+  const fallback: GapCheckResult = { needs: [], rationale: "Gap-check unavailable; composing." };
+
+  const { perStepMetadata } = flattenStepArtifacts(args.subResults);
+  // Count non-removed, non-failed steps for depends_on bounds
+  const existingStepCount = args.subResults.length;
+  const model = getModel(args.uiComposeModel ?? UI_COMPOSE_MODEL);
+
+  logger.info("Investigate: gap-check", {
+    stepCount: existingStepCount,
+    successful: perStepMetadata.filter((m) => !m.failed && !m.degraded).length,
+  });
+
+  try {
+    const result = await generateText({
+      model,
+      system: GAP_CHECK_SYSTEM_PROMPT,
+      prompt: buildGapCheckUserPrompt({
+        originalQuestion: args.originalQuestion,
+        plan: args.plan,
+        schema: args.schema,
+        perStepMetadata,
+      }),
+      temperature: 0.3,
+      maxOutputTokens: 2_000, // gap-check output is small JSON
+    });
+    const parsed = parseGapCheckOutput(result.text, existingStepCount);
+    logger.info("Investigate: gap-check decision", {
+      needsCount: parsed.needs.length,
+      rationale: parsed.rationale.slice(0, 100),
+    });
+    return parsed;
+  } catch (err) {
+    logger.warn("Investigate: gap-check LLM call failed; composing as-is", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return fallback;
+  }
+}
+
+// Test seam for parser unit tests
+export const __testing = { parseGapCheckOutput };
 
 /**
  * Begin streaming the composed investigation dashboard. The caller is

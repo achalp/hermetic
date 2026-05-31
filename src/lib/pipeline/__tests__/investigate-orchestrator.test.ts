@@ -16,14 +16,19 @@ vi.mock("@/lib/llm/investigate-planner", async (importOriginal) => {
     generateReplan: vi.fn(),
   };
 });
+vi.mock("@/lib/llm/investigate-composer", () => ({
+  gapCheckComposer: vi.fn(),
+}));
 
 import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateReplan } from "@/lib/llm/investigate-planner";
+import { gapCheckComposer } from "@/lib/llm/investigate-composer";
 import type { CSVSchema } from "@/lib/types";
 
 const mockedRunPipeline = vi.mocked(runPipeline);
 const mockedGenerateReplan = vi.mocked(generateReplan);
+const mockedGapCheck = vi.mocked(gapCheckComposer);
 
 function freshSchema(): CSVSchema {
   return {
@@ -74,6 +79,7 @@ function pipelineFail(question: string) {
 beforeEach(() => {
   mockedRunPipeline.mockReset();
   mockedGenerateReplan.mockReset();
+  mockedGapCheck.mockReset();
   // Default re-planner behavior: always continue
   mockedGenerateReplan.mockResolvedValue({
     action: "continue",
@@ -81,6 +87,8 @@ beforeEach(() => {
     addSubQuestions: [],
     removeSubQuestionIndices: [],
   });
+  // Default gap-check behavior: no needs (compose immediately)
+  mockedGapCheck.mockResolvedValue({ needs: [], rationale: "sufficient" });
 });
 
 function sq(question: string, depends_on: number[]): PlannedSubQuestion {
@@ -469,5 +477,141 @@ describe("runInvestigation — agentic loop", () => {
         approach: "a",
       })
     ).rejects.toThrow(/Investigation failed/);
+  });
+});
+
+describe("runInvestigation — composer-dispatched follow-ups (item #4)", () => {
+  it("calls gap-check after the main loop terminates", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+    expect(mockedGapCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips gap-check when no sub-questions completed successfully", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineFail(q));
+    await expect(
+      runInvestigation([sq("A", [])], {
+        schema: freshSchema(),
+        csvContent: "",
+        model: "m",
+        originalQuestion: "test",
+        approach: "a",
+      })
+    ).rejects.toThrow();
+    expect(mockedGapCheck).not.toHaveBeenCalled();
+  });
+
+  it("dispatches and runs follow-up sub-questions when gap-check requests them", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGapCheck.mockResolvedValueOnce({
+      needs: [{ question: "Compute denominator", rationale: "needed for rate", depends_on: [] }],
+      rationale: "Missing total population for the rate calc.",
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // 2 original + 1 dispatched = 3 total
+    expect(results).toHaveLength(3);
+    expect(results[2].question).toBe("Compute denominator");
+    expect(results[2].result).toBeTruthy(); // it ran
+    expect(mockedRunPipeline).toHaveBeenCalledTimes(3);
+  });
+
+  it("emits composer_dispatched progress event with rationale", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGapCheck.mockResolvedValueOnce({
+      needs: [{ question: "Need one more thing", rationale: "gap", depends_on: [] }],
+      rationale: "Missing a denominator.",
+    });
+
+    const events: { kind: string; composerRationale?: string }[] = [];
+    await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+      onProgress: (e) => events.push({ kind: e.kind, composerRationale: e.composerRationale }),
+    });
+
+    const dispatched = events.find((e) => e.kind === "composer_dispatched");
+    expect(dispatched).toBeDefined();
+    expect(dispatched?.composerRationale).toBe("Missing a denominator.");
+  });
+
+  it("does NOT re-call gap-check after the dispatched wave (one-shot)", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGapCheck.mockResolvedValue({
+      needs: [{ question: "Another follow-up please", rationale: "g", depends_on: [] }],
+      rationale: "still need more",
+    });
+
+    await runInvestigation([sq("A", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // Even though gap-check keeps requesting needs, we only call it once.
+    expect(mockedGapCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("respects INVESTIGATE_MAX_SUBQUESTIONS when applying composer dispatch", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    // Pre-fill the plan to 10 sub-questions (the cap)
+    const subs = Array.from({ length: 10 }, (_, i) => sq(`Q${i}`, []));
+    mockedGapCheck.mockResolvedValueOnce({
+      needs: [{ question: "Try to push us past the cap", rationale: "g", depends_on: [] }],
+      rationale: "more",
+    });
+
+    const results = await runInvestigation(subs, {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // Should still be 10 — gap-check's request was capped out
+    expect(results).toHaveLength(10);
+  });
+
+  it("propagates degraded flag through the dispatched sub-question too", async () => {
+    let n = 0;
+    mockedRunPipeline.mockImplementation((_s, _c, q) => {
+      n++;
+      // First 2 are normal; dispatched (3rd) is degraded.
+      return n <= 2 ? pipelineOk(q) : pipelineDegraded(q);
+    });
+    mockedGapCheck.mockResolvedValueOnce({
+      needs: [{ question: "Dispatched follow-up", rationale: "g", depends_on: [] }],
+      rationale: "need it",
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    expect(results).toHaveLength(3);
+    expect(results[2].degraded).toBe(true);
   });
 });
