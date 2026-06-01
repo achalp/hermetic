@@ -340,11 +340,23 @@ export function useChartColors(): string[] {
  * Theme-aware color map resolver (hook version).
  * Use this instead of resolveColorMap() in React components
  * so charts pick up the active theme's palette as default colors.
+ *
+ * Accepts `keys: string[] | undefined | null` defensively — LLM-emitted
+ * specs sometimes omit the keys array entirely (e.g. a malformed
+ * LineChart spec missing `y_keys`). Falling back to an empty key list
+ * lets the calling chart render a blank container rather than crashing
+ * the whole page.
  */
-export function useColorMap(keys: string[], colorMap?: Record<string, string> | null): string[] {
+export function useColorMap(
+  keys: string[] | undefined | null,
+  colorMap?: Record<string, string> | null
+): string[] {
   const themeColors = useChartColors();
-  if (!colorMap) return themeColors.slice(0, Math.max(keys.length, 1));
-  return keys.map((k, i) => resolveColor(colorMap[k] ?? "") || themeColors[i % themeColors.length]);
+  const safeKeys = Array.isArray(keys) ? keys : [];
+  if (!colorMap) return themeColors.slice(0, Math.max(safeKeys.length, 1));
+  return safeKeys.map(
+    (k, i) => resolveColor(colorMap[k] ?? "") || themeColors[i % themeColors.length]
+  );
 }
 
 /** Get theme-appropriate trend (up/down) colors for candlesticks, regression lines, etc. */

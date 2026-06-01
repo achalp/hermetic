@@ -52,17 +52,22 @@ export function LineChartComponent({
   const { chart } = tc;
   const isExpanded = useChartExpanded();
 
+  // LLM-emitted specs occasionally omit y_keys entirely; treat as empty so
+  // downstream `.map` / `.length` calls don't crash. The early-return below
+  // catches the empty case before rendering.
+  const y_keys = Array.isArray(props.y_keys) ? props.y_keys : [];
+
   const raw = unwrapChartData(props.data);
   const data = raw.filter((row) => row[props.x_key] != null);
-  const colors = useColorMap(props.y_keys, props.color_map);
-  const series = toNivoLineSeries(data, props.x_key, props.y_keys);
+  const colors = useColorMap(y_keys, props.color_map);
+  const series = toNivoLineSeries(data, props.x_key, y_keys);
   const curve = CURVE_MAP[props.curve ?? "monotone"];
   const tickValues = pickTickValues(data, props.x_key);
   const hasRotatedLabels = !!tickValues;
-  const hasLegend = props.y_keys.length > 1;
+  const hasLegend = y_keys.length > 1;
 
   // Compute legend item width from longest key name
-  const maxKeyLen = hasLegend ? Math.max(...props.y_keys.map((k) => k.length)) : 0;
+  const maxKeyLen = hasLegend ? Math.max(...y_keys.map((k) => k.length)) : 0;
   const legendItemWidth = Math.max(100, Math.min(180, maxKeyLen * 8 + 24));
 
   // Truncate long x-axis labels
@@ -71,7 +76,7 @@ export function LineChartComponent({
     return s.length > 16 ? s.slice(0, 15) + "\u2026" : s;
   };
 
-  if (data.length === 0) {
+  if (data.length === 0 || y_keys.length === 0) {
     return <div style={{ height: chart.height }} />;
   }
 
