@@ -615,3 +615,163 @@ describe("runInvestigation — composer-dispatched follow-ups (item #4)", () => 
     expect(results[2].degraded).toBe(true);
   });
 });
+
+describe("runInvestigation — defensive guards (review fixes)", () => {
+  it("drops new sub-questions whose depends_on references a failed index", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) =>
+      q.startsWith("B-fails") ? pipelineFail(q) : pipelineOk(q)
+    );
+
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "amend",
+      rationale: "drill into the failed step",
+      // depends_on: [1] is failed → must be dropped to prevent dangling
+      addSubQuestions: [
+        { question: "Drill into failed branch", rationale: "broken", depends_on: [1] },
+      ],
+      removeSubQuestionIndices: [],
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B-fails", []), sq("C", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // Plan should still be the original 3; the bad add was dropped.
+    expect(results).toHaveLength(3);
+    expect(results.some((r) => r.question === "Drill into failed branch")).toBe(false);
+  });
+
+  it("drops new sub-questions whose depends_on references a removed index", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "amend",
+      rationale: "drop B, add C that depends on B (which we just removed)",
+      addSubQuestions: [{ question: "Build on removed B", rationale: "broken", depends_on: [1] }],
+      removeSubQuestionIndices: [1], // B is pending, gets removed
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // A ran. B was removed by the same amendment. The new sub-question
+    // depended on B (now removed) so it should be dropped, not added.
+    expect(results[0].result).toBeTruthy();
+    expect(results[1].removed).toBe(true);
+    expect(results.some((r) => r.question === "Build on removed B")).toBe(false);
+  });
+
+  it("does NOT remove a sub-question that's already in the failed set", async () => {
+    // Re-planner sloppily asks to remove index 1, which is in `failed`.
+    // The defensive guard should leave it alone so its failure annotation
+    // survives into the composer.
+    mockedRunPipeline.mockImplementation((_s, _c, q) =>
+      q.startsWith("B-fails") ? pipelineFail(q) : pipelineOk(q)
+    );
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "amend",
+      rationale: "try to remove the failed one",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [1], // index 1 hard-failed
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B-fails", []), sq("C", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // index 1's failure is preserved; it must NOT be marked removed.
+    expect(results[1].error).toBeTruthy();
+    expect(results[1].removed).toBeUndefined();
+  });
+
+  it("sweeps dangling-pending sub-questions into removed after the loop", async () => {
+    // Construct a plan where the re-planner removes a pending dep,
+    // leaving a downstream sub-question with an unsatisfiable dep that
+    // applyAmendment can't defend against (because the downstream was
+    // in the ORIGINAL plan, not an added one). The sweep should catch it.
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+
+    let n = 0;
+    mockedGenerateReplan.mockImplementation(async () => {
+      n++;
+      if (n === 1) {
+        // After wave 0 (A done), drop the pending B. C still pending,
+        // but C depends on B → C is now dangling.
+        return {
+          action: "amend",
+          rationale: "drop B",
+          addSubQuestions: [],
+          removeSubQuestionIndices: [1],
+        };
+      }
+      return {
+        action: "continue",
+        rationale: "",
+        addSubQuestions: [],
+        removeSubQuestionIndices: [],
+      };
+    });
+
+    const results = await runInvestigation(
+      [sq("A", []), sq("B", [0]), sq("C", [1])], // C depends on B
+      {
+        schema: freshSchema(),
+        csvContent: "",
+        model: "m",
+        originalQuestion: "test",
+        approach: "a",
+      }
+    );
+
+    // A ran, B was removed by re-planner, C should be swept as removed
+    // (its only dep was B, now removed). C must NOT remain dangling.
+    expect(results[0].result).toBeTruthy();
+    expect(results[1].removed).toBe(true);
+    expect(results[2].removed).toBe(true);
+    expect(results[2].result).toBeUndefined();
+    expect(results[2].error).toBeUndefined();
+  });
+
+  it("passes the FULL results array (including removed) to gap-check", async () => {
+    // After a stop wipes some pending sub-questions, gap-check must see
+    // the full plan so its depends_on numbering matches the orchestrator.
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedGenerateReplan.mockResolvedValueOnce({
+      action: "stop",
+      rationale: "no further drill needed",
+      addSubQuestions: [],
+      removeSubQuestionIndices: [],
+    });
+
+    let observedSubResultsLength = 0;
+    mockedGapCheck.mockImplementationOnce(async (args) => {
+      observedSubResultsLength = args.subResults.length;
+      return { needs: [], rationale: "no gap" };
+    });
+
+    await runInvestigation([sq("A", []), sq("B", [0]), sq("C", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "m",
+      originalQuestion: "test",
+      approach: "a",
+    });
+
+    // After stop, B and C are removed. Gap-check must still see all 3
+    // result slots so its depends_on numbering is anchored to the full
+    // plan, not a filtered subset.
+    expect(observedSubResultsLength).toBe(3);
+  });
+});

@@ -356,21 +356,38 @@ async function runOneSubQuestion(
  * Apply a re-planner decision: append new sub-questions to the plan and
  * mark pending ones for removal. Returns whether the plan actually
  * changed (any add/remove applied).
+ *
+ * Defensive guards:
+ *
+ * - Removal: skip indices already completed, removed, OR failed. The
+ *   prompt tells the re-planner to drop only PENDING sub-questions; if
+ *   the LLM is sloppy and targets a failed index we'd otherwise hide its
+ *   failure annotation from the composer by silently flipping it to
+ *   "removed" status.
+ *
+ * - Addition: drop any new sub-question whose `depends_on` includes an
+ *   index in `removed` or `failed`. Such a sub-question can never become
+ *   ready (its dep will never enter `completed`), so it would sit forever
+ *   as dangling-pending — confusing the composer and the user. The
+ *   parser caps depends_on at `[0, selfIdx)` but doesn't know the
+ *   runtime state of each index; we do, so we filter here.
  */
 function applyAmendment(
   decision: ReplanDecision,
   subQuestions: PlannedSubQuestion[],
   results: SubQuestionResult[],
   completed: Set<number>,
+  failed: Set<number>,
   removed: Set<number>,
   options: OrchestrateOptions
 ): boolean {
-  // Drop pending sub-questions the re-planner marked for removal. Already-
-  // completed indices in the list are ignored (we never remove finished work).
+  // Drop pending sub-questions the re-planner marked for removal. Skip any
+  // index that's already completed, failed, or removed — we don't unwind
+  // finished work and we don't silently clobber failures.
   const actuallyRemoved: number[] = [];
   for (const idx of decision.removeSubQuestionIndices) {
     if (idx < 0 || idx >= subQuestions.length) continue;
-    if (completed.has(idx) || removed.has(idx)) continue;
+    if (completed.has(idx) || failed.has(idx) || removed.has(idx)) continue;
     removed.add(idx);
     if (results[idx]) {
       results[idx].removed = true;
@@ -379,12 +396,10 @@ function applyAmendment(
   }
 
   // Append new sub-questions. Each new one's depends_on may reference any
-  // index that exists AFTER this amendment, so indices >= subQuestions.length
-  // at the time of normalization (i.e. forward references into the SAME
-  // amendment batch) are technically allowed by the parser, but the parser
-  // already restricted depends_on to < selfIndex at parse time. The result
-  // is: a new sub-question added at position N can only depend on indices
-  // 0..N-1 (i.e. anything in the plan, completed or not).
+  // index that exists AFTER this amendment; the parser already restricted
+  // depends_on to `< selfIndex` so we don't worry about forward refs here.
+  // We DO drop new sub-questions whose deps include any removed or failed
+  // index — those would be permanently stuck.
   const addedSteps: NonNullable<InvestigateProgressEvent["addedSteps"]> = [];
   const startIndex = subQuestions.length;
   for (let pos = 0; pos < decision.addSubQuestions.length; pos++) {
@@ -396,6 +411,16 @@ function applyAmendment(
       break;
     }
     const newSq = decision.addSubQuestions[pos];
+    const unsatisfiableDep = newSq.depends_on.find((d) => removed.has(d) || failed.has(d));
+    if (unsatisfiableDep !== undefined) {
+      logger.warn("Investigate: dropping new sub-question with unsatisfiable dep", {
+        question: newSq.question.slice(0, 100),
+        depends_on: newSq.depends_on,
+        unsatisfiableDep,
+        reason: removed.has(unsatisfiableDep) ? "removed" : "failed",
+      });
+      continue;
+    }
     const newIdx = subQuestions.length;
     subQuestions.push(newSq);
     results.push({
@@ -430,6 +455,39 @@ function applyAmendment(
     });
   }
   return changed;
+}
+
+/**
+ * Sweep any sub-question that's not in completed/failed/removed into
+ * `removed`. This catches "dangling-pending" cases — a sub-question whose
+ * dependency chain became unsatisfiable mid-flight (e.g. a pending dep
+ * was later removed via the re-planner's remove path). Without this
+ * sweep, the composer would see these slots as empty "pending" rows and
+ * render confusing empty sections.
+ *
+ * Returns the indices swept, for logging.
+ */
+function sweepDanglingPending(
+  subQuestions: PlannedSubQuestion[],
+  results: SubQuestionResult[],
+  completed: Set<number>,
+  failed: Set<number>,
+  removed: Set<number>
+): number[] {
+  const swept: number[] = [];
+  for (let i = 0; i < subQuestions.length; i++) {
+    if (completed.has(i) || failed.has(i) || removed.has(i)) continue;
+    removed.add(i);
+    if (results[i]) results[i].removed = true;
+    swept.push(i);
+  }
+  if (swept.length > 0) {
+    logger.warn("Investigate: sweeping dangling-pending sub-questions", {
+      indices: swept,
+      total: subQuestions.length,
+    });
+  }
+  return swept;
 }
 
 export async function runInvestigation(
@@ -542,13 +600,20 @@ export async function runInvestigation(
       }
 
       if (decision.action === "amend") {
-        applyAmendment(decision, subQuestions, results, completed, removed, options);
+        applyAmendment(decision, subQuestions, results, completed, failed, removed, options);
         // Loop continues; next iteration picks up the new wave including
         // any added sub-questions whose deps are already satisfied.
       }
       // "continue": no change; loop proceeds to next wave naturally.
     }
   }
+
+  // Defense in depth: sweep any sub-question that's still pending after
+  // the wave loop terminated. This catches the dangling-pending case where
+  // an amend's remove path orphaned a downstream sub-question's dep chain.
+  // applyAmendment's defensive drop should prevent this for amend-added
+  // sub-questions, but the sweep is cheap and catches anything else.
+  sweepDanglingPending(subQuestions, results, completed, failed, removed);
 
   // ── Composer-dispatched follow-ups (Item #4) ──────────────────────
   // After the wave loop terminates and before composition, give the
@@ -564,15 +629,22 @@ export async function runInvestigation(
     // about gaps in an empty result set.
     completed.size > 0
   ) {
+    // Pass the FULL plan and FULL results to gap-check. Filtering removed
+    // entries here would renumber the index space the gap-check parser
+    // uses (existingStepCount = subResults.length), which would silently
+    // re-map any depends_on the LLM emits. The composer's per-step
+    // prompt block already skips removed steps via flattenStepArtifacts,
+    // so the LLM sees only valid steps; the parser still caps depends_on
+    // at the full plan length so original-index references stay coherent.
     const plan: InvestigationPlan = {
       approach: options.approach,
-      subQuestions: subQuestions.filter((_, i) => !removed.has(i)),
+      subQuestions,
     };
     const gap = await gapCheckComposer({
       originalQuestion: options.originalQuestion,
       plan,
       schema: options.schema,
-      subResults: results.filter((r) => !r.removed),
+      subResults: results,
     });
 
     if (gap.needs.length > 0) {
@@ -590,6 +662,7 @@ export async function runInvestigation(
         subQuestions,
         results,
         completed,
+        failed,
         removed,
         options
       );
@@ -616,6 +689,9 @@ export async function runInvestigation(
             else completed.add(i);
           }
         }
+        // Sweep again in case a composer-dispatched sub-question still
+        // somehow ended up dangling.
+        sweepDanglingPending(subQuestions, results, completed, failed, removed);
       }
     }
   }
