@@ -11,6 +11,13 @@ interface QueryInputProps {
   initialValue?: string | null;
   /** Show the Ask | Investigate mode picker. Defaults to true. */
   showModePicker?: boolean;
+  /**
+   * Controlled mode value. The parent owns this so SuggestionPills,
+   * analysis-history replays, and multiple QueryInput instances all
+   * agree on which mode the user has selected.
+   */
+  mode: QueryMode;
+  onModeChange: (mode: QueryMode) => void;
 }
 
 export function QueryInput({
@@ -19,10 +26,11 @@ export function QueryInput({
   isLoading,
   initialValue,
   showModePicker = true,
+  mode,
+  onModeChange,
 }: QueryInputProps) {
   const [question, setQuestion] = useState(initialValue ?? "");
   const [prevInitial, setPrevInitial] = useState(initialValue);
-  const [mode, setMode] = useState<QueryMode>("ask");
 
   // Sync from parent without useEffect — React pattern for derived state
   if (initialValue !== prevInitial) {
@@ -84,7 +92,7 @@ export function QueryInput({
         <select
           id="query-mode"
           value={mode}
-          onChange={(e) => setMode(e.target.value as QueryMode)}
+          onChange={(e) => onModeChange(e.target.value as QueryMode)}
           disabled={disabled || isLoading}
           aria-label="Analysis mode"
           title={

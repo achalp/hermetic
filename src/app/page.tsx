@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { Spec } from "@json-render/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
-import { QueryInput } from "@/components/app/query-input";
+import { QueryInput, type QueryMode } from "@/components/app/query-input";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
 
 // New redesign components
@@ -121,6 +121,9 @@ export default function Home() {
     "loading" | "querying" | "executing" | "composing" | null
   >(null);
   const [llmWarning, setLlmWarning] = useState<string | null>(null);
+  // Lifted here from QueryInput so suggestion pills and history replays
+  // inherit whichever mode the user toggled the input to.
+  const [queryMode, setQueryMode] = useState<QueryMode>("ask");
   const [showLocalBrowser, setShowLocalBrowser] = useState(false);
   const [isExtractingLocalSchema, setIsExtractingLocalSchema] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -348,7 +351,7 @@ export default function Home() {
   }, []);
 
   const handleGuardedQuery = useCallback(
-    async (question: string, mode: "ask" | "investigate" = "ask") => {
+    async (question: string, mode?: QueryMode) => {
       setLlmWarning(null);
       const readiness = await checkLlmReady();
       if (!readiness.ready) {
@@ -356,9 +359,11 @@ export default function Home() {
         openSettings();
         return;
       }
-      handleQuery(question, mode);
+      // Callers without an explicit mode (suggestion pills, history replay)
+      // inherit the currently-selected mode from the QueryInput.
+      handleQuery(question, mode ?? queryMode);
     },
-    [handleQuery, openSettings]
+    [handleQuery, openSettings, queryMode]
   );
 
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
@@ -1254,6 +1259,8 @@ export default function Home() {
                   disabled={!hasData}
                   isLoading={isAnalyzing}
                   initialValue={currentQuestion}
+                  mode={queryMode}
+                  onModeChange={setQueryMode}
                 />
               </div>
 
@@ -1293,6 +1300,8 @@ export default function Home() {
                     onSubmit={handleGuardedQuery}
                     disabled={!hasData}
                     isLoading={isAnalyzing}
+                    mode={queryMode}
+                    onModeChange={setQueryMode}
                   />
                 </div>
               )}
