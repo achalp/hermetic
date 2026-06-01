@@ -37,8 +37,11 @@ yarn-error.log*
 .bigquery-credentials.json
 .warehouse-connections.json
 
-# runtime config & user data
-data/
+# runtime config & user data: ignore everything under data/ EXCEPT test
+# fixtures, which need to be tracked so CI can run fixture-dependent tests.
+data/*
+!data/test-fixtures/
+!data/test-fixtures/**
 
 # vercel
 .vercel

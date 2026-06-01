@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { listHistory, deleteHistoryEntry } from "@/lib/api";
 import type { HistoryMeta } from "@/lib/types";
@@ -43,21 +43,25 @@ export default function HistoryPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const fetchEntries = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await listHistory();
-      setEntries(data);
-    } catch {
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // Load history on mount. `loading` is already initialized to true via
+  // useState(true), so we don't need a synchronous setState in the effect
+  // body (which the react-hooks/set-state-in-effect rule flags).
   useEffect(() => {
-    fetchEntries();
-  }, [fetchEntries]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listHistory();
+        if (!cancelled) setEntries(data);
+      } catch {
+        if (!cancelled) setEntries([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
@@ -71,24 +75,29 @@ export default function HistoryPage() {
     }
   };
 
-  // Client-side filtering
-  const now = Date.now();
-  const filtered = entries.filter((e) => {
-    // Text search
-    if (search) {
-      const q = search.toLowerCase();
-      if (!e.question.toLowerCase().includes(q) && !e.sourceFile.toLowerCase().includes(q)) {
-        return false;
+  // Client-side filtering. Wrapped in useMemo so the Date.now() call lives
+  // in the memo callback instead of the render body (the
+  // react/components-and-hooks-must-be-pure rule flags impure calls during
+  // render, but allows them inside useMemo callbacks).
+  const filtered = useMemo(() => {
+    const now = Date.now();
+    return entries.filter((e) => {
+      // Text search
+      if (search) {
+        const q = search.toLowerCase();
+        if (!e.question.toLowerCase().includes(q) && !e.sourceFile.toLowerCase().includes(q)) {
+          return false;
+        }
       }
-    }
-    // Source type
-    if (sourceFilter !== "all" && e.sourceType !== sourceFilter) return false;
-    // Date range
-    if (dateFilter === "today" && now - e.timestamp > 86_400_000) return false;
-    if (dateFilter === "week" && now - e.timestamp > 604_800_000) return false;
-    if (dateFilter === "month" && now - e.timestamp > 2_592_000_000) return false;
-    return true;
-  });
+      // Source type
+      if (sourceFilter !== "all" && e.sourceType !== sourceFilter) return false;
+      // Date range
+      if (dateFilter === "today" && now - e.timestamp > 86_400_000) return false;
+      if (dateFilter === "week" && now - e.timestamp > 604_800_000) return false;
+      if (dateFilter === "month" && now - e.timestamp > 2_592_000_000) return false;
+      return true;
+    });
+  }, [entries, search, sourceFilter, dateFilter]);
 
   // Collect unique chart types for display
   const allChartTypes = new Set<string>();

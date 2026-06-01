@@ -1,0 +1,201 @@
+order_date,region,priority,category,tags,category_color,price
+2024-06-14,EMEA,4,Electronics,vip,#f59e0b,559.91
+2024-09-16,EMEA,1,Electronics,trial|urgent,#10b981,99.82
+2024-08-05,NA,5,Electronics,urgent,#8b5cf6,562.48
+2024-01-26,EMEA,1,Software,retail,#ef4444,149.88
+2024-03-01,MENA,3,Software,new|urgent|retail,#8b5cf6,612.38
+2024-07-09,NA,5,Electronics,urgent|retail|vip,#ef4444,651.17
+2024-08-06,APAC,4,Software,subscription|new,#10b981,757.74
+2024-12-23,EMEA,1,Software,renewal|new,#ef4444,284.22
+2024-02-07,NA,5,Consumables,subscription,#10b981,887.61
+2024-08-03,NA,1,Software,subscription|new|renewal,#f59e0b,570.74
+2024-10-23,LATAM,1,Electronics,renewal|subscription,#3b82f6,71.73
+2024-12-25,APAC,5,Consumables,trial|subscription,#f59e0b,36.1
+2024-08-24,APAC,2,Software,renewal,#3b82f6,219.02
+2024-05-27,EMEA,2,Consumables,renewal|urgent,#10b981,434.99
+2024-10-08,APAC,2,Consumables,retail|subscription|wholesale,#f59e0b,653.35
+2024-07-13,EMEA,2,Electronics,new,#10b981,630.71
+2024-01-07,LATAM,5,Apparel,retail|urgent,#10b981,406.71
+2024-07-08,MENA,5,Home Goods,urgent,#ef4444,856.06
+2024-12-14,MENA,4,Consumables,trial|urgent,#ef4444,608.06
+2024-02-01,EMEA,1,Apparel,new|urgent,#f59e0b,576.68
+2024-02-22,NA,5,Apparel,vip|new|retail,#3b82f6,80.75
+2024-04-16,MENA,4,Apparel,retail|new|renewal,#f59e0b,458.33
+2024-02-29,LATAM,4,Consumables,retail|urgent,#10b981,110.55
+2024-06-24,APAC,4,Apparel,urgent|vip|retail,#f59e0b,152.07
+2024-10-05,NA,5,Home Goods,vip|subscription|new,#8b5cf6,357.86
+2024-03-26,APAC,2,Software,subscription|renewal|vip,#8b5cf6,773.76
+2024-04-09,EMEA,4,Apparel,renewal,#f59e0b,698.49
+2024-01-15,APAC,4,Home Goods,subscription,#ef4444,771.01
+2024-06-27,APAC,1,Apparel,wholesale,#ef4444,198.92
+2024-04-14,LATAM,5,Software,renewal,#f59e0b,762.67
+2024-02-13,NA,4,Apparel,new|wholesale,#f59e0b,96.11
+2024-07-21,LATAM,4,Electronics,new|vip|trial,#3b82f6,156.33
+2024-08-26,EMEA,5,Software,subscription|vip,#8b5cf6,527.65
+2024-01-11,NA,1,Software,new|wholesale|vip,#10b981,41.17
+2024-04-18,APAC,5,Apparel,subscription|new|retail,#ef4444,794.97
+2024-02-01,APAC,4,Software,trial|renewal|retail,#10b981,512.26
+2024-09-25,MENA,1,Consumables,urgent,#10b981,176.14
+2024-08-30,MENA,1,Software,subscription,#8b5cf6,511.23
+2024-09-04,NA,5,Electronics,wholesale,#f59e0b,54.46
+2024-02-20,MENA,4,Software,vip,#ef4444,319.45
+2024-09-15,MENA,5,Apparel,retail|wholesale|renewal,#8b5cf6,769.88
+2024-09-16,EMEA,5,Home Goods,wholesale|trial|renewal,#10b981,404.56
+2024-07-19,LATAM,3,Electronics,wholesale|renewal|urgent,#10b981,640.96
+2024-03-03,EMEA,3,Apparel,new|wholesale,#10b981,713.15
+2024-02-18,LATAM,4,Apparel,wholesale|vip|subscription,#ef4444,944.46
+2024-07-25,APAC,4,Apparel,subscription|urgent,#f59e0b,33.22
+2024-10-10,LATAM,4,Electronics,subscription|retail,#8b5cf6,291.25
+2024-02-02,NA,2,Electronics,retail,#f59e0b,52.01
+2024-04-02,APAC,2,Consumables,retail|wholesale|vip,#8b5cf6,874.43
+2024-10-19,LATAM,3,Electronics,urgent|trial,#10b981,412.67
+2024-02-07,APAC,1,Electronics,vip|retail,#10b981,77.29
+2024-03-03,LATAM,1,Home Goods,trial|new|retail,#10b981,55.4
+2024-12-29,EMEA,1,Apparel,urgent|vip,#10b981,886.65
+2024-11-17,APAC,5,Apparel,renewal|retail,#10b981,267.94
+2024-01-10,APAC,1,Electronics,wholesale,#8b5cf6,458.9
+2024-08-16,NA,4,Consumables,trial|retail|new,#10b981,933.58
+2024-06-24,EMEA,2,Consumables,urgent|trial,#10b981,28.33
+2024-11-16,APAC,4,Apparel,vip,#ef4444,828.95
+2024-12-09,APAC,5,Apparel,retail|urgent|wholesale,#10b981,162.29
+2024-08-16,NA,3,Home Goods,subscription|vip,#3b82f6,917.9
+2024-06-07,EMEA,3,Apparel,subscription,#ef4444,93.44
+2024-05-22,MENA,2,Apparel,urgent|renewal|new,#3b82f6,149.51
+2024-10-27,NA,4,Electronics,retail|subscription,#10b981,93.99
+2024-09-27,EMEA,5,Consumables,renewal|vip,#f59e0b,692.09
+2024-11-25,EMEA,1,Software,trial|subscription|renewal,#8b5cf6,145.25
+2024-09-25,MENA,5,Electronics,wholesale|urgent|trial,#3b82f6,139.44
+2024-07-03,NA,4,Consumables,urgent|subscription|renewal,#8b5cf6,651.42
+2024-09-07,APAC,1,Consumables,vip,#8b5cf6,76.76
+2024-08-30,APAC,1,Home Goods,wholesale,#10b981,706.74
+2024-08-23,LATAM,4,Electronics,retail|trial,#3b82f6,591.87
+2024-11-25,EMEA,1,Software,subscription,#f59e0b,624.18
+2024-12-20,APAC,5,Software,urgent,#ef4444,71.72
+2024-05-17,NA,2,Consumables,retail|wholesale,#ef4444,451.03
+2024-03-01,MENA,2,Home Goods,renewal,#3b82f6,285.77
+2024-02-09,MENA,4,Home Goods,wholesale|vip,#3b82f6,558.68
+2024-03-13,MENA,3,Home Goods,retail,#3b82f6,672.62
+2024-04-28,LATAM,4,Consumables,new,#3b82f6,903.21
+2024-12-14,LATAM,4,Home Goods,new|wholesale|renewal,#ef4444,310.53
+2024-06-18,NA,3,Home Goods,vip|renewal,#3b82f6,857.96
+2024-05-28,APAC,3,Electronics,trial|renewal,#8b5cf6,86.43
+2024-08-07,APAC,1,Home Goods,urgent,#f59e0b,608.69
+2024-03-17,EMEA,3,Consumables,subscription|vip|new,#ef4444,841.79
+2024-11-19,LATAM,5,Software,vip,#3b82f6,887.79
+2024-07-29,LATAM,5,Apparel,retail|wholesale|urgent,#8b5cf6,134.04
+2024-08-29,LATAM,3,Home Goods,retail|subscription,#f59e0b,394.81
+2024-05-02,APAC,4,Software,trial|urgent|vip,#10b981,85.28
+2024-09-13,LATAM,5,Apparel,subscription|trial,#ef4444,414.64
+2024-10-07,EMEA,2,Electronics,subscription,#8b5cf6,100.17
+2024-05-02,APAC,3,Software,urgent,#ef4444,372.95
+2024-09-25,EMEA,4,Home Goods,urgent|wholesale,#f59e0b,551.95
+2024-07-03,EMEA,5,Software,wholesale|urgent|new,#10b981,374.56
+2024-11-26,LATAM,4,Home Goods,new,#3b82f6,412.56
+2024-08-30,MENA,4,Electronics,trial,#8b5cf6,814.86
+2024-08-17,EMEA,1,Apparel,new,#8b5cf6,923.71
+2024-02-25,LATAM,1,Software,urgent,#10b981,232.46
+2024-01-20,APAC,2,Home Goods,trial|subscription|urgent,#3b82f6,80.78
+2024-09-25,MENA,2,Consumables,wholesale|trial,#8b5cf6,16.08
+2024-10-02,APAC,4,Home Goods,wholesale|renewal,#8b5cf6,234.51
+2024-05-06,NA,4,Home Goods,urgent,#10b981,480.92
+2024-12-11,LATAM,1,Home Goods,trial,#f59e0b,227.04
+2024-01-18,APAC,4,Home Goods,trial|vip|urgent,#f59e0b,706.09
+2024-09-15,NA,2,Consumables,retail,#10b981,230.81
+2024-04-23,APAC,3,Electronics,renewal|retail|vip,#10b981,468.52
+2024-12-06,NA,5,Apparel,urgent|vip,#3b82f6,925.8
+2024-03-13,LATAM,1,Electronics,trial,#ef4444,854.79
+2024-06-09,NA,1,Apparel,wholesale|vip,#8b5cf6,712.8
+2024-01-17,APAC,4,Home Goods,renewal|vip,#3b82f6,17.68
+2024-05-23,NA,3,Consumables,wholesale,#ef4444,348.45
+2024-06-07,LATAM,1,Electronics,renewal|vip|new,#8b5cf6,874.74
+2024-04-08,APAC,3,Consumables,trial,#10b981,774.06
+2024-07-26,NA,4,Electronics,vip|trial,#3b82f6,255.31
+2024-02-02,MENA,3,Home Goods,subscription|retail,#3b82f6,260.13
+2024-12-19,APAC,3,Home Goods,vip,#3b82f6,787.33
+2024-02-24,LATAM,4,Consumables,trial|renewal,#ef4444,139.08
+2024-09-11,EMEA,1,Home Goods,new|retail|vip,#f59e0b,820.26
+2024-08-23,APAC,5,Electronics,wholesale|renewal|vip,#10b981,396.25
+2024-11-28,NA,4,Software,subscription|vip|wholesale,#3b82f6,938.62
+2024-05-15,MENA,1,Apparel,trial,#ef4444,939.18
+2024-08-16,EMEA,2,Apparel,renewal|retail,#10b981,714.36
+2024-12-06,NA,3,Home Goods,retail|new,#f59e0b,705.09
+2024-04-11,LATAM,2,Apparel,wholesale,#10b981,278.07
+2024-10-23,EMEA,3,Electronics,retail|vip,#8b5cf6,507.1
+2024-11-28,NA,4,Electronics,urgent,#ef4444,840.44
+2024-04-28,LATAM,3,Electronics,wholesale|urgent,#3b82f6,192.25
+2024-10-25,EMEA,1,Home Goods,new|wholesale|retail,#f59e0b,739.62
+2024-12-06,NA,1,Software,subscription|vip|urgent,#f59e0b,332.92
+2024-01-23,EMEA,3,Electronics,wholesale|trial|urgent,#f59e0b,397.41
+2024-07-09,EMEA,5,Home Goods,wholesale,#3b82f6,758.59
+2024-10-07,LATAM,1,Consumables,trial,#8b5cf6,159.51
+2024-09-30,NA,2,Consumables,retail|wholesale|new,#f59e0b,405.69
+2024-01-27,APAC,5,Home Goods,trial|urgent,#f59e0b,617.59
+2024-07-19,LATAM,2,Electronics,new|wholesale,#3b82f6,782.04
+2024-07-26,MENA,3,Consumables,new,#3b82f6,63.34
+2024-03-13,LATAM,1,Software,subscription|renewal|retail,#10b981,151.4
+2024-05-25,EMEA,5,Apparel,vip,#ef4444,473.63
+2024-04-11,APAC,2,Electronics,subscription|urgent,#8b5cf6,880.97
+2024-07-17,NA,5,Apparel,wholesale|retail|renewal,#8b5cf6,806.34
+2024-08-30,EMEA,5,Apparel,trial,#8b5cf6,161.31
+2024-07-02,NA,2,Apparel,wholesale|urgent|retail,#3b82f6,639.48
+2024-06-14,NA,4,Software,retail|subscription,#ef4444,303.18
+2024-05-07,LATAM,4,Home Goods,renewal|vip,#3b82f6,18.28
+2024-09-07,LATAM,2,Consumables,renewal|trial|vip,#ef4444,389.32
+2024-02-04,EMEA,3,Consumables,vip|trial,#ef4444,486.56
+2024-12-02,NA,1,Apparel,subscription,#8b5cf6,89.77
+2024-09-15,LATAM,2,Electronics,vip,#10b981,138.06
+2024-09-08,APAC,2,Apparel,subscription,#8b5cf6,722.03
+2024-03-22,APAC,5,Home Goods,new|renewal,#8b5cf6,916.65
+2024-09-02,EMEA,5,Home Goods,wholesale|new|trial,#3b82f6,201.01
+2024-07-25,EMEA,3,Home Goods,new|trial,#f59e0b,122.6
+2024-09-28,NA,3,Consumables,vip|new|retail,#ef4444,704.96
+2024-07-09,APAC,4,Home Goods,new|renewal|trial,#3b82f6,428.53
+2024-03-31,MENA,1,Home Goods,retail|new|subscription,#8b5cf6,883.11
+2024-06-09,NA,1,Apparel,retail,#8b5cf6,599.95
+2024-08-01,MENA,3,Electronics,renewal,#10b981,587.71
+2024-01-24,NA,1,Electronics,subscription|new|urgent,#8b5cf6,348.94
+2024-04-24,LATAM,5,Home Goods,new|vip|renewal,#8b5cf6,789.62
+2024-03-22,EMEA,1,Apparel,new|wholesale|urgent,#3b82f6,611.73
+2024-12-06,APAC,4,Home Goods,urgent,#8b5cf6,849.65
+2024-10-31,MENA,4,Software,renewal|vip|trial,#3b82f6,56.14
+2024-09-29,NA,4,Apparel,new,#3b82f6,867.48
+2024-02-23,NA,5,Software,wholesale|vip|renewal,#10b981,499.57
+2024-11-25,MENA,4,Software,retail,#3b82f6,295.75
+2024-01-25,LATAM,5,Electronics,trial|subscription,#ef4444,90.25
+2024-12-01,LATAM,2,Apparel,retail,#10b981,617.16
+2024-03-04,APAC,3,Electronics,trial|subscription,#8b5cf6,923.72
+2024-05-31,EMEA,1,Software,new,#f59e0b,860.9
+2024-04-13,EMEA,3,Apparel,subscription|retail,#10b981,369.78
+2024-11-18,MENA,4,Consumables,urgent|trial|renewal,#ef4444,908.58
+2024-04-29,MENA,3,Apparel,vip|retail,#10b981,150.2
+2024-01-14,NA,1,Software,subscription,#10b981,670.19
+2024-01-16,NA,2,Electronics,vip|subscription|urgent,#3b82f6,815.83
+2024-07-05,EMEA,5,Electronics,trial|urgent|vip,#10b981,204.96
+2024-01-18,NA,1,Home Goods,vip|renewal,#3b82f6,755.49
+2024-11-26,EMEA,3,Home Goods,trial|new,#3b82f6,343.09
+2024-05-24,NA,3,Home Goods,renewal|trial|new,#8b5cf6,712.19
+2024-07-30,NA,4,Software,subscription,#ef4444,673.86
+2024-10-02,MENA,2,Electronics,retail|vip|wholesale,#3b82f6,504.52
+2024-05-27,NA,1,Home Goods,vip|wholesale,#10b981,919.29
+2024-10-30,APAC,5,Home Goods,new|renewal|vip,#10b981,480.93
+2024-02-26,NA,4,Software,subscription,#f59e0b,103.96
+2024-07-21,NA,4,Electronics,wholesale|new,#f59e0b,415.24
+2024-10-06,MENA,2,Consumables,wholesale|renewal|vip,#8b5cf6,570.47
+2024-12-18,MENA,1,Home Goods,subscription|retail|vip,#ef4444,634.06
+2024-06-14,EMEA,4,Consumables,retail|renewal|vip,#10b981,327.34
+2024-11-25,EMEA,5,Apparel,retail|trial,#8b5cf6,159.55
+2024-03-20,EMEA,3,Software,subscription|vip|trial,#f59e0b,908.67
+2024-05-12,NA,2,Electronics,trial,#10b981,934.88
+2024-06-03,APAC,4,Home Goods,vip,#3b82f6,277.55
+2024-07-17,LATAM,1,Electronics,trial|subscription,#10b981,482.95
+2024-11-19,APAC,4,Electronics,retail,#8b5cf6,705.25
+2024-01-03,EMEA,4,Software,trial|renewal|vip,#8b5cf6,812.04
+2024-12-13,EMEA,1,Consumables,subscription|new,#3b82f6,851.59
+2024-05-04,LATAM,2,Home Goods,renewal|wholesale,#3b82f6,596.17
+2024-07-28,MENA,2,Home Goods,trial,#ef4444,864.16
+2024-02-24,NA,3,Software,new,#10b981,500.47
+2024-02-21,MENA,4,Software,renewal,#8b5cf6,30.06
+2024-07-08,MENA,3,Consumables,renewal|vip|subscription,#10b981,381.98
+2024-03-03,MENA,3,Electronics,retail|wholesale,#ef4444,72.51
+2024-02-08,LATAM,4,Home Goods,retail|urgent|vip,#f59e0b,708.28
+2024-09-26,EMEA,4,Consumables,new,#10b981,884.01

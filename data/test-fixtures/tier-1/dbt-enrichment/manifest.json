@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v11.json",
+    "dbt_version": "1.7.0",
+    "generated_at": "2026-04-01T12:00:00Z",
+    "project_name": "jaffle_shop"
+  },
+  "nodes": {
+    "model.jaffle_shop.customers": {
+      "resource_type": "model",
+      "name": "customers",
+      "database": "jaffle",
+      "schema": "analytics",
+      "description": "One row per customer with lifetime aggregates (first/last order, total orders, total spend).",
+      "columns": {
+        "customer_id": { "name": "customer_id", "description": "Surrogate primary key for a customer." },
+        "first_order_date": { "name": "first_order_date", "description": "Date of the customer's first order." },
+        "most_recent_order_date": { "name": "most_recent_order_date", "description": "Date of the customer's most recent order." },
+        "number_of_orders": { "name": "number_of_orders", "description": "Lifetime count of distinct orders placed by this customer." },
+        "lifetime_value": { "name": "lifetime_value", "description": "Sum of all order revenue for this customer (USD)." }
+      }
+    },
+    "model.jaffle_shop.orders": {
+      "resource_type": "model",
+      "name": "orders",
+      "database": "jaffle",
+      "schema": "analytics",
+      "description": "One row per order with payment-method splits and the parent customer key.",
+      "columns": {
+        "order_id": { "name": "order_id", "description": "Surrogate primary key for an order." },
+        "customer_id": { "name": "customer_id", "description": "FK to customers.customer_id." },
+        "order_date": { "name": "order_date", "description": "Date the order was placed." },
+        "status": { "name": "status", "description": "Lifecycle status: placed, shipped, completed, returned, return_pending." },
+        "amount": { "name": "amount", "description": "Total order amount in USD." },
+        "credit_card_amount": { "name": "credit_card_amount", "description": "Portion of order paid by credit card." },
+        "coupon_amount": { "name": "coupon_amount", "description": "Portion of order paid by coupon." },
+        "bank_transfer_amount": { "name": "bank_transfer_amount", "description": "Portion of order paid by bank transfer." },
+        "gift_card_amount": { "name": "gift_card_amount", "description": "Portion of order paid by gift card." }
+      }
+    },
+    "model.jaffle_shop.stg_orders": {
+      "resource_type": "model",
+      "name": "stg_orders",
+      "database": "jaffle",
+      "schema": "staging",
+      "description": "Cleaned and renamed columns from the raw orders source.",
+      "columns": {
+        "order_id": { "name": "order_id", "description": "Renamed from id in the source." },
+        "customer_id": { "name": "customer_id", "description": "Renamed from user_id in the source." }
+      }
+    }
+  },
+  "sources": {
+    "source.jaffle_shop.raw.customers": {
+      "resource_type": "source",
+      "name": "raw_customers",
+      "identifier": "customers",
+      "database": "jaffle",
+      "schema": "raw",
+      "description": "Raw customers seed table loaded from CSV.",
+      "columns": {
+        "id": { "name": "id", "description": "Customer surrogate id (will become customer_id downstream)." }
+      }
+    }
+  }
+}
