@@ -1,6 +1,8 @@
 # Agentic Data Analysis — SOTA Assessment & Hermetic Gap Analysis
 
-_Last updated: 2026-05-31_
+_Last updated: 2026-06-04_
+
+> **Status update (2026-06-04):** All four Tier 1 items have shipped. Hermetic now rates **level 4** on the capability ladder below. The body of this document is preserved as the pre-Tier-1 assessment; see [Appendix A — What shipped](#appendix-a--what-shipped-2026-06-04) for the post-implementation rating and what remains.
 
 **Companion document:** [`agentic-tier-1-implementation-plan-2026-05-31.md`](./agentic-tier-1-implementation-plan-2026-05-31.md) — concrete implementation plan for the four Tier 1 items called out at the end of this doc.
 
@@ -84,7 +86,7 @@ Distilled from both research and products, the spectrum of agentic capability lo
 
 ## 2. Where Hermetic actually sits
 
-Based on a code-level read of the Investigate stack, Hermetic is at **level 2.5** — solid planner + parallel executor + composer with a per-step reflection on code-gen errors, but no investigation-level loop.
+Based on a code-level read of the Investigate stack, Hermetic is at **level 2.5** — solid planner + parallel executor + composer with a per-step reflection on code-gen errors, but no investigation-level loop. _(This was the rating as of 2026-05-31. Tier 1 has since shipped, moving Hermetic to level 4 — see [Appendix A](#appendix-a--what-shipped-2026-06-04).)_
 
 ### 2.1 What's working
 
@@ -219,3 +221,39 @@ The companion document [`agentic-tier-1-implementation-plan-2026-05-31.md`](./ag
 - [Agentic AI Analytics Built for Data Teams (Hex)](https://hex.tech/capability/ai/)
 - [Julius AI Guide (DataCamp)](https://www.datacamp.com/tutorial/julius-ai-guide)
 - [Best Agentic AI Models January 2026 (WhatLLM.org)](https://whatllm.org/blog/best-agentic-models-january-2026)
+
+---
+
+## Appendix A — What shipped (2026-06-04)
+
+All four Tier 1 items from the companion [`agentic-tier-1-implementation-plan-2026-05-31.md`](./agentic-tier-1-implementation-plan-2026-05-31.md) have landed. This appendix records the post-implementation state and supersedes the level-2.5 rating in §2.
+
+### Capability-ladder rating: **level 4**
+
+Investigate is no longer a parallelized batch executor. It now **plans → acts → observes → reflects → re-plans** in a bounded loop, with semantic self-debugging on degenerate results. By the working definition in §1.1, Hermetic is honestly classifiable as a true agentic data analysis tool. The four items map to the ladder as follows:
+
+- **Level 3 (DAG execution)** — item #1.
+- **Level 4 (reflection loop)** — items #3 and #4.
+- **Level 6 trait (semantic self-debugging)** — item #2 lands the self-debugging behavior early, ahead of the broader level-5/6 work, but the headline rating stays at level 4 until multi-tool use (Tier 2) closes Gap 4.
+
+### What shipped, item by item
+
+| #   | Item                                      | Closes | Commit    | Key code                                                                                                                                |
+| --- | ----------------------------------------- | ------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | DAG dependencies (`depends_on: number[]`) | Gap 2  | `61ba168` | `investigate-planner.ts` (array type, `normalizeDependsOn` back-compat, multi-dep prompt + few-shot); orchestrator wave-readiness check |
+| 2   | Semantic result validation                | Gap 3  | `61ba168` | `pipeline/result-validator.ts`; retry-loop integration + `degraded` flag                                                                |
+| 3   | Re-planning loop between waves (keystone) | Gap 1  | `cd6a5f0` | `generateReplan()` + `RE_PLANNER` prompt; orchestrator `while`-loop; `replan_decision` progress event                                   |
+| 4   | Composer-dispatched follow-ups            | Gap 5  | `5ed3d49` | `gapCheckComposer()`; orchestrator gap-check → dispatch → compose, bounded by `COMPOSER_MAX_DISPATCHES`                                 |
+
+Bounds are hard-coded in `src/lib/constants.ts`: `INVESTIGATE_MAX_HOPS = 2`, `INVESTIGATE_MAX_SUBQUESTIONS = 10`, `COMPOSER_MAX_DISPATCHES = 1`. A worst-case investigation runs at most 6 waves.
+
+### Verification status
+
+- ✅ **Unit tests pass** — 75 tests across `investigate-orchestrator.test.ts` (36, incl. re-planner integration, hop/sub-question caps, dangling-pending sweep, unsatisfiable-dep guards), `result-validator.test.ts` (15), `investigate-planner.test.ts`, and `investigate-composer.test.ts` (9; gap-check parser + dispatch-budget enforcement).
+- ✅ **Per-item test plans** authored under `spec/testing/agentic-tier-1-*.md` for all four items.
+- ✅ **Schema-only privacy preserved** — planner, re-planner, and composer (both modes) operate on result summaries and chart-data shapes, never row values.
+- ⏳ **50-run synthetic eval — still outstanding.** The plan's out-of-band criterion (degenerate-result rate down vs. baseline; ≥10% of runs classified "amended" and ≥10% "stopped early"; zero runaway investigations) has not yet been run. Until it is, the level-4 rating rests on code review and unit tests, not on aggregate behavioral telemetry. **This is the gate before declaring Tier 1 fully complete.**
+
+### What's next
+
+Gap 4 (no tool use beyond code-gen) is the only remaining gap below level 5. The next capability tier is **Tier 2 — multi-tool use** (§3.1): a privacy-preserving tool registry (`searchWeb`, `readDbtModel`, `queryWarehouseMetadata`) plus tool-use prompting in the planner. Tier 3 (cross-investigation memory, hypothesis mode, open-ended exploration, drill-as-sub-investigation) follows once Tier 2 lands and there is telemetry on real investigations.
