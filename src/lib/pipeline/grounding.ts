@@ -1,0 +1,288 @@
+/**
+ * Narrative grounding for Investigate composition.
+ *
+ * The composer synthesizes a prose narrative (executive summary, per-step
+ * insights, conclusion) from the sub-questions' computed results. Semantic
+ * result validation (`result-validator.ts`) catches *degenerate* outputs —
+ * empty frames, NaN, single-bar charts. It does NOT catch the more dangerous
+ * failure mode for a data tool: a *plausible-but-wrong* number stated
+ * confidently in the narrative. If the composer writes "revenue grew to
+ * $4.7M" but no sub-question ever computed a value near 4.7M, that figure is
+ * fabricated and the validator would never know.
+ *
+ * This module is the guard against that. It does two things:
+ *
+ *   1. Builds the set of numbers the investigation actually computed
+ *      (`collectGroundedValues`) from every sub-question's `results` scalars
+ *      and `chart_data` numeric cells.
+ *
+ *   2. Scans the composed narrative for "data-like" numeric tokens and checks
+ *      each against that set (`verifyGrounding`). Anything that can't be
+ *      traced is reported so the route can surface an advisory caveat and
+ *      record it in the audit trail.
+ *
+ * Design posture: this is an ADVISORY signal, deliberately tuned for low
+ * false positives. We never block or rewrite the dashboard — a flagged number
+ * might be a legitimate derived/rounded figure. We only surface "these N
+ * figures could not be traced to a computed result; verify before relying on
+ * them." Over-flagging would train users to ignore the caveat, so we skip
+ * numeric tokens that are unlikely to be data (years, small counts, bare
+ * ordinals) and match generously across formatting (currency, thousands
+ * separators, %, K/M/B suffixes, rounding).
+ */
+
+/** A numeric token lifted from narrative prose, with its display flavor. */
+export interface ExtractedNumber {
+  /** The raw matched substring, e.g. "$4.7M" or "12.3%". */
+  raw: string;
+  /** Parsed magnitude after applying currency/suffix/percent scaling. */
+  value: number;
+  /** Number of fractional digits the author displayed (for rounding match). */
+  decimals: number;
+  hadPercent: boolean;
+  hadCurrency: boolean;
+  /** Suffix multiplier: 1, 1e3 (K), 1e6 (M), 1e9 (B). */
+  scale: number;
+}
+
+export interface GroundingReport {
+  /** True when every data-like narrative number traced to a computed value. */
+  ok: boolean;
+  /** Count of data-like numbers we checked. */
+  checkedCount: number;
+  /** Raw tokens that could not be traced to any computed value. */
+  ungrounded: string[];
+  /** 1-based step numbers the narrative explicitly referenced. */
+  citedSteps: number[];
+  /** Successful steps whose data was never referenced in the narrative. */
+  uncitedSuccessfulSteps: number[];
+}
+
+// ── Collecting the grounded value set ─────────────────────────────────
+
+function pushNumber(into: number[], v: unknown): void {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    into.push(v);
+  } else if (typeof v === "string") {
+    // Python sometimes emits numbers as strings ("1234.5"). Accept clean ones.
+    const trimmed = v.trim();
+    if (trimmed && /^-?\d[\d,]*\.?\d*$/.test(trimmed)) {
+      const n = Number(trimmed.replace(/,/g, ""));
+      if (Number.isFinite(n)) into.push(n);
+    }
+  }
+}
+
+function walkForNumbers(val: unknown, into: number[], depth = 0): void {
+  if (depth > 6) return;
+  if (Array.isArray(val)) {
+    for (const item of val) walkForNumbers(item, into, depth + 1);
+    return;
+  }
+  if (val && typeof val === "object") {
+    for (const v of Object.values(val as Record<string, unknown>)) {
+      walkForNumbers(v, into, depth + 1);
+    }
+    return;
+  }
+  pushNumber(into, val);
+}
+
+/**
+ * Collect every finite number the investigation computed, from the merged
+ * `results` scalars and `chart_data` arrays. Returns a sorted array (ascending
+ * by absolute value is unnecessary; insertion order is fine) used by
+ * `verifyGrounding` to test membership.
+ */
+export function collectGroundedValues(
+  results: Record<string, unknown>,
+  chartData: Record<string, unknown>
+): number[] {
+  const nums: number[] = [];
+  walkForNumbers(results, nums);
+  walkForNumbers(chartData, nums);
+  return nums;
+}
+
+// ── Extracting numbers from narrative prose ───────────────────────────
+
+// Matches optional leading $, then digits with optional thousands separators
+// and decimals, then an optional K/M/B/T suffix, then an optional %.
+// Examples: 1,234  $4.7M  12.3%  -0.85  $1,234,567.89  3K
+const NUMBER_RE =
+  /(\$|€|£)?\s?(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)\s?(k|m|b|t|bn)?\s?(%)?/gi;
+
+function suffixScale(suffix: string | undefined): number {
+  switch ((suffix ?? "").toLowerCase()) {
+    case "k":
+      return 1e3;
+    case "m":
+      return 1e6;
+    case "b":
+    case "bn":
+      return 1e9;
+    case "t":
+      return 1e12;
+    default:
+      return 1;
+  }
+}
+
+/** Pull every numeric token out of a prose string. */
+export function extractNumbers(text: string): ExtractedNumber[] {
+  const out: ExtractedNumber[] = [];
+  for (const m of text.matchAll(NUMBER_RE)) {
+    const [raw, currency, digits, suffix, percent] = m;
+    const cleaned = digits.replace(/,/g, "");
+    const base = Number(cleaned);
+    if (!Number.isFinite(base)) continue;
+    const scale = suffixScale(suffix);
+    const dot = cleaned.indexOf(".");
+    const decimals = dot === -1 ? 0 : cleaned.length - dot - 1;
+    out.push({
+      raw: raw.trim(),
+      value: base * scale,
+      decimals,
+      hadPercent: !!percent,
+      hadCurrency: !!currency,
+      scale,
+    });
+  }
+  return out;
+}
+
+/**
+ * Should this token be checked for grounding at all? We skip tokens that are
+ * very unlikely to be data the composer pulled from a result, to keep false
+ * positives low:
+ *
+ * - Years (1900–2100) with no currency/percent/suffix and no decimals.
+ * - Small bare integers (|v| < 1000) with no currency/percent/suffix/decimals —
+ *   these are usually counts, ordinals, "top 5", "3 segments", step numbers.
+ *
+ * A number wearing any data costume ($, %, K/M/B, or a decimal point) is always
+ * checked, even if small — "$4.50" and "2.3%" are exactly the figures worth
+ * verifying.
+ */
+function isDataLike(n: ExtractedNumber): boolean {
+  const dressed = n.hadCurrency || n.hadPercent || n.scale > 1 || n.decimals > 0;
+  if (dressed) return true;
+  const abs = Math.abs(n.value);
+  // Bare integer that looks like a calendar year — skip (almost never a figure
+  // the composer would need to ground, and "in 2024" is a common false flag).
+  if (Number.isInteger(n.value) && abs >= 1900 && abs <= 2100) return false;
+  if (abs >= 1000) return true; // large bare integer — likely a computed total
+  return false; // small bare integer — skip
+}
+
+// ── Matching a narrative number against the grounded set ──────────────
+
+/**
+ * Does `target` match any grounded value, allowing for rounding and the
+ * percent/ratio ambiguity (a result stored as 0.123 may be shown as "12.3%")?
+ */
+function matchesAny(n: ExtractedNumber, grounded: number[]): boolean {
+  // Candidate magnitudes the displayed token could correspond to.
+  const candidates = [n.value];
+  if (n.hadPercent) {
+    // "12.3%" might be stored as 0.123 (ratio) or 12.3 (already a percent).
+    candidates.push(n.value / 100);
+  }
+
+  for (const cand of candidates) {
+    for (const g of grounded) {
+      if (numbersClose(cand, g, n.decimals)) return true;
+      // Reverse percent: result stored as ratio, narrative shows percent.
+      if (n.hadPercent && numbersClose(n.value, g * 100, n.decimals)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Close enough to count as the same number, given the author rounded to
+ * `decimals` places. We accept a match if either:
+ *   - rounding both to the displayed precision makes them equal, OR
+ *   - they agree within a relative tolerance (handles "$4.7M" ≈ 4_683_120).
+ */
+function numbersClose(a: number, b: number, decimals: number): boolean {
+  if (a === b) return true;
+  const factor = Math.pow(10, decimals);
+  if (Math.round(a * factor) === Math.round(b * factor)) return true;
+  const scale = Math.max(Math.abs(a), Math.abs(b));
+  if (scale === 0) return true;
+  // 1.5% relative tolerance covers M/K/B rounding ("4.7M" for 4_683_120 → 0.4%).
+  const rel = Math.abs(a - b) / scale;
+  return rel <= 0.015;
+}
+
+// ── Step citations ────────────────────────────────────────────────────
+
+/**
+ * Extract the 1-based step numbers a narrative chunk cites. Two signals:
+ *   - prose mentions: "Step 2", "step_3", "steps 1 and 4"
+ *   - placeholder references the composer emitted: "$result:step_2_total" /
+ *     "$chartData:step_3_bars" (pass the PRE-resolution line for these).
+ */
+export function extractCitedSteps(text: string): number[] {
+  const steps = new Set<number>();
+  for (const m of text.matchAll(/\bstep[\s_]?(\d+)/gi)) {
+    const n = Number(m[1]);
+    if (Number.isInteger(n) && n > 0) steps.add(n);
+  }
+  for (const m of text.matchAll(/\$(?:result|chartData):step_(\d+)_/g)) {
+    const n = Number(m[1]);
+    if (Number.isInteger(n) && n > 0) steps.add(n);
+  }
+  return [...steps].sort((a, b) => a - b);
+}
+
+// ── Top-level verification ────────────────────────────────────────────
+
+export interface VerifyArgs {
+  /** Resolved narrative strings (placeholders already substituted to values). */
+  narrativeTexts: string[];
+  /** 1-based step numbers the narrative cited (from prose + placeholders). */
+  citedSteps: number[];
+  /** Numbers the investigation actually computed. */
+  grounded: number[];
+  /** 1-based step numbers that produced a usable (success/degraded) result. */
+  successfulStepNos: number[];
+}
+
+/**
+ * Verify the composed narrative against what was actually computed. Returns a
+ * report the route surfaces as an advisory caveat and stores in the trace.
+ */
+export function verifyGrounding(args: VerifyArgs): GroundingReport {
+  const ungrounded: string[] = [];
+  let checkedCount = 0;
+  const seen = new Set<string>();
+
+  for (const text of args.narrativeTexts) {
+    for (const n of extractNumbers(text)) {
+      if (!isDataLike(n)) continue;
+      checkedCount++;
+      if (matchesAny(n, args.grounded)) continue;
+      // De-dupe identical raw tokens so one fabricated figure repeated across
+      // sections is reported once.
+      if (seen.has(n.raw)) continue;
+      seen.add(n.raw);
+      ungrounded.push(n.raw);
+    }
+  }
+
+  const citedSet = new Set(args.citedSteps);
+  const uncitedSuccessfulSteps = args.successfulStepNos.filter((s) => !citedSet.has(s));
+
+  return {
+    ok: ungrounded.length === 0,
+    checkedCount,
+    ungrounded,
+    citedSteps: [...citedSet].sort((a, b) => a - b),
+    uncitedSuccessfulSteps,
+  };
+}
+
+// Test seam
+export const __testing = { extractNumbers, isDataLike, matchesAny, numbersClose };
