@@ -26,8 +26,9 @@ import type { InvestigationPlan, PlannedSubQuestion } from "@/lib/llm/investigat
 import { logger } from "@/lib/logger";
 
 // ── Helpers (mirrors the inline ones in /api/query/route.ts) ─────────
+// Exported for reuse by the per-step cell composer (step-cell-composer.ts).
 
-function describeShape(val: unknown): unknown {
+export function describeShape(val: unknown): unknown {
   if (Array.isArray(val)) {
     if (val.length === 0) return { _type: "array", rows: 0 };
     const first = val[0];
@@ -48,7 +49,7 @@ function describeShape(val: unknown): unknown {
   return val;
 }
 
-function describeResultsSchema(obj: Record<string, unknown>): Record<string, unknown> {
+export function describeResultsSchema(obj: Record<string, unknown>): Record<string, unknown> {
   const schema: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(obj)) {
     if (val === null || val === undefined) {

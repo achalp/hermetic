@@ -115,6 +115,13 @@ export interface InvestigateProgressEvent {
    * consumers never have to infer provenance from event ordering.
    */
   amendmentSource?: "replanner" | "composer";
+  /**
+   * The completed sub-question's full result (for sub_finished /
+   * sub_degraded). Lets consumers act on the step's artifacts the moment it
+   * completes — e.g. dispatching the notebook cell compose — without
+   * waiting for the whole investigation to return.
+   */
+  stepResult?: SubQuestionResult;
   /** Composer's rationale for the dispatch (for composer_dispatched). */
   composerRationale?: string;
 }
@@ -329,6 +336,7 @@ async function runOneSubQuestion(
         total,
         question: sq.question,
         degradedReason: result.degradedReason,
+        stepResult: slot,
       });
     } else {
       options.onProgress?.({
@@ -336,6 +344,7 @@ async function runOneSubQuestion(
         index: i,
         total,
         question: sq.question,
+        stepResult: slot,
       });
     }
   } catch (err) {

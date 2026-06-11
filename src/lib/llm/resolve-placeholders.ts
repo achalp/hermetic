@@ -91,8 +91,12 @@ export function resolveSpecPlaceholders(
   // Pass 2: inline placeholders within larger strings, e.g. "F-stat: $result:f_stat"
   // Lookahead `[^a-zA-Z0-9_.]|$` stops at any character that can't continue a
   // valid key — picks up `)`, `%`, `:`, etc. that the original `[",}\s]`
-  // lookahead missed and left raw in narrative text.
-  const inlineResultRegex = /\$result:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=[^a-zA-Z0-9_.]|$)/g;
+  // lookahead missed and left raw in narrative text. A `.` NOT followed by a
+  // word character is sentence punctuation, not a key-path segment — without
+  // that alternative, a sentence-final placeholder ("led by $result:top_region.")
+  // never resolves.
+  const inlineResultRegex =
+    /\$result:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=\.(?![a-zA-Z0-9_])|[^a-zA-Z0-9_.]|$)/g;
   processed = processed.replace(inlineResultRegex, (_match, keyPath: string) => {
     const raw = resolveKeyPath(results, keyPath.trim());
     if (raw === undefined) return _match;

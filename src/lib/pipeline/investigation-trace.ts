@@ -20,6 +20,7 @@
  * small preview (TRACE_DATASET_MAX_ROWS) so the serialized trace stays small.
  */
 
+import type { Spec } from "@json-render/core";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
 import type { GroundingReport } from "@/lib/pipeline/grounding";
 
@@ -49,6 +50,13 @@ export interface TraceStep {
   degradedReason?: string;
   /** Error message when status === "failed". */
   error?: string;
+  /**
+   * Notebook-mode cell: a small composed spec visualizing this step's
+   * result (placeholders already resolved). Set after the per-step cell
+   * compose finishes; absent for failed/removed steps or when the cell
+   * compose failed (notebook renders a stub instead).
+   */
+  cellSpec?: Spec;
 }
 
 export interface TraceDecision {

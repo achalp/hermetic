@@ -64,6 +64,12 @@ describe("resolveSpecPlaceholders — $result", () => {
     expect(out).toBe('{"text":"correlation (r = -0.85) is strong"}');
   });
 
+  it("resolves sentence-final inline placeholder followed by a period", () => {
+    const line = '{"text":"Growth was led by $result:top_region."}';
+    const out = resolveSpecPlaceholders(line, { top_region: "West" }, {});
+    expect(out).toBe('{"text":"Growth was led by West."}');
+  });
+
   it("resolves inline placeholder followed by percent sign", () => {
     const line = '{"text":"Spread is $result:spread_pct% of revenue"}';
     const out = resolveSpecPlaceholders(line, { spread_pct: 23.4 }, {});

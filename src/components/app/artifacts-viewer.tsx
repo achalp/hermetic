@@ -47,7 +47,8 @@ interface ArtifactsView {
   sql?: string;
 }
 
-function recordsToTable(records: Record<string, unknown>[]): {
+// Exported for reuse by the notebook view's per-cell data disclosure.
+export function recordsToTable(records: Record<string, unknown>[]): {
   columns: string[];
   rows: string[][];
 } {
@@ -76,7 +77,7 @@ function kvToTable(obj: Record<string, unknown>): {
   return { columns, rows };
 }
 
-function MiniTable({
+export function MiniTable({
   columns,
   rows,
   maxRows = 50,

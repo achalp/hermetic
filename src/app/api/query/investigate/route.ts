@@ -14,9 +14,14 @@
  * aggregated RESULTS (scalars, chart data shapes), never raw rows.
  */
 
+import type { Spec } from "@json-render/core";
 import { generatePlan } from "@/lib/llm/investigate-planner";
-import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
+import {
+  runInvestigation,
+  type InvestigateProgressEvent,
+} from "@/lib/pipeline/investigate-orchestrator";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
+import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { resolveSpecPlaceholders } from "@/lib/llm/resolve-placeholders";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
@@ -258,8 +263,49 @@ export async function POST(request: Request) {
             }) + "\n"
           );
 
+          // Notebook cells: container for per-step composed mini-specs.
+          // Cells stream in as `/state/__cells/{index}` the moment each
+          // step's compose finishes — the notebook view fills in live.
+          emit(JSON.stringify({ op: "add", path: "/state/__cells", value: {} }) + "\n");
+
           // ── Step 2: Execute sub-questions (with re-planning between waves) ──
           let stepCount = 1;
+
+          // Per-step cell composes, dispatched on sub_finished/sub_degraded
+          // so they run concurrently with later waves' sandbox execution.
+          // Best-effort: a failed compose just leaves the cell as a stub.
+          const cellSpecs = new Map<number, Spec>();
+          const cellComposes: Promise<void>[] = [];
+          const dispatchCellCompose = (event: InvestigateProgressEvent) => {
+            const sub = event.stepResult;
+            const exec = sub?.result?.executionResult;
+            if (!sub || !exec || event.index === undefined) return;
+            const index = event.index;
+            cellComposes.push(
+              composeStepCell({
+                stepNo: index + 1,
+                question: sub.question,
+                rationale: sub.rationale,
+                originalQuestion: question,
+                approach: plan.approach,
+                results: (exec.results ?? {}) as Record<string, unknown>,
+                chartData: (exec.chart_data ?? {}) as Record<string, unknown>,
+                degraded: sub.degraded,
+                degradedReason: sub.degradedReason,
+                uiComposeModel,
+              }).then((spec) => {
+                if (!spec) return;
+                cellSpecs.set(index, spec);
+                emit(
+                  JSON.stringify({
+                    op: "add",
+                    path: `/state/__cells/${index}`,
+                    value: { status: sub.degraded ? "degraded" : "success", cellSpec: spec },
+                  }) + "\n"
+                );
+              })
+            );
+          };
 
           // Accumulate the audit trail's decision log and per-step provenance
           // from the orchestrator's progress events. The events are the only
@@ -304,6 +350,7 @@ export async function POST(request: Request) {
                     value: "done",
                   }) + "\n"
                 );
+                dispatchCellCompose(event);
               } else if (event.kind === "sub_degraded" && event.index !== undefined) {
                 emit(
                   JSON.stringify({
@@ -321,6 +368,7 @@ export async function POST(request: Request) {
                     }) + "\n"
                   );
                 }
+                dispatchCellCompose(event);
               } else if (event.kind === "sub_failed" && event.index !== undefined) {
                 emit(
                   JSON.stringify({
@@ -329,6 +377,17 @@ export async function POST(request: Request) {
                     value: "failed",
                   }) + "\n"
                 );
+                if (event.error) {
+                  // Surface the failure reason so the notebook's failed-cell
+                  // stub can show it live (the trace carries it post-stream).
+                  emit(
+                    JSON.stringify({
+                      op: "add",
+                      path: `/state/__plan/steps/${event.index}/error`,
+                      value: event.error.slice(0, 300),
+                    }) + "\n"
+                  );
+                }
               } else if (event.kind === "replan_decision") {
                 // Record for the audit trail. The matching subs_amended (if the
                 // action was "amend") fills in added/removed indices below.
@@ -580,6 +639,18 @@ export async function POST(request: Request) {
             const resolved = resolveSpecPlaceholders(buffer.trim(), mergedResults, mergedChartData);
             ingestComposedLine(buffer.trim(), resolved);
             emit(resolved + "\n");
+          }
+
+          // ── Notebook cells: settle and attach ──
+          // Most cell composes finish during the waves; only the final
+          // wave's may still be in flight. Their `__cells` patches emit as
+          // they land (the .then handlers above); attaching to the trace
+          // mutates the shared ref, so the cached artifacts entry sees the
+          // cellSpecs too — notebooks reload from history for free.
+          await Promise.allSettled(cellComposes);
+          for (const step of trace.steps) {
+            const cell = cellSpecs.get(step.index);
+            if (cell) step.cellSpec = cell;
           }
 
           // ── Grounding verdict ──

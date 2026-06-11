@@ -17,7 +17,9 @@ import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
+import { getArtifacts } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
+import { NotebookView } from "@/components/app/notebook-view";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
 import { Card } from "@/components/ui/card";
@@ -35,6 +37,41 @@ interface DrillLevel {
  */
 function specHasInvestigation(spec: Spec | null | undefined): boolean {
   return Boolean(spec?.state && "__plan" in (spec.state as Record<string, unknown>));
+}
+
+const VIEW_MODE_STORAGE_KEY = "hermetic-investigate-view";
+
+/** Dashboard | Notebook segmented control for Investigate results. */
+function ViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: "dashboard" | "notebook";
+  onChange: (v: "dashboard" | "notebook") => void;
+}) {
+  return (
+    <div
+      className="inline-flex overflow-hidden border border-border-default"
+      style={{ borderRadius: "var(--radius-badge)" }}
+      role="tablist"
+      aria-label="Result view"
+    >
+      {(["dashboard", "notebook"] as const).map((v) => (
+        <button
+          key={v}
+          role="tab"
+          aria-selected={value === v}
+          onClick={() => onChange(v)}
+          className={`px-3 py-1 text-xs font-medium transition-colors ${
+            value === v ? "bg-accent-subtle text-accent" : "text-t-secondary hover:text-t-primary"
+          }`}
+          style={{ transitionDuration: "var(--transition-speed)" }}
+        >
+          {v === "dashboard" ? "Dashboard" : "Notebook"}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 interface ResponsePanelProps {
@@ -102,6 +139,23 @@ export function ResponsePanel({
   rerunSql,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
+  // Dashboard | Notebook view for Investigate results. Initialized from
+  // localStorage in an effect (not the initializer) to avoid an SSR
+  // hydration mismatch.
+  const [viewMode, setViewMode] = useState<"dashboard" | "notebook">("dashboard");
+  useEffect(() => {
+    if (localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "notebook") {
+      setViewMode("notebook");
+    }
+  }, []);
+  const handleViewModeChange = useCallback((v: "dashboard" | "notebook") => {
+    setViewMode(v);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, v);
+    } catch {
+      // Storage unavailable (private mode) — the toggle still works for the session.
+    }
+  }, []);
   const currentSpecRef = useRef<Spec | null>(null);
   const currentQuestionRef = useRef<string | null>(question);
   // Conversation history is now managed server-side via the conversation cache.
@@ -319,6 +373,31 @@ export function ResponsePanel({
   // spec from useUIStream only takes over during/after a new stream.
   const activeSpec = restoredSpec ?? spec;
 
+  // Notebook mode: available for Investigate results (the spec carries
+  // __plan from the first planning patch, so the toggle appears early in
+  // the stream). Drilled specs are plain dashboards — no __plan, no toggle.
+  const notebookAvailable =
+    specHasInvestigation(activeSpec) || (isStreaming && mode === "investigate");
+  const notebookActive = notebookAvailable && viewMode === "notebook";
+
+  // The notebook's code/data disclosures come from the audit trail in the
+  // cached artifacts — fetch them quietly once the stream ends. Failure is
+  // non-fatal: the notebook still renders cells from spec state.
+  useEffect(() => {
+    if (!notebookActive || isStreaming || !effectiveCsvId || artifacts) return;
+    let cancelled = false;
+    getArtifacts(effectiveCsvId)
+      .then((data) => {
+        if (!cancelled) setArtifacts(data);
+      })
+      .catch(() => {
+        // Artifacts expired — notebook renders from spec state alone.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [notebookActive, isStreaming, effectiveCsvId, artifacts, setArtifacts]);
+
   if (error) {
     return (
       <div
@@ -418,8 +497,15 @@ export function ResponsePanel({
         </div>
       )}
 
-      {/* Streaming indicator */}
-      {isStreaming && mode === "investigate" ? (
+      {/* Dashboard | Notebook toggle for Investigate results */}
+      {notebookAvailable && drillStack.length === 0 && (
+        <div className="flex justify-end">
+          <ViewModeToggle value={viewMode} onChange={handleViewModeChange} />
+        </div>
+      )}
+
+      {/* Streaming indicator — the notebook renders its own live cells */}
+      {notebookActive && isStreaming ? null : isStreaming && mode === "investigate" ? (
         <InvestigateProgress spec={activeSpec} />
       ) : isStreaming ? (
         <PipelineProgress spec={activeSpec} drillStack={drillStack} previousSpec={previousSpec} />
@@ -430,23 +516,30 @@ export function ResponsePanel({
           ungrounded figures are surfaced in the narrative, not buried. */}
       {activeSpec?.root && <InvestigationCaveats spec={activeSpec} />}
 
-      {/* Active level */}
-      {activeSpec?.root && activeSpec?.elements && (
+      {/* Active level: notebook view (Investigate) or composed dashboard */}
+      {notebookActive ? (
         <Card ref={dashboardRef}>
-          <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
-            <StateProvider initialState={activeSpec.state ?? {}}>
-              <ActionProvider>
-                <VisibilityProvider>
-                  <RendererErrorBoundary>
-                    <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
-                  </RendererErrorBoundary>
-                </VisibilityProvider>
-              </ActionProvider>
-            </StateProvider>
-          </CitationsContext.Provider>
-
-          {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
+          <NotebookView spec={activeSpec} artifacts={artifacts} isStreaming={isStreaming} />
         </Card>
+      ) : (
+        activeSpec?.root &&
+        activeSpec?.elements && (
+          <Card ref={dashboardRef}>
+            <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
+              <StateProvider initialState={activeSpec.state ?? {}}>
+                <ActionProvider>
+                  <VisibilityProvider>
+                    <RendererErrorBoundary>
+                      <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                    </RendererErrorBoundary>
+                  </VisibilityProvider>
+                </ActionProvider>
+              </StateProvider>
+            </CitationsContext.Provider>
+
+            {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
+          </Card>
+        )
       )}
 
       {/* Artifacts viewer */}

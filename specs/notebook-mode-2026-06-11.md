@@ -1,7 +1,7 @@
 # Notebook Mode for Investigate — Spec
 
 > Created: 2026-06-11
-> Status: Draft
+> Status: Phase 1 implemented (2026-06-11) — per-step cell compose, `__cells` streaming, NotebookView, view toggle. Phases 2–3 pending.
 > Builds on: `agentic-grounding-audit-trail` (merged 2026-06-11) — investigation audit trail, narrative grounding, step citations
 
 ## 1. Overview
