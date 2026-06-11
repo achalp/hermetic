@@ -222,29 +222,39 @@ export function ArtifactsViewer({
 
   const [tab, setTab] = useState<Tab>(investigation ? "trail" : view.sql ? "sql" : "code");
 
-  // Editable code state. Resets when the underlying source code changes —
-  // either a fresh server result OR the user selecting a different trail step.
-  // Use derived-state-from-props pattern (no useEffect): track the prior
-  // source value and reset the editor when it changes.
-  const [editedCode, setEditedCode] = useState(view.code);
-  const [prevServerCode, setPrevServerCode] = useState(view.code);
-  if (view.code !== prevServerCode) {
-    setPrevServerCode(view.code);
-    setEditedCode(view.code);
+  // Editable code state, keyed by view source ("top" or a trail step) so
+  // navigating the trail never destroys in-progress edits on another view.
+  // Cleared only when a NEW artifacts object arrives (fresh server result).
+  const viewKey = activeStepNo != null ? `step-${activeStepNo}` : "top";
+  const [editsByView, setEditsByView] = useState<Record<string, string>>({});
+
+  // Editable SQL state — only meaningful at the top-level view of a
+  // warehouse-sourced analysis (trail steps are Python-only). Survives trail
+  // navigation; resets only on a fresh artifacts object.
+  const [editedSql, setEditedSql] = useState(artifacts.sql ?? "");
+
+  // Reconcile UI state when a different artifacts object arrives (new
+  // analysis, rerun result, history load). Derived-state-from-props pattern
+  // (no useEffect): without this, `tab` can point at a tab that no longer
+  // exists (e.g. stuck on "trail" after an Ask replaced an Investigate →
+  // blank panel) and a stale activeStepNo can silently select the
+  // same-numbered step of an unrelated trace.
+  const [prevArtifacts, setPrevArtifacts] = useState(artifacts);
+  if (artifacts !== prevArtifacts) {
+    setPrevArtifacts(artifacts);
+    setActiveStepNo(null);
+    setTab(investigation ? "trail" : artifacts.sql ? "sql" : "code");
+    setEditsByView({});
+    setEditedSql(artifacts.sql ?? "");
   }
+
+  const editedCode = editsByView[viewKey] ?? view.code;
+  const setEditedCode = useCallback(
+    (code: string) => setEditsByView((m) => ({ ...m, [viewKey]: code })),
+    [viewKey]
+  );
 
   const codeIsDirty = editedCode !== view.code;
-
-  // Editable SQL state — only meaningful when view.sql is set
-  // (i.e. the source is a warehouse). Resets when the server SQL changes.
-  const [editedSql, setEditedSql] = useState(view.sql ?? "");
-  const [prevServerSql, setPrevServerSql] = useState(view.sql ?? "");
-  const incomingSql = view.sql ?? "";
-  if (incomingSql !== prevServerSql) {
-    setPrevServerSql(incomingSql);
-    setEditedSql(incomingSql);
-  }
-
   const sqlIsDirty = !!view.sql && editedSql !== view.sql;
 
   const [rerunState, setRerunState] = useState<
@@ -286,9 +296,13 @@ export function ArtifactsViewer({
   }, [view.sql, view.question, sqlIsDirty, editedSql]);
 
   const handleDiscardCodeEdits = useCallback(() => {
-    setEditedCode(view.code);
+    setEditsByView((m) => {
+      const next = { ...m };
+      delete next[viewKey];
+      return next;
+    });
     setRerunState({ kind: "idle" });
-  }, [view.code]);
+  }, [viewKey]);
 
   const handleDiscardSqlEdits = useCallback(() => {
     setEditedSql(view.sql ?? "");

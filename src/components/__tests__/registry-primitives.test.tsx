@@ -34,6 +34,7 @@ import {
   ToggleSwitchComponent,
   formatStatNumber,
   formatStatValue,
+  CitationsContext,
 } from "@/components/registry-primitives";
 
 afterEach(() => cleanup());
@@ -137,9 +138,11 @@ describe("TextBlockComponent", () => {
     expect(div.className).toContain("border-l-4");
   });
 
-  it("renders a step citation as a superscript reference", () => {
+  it("renders a step citation as a superscript reference (Investigate spec)", () => {
     const { container } = render(
-      <TextBlockComponent props={{ content: "Revenue grew sharply (Step 2)." }} />
+      <CitationsContext.Provider value={true}>
+        <TextBlockComponent props={{ content: "Revenue grew sharply (Step 2)." }} />
+      </CitationsContext.Provider>
     );
     const sup = container.querySelector("sup");
     expect(sup).not.toBeNull();
@@ -152,7 +155,9 @@ describe("TextBlockComponent", () => {
 
   it("collapses a multi-step citation into one superscript", () => {
     const { container } = render(
-      <TextBlockComponent props={{ content: "Both regions slipped (Steps 1, 4)." }} />
+      <CitationsContext.Provider value={true}>
+        <TextBlockComponent props={{ content: "Both regions slipped (Steps 1, 4)." }} />
+      </CitationsContext.Provider>
     );
     const sup = container.querySelector("sup");
     expect(sup?.textContent).toBe("1,4");
@@ -161,10 +166,22 @@ describe("TextBlockComponent", () => {
 
   it("leaves ordinary parenthetical text untouched", () => {
     const { container } = render(
-      <TextBlockComponent props={{ content: "Sales rose (mostly in Q4)." }} />
+      <CitationsContext.Provider value={true}>
+        <TextBlockComponent props={{ content: "Sales rose (mostly in Q4)." }} />
+      </CitationsContext.Provider>
     );
     expect(container.querySelector("sup")).toBeNull();
     expect(container.textContent).toContain("(mostly in Q4)");
+  });
+
+  it("renders '(Step N)' prose verbatim outside an Investigate spec", () => {
+    // Ask-mode dashboards have no investigation steps — a literal "(Step 3)"
+    // in the data's own vocabulary must not become a citation mark.
+    const { container } = render(
+      <TextBlockComponent props={{ content: "Biggest drop-off at Checkout (Step 3)." }} />
+    );
+    expect(container.querySelector("sup")).toBeNull();
+    expect(container.textContent).toContain("(Step 3)");
   });
 });
 

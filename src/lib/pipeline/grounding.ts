@@ -109,8 +109,14 @@ export function collectGroundedValues(
 // Matches optional leading $, then digits with optional thousands separators
 // and decimals, then an optional K/M/B/T suffix, then an optional %.
 // Examples: 1,234  $4.7M  12.3%  -0.85  $1,234,567.89  3K
+//
+// The suffix must be ADJACENT to the digits ("4.7M", not "4.7 M") and must not
+// be followed by another letter — otherwise the first letter of an ordinary
+// following word is consumed as a multiplier ("12 months" → 12M, "5 buyers" →
+// 5B), inflating the value and producing false ungrounded flags. `bn` is
+// listed before `b` so it wins the alternation.
 const NUMBER_RE =
-  /(\$|€|£)?\s?(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)\s?(k|m|b|t|bn)?\s?(%)?/gi;
+  /(\$|€|£)?\s?(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)(?:(bn|k|m|b|t)(?![a-z]))?\s?(%)?/gi;
 
 function suffixScale(suffix: string | undefined): number {
   switch ((suffix ?? "").toLowerCase()) {
@@ -191,23 +197,27 @@ function matchesAny(n: ExtractedNumber, grounded: number[]): boolean {
 
   for (const cand of candidates) {
     for (const g of grounded) {
-      if (numbersClose(cand, g, n.decimals)) return true;
+      if (numbersClose(cand, g, n.decimals, n.scale)) return true;
       // Reverse percent: result stored as ratio, narrative shows percent.
-      if (n.hadPercent && numbersClose(n.value, g * 100, n.decimals)) return true;
+      if (n.hadPercent && numbersClose(n.value, g * 100, n.decimals, n.scale)) return true;
     }
   }
   return false;
 }
 
 /**
- * Close enough to count as the same number, given the author rounded to
- * `decimals` places. We accept a match if either:
- *   - rounding both to the displayed precision makes them equal, OR
+ * Close enough to count as the same number, given the author rounded the
+ * MANTISSA to `decimals` places at display scale `suffixScale` ("1.2K" means
+ * the author rounded 1234 to 1.2 at scale 1e3, not to 1200.0). We accept a
+ * match if either:
+ *   - rounding both mantissas to the displayed precision makes them equal, OR
  *   - they agree within a relative tolerance (handles "$4.7M" ≈ 4_683_120).
  */
-function numbersClose(a: number, b: number, decimals: number): boolean {
+function numbersClose(a: number, b: number, decimals: number, suffixScale = 1): boolean {
   if (a === b) return true;
-  const factor = Math.pow(10, decimals);
+  // Compare at the precision the author actually displayed: one fractional
+  // digit on a K-suffixed figure is a precision of 100, not 0.1.
+  const factor = Math.pow(10, decimals) / suffixScale;
   if (Math.round(a * factor) === Math.round(b * factor)) return true;
   const scale = Math.max(Math.abs(a), Math.abs(b));
   if (scale === 0) return true;
@@ -219,17 +229,33 @@ function numbersClose(a: number, b: number, decimals: number): boolean {
 // ── Step citations ────────────────────────────────────────────────────
 
 /**
- * Extract the 1-based step numbers a narrative chunk cites. Two signals:
- *   - prose mentions: "Step 2", "step_3", "steps 1 and 4"
- *   - placeholder references the composer emitted: "$result:step_2_total" /
- *     "$chartData:step_3_bars" (pass the PRE-resolution line for these).
+ * Extract the 1-based step numbers a narrative chunk cites in PROSE:
+ * "Step 2", "step_3", "(Steps 1, 4)", "steps 1 and 4". Only call this on
+ * narrative text (collected from prose-bearing props) — running it on a raw
+ * spec line would count element IDs / key paths like "step_3_chart" as
+ * citations and suppress the uncited-steps advisory.
  */
 export function extractCitedSteps(text: string): number[] {
   const steps = new Set<number>();
-  for (const m of text.matchAll(/\bstep[\s_]?(\d+)/gi)) {
-    const n = Number(m[1]);
-    if (Number.isInteger(n) && n > 0) steps.add(n);
+  // Singular or plural, with comma/and/& lists: "Step 2", "Steps 1, 4 and 7".
+  for (const m of text.matchAll(/\bsteps?[\s_]?(\d+(?:\s*(?:,|and|&)\s*\d+)*)/gi)) {
+    for (const d of m[1].match(/\d+/g) ?? []) {
+      const n = Number(d);
+      if (Number.isInteger(n) && n > 0) steps.add(n);
+    }
   }
+  for (const n of extractPlaceholderCitedSteps(text)) steps.add(n);
+  return [...steps].sort((a, b) => a - b);
+}
+
+/**
+ * Extract step numbers from placeholder references the composer emitted:
+ * "$result:step_2_total" / "$chartData:step_3_bars". Safe to run on a raw
+ * PRE-resolution spec line — placeholders are unambiguous, unlike prose
+ * "step N" mentions.
+ */
+export function extractPlaceholderCitedSteps(text: string): number[] {
+  const steps = new Set<number>();
   for (const m of text.matchAll(/\$(?:result|chartData):step_(\d+)_/g)) {
     const n = Number(m[1]);
     if (Number.isInteger(n) && n > 0) steps.add(n);

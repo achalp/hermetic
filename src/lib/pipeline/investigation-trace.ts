@@ -14,9 +14,10 @@
  * the same edit-and-rerun path single-shot already uses. The agentic loop
  * extends the audit trail rather than outrunning it.
  *
- * The trace carries only schema-level / computed data — the same posture as
- * the rest of Investigate. Code is the LLM-generated Python (no row values);
- * results/chart_data are aggregates the composer already sees.
+ * The trace carries computed data only — the same posture as the rest of
+ * Investigate. Code is the LLM-generated Python; results/chart_data are
+ * aggregates the composer already sees; per-step datasets are capped to a
+ * small preview (TRACE_DATASET_MAX_ROWS) so the serialized trace stays small.
  */
 
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
@@ -71,6 +72,26 @@ export interface InvestigationTrace {
   grounding?: GroundingReport;
 }
 
+/**
+ * Per-step datasets are capped to a preview: steps can emit up to 5000 rows
+ * each, and the trace is serialized whole into the artifacts response and
+ * every history entry — an 8-step investigation would otherwise ship tens of
+ * MB. 200 rows is plenty for the Trail's audit view; re-running the step
+ * recomputes the full data.
+ */
+const TRACE_DATASET_MAX_ROWS = 200;
+
+function capDatasets(
+  datasets: Record<string, Record<string, unknown>[]> | undefined
+): Record<string, Record<string, unknown>[]> | undefined {
+  if (!datasets) return undefined;
+  const capped: Record<string, Record<string, unknown>[]> = {};
+  for (const [name, rows] of Object.entries(datasets)) {
+    capped[name] = Array.isArray(rows) ? rows.slice(0, TRACE_DATASET_MAX_ROWS) : rows;
+  }
+  return capped;
+}
+
 function statusOf(sub: SubQuestionResult): StepStatus {
   if (sub.removed) return "removed";
   if (sub.error) return "failed";
@@ -105,7 +126,9 @@ export function buildInvestigationTrace(args: BuildTraceArgs): InvestigationTrac
       code: sub.result?.generatedCode,
       results: exec?.results as Record<string, unknown> | undefined,
       chart_data: exec?.chart_data as Record<string, unknown> | undefined,
-      datasets: exec?.datasets as Record<string, Record<string, unknown>[]> | undefined,
+      datasets: capDatasets(
+        exec?.datasets as Record<string, Record<string, unknown>[]> | undefined
+      ),
       execution_ms: exec?.execution_ms,
       degradedReason: sub.degradedReason,
       error: sub.error,

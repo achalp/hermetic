@@ -82,6 +82,9 @@ export async function POST(request: Request) {
       datasets: (executionResult.datasets ?? {}) as Record<string, Record<string, unknown>[]>,
       execution_ms: executionResult.execution_ms ?? 0,
       sql: prior?.sql, // preserve any prior SQL artifact for warehouse runs
+      // Preserve the investigation audit trail: re-running one step's code
+      // must not destroy the trace the Trail tab is rendering from.
+      investigation: prior?.investigation,
     };
     cacheArtifacts(csv_id, cachedArtifactData);
 

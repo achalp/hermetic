@@ -18,7 +18,7 @@ import { generatePlan } from "@/lib/llm/investigate-planner";
 import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { resolveSpecPlaceholders } from "@/lib/llm/resolve-placeholders";
-import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   buildInvestigationTrace,
   successfulStepNos,
@@ -29,6 +29,7 @@ import {
   collectGroundedValues,
   verifyGrounding,
   extractCitedSteps,
+  extractPlaceholderCitedSteps,
 } from "@/lib/pipeline/grounding";
 import { getStoredCSV, getCSVContent, getGeoJSONContent, isLocalFile } from "@/lib/csv/storage";
 import {
@@ -266,8 +267,10 @@ export async function POST(request: Request) {
           // capture them here for the trace the artifacts panel renders.
           const decisions: TraceDecision[] = [];
           const sourceByIndex = new Map<number, StepSource>();
-          // The replan_decision event arrives just before its subs_amended;
-          // composer-path amendments arrive with no preceding replan_decision.
+          // subs_amended events carry their provenance (amendmentSource), so
+          // attribution never depends on event ordering. currentReplan only
+          // tracks the most recent replan decision so a re-planner amendment
+          // can fill in its added/removed indices.
           let currentReplan: TraceDecision | null = null;
           let pendingComposerAdded: number[] = [];
 
@@ -351,19 +354,16 @@ export async function POST(request: Request) {
                   }) + "\n"
                 );
               } else if (event.kind === "subs_amended") {
-                // Audit-trail provenance. If a replan_decision preceded this,
-                // the new steps are the re-planner's; otherwise they belong to
-                // the terminal composer-dispatch path (confirmed by the
-                // composer_dispatched event that follows).
+                // Audit-trail provenance, read directly off the event.
                 const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
-                if (currentReplan) {
+                if (event.amendmentSource === "composer") {
+                  pendingComposerAdded = addedIndices;
+                  for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
+                } else if (currentReplan) {
                   currentReplan.addedIndices = addedIndices;
                   currentReplan.removedIndices = event.removedIndices ?? [];
                   for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
                   currentReplan = null;
-                } else {
-                  pendingComposerAdded = addedIndices;
-                  for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
                 }
                 // Append new steps to the visible plan and mark removed ones.
                 if (event.addedSteps) {
@@ -378,7 +378,8 @@ export async function POST(request: Request) {
                           rationale: step.rationale,
                           depends_on: step.depends_on,
                           status: "pending",
-                          addedByReplanner: true,
+                          addedByReplanner: event.amendmentSource !== "composer",
+                          addedByComposer: event.amendmentSource === "composer",
                         },
                       }) + "\n"
                     );
@@ -443,24 +444,35 @@ export async function POST(request: Request) {
           // composer failure still leaves an inspectable trail; `trace.grounding`
           // is set below on the same object, so the cached entry sees it too.
           const lastSuccess = [...subResults].reverse().find((r) => r.result);
-          cacheArtifacts(csvId!, {
-            code: lastSuccess?.result?.generatedCode ?? "",
-            question,
-            results: (lastSuccess?.result?.executionResult.results ?? {}) as Record<
-              string,
-              unknown
-            >,
-            chart_data: (lastSuccess?.result?.executionResult.chart_data ?? {}) as Record<
-              string,
-              unknown
-            >,
-            datasets: (lastSuccess?.result?.executionResult.datasets ?? {}) as Record<
-              string,
-              Record<string, unknown>[]
-            >,
-            execution_ms: lastSuccess?.result?.executionResult.execution_ms ?? 0,
-            investigation: trace,
-          });
+          const prior = getCachedArtifacts(csvId!);
+          const topLevel = lastSuccess?.result
+            ? {
+                code: lastSuccess.result.generatedCode,
+                question,
+                results: lastSuccess.result.executionResult.results as Record<string, unknown>,
+                chart_data: lastSuccess.result.executionResult.chart_data as Record<
+                  string,
+                  unknown
+                >,
+                datasets: (lastSuccess.result.executionResult.datasets ?? {}) as Record<
+                  string,
+                  Record<string, unknown>[]
+                >,
+                execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
+              }
+            : {
+                // Every sub-question failed: keep the previously cached
+                // top-level artifacts (a failed investigation must not clobber
+                // a prior good run's re-runnable code) and attach the trail.
+                code: prior?.code ?? "",
+                question: prior?.question ?? question,
+                results: prior?.results ?? {},
+                chart_data: prior?.chart_data ?? {},
+                datasets: prior?.datasets ?? {},
+                execution_ms: prior?.execution_ms ?? 0,
+                sql: prior?.sql,
+              };
+          cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
 
           // Deterministic data-quality surfacing — guarantees degraded / failed
           // / dropped branches reach the user regardless of whether the composer
@@ -531,7 +543,11 @@ export async function POST(request: Request) {
           const citedSteps = new Set<number>();
 
           const ingestComposedLine = (preResolution: string, resolved: string) => {
-            for (const n of extractCitedSteps(preResolution)) citedSteps.add(n);
+            // Raw line: only unambiguous $result/$chartData placeholders count
+            // as citations — prose-scanning the raw JSON would match element
+            // IDs / key paths named after steps and suppress the
+            // uncited-steps advisory.
+            for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
             try {
               const patch = JSON.parse(resolved) as { value?: unknown };
               if (patch && "value" in patch) {

@@ -9,6 +9,7 @@ import {
 } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
+import { CitationsContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, SchemaMode } from "@/lib/types";
@@ -25,6 +26,15 @@ interface DrillLevel {
   question: string;
   segmentLabel: string;
   spec: Spec;
+}
+
+/**
+ * Specs produced by Investigate carry `__plan` in their state. Used to gate
+ * Investigate-only rendering conventions (step-citation superscripts) so
+ * Ask-mode prose is rendered verbatim.
+ */
+function specHasInvestigation(spec: Spec | null | undefined): boolean {
+  return Boolean(spec?.state && "__plan" in (spec.state as Record<string, unknown>));
 }
 
 interface ResponsePanelProps {
@@ -391,15 +401,17 @@ export function ResponsePanel({
             >
               <p className="mb-2 text-xs font-medium text-t-secondary">{level.question}</p>
               {level.spec?.root && level.spec?.elements && (
-                <StateProvider initialState={level.spec.state ?? {}}>
-                  <ActionProvider>
-                    <VisibilityProvider>
-                      <RendererErrorBoundary>
-                        <Renderer spec={level.spec} registry={registry} />
-                      </RendererErrorBoundary>
-                    </VisibilityProvider>
-                  </ActionProvider>
-                </StateProvider>
+                <CitationsContext.Provider value={specHasInvestigation(level.spec)}>
+                  <StateProvider initialState={level.spec.state ?? {}}>
+                    <ActionProvider>
+                      <VisibilityProvider>
+                        <RendererErrorBoundary>
+                          <Renderer spec={level.spec} registry={registry} />
+                        </RendererErrorBoundary>
+                      </VisibilityProvider>
+                    </ActionProvider>
+                  </StateProvider>
+                </CitationsContext.Provider>
               )}
             </div>
           ))}
@@ -421,15 +433,17 @@ export function ResponsePanel({
       {/* Active level */}
       {activeSpec?.root && activeSpec?.elements && (
         <Card ref={dashboardRef}>
-          <StateProvider initialState={activeSpec.state ?? {}}>
-            <ActionProvider>
-              <VisibilityProvider>
-                <RendererErrorBoundary>
-                  <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
-                </RendererErrorBoundary>
-              </VisibilityProvider>
-            </ActionProvider>
-          </StateProvider>
+          <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
+            <StateProvider initialState={activeSpec.state ?? {}}>
+              <ActionProvider>
+                <VisibilityProvider>
+                  <RendererErrorBoundary>
+                    <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                  </RendererErrorBoundary>
+                </VisibilityProvider>
+              </ActionProvider>
+            </StateProvider>
+          </CitationsContext.Provider>
 
           {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
         </Card>
@@ -441,15 +455,17 @@ export function ResponsePanel({
       {/* Previous spec shown dimmed below the new dashboard during follow-ups */}
       {previousSpec?.root && previousSpec?.elements && isStreaming && (
         <Card className="opacity-40">
-          <StateProvider initialState={previousSpec.state ?? {}}>
-            <ActionProvider>
-              <VisibilityProvider>
-                <RendererErrorBoundary>
-                  <Renderer spec={previousSpec} registry={registry} />
-                </RendererErrorBoundary>
-              </VisibilityProvider>
-            </ActionProvider>
-          </StateProvider>
+          <CitationsContext.Provider value={specHasInvestigation(previousSpec)}>
+            <StateProvider initialState={previousSpec.state ?? {}}>
+              <ActionProvider>
+                <VisibilityProvider>
+                  <RendererErrorBoundary>
+                    <Renderer spec={previousSpec} registry={registry} />
+                  </RendererErrorBoundary>
+                </VisibilityProvider>
+              </ActionProvider>
+            </StateProvider>
+          </CitationsContext.Provider>
         </Card>
       )}
     </div>

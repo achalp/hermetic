@@ -5,7 +5,7 @@
  * These were previously inline in registry.tsx, adding ~200 lines.
  */
 
-import type { ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useBoundProp } from "@json-render/react";
 import { useStatCardTheme, useInsightTheme, useAnnotationTheme } from "@/lib/theme-config";
 
@@ -209,6 +209,15 @@ export function StatCardComponent({ props }: { props: StatCardProps }) {
 // the raw content) is unaffected; this is purely presentational.
 const CITATION_RE = /\s*\((steps?)\s+(\d+(?:\s*(?:,|and|&)\s*\d+)*)\)/gi;
 
+/**
+ * Citation superscripts are an Investigate-only convention — gate them per
+ * rendered spec. Ask-mode prose can legitimately contain "(Step 3)" (funnel
+ * stages, pipeline steps in the user's own data); without this gate the
+ * renderer would silently delete that text and point a citation mark at an
+ * investigation step that doesn't exist.
+ */
+export const CitationsContext = createContext(false);
+
 export function renderWithCitations(content: string): ReactNode {
   // Fast path: nothing that looks like a step citation.
   if (!/\(steps?\s+\d/i.test(content)) return content;
@@ -240,6 +249,13 @@ export function renderWithCitations(content: string): ReactNode {
 
 export function TextBlockComponent({ props }: { props: TextBlockProps }) {
   const insight = useInsightTheme();
+  const citationsEnabled = useContext(CitationsContext);
+  // Memoized: TextBlocks re-render on every streamed patch; stable children
+  // let reconciliation skip unchanged text.
+  const rendered = useMemo(
+    () => (citationsEnabled ? renderWithCitations(props.content) : props.content),
+    [citationsEnabled, props.content]
+  );
   const variant = props.variant ?? "body";
   const isInsight = variant === "insight";
   const insightBase = isInsight
@@ -261,7 +277,7 @@ export function TextBlockComponent({ props }: { props: TextBlockProps }) {
       className={styles[variant]}
       style={variant === "heading" ? { fontWeight: "var(--font-heading-weight)" } : undefined}
     >
-      <p className="whitespace-pre-wrap">{renderWithCitations(props.content)}</p>
+      <p className="whitespace-pre-wrap">{rendered}</p>
     </div>
   );
 }

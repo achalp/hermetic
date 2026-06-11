@@ -3,6 +3,7 @@ import {
   collectGroundedValues,
   extractNumbers,
   extractCitedSteps,
+  extractPlaceholderCitedSteps,
   verifyGrounding,
   __testing,
 } from "@/lib/pipeline/grounding";
@@ -39,6 +40,18 @@ describe("extractNumbers", () => {
     expect(byRaw["12.3%"].hadPercent).toBe(true);
     expect(byRaw["12.3%"].value).toBeCloseTo(12.3);
     expect(byRaw["1,234"].value).toBe(1234);
+  });
+
+  it("does not consume the first letter of a following word as a suffix", () => {
+    // "12 months" must parse as 12, not 12M; "5 buyers" as 5, not 5B.
+    expect(extractNumbers("over 12 months")[0].value).toBe(12);
+    expect(extractNumbers("5 buyers churned")[0].value).toBe(5);
+    expect(extractNumbers("1,234 transactions")[0].value).toBe(1234);
+  });
+
+  it("still parses adjacent suffixes, including bn", () => {
+    expect(extractNumbers("3bn users")[0].value).toBe(3e9);
+    expect(extractNumbers("worth $1.2K.")[0].value).toBeCloseTo(1200);
   });
 });
 
@@ -126,11 +139,37 @@ describe("verifyGrounding", () => {
     });
     expect(report.ok).toBe(true);
   });
+
+  it("accepts legitimately rounded suffixed figures at display precision", () => {
+    // "1.2K" is orders=1234 rounded to one decimal at K scale — the author's
+    // displayed precision is 100, not 0.1.
+    const report = verifyGrounding({
+      narrativeTexts: ["There were 1.2K orders."],
+      citedSteps: [],
+      grounded, // orders: 1234
+      successfulStepNos: [],
+    });
+    expect(report.ok).toBe(true);
+  });
 });
 
 describe("extractCitedSteps", () => {
   it("reads prose mentions and placeholder references", () => {
     expect(extractCitedSteps("See Step 2 and step_4")).toEqual([2, 4]);
     expect(extractCitedSteps('"$result:step_3_total"')).toEqual([3]);
+  });
+
+  it("reads plural citation lists — the form the composer prompt mandates", () => {
+    expect(extractCitedSteps("Revenue roughly doubled (Steps 1, 4).")).toEqual([1, 4]);
+    expect(extractCitedSteps("Both trends agree (Steps 2 and 5).")).toEqual([2, 5]);
+    expect(extractCitedSteps("steps 1 and 4")).toEqual([1, 4]);
+  });
+});
+
+describe("extractPlaceholderCitedSteps", () => {
+  it("reads only placeholders — element IDs named after steps do not count", () => {
+    const rawLine =
+      '{"op":"add","path":"/elements/step_4_section","value":{"id":"step_4_chart","data":"$chartData:step_2_bars"}}';
+    expect(extractPlaceholderCitedSteps(rawLine)).toEqual([2]);
   });
 });
