@@ -804,13 +804,17 @@ function InvestigateProgress({ spec }: { spec: Spec | null }) {
 
   const stage = progress?.stage ?? "planning";
   const stageLabel =
-    stage === "planning"
-      ? "Planning the investigation..."
-      : stage === "investigating"
-        ? "Running sub-questions..."
-        : stage === "composing"
-          ? "Composing the unified dashboard..."
-          : "Working...";
+    stage === "generating_sql"
+      ? "Writing warehouse SQL..."
+      : stage === "querying_warehouse"
+        ? "Querying the warehouse..."
+        : stage === "planning"
+          ? "Planning the investigation..."
+          : stage === "investigating"
+            ? "Running sub-questions..."
+            : stage === "composing"
+              ? "Composing the unified dashboard..."
+              : "Working...";
 
   return (
     <div className="flex flex-col gap-4 py-10" role="status" aria-live="polite">

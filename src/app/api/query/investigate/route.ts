@@ -36,7 +36,18 @@ import {
   extractCitedSteps,
   extractPlaceholderCitedSteps,
 } from "@/lib/pipeline/grounding";
-import { getStoredCSV, getCSVContent, getGeoJSONContent, isLocalFile } from "@/lib/csv/storage";
+import {
+  getStoredCSV,
+  getCSVContent,
+  getGeoJSONContent,
+  isLocalFile,
+  storeCSV,
+} from "@/lib/csv/storage";
+import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
+import { generateSQL } from "@/lib/warehouse/sql-generation";
+import { parseCSV } from "@/lib/csv/parser";
+import { extractSchema } from "@/lib/csv/schema";
+import { randomUUID } from "crypto";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -103,7 +114,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as InvestigateBody;
     const context = body.context ?? {};
-    const csvId = context.csv_id;
+    let csvId = context.csv_id;
     const warehouseId = context.warehouse_id;
     const question = (context.question ?? body.prompt ?? "").trim();
 
@@ -155,52 +166,36 @@ export async function POST(request: Request) {
         ? context.sandbox_runtime
         : getActiveSandboxRuntime();
 
-    // v1: only file-source investigations. Warehouse investigations would
-    // need to plan + execute SQL separately for each sub-question. Defer.
+    // Warehouse investigations: materialize the data with ONE broad SQL
+    // pull, then run the standard file-source investigation over the
+    // resulting CSV. Per-step SQL (each sub-question generating its own
+    // query) remains the deeper fast-follow — see specs/notebook-mode.
+    // Validate the connection before streaming so failures are clean 404s.
+    let warehouseState: {
+      warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
+      connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
+    } | null = null;
     if (warehouseId && !csvId) {
-      return new Response(
-        JSON.stringify({
-          error:
-            "Investigate mode currently supports file-source analyses only. Run a warehouse query first (which materializes a CSV), then re-run with Investigate.",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const stored = getStoredCSV(csvId!);
-    if (!stored) {
+      const warehouse = getStoredWarehouse(warehouseId);
+      if (!warehouse) {
+        return new Response(
+          JSON.stringify({ error: "Warehouse not found or expired. Please reconnect." }),
+          { status: 404, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      const connector = getWarehouseConnector(warehouseId);
+      if (!connector) {
+        return new Response(JSON.stringify({ error: "Warehouse connector not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      warehouseState = { warehouse, connector };
+    } else if (!getStoredCSV(csvId!)) {
       return new Response(JSON.stringify({ error: "CSV not found or expired" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
-    }
-
-    const isLocal = isLocalFile(csvId!);
-    const csvContent = isLocal ? "" : ((await getCSVContent(csvId!)) ?? "");
-    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
-
-    // Local-mount path resolution (mirrors the logic in /api/query)
-    let localMountPath: string | undefined;
-    let localFileContext: string | undefined;
-    if (isLocal) {
-      const hostPath = stored.localFolderPath || stored.localPath;
-      if (!hostPath) {
-        return new Response(JSON.stringify({ error: "Local file path not found" }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      // Use the existing constants — same shape as /api/query
-      const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
-      const path = await import("node:path");
-      if (stored.localFolderPath) {
-        localMountPath = LOCAL_MOUNT_PATH;
-        localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH}. Use DuckDB: con.execute("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet')").df().`;
-      } else {
-        const fname = path.basename(hostPath);
-        localMountPath = `${LOCAL_MOUNT_PATH}/${fname}`;
-        localFileContext = `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
-      }
     }
 
     // ── Stream begins ──
@@ -236,6 +231,83 @@ export async function POST(request: Request) {
         };
 
         try {
+          // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
+          // The pull is intentionally row-level (not pre-aggregated): the
+          // sub-questions aren't known yet, so the materialized CSV must
+          // leave room for whatever angles the planner takes.
+          let warehouseSQL: string | undefined;
+          if (warehouseState) {
+            const { warehouse, connector } = warehouseState;
+            emitProgress("generating_sql", 1, 99);
+            const materializationQuestion =
+              `Retrieve the DETAILED rows needed to investigate this question from multiple angles: ${question}\n` +
+              `Return row-level data (not pre-aggregated summaries) and include every column plausibly relevant to the question — ` +
+              `dimensions for grouping, dates for trends, and measures for computation. Cap the result at 50000 rows if the source is larger.`;
+            warehouseSQL = await generateSQL(
+              warehouse.tableSchemas,
+              materializationQuestion,
+              warehouse.config.type,
+              codeGenModel
+            );
+            logger.info("Investigate: warehouse SQL generated", { sql: warehouseSQL });
+
+            emitProgress("querying_warehouse", 1, 99);
+            const warehouseCsvContent = await connector.executeSQL(warehouseSQL);
+            if (!warehouseCsvContent || warehouseCsvContent.trim() === "") {
+              throw new Error(`SQL query returned no results.\n\nGenerated SQL:\n${warehouseSQL}`);
+            }
+            const parsed = parseCSV(warehouseCsvContent);
+            const newCsvId = randomUUID();
+            const schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
+            schema.source_type = "warehouse";
+            schema.warehouse_type = warehouse.config.type;
+            await storeCSV(newCsvId, warehouseCsvContent, schema);
+            csvId = newCsvId;
+            logger.info("Investigate: warehouse data materialized", {
+              csvId: newCsvId,
+              columns: schema.columns.length,
+            });
+            // Emit the generated csvId so the client can use it for
+            // artifacts, notebook cell re-runs, and follow-ups.
+            emit(
+              JSON.stringify({
+                op: "add",
+                path: "/state/__warehouse_csv_id",
+                value: newCsvId,
+              }) + "\n"
+            );
+          }
+
+          // ── Resolve the source (file upload, local mount, or the CSV
+          //     just materialized from the warehouse) ──
+          const stored = getStoredCSV(csvId!);
+          if (!stored) {
+            throw new Error("CSV not found or expired");
+          }
+          const isLocal = isLocalFile(csvId!);
+          const csvContent = isLocal ? "" : ((await getCSVContent(csvId!)) ?? "");
+          const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
+
+          // Local-mount path resolution (mirrors the logic in /api/query)
+          let localMountPath: string | undefined;
+          let localFileContext: string | undefined;
+          if (isLocal) {
+            const hostPath = stored.localFolderPath || stored.localPath;
+            if (!hostPath) {
+              throw new Error("Local file path not found");
+            }
+            const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
+            const path = await import("node:path");
+            if (stored.localFolderPath) {
+              localMountPath = LOCAL_MOUNT_PATH;
+              localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH}. Use DuckDB: con.execute("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet')").df().`;
+            } else {
+              const fname = path.basename(hostPath);
+              localMountPath = `${LOCAL_MOUNT_PATH}/${fname}`;
+              localFileContext = `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
+            }
+          }
+
           // ── Step 1: Plan ──
           emitProgress("planning", 1, 99);
           const planResult = await generatePlan(question, stored.schema, undefined, codeGenModel);
@@ -331,6 +403,10 @@ export async function POST(request: Request) {
             model: codeGenModel,
             originalQuestion: question,
             approach: plan.approach,
+            // Warehouse table schemas inform the re-planner what ELSE could
+            // be queried, even though v1 sub-questions run over the
+            // materialized CSV.
+            warehouse: warehouseState?.warehouse.tableSchemas,
             onProgress: (event) => {
               if (event.kind === "sub_started" && event.index !== undefined) {
                 stepCount++;
@@ -518,6 +594,9 @@ export async function POST(request: Request) {
                   Record<string, unknown>[]
                 >,
                 execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
+                // The materialization SQL for a warehouse investigation —
+                // surfaces in the artifacts SQL tab.
+                sql: warehouseSQL,
               }
             : {
                 // Every sub-question failed: keep the previously cached
@@ -529,7 +608,7 @@ export async function POST(request: Request) {
                 chart_data: prior?.chart_data ?? {},
                 datasets: prior?.datasets ?? {},
                 execution_ms: prior?.execution_ms ?? 0,
-                sql: prior?.sql,
+                sql: warehouseSQL ?? prior?.sql,
               };
           cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
 
@@ -602,8 +681,12 @@ export async function POST(request: Request) {
           const citedSteps = new Set<number>();
           // Notebook synthesis cell: the composer is instructed to use the
           // element IDs `exec_summary` and `conclusion` for those two blocks;
-          // we lift their (post-resolution) content here. Best-effort — if
-          // the composer ignores the IDs, the notebook omits the synthesis.
+          // we lift their (post-resolution) content here. Matching is
+          // tolerant of the LLM's id-styling drift ("exec-summary",
+          // "conclusion-block"). Best-effort — if the composer ignores the
+          // IDs entirely, the notebook omits the synthesis.
+          const SUMMARY_PATH_RE = /^\/elements\/exec[-_]summary(?:[-_][a-z0-9]+)?$/;
+          const CONCLUSION_PATH_RE = /^\/elements\/conclusion(?:[-_][a-z0-9]+)?$/;
           const synthesis: { summary?: string; conclusion?: string } = {};
 
           const ingestComposedLine = (preResolution: string, resolved: string) => {
@@ -615,14 +698,14 @@ export async function POST(request: Request) {
             try {
               const patch = JSON.parse(resolved) as { path?: string; value?: unknown };
               if (patch && "value" in patch) {
-                if (
-                  patch.path === "/elements/exec_summary" ||
-                  patch.path === "/elements/conclusion"
-                ) {
+                const isSummary = !!patch.path && SUMMARY_PATH_RE.test(patch.path);
+                const isConclusion =
+                  !isSummary && !!patch.path && CONCLUSION_PATH_RE.test(patch.path);
+                if (isSummary || isConclusion) {
                   const content = (patch.value as { props?: { content?: unknown } } | null)?.props
                     ?.content;
                   if (typeof content === "string" && content.trim()) {
-                    if (patch.path === "/elements/exec_summary") synthesis.summary = content;
+                    if (isSummary) synthesis.summary = content;
                     else synthesis.conclusion = content;
                   }
                 }
