@@ -89,7 +89,7 @@ export interface InvestigationTrace {
  */
 const TRACE_DATASET_MAX_ROWS = 200;
 
-function capDatasets(
+export function capDatasets(
   datasets: Record<string, Record<string, unknown>[]> | undefined
 ): Record<string, Record<string, unknown>[]> | undefined {
   if (!datasets) return undefined;
@@ -149,6 +149,32 @@ export function buildInvestigationTrace(args: BuildTraceArgs): InvestigationTrac
     steps,
     decisions: args.decisions,
   };
+}
+
+/**
+ * 0-based indices of every step that transitively depends on `index` via
+ * `depends_on`, in ascending order. The planner restricts `depends_on` to
+ * indices below the step's own, so ascending index order is a valid
+ * topological order for re-running them.
+ *
+ * Used by notebook mode's DAG-aware re-run: when a step's code is edited
+ * and re-run, its transitive dependents are flagged stale.
+ */
+export function transitiveDependents(steps: TraceStep[], index: number): number[] {
+  const affected = new Set<number>([index]);
+  // Single ascending pass suffices because deps always point backwards.
+  // Removed steps PROPAGATE staleness (a dependent of a removed step still
+  // transitively rests on the changed step) but are excluded from the
+  // result — a dropped step never re-runs.
+  const ordered = [...steps].sort((a, b) => a.index - b.index);
+  for (const step of ordered) {
+    if (step.depends_on.some((d) => affected.has(d))) {
+      affected.add(step.index);
+    }
+  }
+  affected.delete(index);
+  const removed = new Set(steps.filter((s) => s.status === "removed").map((s) => s.index));
+  return [...affected].filter((i) => !removed.has(i)).sort((a, b) => a - b);
 }
 
 /** 1-based step numbers that produced a usable (success/degraded) result. */

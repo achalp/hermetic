@@ -17,15 +17,17 @@
  *     code, datasets, provenance, and timing once artifacts are loaded.
  */
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Renderer, StateProvider, ActionProvider, VisibilityProvider } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
+import { renderWithCitations } from "@/components/registry-primitives";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { CodeEditor } from "@/components/app/code-editor";
 import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
+import { rerunInvestigateStep } from "@/lib/api";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { TraceStep } from "@/lib/pipeline/investigation-trace";
+import type { TraceStep, TraceDecision } from "@/lib/pipeline/investigation-trace";
 
 type CellStatus = "pending" | "running" | "done" | "degraded" | "failed" | "removed";
 
@@ -192,10 +194,40 @@ function CellOutput({ cellSpec }: { cellSpec: Spec }) {
   );
 }
 
-function NotebookCell({ cell, isStreaming }: { cell: NotebookCellModel; isStreaming: boolean }) {
+function NotebookCell({
+  cell,
+  isStreaming,
+  highlighted = false,
+  stale = false,
+  rerunning = false,
+  rerunError,
+  onRerun,
+}: {
+  cell: NotebookCellModel;
+  isStreaming: boolean;
+  highlighted?: boolean;
+  /** An upstream step was re-run with edits — this cell's results may be stale. */
+  stale?: boolean;
+  rerunning?: boolean;
+  rerunError?: string;
+  /** When provided, the cell's code is editable and re-runnable. */
+  onRerun?: (index: number, code?: string) => void;
+}) {
+  // Per-cell editor state: null = pristine. Resets when fresh trace code
+  // arrives (derived-state pattern, mirrors artifacts-viewer).
+  const [editedCode, setEditedCode] = useState<string | null>(null);
+  const [prevCode, setPrevCode] = useState(cell.trace?.code);
+  if (cell.trace?.code !== prevCode) {
+    setPrevCode(cell.trace?.code);
+    setEditedCode(null);
+  }
+  const codeValue = editedCode ?? cell.trace?.code ?? "";
+  const dirty = editedCode !== null && editedCode !== cell.trace?.code;
+
   if (cell.status === "removed") {
     return (
       <div
+        id={`notebook-cell-${cell.stepNo}`}
         className="border border-border-default px-4 py-2 text-sm text-t-tertiary"
         style={{ borderRadius: "var(--radius-card)" }}
       >
@@ -213,8 +245,15 @@ function NotebookCell({ cell, isStreaming }: { cell: NotebookCellModel; isStream
 
   return (
     <div
-      className="theme-card border border-border-default bg-surface-1"
-      style={{ borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-card)" }}
+      id={`notebook-cell-${cell.stepNo}`}
+      className={`theme-card border bg-surface-1 transition-colors ${
+        highlighted ? "border-accent" : "border-border-default"
+      }`}
+      style={{
+        borderRadius: "var(--radius-card)",
+        boxShadow: "var(--shadow-card)",
+        transitionDuration: "var(--transition-speed)",
+      }}
     >
       {/* Header */}
       <div className="flex flex-col gap-1 border-b border-table-divider px-4 py-3">
@@ -244,6 +283,31 @@ function NotebookCell({ cell, isStreaming }: { cell: NotebookCellModel; isStream
 
       {/* Body */}
       <div className="flex flex-col gap-3 px-4 py-3">
+        {stale && (
+          <div
+            className="flex items-center justify-between gap-2 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"
+            style={{ borderRadius: "var(--radius-badge)" }}
+          >
+            <span>An upstream step was re-run — these results may be stale.</span>
+            {onRerun && (
+              <button
+                onClick={() => onRerun(cell.index)}
+                disabled={rerunning}
+                className="shrink-0 font-medium underline hover:no-underline disabled:opacity-50"
+              >
+                {rerunning ? "Re-running…" : "Re-run"}
+              </button>
+            )}
+          </div>
+        )}
+        {rerunError && (
+          <div
+            className="border border-error-border bg-error-bg px-3 py-2 text-xs text-error-text"
+            style={{ borderRadius: "var(--radius-badge)" }}
+          >
+            Re-run failed: {rerunError}
+          </div>
+        )}
         {cell.status === "failed" ? (
           <div
             className="border border-error-border bg-error-bg px-3 py-2 text-sm text-error-text"
@@ -283,12 +347,42 @@ function NotebookCell({ cell, isStreaming }: { cell: NotebookCellModel; isStream
           </p>
         )}
 
-        {/* Code disclosure — available once the audit trail is loaded */}
+        {/* Code disclosure — available once the audit trail is loaded.
+            Editable + re-runnable when an onRerun handler is wired up. */}
         {cell.trace?.code && (
           <Disclosure label="Code">
             <div className="overflow-hidden" style={{ borderRadius: "var(--radius-badge)" }}>
-              <CodeEditor value={cell.trace.code} language="python" readOnly height={260} />
+              <CodeEditor
+                value={codeValue}
+                language="python"
+                readOnly={!onRerun}
+                onChange={onRerun ? setEditedCode : undefined}
+                height={260}
+              />
             </div>
+            {onRerun && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onRerun(cell.index, dirty ? codeValue : undefined)}
+                  disabled={rerunning}
+                  className="bg-surface-btn px-2.5 py-1 text-xs font-medium text-t-btn hover:bg-surface-btn-hover transition-colors disabled:opacity-50"
+                  style={{
+                    borderRadius: "var(--radius-badge)",
+                    transitionDuration: "var(--transition-speed)",
+                  }}
+                >
+                  {rerunning ? "Re-running…" : dirty ? "Re-run with edits" : "Re-run step"}
+                </button>
+                {dirty && (
+                  <button
+                    onClick={() => setEditedCode(null)}
+                    className="text-xs text-t-secondary underline hover:no-underline"
+                  >
+                    Discard edits
+                  </button>
+                )}
+              </div>
+            )}
           </Disclosure>
         )}
 
@@ -313,19 +407,243 @@ function NotebookCell({ cell, isStreaming }: { cell: NotebookCellModel; isStream
   );
 }
 
+interface SynthesisState {
+  summary?: string;
+  conclusion?: string;
+}
+
+interface GroundingLike {
+  ok?: boolean;
+  checkedCount?: number;
+  ungrounded?: string[];
+}
+
+function decisionLabel(d: TraceDecision): string {
+  if (d.kind === "composer_dispatch") return "Composer dispatch";
+  return `Re-planner: ${d.action ?? "decision"}`;
+}
+
+/**
+ * The synthesis cell — the cross-step narrative at the bottom of the
+ * notebook: executive summary + conclusion (with clickable citations), the
+ * grounding verdict, and the agent's decision log.
+ */
+function SynthesisCell({
+  synthesis,
+  grounding,
+  decisions,
+}: {
+  synthesis: SynthesisState;
+  grounding?: GroundingLike;
+  decisions?: TraceDecision[];
+}) {
+  return (
+    <div
+      id="notebook-cell-synthesis"
+      className="theme-card border border-accent bg-surface-1"
+      style={{ borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-card)" }}
+    >
+      <div className="border-b border-table-divider px-4 py-3">
+        <span
+          className="bg-accent-subtle px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
+          style={{ borderRadius: "var(--radius-badge)" }}
+        >
+          Synthesis
+        </span>
+      </div>
+      <div className="flex flex-col gap-3 px-4 py-3">
+        {synthesis.summary && (
+          <div className="insight-block border-l-4 border-accent pl-4 text-sm text-accent-text">
+            <p className="whitespace-pre-wrap">{renderWithCitations(synthesis.summary)}</p>
+          </div>
+        )}
+        {synthesis.conclusion && (
+          <p className="whitespace-pre-wrap text-sm text-t-secondary">
+            {renderWithCitations(synthesis.conclusion)}
+          </p>
+        )}
+        {grounding && typeof grounding.ok === "boolean" && (
+          <p className="text-xs">
+            {grounding.ok ? (
+              <span className="text-success-text">
+                ✓ {grounding.checkedCount ?? 0} checked figure
+                {(grounding.checkedCount ?? 0) === 1 ? "" : "s"} in the narrative matched computed
+                results.
+              </span>
+            ) : (
+              <span className="text-warning-text">
+                ▲ {grounding.ungrounded?.length ?? 0} figure
+                {(grounding.ungrounded?.length ?? 0) === 1 ? "" : "s"} could not be traced to a
+                computed result: {grounding.ungrounded?.join(", ")}. Verify before relying on them.
+              </span>
+            )}
+          </p>
+        )}
+        {decisions && decisions.length > 0 && (
+          <Disclosure label="How the agent got here">
+            <ol className="flex flex-col gap-2 text-xs text-t-secondary">
+              {decisions.map((d, i) => (
+                <li key={i}>
+                  <span className="font-medium text-t-primary">{decisionLabel(d)}</span>
+                  {d.rationale ? ` — ${d.rationale}` : ""}
+                  {d.addedIndices.length > 0 && (
+                    <span className="text-t-tertiary">
+                      {" "}
+                      (added {d.addedIndices.map((x) => `Step ${x + 1}`).join(", ")})
+                    </span>
+                  )}
+                  {d.removedIndices.length > 0 && (
+                    <span className="text-t-tertiary">
+                      {" "}
+                      (dropped {d.removedIndices.map((x) => `Step ${x + 1}`).join(", ")})
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </Disclosure>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function NotebookView({
   spec,
   artifacts,
   isStreaming,
+  scrollTarget,
+  csvId,
+  sandboxRuntime,
+  onStepRerun,
 }: {
   spec: Spec | null;
   artifacts?: CachedArtifacts | null;
   isStreaming: boolean;
+  /** Citation click-through target. `seq` distinguishes repeat clicks. */
+  scrollTarget?: { stepNo: number; seq: number } | null;
+  /** Enables per-cell edit-and-rerun when set (and not streaming). */
+  csvId?: string | null;
+  sandboxRuntime?: string;
+  /** Notifies the parent after a successful step re-run (e.g. to merge the
+   *  fresh step into its artifacts copy and flag the dashboard stale). */
+  onStepRerun?: (step: TraceStep, dependents: number[]) => void;
 }) {
-  const cells = buildNotebookCells(spec, artifacts);
+  // ── DAG-aware re-run state ──
+  // overrides: fresh TraceSteps from re-runs, merged over the derived cells
+  // (also pushed up via onStepRerun so the parent's artifacts stay in sync).
+  // stale: cells whose upstream was re-run WITH EDITS — flagged, not auto-run.
+  const [overrides, setOverrides] = useState<Map<number, TraceStep>>(new Map());
+  const [stale, setStale] = useState<Set<number>>(new Set());
+  const [rerunning, setRerunning] = useState<Set<number>>(new Set());
+  const [rerunErrors, setRerunErrors] = useState<Map<number, string>>(new Map());
+
+  // Reset when the underlying investigation changes. A parent merge after a
+  // re-run swaps the trace identity too — that only clears `overrides`
+  // (whose data the merge just absorbed); stale flags survive until a NEW
+  // analysis clears the artifacts entirely.
+  const trace = artifacts?.investigation;
+  const [prevTrace, setPrevTrace] = useState(trace);
+  if (trace !== prevTrace) {
+    setPrevTrace(trace);
+    setOverrides(new Map());
+    if (!trace) {
+      setStale(new Set());
+      setRerunErrors(new Map());
+    }
+  }
+
+  const handleRerunStep = useCallback(
+    async (index: number, code?: string) => {
+      if (!csvId) return;
+      setRerunning((prev) => new Set(prev).add(index));
+      setRerunErrors((prev) => {
+        const next = new Map(prev);
+        next.delete(index);
+        return next;
+      });
+      try {
+        const res = await rerunInvestigateStep({
+          csvId,
+          stepIndex: index,
+          code,
+          sandboxRuntime,
+        });
+        setOverrides((prev) => new Map(prev).set(index, res.step));
+        setStale((prev) => {
+          const next = new Set(prev);
+          next.delete(index);
+          // Only an EDITED re-run invalidates dependents; re-running a stale
+          // cell with its stored code is a refresh, not a change.
+          if (code !== undefined) {
+            for (const d of res.dependents) next.add(d);
+          }
+          return next;
+        });
+        onStepRerun?.(res.step, code !== undefined ? res.dependents : []);
+      } catch (err) {
+        setRerunErrors((prev) =>
+          new Map(prev).set(index, err instanceof Error ? err.message : String(err))
+        );
+      } finally {
+        setRerunning((prev) => {
+          const next = new Set(prev);
+          next.delete(index);
+          return next;
+        });
+      }
+    },
+    [csvId, sandboxRuntime, onStepRerun]
+  );
+
+  // Re-run every stale cell in ascending index order — depends_on always
+  // points backwards, so that IS a topological order.
+  const [rerunningStale, setRerunningStale] = useState(false);
+  const handleRerunStale = useCallback(async () => {
+    setRerunningStale(true);
+    try {
+      for (const idx of [...stale].sort((a, b) => a - b)) {
+        await handleRerunStep(idx);
+      }
+    } finally {
+      setRerunningStale(false);
+    }
+  }, [stale, handleRerunStep]);
+
+  const derivedCells = buildNotebookCells(spec, artifacts);
+  const cells = derivedCells.map((cell) => {
+    const override = overrides.get(cell.index);
+    if (!override) return cell;
+    return {
+      ...cell,
+      status: normalizeStatus(override.status),
+      degradedReason: override.degradedReason,
+      error: override.error,
+      cellSpec: override.cellSpec ?? cell.cellSpec,
+      trace: override,
+    };
+  });
+  const rerunEnabled = Boolean(csvId) && !isStreaming;
   const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
   const plan = state.__plan as { approach?: string } | undefined;
   const approach = plan?.approach ?? artifacts?.investigation?.approach;
+  const synthesis = (state.__synthesis as SynthesisState | undefined) ?? {};
+  const grounding =
+    (state.__grounding as GroundingLike | undefined) ?? artifacts?.investigation?.grounding;
+  const decisions = artifacts?.investigation?.decisions;
+  const hasSynthesis = Boolean(synthesis.summary || synthesis.conclusion);
+
+  // Citation click-through: scroll to and briefly highlight the cited cell.
+  const [highlightStepNo, setHighlightStepNo] = useState<number | null>(null);
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const el = document.getElementById(`notebook-cell-${scrollTarget.stepNo}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setHighlightStepNo(scrollTarget.stepNo);
+    const timer = setTimeout(() => setHighlightStepNo(null), 2000);
+    return () => clearTimeout(timer);
+  }, [scrollTarget]);
 
   if (cells.length === 0) {
     return (
@@ -342,9 +660,46 @@ export function NotebookView({
           <span className="font-medium text-t-secondary">Approach:</span> {approach}
         </p>
       )}
+      {stale.size > 0 && (
+        <div
+          className="flex items-center justify-between gap-2 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"
+          style={{ borderRadius: "var(--radius-card)" }}
+        >
+          <span>
+            {stale.size} cell{stale.size === 1 ? "" : "s"} depend on a step that was re-run with
+            edits.
+          </span>
+          <button
+            onClick={handleRerunStale}
+            disabled={rerunningStale}
+            className="shrink-0 font-medium underline hover:no-underline disabled:opacity-50"
+          >
+            {rerunningStale
+              ? "Re-running…"
+              : `Re-run ${stale.size} stale cell${stale.size === 1 ? "" : "s"}`}
+          </button>
+        </div>
+      )}
       {cells.map((cell) => (
-        <NotebookCell key={cell.index} cell={cell} isStreaming={isStreaming} />
+        <NotebookCell
+          key={cell.index}
+          cell={cell}
+          isStreaming={isStreaming}
+          highlighted={highlightStepNo === cell.stepNo}
+          stale={stale.has(cell.index)}
+          rerunning={rerunning.has(cell.index)}
+          rerunError={rerunErrors.get(cell.index)}
+          onRerun={rerunEnabled ? handleRerunStep : undefined}
+        />
       ))}
+      {hasSynthesis && (
+        <SynthesisCell synthesis={synthesis} grounding={grounding} decisions={decisions} />
+      )}
+      {!hasSynthesis && isStreaming && cells.some((c) => c.status === "done") && (
+        <p className="px-1 py-2 text-center text-xs text-t-tertiary">
+          Synthesis appears here when the investigation completes…
+        </p>
+      )}
     </div>
   );
 }

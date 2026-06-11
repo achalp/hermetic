@@ -600,6 +600,11 @@ export async function POST(request: Request) {
           // and "Step N" mentions post-resolution).
           const narrativeTexts: string[] = [];
           const citedSteps = new Set<number>();
+          // Notebook synthesis cell: the composer is instructed to use the
+          // element IDs `exec_summary` and `conclusion` for those two blocks;
+          // we lift their (post-resolution) content here. Best-effort — if
+          // the composer ignores the IDs, the notebook omits the synthesis.
+          const synthesis: { summary?: string; conclusion?: string } = {};
 
           const ingestComposedLine = (preResolution: string, resolved: string) => {
             // Raw line: only unambiguous $result/$chartData placeholders count
@@ -608,8 +613,19 @@ export async function POST(request: Request) {
             // uncited-steps advisory.
             for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
             try {
-              const patch = JSON.parse(resolved) as { value?: unknown };
+              const patch = JSON.parse(resolved) as { path?: string; value?: unknown };
               if (patch && "value" in patch) {
+                if (
+                  patch.path === "/elements/exec_summary" ||
+                  patch.path === "/elements/conclusion"
+                ) {
+                  const content = (patch.value as { props?: { content?: unknown } } | null)?.props
+                    ?.content;
+                  if (typeof content === "string" && content.trim()) {
+                    if (patch.path === "/elements/exec_summary") synthesis.summary = content;
+                    else synthesis.conclusion = content;
+                  }
+                }
                 for (const text of collectNarrativeStrings(patch.value)) {
                   narrativeTexts.push(text);
                   for (const n of extractCitedSteps(text)) citedSteps.add(n);
@@ -651,6 +667,14 @@ export async function POST(request: Request) {
           for (const step of trace.steps) {
             const cell = cellSpecs.get(step.index);
             if (cell) step.cellSpec = cell;
+          }
+
+          // Notebook synthesis cell content, lifted from the composed
+          // narrative. Lives in spec state, so it persists with history.
+          if (synthesis.summary || synthesis.conclusion) {
+            emit(
+              JSON.stringify({ op: "add", path: "/state/__synthesis", value: synthesis }) + "\n"
+            );
           }
 
           // ── Grounding verdict ──

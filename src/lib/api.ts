@@ -13,6 +13,7 @@ import type {
   WarehouseTableInfo,
   WarehouseTableSchema,
 } from "@/lib/types";
+import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -589,6 +590,33 @@ export async function rerunCode(
     }),
   });
   return json<RerunArtifactsResult>(res);
+}
+
+export interface RerunStepResult {
+  ok: true;
+  step: TraceStep;
+  /** 0-based indices of steps that transitively depend on the re-run step. */
+  dependents: number[];
+}
+
+/** Re-run one investigation step's code (notebook mode). */
+export async function rerunInvestigateStep(args: {
+  csvId: string;
+  stepIndex: number;
+  code?: string;
+  sandboxRuntime?: string;
+}): Promise<RerunStepResult> {
+  const res = await fetch("/api/query/investigate/rerun-step", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      csv_id: args.csvId,
+      step_index: args.stepIndex,
+      code: args.code,
+      sandbox_runtime: args.sandboxRuntime,
+    }),
+  });
+  return json<RerunStepResult>(res);
 }
 
 // ── dbt metadata ────────────────────────────────────────────

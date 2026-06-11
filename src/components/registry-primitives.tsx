@@ -218,6 +218,36 @@ const CITATION_RE = /\s*\((steps?)\s+(\d+(?:\s*(?:,|and|&)\s*\d+)*)\)/gi;
  */
 export const CitationsContext = createContext(false);
 
+/**
+ * Click-through navigation for citation marks. When provided, a citation
+ * superscript becomes a link to the cited step's notebook cell: in
+ * dashboard view the handler switches to notebook view anchored at the
+ * cell; in notebook view it scrolls to it. Null (default) renders the
+ * citation as a plain hover-tooltip mark.
+ */
+export const CitationNavigateContext = createContext<((stepNo: number) => void) | null>(null);
+
+function CitationRef({ nums }: { nums: string[] }) {
+  const navigate = useContext(CitationNavigateContext);
+  const label = nums.length > 1 ? `Steps ${nums.join(", ")}` : `Step ${nums[0]}`;
+  return (
+    <sup
+      className="citation-ref text-accent"
+      title={navigate ? `${label} — view cell` : label}
+      role={navigate ? "link" : undefined}
+      onClick={navigate ? () => navigate(Number(nums[0])) : undefined}
+      style={{
+        fontSize: "0.7em",
+        fontWeight: 600,
+        marginLeft: 1,
+        cursor: navigate ? "pointer" : "help",
+      }}
+    >
+      {nums.join(",")}
+    </sup>
+  );
+}
+
 export function renderWithCitations(content: string): ReactNode {
   // Fast path: nothing that looks like a step citation.
   if (!/\(steps?\s+\d/i.test(content)) return content;
@@ -231,16 +261,7 @@ export function renderWithCitations(content: string): ReactNode {
     const nums = m[2].match(/\d+/g) ?? [];
     if (nums.length === 0) continue;
     if (m.index > lastIndex) parts.push(content.slice(lastIndex, m.index));
-    parts.push(
-      <sup
-        key={key++}
-        className="citation-ref text-accent"
-        title={nums.length > 1 ? `Steps ${nums.join(", ")}` : `Step ${nums[0]}`}
-        style={{ fontSize: "0.7em", fontWeight: 600, marginLeft: 1, cursor: "help" }}
-      >
-        {nums.join(",")}
-      </sup>
-    );
+    parts.push(<CitationRef key={key++} nums={nums} />);
     lastIndex = m.index + m[0].length;
   }
   if (lastIndex < content.length) parts.push(content.slice(lastIndex));

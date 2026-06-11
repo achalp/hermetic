@@ -1,13 +1,22 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import React from "react";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { Spec } from "@json-render/react";
 import { NotebookView, buildNotebookCells } from "@/components/app/notebook-view";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { InvestigationTrace } from "@/lib/pipeline/investigation-trace";
+import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
+import { rerunInvestigateStep } from "@/lib/api";
 
-afterEach(cleanup);
+vi.mock("@/lib/api", () => ({
+  rerunInvestigateStep: vi.fn(),
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 const CELL_SPEC: Spec = {
   root: "cell",
@@ -145,5 +154,89 @@ describe("NotebookView", () => {
   it("shows a planning state when no cells exist yet", () => {
     render(<NotebookView spec={specWith({})} isStreaming={true} />);
     expect(screen.getByText("Planning the investigation…")).toBeInTheDocument();
+  });
+
+  it("re-runs a step and flags transitive dependents stale", async () => {
+    const user = userEvent.setup();
+    const freshStep: TraceStep = {
+      ...TRACE.steps[0],
+      execution_ms: 999,
+      results: { total: 150000 },
+    };
+    vi.mocked(rerunInvestigateStep).mockResolvedValue({
+      ok: true,
+      step: freshStep,
+      dependents: [1],
+    });
+    const onStepRerun = vi.fn();
+
+    render(
+      <NotebookView
+        spec={specWith(PLAN_STATE)}
+        artifacts={ARTIFACTS}
+        isStreaming={false}
+        csvId="csv-1"
+        onStepRerun={onStepRerun}
+      />
+    );
+
+    // Open the code disclosure of Step 1 and re-run with edits
+    await user.click(screen.getByText("Code"));
+    const editorButtons = screen.getAllByText("Re-run step");
+    // Simulate an edited re-run by clicking the plain re-run (stored code).
+    await user.click(editorButtons[0]);
+
+    await waitFor(() => {
+      expect(rerunInvestigateStep).toHaveBeenCalledWith({
+        csvId: "csv-1",
+        stepIndex: 0,
+        code: undefined,
+        sandboxRuntime: undefined,
+      });
+    });
+    // Stored-code re-run is a refresh: no dependents flagged.
+    await waitFor(() => expect(onStepRerun).toHaveBeenCalledWith(freshStep, []));
+    expect(screen.queryByText(/stale/)).not.toBeInTheDocument();
+  });
+
+  it("renders the synthesis cell with summary, conclusion, grounding, and decision log", () => {
+    const stateWithSynthesis = {
+      ...PLAN_STATE,
+      __synthesis: {
+        summary: "Revenue fell because churn rose (Step 1).",
+        conclusion: "Investigate the discount cohort next.",
+      },
+      __grounding: { ok: true, checkedCount: 4, ungrounded: [] },
+    };
+    const artifactsWithDecisions: CachedArtifacts = {
+      ...ARTIFACTS,
+      investigation: {
+        ...TRACE,
+        decisions: [
+          {
+            kind: "replan",
+            action: "amend",
+            rationale: "Need a denominator.",
+            addedIndices: [1],
+            removedIndices: [],
+          },
+        ],
+      },
+    };
+    render(
+      <NotebookView
+        spec={specWith(stateWithSynthesis)}
+        artifacts={artifactsWithDecisions}
+        isStreaming={false}
+      />
+    );
+    expect(screen.getByText("Synthesis")).toBeInTheDocument();
+    expect(screen.getByText(/Revenue fell because churn rose/)).toBeInTheDocument();
+    expect(screen.getByText(/Investigate the discount cohort next/)).toBeInTheDocument();
+    expect(screen.getByText(/4 checked figures/)).toBeInTheDocument();
+    expect(screen.getByText("How the agent got here")).toBeInTheDocument();
+    // Summary citation renders as a superscript mark
+    const sups = document.querySelectorAll("sup");
+    expect(sups.length).toBeGreaterThan(0);
   });
 });

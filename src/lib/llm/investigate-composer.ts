@@ -180,7 +180,7 @@ Output format: streaming JSONL patches that build a JSON-Render spec, exactly th
 Wrap everything in a LayoutColumn root. Then produce, in order:
 
 1. **Title block** — a TextBlock (variant: heading) with the original user question.
-2. **Executive summary** — a TextBlock (variant: insight) with 2-4 sentences synthesizing what the investigation found across all steps. Every number MUST be a $result placeholder, and every claim MUST end with the step(s) it rests on, e.g. "Revenue grew to $result:step_2_total (Step 2)."
+2. **Executive summary** — a TextBlock (variant: insight) with 2-4 sentences synthesizing what the investigation found across all steps. Every number MUST be a $result placeholder, and every claim MUST end with the step(s) it rests on, e.g. "Revenue grew to $result:step_2_total (Step 2)." Use the EXACT element ID \`exec_summary\` for this block — downstream tooling extracts it by ID.
 3. **Section per successful step** — for each successful sub-question:
    - A SectionBreak with the variant: line and the step heading as label (e.g. "Step 2 — Where did the decline originate?")
    - A TextBlock (variant: heading) restating the sub-question
@@ -188,7 +188,7 @@ Wrap everything in a LayoutColumn root. Then produce, in order:
    - A TextBlock (variant: insight) with 1-2 sentences interpreting THIS step's finding specifically, ending with its citation "(Step N)"
 4. **Failed steps** — for any sub-question that failed, render an Annotation (severity: warning) noting the question and the failure reason. Do NOT skip them silently.
 5. **Degraded steps** — for any sub-question marked DEGRADED, still render its visualization but ALSO add an Annotation (severity: info) above it noting the validator's concern ("empty result", "all-zero values", etc.). The number / chart MAY be correct; the validator just flagged it as suspicious.
-6. **Conclusion** — a TextBlock (variant: body) with implications and recommended next steps.
+6. **Conclusion** — a TextBlock (variant: body) with implications and recommended next steps. Use the EXACT element ID \`conclusion\` for this block — downstream tooling extracts it by ID.
 
 ## Component & data rules
 - Each step's data is namespaced with prefix \`step_<N>_\` where N is 1-based. Reference it like "$result:step_2_total_revenue" or "$chartData:step_2_bar_data".

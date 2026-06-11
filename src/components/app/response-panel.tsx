@@ -9,12 +9,13 @@ import {
 } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
-import { CitationsContext } from "@/components/registry-primitives";
+import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, SchemaMode } from "@/lib/types";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { getArtifacts } from "@/lib/api";
@@ -156,6 +157,22 @@ export function ResponsePanel({
       // Storage unavailable (private mode) — the toggle still works for the session.
     }
   }, []);
+  // Citation click-through: clicking a "(Step N)" superscript anywhere in an
+  // Investigate result jumps to that step's notebook cell. `seq` makes
+  // repeat clicks on the same citation re-trigger the scroll.
+  const [citationTarget, setCitationTarget] = useState<{ stepNo: number; seq: number } | null>(
+    null
+  );
+  const navigateToCell = useCallback(
+    (stepNo: number) => {
+      handleViewModeChange("notebook");
+      setCitationTarget((prev) => ({ stepNo, seq: (prev?.seq ?? 0) + 1 }));
+    },
+    [handleViewModeChange]
+  );
+  // True once any step has been re-run from the notebook: the composed
+  // dashboard still reflects the ORIGINAL run (v1 does not recompose it).
+  const [dashboardStale, setDashboardStale] = useState(false);
   const currentSpecRef = useRef<Spec | null>(null);
   const currentQuestionRef = useRef<string | null>(question);
   // Conversation history is now managed server-side via the conversation cache.
@@ -240,6 +257,8 @@ export function ResponsePanel({
     currentSpecRef.current = null;
     setArtifacts(null);
     setShowArtifacts(false);
+    setDashboardStale(false);
+    setCitationTarget(null);
 
     // Conversation history is managed server-side (keyed by csvId)
     send("", {
@@ -380,6 +399,26 @@ export function ResponsePanel({
     specHasInvestigation(activeSpec) || (isStreaming && mode === "investigate");
   const notebookActive = notebookAvailable && viewMode === "notebook";
 
+  // After a notebook step re-run: merge the fresh step into our artifacts
+  // copy (so the artifacts panel's Trail agrees) and flag the dashboard —
+  // it was composed from the original results and is not recomposed in v1.
+  const handleStepRerun = useCallback(
+    (step: TraceStep) => {
+      setDashboardStale(true);
+      setArtifacts((prev) => {
+        if (!prev?.investigation) return prev;
+        return {
+          ...prev,
+          investigation: {
+            ...prev.investigation,
+            steps: prev.investigation.steps.map((s) => (s.index === step.index ? step : s)),
+          },
+        };
+      });
+    },
+    [setArtifacts]
+  );
+
   // The notebook's code/data disclosures come from the audit trail in the
   // cached artifacts — fetch them quietly once the stream ends. Failure is
   // non-fatal: the notebook still renders cells from spec state.
@@ -517,30 +556,49 @@ export function ResponsePanel({
       {activeSpec?.root && <InvestigationCaveats spec={activeSpec} />}
 
       {/* Active level: notebook view (Investigate) or composed dashboard */}
-      {notebookActive ? (
-        <Card ref={dashboardRef}>
-          <NotebookView spec={activeSpec} artifacts={artifacts} isStreaming={isStreaming} />
-        </Card>
-      ) : (
-        activeSpec?.root &&
-        activeSpec?.elements && (
+      <CitationNavigateContext.Provider value={notebookAvailable ? navigateToCell : null}>
+        {notebookActive ? (
           <Card ref={dashboardRef}>
-            <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
-              <StateProvider initialState={activeSpec.state ?? {}}>
-                <ActionProvider>
-                  <VisibilityProvider>
-                    <RendererErrorBoundary>
-                      <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
-                    </RendererErrorBoundary>
-                  </VisibilityProvider>
-                </ActionProvider>
-              </StateProvider>
-            </CitationsContext.Provider>
-
-            {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
+            <NotebookView
+              spec={activeSpec}
+              artifacts={artifacts}
+              isStreaming={isStreaming}
+              scrollTarget={citationTarget}
+              csvId={effectiveCsvId}
+              sandboxRuntime={sandboxRuntime}
+              onStepRerun={handleStepRerun}
+            />
           </Card>
-        )
-      )}
+        ) : (
+          activeSpec?.root &&
+          activeSpec?.elements && (
+            <Card ref={dashboardRef}>
+              {dashboardStale && (
+                <div
+                  className="mb-3 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"
+                  style={{ borderRadius: "var(--radius-card)" }}
+                >
+                  Step results changed since this dashboard was composed — switch to the Notebook
+                  view for current results.
+                </div>
+              )}
+              <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
+                <StateProvider initialState={activeSpec.state ?? {}}>
+                  <ActionProvider>
+                    <VisibilityProvider>
+                      <RendererErrorBoundary>
+                        <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                      </RendererErrorBoundary>
+                    </VisibilityProvider>
+                  </ActionProvider>
+                </StateProvider>
+              </CitationsContext.Provider>
+
+              {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
+            </Card>
+          )
+        )}
+      </CitationNavigateContext.Provider>
 
       {/* Artifacts viewer */}
       {showArtifacts && artifacts && <ArtifactsViewer artifacts={artifacts} />}

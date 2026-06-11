@@ -35,6 +35,7 @@ import {
   formatStatNumber,
   formatStatValue,
   CitationsContext,
+  CitationNavigateContext,
 } from "@/components/registry-primitives";
 
 afterEach(() => cleanup());
@@ -172,6 +173,22 @@ describe("TextBlockComponent", () => {
     );
     expect(container.querySelector("sup")).toBeNull();
     expect(container.textContent).toContain("(mostly in Q4)");
+  });
+
+  it("makes citations clickable when a navigate handler is provided", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    const { container } = render(
+      <CitationNavigateContext.Provider value={navigate}>
+        <CitationsContext.Provider value={true}>
+          <TextBlockComponent props={{ content: "Churn rose sharply (Step 4)." }} />
+        </CitationsContext.Provider>
+      </CitationNavigateContext.Provider>
+    );
+    const sup = container.querySelector("sup");
+    expect(sup?.getAttribute("role")).toBe("link");
+    await user.click(sup!);
+    expect(navigate).toHaveBeenCalledWith(4);
   });
 
   it("renders '(Step N)' prose verbatim outside an Investigate spec", () => {

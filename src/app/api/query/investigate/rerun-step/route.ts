@@ -1,0 +1,164 @@
+/**
+ * Single-step re-run for notebook mode.
+ *
+ * Re-executes ONE investigation step's Python (optionally edited), updates
+ * that step in the cached audit trail, recomposes its notebook cell, and
+ * returns the transitive dependents so the client can flag them stale.
+ *
+ * Scope (Phase 3 of the notebook spec): the step re-runs standalone over
+ * the source data — the investigation DAG is semantic, so dependents are
+ * *flagged* rather than automatically recomputed; the client offers
+ * "re-run stale cells" which walks them in ascending (= topological)
+ * order through this same endpoint. The unified dashboard spec is NOT
+ * recomposed — the client surfaces a staleness notice instead.
+ */
+
+import { getStoredCSV, getCSVContent, getGeoJSONContent, isLocalFile } from "@/lib/csv/storage";
+import { runPipelineWithCode } from "@/lib/pipeline/orchestrator";
+import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import {
+  capDatasets,
+  transitiveDependents,
+  type TraceStep,
+} from "@/lib/pipeline/investigation-trace";
+import { composeStepCell } from "@/lib/llm/step-cell-composer";
+import { isValidRuntimeId, isValidModelId, LOCAL_MOUNT_PATH } from "@/lib/constants";
+import type { SandboxRuntimeId } from "@/lib/constants";
+import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { logger } from "@/lib/logger";
+import path from "node:path";
+
+export const maxDuration = 300;
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      csv_id?: string;
+      step_index?: number;
+      code?: string;
+      sandbox_runtime?: string;
+      ui_compose_model?: string;
+    };
+
+    const { csv_id, step_index } = body;
+    if (!csv_id) {
+      return Response.json({ error: "csv_id required" }, { status: 400 });
+    }
+    if (typeof step_index !== "number" || !Number.isInteger(step_index) || step_index < 0) {
+      return Response.json({ error: "step_index required" }, { status: 400 });
+    }
+
+    const prior = getCachedArtifacts(csv_id);
+    const trace = prior?.investigation;
+    if (!prior || !trace) {
+      return Response.json(
+        { error: "No investigation trail cached for this dataset (it may have expired)." },
+        { status: 404 }
+      );
+    }
+    const step = trace.steps.find((s) => s.index === step_index);
+    if (!step) {
+      return Response.json(
+        { error: `Step ${step_index} not found in the trail.` },
+        { status: 404 }
+      );
+    }
+    if (step.status === "removed") {
+      return Response.json({ error: "This step was dropped by the re-planner." }, { status: 400 });
+    }
+
+    const code = (body.code ?? step.code ?? "").trim();
+    if (!code) {
+      return Response.json({ error: "This step has no code to run." }, { status: 400 });
+    }
+
+    const stored = getStoredCSV(csv_id);
+    if (!stored) {
+      return Response.json({ error: "csv data not found (may have expired)" }, { status: 404 });
+    }
+
+    // Source resolution mirrors the investigate route (incl. local mounts).
+    const isLocal = isLocalFile(csv_id);
+    const csvContent = isLocal ? "" : ((await getCSVContent(csv_id)) ?? "");
+    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csv_id) : null;
+    let localMountPath: string | undefined;
+    if (isLocal) {
+      const hostPath = stored.localFolderPath || stored.localPath;
+      if (!hostPath) {
+        return Response.json({ error: "Local file path not found" }, { status: 500 });
+      }
+      localMountPath = stored.localFolderPath
+        ? LOCAL_MOUNT_PATH
+        : `${LOCAL_MOUNT_PATH}/${path.basename(hostPath)}`;
+    }
+
+    const runtime: SandboxRuntimeId =
+      body.sandbox_runtime && isValidRuntimeId(body.sandbox_runtime)
+        ? body.sandbox_runtime
+        : getActiveSandboxRuntime();
+
+    let pipelineResult;
+    try {
+      pipelineResult = await runPipelineWithCode(code, csvContent, step.question, {
+        runtime,
+        geojsonContent: geojsonContent ?? undefined,
+        csvId: csv_id,
+        localMountPath,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("Step rerun execution failed", { csv_id, step_index, error: msg });
+      return Response.json({ error: msg }, { status: 422 });
+    }
+
+    const exec = pipelineResult.executionResult;
+    const results = (exec.results ?? {}) as Record<string, unknown>;
+    const chartData = (exec.chart_data ?? {}) as Record<string, unknown>;
+
+    // Recompose the notebook cell for the fresh results (best-effort).
+    const uiComposeModel =
+      body.ui_compose_model && isValidModelId(body.ui_compose_model)
+        ? body.ui_compose_model
+        : undefined;
+    const cellSpec = await composeStepCell({
+      stepNo: step.stepNo,
+      question: step.question,
+      rationale: step.rationale,
+      originalQuestion: trace.originalQuestion,
+      approach: trace.approach,
+      results,
+      chartData,
+      uiComposeModel,
+    });
+
+    // Update the step in place — the cached entry shares the trace ref, but
+    // re-cache explicitly to refresh the TTL for the now-active trail.
+    const updated: TraceStep = {
+      ...step,
+      status: "success",
+      code,
+      results,
+      chart_data: chartData,
+      datasets: capDatasets((exec.datasets ?? {}) as Record<string, Record<string, unknown>[]>),
+      execution_ms: exec.execution_ms ?? 0,
+      degradedReason: undefined,
+      error: undefined,
+      cellSpec: cellSpec ?? step.cellSpec,
+    };
+    const stepPos = trace.steps.findIndex((s) => s.index === step_index);
+    trace.steps[stepPos] = updated;
+    cacheArtifacts(csv_id, { ...prior, investigation: trace });
+
+    const dependents = transitiveDependents(trace.steps, step_index);
+
+    return Response.json({
+      ok: true,
+      step: updated,
+      dependents,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Step rerun failed";
+    logger.error("Step rerun endpoint failed", { error: msg });
+    return Response.json({ error: msg }, { status: 500 });
+  }
+}
