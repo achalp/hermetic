@@ -1,3 +1,5 @@
+import type { InvestigationTrace } from "@/lib/pipeline/investigation-trace";
+
 const ARTIFACTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 export interface CachedArtifacts {
@@ -9,6 +11,13 @@ export interface CachedArtifacts {
   execution_ms: number;
   /** SQL query generated for warehouse data sources */
   sql?: string;
+  /**
+   * Full audit trail for an Investigate run: every sub-question's code +
+   * result, the re-planner's decisions, and the narrative grounding verdict.
+   * Absent for single-shot Ask. When present, the artifacts panel renders a
+   * per-step, re-runnable trail in addition to the top-level code/data tabs.
+   */
+  investigation?: InvestigationTrace;
 }
 
 interface CacheEntry extends CachedArtifacts {
@@ -42,5 +51,6 @@ export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
     datasets: entry.datasets,
     execution_ms: entry.execution_ms,
     sql: entry.sql,
+    investigation: entry.investigation,
   };
 }

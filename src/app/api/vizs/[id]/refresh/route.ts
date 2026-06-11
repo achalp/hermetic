@@ -117,6 +117,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         datasets: successResult.datasets ?? {},
         execution_ms: successResult.execution_ms,
         sql: savedViz.meta.sql ?? savedViz.artifacts?.sql,
+        investigation: savedViz.artifacts?.investigation,
       };
 
       const historyMeta = await saveHistoryEntry({
@@ -189,6 +190,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       datasets: successResult.datasets ?? {},
       execution_ms: successResult.execution_ms,
       sql: savedViz.meta.sql ?? savedViz.artifacts?.sql,
+      investigation: savedViz.artifacts?.investigation,
     };
 
     // 7. Save as a new history entry

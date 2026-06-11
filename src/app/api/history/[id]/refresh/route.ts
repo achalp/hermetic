@@ -107,6 +107,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         datasets: successResult.datasets ?? {},
         execution_ms: successResult.execution_ms,
         sql: entry.artifacts?.sql,
+        // Preserve the investigation audit trail across refreshes — the
+        // refresh re-executes the top-level code, it does not re-investigate.
+        investigation: entry.artifacts?.investigation,
       };
 
       const newMeta = await saveHistoryEntry({
@@ -183,6 +186,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       datasets: successResult.datasets ?? {},
       execution_ms: successResult.execution_ms,
       sql: entry.artifacts?.sql,
+      investigation: entry.artifacts?.investigation,
     };
 
     // 7. Save as new history entry

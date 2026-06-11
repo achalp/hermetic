@@ -1,8 +1,10 @@
 # Agentic Data Analysis — SOTA Assessment & Hermetic Gap Analysis
 
-_Last updated: 2026-06-04_
+_Last updated: 2026-06-07_
 
 > **Status update (2026-06-04):** All four Tier 1 items have shipped. Hermetic now rates **level 4** on the capability ladder below. The body of this document is preserved as the pre-Tier-1 assessment; see [Appendix A — What shipped](#appendix-a--what-shipped-2026-06-04) for the post-implementation rating and what remains.
+>
+> **Status update (2026-06-07):** The verifiability work in [§4 — Verifiability](#4-verifiability--grounding-and-the-audit-trail-shipped-2026-06-07) has shipped: narrative grounding (the guard against plausible-but-wrong), citation discipline in the composer, deterministic surfacing of degraded/failed/dropped branches, and a full, re-runnable per-step audit trail in the artifacts panel. This is a trust-axis improvement, not a capability-ladder level; the level-4 **outcome** claim still rests on the outstanding 50-run eval (Appendix A).
 
 **Companion document:** [`agentic-tier-1-implementation-plan-2026-05-31.md`](./agentic-tier-1-implementation-plan-2026-05-31.md) — concrete implementation plan for the four Tier 1 items called out at the end of this doc.
 
@@ -207,7 +209,62 @@ The companion document [`agentic-tier-1-implementation-plan-2026-05-31.md`](./ag
 
 ---
 
-## 4. Sources
+## 4. Verifiability — grounding and the audit trail (shipped 2026-06-07)
+
+The capability ladder in §1.5 measures what the agent can _do_. It says nothing
+about whether the user can _trust and check_ the result — a separate axis, and
+the one where Hermetic's actual differentiator lives ("you can see the Python
+and re-run it"). Tier 1 made the loop more capable; it also made it harder to
+verify. Two gaps motivated this work:
+
+- **Semantic validation only catches _degenerate_ results.** Gap 3 / item #2
+  (`result-validator.ts`) flags empty frames, NaN, single-bar charts. It does
+  nothing about the more dangerous failure mode for a data tool: a
+  _plausible-but-wrong_ number stated confidently in the composed narrative. A
+  composer that writes "revenue grew to $4.7M" when no sub-question computed a
+  value near 4.7M produces a fluent, cited-looking, **fabricated** figure that
+  the validator never sees.
+- **The loop outran the audit trail.** A single-shot Ask exposes exactly one
+  script in the artifacts panel. An Investigate runs many sub-questions,
+  re-plans between waves, and may dispatch composer follow-ups — but the panel
+  only cached the _last_ successful step's code. Almost all of the reasoning was
+  invisible, and none of it was re-runnable.
+
+### 4.1 What shipped
+
+| Area                        | Change                                                                                                                                                                  | Key code                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Narrative grounding         | Collect every number the investigation computed; scan the composed narrative for "data-like" figures; report any that trace to no computed value. Advisory, not a gate. | `pipeline/grounding.ts` (+ unit tests)                                                 |
+| Citation discipline         | Composer must express every number as a `$result:step_N_` placeholder and end every quantitative claim with `(Step N)`; reference every successful step at least once.  | `llm/investigate-composer.ts` system prompt                                            |
+| Degraded/failed surfacing   | Route deterministically emits `__dataQuality` (degraded / failed / dropped sub-questions) so they reach the user regardless of composer compliance.                     | `api/query/investigate/route.ts`; `InvestigationCaveats` in `response-panel.tsx`       |
+| Re-runnable audit trail     | Per-step question + code + result + status + provenance + the re-planner/composer decisions, captured as an `InvestigationTrace` on `CachedArtifacts.investigation`.    | `pipeline/investigation-trace.ts`; `artifacts-cache.ts`; route; `artifacts-viewer.tsx` |
+| Artifacts panel "Trail" tab | Renders the trail; selecting any step routes the Python + Data tabs to that step's code, **editable and re-runnable through the same path single-shot uses**.           | `artifacts-viewer.tsx` (`InvestigationTrail`)                                          |
+
+State the server now emits during an Investigate stream: `/state/__grounding`
+(verdict: checked count, ungrounded tokens, cited + uncited steps) and
+`/state/__dataQuality` (degraded/failed/dropped steps). Both render as banners
+above the dashboard; the full re-runnable detail lives in the Trail tab.
+
+### 4.2 Design posture and honest limits
+
+- **Grounding is an advisory caveat, never a gate.** It does not block or
+  rewrite the dashboard — a flagged number can be a legitimate derived or
+  rounded figure. It is deliberately tuned for **low false positives** (matches
+  across currency / `%` / `K·M·B` / rounding; treats a ratio shown as a percent
+  as grounded; skips years and small bare counts). Over-flagging would train
+  users to ignore the banner, which is worse than not having it.
+- **Schema-only privacy is preserved.** The trace carries LLM-generated Python
+  (no row values) and the aggregate results/chart-data the composer already
+  sees. No new data leaves the machine.
+- **This is a trust improvement, not a capability level.** It does not move
+  Hermetic on the §1.5 ladder. It narrows the gap between "the loop is
+  capable" and "the user can verify what the loop concluded."
+- **It does not retire the eval gate.** Appendix A's outstanding criterion — the
+  50-run synthetic eval showing the loop produces _better_ answers than
+  single-shot — still gates the level-4 **outcome** claim. Grounding makes a
+  wrong answer easier to catch; it does not demonstrate the loop is right.
+
+## 5. Sources
 
 - [DSBench: How Far Are Data Science Agents from Becoming Data Science Experts?](https://arxiv.org/pdf/2409.07703)
 - [MLE-bench: Evaluating Machine Learning Agents on Machine Learning Engineering](https://arxiv.org/pdf/2410.07095)
@@ -255,5 +312,7 @@ Bounds are hard-coded in `src/lib/constants.ts`: `INVESTIGATE_MAX_HOPS = 2`, `IN
 - ⏳ **50-run synthetic eval — still outstanding.** The plan's out-of-band criterion (degenerate-result rate down vs. baseline; ≥10% of runs classified "amended" and ≥10% "stopped early"; zero runaway investigations) has not yet been run. Until it is, the level-4 rating rests on code review and unit tests, not on aggregate behavioral telemetry. **This is the gate before declaring Tier 1 fully complete.**
 
 ### What's next
+
+**Shipped since (2026-06-07):** the verifiability layer in [§4](#4-verifiability--grounding-and-the-audit-trail-shipped-2026-06-07) — narrative grounding, composer citation discipline, deterministic degraded/failed surfacing, and a re-runnable per-step audit trail in the artifacts panel. This addresses the plausible-but-wrong risk the capability work introduced, but does not change the ladder rating or retire the eval gate below.
 
 Gap 4 (no tool use beyond code-gen) is the only remaining gap below level 5. The next capability tier is **Tier 2 — multi-tool use** (§3.1): a privacy-preserving tool registry (`searchWeb`, `readDbtModel`, `queryWarehouseMetadata`) plus tool-use prompting in the planner. Tier 3 (cross-investigation memory, hypothesis mode, open-ended exploration, drill-as-sub-investigation) follows once Tier 2 lands and there is telemetry on real investigations.

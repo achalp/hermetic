@@ -9,6 +9,7 @@ import {
 } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
+import { CitationsContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, SchemaMode } from "@/lib/types";
@@ -25,6 +26,15 @@ interface DrillLevel {
   question: string;
   segmentLabel: string;
   spec: Spec;
+}
+
+/**
+ * Specs produced by Investigate carry `__plan` in their state. Used to gate
+ * Investigate-only rendering conventions (step-citation superscripts) so
+ * Ask-mode prose is rendered verbatim.
+ */
+function specHasInvestigation(spec: Spec | null | undefined): boolean {
+  return Boolean(spec?.state && "__plan" in (spec.state as Record<string, unknown>));
 }
 
 interface ResponsePanelProps {
@@ -391,15 +401,17 @@ export function ResponsePanel({
             >
               <p className="mb-2 text-xs font-medium text-t-secondary">{level.question}</p>
               {level.spec?.root && level.spec?.elements && (
-                <StateProvider initialState={level.spec.state ?? {}}>
-                  <ActionProvider>
-                    <VisibilityProvider>
-                      <RendererErrorBoundary>
-                        <Renderer spec={level.spec} registry={registry} />
-                      </RendererErrorBoundary>
-                    </VisibilityProvider>
-                  </ActionProvider>
-                </StateProvider>
+                <CitationsContext.Provider value={specHasInvestigation(level.spec)}>
+                  <StateProvider initialState={level.spec.state ?? {}}>
+                    <ActionProvider>
+                      <VisibilityProvider>
+                        <RendererErrorBoundary>
+                          <Renderer spec={level.spec} registry={registry} />
+                        </RendererErrorBoundary>
+                      </VisibilityProvider>
+                    </ActionProvider>
+                  </StateProvider>
+                </CitationsContext.Provider>
               )}
             </div>
           ))}
@@ -413,18 +425,25 @@ export function ResponsePanel({
         <PipelineProgress spec={activeSpec} drillStack={drillStack} previousSpec={previousSpec} />
       ) : null}
 
+      {/* Data-quality + grounding caveats for an Investigate result. Rendered
+          above the dashboard so degraded/failed/dropped branches and any
+          ungrounded figures are surfaced in the narrative, not buried. */}
+      {activeSpec?.root && <InvestigationCaveats spec={activeSpec} />}
+
       {/* Active level */}
       {activeSpec?.root && activeSpec?.elements && (
         <Card ref={dashboardRef}>
-          <StateProvider initialState={activeSpec.state ?? {}}>
-            <ActionProvider>
-              <VisibilityProvider>
-                <RendererErrorBoundary>
-                  <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
-                </RendererErrorBoundary>
-              </VisibilityProvider>
-            </ActionProvider>
-          </StateProvider>
+          <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
+            <StateProvider initialState={activeSpec.state ?? {}}>
+              <ActionProvider>
+                <VisibilityProvider>
+                  <RendererErrorBoundary>
+                    <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                  </RendererErrorBoundary>
+                </VisibilityProvider>
+              </ActionProvider>
+            </StateProvider>
+          </CitationsContext.Provider>
 
           {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
         </Card>
@@ -436,15 +455,17 @@ export function ResponsePanel({
       {/* Previous spec shown dimmed below the new dashboard during follow-ups */}
       {previousSpec?.root && previousSpec?.elements && isStreaming && (
         <Card className="opacity-40">
-          <StateProvider initialState={previousSpec.state ?? {}}>
-            <ActionProvider>
-              <VisibilityProvider>
-                <RendererErrorBoundary>
-                  <Renderer spec={previousSpec} registry={registry} />
-                </RendererErrorBoundary>
-              </VisibilityProvider>
-            </ActionProvider>
-          </StateProvider>
+          <CitationsContext.Provider value={specHasInvestigation(previousSpec)}>
+            <StateProvider initialState={previousSpec.state ?? {}}>
+              <ActionProvider>
+                <VisibilityProvider>
+                  <RendererErrorBoundary>
+                    <Renderer spec={previousSpec} registry={registry} />
+                  </RendererErrorBoundary>
+                </VisibilityProvider>
+              </ActionProvider>
+            </StateProvider>
+          </CitationsContext.Provider>
         </Card>
       )}
     </div>
@@ -695,6 +716,86 @@ function InvestigateProgress({ spec }: { spec: Spec | null }) {
           style={{ borderRadius: "var(--radius-card)" }}
         >
           {errorMsg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface DataQualityState {
+  degraded?: { stepNo: number; question: string; reason?: string }[];
+  failed?: { stepNo: number; question: string; error?: string }[];
+  removed?: { stepNo: number; question: string }[];
+}
+
+interface GroundingState {
+  ok?: boolean;
+  checkedCount?: number;
+  ungrounded?: string[];
+  uncitedSuccessfulSteps?: number[];
+}
+
+/**
+ * Surfaces the two Investigate trust signals the server emits as state:
+ *   /state/__dataQuality — degraded / failed / dropped sub-questions
+ *   /state/__grounding    — figures in the narrative that trace to no result
+ *
+ * Both render as compact banners above the composed dashboard. The full,
+ * re-runnable detail lives in the artifacts panel's Trail tab.
+ */
+function InvestigationCaveats({ spec }: { spec: Spec | null }) {
+  const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
+  const dq = state.__dataQuality as DataQualityState | undefined;
+  const g = state.__grounding as GroundingState | undefined;
+
+  const hasDq =
+    !!dq && (dq.degraded?.length ?? 0) + (dq.failed?.length ?? 0) + (dq.removed?.length ?? 0) > 0;
+  const hasUngrounded = !!g && g.ok === false && (g.ungrounded?.length ?? 0) > 0;
+  if (!hasDq && !hasUngrounded) return null;
+
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      {hasUngrounded && (
+        <div
+          className="border px-3 py-2 text-sm"
+          style={{
+            borderRadius: "var(--radius-card)",
+            borderColor: "#d97706",
+            background: "rgba(217, 119, 6, 0.08)",
+            color: "#b45309",
+          }}
+        >
+          <span className="font-medium">▲ Verify these figures.</span> {g!.ungrounded!.length}{" "}
+          number{g!.ungrounded!.length === 1 ? "" : "s"} in the narrative could not be traced to a
+          computed result: {g!.ungrounded!.join(", ")}. See the artifacts Trail for each step&apos;s
+          code.
+        </div>
+      )}
+      {hasDq && (
+        <div
+          className="border border-border-default px-3 py-2 text-sm"
+          style={{ borderRadius: "var(--radius-card)" }}
+        >
+          <span className="font-medium text-t-primary">Data-quality notes:</span>
+          <ul className="mt-1 flex flex-col gap-0.5 text-xs text-t-secondary">
+            {dq!.failed?.map((s) => (
+              <li key={`f${s.stepNo}`}>
+                <span style={{ color: "#ef4444" }}>Step {s.stepNo} failed</span> — {s.question}
+              </li>
+            ))}
+            {dq!.degraded?.map((s) => (
+              <li key={`d${s.stepNo}`}>
+                <span style={{ color: "#d97706" }}>Step {s.stepNo} degraded</span> — {s.question}
+                {s.reason ? ` (${s.reason})` : ""}
+              </li>
+            ))}
+            {dq!.removed?.map((s) => (
+              <li key={`r${s.stepNo}`}>
+                <span className="text-t-tertiary">Step {s.stepNo} dropped by re-planner</span> —{" "}
+                {s.question}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

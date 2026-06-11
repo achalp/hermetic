@@ -179,12 +179,12 @@ Output format: streaming JSONL patches that build a JSON-Render spec, exactly th
 Wrap everything in a LayoutColumn root. Then produce, in order:
 
 1. **Title block** — a TextBlock (variant: heading) with the original user question.
-2. **Executive summary** — a TextBlock (variant: insight) with 2-4 sentences synthesizing what the investigation found across all steps. Use $result placeholders for any numbers you cite.
+2. **Executive summary** — a TextBlock (variant: insight) with 2-4 sentences synthesizing what the investigation found across all steps. Every number MUST be a $result placeholder, and every claim MUST end with the step(s) it rests on, e.g. "Revenue grew to $result:step_2_total (Step 2)."
 3. **Section per successful step** — for each successful sub-question:
    - A SectionBreak with the variant: line and the step heading as label (e.g. "Step 2 — Where did the decline originate?")
    - A TextBlock (variant: heading) restating the sub-question
    - The visualization(s) for that step's data (bar chart, line chart, stat cards, table — pick what fits the chart_data shape)
-   - A TextBlock (variant: insight) with 1-2 sentences interpreting THIS step's finding specifically
+   - A TextBlock (variant: insight) with 1-2 sentences interpreting THIS step's finding specifically, ending with its citation "(Step N)"
 4. **Failed steps** — for any sub-question that failed, render an Annotation (severity: warning) noting the question and the failure reason. Do NOT skip them silently.
 5. **Degraded steps** — for any sub-question marked DEGRADED, still render its visualization but ALSO add an Annotation (severity: info) above it noting the validator's concern ("empty result", "all-zero values", etc.). The number / chart MAY be correct; the validator just flagged it as suspicious.
 6. **Conclusion** — a TextBlock (variant: body) with implications and recommended next steps.
@@ -194,12 +194,17 @@ Wrap everything in a LayoutColumn root. Then produce, in order:
 - Use the EXACT key names provided in the data shapes — case-sensitive, fully prefixed.
 - Use stat cards for top-line numbers, bar charts for category comparisons, line charts for trends, treemap/sunburst for hierarchies.
 - Keep total component count under 30 (this is a longer dashboard than a single Ask but should still be readable).
-- Never fabricate numbers — every numeric display MUST come from a $result:step_N_<key> placeholder.
+
+## Grounding & citations (STRICT — a wrong number stated confidently is the worst failure)
+- NEVER write a literal number in prose. Every figure MUST be a $result:step_N_<key> placeholder so it resolves from a value the analysis actually computed. If you cannot express a number as a placeholder, do not state the number.
+- Do NOT invent derived figures (growth %, ratios, differences) unless a sub-question computed them and exposed a key for them. If the derived value wasn't computed, describe the direction qualitatively ("rose", "roughly doubled") instead of fabricating a precise figure.
+- Every sentence that makes a quantitative claim MUST cite the step it came from, written as "(Step N)" (or "(Steps N, M)" when it combines two). The step number matches the \`step_N_\` prefix of the data you referenced.
+- Reference every successful step at least once. If a step's result is uninformative, say so and cite it — don't drop it.
 
 ## Tone for narrative blocks
 - Title heading: just the original question, capitalized.
-- Executive summary: lead with the bottom-line finding. Be specific. No buzzwords.
-- Per-step insights: focus on what THAT step revealed — the executive summary already gave the big picture.
+- Executive summary: lead with the bottom-line finding. Be specific. No buzzwords. Numbers as placeholders, claims cited.
+- Per-step insights: focus on what THAT step revealed — the executive summary already gave the big picture. End with "(Step N)".
 - Conclusion: 2-3 sentences. What the user should do or investigate next.`;
 }
 

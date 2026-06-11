@@ -110,6 +110,11 @@ export interface InvestigateProgressEvent {
   addedSteps?: { index: number; question: string; rationale: string; depends_on: number[] }[];
   /** Indices removed from pending (for subs_amended). */
   removedIndices?: number[];
+  /**
+   * Who requested the amendment (for subs_amended). Carried on the event so
+   * consumers never have to infer provenance from event ordering.
+   */
+  amendmentSource?: "replanner" | "composer";
   /** Composer's rationale for the dispatch (for composer_dispatched). */
   composerRationale?: string;
 }
@@ -379,7 +384,8 @@ function applyAmendment(
   completed: Set<number>,
   failed: Set<number>,
   removed: Set<number>,
-  options: OrchestrateOptions
+  options: OrchestrateOptions,
+  source: "replanner" | "composer"
 ): boolean {
   // Drop pending sub-questions the re-planner marked for removal. Skip any
   // index that's already completed, failed, or removed — we don't unwind
@@ -446,6 +452,7 @@ function applyAmendment(
       total: subQuestions.length,
       addedSteps,
       removedIndices: actuallyRemoved,
+      amendmentSource: source,
     });
     logger.info("Investigate: plan amended", {
       added: addedSteps.length,
@@ -600,7 +607,16 @@ export async function runInvestigation(
       }
 
       if (decision.action === "amend") {
-        applyAmendment(decision, subQuestions, results, completed, failed, removed, options);
+        applyAmendment(
+          decision,
+          subQuestions,
+          results,
+          completed,
+          failed,
+          removed,
+          options,
+          "replanner"
+        );
         // Loop continues; next iteration picks up the new wave including
         // any added sub-questions whose deps are already satisfied.
       }
@@ -664,7 +680,8 @@ export async function runInvestigation(
         completed,
         failed,
         removed,
-        options
+        options,
+        "composer"
       );
 
       if (changed) {

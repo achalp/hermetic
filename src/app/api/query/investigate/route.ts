@@ -18,7 +18,19 @@ import { generatePlan } from "@/lib/llm/investigate-planner";
 import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { resolveSpecPlaceholders } from "@/lib/llm/resolve-placeholders";
-import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import {
+  buildInvestigationTrace,
+  successfulStepNos,
+  type TraceDecision,
+  type StepSource,
+} from "@/lib/pipeline/investigation-trace";
+import {
+  collectGroundedValues,
+  verifyGrounding,
+  extractCitedSteps,
+  extractPlaceholderCitedSteps,
+} from "@/lib/pipeline/grounding";
 import { getStoredCSV, getCSVContent, getGeoJSONContent, isLocalFile } from "@/lib/csv/storage";
 import {
   CODE_GEN_MODEL,
@@ -32,6 +44,41 @@ import { getActiveProvider } from "@/lib/llm/client";
 import { logger } from "@/lib/logger";
 
 export const maxDuration = 600; // 10 minutes — investigations can run longer than Ask
+
+/**
+ * Narrative-bearing prop keys in a JSON-Render component node. We collect text
+ * from these (not every string) so the grounding pass checks prose and labels
+ * but ignores type names, variants, colors, and key paths — which contain
+ * digit sequences (hex colors, step_N keys) that would be false positives.
+ */
+const NARRATIVE_KEYS = new Set([
+  "content",
+  "label",
+  "title",
+  "caption",
+  "description",
+  "summary",
+  "text",
+]);
+
+/** Recursively pull narrative strings out of a streamed patch's `value`. */
+function collectNarrativeStrings(value: unknown, depth = 0, out: string[] = []): string[] {
+  if (depth > 8 || value == null) return out;
+  if (Array.isArray(value)) {
+    for (const item of value) collectNarrativeStrings(item, depth + 1, out);
+    return out;
+  }
+  if (typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === "string") {
+        if (NARRATIVE_KEYS.has(k)) out.push(v);
+      } else {
+        collectNarrativeStrings(v, depth + 1, out);
+      }
+    }
+  }
+  return out;
+}
 
 interface InvestigateContext {
   csv_id?: string;
@@ -213,6 +260,20 @@ export async function POST(request: Request) {
 
           // ── Step 2: Execute sub-questions (with re-planning between waves) ──
           let stepCount = 1;
+
+          // Accumulate the audit trail's decision log and per-step provenance
+          // from the orchestrator's progress events. The events are the only
+          // place the re-planner's and composer's rationales surface, so we
+          // capture them here for the trace the artifacts panel renders.
+          const decisions: TraceDecision[] = [];
+          const sourceByIndex = new Map<number, StepSource>();
+          // subs_amended events carry their provenance (amendmentSource), so
+          // attribution never depends on event ordering. currentReplan only
+          // tracks the most recent replan decision so a re-planner amendment
+          // can fill in its added/removed indices.
+          let currentReplan: TraceDecision | null = null;
+          let pendingComposerAdded: number[] = [];
+
           const subResults = await runInvestigation(plan.subQuestions, {
             schema: stored.schema,
             csvContent,
@@ -269,6 +330,16 @@ export async function POST(request: Request) {
                   }) + "\n"
                 );
               } else if (event.kind === "replan_decision") {
+                // Record for the audit trail. The matching subs_amended (if the
+                // action was "amend") fills in added/removed indices below.
+                currentReplan = {
+                  kind: "replan",
+                  action: event.replanAction,
+                  rationale: event.replanRationale ?? "",
+                  addedIndices: [],
+                  removedIndices: [],
+                };
+                decisions.push(currentReplan);
                 // Surface the re-planner's decision as a sibling entry on the plan.
                 // The UI can render this inline as a "Planner re-evaluated" step.
                 emit(
@@ -283,6 +354,17 @@ export async function POST(request: Request) {
                   }) + "\n"
                 );
               } else if (event.kind === "subs_amended") {
+                // Audit-trail provenance, read directly off the event.
+                const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
+                if (event.amendmentSource === "composer") {
+                  pendingComposerAdded = addedIndices;
+                  for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
+                } else if (currentReplan) {
+                  currentReplan.addedIndices = addedIndices;
+                  currentReplan.removedIndices = event.removedIndices ?? [];
+                  for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
+                  currentReplan = null;
+                }
                 // Append new steps to the visible plan and mark removed ones.
                 if (event.addedSteps) {
                   for (const step of event.addedSteps) {
@@ -296,7 +378,8 @@ export async function POST(request: Request) {
                           rationale: step.rationale,
                           depends_on: step.depends_on,
                           status: "pending",
-                          addedByReplanner: true,
+                          addedByReplanner: event.amendmentSource !== "composer",
+                          addedByComposer: event.amendmentSource === "composer",
                         },
                       }) + "\n"
                     );
@@ -314,6 +397,15 @@ export async function POST(request: Request) {
                   }
                 }
               } else if (event.kind === "composer_dispatched") {
+                // Record the composer's gap-check dispatch in the audit trail,
+                // attributing the steps added by the preceding subs_amended.
+                decisions.push({
+                  kind: "composer_dispatch",
+                  rationale: event.composerRationale ?? "",
+                  addedIndices: pendingComposerAdded,
+                  removedIndices: [],
+                });
+                pendingComposerAdded = [];
                 // Surface the composer's gap-check decision. Newly added steps
                 // arrive via a sibling subs_amended event with addedByReplanner.
                 // Override the flag on those steps to indicate composer-source.
@@ -333,22 +425,78 @@ export async function POST(request: Request) {
 
           if (closed) return;
 
-          // Cache artifacts under the csvId so the artifacts panel can show
-          // the most recent step's code (best-effort — investigations have
-          // multiple codes; surface the LAST successful one).
+          // Build the full audit trail: every sub-question's code + result,
+          // the re-planner / composer decisions, and (added after compose) the
+          // grounding verdict. This is what the artifacts panel renders as a
+          // re-runnable per-step trail — the agentic loop extending Hermetic's
+          // "see the Python and re-run it" moat, not outrunning it.
+          const trace = buildInvestigationTrace({
+            approach: plan.approach,
+            originalQuestion: question,
+            subResults,
+            sourceByIndex,
+            decisions,
+          });
+
+          // Cache artifacts under the csvId. The top-level code/results mirror
+          // the LAST successful step (back-compat with the single-view panel);
+          // `investigation` carries the whole trail. Cached before compose so a
+          // composer failure still leaves an inspectable trail; `trace.grounding`
+          // is set below on the same object, so the cached entry sees it too.
           const lastSuccess = [...subResults].reverse().find((r) => r.result);
-          if (lastSuccess?.result) {
-            cacheArtifacts(csvId!, {
-              code: lastSuccess.result.generatedCode,
-              question,
-              results: lastSuccess.result.executionResult.results as Record<string, unknown>,
-              chart_data: lastSuccess.result.executionResult.chart_data as Record<string, unknown>,
-              datasets: (lastSuccess.result.executionResult.datasets ?? {}) as Record<
-                string,
-                Record<string, unknown>[]
-              >,
-              execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
-            });
+          const prior = getCachedArtifacts(csvId!);
+          const topLevel = lastSuccess?.result
+            ? {
+                code: lastSuccess.result.generatedCode,
+                question,
+                results: lastSuccess.result.executionResult.results as Record<string, unknown>,
+                chart_data: lastSuccess.result.executionResult.chart_data as Record<
+                  string,
+                  unknown
+                >,
+                datasets: (lastSuccess.result.executionResult.datasets ?? {}) as Record<
+                  string,
+                  Record<string, unknown>[]
+                >,
+                execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
+              }
+            : {
+                // Every sub-question failed: keep the previously cached
+                // top-level artifacts (a failed investigation must not clobber
+                // a prior good run's re-runnable code) and attach the trail.
+                code: prior?.code ?? "",
+                question: prior?.question ?? question,
+                results: prior?.results ?? {},
+                chart_data: prior?.chart_data ?? {},
+                datasets: prior?.datasets ?? {},
+                execution_ms: prior?.execution_ms ?? 0,
+                sql: prior?.sql,
+              };
+          cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
+
+          // Deterministic data-quality surfacing — guarantees degraded / failed
+          // / dropped branches reach the user regardless of whether the composer
+          // remembered to annotate them. Rendered as a banner above the
+          // dashboard by ResponsePanel.
+          const dataQuality = {
+            degraded: trace.steps
+              .filter((s) => s.status === "degraded")
+              .map((s) => ({ stepNo: s.stepNo, question: s.question, reason: s.degradedReason })),
+            failed: trace.steps
+              .filter((s) => s.status === "failed")
+              .map((s) => ({ stepNo: s.stepNo, question: s.question, error: s.error })),
+            removed: trace.steps
+              .filter((s) => s.status === "removed")
+              .map((s) => ({ stepNo: s.stepNo, question: s.question })),
+          };
+          if (
+            dataQuality.degraded.length ||
+            dataQuality.failed.length ||
+            dataQuality.removed.length
+          ) {
+            emit(
+              JSON.stringify({ op: "add", path: "/state/__dataQuality", value: dataQuality }) + "\n"
+            );
           }
 
           // ── Step 3: Compose unified dashboard ──
@@ -386,6 +534,33 @@ export async function POST(request: Request) {
           // merged per-step results before emitting (mirrors /api/query).
           const mergedResults = compose.initialState.results;
           const mergedChartData = compose.initialState.chart_data;
+
+          // Collect the composed narrative for the grounding pass: prose text
+          // (post-resolution, so placeholder values are inlined) and the steps
+          // the narrative cited (from $result:step_N_ placeholders pre-resolution
+          // and "Step N" mentions post-resolution).
+          const narrativeTexts: string[] = [];
+          const citedSteps = new Set<number>();
+
+          const ingestComposedLine = (preResolution: string, resolved: string) => {
+            // Raw line: only unambiguous $result/$chartData placeholders count
+            // as citations — prose-scanning the raw JSON would match element
+            // IDs / key paths named after steps and suppress the
+            // uncited-steps advisory.
+            for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
+            try {
+              const patch = JSON.parse(resolved) as { value?: unknown };
+              if (patch && "value" in patch) {
+                for (const text of collectNarrativeStrings(patch.value)) {
+                  narrativeTexts.push(text);
+                  for (const n of extractCitedSteps(text)) citedSteps.add(n);
+                }
+              }
+            } catch {
+              // Non-JSON or partial line — skip; grounding is best-effort.
+            }
+          };
+
           let buffer = "";
           for await (const chunk of compose.textStream) {
             if (closed) break;
@@ -397,12 +572,40 @@ export async function POST(request: Request) {
               if (!trimmed) continue;
               if (trimmed.startsWith("```")) continue;
               const resolved = resolveSpecPlaceholders(trimmed, mergedResults, mergedChartData);
+              ingestComposedLine(trimmed, resolved);
               emit(resolved + "\n");
             }
           }
           if (buffer.trim() && !buffer.trim().startsWith("```")) {
             const resolved = resolveSpecPlaceholders(buffer.trim(), mergedResults, mergedChartData);
+            ingestComposedLine(buffer.trim(), resolved);
             emit(resolved + "\n");
+          }
+
+          // ── Grounding verdict ──
+          // Verify the composed narrative against what the investigation
+          // actually computed. Ungrounded figures (numbers that trace to no
+          // computed value) are surfaced as an advisory caveat and recorded in
+          // the trail — the guard against plausible-but-wrong, where semantic
+          // validation only catches degenerate.
+          if (!closed) {
+            const grounded = collectGroundedValues(mergedResults, mergedChartData);
+            const grounding = verifyGrounding({
+              narrativeTexts,
+              citedSteps: [...citedSteps].sort((a, b) => a - b),
+              grounded,
+              successfulStepNos: successfulStepNos(trace),
+            });
+            trace.grounding = grounding; // shared ref — updates the cached entry
+            if (
+              !grounding.ok ||
+              grounding.uncitedSuccessfulSteps.length > 0 ||
+              grounding.checkedCount > 0
+            ) {
+              emit(
+                JSON.stringify({ op: "add", path: "/state/__grounding", value: grounding }) + "\n"
+              );
+            }
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

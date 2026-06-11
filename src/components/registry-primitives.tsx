@@ -5,6 +5,7 @@
  * These were previously inline in registry.tsx, adding ~200 lines.
  */
 
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useBoundProp } from "@json-render/react";
 import { useStatCardTheme, useInsightTheme, useAnnotationTheme } from "@/lib/theme-config";
 
@@ -201,8 +202,60 @@ export function StatCardComponent({ props }: { props: StatCardProps }) {
 
 // ── TextBlock ──────────────────────────────────────────────────
 
+// Investigate narratives cite the step each claim rests on, written inline as
+// "(Step 2)" / "(Steps 1, 4)". Render those as proper superscript citation
+// marks hugging the preceding word, the way an academic reference reads —
+// instead of clunky parenthetical text. The grounding pass (server-side, on
+// the raw content) is unaffected; this is purely presentational.
+const CITATION_RE = /\s*\((steps?)\s+(\d+(?:\s*(?:,|and|&)\s*\d+)*)\)/gi;
+
+/**
+ * Citation superscripts are an Investigate-only convention — gate them per
+ * rendered spec. Ask-mode prose can legitimately contain "(Step 3)" (funnel
+ * stages, pipeline steps in the user's own data); without this gate the
+ * renderer would silently delete that text and point a citation mark at an
+ * investigation step that doesn't exist.
+ */
+export const CitationsContext = createContext(false);
+
+export function renderWithCitations(content: string): ReactNode {
+  // Fast path: nothing that looks like a step citation.
+  if (!/\(steps?\s+\d/i.test(content)) return content;
+
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  CITATION_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CITATION_RE.exec(content)) !== null) {
+    const nums = m[2].match(/\d+/g) ?? [];
+    if (nums.length === 0) continue;
+    if (m.index > lastIndex) parts.push(content.slice(lastIndex, m.index));
+    parts.push(
+      <sup
+        key={key++}
+        className="citation-ref text-accent"
+        title={nums.length > 1 ? `Steps ${nums.join(", ")}` : `Step ${nums[0]}`}
+        style={{ fontSize: "0.7em", fontWeight: 600, marginLeft: 1, cursor: "help" }}
+      >
+        {nums.join(",")}
+      </sup>
+    );
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < content.length) parts.push(content.slice(lastIndex));
+  return parts;
+}
+
 export function TextBlockComponent({ props }: { props: TextBlockProps }) {
   const insight = useInsightTheme();
+  const citationsEnabled = useContext(CitationsContext);
+  // Memoized: TextBlocks re-render on every streamed patch; stable children
+  // let reconciliation skip unchanged text.
+  const rendered = useMemo(
+    () => (citationsEnabled ? renderWithCitations(props.content) : props.content),
+    [citationsEnabled, props.content]
+  );
   const variant = props.variant ?? "body";
   const isInsight = variant === "insight";
   const insightBase = isInsight
@@ -224,7 +277,7 @@ export function TextBlockComponent({ props }: { props: TextBlockProps }) {
       className={styles[variant]}
       style={variant === "heading" ? { fontWeight: "var(--font-heading-weight)" } : undefined}
     >
-      <p className="whitespace-pre-wrap">{props.content}</p>
+      <p className="whitespace-pre-wrap">{rendered}</p>
     </div>
   );
 }

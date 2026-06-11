@@ -9,6 +9,7 @@ import {
   sanitizeFilename,
 } from "@/lib/export-utils";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
 import { CodeEditor } from "./code-editor";
 import { rerunCode, ApiError } from "@/lib/api";
 
@@ -32,7 +33,19 @@ interface ArtifactsViewerProps {
   onRequestRerun?: (edits: { code?: string; sql?: string }) => void;
 }
 
-type Tab = "sql" | "code" | "data";
+type Tab = "trail" | "sql" | "code" | "data";
+
+/** A normalized view of one artifacts source — either the top-level cached
+ *  result or a single investigation step the user selected from the trail. */
+interface ArtifactsView {
+  code: string;
+  question: string;
+  results: Record<string, unknown>;
+  chart_data: Record<string, unknown>;
+  datasets: Record<string, Record<string, unknown>[]>;
+  execution_ms: number;
+  sql?: string;
+}
 
 function recordsToTable(records: Record<string, unknown>[]): {
   columns: string[];
@@ -175,32 +188,74 @@ export function ArtifactsViewer({
   onRerunSuccess,
   onRequestRerun,
 }: ArtifactsViewerProps) {
-  const [tab, setTab] = useState<Tab>(artifacts.sql ? "sql" : "code");
+  const investigation = artifacts.investigation;
   const [copied, setCopied] = useState(false);
 
-  // Editable code state. Resets when the underlying server code changes.
-  // Use derived-state-from-props pattern (no useEffect) — track the prior
-  // server value and reset the editor when it changes.
-  const [editedCode, setEditedCode] = useState(artifacts.code);
-  const [prevServerCode, setPrevServerCode] = useState(artifacts.code);
-  if (artifacts.code !== prevServerCode) {
-    setPrevServerCode(artifacts.code);
-    setEditedCode(artifacts.code);
-  }
+  // Investigation trail: which step (if any) the user is inspecting. `null`
+  // means the default top-level view (the last successful step's artifacts).
+  const [activeStepNo, setActiveStepNo] = useState<number | null>(null);
+  const activeStep =
+    activeStepNo != null ? investigation?.steps.find((s) => s.stepNo === activeStepNo) : undefined;
 
-  const codeIsDirty = editedCode !== artifacts.code;
+  // The artifacts source the Code / Data tabs render: a selected step, or the
+  // top-level cache. A step carries no SQL, so the SQL tab hides while a step
+  // is selected (correct — Investigate steps are Python-only).
+  const view: ArtifactsView = activeStep
+    ? {
+        code: activeStep.code ?? "",
+        question: activeStep.question,
+        results: activeStep.results ?? {},
+        chart_data: activeStep.chart_data ?? {},
+        datasets: activeStep.datasets ?? {},
+        execution_ms: activeStep.execution_ms ?? 0,
+        sql: undefined,
+      }
+    : {
+        code: artifacts.code,
+        question: artifacts.question,
+        results: artifacts.results,
+        chart_data: artifacts.chart_data,
+        datasets: artifacts.datasets,
+        execution_ms: artifacts.execution_ms,
+        sql: artifacts.sql,
+      };
 
-  // Editable SQL state — only meaningful when artifacts.sql is set
-  // (i.e. the source is a warehouse). Resets when the server SQL changes.
+  const [tab, setTab] = useState<Tab>(investigation ? "trail" : view.sql ? "sql" : "code");
+
+  // Editable code state, keyed by view source ("top" or a trail step) so
+  // navigating the trail never destroys in-progress edits on another view.
+  // Cleared only when a NEW artifacts object arrives (fresh server result).
+  const viewKey = activeStepNo != null ? `step-${activeStepNo}` : "top";
+  const [editsByView, setEditsByView] = useState<Record<string, string>>({});
+
+  // Editable SQL state — only meaningful at the top-level view of a
+  // warehouse-sourced analysis (trail steps are Python-only). Survives trail
+  // navigation; resets only on a fresh artifacts object.
   const [editedSql, setEditedSql] = useState(artifacts.sql ?? "");
-  const [prevServerSql, setPrevServerSql] = useState(artifacts.sql ?? "");
-  const incomingSql = artifacts.sql ?? "";
-  if (incomingSql !== prevServerSql) {
-    setPrevServerSql(incomingSql);
-    setEditedSql(incomingSql);
+
+  // Reconcile UI state when a different artifacts object arrives (new
+  // analysis, rerun result, history load). Derived-state-from-props pattern
+  // (no useEffect): without this, `tab` can point at a tab that no longer
+  // exists (e.g. stuck on "trail" after an Ask replaced an Investigate →
+  // blank panel) and a stale activeStepNo can silently select the
+  // same-numbered step of an unrelated trace.
+  const [prevArtifacts, setPrevArtifacts] = useState(artifacts);
+  if (artifacts !== prevArtifacts) {
+    setPrevArtifacts(artifacts);
+    setActiveStepNo(null);
+    setTab(investigation ? "trail" : artifacts.sql ? "sql" : "code");
+    setEditsByView({});
+    setEditedSql(artifacts.sql ?? "");
   }
 
-  const sqlIsDirty = !!artifacts.sql && editedSql !== artifacts.sql;
+  const editedCode = editsByView[viewKey] ?? view.code;
+  const setEditedCode = useCallback(
+    (code: string) => setEditsByView((m) => ({ ...m, [viewKey]: code })),
+    [viewKey]
+  );
+
+  const codeIsDirty = editedCode !== view.code;
+  const sqlIsDirty = !!view.sql && editedSql !== view.sql;
 
   const [rerunState, setRerunState] = useState<
     | { kind: "idle" }
@@ -213,10 +268,10 @@ export function ArtifactsViewer({
     tab === "sql"
       ? sqlIsDirty
         ? editedSql
-        : (artifacts.sql ?? "")
+        : (view.sql ?? "")
       : codeIsDirty
         ? editedCode
-        : artifacts.code;
+        : view.code;
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(copyTarget);
@@ -226,29 +281,33 @@ export function ArtifactsViewer({
 
   const handleDownloadPy = useCallback(() => {
     downloadCodeAsFile(
-      codeIsDirty ? editedCode : artifacts.code,
-      `${sanitizeFilename(artifacts.question)}.py`
+      codeIsDirty ? editedCode : view.code,
+      `${sanitizeFilename(view.question)}.py`
     );
-  }, [artifacts.code, artifacts.question, codeIsDirty, editedCode]);
+  }, [view.code, view.question, codeIsDirty, editedCode]);
 
   const handleDownloadSql = useCallback(() => {
-    if (artifacts.sql) {
+    if (view.sql) {
       downloadCodeAsFile(
-        sqlIsDirty ? editedSql : artifacts.sql,
-        `${sanitizeFilename(artifacts.question)}.sql`
+        sqlIsDirty ? editedSql : view.sql,
+        `${sanitizeFilename(view.question)}.sql`
       );
     }
-  }, [artifacts.sql, artifacts.question, sqlIsDirty, editedSql]);
+  }, [view.sql, view.question, sqlIsDirty, editedSql]);
 
   const handleDiscardCodeEdits = useCallback(() => {
-    setEditedCode(artifacts.code);
+    setEditsByView((m) => {
+      const next = { ...m };
+      delete next[viewKey];
+      return next;
+    });
     setRerunState({ kind: "idle" });
-  }, [artifacts.code]);
+  }, [viewKey]);
 
   const handleDiscardSqlEdits = useCallback(() => {
-    setEditedSql(artifacts.sql ?? "");
+    setEditedSql(view.sql ?? "");
     setRerunState({ kind: "idle" });
-  }, [artifacts.sql]);
+  }, [view.sql]);
 
   const handleRerunCode = useCallback(async () => {
     if (!csvId) return;
@@ -305,18 +364,14 @@ export function ArtifactsViewer({
     }[] = [];
 
     // Results as key-value
-    if (
-      artifacts.results &&
-      typeof artifacts.results === "object" &&
-      Object.keys(artifacts.results).length > 0
-    ) {
-      const { columns, rows } = kvToTable(artifacts.results);
+    if (view.results && typeof view.results === "object" && Object.keys(view.results).length > 0) {
+      const { columns, rows } = kvToTable(view.results);
       sections.push({ title: "Results", columns, rows, name: "results" });
     }
 
     // Chart data
-    if (artifacts.chart_data) {
-      for (const [key, val] of Object.entries(artifacts.chart_data)) {
+    if (view.chart_data) {
+      for (const [key, val] of Object.entries(view.chart_data)) {
         if (Array.isArray(val) && val.length > 0 && typeof val[0] === "object") {
           const { columns, rows } = recordsToTable(val as Record<string, unknown>[]);
           sections.push({
@@ -330,8 +385,8 @@ export function ArtifactsViewer({
     }
 
     // Datasets
-    if (artifacts.datasets) {
-      for (const [key, val] of Object.entries(artifacts.datasets)) {
+    if (view.datasets) {
+      for (const [key, val] of Object.entries(view.datasets)) {
         if (Array.isArray(val) && val.length > 0) {
           const { columns, rows } = recordsToTable(val);
           sections.push({
@@ -345,7 +400,7 @@ export function ArtifactsViewer({
     }
 
     return sections;
-  }, [artifacts.results, artifacts.chart_data, artifacts.datasets]);
+  }, [view.results, view.chart_data, view.datasets]);
 
   const handleDownloadAll = useCallback(async () => {
     const sheets = dataSections.map((s) => ({
@@ -354,8 +409,8 @@ export function ArtifactsViewer({
       rows: s.rows,
     }));
     if (sheets.length === 0) return;
-    await downloadMultiSheetXlsx(sheets, sanitizeFilename(artifacts.question) + "_all");
-  }, [dataSections, artifacts.question]);
+    await downloadMultiSheetXlsx(sheets, sanitizeFilename(view.question) + "_all");
+  }, [dataSections, view.question]);
 
   return (
     <div
@@ -364,7 +419,20 @@ export function ArtifactsViewer({
     >
       {/* Tab bar */}
       <div className="flex items-center border-b border-border-default">
-        {artifacts.sql && (
+        {investigation && (
+          <button
+            onClick={() => setTab("trail")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              tab === "trail"
+                ? "border-b-2 border-accent text-accent"
+                : "text-t-secondary hover:text-t-primary"
+            }`}
+            style={{ transitionDuration: "var(--transition-speed)" }}
+          >
+            Trail
+          </button>
+        )}
+        {view.sql && (
           <button
             onClick={() => setTab("sql")}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -399,17 +467,38 @@ export function ArtifactsViewer({
         >
           Data
         </button>
-        {artifacts.execution_ms > 0 && (
-          <span className="ml-auto mr-4 text-xs text-t-tertiary">
-            Executed in {(artifacts.execution_ms / 1000).toFixed(1)}s
-          </span>
-        )}
+        <span className="ml-auto mr-4 flex items-center gap-3 text-xs text-t-tertiary">
+          {activeStep && tab !== "trail" && (
+            <button
+              onClick={() => setTab("trail")}
+              className="text-accent hover:underline"
+              title="Back to the investigation trail"
+            >
+              ← Step {activeStep.stepNo} · back to trail
+            </button>
+          )}
+          {view.execution_ms > 0 && (
+            <span>Executed in {(view.execution_ms / 1000).toFixed(1)}s</span>
+          )}
+        </span>
       </div>
 
       {/* SQL tab — editable when source is a warehouse and a parent rerun
           callback is wired up. Re-run executes against the warehouse,
           producing a fresh CSV → fresh Python code-gen → fresh dashboard. */}
-      {tab === "sql" && artifacts.sql && (
+      {tab === "trail" && investigation && (
+        <InvestigationTrail
+          trace={investigation}
+          activeStepNo={activeStepNo}
+          onSelectStep={(stepNo) => {
+            setActiveStepNo(stepNo);
+            setTab("code");
+          }}
+          onClearStep={() => setActiveStepNo(null)}
+        />
+      )}
+
+      {tab === "sql" && view.sql && (
         <div>
           <div className="flex flex-wrap items-center gap-2 border-b border-table-divider px-4 py-2">
             <button
@@ -564,10 +653,11 @@ export function ArtifactsViewer({
             onChange={setEditedCode}
             height={360}
           />
-          {!artifacts.sql && rerunState.kind === "idle" && csvId && (
+          {!view.sql && rerunState.kind === "idle" && csvId && (
             <p className="px-4 py-2 text-xs" style={{ color: "var(--color-surface-dark-text3)" }}>
-              Tip: edit and Re-run to refresh the computed values shown in the Data tab. To rebuild
-              the dashboard from new code, ask a follow-up question.
+              {activeStep
+                ? `Step ${activeStep.stepNo}'s Python — edit and Re-run to rebuild the dashboard from this step's code.`
+                : "Tip: edit and Re-run to refresh the computed values shown in the Data tab. To rebuild the dashboard from new code, ask a follow-up question."}
             </p>
           )}
         </div>
@@ -602,6 +692,197 @@ export function ArtifactsViewer({
               sectionName={s.name}
             />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Investigation trail ───────────────────────────────────────────────
+
+const STATUS_STYLE: Record<TraceStep["status"], { label: string; color: string }> = {
+  success: { label: "✓ success", color: "var(--color-success-text, #10b981)" },
+  degraded: { label: "▲ degraded", color: "#d97706" },
+  failed: { label: "✕ failed", color: "#ef4444" },
+  removed: { label: "— dropped", color: "var(--color-t-tertiary, #9ca3af)" },
+};
+
+const SOURCE_LABEL: Record<TraceStep["source"], string> = {
+  initial: "planned",
+  replanner: "added by re-planner",
+  composer: "added by composer",
+};
+
+/**
+ * The audit trail for an Investigate run: the plan approach, the narrative
+ * grounding verdict, every sub-question with its status + provenance, and the
+ * re-planner / composer decisions. Selecting a step with code routes the
+ * Python + Data tabs to that step so it can be inspected and re-run.
+ */
+function InvestigationTrail({
+  trace,
+  activeStepNo,
+  onSelectStep,
+  onClearStep,
+}: {
+  trace: InvestigationTrace;
+  activeStepNo: number | null;
+  onSelectStep: (stepNo: number) => void;
+  onClearStep: () => void;
+}) {
+  const g = trace.grounding;
+  return (
+    <div className="space-y-4 p-4 text-sm">
+      {/* Approach */}
+      {trace.approach && (
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-t-tertiary">
+            Approach
+          </div>
+          <p className="mt-1 text-t-primary">{trace.approach}</p>
+        </div>
+      )}
+
+      {/* Grounding verdict */}
+      {g && (
+        <div
+          className="border border-border-default p-3"
+          style={{ borderRadius: "var(--radius-card)" }}
+        >
+          <div className="text-xs font-medium uppercase tracking-wide text-t-tertiary">
+            Narrative grounding
+          </div>
+          {g.checkedCount === 0 ? (
+            <p className="mt-1 text-t-secondary">No quantitative claims to verify.</p>
+          ) : g.ok ? (
+            <p className="mt-1" style={{ color: "var(--color-success-text, #10b981)" }}>
+              ✓ All {g.checkedCount} figure{g.checkedCount === 1 ? "" : "s"} in the narrative trace
+              to a computed result.
+            </p>
+          ) : (
+            <p className="mt-1" style={{ color: "#d97706" }}>
+              ▲ {g.ungrounded.length} figure{g.ungrounded.length === 1 ? "" : "s"} could not be
+              traced to a computed result — verify before relying on{" "}
+              {g.ungrounded.length === 1 ? "it" : "them"}:{" "}
+              <span className="font-medium">{g.ungrounded.join(", ")}</span>
+            </p>
+          )}
+          {g.uncitedSuccessfulSteps.length > 0 && (
+            <p className="mt-1 text-xs text-t-tertiary">
+              Computed but not referenced in the narrative: Step{" "}
+              {g.uncitedSuccessfulSteps.join(", Step ")}.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Steps */}
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-wide text-t-tertiary">
+            Sub-questions ({trace.steps.length})
+          </span>
+          {activeStepNo != null && (
+            <button onClick={onClearStep} className="text-xs text-accent hover:underline">
+              Clear selection
+            </button>
+          )}
+        </div>
+        <ol className="flex flex-col gap-2">
+          {trace.steps.map((step) => {
+            const runnable = !!step.code;
+            const isActive = step.stepNo === activeStepNo;
+            const st = STATUS_STYLE[step.status];
+            return (
+              <li
+                key={step.index}
+                className="border px-3 py-2"
+                style={{
+                  borderRadius: "var(--radius-card)",
+                  borderColor: isActive
+                    ? "var(--color-accent, #059669)"
+                    : "var(--color-border-default, #e5e7eb)",
+                  background: isActive ? "var(--color-accent-subtle, transparent)" : "transparent",
+                  opacity: step.status === "removed" ? 0.6 : 1,
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-t-primary">Step {step.stepNo}</span>
+                  <span style={{ color: st.color, fontSize: 11 }}>{st.label}</span>
+                  {step.source !== "initial" && (
+                    <span className="text-t-tertiary" style={{ fontSize: 11 }}>
+                      · {SOURCE_LABEL[step.source]}
+                    </span>
+                  )}
+                  {step.depends_on.length > 0 && (
+                    <span className="text-t-tertiary" style={{ fontSize: 11 }}>
+                      · depends on Step {step.depends_on.map((d) => d + 1).join(", ")}
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="mt-0.5 text-t-primary"
+                  style={{ textDecoration: step.status === "removed" ? "line-through" : "none" }}
+                >
+                  {step.question}
+                </div>
+                {step.rationale && (
+                  <div className="mt-0.5 text-xs text-t-tertiary">{step.rationale}</div>
+                )}
+                {step.degradedReason && (
+                  <div className="mt-1 text-xs" style={{ color: "#d97706" }}>
+                    Validator: {step.degradedReason}
+                  </div>
+                )}
+                {step.error && (
+                  <div className="mt-1 text-xs" style={{ color: "#ef4444" }}>
+                    Error: {step.error.slice(0, 200)}
+                  </div>
+                )}
+                {runnable && (
+                  <button
+                    onClick={() => onSelectStep(step.stepNo)}
+                    className="mt-1.5 text-xs text-accent hover:underline"
+                  >
+                    {isActive ? "Viewing code & data" : "View code & data →"}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+
+      {/* Decisions */}
+      {trace.decisions.length > 0 && (
+        <div>
+          <div className="mb-1 text-xs font-medium uppercase tracking-wide text-t-tertiary">
+            Agent decisions
+          </div>
+          <ol className="flex flex-col gap-1.5">
+            {trace.decisions.map((d, i) => (
+              <li key={i} className="text-xs text-t-secondary">
+                <span className="font-medium text-t-primary">
+                  {d.kind === "replan"
+                    ? `Re-planner: ${d.action ?? "evaluate"}`
+                    : "Composer dispatch"}
+                </span>
+                {d.rationale ? ` — ${d.rationale}` : ""}
+                {d.addedIndices.length > 0 && (
+                  <span className="text-t-tertiary">
+                    {" "}
+                    (added Step {d.addedIndices.map((x) => x + 1).join(", ")})
+                  </span>
+                )}
+                {d.removedIndices.length > 0 && (
+                  <span className="text-t-tertiary">
+                    {" "}
+                    (dropped Step {d.removedIndices.map((x) => x + 1).join(", ")})
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
     </div>
