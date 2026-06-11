@@ -214,19 +214,26 @@ export async function POST(request: Request) {
 
         const keepalive = setInterval(() => emit(": keepalive\n"), 15_000);
 
+        // The wholesale `/state` add must happen exactly ONCE (the first
+        // patch); afterwards only `/state/__progress` is touched. Keying on
+        // `step === 1` clobbered sibling state: the warehouse path emits
+        // several step-1 stages, and the later ones wiped
+        // __warehouse_csv_id — leaving the client without a csvId for
+        // artifacts (notebook Code/Data) and cell re-runs.
+        let stateInitialized = false;
         const emitProgress = (stage: string, step: number, total: number) => {
-          const patch =
-            step === 1
-              ? {
-                  op: "add",
-                  path: "/state",
-                  value: { __progress: { stage, step, total } },
-                }
-              : {
-                  op: "replace",
-                  path: "/state/__progress",
-                  value: { stage, step, total },
-                };
+          const patch = stateInitialized
+            ? {
+                op: "replace",
+                path: "/state/__progress",
+                value: { stage, step, total },
+              }
+            : {
+                op: "add",
+                path: "/state",
+                value: { __progress: { stage, step, total } },
+              };
+          stateInitialized = true;
           emit(JSON.stringify(patch) + "\n");
         };
 
