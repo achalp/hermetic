@@ -25,6 +25,26 @@ function resolveKeyPath(obj: unknown, path: string): unknown {
   return undefined;
 }
 
+/**
+ * Charts want an ARRAY for their data prop, but Python steps sometimes emit
+ * wrapper objects: `{rows: [...]}`, or a full chart-config payload
+ * `{data: [...], x_key, y_keys}`. Unwrap to the inner rows array when the
+ * shape is unambiguous:
+ *   - an object with a `data` or `rows` key holding an array → that array
+ *   - an object with exactly ONE key whose value is an array → that array
+ * Anything else (named-series objects, globe {points, arcs}, treemap trees)
+ * is left untouched.
+ */
+function unwrapChartRows(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const obj = value as Record<string, unknown>;
+  if (Array.isArray(obj.data)) return obj.data;
+  if (Array.isArray(obj.rows)) return obj.rows;
+  const entries = Object.entries(obj);
+  if (entries.length === 1 && Array.isArray(entries[0][1])) return entries[0][1];
+  return value;
+}
+
 /** Replace all `$result:<key>` and `$chartData:<key>` placeholders in a line. */
 export function resolveSpecPlaceholders(
   line: string,
@@ -33,12 +53,40 @@ export function resolveSpecPlaceholders(
 ): string {
   let processed = line;
 
+  // ── Pass 0: object-form placeholders ───────────────────────────
+  // LLMs sometimes emit {"$result": "key"} / {"$chartData": "key"} (the
+  // json-render dynamic-value SHAPE with our placeholder NAME) instead of
+  // the string form "$result:key". Untreated, a StatCard value renders
+  // "[object Object]" and a chart gets a dict instead of rows. Normalize
+  // them to the resolved value before the string passes run.
+  const objectFormRegex = /\{\s*"\$(result|chartData)"\s*:\s*"([^"]+)"\s*\}/g;
+  processed = processed.replace(objectFormRegex, (match, kind: string, keyPath: string) => {
+    const key = keyPath.trim().replace(/^\$?(?:result|chartData):/, "");
+    if (kind === "result") {
+      const value = resolveKeyPath(results, key);
+      if (value === undefined) return match;
+      return JSON.stringify(unwrapScalar(value));
+    }
+    const direct = key in chartData ? chartData[key] : resolveKeyPath(chartData, key);
+    if (direct === undefined) {
+      logger.warn(
+        "resolveSpecPlaceholders: unresolved object-form chartData, replacing with null",
+        {
+          keyPath: key,
+          availableKeys: Object.keys(chartData),
+        }
+      );
+      return "null";
+    }
+    return JSON.stringify(unwrapChartRows(direct));
+  });
+
   // ── $chartData substitution ────────────────────────────────────
   // Pass 1: top-level + nested keys
   for (const [key, value] of Object.entries(chartData)) {
     const placeholder = `"$chartData:${key}"`;
     if (processed.includes(placeholder)) {
-      processed = processed.replaceAll(placeholder, JSON.stringify(value));
+      processed = processed.replaceAll(placeholder, JSON.stringify(unwrapChartRows(value)));
     }
     if (typeof value === "object" && value !== null && !Array.isArray(value)) {
       for (const [subKey, subVal] of Object.entries(value as Record<string, unknown>)) {
@@ -123,7 +171,7 @@ export function resolveSpecPlaceholders(
  * presentation metadata (`format`, `label`, `unit`, `prefix`, `suffix`,
  * `is_integer`, `delta`, `previous`).
  */
-function unwrapScalar(value: unknown): unknown {
+export function unwrapScalar(value: unknown): unknown {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
   const obj = value as Record<string, unknown>;
   if (!("value" in obj)) return value;

@@ -70,6 +70,44 @@ describe("resolveSpecPlaceholders — $result", () => {
     expect(out).toBe('{"text":"Growth was led by West."}');
   });
 
+  it("resolves object-form result placeholders", () => {
+    const line = '{"value":{"$result":"total"},"other":{ "$result" : "rate" }}';
+    const out = resolveSpecPlaceholders(line, { total: 506, rate: 0.12 }, {});
+    expect(out).toBe('{"value":506,"other":0.12}');
+  });
+
+  it("resolves object-form chartData placeholders and nulls unresolved ones", () => {
+    const line = '{"data":{"$chartData":"bars"},"missing":{"$chartData":"nope"}}';
+    const out = resolveSpecPlaceholders(line, {}, { bars: [{ x: 1 }] });
+    expect(out).toBe('{"data":[{"x":1}],"missing":null}');
+  });
+
+  it("leaves unresolved object-form result placeholders intact", () => {
+    const line = '{"value":{"$result":"nonexistent"}}';
+    const out = resolveSpecPlaceholders(line, { other: 1 }, {});
+    expect(out).toBe(line);
+  });
+
+  it("unwraps single-key {rows: [...]} chart data wrappers", () => {
+    const line = '{"data":"$chartData:trend"}';
+    const out = resolveSpecPlaceholders(line, {}, { trend: { rows: [{ m: "Jan", v: 1 }] } });
+    expect(out).toBe('{"data":[{"m":"Jan","v":1}]}');
+  });
+
+  it("unwraps full chart-config payloads ({data, x_key, y_keys}) to the rows array", () => {
+    const line = '{"data":"$chartData:trend"}';
+    const payload = { data: [{ month: "Jan", north: 1 }], x_key: "month", y_keys: ["north"] };
+    const out = resolveSpecPlaceholders(line, {}, { trend: payload });
+    expect(out).toBe('{"data":[{"month":"Jan","north":1}]}');
+  });
+
+  it("leaves multi-key chart data objects (named series, globe) untouched", () => {
+    const line = '{"data":"$chartData:globe"}';
+    const globe = { points: [{ lat: 1, lng: 2 }], arcs: [] };
+    const out = resolveSpecPlaceholders(line, {}, { globe });
+    expect(out).toBe(`{"data":${JSON.stringify(globe)}}`);
+  });
+
   it("resolves inline placeholder followed by percent sign", () => {
     const line = '{"text":"Spread is $result:spread_pct% of revenue"}';
     const out = resolveSpecPlaceholders(line, { spread_pct: 23.4 }, {});

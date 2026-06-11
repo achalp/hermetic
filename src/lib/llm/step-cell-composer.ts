@@ -24,7 +24,7 @@ import { applySpecPatch, parseSpecStreamLine, type Spec } from "@json-render/cor
 import { getModel } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { describeShape, describeResultsSchema } from "@/lib/llm/investigate-composer";
-import { resolveSpecPlaceholders } from "@/lib/llm/resolve-placeholders";
+import { resolveSpecPlaceholders, unwrapScalar } from "@/lib/llm/resolve-placeholders";
 import { UI_COMPOSE_MODEL } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
@@ -41,8 +41,55 @@ Output format: streaming JSONL patches that build a JSON-Render spec. Output ONL
 
 ## Data rules
 - Keys are UNPREFIXED — reference them exactly as given: "$result:<key>" for scalars, "$chartData:<key>" for chart data props.
+- Placeholders are JSON STRING values. Write "value": "$result:total_revenue" and "data": "$chartData:monthly_trend". NEVER use object form — {"$result": "total_revenue"} and {"$chartData": "monthly_trend"} are WRONG and will not resolve.
+- Every key in the Results Schema is a SCALAR — safe for StatCard values and inline prose.
 - NEVER write a literal number in prose. Every figure in the insight MUST be a $result:<key> placeholder. If a number can't be expressed as a placeholder, describe it qualitatively instead.
 - No step citations — this cell IS the step.`;
+
+/**
+ * Flatten a step's results into SCALAR leaf entries with placeholder-safe
+ * key names (`[a-zA-Z0-9_]` only). Two failure modes this prevents, both
+ * observed in real cell composes:
+ *
+ *   1. A StatCard bound to a nested-object key renders "[object Object]" —
+ *      flattened, only scalar keys are offered to the LLM.
+ *   2. Keys containing spaces ("region_summaries.Asia Pacific.growth") can
+ *      never resolve as INLINE prose placeholders (the inline regex stops
+ *      at whitespace) — sanitized keys are always regex-safe.
+ *
+ * Wrapped scalars ({value, format, label, ...}) are unwrapped rather than
+ * exploded. Short scalar arrays are kept (useful in prose); row-like arrays
+ * are dropped — chart_data covers those.
+ */
+export function flattenResultScalars(
+  results: Record<string, unknown>,
+  prefix = "",
+  out: Record<string, unknown> = {},
+  depth = 0
+): Record<string, unknown> {
+  if (depth > 5) return out;
+  for (const [k, v] of Object.entries(results)) {
+    const safe = k.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!safe) continue;
+    const key = prefix ? `${prefix}_${safe}` : safe;
+    const unwrapped = unwrapScalar(v);
+    if (
+      unwrapped === null ||
+      typeof unwrapped === "number" ||
+      typeof unwrapped === "string" ||
+      typeof unwrapped === "boolean"
+    ) {
+      out[key] = unwrapped;
+    } else if (Array.isArray(unwrapped)) {
+      if (unwrapped.length <= 8 && unwrapped.every((x) => typeof x !== "object" || x === null)) {
+        out[key] = unwrapped;
+      }
+    } else if (typeof unwrapped === "object") {
+      flattenResultScalars(unwrapped as Record<string, unknown>, key, out, depth + 1);
+    }
+  }
+  return out;
+}
 
 export interface ComposeStepCellArgs {
   stepNo: number;
@@ -125,15 +172,18 @@ export function assembleCellSpec(
  */
 export async function composeStepCell(args: ComposeStepCellArgs): Promise<Spec | null> {
   const model = getModel(args.uiComposeModel ?? UI_COMPOSE_MODEL);
+  // Offer the LLM only flattened scalar result keys (placeholder-safe names,
+  // no nested objects) and resolve against the same map.
+  const flatArgs = { ...args, results: flattenResultScalars(args.results) };
   try {
     const result = await generateText({
       model,
       system: catalog.prompt({ customRules: [CELL_SYSTEM_PROMPT] }),
-      prompt: buildCellUserPrompt(args),
+      prompt: buildCellUserPrompt(flatArgs),
       temperature: 0.2,
       maxOutputTokens: 8_000, // a cell is ≤6 components; data arrives via placeholders
     });
-    const spec = assembleCellSpec(result.text, args.results, args.chartData);
+    const spec = assembleCellSpec(result.text, flatArgs.results, flatArgs.chartData);
     if (!spec) {
       logger.warn("Step-cell compose produced no renderable spec", { stepNo: args.stepNo });
     }
