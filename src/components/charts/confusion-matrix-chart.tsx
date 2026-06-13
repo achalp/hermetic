@@ -17,7 +17,12 @@ export function ConfusionMatrixComponent({ props }: { props: ConfusionMatrixProp
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
 
-  if (!props.matrix || props.matrix.length === 0 || !props.labels || props.labels.length === 0) {
+  if (
+    !Array.isArray(props.matrix) ||
+    props.matrix.length === 0 ||
+    !Array.isArray(props.labels) ||
+    props.labels.length === 0
+  ) {
     return <div style={{ height: chart.height }} />;
   }
 

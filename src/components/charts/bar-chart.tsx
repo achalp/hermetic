@@ -49,6 +49,10 @@ export function BarChartComponent({
   const { chart } = config;
   const isExpanded = useChartExpanded();
 
+  // Coerce array-typed props: a misbound placeholder can deliver a non-array,
+  // which would crash on .map/.length/.indexOf downstream.
+  const y_keys = Array.isArray(props.y_keys) ? props.y_keys : [];
+
   const raw = unwrapChartData(props.data);
   // Deduplicate rows by indexBy key — Nivo uses it as React key so duplicates
   // cause "two children with the same key" errors.  Sum numeric y values.
@@ -58,7 +62,7 @@ export function BarChartComponent({
       const key = String(row[props.x_key] ?? "");
       const existing = seen.get(key);
       if (existing) {
-        for (const yk of props.y_keys) {
+        for (const yk of y_keys) {
           const prev = Number(existing[yk]) || 0;
           const curr = Number(row[yk]) || 0;
           existing[yk] = prev + curr;
@@ -69,13 +73,13 @@ export function BarChartComponent({
     }
     return Array.from(seen.values());
   })();
-  const baseColors = useColorMap(props.y_keys, props.color_map);
+  const baseColors = useColorMap(y_keys, props.color_map);
 
   // When a bar is selected, dim unselected bars via hex alpha suffix
   const colors =
     isSelectable && selectedValue
       ? (bar: { indexValue: string | number; id: string | number }) => {
-          const colorIdx = props.y_keys.indexOf(String(bar.id));
+          const colorIdx = y_keys.indexOf(String(bar.id));
           const baseColor = baseColors[colorIdx >= 0 ? colorIdx : 0];
           return String(bar.indexValue) === selectedValue ? baseColor : baseColor + "40"; // 25% opacity
         }
@@ -111,13 +115,13 @@ export function BarChartComponent({
   };
 
   // Ensure value scale always includes 0 so bars render correctly with all-negative or all-positive data
-  const allValues = data.flatMap((d) => props.y_keys.map((k) => Number(d[k]) || 0));
+  const allValues = data.flatMap((d) => y_keys.map((k) => Number(d[k]) || 0));
   const dataMin = Math.min(0, ...allValues);
   const dataMax = Math.max(0, ...allValues);
 
   // Compute legend item width from longest key name
-  const hasLegend = props.y_keys.length > 1;
-  const maxKeyLen = hasLegend ? Math.max(...props.y_keys.map((k) => k.length)) : 0;
+  const hasLegend = y_keys.length > 1;
+  const maxKeyLen = hasLegend ? Math.max(...y_keys.map((k) => k.length)) : 0;
   const legendItemWidth = Math.max(100, Math.min(200, maxKeyLen * 8 + 24));
 
   if (data.length === 0) {
@@ -149,7 +153,7 @@ export function BarChartComponent({
       >
         <ResponsiveBar
           data={data as Record<string, string | number>[]}
-          keys={props.y_keys}
+          keys={y_keys}
           indexBy={props.x_key}
           layout={layout}
           groupMode={props.stacked ? "stacked" : "grouped"}

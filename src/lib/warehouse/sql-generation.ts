@@ -123,6 +123,81 @@ export async function generateSQL(
   return cleanSQL(result.text);
 }
 
+/**
+ * Repair a SQL query that failed to execute by feeding the exact engine
+ * error back to the LLM. Returns a corrected query (best-effort — the caller
+ * decides whether to re-execute or give up).
+ */
+export async function repairSQL(args: {
+  tables: WarehouseTableSchema[];
+  question: string;
+  warehouseType: WarehouseType;
+  failedSQL: string;
+  error: string;
+  model?: string;
+}): Promise<string> {
+  const schemaText = formatTableSchemas(args.tables, args.warehouseType);
+  const result = await generateText({
+    model: getModel(args.model ?? CODE_GEN_MODEL),
+    system: `You are a SQL expert. A query you generated failed to execute. Fix it so it runs and still answers the question.
+
+## Rules
+- Output ONLY the corrected SQL query. No explanation, no markdown fencing, no comments.
+- ${DIALECT_NOTES[args.warehouseType]}
+- Address the SPECIFIC error reported. Common fixes: reference SELECT aliases (or repeat the full expression) in GROUP BY / window ORDER BY rather than raw columns that aren't grouped; quote/qualify identifiers correctly for the dialect; cast mismatched types; remove DDL/DML.
+- Keep it a single SELECT that returns a result set, LIMIT at most 50000 rows.`,
+    prompt: `## Database Schema (${args.warehouseType})\n\n${schemaText}\n\n## Question\n${args.question}\n\n## Failed SQL\n${args.failedSQL}\n\n## Engine Error\n${args.error}\n\nReturn the corrected SQL only.`,
+    temperature: 0,
+    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+  });
+  return cleanSQL(result.text);
+}
+
+/**
+ * Generate SQL and execute it, repairing on failure. `execute` runs the query
+ * against the warehouse and resolves with the result (e.g. CSV content) or
+ * rejects with the engine error. On rejection we feed the error back to the
+ * LLM (`repairSQL`) and retry, up to `maxRepairs` times. Returns the SQL that
+ * finally worked alongside its result; throws the last error if all attempts
+ * fail.
+ */
+export async function generateSQLWithRepair<T>(args: {
+  tables: WarehouseTableSchema[];
+  question: string;
+  warehouseType: WarehouseType;
+  execute: (sql: string) => Promise<T>;
+  model?: string;
+  maxRepairs?: number;
+  onAttempt?: (attempt: number, phase: "generating" | "executing" | "repairing") => void;
+}): Promise<{ sql: string; result: T }> {
+  const maxRepairs = args.maxRepairs ?? 2;
+  args.onAttempt?.(0, "generating");
+  let sql = await generateSQL(args.tables, args.question, args.warehouseType, args.model);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRepairs; attempt++) {
+    try {
+      args.onAttempt?.(attempt, "executing");
+      const result = await args.execute(sql);
+      return { sql, result };
+    } catch (err) {
+      lastError = err;
+      if (attempt === maxRepairs) break;
+      const message = err instanceof Error ? err.message : String(err);
+      args.onAttempt?.(attempt + 1, "repairing");
+      sql = await repairSQL({
+        tables: args.tables,
+        question: args.question,
+        warehouseType: args.warehouseType,
+        failedSQL: sql,
+        error: message,
+        model: args.model,
+      });
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 /** Strip markdown fencing and whitespace from LLM output */
 function cleanSQL(raw: string): string {
   let sql = raw.trim();

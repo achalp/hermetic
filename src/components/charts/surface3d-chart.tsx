@@ -20,7 +20,7 @@ interface Surface3DProps {
 export function Surface3DChartComponent({ props }: { props: Surface3DProps }) {
   const isExpanded = useChartExpanded();
 
-  if (!props.z || props.z.length === 0) {
+  if (!Array.isArray(props.z) || props.z.length === 0) {
     return <div style={{ height: 500 }} />;
   }
 

@@ -44,7 +44,7 @@ import {
   storeCSV,
 } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import { generateSQL } from "@/lib/warehouse/sql-generation";
+import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { randomUUID } from "crypto";
@@ -250,19 +250,42 @@ export async function POST(request: Request) {
               `Retrieve the DETAILED rows needed to investigate this question from multiple angles: ${question}\n` +
               `Return row-level data (not pre-aggregated summaries) and include every column plausibly relevant to the question — ` +
               `dimensions for grouping, dates for trends, and measures for computation. Cap the result at 50000 rows if the source is larger.`;
-            warehouseSQL = await generateSQL(
-              warehouse.tableSchemas,
-              materializationQuestion,
-              warehouse.config.type,
-              codeGenModel
-            );
-            logger.info("Investigate: warehouse SQL generated", { sql: warehouseSQL });
-
-            emitProgress("querying_warehouse", 1, 99);
-            const warehouseCsvContent = await connector.executeSQL(warehouseSQL);
-            if (!warehouseCsvContent || warehouseCsvContent.trim() === "") {
-              throw new Error(`SQL query returned no results.\n\nGenerated SQL:\n${warehouseSQL}`);
+            // Generate + execute with an automatic repair loop: if the engine
+            // rejects the query (bad GROUP BY, type mismatch, …) the error is
+            // fed back to the LLM and the query is regenerated, up to 2 times.
+            let warehouseCsvContent: string;
+            try {
+              const outcome = await generateSQLWithRepair({
+                tables: warehouse.tableSchemas,
+                question: materializationQuestion,
+                warehouseType: warehouse.config.type,
+                model: codeGenModel,
+                execute: async (sql) => {
+                  const csv = await connector.executeSQL(sql);
+                  if (!csv || csv.trim() === "") {
+                    throw new Error("SQL query returned no results");
+                  }
+                  return csv;
+                },
+                onAttempt: (attempt, phase) => {
+                  if (phase === "repairing") {
+                    emitProgress("generating_sql", 1, 99);
+                    logger.info("Investigate: repairing warehouse SQL", { attempt });
+                  } else if (phase === "executing") {
+                    emitProgress("querying_warehouse", 1, 99);
+                  }
+                },
+              });
+              warehouseSQL = outcome.sql;
+              warehouseCsvContent = outcome.result;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              throw new Error(
+                `Warehouse query failed after repair attempts: ${msg}` +
+                  (warehouseSQL ? `\n\nLast SQL:\n${warehouseSQL}` : "")
+              );
             }
+            logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
             const parsed = parseCSV(warehouseCsvContent);
             const newCsvId = randomUUID();
             const schema = extractSchema(parsed, newCsvId, "warehouse_query_result");

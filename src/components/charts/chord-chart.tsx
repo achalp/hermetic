@@ -21,7 +21,12 @@ export function ChordChartComponent({ props }: { props: ChordChartProps }) {
   const themeColors = useChartColors();
   const colors = props.colors ? resolveColors(props.colors) : themeColors;
 
-  if (!props.matrix || props.matrix.length === 0 || !props.keys || props.keys.length === 0) {
+  if (
+    !Array.isArray(props.matrix) ||
+    props.matrix.length === 0 ||
+    !Array.isArray(props.keys) ||
+    props.keys.length === 0
+  ) {
     return <div style={{ height: chart.height }} />;
   }
 

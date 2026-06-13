@@ -19,7 +19,16 @@ interface HeatMapChartProps {
 export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
-  if (!props.z || props.z.length === 0 || !props.x_labels || !props.y_labels)
+  // Guard array-ness, not just truthiness: a misbound placeholder can deliver
+  // a non-array (object/string) for any of these, which would crash on .map.
+  if (
+    !Array.isArray(props.z) ||
+    props.z.length === 0 ||
+    !Array.isArray(props.x_labels) ||
+    props.x_labels.length === 0 ||
+    !Array.isArray(props.y_labels) ||
+    props.y_labels.length === 0
+  )
     return <div style={{ height: chart.height }} />;
 
   // Truncate long y-labels in inline mode to give more space to the heatmap

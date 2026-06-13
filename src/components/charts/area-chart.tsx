@@ -44,14 +44,17 @@ export function AreaChartComponent({
   const { chart } = tc;
   const isExpanded = useChartExpanded();
 
+  // Coerce array-typed props: a misbound placeholder can deliver a non-array.
+  const y_keys = Array.isArray(props.y_keys) ? props.y_keys : [];
+
   const raw = unwrapChartData(props.data);
   const data = raw.filter((row) => row[props.x_key] != null);
-  const colors = useColorMap(props.y_keys, props.color_map);
-  const series = toNivoLineSeries(data, props.x_key, props.y_keys);
+  const colors = useColorMap(y_keys, props.color_map);
+  const series = toNivoLineSeries(data, props.x_key, y_keys);
   const tickValues = pickTickValues(data, props.x_key);
   const hasRotatedLabels = !!tickValues;
-  const hasLegend = props.y_keys.length > 1;
-  const maxKeyLen = hasLegend ? Math.max(...props.y_keys.map((k) => k.length)) : 0;
+  const hasLegend = y_keys.length > 1;
+  const maxKeyLen = hasLegend ? Math.max(...y_keys.map((k) => k.length)) : 0;
   const legendItemWidth = Math.max(100, Math.min(180, maxKeyLen * 8 + 24));
 
   const truncateLabel = (v: string | number): string => {
