@@ -54,7 +54,15 @@ import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV } from "@/lib/csv/storage";
+import { buildStepFrames, type StepFrameSource } from "@/lib/pipeline/step-frames";
+import type { AdditionalFile as SandboxFile } from "@/lib/sandbox";
 import { randomUUID } from "crypto";
+
+/** Join optional context fragments into one prompt block. */
+function joinContext(...parts: (string | undefined)[]): string | undefined {
+  const joined = parts.filter((p) => p && p.trim()).join("\n\n");
+  return joined || undefined;
+}
 import {
   generateReplan,
   type InvestigationPlan,
@@ -169,7 +177,8 @@ interface OrchestrateOptions {
 async function runWarehouseSubQuestion(
   sq: PlannedSubQuestion,
   options: OrchestrateOptions,
-  priorTurns: ConversationTurn[]
+  priorTurns: ConversationTurn[],
+  depFrames: { files: SandboxFile[]; context: string }
 ): Promise<PipelineResult> {
   const sqlQuestion =
     `Fetch exactly the data needed to answer this analytical question: ${sq.question}\n` +
@@ -207,10 +216,10 @@ async function runWarehouseSubQuestion(
       options.model,
       options.runtime,
       options.geojsonContent ?? undefined,
-      options.additionalFiles,
+      [...(options.additionalFiles ?? []), ...depFrames.files],
       options.workbookContext,
       options.localMountPath,
-      options.localFileContext,
+      joinContext(options.localFileContext, depFrames.context),
       priorTurns.length > 0 ? priorTurns : undefined
     );
     return result;
@@ -235,10 +244,10 @@ async function runWarehouseSubQuestion(
     options.model,
     options.runtime,
     undefined,
-    undefined,
+    depFrames.files.length > 0 ? depFrames.files : undefined,
     options.workbookContext,
     undefined,
-    undefined,
+    joinContext(depFrames.context),
     priorTurns.length > 0 ? priorTurns : undefined
   );
   result.sql = sql;
@@ -402,12 +411,24 @@ async function runOneSubQuestion(
   // upstreams: degraded results are still passed in (best-effort), but
   // hard-failed upstreams contribute nothing.
   const priorTurns: ConversationTurn[] = [];
+  const depSources: StepFrameSource[] = [];
   for (const d of sq.depends_on) {
     const upstream = results[d];
     if (!upstream || !upstream.result) continue;
     const t = turnFromResult(upstream);
     if (t) priorTurns.push(t);
+    // Dataflow: expose this upstream's computed output as a CSV the
+    // dependent's Python can load, so steps build on each other instead of
+    // each recomputing from the raw source.
+    depSources.push({
+      stepNo: d + 1,
+      datasets: upstream.result.executionResult.datasets as
+        | Record<string, Record<string, unknown>[]>
+        | undefined,
+      chart_data: upstream.result.executionResult.chart_data as Record<string, unknown> | undefined,
+    });
   }
+  const depFrames = buildStepFrames(depSources);
 
   try {
     // Per-step SQL when this is a warehouse investigation with an executor
@@ -415,7 +436,7 @@ async function runOneSubQuestion(
     const usePerStepSQL =
       !!options.warehouseExecutor && !!options.warehouse && !!options.warehouseType;
     const result = usePerStepSQL
-      ? await runWarehouseSubQuestion(sq, options, priorTurns)
+      ? await runWarehouseSubQuestion(sq, options, priorTurns, depFrames)
       : await runPipeline(
           options.schema,
           options.csvContent,
@@ -425,10 +446,10 @@ async function runOneSubQuestion(
           options.model,
           options.runtime,
           options.geojsonContent ?? undefined,
-          options.additionalFiles,
+          [...(options.additionalFiles ?? []), ...depFrames.files],
           options.workbookContext,
           options.localMountPath,
-          options.localFileContext,
+          joinContext(options.localFileContext, depFrames.context),
           priorTurns.length > 0 ? priorTurns : undefined
         );
     slot.result = result;

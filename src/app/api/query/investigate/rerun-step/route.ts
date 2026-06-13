@@ -22,6 +22,7 @@ import {
   type TraceStep,
 } from "@/lib/pipeline/investigation-trace";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
+import { buildStepFrames, type StepFrameSource } from "@/lib/pipeline/step-frames";
 import { isValidRuntimeId, isValidModelId, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
@@ -101,6 +102,18 @@ export async function POST(request: Request) {
         ? body.sandbox_runtime
         : getActiveSandboxRuntime();
 
+    // Dataflow: feed this step's upstream outputs (from the trace, reflecting
+    // any prior re-runs) as /data/step_N.csv so re-running a dependent
+    // recomputes against the changed upstream output, not just revalidates.
+    // Note: trace datasets are a capped preview, so very large upstream
+    // outputs are truncated here; aggregated step outputs (the common case)
+    // are unaffected.
+    const depSources: StepFrameSource[] = step.depends_on
+      .map((d) => trace.steps.find((s) => s.index === d))
+      .filter((s): s is NonNullable<typeof s> => !!s)
+      .map((s) => ({ stepNo: s.stepNo, datasets: s.datasets, chart_data: s.chart_data }));
+    const depFrames = buildStepFrames(depSources);
+
     let pipelineResult;
     try {
       pipelineResult = await runPipelineWithCode(code, csvContent, step.question, {
@@ -108,6 +121,7 @@ export async function POST(request: Request) {
         geojsonContent: geojsonContent ?? undefined,
         csvId: dataCsvId,
         localMountPath,
+        additionalFiles: depFrames.files.length > 0 ? depFrames.files : undefined,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

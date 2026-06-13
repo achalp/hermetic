@@ -222,6 +222,46 @@ describe("runInvestigation — per-step SQL (warehouse)", () => {
   });
 });
 
+describe("runInvestigation — step dataflow", () => {
+  it("passes an upstream step's output to its dependent as /data/step_N.csv", async () => {
+    // Step 0 produces a dataset; step 1 depends on it.
+    mockedRunPipeline.mockImplementation((_s, _c, q) =>
+      Promise.resolve({
+        executionResult: {
+          success: true as const,
+          results: { value: 1 },
+          chart_data: {},
+          datasets: { main: [{ region: "West", rev: 100 }] },
+          images: {},
+          execution_ms: 10,
+        },
+        generatedCode: "ok",
+        question: q,
+      })
+    );
+
+    await runInvestigation([sq("A", []), sq("B", [0])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "test-model",
+      originalQuestion: "test",
+      approach: "test approach",
+    });
+
+    // The dependent (2nd runPipeline call) got additionalFiles with the
+    // upstream frame, and a localFileContext describing it.
+    const depCall = mockedRunPipeline.mock.calls[1];
+    const additionalFiles = depCall[8] as { path: string; content: string }[] | undefined;
+    const localFileContext = depCall[11] as string | undefined;
+    expect(additionalFiles?.some((f) => f.path === "/data/step_1.csv")).toBe(true);
+    expect(localFileContext).toContain("/data/step_1.csv");
+
+    // The independent step (1st call) got no upstream frames.
+    const indepFiles = mockedRunPipeline.mock.calls[0][8] as unknown[] | undefined;
+    expect(indepFiles ?? []).toHaveLength(0);
+  });
+});
+
 describe("runInvestigation — agentic loop", () => {
   it("runs all sub-questions when re-planner continues every time", async () => {
     mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
