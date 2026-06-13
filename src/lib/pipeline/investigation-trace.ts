@@ -80,6 +80,19 @@ export interface TraceDecision {
   removedIndices: number[];
 }
 
+/**
+ * A user-authored notebook layout overlaid on the step trail: lets the user
+ * insert markdown cells and reorder cells. Absent → the notebook renders the
+ * steps in their natural order. Persists with the trace (and thus history).
+ */
+export type NotebookLayoutCell =
+  | { kind: "step"; stepNo: number }
+  | { kind: "markdown"; id: string; content: string };
+
+export interface NotebookLayout {
+  cells: NotebookLayoutCell[];
+}
+
 export interface InvestigationTrace {
   approach: string;
   originalQuestion: string;
@@ -88,6 +101,8 @@ export interface InvestigationTrace {
   decisions: TraceDecision[];
   /** Grounding verdict for the composed narrative (set after composition). */
   grounding?: GroundingReport;
+  /** User-authored notebook layout (markdown cells + ordering). */
+  notebook?: NotebookLayout;
 }
 
 /**

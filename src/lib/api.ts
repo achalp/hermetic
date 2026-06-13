@@ -13,7 +13,7 @@ import type {
   WarehouseTableInfo,
   WarehouseTableSchema,
 } from "@/lib/types";
-import type { TraceStep } from "@/lib/pipeline/investigation-trace";
+import type { TraceStep, NotebookLayout } from "@/lib/pipeline/investigation-trace";
 import type { Spec } from "@json-render/core";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
@@ -628,6 +628,19 @@ export async function recomposeInvestigation(csvId: string): Promise<{ ok: true;
     body: JSON.stringify({ csv_id: csvId }),
   });
   return json<{ ok: true; spec: Spec }>(res);
+}
+
+/** Persist the user-authored notebook layout (markdown cells + ordering). */
+export async function saveNotebookLayout(
+  csvId: string,
+  layout: NotebookLayout
+): Promise<{ ok: true }> {
+  const res = await fetch("/api/query/investigate/notebook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csv_id: csvId, layout }),
+  });
+  return json<{ ok: true }>(res);
 }
 
 // ── dbt metadata ────────────────────────────────────────────

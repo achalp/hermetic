@@ -17,21 +17,26 @@
  *     code, datasets, provenance, and timing once artifacts are loaded.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Renderer, StateProvider, ActionProvider, VisibilityProvider } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
 import { renderWithCitations } from "@/components/registry-primitives";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { CodeEditor } from "@/components/app/code-editor";
+import { Markdown } from "@/components/app/markdown";
 import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
-import { rerunInvestigateStep } from "@/lib/api";
+import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { TraceStep, TraceDecision } from "@/lib/pipeline/investigation-trace";
+import type {
+  TraceStep,
+  TraceDecision,
+  NotebookLayoutCell,
+} from "@/lib/pipeline/investigation-trace";
 
 type CellStatus = "pending" | "running" | "done" | "degraded" | "failed" | "removed";
 
-interface NotebookCellModel {
+export interface NotebookCellModel {
   index: number;
   stepNo: number;
   question: string;
@@ -518,6 +523,137 @@ function SynthesisCell({
   );
 }
 
+/** A user-authored markdown cell: rendered prose with an inline editor. */
+function MarkdownCell({
+  content,
+  editable,
+  onChange,
+  onDelete,
+}: {
+  content: string;
+  editable: boolean;
+  onChange: (next: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(content.trim() === "");
+  return (
+    <div
+      className="border border-dashed border-border-default bg-surface-1 px-4 py-3"
+      style={{ borderRadius: "var(--radius-card)" }}
+    >
+      {editing && editable ? (
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={content}
+            autoFocus
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Write notes in markdown — # headings, **bold**, - lists…"
+            className="min-h-[80px] w-full resize-y bg-surface-2 px-3 py-2 text-sm text-t-primary outline-none"
+            style={{ borderRadius: "var(--radius-badge)" }}
+          />
+          <div className="flex items-center gap-3 text-xs">
+            <button onClick={() => setEditing(false)} className="font-medium text-accent">
+              Done
+            </button>
+            <button onClick={onDelete} className="text-error-text hover:underline">
+              Delete
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className={editable ? "group relative cursor-text" : ""}
+          onClick={editable ? () => setEditing(true) : undefined}
+        >
+          {content.trim() ? (
+            <Markdown content={content} />
+          ) : (
+            <p className="text-sm text-t-tertiary">Empty note — click to edit.</p>
+          )}
+          {editable && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="absolute right-0 top-0 hidden text-xs text-t-tertiary hover:text-error-text group-hover:block"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Wraps a cell with reorder/insert controls (shown only when editable). */
+function CellControls({
+  onMoveUp,
+  onMoveDown,
+  onAddMarkdown,
+}: {
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onAddMarkdown: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-3 py-0.5 text-xs text-t-tertiary opacity-0 transition-opacity hover:opacity-100">
+      <button
+        onClick={onMoveUp}
+        disabled={!onMoveUp}
+        className="disabled:opacity-30"
+        title="Move up"
+      >
+        ↑
+      </button>
+      <button
+        onClick={onMoveDown}
+        disabled={!onMoveDown}
+        className="disabled:opacity-30"
+        title="Move down"
+      >
+        ↓
+      </button>
+      <button onClick={onAddMarkdown} className="hover:text-accent" title="Add a text cell below">
+        + Text
+      </button>
+    </div>
+  );
+}
+
+type RenderEntry =
+  | { kind: "step"; cell: NotebookCellModel }
+  | { kind: "markdown"; id: string; content: string };
+
+/** Merge the saved layout with the live step cells: layout drives order and
+ *  injects markdown; step cells missing from the layout (new ones) append. */
+export function orderedEntries(
+  layout: NotebookLayoutCell[] | null,
+  stepCells: NotebookCellModel[]
+): RenderEntry[] {
+  const byNo = new Map(stepCells.map((c) => [c.stepNo, c]));
+  const used = new Set<number>();
+  const out: RenderEntry[] = [];
+  if (layout) {
+    for (const lc of layout) {
+      if (lc.kind === "markdown") {
+        out.push({ kind: "markdown", id: lc.id, content: lc.content });
+      } else if (!used.has(lc.stepNo)) {
+        const c = byNo.get(lc.stepNo);
+        if (c) {
+          out.push({ kind: "step", cell: c });
+          used.add(lc.stepNo);
+        }
+      }
+    }
+  }
+  for (const c of stepCells) {
+    if (!used.has(c.stepNo)) out.push({ kind: "step", cell: c });
+  }
+  return out;
+}
+
 export function NotebookView({
   spec,
   artifacts,
@@ -553,15 +689,44 @@ export function NotebookView({
   // (whose data the merge just absorbed); stale flags survive until a NEW
   // analysis clears the artifacts entirely.
   const trace = artifacts?.investigation;
+  // User notebook layout (markdown cells + ordering). null = default order.
+  const [layout, setLayout] = useState<NotebookLayoutCell[] | null>(trace?.notebook?.cells ?? null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [prevTrace, setPrevTrace] = useState(trace);
   if (trace !== prevTrace) {
     setPrevTrace(trace);
     setOverrides(new Map());
+    // Adopt a newly-loaded layout, but don't clobber in-progress local edits
+    // when the trace identity changes only because of a step re-run merge.
+    if (trace?.notebook?.cells && layout === null) setLayout(trace.notebook.cells);
     if (!trace) {
       setStale(new Set());
       setRerunErrors(new Map());
+      setLayout(null);
     }
   }
+
+  // Persist layout changes (debounced). The saved layout is the FULL display
+  // order so reloads reproduce it exactly.
+  const commitLayout = useCallback(
+    (next: NotebookLayoutCell[]) => {
+      setLayout(next);
+      if (!csvId) return;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        saveNotebookLayout(csvId, { cells: next }).catch(() => {
+          // Non-fatal: layout stays in local state for the session.
+        });
+      }, 800);
+    },
+    [csvId]
+  );
+  useEffect(
+    () => () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    },
+    []
+  );
 
   const handleRerunStep = useCallback(
     async (index: number, code?: string) => {
@@ -690,18 +855,68 @@ export function NotebookView({
           </button>
         </div>
       )}
-      {cells.map((cell) => (
-        <NotebookCell
-          key={cell.index}
-          cell={cell}
-          isStreaming={isStreaming}
-          highlighted={highlightStepNo === cell.stepNo}
-          stale={stale.has(cell.index)}
-          rerunning={rerunning.has(cell.index)}
-          rerunError={rerunErrors.get(cell.index)}
-          onRerun={rerunEnabled ? handleRerunStep : undefined}
-        />
-      ))}
+      {(() => {
+        // Layout editing is enabled once streaming finishes and we have a
+        // csvId to persist against.
+        const editable = Boolean(csvId) && !isStreaming;
+        const entries = orderedEntries(layout, cells);
+        // The full current order, as a saveable layout — every edit derives
+        // from this so reloads reproduce the exact order.
+        const asLayout = (es: RenderEntry[]): NotebookLayoutCell[] =>
+          es.map((e) =>
+            e.kind === "markdown"
+              ? { kind: "markdown", id: e.id, content: e.content }
+              : { kind: "step", stepNo: e.cell.stepNo }
+          );
+        const full = asLayout(entries);
+        const move = (pos: number, dir: -1 | 1) => {
+          const next = [...full];
+          const j = pos + dir;
+          if (j < 0 || j >= next.length) return;
+          [next[pos], next[j]] = [next[j], next[pos]];
+          commitLayout(next);
+        };
+        const addMarkdownAfter = (pos: number) => {
+          const next = [...full];
+          next.splice(pos + 1, 0, { kind: "markdown", id: crypto.randomUUID(), content: "" });
+          commitLayout(next);
+        };
+        const updateMarkdown = (id: string, content: string) =>
+          commitLayout(
+            full.map((c) => (c.kind === "markdown" && c.id === id ? { ...c, content } : c))
+          );
+        const deleteAt = (pos: number) => commitLayout(full.filter((_, i) => i !== pos));
+
+        return entries.map((entry, pos) => (
+          <div key={entry.kind === "markdown" ? `md-${entry.id}` : `step-${entry.cell.index}`}>
+            {entry.kind === "markdown" ? (
+              <MarkdownCell
+                content={entry.content}
+                editable={editable}
+                onChange={(c) => updateMarkdown(entry.id, c)}
+                onDelete={() => deleteAt(pos)}
+              />
+            ) : (
+              <NotebookCell
+                cell={entry.cell}
+                isStreaming={isStreaming}
+                highlighted={highlightStepNo === entry.cell.stepNo}
+                stale={stale.has(entry.cell.index)}
+                rerunning={rerunning.has(entry.cell.index)}
+                rerunError={rerunErrors.get(entry.cell.index)}
+                onRerun={rerunEnabled ? handleRerunStep : undefined}
+              />
+            )}
+            {editable && (
+              <CellControls
+                onMoveUp={pos > 0 ? () => move(pos, -1) : undefined}
+                onMoveDown={pos < entries.length - 1 ? () => move(pos, 1) : undefined}
+                onAddMarkdown={() => addMarkdownAfter(pos)}
+              />
+            )}
+          </div>
+        ));
+      })()}
       {hasSynthesis && (
         <SynthesisCell synthesis={synthesis} grounding={grounding} decisions={decisions} />
       )}
