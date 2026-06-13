@@ -14,6 +14,7 @@ import type {
   WarehouseTableSchema,
 } from "@/lib/types";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
+import type { Spec } from "@json-render/core";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -617,6 +618,16 @@ export async function rerunInvestigateStep(args: {
     }),
   });
   return json<RerunStepResult>(res);
+}
+
+/** Recompose the dashboard spec from the (re-run) investigation trail. */
+export async function recomposeInvestigation(csvId: string): Promise<{ ok: true; spec: Spec }> {
+  const res = await fetch("/api/query/investigate/recompose", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csv_id: csvId }),
+  });
+  return json<{ ok: true; spec: Spec }>(res);
 }
 
 // ── dbt metadata ────────────────────────────────────────────

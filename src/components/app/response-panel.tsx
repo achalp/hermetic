@@ -18,7 +18,7 @@ import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
-import { getArtifacts } from "@/lib/api";
+import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView } from "@/components/app/notebook-view";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
@@ -258,6 +258,7 @@ export function ResponsePanel({
     setArtifacts(null);
     setShowArtifacts(false);
     setDashboardStale(false);
+    setRecomposeError(null);
     setCitationTarget(null);
 
     // Conversation history is managed server-side (keyed by csvId)
@@ -419,6 +420,26 @@ export function ResponsePanel({
     [setArtifacts]
   );
 
+  // Recompose the dashboard from the (re-run) trail so the Dashboard view
+  // reflects current step results instead of just showing a stale banner.
+  const [recomposing, setRecomposing] = useState(false);
+  const [recomposeError, setRecomposeError] = useState<string | null>(null);
+  const handleRecompose = useCallback(async () => {
+    if (!effectiveCsvId) return;
+    setRecomposing(true);
+    setRecomposeError(null);
+    try {
+      const { spec: newSpec } = await recomposeInvestigation(effectiveCsvId);
+      currentSpecRef.current = newSpec;
+      setRestoredSpec(newSpec);
+      setDashboardStale(false);
+    } catch (err) {
+      setRecomposeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRecomposing(false);
+    }
+  }, [effectiveCsvId]);
+
   // The notebook's code/data disclosures come from the audit trail in the
   // cached artifacts — fetch them quietly once the stream ends. Failure is
   // non-fatal: the notebook still renders cells from spec state.
@@ -575,11 +596,25 @@ export function ResponsePanel({
             <Card ref={dashboardRef}>
               {dashboardStale && (
                 <div
-                  className="mb-3 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"
+                  className="mb-3 flex items-center justify-between gap-2 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"
                   style={{ borderRadius: "var(--radius-card)" }}
                 >
-                  Step results changed since this dashboard was composed — switch to the Notebook
-                  view for current results.
+                  <span>Step results changed since this dashboard was composed.</span>
+                  <button
+                    onClick={handleRecompose}
+                    disabled={recomposing}
+                    className="shrink-0 font-medium underline hover:no-underline disabled:opacity-50"
+                  >
+                    {recomposing ? "Recomposing…" : "Recompose dashboard"}
+                  </button>
+                </div>
+              )}
+              {recomposeError && (
+                <div
+                  className="mb-3 border border-error-border bg-error-bg px-3 py-2 text-xs text-error-text"
+                  style={{ borderRadius: "var(--radius-card)" }}
+                >
+                  Recompose failed: {recomposeError}
                 </div>
               )}
               <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
