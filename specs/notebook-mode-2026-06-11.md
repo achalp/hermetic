@@ -1,7 +1,7 @@
 # Notebook Mode for Investigate — Spec
 
 > Created: 2026-06-11
-> Status: Phases 1–3 implemented (2026-06-11). Warehouse Investigate bridged same day: one broad SQL materialization → file-source investigation (per-step SQL per sub-question remains the deeper fast-follow). Other fast-follows (richer cell editing, notebook export) pending.
+> Status: COMPLETE (2026-06-13). Phases 1–3 + all deferred fast-follows shipped: per-step SQL (each sub-question its own warehouse query), true step dataflow (dependents consume upstream outputs on initial run AND re-run), dashboard recompose after re-run, richer cell editing (markdown cells + add/reorder, persisted), and notebook export (Markdown + PDF).
 > Builds on: `agentic-grounding-audit-trail` (merged 2026-06-11) — investigation audit trail, narrative grounding, step citations
 
 ## 1. Overview
