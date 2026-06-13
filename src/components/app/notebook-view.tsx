@@ -17,7 +17,7 @@
  *     code, datasets, provenance, and timing once artifacts are loaded.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Renderer, StateProvider, ActionProvider, VisibilityProvider } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
@@ -26,6 +26,8 @@ import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary"
 import { CodeEditor } from "@/components/app/code-editor";
 import { Markdown } from "@/components/app/markdown";
 import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
+import { buildNotebookMarkdown } from "@/lib/notebook-export";
+import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/lib/export-utils";
 import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type {
@@ -802,7 +804,9 @@ export function NotebookView({
   const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
   const plan = state.__plan as { approach?: string } | undefined;
   const approach = plan?.approach ?? artifacts?.investigation?.approach;
-  const synthesis = (state.__synthesis as SynthesisState | undefined) ?? {};
+  // Stable identity so the export useCallback dep doesn't change every render.
+  const synthesisRaw = state.__synthesis as SynthesisState | undefined;
+  const synthesis = useMemo<SynthesisState>(() => synthesisRaw ?? {}, [synthesisRaw]);
   const grounding =
     (state.__grounding as GroundingLike | undefined) ?? artifacts?.investigation?.grounding;
   const decisions = artifacts?.investigation?.decisions;
@@ -820,6 +824,28 @@ export function NotebookView({
     return () => clearTimeout(timer);
   }, [scrollTarget]);
 
+  // Export the notebook to Markdown (notebook-native) or PDF (rendered).
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const canExport = Boolean(trace) && !isStreaming;
+  const handleExportMarkdown = useCallback(() => {
+    if (!trace) return;
+    const md = buildNotebookMarkdown(trace, synthesis);
+    downloadCodeAsFile(md, `${sanitizeFilename(trace.originalQuestion || "notebook")}.md`);
+  }, [trace, synthesis]);
+  const handleExportPdf = useCallback(async () => {
+    if (!containerRef.current || !trace) return;
+    setExporting(true);
+    try {
+      await downloadDashboardAsPdf(
+        containerRef.current,
+        `${sanitizeFilename(trace.originalQuestion || "notebook")}.pdf`
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [trace]);
+
   if (cells.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-t-tertiary" role="status">
@@ -829,12 +855,35 @@ export function NotebookView({
   }
 
   return (
-    <div className="flex flex-col gap-3" data-testid="notebook-view">
-      {approach && (
-        <p className="px-1 text-xs text-t-tertiary">
-          <span className="font-medium text-t-secondary">Approach:</span> {approach}
-        </p>
-      )}
+    <div ref={containerRef} className="flex flex-col gap-3" data-testid="notebook-view">
+      <div className="flex items-center justify-between gap-2 px-1">
+        {approach ? (
+          <p className="text-xs text-t-tertiary">
+            <span className="font-medium text-t-secondary">Approach:</span> {approach}
+          </p>
+        ) : (
+          <span />
+        )}
+        {/* Hidden during PDF capture so the controls don't appear in the export. */}
+        {canExport && !exporting && (
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={handleExportMarkdown}
+              className="text-xs text-t-secondary hover:text-accent"
+              title="Export the notebook as Markdown"
+            >
+              ⬇ Markdown
+            </button>
+            <button
+              onClick={handleExportPdf}
+              className="text-xs text-t-secondary hover:text-accent"
+              title="Export the notebook as PDF"
+            >
+              ⬇ PDF
+            </button>
+          </div>
+        )}
+      </div>
       {stale.size > 0 && (
         <div
           className="flex items-center justify-between gap-2 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"
