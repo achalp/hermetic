@@ -72,15 +72,19 @@ export async function POST(request: Request) {
       return Response.json({ error: "This step has no code to run." }, { status: 400 });
     }
 
-    const stored = getStoredCSV(csv_id);
+    // Per-step-SQL warehouse steps ran over their OWN result CSV (stepCsvId),
+    // not the top-level materialized one — re-run the step's Python against
+    // that data so its columns line up. Fall back to the top-level CSV.
+    const dataCsvId = step.stepCsvId && getStoredCSV(step.stepCsvId) ? step.stepCsvId : csv_id;
+    const stored = getStoredCSV(dataCsvId);
     if (!stored) {
       return Response.json({ error: "csv data not found (may have expired)" }, { status: 404 });
     }
 
     // Source resolution mirrors the investigate route (incl. local mounts).
-    const isLocal = isLocalFile(csv_id);
-    const csvContent = isLocal ? "" : ((await getCSVContent(csv_id)) ?? "");
-    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csv_id) : null;
+    const isLocal = isLocalFile(dataCsvId);
+    const csvContent = isLocal ? "" : ((await getCSVContent(dataCsvId)) ?? "");
+    const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(dataCsvId) : null;
     let localMountPath: string | undefined;
     if (isLocal) {
       const hostPath = stored.localFolderPath || stored.localPath;
@@ -102,7 +106,7 @@ export async function POST(request: Request) {
       pipelineResult = await runPipelineWithCode(code, csvContent, step.question, {
         runtime,
         geojsonContent: geojsonContent ?? undefined,
-        csvId: csv_id,
+        csvId: dataCsvId,
         localMountPath,
       });
     } catch (err) {

@@ -347,6 +347,16 @@ function NotebookCell({
           </p>
         )}
 
+        {/* SQL disclosure — per-step warehouse query (Investigate over a
+            warehouse, where each step issues its own SQL). Read-only. */}
+        {cell.trace?.sql && (
+          <Disclosure label="SQL">
+            <div className="overflow-hidden" style={{ borderRadius: "var(--radius-badge)" }}>
+              <CodeEditor value={cell.trace.sql} language="sql" readOnly height={200} />
+            </div>
+          </Disclosure>
+        )}
+
         {/* Code disclosure — available once the audit trail is loaded.
             Editable + re-runnable when an onRerun handler is wired up. */}
         {cell.trace?.code && (

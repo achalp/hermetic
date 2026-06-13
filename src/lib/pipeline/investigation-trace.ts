@@ -51,6 +51,16 @@ export interface TraceStep {
   /** Error message when status === "failed". */
   error?: string;
   /**
+   * Per-step SQL (warehouse investigations): the query this step ran to
+   * fetch its data. Shown as a SQL cell/disclosure in the notebook.
+   */
+  sql?: string;
+  /**
+   * csv_id of this step's SQL result, so the step's Python re-runs against
+   * the same data (notebook re-run for per-step-SQL warehouse steps).
+   */
+  stepCsvId?: string;
+  /**
    * Notebook-mode cell: a small composed spec visualizing this step's
    * result (placeholders already resolved). Set after the per-step cell
    * compose finishes; absent for failed/removed steps or when the cell
@@ -132,6 +142,8 @@ export function buildInvestigationTrace(args: BuildTraceArgs): InvestigationTrac
       source: args.sourceByIndex.get(sub.index) ?? "initial",
       depends_on: sub.depends_on ?? [],
       code: sub.result?.generatedCode,
+      sql: sub.result?.sql,
+      stepCsvId: sub.result?.stepCsvId,
       results: exec?.results as Record<string, unknown> | undefined,
       chart_data: exec?.chart_data as Record<string, unknown> | undefined,
       datasets: capDatasets(

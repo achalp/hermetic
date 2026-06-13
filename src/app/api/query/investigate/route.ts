@@ -340,7 +340,15 @@ export async function POST(request: Request) {
 
           // ── Step 1: Plan ──
           emitProgress("planning", 1, 99);
-          const planResult = await generatePlan(question, stored.schema, undefined, codeGenModel);
+          // For warehouse investigations, give the planner the FULL table
+          // schemas (so sub-questions can span tables that per-step SQL will
+          // join) alongside the materialized schema.
+          const planResult = await generatePlan(
+            question,
+            stored.schema,
+            warehouseState?.warehouse.tableSchemas,
+            codeGenModel
+          );
           if (!planResult.ok) {
             throw new Error(`Plan generation failed: ${planResult.error}`);
           }
@@ -433,10 +441,16 @@ export async function POST(request: Request) {
             model: codeGenModel,
             originalQuestion: question,
             approach: plan.approach,
-            // Warehouse table schemas inform the re-planner what ELSE could
-            // be queried, even though v1 sub-questions run over the
-            // materialized CSV.
+            // Per-step SQL: each sub-question issues its own warehouse query
+            // (the up-front materialization above still seeds the planner's
+            // schema + serves as the fallback if a step's SQL fails). For
+            // file investigations these are undefined and steps run Python
+            // over the shared CSV as before.
             warehouse: warehouseState?.warehouse.tableSchemas,
+            warehouseType: warehouseState?.warehouse.config.type,
+            warehouseExecutor: warehouseState
+              ? (sql: string) => warehouseState!.connector.executeSQL(sql)
+              : undefined,
             onProgress: (event) => {
               if (event.kind === "sub_started" && event.index !== undefined) {
                 stepCount++;

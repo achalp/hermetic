@@ -49,7 +49,12 @@ import {
   INVESTIGATE_MAX_SUBQUESTIONS,
   COMPOSER_MAX_DISPATCHES,
 } from "@/lib/constants";
-import type { CSVSchema, ConversationTurn, WarehouseTableSchema } from "@/lib/types";
+import type { CSVSchema, ConversationTurn, WarehouseTableSchema, WarehouseType } from "@/lib/types";
+import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
+import { parseCSV, toCSVText } from "@/lib/csv/parser";
+import { extractSchema } from "@/lib/csv/schema";
+import { storeCSV } from "@/lib/csv/storage";
+import { randomUUID } from "crypto";
 import {
   generateReplan,
   type InvestigationPlan,
@@ -142,8 +147,103 @@ interface OrchestrateOptions {
   approach: string;
   /** Warehouse table schemas, if this Investigate is over a warehouse (passed to the re-planner). */
   warehouse?: WarehouseTableSchema[];
+  /**
+   * Per-step SQL mode. When set (alongside `warehouse` + `warehouseType`),
+   * each sub-question generates and runs its OWN warehouse query, then
+   * analyzes that result in Python — instead of every step sharing one
+   * up-front materialized CSV. The executor runs a SQL string against the
+   * warehouse and resolves with CSV content.
+   */
+  warehouseExecutor?: (sql: string) => Promise<string>;
+  warehouseType?: WarehouseType;
   /** Reported per-sub-question and per-wave status updates. */
   onProgress?: (event: InvestigateProgressEvent) => void;
+}
+
+/**
+ * Per-step SQL path: generate a warehouse query scoped to this sub-question,
+ * execute it (with repair), then run the standard Python pipeline over the
+ * result. Falls back to analyzing the shared materialized CSV if SQL
+ * generation/execution fails, so a step still produces something.
+ */
+async function runWarehouseSubQuestion(
+  sq: PlannedSubQuestion,
+  options: OrchestrateOptions,
+  priorTurns: ConversationTurn[]
+): Promise<PipelineResult> {
+  const sqlQuestion =
+    `Fetch exactly the data needed to answer this analytical question: ${sq.question}\n` +
+    `Aggregate/filter/join server-side as appropriate. Return tidy rows ready for charting; cap at 50000 rows.`;
+
+  let sql: string;
+  let csvContent: string;
+  try {
+    const outcome = await generateSQLWithRepair({
+      tables: options.warehouse!,
+      question: sqlQuestion,
+      warehouseType: options.warehouseType!,
+      model: options.model,
+      execute: async (candidate) => {
+        const csv = await options.warehouseExecutor!(candidate);
+        if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
+        return csv;
+      },
+    });
+    sql = outcome.sql;
+    csvContent = outcome.result;
+  } catch (err) {
+    // SQL path failed — degrade to analyzing the shared materialized CSV so
+    // the step is not lost entirely.
+    logger.warn("Investigate: per-step SQL failed, falling back to materialized CSV", {
+      question: sq.question.slice(0, 120),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    const result = await runPipeline(
+      options.schema,
+      options.csvContent,
+      sq.question,
+      undefined,
+      "metadata",
+      options.model,
+      options.runtime,
+      options.geojsonContent ?? undefined,
+      options.additionalFiles,
+      options.workbookContext,
+      options.localMountPath,
+      options.localFileContext,
+      priorTurns.length > 0 ? priorTurns : undefined
+    );
+    return result;
+  }
+
+  // Materialize the step's SQL result as an ephemeral CSV the sandbox can run
+  // over (and the notebook can re-run against later).
+  const parsed = parseCSV(csvContent);
+  const normalized = toCSVText(parsed);
+  const stepCsvId = randomUUID();
+  const stepSchema = extractSchema(parsed, stepCsvId, "step_result");
+  stepSchema.source_type = "warehouse";
+  stepSchema.warehouse_type = options.warehouseType;
+  await storeCSV(stepCsvId, normalized, stepSchema);
+
+  const result = await runPipeline(
+    stepSchema,
+    normalized,
+    sq.question,
+    undefined,
+    "metadata",
+    options.model,
+    options.runtime,
+    undefined,
+    undefined,
+    options.workbookContext,
+    undefined,
+    undefined,
+    priorTurns.length > 0 ? priorTurns : undefined
+  );
+  result.sql = sql;
+  result.stepCsvId = stepCsvId;
+  return result;
 }
 
 /** Build a synthetic ConversationTurn from a completed sub-question result. */
@@ -310,21 +410,27 @@ async function runOneSubQuestion(
   }
 
   try {
-    const result = await runPipeline(
-      options.schema,
-      options.csvContent,
-      sq.question,
-      undefined,
-      "metadata",
-      options.model,
-      options.runtime,
-      options.geojsonContent ?? undefined,
-      options.additionalFiles,
-      options.workbookContext,
-      options.localMountPath,
-      options.localFileContext,
-      priorTurns.length > 0 ? priorTurns : undefined
-    );
+    // Per-step SQL when this is a warehouse investigation with an executor
+    // wired up; otherwise the standard file-source pipeline.
+    const usePerStepSQL =
+      !!options.warehouseExecutor && !!options.warehouse && !!options.warehouseType;
+    const result = usePerStepSQL
+      ? await runWarehouseSubQuestion(sq, options, priorTurns)
+      : await runPipeline(
+          options.schema,
+          options.csvContent,
+          sq.question,
+          undefined,
+          "metadata",
+          options.model,
+          options.runtime,
+          options.geojsonContent ?? undefined,
+          options.additionalFiles,
+          options.workbookContext,
+          options.localMountPath,
+          options.localFileContext,
+          priorTurns.length > 0 ? priorTurns : undefined
+        );
     slot.result = result;
     slot.finishedAt = Date.now();
     if (result.degraded) {

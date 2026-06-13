@@ -19,16 +19,26 @@ vi.mock("@/lib/llm/investigate-planner", async (importOriginal) => {
 vi.mock("@/lib/llm/investigate-composer", () => ({
   gapCheckComposer: vi.fn(),
 }));
+// Per-step SQL deps: stub the warehouse SQL gen and CSV storage so the
+// per-step path is exercised without a real warehouse or disk writes.
+vi.mock("@/lib/warehouse/sql-generation", () => ({
+  generateSQLWithRepair: vi.fn(),
+}));
+vi.mock("@/lib/csv/storage", () => ({
+  storeCSV: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateReplan } from "@/lib/llm/investigate-planner";
 import { gapCheckComposer } from "@/lib/llm/investigate-composer";
+import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
 import type { CSVSchema } from "@/lib/types";
 
 const mockedRunPipeline = vi.mocked(runPipeline);
 const mockedGenerateReplan = vi.mocked(generateReplan);
 const mockedGapCheck = vi.mocked(gapCheckComposer);
+const mockedSQLRepair = vi.mocked(generateSQLWithRepair);
 
 function freshSchema(): CSVSchema {
   return {
@@ -89,11 +99,18 @@ beforeEach(() => {
   });
   // Default gap-check behavior: no needs (compose immediately)
   mockedGapCheck.mockResolvedValue({ needs: [], rationale: "sufficient" });
+  mockedSQLRepair.mockReset();
 });
 
 function sq(question: string, depends_on: number[]): PlannedSubQuestion {
   return { question, rationale: "", depends_on };
 }
+
+const WAREHOUSE_OPTS = {
+  warehouse: [{ name: "t", schema: "s", columns: [], row_count_estimate: 1 }] as never,
+  warehouseType: "postgresql" as const,
+  warehouseExecutor: async () => "a,b\n1,2",
+};
 
 describe("groupSubQuestionsIntoWaves", () => {
   it("puts every independent sub-question in wave 0", () => {
@@ -153,6 +170,55 @@ describe("groupSubQuestionsIntoWaves", () => {
 
   it("handles an empty plan", () => {
     expect(groupSubQuestionsIntoWaves([])).toEqual([]);
+  });
+});
+
+describe("runInvestigation — per-step SQL (warehouse)", () => {
+  it("generates per-step SQL and attaches sql + stepCsvId to each step", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedSQLRepair.mockImplementation(async ({ execute }) => {
+      const result = await execute("SELECT * FROM t");
+      return { sql: "SELECT * FROM t", result: result as string };
+    });
+
+    const results = await runInvestigation([sq("A", []), sq("B", [0])], {
+      schema: freshSchema(),
+      csvContent: "fallback",
+      model: "test-model",
+      originalQuestion: "test",
+      approach: "test approach",
+      ...WAREHOUSE_OPTS,
+    });
+
+    expect(mockedSQLRepair).toHaveBeenCalledTimes(2); // one SQL per step
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(r.result?.sql).toBe("SELECT * FROM t");
+      expect(r.result?.stepCsvId).toBeTruthy();
+    }
+    // Python ran over the per-step result CSV, not the fallback materialized one
+    const firstCallCsv = mockedRunPipeline.mock.calls[0][1];
+    expect(firstCallCsv).not.toBe("fallback");
+  });
+
+  it("falls back to the materialized CSV when a step's SQL fails", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
+    mockedSQLRepair.mockRejectedValue(new Error("SQL exploded after repairs"));
+
+    const results = await runInvestigation([sq("A", [])], {
+      schema: freshSchema(),
+      csvContent: "fallback-csv",
+      model: "test-model",
+      originalQuestion: "test",
+      approach: "test approach",
+      ...WAREHOUSE_OPTS,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].result).toBeTruthy();
+    expect(results[0].result?.sql).toBeUndefined(); // no SQL on the fallback
+    // runPipeline ran over the materialized fallback CSV
+    expect(mockedRunPipeline.mock.calls[0][1]).toBe("fallback-csv");
   });
 });
 
