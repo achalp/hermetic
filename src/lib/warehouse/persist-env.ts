@@ -7,7 +7,10 @@ const CONNECTIONS_PATH = join(process.cwd(), ".warehouse-connections.json");
 
 export interface SavedConnection {
   id: string;
+  /** Auto-generated label from config fields (e.g. "BigQuery: proj.dataset"). */
   label: string;
+  /** Optional user-entered friendly name; falls back to `label` for display. */
+  name?: string;
   config: WarehouseConnectionConfig;
   createdAt: string;
 }
@@ -37,15 +40,21 @@ export async function loadConnections(): Promise<SavedConnection[]> {
 }
 
 /** Save a new connection (deduplicates by host+db or project+dataset) */
-export async function saveConnection(config: WarehouseConnectionConfig): Promise<SavedConnection> {
+export async function saveConnection(
+  config: WarehouseConnectionConfig,
+  name?: string
+): Promise<SavedConnection> {
   const connections = await loadConnections();
   const label = buildLabel(config);
 
   // Check for duplicate — same type + same target
   const existingIdx = connections.findIndex((c) => buildLabel(c.config) === label);
   if (existingIdx >= 0) {
-    // Update existing
+    // Update existing config; preserve the user's friendly name unless a new
+    // one was explicitly supplied (so reconnecting never wipes a rename).
     connections[existingIdx].config = config;
+    connections[existingIdx].label = label;
+    if (name !== undefined) connections[existingIdx].name = name.trim() || undefined;
     connections[existingIdx].createdAt = new Date().toISOString();
     await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
     return connections[existingIdx];
@@ -54,12 +63,22 @@ export async function saveConnection(config: WarehouseConnectionConfig): Promise
   const saved: SavedConnection = {
     id: randomUUID(),
     label,
+    name: name?.trim() || undefined,
     config,
     createdAt: new Date().toISOString(),
   };
   connections.push(saved);
   await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
   return saved;
+}
+
+/** Rename a saved connection (empty string clears back to the auto label). */
+export async function renameConnection(id: string, name: string): Promise<void> {
+  const connections = await loadConnections();
+  const conn = connections.find((c) => c.id === id);
+  if (!conn) return;
+  conn.name = name.trim() || undefined;
+  await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
 }
 
 /** Remove a saved connection by id */

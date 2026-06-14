@@ -1061,17 +1061,13 @@ export default function Home() {
             ? `${warehouse.warehouseType} · ${warehouse.tableCount} tables`
             : null
         }
-        savedConnections={warehouse.savedConnections.map((c) => ({
-          id: c.id,
-          type: c.config.type,
-          name: c.label,
-          host: "host" in c.config ? c.config.host : c.config.type,
-        }))}
+        savedConnections={warehouse.savedConnections}
         onConnect={(config) =>
           warehouse.connect(config as unknown as Parameters<typeof warehouse.connect>[0])
         }
         onDisconnect={warehouse.disconnect}
         onDeleteSaved={warehouse.deleteSaved}
+        onRenameSaved={warehouse.renameSaved}
       />
 
       {/* Data Rail */}

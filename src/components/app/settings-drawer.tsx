@@ -1,5 +1,6 @@
 "use client";
 
+import type { SavedConnectionInfo } from "@/lib/api";
 import { Drawer } from "./drawer";
 import { CollapsibleSection } from "./collapsible-section";
 import { AppearanceSection } from "./settings/appearance-section";
@@ -32,10 +33,11 @@ interface SettingsDrawerProps {
   warehouseType: string | null;
   warehouseId?: string | null;
   connectionLabel: string | null;
-  savedConnections: { id: string; type: string; name: string; host: string }[];
+  savedConnections: SavedConnectionInfo[];
   onConnect: (config: Record<string, unknown>) => void;
   onDisconnect: () => void;
   onDeleteSaved: (id: string) => void;
+  onRenameSaved: (id: string, name: string) => void;
 }
 
 export function SettingsDrawer({
@@ -61,6 +63,7 @@ export function SettingsDrawer({
   onConnect,
   onDisconnect,
   onDeleteSaved,
+  onRenameSaved,
 }: SettingsDrawerProps) {
   return (
     <Drawer open={open} onClose={onClose} title="Settings" width={380}>
@@ -91,6 +94,7 @@ export function SettingsDrawer({
           onConnect={onConnect}
           onDisconnect={onDisconnect}
           onDeleteSaved={onDeleteSaved}
+          onRenameSaved={onRenameSaved}
         />
       </CollapsibleSection>
 

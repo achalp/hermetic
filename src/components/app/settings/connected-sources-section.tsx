@@ -1,17 +1,18 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { bindDbtManifest, unbindDbtManifest, ApiError } from "@/lib/api";
+import { bindDbtManifest, unbindDbtManifest, ApiError, type SavedConnectionInfo } from "@/lib/api";
 
 interface ConnectedSourcesSectionProps {
   isConnected: boolean;
   warehouseType: string | null;
   warehouseId?: string | null;
   connectionLabel: string | null;
-  savedConnections: { id: string; type: string; name: string; host: string }[];
+  savedConnections: SavedConnectionInfo[];
   onConnect: (config: Record<string, unknown>) => void;
   onDisconnect: () => void;
   onDeleteSaved: (id: string) => void;
+  onRenameSaved: (id: string, name: string) => void;
 }
 
 export function ConnectedSourcesSection({
@@ -21,6 +22,7 @@ export function ConnectedSourcesSection({
   savedConnections,
   onDisconnect,
   onDeleteSaved,
+  onRenameSaved,
 }: ConnectedSourcesSectionProps) {
   return (
     <div>
@@ -102,38 +104,272 @@ export function ConnectedSourcesSection({
       {/* Saved connections */}
       {savedConnections.length > 0 && (
         <div style={{ marginTop: 14 }}>
+          <p
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--color-surface-dark-text3)",
+              margin: "0 0 6px",
+            }}
+          >
+            Saved connections
+          </p>
           {savedConnections.map((conn) => (
-            <div
+            <SavedConnectionRow
               key={conn.id}
+              conn={conn}
+              onDelete={() => onDeleteSaved(conn.id)}
+              onRename={(name) => onRenameSaved(conn.id, name)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Saved connection row: view/copy details + rename ───────────────
+
+const SENSITIVE_KEYS = new Set(["password", "credentialsJson", "privateKey", "token", "secret"]);
+
+function humanizeKey(k: string): string {
+  const map: Record<string, string> = {
+    credentialsJson: "Service Account JSON",
+    projectId: "Project ID",
+    serverHostname: "Server Hostname",
+    httpPath: "HTTP Path",
+    accessToken: "Access Token",
+  };
+  if (map[k]) return map[k];
+  return k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+}
+
+const copyBtnStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--color-accent)",
+  cursor: "pointer",
+  fontSize: 11,
+  padding: 0,
+};
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // clipboard unavailable — no-op
+        }
+      }}
+      style={copyBtnStyle}
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function DetailRow({ keyName, value }: { keyName: string; value: unknown }) {
+  const [revealed, setRevealed] = useState(false);
+  const sensitive = SENSITIVE_KEYS.has(keyName);
+  const str = typeof value === "boolean" ? (value ? "Yes" : "No") : String(value ?? "");
+  if (str === "") return null;
+
+  // BigQuery service-account JSON (and any long secret): full-width block.
+  if (keyName === "credentialsJson") {
+    return (
+      <div style={{ padding: "6px 0", borderTop: "1px solid var(--color-surface-dark-3)" }}>
+        <div
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+        >
+          <span style={{ fontSize: 12, color: "var(--color-surface-dark-text3)" }}>
+            {humanizeKey(keyName)}
+          </span>
+          <span style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setRevealed((v) => !v)} style={copyBtnStyle}>
+              {revealed ? "Hide" : "Reveal"}
+            </button>
+            <CopyButton text={str} />
+          </span>
+        </div>
+        {revealed && (
+          <pre
+            style={{
+              margin: "6px 0 0",
+              padding: 8,
+              maxHeight: 160,
+              overflow: "auto",
+              borderRadius: 6,
+              background: "var(--color-surface-dark-1)",
+              border: "1px solid var(--color-surface-dark-3)",
+              fontSize: 11,
+              fontFamily: "monospace",
+              color: "var(--color-surface-dark-text2)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            {str}
+          </pre>
+        )}
+      </div>
+    );
+  }
+
+  const shown = sensitive && !revealed ? "•".repeat(Math.min(str.length, 12)) : str;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        padding: "5px 0",
+        borderTop: "1px solid var(--color-surface-dark-3)",
+        fontSize: 12,
+      }}
+    >
+      <span style={{ color: "var(--color-surface-dark-text3)", flexShrink: 0 }}>
+        {humanizeKey(keyName)}
+      </span>
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            color: "var(--color-surface-dark-text)",
+            fontFamily: "monospace",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {shown}
+        </span>
+        {sensitive && (
+          <button onClick={() => setRevealed((v) => !v)} style={copyBtnStyle}>
+            {revealed ? "Hide" : "Show"}
+          </button>
+        )}
+        {typeof value !== "boolean" && <CopyButton text={str} />}
+      </span>
+    </div>
+  );
+}
+
+function SavedConnectionRow({
+  conn,
+  onDelete,
+  onRename,
+}: {
+  conn: SavedConnectionInfo;
+  onDelete: () => void;
+  onRename: (name: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [nameDraft, setNameDraft] = useState(conn.name ?? "");
+  const display = conn.name || conn.label;
+  const dirty = (nameDraft.trim() || undefined) !== conn.name;
+  const fields = Object.entries(conn.config).filter(([k]) => k !== "type");
+
+  return (
+    <div style={{ borderTop: "1px solid var(--color-surface-dark-3)", padding: "8px 0" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          fontSize: 13,
+          color: "var(--color-surface-dark-text2)",
+        }}
+      >
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {display}{" "}
+          <span style={{ fontSize: 12, color: "var(--color-surface-dark-text4)" }}>
+            {conn.config.type}
+          </span>
+        </span>
+        <span style={{ display: "flex", gap: 12, flexShrink: 0 }}>
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{ ...copyBtnStyle, color: "var(--color-surface-dark-text3)" }}
+          >
+            {expanded ? "Hide" : "Details"}
+          </button>
+          <button
+            onClick={onDelete}
+            style={{ ...copyBtnStyle, color: "#f87171" }}
+            title="Delete saved connection"
+          >
+            Forget
+          </button>
+        </span>
+      </div>
+
+      {expanded && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 8,
+            background: "var(--color-surface-dark-2)",
+            border: "1px solid var(--color-surface-dark-3)",
+          }}
+        >
+          {/* Friendly name */}
+          <label
+            style={{ display: "block", fontSize: 12, color: "var(--color-surface-dark-text3)" }}
+          >
+            Friendly name
+          </label>
+          <div style={{ display: "flex", gap: 8, margin: "4px 0 8px" }}>
+            <input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder={conn.label}
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "6px 0",
-                fontSize: 13,
-                color: "var(--color-surface-dark-text2)",
+                flex: 1,
+                minWidth: 0,
+                padding: "5px 9px",
+                borderRadius: 6,
+                border: "1px solid var(--color-surface-dark-3)",
+                background: "var(--color-surface-dark-1)",
+                color: "var(--color-surface-dark-text)",
+                fontSize: 12,
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={() => onRename(nameDraft)}
+              disabled={!dirty}
+              style={{
+                fontSize: 12,
+                padding: "5px 12px",
+                border: "1px solid var(--color-accent)",
+                color: "var(--color-accent)",
+                background: "none",
+                borderRadius: "var(--radius-button)",
+                cursor: dirty ? "pointer" : "not-allowed",
+                opacity: dirty ? 1 : 0.5,
               }}
             >
-              <span>
-                {conn.name}{" "}
-                <span style={{ fontSize: 12, color: "var(--color-surface-dark-text4)" }}>
-                  {conn.type}
-                </span>
-              </span>
-              <button
-                onClick={() => onDeleteSaved(conn.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#f87171",
-                  cursor: "pointer",
-                  fontSize: 14,
-                  padding: "0 4px",
-                }}
-              >
-                x
-              </button>
-            </div>
+              Save
+            </button>
+          </div>
+
+          {/* Read-only connection details with copy */}
+          {fields.map(([key, value]) => (
+            <DetailRow key={key} keyName={key} value={value} />
           ))}
         </div>
       )}

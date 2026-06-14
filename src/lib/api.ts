@@ -679,6 +679,8 @@ export async function unbindDbtManifest(warehouseId: string): Promise<void> {
 export interface SavedConnectionInfo {
   id: string;
   label: string;
+  /** Optional user-entered friendly name; display falls back to `label`. */
+  name?: string;
   config: WarehouseConnectionConfig;
   createdAt: string;
 }
@@ -698,5 +700,18 @@ export async function deleteSavedConnection(id: string): Promise<void> {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new ApiError(data.error ?? "Delete failed", res.status);
+  }
+}
+
+/** Set the friendly name of a saved connection (empty clears to auto label). */
+export async function renameSavedConnection(id: string, name: string): Promise<void> {
+  const res = await fetch("/api/warehouse/presets", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, name }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Rename failed", res.status);
   }
 }

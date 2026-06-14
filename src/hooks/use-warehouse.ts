@@ -12,6 +12,7 @@ import {
   disconnectWarehouse,
   getSavedConnections,
   deleteSavedConnection,
+  renameSavedConnection,
   type SavedConnectionInfo,
 } from "@/lib/api";
 
@@ -134,5 +135,21 @@ export function useWarehouse() {
     }
   }, []);
 
-  return { ...state, connect, disconnect, reset, deleteSaved };
+  const renameSaved = useCallback(async (id: string, name: string) => {
+    // Optimistic: update locally, then persist. Display falls back to the
+    // auto label when the friendly name is cleared.
+    setState((prev) => ({
+      ...prev,
+      savedConnections: prev.savedConnections.map((c) =>
+        c.id === id ? { ...c, name: name.trim() || undefined } : c
+      ),
+    }));
+    try {
+      await renameSavedConnection(id, name);
+    } catch {
+      // non-fatal — local state already reflects the intent
+    }
+  }, []);
+
+  return { ...state, connect, disconnect, reset, deleteSaved, renameSaved };
 }
