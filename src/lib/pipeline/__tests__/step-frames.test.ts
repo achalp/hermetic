@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { buildStepFrames, stepFramePath } from "@/lib/pipeline/step-frames";
+import { buildStepFrames, primaryFrameCsv, stepFramePath } from "@/lib/pipeline/step-frames";
+
+describe("primaryFrameCsv", () => {
+  it("returns the CSV of the largest tabular output", () => {
+    expect(
+      primaryFrameCsv({
+        stepNo: 1,
+        datasets: { main: [{ a: 1, b: 2 }], small: [] },
+      })
+    ).toBe("a,b\n1,2");
+  });
+
+  it("returns null when there is no tabular output", () => {
+    expect(primaryFrameCsv({ stepNo: 1, datasets: {} })).toBeNull();
+  });
+});
 
 describe("buildStepFrames", () => {
   it("exposes the largest dataset as /data/step_N.csv with a prompt note", () => {

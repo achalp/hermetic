@@ -64,6 +64,17 @@ function primaryRows(
 }
 
 /**
+ * The CSV text of a source's primary tabular output (the same frame
+ * `buildStepFrames` would expose). Used to persist a step's FULL output so a
+ * later re-run can feed it to dependents at full fidelity, independent of the
+ * trace's display-preview cap. Null when the source has no tabular output.
+ */
+export function primaryFrameCsv(source: StepFrameSource): string | null {
+  const p = primaryRows(source);
+  return p ? rowsToCsv(p.rows) : null;
+}
+
+/**
  * Build sandbox input files + a prompt note from a dependent's upstream
  * sources. Returns empty when no source produced a tabular output.
  */

@@ -34,6 +34,12 @@ export interface PipelineResult {
    */
   stepCsvId?: string;
   /**
+   * csv_id under which this step's FULL primary output frame was stored
+   * (uncapped). Lets a dependent's re-run consume the complete upstream
+   * output, independent of the trace's display-preview row cap.
+   */
+  outputCsvId?: string;
+  /**
    * Set to true when the pipeline exhausted its retry budget on semantic
    * failures (empty/NaN/zero-only results) but execution itself succeeded.
    * The caller can surface this to the composer / UI as a warning.

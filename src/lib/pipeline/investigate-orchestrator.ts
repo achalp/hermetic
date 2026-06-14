@@ -54,7 +54,7 @@ import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV } from "@/lib/csv/storage";
-import { buildStepFrames, type StepFrameSource } from "@/lib/pipeline/step-frames";
+import { buildStepFrames, primaryFrameCsv, type StepFrameSource } from "@/lib/pipeline/step-frames";
 import type { AdditionalFile as SandboxFile } from "@/lib/sandbox";
 import { randomUUID } from "crypto";
 
@@ -62,6 +62,35 @@ import { randomUUID } from "crypto";
 function joinContext(...parts: (string | undefined)[]): string | undefined {
   const joined = parts.filter((p) => p && p.trim()).join("\n\n");
   return joined || undefined;
+}
+
+/**
+ * Persist a step's FULL primary output frame in the CSV store and stamp its
+ * id on the result. This data is NOT serialized into the trace/history (only
+ * the id is), so it doesn't bloat payloads — it just lets a dependent's
+ * re-run later consume the complete upstream output instead of the trace's
+ * row-capped preview. Best-effort: failure leaves outputCsvId unset and
+ * re-run falls back to the preview.
+ */
+async function persistStepOutput(stepNo: number, result: PipelineResult): Promise<void> {
+  try {
+    const csv = primaryFrameCsv({
+      stepNo,
+      datasets: result.executionResult.datasets as
+        | Record<string, Record<string, unknown>[]>
+        | undefined,
+      chart_data: result.executionResult.chart_data as Record<string, unknown> | undefined,
+    });
+    if (!csv) return;
+    const id = randomUUID();
+    await storeCSV(id, csv, extractSchema(parseCSV(csv), id, "step_output"));
+    result.outputCsvId = id;
+  } catch (err) {
+    logger.warn("Investigate: failed to persist step output frame", {
+      stepNo,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 import {
   generateReplan,
@@ -454,6 +483,9 @@ async function runOneSubQuestion(
         );
     slot.result = result;
     slot.finishedAt = Date.now();
+    // Persist the full output so dependents can re-run against it at full
+    // fidelity (the trace only keeps a row-capped preview for display).
+    await persistStepOutput(i + 1, result);
     if (result.degraded) {
       slot.degraded = true;
       slot.degradedReason = result.degradedReason;

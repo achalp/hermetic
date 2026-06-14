@@ -61,6 +61,14 @@ export interface TraceStep {
    */
   stepCsvId?: string;
   /**
+   * csv_id of this step's FULL primary output frame (uncapped). The trace's
+   * own `datasets` are a display-preview (TRACE_DATASET_MAX_ROWS); this id
+   * points at the complete output in the server CSV store so a dependent's
+   * re-run flows full-fidelity upstream data. Points at expired data after
+   * the store's TTL — re-run then falls back to the preview.
+   */
+  outputCsvId?: string;
+  /**
    * Notebook-mode cell: a small composed spec visualizing this step's
    * result (placeholders already resolved). Set after the per-step cell
    * compose finishes; absent for failed/removed steps or when the cell
@@ -159,6 +167,7 @@ export function buildInvestigationTrace(args: BuildTraceArgs): InvestigationTrac
       code: sub.result?.generatedCode,
       sql: sub.result?.sql,
       stepCsvId: sub.result?.stepCsvId,
+      outputCsvId: sub.result?.outputCsvId,
       results: exec?.results as Record<string, unknown> | undefined,
       chart_data: exec?.chart_data as Record<string, unknown> | undefined,
       datasets: capDatasets(

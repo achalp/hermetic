@@ -13,7 +13,13 @@
  * recomposed — the client surfaces a staleness notice instead.
  */
 
-import { getStoredCSV, getCSVContent, getGeoJSONContent, isLocalFile } from "@/lib/csv/storage";
+import {
+  getStoredCSV,
+  getCSVContent,
+  getGeoJSONContent,
+  isLocalFile,
+  storeCSV,
+} from "@/lib/csv/storage";
 import { runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
@@ -22,7 +28,16 @@ import {
   type TraceStep,
 } from "@/lib/pipeline/investigation-trace";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
-import { buildStepFrames, type StepFrameSource } from "@/lib/pipeline/step-frames";
+import {
+  buildStepFrames,
+  primaryFrameCsv,
+  stepFramePath,
+  type StepFrameSource,
+} from "@/lib/pipeline/step-frames";
+import { parseCSV } from "@/lib/csv/parser";
+import { extractSchema } from "@/lib/csv/schema";
+import { randomUUID } from "crypto";
+import type { AdditionalFile } from "@/lib/sandbox";
 import { isValidRuntimeId, isValidModelId, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
@@ -102,17 +117,28 @@ export async function POST(request: Request) {
         ? body.sandbox_runtime
         : getActiveSandboxRuntime();
 
-    // Dataflow: feed this step's upstream outputs (from the trace, reflecting
-    // any prior re-runs) as /data/step_N.csv so re-running a dependent
-    // recomputes against the changed upstream output, not just revalidates.
-    // Note: trace datasets are a capped preview, so very large upstream
-    // outputs are truncated here; aggregated step outputs (the common case)
-    // are unaffected.
-    const depSources: StepFrameSource[] = step.depends_on
-      .map((d) => trace.steps.find((s) => s.index === d))
-      .filter((s): s is NonNullable<typeof s> => !!s)
-      .map((s) => ({ stepNo: s.stepNo, datasets: s.datasets, chart_data: s.chart_data }));
-    const depFrames = buildStepFrames(depSources);
+    // Dataflow: feed this step's upstream outputs as /data/step_N.csv so
+    // re-running a dependent recomputes against the changed upstream output.
+    // Prefer each upstream's FULL persisted output frame (outputCsvId); fall
+    // back to the trace's row-capped preview only if that store has expired.
+    const depFiles: AdditionalFile[] = [];
+    for (const d of step.depends_on) {
+      const up = trace.steps.find((s) => s.index === d);
+      if (!up) continue;
+      const full = up.outputCsvId ? await getCSVContent(up.outputCsvId) : null;
+      if (full && full.trim()) {
+        depFiles.push({ path: stepFramePath(up.stepNo), content: full });
+      } else {
+        const fb = buildStepFrames([
+          {
+            stepNo: up.stepNo,
+            datasets: up.datasets,
+            chart_data: up.chart_data,
+          } as StepFrameSource,
+        ]);
+        depFiles.push(...fb.files);
+      }
+    }
 
     let pipelineResult;
     try {
@@ -121,7 +147,7 @@ export async function POST(request: Request) {
         geojsonContent: geojsonContent ?? undefined,
         csvId: dataCsvId,
         localMountPath,
-        additionalFiles: depFrames.files.length > 0 ? depFrames.files : undefined,
+        additionalFiles: depFiles.length > 0 ? depFiles : undefined,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -149,6 +175,28 @@ export async function POST(request: Request) {
       uiComposeModel,
     });
 
+    // Persist the re-run step's FULL output frame so a subsequent dependent
+    // re-run (e.g. the "re-run stale cells" cascade) flows the updated
+    // upstream output at full fidelity, not the row-capped preview.
+    let outputCsvId = step.outputCsvId;
+    try {
+      const frameCsv = primaryFrameCsv({
+        stepNo: step.stepNo,
+        datasets: (exec.datasets ?? {}) as Record<string, Record<string, unknown>[]>,
+        chart_data: chartData,
+      });
+      if (frameCsv) {
+        const id = randomUUID();
+        await storeCSV(id, frameCsv, extractSchema(parseCSV(frameCsv), id, "step_output"));
+        outputCsvId = id;
+      }
+    } catch (err) {
+      logger.warn("Step rerun: failed to persist output frame", {
+        step_index,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     // Update the step in place — the cached entry shares the trace ref, but
     // re-cache explicitly to refresh the TTL for the now-active trail.
     const updated: TraceStep = {
@@ -162,6 +210,7 @@ export async function POST(request: Request) {
       degradedReason: undefined,
       error: undefined,
       cellSpec: cellSpec ?? step.cellSpec,
+      outputCsvId,
     };
     const stepPos = trace.steps.findIndex((s) => s.index === step_index);
     trace.steps[stepPos] = updated;

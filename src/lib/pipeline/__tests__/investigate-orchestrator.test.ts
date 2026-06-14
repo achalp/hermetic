@@ -260,6 +260,34 @@ describe("runInvestigation — step dataflow", () => {
     const indepFiles = mockedRunPipeline.mock.calls[0][8] as unknown[] | undefined;
     expect(indepFiles ?? []).toHaveLength(0);
   });
+
+  it("persists each step's full output (outputCsvId) for full-fidelity re-run", async () => {
+    mockedRunPipeline.mockImplementation((_s, _c, q) =>
+      Promise.resolve({
+        executionResult: {
+          success: true as const,
+          results: {},
+          chart_data: {},
+          datasets: { main: [{ region: "West", rev: 100 }] },
+          images: {},
+          execution_ms: 10,
+        },
+        generatedCode: "ok",
+        question: q,
+      })
+    );
+
+    const results = await runInvestigation([sq("A", [])], {
+      schema: freshSchema(),
+      csvContent: "",
+      model: "test-model",
+      originalQuestion: "test",
+      approach: "test approach",
+    });
+
+    // The full output was stored and its id stamped on the result.
+    expect(results[0].result?.outputCsvId).toBeTruthy();
+  });
 });
 
 describe("runInvestigation — agentic loop", () => {
