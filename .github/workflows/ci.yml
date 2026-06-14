@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# package-lock.json is intentionally gitignored (see .gitignore), so this
+# repo uses `npm install` rather than `npm ci` and can't use setup-node's
+# lockfile-keyed cache. We drop the standalone cache action too so every
+# action here runs on the supported Node 24 runtime.
+
 jobs:
   lint-typecheck-build:
     name: Lint, Type Check & Build
@@ -22,10 +27,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Lint
         run: npm run lint
@@ -52,10 +56,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run tests
         run: npm test
