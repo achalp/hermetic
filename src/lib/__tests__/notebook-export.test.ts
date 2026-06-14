@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildNotebookMarkdown } from "@/lib/notebook-export";
+import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
 import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
 import type { Spec } from "@json-render/core";
 
@@ -101,5 +101,69 @@ describe("buildNotebookMarkdown", () => {
     expect(md).toContain("Big picture.");
     expect(md).toContain("Do X next.");
     expect(md).toContain("3 figure(s)");
+  });
+});
+
+describe("buildNotebookHtml", () => {
+  it("produces a self-contained document with inlined styles and chart images", () => {
+    const images = new Map<number, string>([[1, "data:image/png;base64,AAAA"]]);
+    const html = buildNotebookHtml(
+      trace({
+        steps: [
+          step({
+            index: 0,
+            sql: "SELECT 1",
+            code: "x=1",
+            cellSpec,
+            datasets: { main: [{ region: "West", rev: 100 }] },
+          }),
+        ],
+      }),
+      { summary: "Top line.", conclusion: "Next steps." },
+      images
+    );
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).toContain("<style>"); // CSS inlined, not linked
+    expect(html).not.toMatch(/<link[^>]+stylesheet/);
+    // No external resource references — fully self-contained
+    expect(html).not.toMatch(/(href|src)="https?:\/\//);
+    // The captured chart image is embedded as a data URI
+    expect(html).toContain('src="data:image/png;base64,AAAA"');
+    // Content present and HTML-escaped
+    expect(html).toContain("Why did revenue change?");
+    expect(html).toContain("SELECT 1");
+    expect(html).toContain("<td>West</td>");
+    expect(html).toContain("Top line.");
+  });
+
+  it("escapes HTML-significant characters in content", () => {
+    const html = buildNotebookHtml(
+      trace({
+        originalQuestion: "A < B & C > D",
+        steps: [step({ index: 0, code: "if a < b: pass" })],
+      })
+    );
+    expect(html).toContain("A &lt; B &amp; C &gt; D");
+    expect(html).toContain("if a &lt; b: pass");
+    expect(html).not.toContain("if a < b: pass");
+  });
+
+  it("respects layout order with markdown cells", () => {
+    const html = buildNotebookHtml(
+      trace({
+        steps: [step({ index: 0 }), step({ index: 1 })],
+        notebook: {
+          cells: [
+            { kind: "markdown", id: "m", content: "## Heading\n\n- a\n- b" },
+            { kind: "step", stepNo: 2 },
+            { kind: "step", stepNo: 1 },
+          ],
+        },
+      })
+    );
+    expect(html).toContain("<h2>Heading</h2>");
+    expect(html).toContain("<li>a</li>");
+    expect(html.indexOf("Heading")).toBeLessThan(html.indexOf("Q2"));
+    expect(html.indexOf("Q2")).toBeLessThan(html.indexOf("Q1"));
   });
 });

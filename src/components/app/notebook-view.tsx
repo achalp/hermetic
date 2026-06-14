@@ -26,7 +26,7 @@ import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary"
 import { CodeEditor } from "@/components/app/code-editor";
 import { Markdown } from "@/components/app/markdown";
 import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
-import { buildNotebookMarkdown } from "@/lib/notebook-export";
+import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
 import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/lib/export-utils";
 import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -332,7 +332,10 @@ function NotebookCell({
                 Validator flagged this result: {cell.degradedReason}
               </div>
             )}
-            <CellOutput cellSpec={cell.cellSpec} />
+            {/* data-cell-output: snapshot target for HTML/PDF export. */}
+            <div data-cell-output={cell.stepNo}>
+              <CellOutput cellSpec={cell.cellSpec} />
+            </div>
           </>
         ) : cell.status === "pending" || cell.status === "running" ? (
           <div className="flex items-center gap-2 py-4 text-sm text-t-tertiary">
@@ -845,6 +848,30 @@ export function NotebookView({
       setExporting(false);
     }
   }, [trace]);
+  // Self-contained HTML: capture each cell's rendered output as an inline PNG,
+  // then assemble a single servable .html (inlined CSS + base64 images).
+  const handleExportHtml = useCallback(async () => {
+    if (!containerRef.current || !trace) return;
+    setExporting(true);
+    try {
+      const { toPng } = await import("html-to-image");
+      const images = new Map<number, string>();
+      for (const step of trace.steps) {
+        if (step.status !== "success" && step.status !== "degraded") continue;
+        const node = containerRef.current.querySelector(`[data-cell-output="${step.stepNo}"]`);
+        if (!(node instanceof HTMLElement)) continue;
+        try {
+          images.set(step.stepNo, await toPng(node, { backgroundColor: "#ffffff", pixelRatio: 2 }));
+        } catch {
+          // Skip a cell whose output can't be snapshotted; the rest still export.
+        }
+      }
+      const html = buildNotebookHtml(trace, synthesis, images);
+      downloadCodeAsFile(html, `${sanitizeFilename(trace.originalQuestion || "notebook")}.html`);
+    } finally {
+      setExporting(false);
+    }
+  }, [trace, synthesis]);
 
   if (cells.length === 0) {
     return (
@@ -873,6 +900,13 @@ export function NotebookView({
               title="Export the notebook as Markdown"
             >
               ⬇ Markdown
+            </button>
+            <button
+              onClick={handleExportHtml}
+              className="text-xs text-t-secondary hover:text-accent"
+              title="Export a self-contained HTML file (servable from S3 / Drive)"
+            >
+              ⬇ HTML
             </button>
             <button
               onClick={handleExportPdf}
