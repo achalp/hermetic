@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hermetic — Output Style Prototypes</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#fff; --ink:#1a1d21; --muted:#5b6470; --faint:#8b94a0;
+    --line:#e4e7eb; --accent:#3b6ef0; --accent-soft:#eef2ff;
+    --pos:#16a34a; --neg:#dc2626; --warn:#b45309; --warn-bg:#fff8e6;
+    --c1:#3b6ef0; --c2:#10b981; --c3:#f59e0b; --c4:#8b5cf6; --c5:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:28px 24px 14px;max-width:1180px;margin:0 auto;}
+  header h1{margin:0 0 4px;font-size:22px;}
+  header p{margin:0;color:var(--muted);font-size:14px;max-width:760px;}
+  nav{position:sticky;top:0;z-index:10;background:rgba(244,245,247,.92);backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--line);}
+  nav .inner{max-width:1180px;margin:0 auto;padding:10px 24px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+  nav button{font:13px/1 inherit;font-weight:600;border:1px solid var(--line);background:#fff;color:var(--muted);
+    padding:7px 12px;border-radius:999px;cursor:pointer;}
+  nav button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  nav .verdict{margin-left:auto;font-size:12px;color:var(--faint);}
+  main{max-width:1180px;margin:0 auto;padding:18px 24px 80px;}
+  .style-head{margin:8px 0 4px;}
+  .style-head h2{margin:0;font-size:19px;}
+  .style-head .purpose{color:var(--muted);font-size:13px;margin:2px 0 0;}
+  .style-head .ctx{display:inline-block;margin-top:8px;font-size:11px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--accent);background:var(--accent-soft);padding:3px 9px;border-radius:6px;}
+  .options{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px;}
+  @media(max-width:900px){.options{grid-template-columns:1fr}}
+  .opt{border:1px solid var(--line);border-radius:14px;background:#eef0f3;padding:12px;}
+  .opt-label{font-size:12px;font-weight:700;color:var(--muted);margin:0 0 8px;display:flex;justify-content:space-between;}
+  .opt-label .tag{color:var(--faint);font-weight:500;}
+  /* artifact card = the simulated Hermetic output */
+  .art{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  .art h3{margin:0 0 2px;font-size:16px;}
+  .art h4{margin:0;font-size:13.5px;}
+  .art .sub{color:var(--muted);font-size:12px;margin:0 0 10px;}
+  .grid{display:grid;gap:10px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .kpis.k3{grid-template-columns:repeat(3,1fr);}
+  .kpi{border:1px solid var(--line);border-radius:8px;padding:9px 11px;background:#fbfcfd;}
+  .kpi .l{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.03em;}
+  .kpi .v{font-size:20px;font-weight:700;letter-spacing:-.01em;margin-top:1px;}
+  .kpi .d{font-size:11px;margin-top:1px;}
+  .kpi .d.pos{color:var(--pos)} .kpi .d.neg{color:var(--neg)}
+  .kpi.big .v{font-size:30px;}
+  .chartbox{border:1px solid var(--line);border-radius:8px;padding:10px 10px 4px;background:#fbfcfd;}
+  .chartbox .ct{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 4px;}
+  .insight{border-left:3px solid var(--accent);padding:2px 0 2px 11px;color:#2b3b5a;font-size:13px;margin:8px 0;}
+  .note{background:var(--warn-bg);border:1px solid #f0d98a;color:var(--warn);font-size:12px;padding:7px 10px;border-radius:7px;margin:8px 0;}
+  .prose{font-size:13.5px;color:#374151;margin:6px 0;}
+  .secbreak{border:none;border-top:1px solid var(--line);margin:14px 0;}
+  .secnum{font-size:14px;font-weight:700;margin:12px 0 2px;}
+  table{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0;}
+  th,td{border:1px solid var(--line);padding:4px 8px;text-align:left;}
+  th{background:#f2f4f7;font-weight:600;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .cap{font-size:11px;color:var(--faint);margin:2px 0 0;}
+  .slide{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fbfcfd;margin-bottom:10px;}
+  .slide .stitle{font-size:14px;font-weight:700;margin:0 0 8px;}
+  .slide .take{font-size:12px;color:var(--muted);margin-top:8px;}
+  .pageno{float:right;font-size:11px;color:var(--faint);}
+  .hero{font-size:46px;font-weight:800;letter-spacing:-.02em;line-height:1;margin:4px 0;}
+  .hero-sub{color:var(--muted);font-size:13px;}
+  .flag{display:inline-block;font-size:11px;font-weight:700;color:#9a2a2a;background:#fdeded;border:1px solid #f0a8a8;
+    padding:2px 8px;border-radius:6px;margin-left:8px;}
+  svg{display:block;width:100%;height:auto;}
+  .bar-row{display:flex;align-items:center;gap:8px;font-size:11px;margin:3px 0;}
+  .bar-row .bl{width:64px;color:var(--muted);flex:none;}
+  .bar-row .bt{flex:1;background:#eef0f3;border-radius:3px;height:14px;overflow:hidden;}
+  .bar-row .bf{height:100%;border-radius:3px;}
+  .bar-row .bv{width:52px;text-align:right;color:var(--ink);flex:none;font-variant-numeric:tabular-nums;}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:6px;}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Output style prototypes</h1>
+  <p>Same dataset (regional revenue), six candidate styles, two design options each. The goal: make each style a <em>structurally</em> different artifact tied to a consumption context. Pick an A/B per style. See <code>output-styles-analysis.md</code> for the why.</p>
+</header>
+<nav><div class="inner" id="nav"></div></nav>
+<main id="main"></main>
+
+<script>
+// ── Shared sample data ───────────────────────────────────────────────
+const REGIONS = [
+  { label:"North",  rev:1.92, growth:48.6, share:41 },
+  { label:"South",  rev:1.11, growth:25.9, share:24 },
+  { label:"Europe", rev:0.86, growth:18.0, share:18 },
+  { label:"APAC",   rev:0.52, growth:62.1, share:11 },
+  { label:"Other",  rev:0.28, growth:-4.2, share:6  },
+];
+const MONTHS = ["J","F","M","A","M","J","J","A","S","O","N","D"];
+const TREND = [210,225,240,236,251,268,279,288,305,318,331,352]; // $k
+const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)"];
+const money = v => "$"+v.toFixed(2)+"M";
+const k = v => "$"+v+"k";
+
+// ── Tiny chart toolkit (inline SVG / CSS) ────────────────────────────
+function kpi(label, value, delta, big){
+  const d = delta==null ? "" :
+    `<div class="d ${delta>=0?'pos':'neg'}">${delta>=0?'▲':'▼'} ${Math.abs(delta)}%</div>`;
+  return `<div class="kpi${big?' big':''}"><div class="l">${label}</div><div class="v">${value}</div>${d}</div>`;
+}
+function barsCSS(title){
+  const max = Math.max(...REGIONS.map(r=>r.rev));
+  const rows = REGIONS.map((r,i)=>`
+    <div class="bar-row"><span class="bl">${r.label}</span>
+      <span class="bt"><span class="bf" style="width:${(r.rev/max*100).toFixed(0)}%;background:${COLORS[i]}"></span></span>
+      <span class="bv">${money(r.rev)}</span></div>`).join("");
+  return `<div class="chartbox">${title?`<div class="ct">${title}</div>`:""}${rows}</div>`;
+}
+function lineSVG(title){
+  const W=320,H=110,p=6; const max=Math.max(...TREND),min=Math.min(...TREND);
+  const x=i=>p+(i*(W-2*p)/(TREND.length-1));
+  const y=v=>H-p-((v-min)/(max-min))*(H-2*p-6);
+  const pts=TREND.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const area=`${p},${H-p} ${pts} ${W-p},${H-p}`;
+  return `<div class="chartbox">${title?`<div class="ct">${title}</div>`:""}
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:110px">
+      <polygon points="${area}" fill="var(--accent)" opacity="0.08"/>
+      <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
+      ${TREND.map((v,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2" fill="var(--accent)"/>`).join("")}
+    </svg></div>`;
+}
+function donutSVG(title){
+  const total=REGIONS.reduce((a,r)=>a+r.share,0); let acc=0; const R=46,C=54,SW=18;
+  const segs=REGIONS.map((r,i)=>{
+    const frac=r.share/total, a0=acc/total*2*Math.PI-Math.PI/2; acc+=r.share;
+    const a1=acc/total*2*Math.PI-Math.PI/2;
+    const x0=C+R*Math.cos(a0),y0=C+R*Math.sin(a0),x1=C+R*Math.cos(a1),y1=C+R*Math.sin(a1);
+    const large=frac>0.5?1:0;
+    return `<path d="M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}"
+      fill="none" stroke="${COLORS[i]}" stroke-width="${SW}"/>`;
+  }).join("");
+  const leg=REGIONS.map((r,i)=>`<span><i style="background:${COLORS[i]}"></i>${r.label} ${r.share}%</span>`).join("");
+  return `<div class="chartbox">${title?`<div class="ct">${title}</div>`:""}
+    <svg viewBox="0 0 108 108" style="height:120px;width:120px;margin:0 auto">
+      ${segs}<text x="54" y="50" text-anchor="middle" font-size="9" fill="var(--faint)">share</text>
+      <text x="54" y="63" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ink)">$4.7M</text></svg>
+    <div class="legend">${leg}</div></div>`;
+}
+function table(){
+  return `<table><thead><tr><th>Region</th><th class="num">Revenue</th><th class="num">YoY</th><th class="num">Share</th></tr></thead>
+    <tbody>${REGIONS.map(r=>`<tr><td>${r.label}</td><td class="num">${money(r.rev)}</td>
+    <td class="num" style="color:${r.growth>=0?'var(--pos)':'var(--neg)'}">${r.growth>=0?'+':''}${r.growth}%</td>
+    <td class="num">${r.share}%</td></tr>`).join("")}</tbody></table>`;
+}
+
+// ── Style definitions: each returns { purpose, ctx, A, B } ────────────
+const STYLES = {
+
+"Dashboard": {
+  purpose:"A scannable grid you monitor at a glance. (Fixes today's mislabel — currently runs the infographic prompt.)",
+  ctx:"Monitor / self-serve",
+  A:()=>`<div class="art">
+    <h3>Regional revenue</h3><p class="sub">FY2024 · live</p>
+    <div class="kpis">${kpi("Total revenue","$4.7M",29)}${kpi("Top region","North",null)}${kpi("Avg MoM","+6.1%",null)}${kpi("Fastest","APAC",62)}</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:10px">
+      ${lineSVG("Monthly trend")}${barsCSS("Revenue by region")}
+      ${donutSVG("Share")}${barsCSS("Same, ranked")}
+    </div></div>`,
+  B:()=>`<div class="art">
+    <h3>Regional revenue</h3><p class="sub">FY2024 · live</p>
+    <div class="grid" style="grid-template-columns:1.3fr 1fr;align-items:start">
+      <div>${kpi("Total revenue","$4.7M",29,true)}
+        <div class="kpis k3" style="margin-top:8px">${kpi("YoY","+29%",null)}${kpi("Top","North",null)}${kpi("MoM","+6.1%",null)}</div></div>
+      ${donutSVG("Share by region")}
+    </div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:10px">${lineSVG("Trend")}${barsCSS("By region")}</div>
+    </div>`
+},
+
+"Brief": {
+  purpose:"One screen, bottom-line-up-front. BLUF sentence + 3 KPIs + 1 hero chart + caveat. Hard cap ≤8 components. (was 'Summary')",
+  ctx:"Decision / escalation",
+  A:()=>`<div class="art">
+    <div class="insight"><b>Revenue grew 29% to $4.7M</b>, driven almost entirely by North (41% of total) and a surging APAC (+62%).</div>
+    <div class="kpis k3">${kpi("Total","$4.7M",29)}${kpi("Top region","North",null)}${kpi("Fastest","APAC",62)}</div>
+    ${lineSVG("Revenue trend — steady climb all year")}
+    <div class="note">Caveat: "Other" slipped −4%; watch for churn concentration before Q1 targets.</div></div>`,
+  B:()=>`<div class="art">
+    <div class="insight" style="font-size:15px"><b>Bottom line:</b> $4.7M revenue, up 29% YoY — but the growth is concentrated. North + APAC are 52% of revenue and nearly all the upside.</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:center;margin-top:8px">
+      <div class="kpis k3" style="grid-template-columns:1fr">${kpi("Revenue","$4.7M",29)}${kpi("North share","41%",null)}${kpi("APAC growth","+62%",null)}</div>
+      ${barsCSS("Where it comes from")}
+    </div>
+    <div class="note">One risk: "Other" region is shrinking (−4%).</div></div>`
+},
+
+"Report": {
+  purpose:"Formal sectioned document — numbered headings, prose, a data table, captioned charts. Absorbs 'Narrative' (same artifact, tone knob).",
+  ctx:"Deliverable / record",
+  A:()=>`<div class="art">
+    <h3>Regional Revenue Review — FY2024</h3>
+    <div class="secnum">1. Overview</div>
+    <p class="prose">Total revenue reached $4.7M in FY2024, a 29% increase year over year. Growth was broad-based month to month (avg +6.1%) but unevenly distributed across regions, as detailed below.</p>
+    <hr class="secbreak">
+    <div class="secnum">2. Revenue by region</div>
+    <p class="prose">North remains the largest market at $1.92M (41% of total), followed by South. APAC, though fourth in absolute terms, grew fastest at +62%.</p>
+    ${table()}<p class="cap">Table 1 — Revenue, YoY growth, and share by region.</p>
+    <hr class="secbreak">
+    <div class="secnum">3. Trend</div>
+    ${lineSVG("")}<p class="cap">Figure 1 — Monthly revenue, Jan–Dec 2024.</p>
+    <hr class="secbreak">
+    <div class="secnum">4. Summary</div>
+    <p class="prose">Revenue is healthy and growing, but increasingly concentrated in North and APAC. Recommend monitoring "Other" (−4%) and setting region-specific Q1 targets.</p></div>`,
+  B:()=>`<div class="art">
+    <h3>Regional Revenue Review</h3><p class="sub">Prepared for leadership · FY2024</p>
+    <p class="prose" style="font-style:italic;color:var(--muted)">Executive note: strong top-line growth, with a concentration risk worth flagging.</p>
+    <div class="secnum">1. Findings</div>
+    <p class="prose">Revenue of $4.7M (+29% YoY) was led by North ($1.92M) and an accelerating APAC (+62%). The chart and table below quantify the distribution.</p>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">${barsCSS("Revenue by region")}${donutSVG("Share")}</div>
+    <p class="cap">Figure 1 — Regional revenue and share.</p>
+    ${table()}<p class="cap">Table 1 — Detail.</p>
+    <div class="secnum">2. Recommendation</div>
+    <p class="prose">Set region-specific targets; investigate the −4% decline in "Other" before it compounds.</p></div>`
+},
+
+"Deep dive": {
+  purpose:"Multi-angle exploration — 4–6 charts across trend/distribution/comparison/breakdown, methodology + caveats + outliers + table.",
+  ctx:"Investigation / working",
+  A:()=>`<div class="art">
+    <h4>How is revenue distributed across regions, and what's driving the change?</h4><p class="sub">Exploratory analysis · 5 angles</p>
+    <div class="note">Methodology: FY2024 closed figures; YoY vs FY2023; "Other" aggregates 6 sub-regions (n small — treat its −4% cautiously).</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      ${lineSVG("1 · Trend over time")}${barsCSS("2 · Magnitude by region")}
+      ${donutSVG("3 · Share of total")}${barsCSS("4 · Ranked")}
+    </div>
+    <div class="insight">Outlier worth noting: APAC's +62% growth is 2× the next-fastest region — small base, but the trajectory is real across all 4 quarters.</div>
+    ${table()}<p class="cap">5 · Underlying slice.</p>
+    <div class="insight"><b>Open questions:</b> Is North's dominance margin-accretive? Is "Other" churn or reclassification?</div></div>`,
+  B:()=>`<div class="art">
+    <h4>Revenue distribution & drivers — working analysis</h4>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">
+      <div>${kpi("Total","$4.7M",29)}${barsCSS("By region")}
+        <div class="insight" style="margin-top:8px">North + APAC = 52% of revenue and ~all the growth.</div></div>
+      <div>${lineSVG("Monthly")}${donutSVG("Share")}</div>
+    </div>
+    <hr class="secbreak">
+    ${table()}
+    <div class="note">Caveat: "Other" (n=6 sub-regions) is −4% — possible churn concentration; flagged for follow-up, not yet explained.</div>
+    <div class="insight"><b>Unasked but relevant:</b> seasonality is mild (no Q4 spike) — growth looks structural, not promotional.</div></div>`
+},
+
+"Infographic": {
+  purpose:"A vertical visual story / shareable poster — big hero number, full-bleed charts, interleaved one-liners. (Today this hides behind the 'Dashboard' label.)",
+  ctx:"On the bubble — keep as 'Visual story', or drop",
+  flag:"redundant with Dashboard unless Dashboard becomes a true grid",
+  A:()=>`<div class="art" style="text-align:center">
+    <p class="sub" style="text-transform:uppercase;letter-spacing:.08em">FY2024 revenue</p>
+    <div class="hero">$4.7M</div><div class="hero-sub">up <b style="color:var(--pos)">29%</b> year over year</div>
+    <div class="insight" style="border:none;text-align:center;color:var(--muted)">Most of it comes from two regions →</div>
+    ${barsCSS("")}
+    <div class="insight" style="border:none;text-align:center;color:var(--muted)">…and it's been climbing all year →</div>
+    ${lineSVG("")}
+    <div class="hero" style="font-size:30px;color:var(--c4)">+62%</div><div class="hero-sub">APAC, the fastest-growing region</div></div>`,
+  B:()=>`<div class="art" style="text-align:center">
+    <h3>The shape of FY2024 revenue</h3>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:center">
+      <div class="hero" style="font-size:38px">$4.7M<div class="hero-sub" style="font-weight:400">total · +29%</div></div>
+      ${donutSVG("")}
+    </div>
+    <div class="insight" style="border:none;text-align:center;color:var(--muted)">North leads, APAC accelerates</div>
+    ${barsCSS("")}</div>`
+},
+
+"Slides": {
+  purpose:"A paged deck — one idea per page, big simple visuals, declarative titles. Only worth keeping if it's a real deck (else it's just a Report export).",
+  ctx:"On the bubble — make it a true deck, or fold into Report→PPTX export",
+  flag:"overlaps Report; consider making 'export to slides' a format, not a style",
+  A:()=>`<div class="art">
+    <div class="slide"><span class="pageno">1 / 3</span><div class="stitle">Revenue grew 29% to $4.7M</div>
+      ${lineSVG("")}<div class="take">↳ Steady climb every month — no single spike carrying it.</div></div>
+    <div class="slide"><span class="pageno">2 / 3</span><div class="stitle">Two regions drive the business</div>
+      ${barsCSS("")}<div class="take">↳ North + South = 65% of revenue.</div></div>
+    <div class="slide"><span class="pageno">3 / 3</span><div class="stitle">APAC is the one to watch</div>
+      <div class="kpis k3">${kpi("APAC growth","+62%",null)}${kpi("APAC share","11%",null)}${kpi("Rank by speed","#1",null)}</div>
+      <div class="take">↳ Small today, fastest-growing — invest ahead of the curve.</div></div></div>`,
+  B:()=>`<div class="art">
+    <div class="slide"><span class="pageno">1 / 2</span><div class="stitle">$4.7M, up 29%</div>
+      <div class="grid" style="grid-template-columns:1fr 1fr;align-items:center">${kpi("Revenue","$4.7M",29,true)}${donutSVG("")}</div>
+      <div class="take">↳ Strong year, concentrated growth.</div></div>
+    <div class="slide"><span class="pageno">2 / 2</span><div class="stitle">Where to focus next</div>
+      ${barsCSS("")}<div class="take">↳ Defend North, accelerate APAC, fix "Other" (−4%).</div></div></div>`
+},
+
+};
+
+// ── Render ───────────────────────────────────────────────────────────
+const names = Object.keys(STYLES);
+const nav = document.getElementById("nav");
+const main = document.getElementById("main");
+nav.innerHTML = names.map((n,i)=>`<button data-n="${n}" class="${i===0?'active':''}">${n}</button>`).join("")
+  + `<span class="verdict">6 candidates · same data · pick A or B per style</span>`;
+
+function render(name){
+  const s = STYLES[name];
+  main.innerHTML = `
+    <div class="style-head">
+      <h2>${name}${s.flag?`<span class="flag">⚠ ${s.flag}</span>`:""}</h2>
+      <p class="purpose">${s.purpose}</p>
+      <span class="ctx">${s.ctx}</span>
+    </div>
+    <div class="options">
+      <div class="opt"><div class="opt-label">Option A<span class="tag">${name} · A</span></div>${s.A()}</div>
+      <div class="opt"><div class="opt-label">Option B<span class="tag">${name} · B</span></div>${s.B()}</div>
+    </div>`;
+  [...nav.querySelectorAll("button")].forEach(b=>b.classList.toggle("active",b.dataset.n===name));
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+nav.addEventListener("click",e=>{ if(e.target.dataset.n) render(e.target.dataset.n); });
+render(names[0]);
+</script>
+</body>
+</html>
