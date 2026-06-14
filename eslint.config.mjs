@@ -26,6 +26,16 @@ const eslintConfig = defineConfig([
       "react-hooks/refs": "off",
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/use-memo": "off",
+      // The React Compiler reports "Compilation Skipped: Existing memoization
+      // could not be preserved" when a manual useCallback/useMemo dep array
+      // omits a stable value it infers (e.g. a useState setter). That's not a
+      // bug — stable setters don't need listing — and the diagnostic can fire
+      // non-deterministically across Node versions, so CI and local disagree.
+      // Off for the same reason as its siblings: not adopting the compiler.
+      "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/static-components": "off",
+      "react-hooks/memoized-effect-dependencies": "off",
+      "react-hooks/no-deriving-state-in-effects": "off",
       "react/use": "off",
     },
   },
