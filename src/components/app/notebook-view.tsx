@@ -38,6 +38,18 @@ import type {
 
 type CellStatus = "pending" | "running" | "done" | "degraded" | "failed" | "removed";
 
+/**
+ * Notebook export handlers surfaced to the page-level Export menu. Present
+ * (non-null) only when the notebook view is active and its trail is ready,
+ * so the menu can show notebook-native formats (Markdown / HTML / PDF) in
+ * place of the dashboard formats.
+ */
+export interface NotebookExportApi {
+  markdown: () => void;
+  html: () => Promise<void>;
+  pdf: () => Promise<void>;
+}
+
 export interface NotebookCellModel {
   index: number;
   stepNo: number;
@@ -667,6 +679,7 @@ export function NotebookView({
   csvId,
   sandboxRuntime,
   onStepRerun,
+  onExportApiChange,
 }: {
   spec: Spec | null;
   artifacts?: CachedArtifacts | null;
@@ -679,6 +692,9 @@ export function NotebookView({
   /** Notifies the parent after a successful step re-run (e.g. to merge the
    *  fresh step into its artifacts copy and flag the dashboard stale). */
   onStepRerun?: (step: TraceStep, dependents: number[]) => void;
+  /** Registers notebook export handlers with the page-level Export menu
+   *  (null when not exportable). The notebook renders no export UI itself. */
+  onExportApiChange?: (api: NotebookExportApi | null) => void;
 }) {
   // ── DAG-aware re-run state ──
   // overrides: fresh TraceSteps from re-runs, merged over the derived cells
@@ -827,9 +843,10 @@ export function NotebookView({
     return () => clearTimeout(timer);
   }, [scrollTarget]);
 
-  // Export the notebook to Markdown (notebook-native) or PDF (rendered).
+  // Export handlers — registered with the page-level Export menu (the
+  // notebook renders no export UI of its own). The menu lives in the top
+  // bar, outside containerRef, so captures never include export controls.
   const containerRef = useRef<HTMLDivElement>(null);
-  const [exporting, setExporting] = useState(false);
   const canExport = Boolean(trace) && !isStreaming;
   const handleExportMarkdown = useCallback(() => {
     if (!trace) return;
@@ -838,40 +855,41 @@ export function NotebookView({
   }, [trace, synthesis]);
   const handleExportPdf = useCallback(async () => {
     if (!containerRef.current || !trace) return;
-    setExporting(true);
-    try {
-      await downloadDashboardAsPdf(
-        containerRef.current,
-        `${sanitizeFilename(trace.originalQuestion || "notebook")}.pdf`
-      );
-    } finally {
-      setExporting(false);
-    }
+    await downloadDashboardAsPdf(
+      containerRef.current,
+      `${sanitizeFilename(trace.originalQuestion || "notebook")}.pdf`
+    );
   }, [trace]);
   // Self-contained HTML: capture each cell's rendered output as an inline PNG,
   // then assemble a single servable .html (inlined CSS + base64 images).
   const handleExportHtml = useCallback(async () => {
     if (!containerRef.current || !trace) return;
-    setExporting(true);
-    try {
-      const { toPng } = await import("html-to-image");
-      const images = new Map<number, string>();
-      for (const step of trace.steps) {
-        if (step.status !== "success" && step.status !== "degraded") continue;
-        const node = containerRef.current.querySelector(`[data-cell-output="${step.stepNo}"]`);
-        if (!(node instanceof HTMLElement)) continue;
-        try {
-          images.set(step.stepNo, await toPng(node, { backgroundColor: "#ffffff", pixelRatio: 2 }));
-        } catch {
-          // Skip a cell whose output can't be snapshotted; the rest still export.
-        }
+    const { toPng } = await import("html-to-image");
+    const images = new Map<number, string>();
+    for (const step of trace.steps) {
+      if (step.status !== "success" && step.status !== "degraded") continue;
+      const node = containerRef.current.querySelector(`[data-cell-output="${step.stepNo}"]`);
+      if (!(node instanceof HTMLElement)) continue;
+      try {
+        images.set(step.stepNo, await toPng(node, { backgroundColor: "#ffffff", pixelRatio: 2 }));
+      } catch {
+        // Skip a cell whose output can't be snapshotted; the rest still export.
       }
-      const html = buildNotebookHtml(trace, synthesis, images);
-      downloadCodeAsFile(html, `${sanitizeFilename(trace.originalQuestion || "notebook")}.html`);
-    } finally {
-      setExporting(false);
     }
+    const html = buildNotebookHtml(trace, synthesis, images);
+    downloadCodeAsFile(html, `${sanitizeFilename(trace.originalQuestion || "notebook")}.html`);
   }, [trace, synthesis]);
+
+  // Register/unregister the export handlers with the page menu.
+  useEffect(() => {
+    if (!onExportApiChange) return;
+    onExportApiChange(
+      canExport
+        ? { markdown: handleExportMarkdown, html: handleExportHtml, pdf: handleExportPdf }
+        : null
+    );
+    return () => onExportApiChange(null);
+  }, [onExportApiChange, canExport, handleExportMarkdown, handleExportHtml, handleExportPdf]);
 
   if (cells.length === 0) {
     return (
@@ -883,41 +901,11 @@ export function NotebookView({
 
   return (
     <div ref={containerRef} className="flex flex-col gap-3" data-testid="notebook-view">
-      <div className="flex items-center justify-between gap-2 px-1">
-        {approach ? (
-          <p className="text-xs text-t-tertiary">
-            <span className="font-medium text-t-secondary">Approach:</span> {approach}
-          </p>
-        ) : (
-          <span />
-        )}
-        {/* Hidden during PDF capture so the controls don't appear in the export. */}
-        {canExport && !exporting && (
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              onClick={handleExportMarkdown}
-              className="text-xs text-t-secondary hover:text-accent"
-              title="Export the notebook as Markdown"
-            >
-              ⬇ Markdown
-            </button>
-            <button
-              onClick={handleExportHtml}
-              className="text-xs text-t-secondary hover:text-accent"
-              title="Export a self-contained HTML file (servable from S3 / Drive)"
-            >
-              ⬇ HTML
-            </button>
-            <button
-              onClick={handleExportPdf}
-              className="text-xs text-t-secondary hover:text-accent"
-              title="Export the notebook as PDF"
-            >
-              ⬇ PDF
-            </button>
-          </div>
-        )}
-      </div>
+      {approach && (
+        <p className="px-1 text-xs text-t-tertiary">
+          <span className="font-medium text-t-secondary">Approach:</span> {approach}
+        </p>
+      )}
       {stale.size > 0 && (
         <div
           className="flex items-center justify-between gap-2 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"

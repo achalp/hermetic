@@ -156,6 +156,43 @@ describe("NotebookView", () => {
     expect(screen.getByText("Planning the investigation…")).toBeInTheDocument();
   });
 
+  it("registers export handlers upward (and renders no export buttons itself)", () => {
+    const onExportApiChange = vi.fn();
+    const { unmount } = render(
+      <NotebookView
+        spec={specWith(PLAN_STATE)}
+        artifacts={ARTIFACTS}
+        isStreaming={false}
+        onExportApiChange={onExportApiChange}
+      />
+    );
+    // The notebook exposes its export API to the page menu, not local buttons.
+    const api = onExportApiChange.mock.calls.at(-1)?.[0];
+    expect(api).toMatchObject({
+      markdown: expect.any(Function),
+      html: expect.any(Function),
+      pdf: expect.any(Function),
+    });
+    expect(screen.queryByText("⬇ Markdown")).not.toBeInTheDocument();
+    expect(screen.queryByText("⬇ HTML")).not.toBeInTheDocument();
+    // Unmounting (e.g. switching to Dashboard view) clears the registration.
+    unmount();
+    expect(onExportApiChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("registers null while streaming (not yet exportable)", () => {
+    const onExportApiChange = vi.fn();
+    render(
+      <NotebookView
+        spec={specWith(PLAN_STATE)}
+        artifacts={ARTIFACTS}
+        isStreaming={true}
+        onExportApiChange={onExportApiChange}
+      />
+    );
+    expect(onExportApiChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("re-runs a step and flags transitive dependents stale", async () => {
     const user = userEvent.setup();
     const freshStep: TraceStep = {

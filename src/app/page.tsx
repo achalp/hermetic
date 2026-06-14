@@ -28,6 +28,8 @@ import { AnalysisHistory, type HistoryEntry } from "@/components/app/analysis-hi
 import { SuggestionPills } from "@/components/app/suggestion-pills";
 import { SchedulePopover } from "@/components/app/schedule-popover";
 
+import type { NotebookExportApi } from "@/components/app/notebook-view";
+
 // Lazy-load ResponsePanel — it pulls in plotly.js, globe.gl, maplibre-gl, three.js etc.
 const ResponsePanel = dynamic(
   () => import("@/components/app/response-panel").then((m) => m.ResponsePanel),
@@ -140,6 +142,11 @@ export default function Home() {
   const [railFullscreen, setRailFullscreen] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
+  // Notebook export handlers registered by the active NotebookView. When set,
+  // the Export menu shows notebook formats (Markdown/HTML/PDF) instead of the
+  // dashboard formats. `menuExporting` tracks the in-flight notebook format.
+  const [notebookExportApi, setNotebookExportApi] = useState<NotebookExportApi | null>(null);
+  const [menuExporting, setMenuExporting] = useState<string | null>(null);
   const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
   const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
   // Schedule popover anchored to the toolbar Schedule button. Holds the
@@ -946,24 +953,38 @@ export default function Home() {
                         borderRadius: "var(--radius-button)",
                         boxShadow: "var(--shadow-elevated)",
                         zIndex: "var(--z-export-dropdown)",
-                        minWidth: 140,
+                        minWidth: 160,
                       }}
                     >
-                      {[
-                        { label: "PDF", fn: handleExportPdf },
-                        { label: "DOCX", fn: handleExportDocx },
-                        { label: "PPTX", fn: handleExportPptx },
-                      ].map((item) => (
+                      {/* Options adapt to the active view: notebook formats in
+                          Notebook view, dashboard formats otherwise. */}
+                      {(notebookExportApi
+                        ? [
+                            { label: "Markdown", fn: notebookExportApi.markdown },
+                            { label: "HTML", fn: notebookExportApi.html },
+                            { label: "PDF", fn: notebookExportApi.pdf },
+                          ]
+                        : [
+                            { label: "PDF", fn: handleExportPdf },
+                            { label: "DOCX", fn: handleExportDocx },
+                            { label: "PPTX", fn: handleExportPptx },
+                          ]
+                      ).map((item) => (
                         <button
                           key={item.label}
-                          onClick={() => {
-                            item.fn();
+                          onClick={async () => {
                             setShowExportDropdown(false);
+                            try {
+                              setMenuExporting(item.label);
+                              await item.fn();
+                            } finally {
+                              setMenuExporting(null);
+                            }
                           }}
-                          disabled={!!exporting}
+                          disabled={!!exporting || !!menuExporting}
                           className="block w-full px-4 py-2 text-left text-sm text-t-primary hover:bg-accent-subtle transition-colors disabled:opacity-50"
                         >
-                          {exporting === item.label.toLowerCase()
+                          {menuExporting === item.label || exporting === item.label.toLowerCase()
                             ? `Exporting ${item.label}...`
                             : item.label}
                         </button>
@@ -1324,6 +1345,7 @@ export default function Home() {
                   onRerun={handleRerunFromToolbar}
                   loadedVizId={loadedVizId}
                   onEffectiveCsvIdChange={setEffectiveCsvId}
+                  onNotebookExportApiChange={setNotebookExportApi}
                   rerunCode={rerunCode}
                   rerunSql={rerunSql}
                   onAnalysisComplete={(entry) => {

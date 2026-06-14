@@ -20,7 +20,7 @@ import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
-import { NotebookView } from "@/components/app/notebook-view";
+import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
 import { Card } from "@/components/ui/card";
@@ -102,6 +102,9 @@ interface ResponsePanelProps {
   onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
   onEffectiveCsvIdChange?: (csvId: string | null) => void;
   onAnalysisComplete?: (entry: { question: string; spec: Spec }) => void;
+  /** Registers the active notebook's export handlers with the page Export
+   *  menu (null when not in notebook view / no trail). */
+  onNotebookExportApiChange?: (api: NotebookExportApi | null) => void;
   /**
    * When set alongside a fresh `questionSeq`, ResponsePanel calls /api/query
    * with this code in `context.code`. The server skips code-gen and runs the
@@ -136,6 +139,7 @@ export function ResponsePanel({
   onArtifactsChange,
   onEffectiveCsvIdChange,
   onAnalysisComplete,
+  onNotebookExportApiChange,
   rerunCode,
   rerunSql,
 }: ResponsePanelProps) {
@@ -588,6 +592,7 @@ export function ResponsePanel({
               csvId={effectiveCsvId}
               sandboxRuntime={sandboxRuntime}
               onStepRerun={handleStepRerun}
+              onExportApiChange={onNotebookExportApiChange}
             />
           </Card>
         ) : (
