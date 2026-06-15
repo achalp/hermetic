@@ -12,7 +12,7 @@ The styles are **differentiated on paper (six distinct prompt blocks) but not in
 
 1. **"Dashboard" is mislabeled.** Picking "Dashboard" runs the **`infographic`** prompt — _"a data infographic that flows top-to-bottom as a narrative."_ That is the opposite of a dashboard. A dashboard is a **scannable grid you monitor at a glance**; an infographic is a **vertical story you read**. Users selecting "Dashboard" do not get a dashboard.
 2. **Three of the six are near-duplicates.** `narrative` and `report` are both "prose paragraphs with charts as evidence." `infographic` (shown as "Dashboard") and `presentation` ("Slides") are both "visual, top-to-bottom, section-separated." The genuinely distinct poles are only **Summary (short)** and **Deep dive (long)**.
-3. **Nothing is enforced.** Every style is a _suggestion_ appended to the LLM prompt. There is no post-compose skeleton, no component cap, no validation, no test. A user toggling Infographic → Report can see _zero_ change because the model is free to compose the same spec for both.
+3. **The frame isn't enforced.** Every style is a _suggestion_ appended to the LLM prompt — and it suggests the wrong axis (often nudging chart counts) rather than the reading frame. There's no guarantee the rendered _container/density_ differs, so toggling Infographic → Report can produce a visually identical artifact. (The fix is to enforce the **frame**, not to cap content — see the principle below. The LLM choosing chart count/type/volume from the question is correct and must stay.)
 4. **Investigate ignores style entirely.** The investigate composer is hardcoded; the style selector is dead in that path.
 
 Net: six choices, ~3 real artifacts, two false labels, zero enforcement. This reads as _choice overload masking thin differentiation_ — the classic "settings that don't do anything" trust-killer.
@@ -74,18 +74,30 @@ These four are mutually exclusive, individually defensible, and each implies a _
 
 ## Proposed taxonomy — two options (pick in `prototypes.html`)
 
+### Principle: a style governs FORM, never CONTENT
+
+This is the load-bearing constraint, and the thing my first draft got wrong (see "What a style must NOT do" below). The whole point of the tool is that **the LLM decides how many visuals, which types, and how much to show — driven by the question and the shape of the answer.** A style must not touch that. A style only sets the **frame** the answer is poured into:
+
+- **Reading mode / container** — scan-grid vs linear document vs one-screen vs paged.
+- **Narrative density** — terse labels vs interleaved one-line insights vs full prose paragraphs.
+- **Framing / order** — bottom-line-first vs build-up vs numbered sections.
+- **Tone** — formal vs journalistic vs neutral.
+- **Depth of exploration** — expressed as judgment ("answer as minimally as the question allows" ⟷ "explore exhaustively from multiple angles"), so chart count _emerges_ from how much the model explores. Never a cap.
+
+Two styles with the _same_ number of charts should still look obviously different because the container and density differ. That difference is the product, and it's name-honest without ever dictating content.
+
 ### Option A — **Tighten to 4** (recommended)
 
-Collapse to the four consumption contexts above. Each gets an **enforced structural skeleton** (see below), so the artifacts are guaranteed distinct.
+Collapse to the four consumption contexts above. Each fixes a **frame** (container + density + framing + depth-instruction); the LLM fills it with whatever visuals the answer needs.
 
-- **Dashboard** — _true grid._ KPI stat-card row + a 2×N chart grid, minimal prose. The fix for the mislabel.
-- **Brief** (was "Summary") — one screen: BLUF sentence + 3 KPIs + 1 hero chart + 1 caveat line.
-- **Report** — numbered sections, prose, a data table, captioned charts. Absorbs "Narrative" (formal and journalistic prose are the same artifact with a tone knob, not separate buttons).
-- **Deep dive** — multi-angle, 4–6 charts, methodology + caveats + outliers + table.
+- **Dashboard** — _scan frame._ A grid-oriented container (KPI stat cards + a chart grid), terse. The LLM picks how many cards/charts and which; the style guarantees the **grid/scan layout**, not a count. Fixes the mislabel.
+- **Brief** (was "Summary") — _one-screen frame._ Bottom-line-up-front, terse, fits a screen. The LLM still chooses whether the answer is one hero chart or two small ones — the style enforces "lead with the answer, keep it scannable," not "exactly 1 chart."
+- **Report** — _document frame._ Sectioned, prose-led, captioned visuals, tables where precise. Absorbs "Narrative" (formal vs journalistic is a tone knob, not a separate button). Section count and visual count are the LLM's.
+- **Deep dive** — _exploration frame._ Multi-angle and exhaustive with methodology/caveats surfaced; the **depth instruction** ("examine from every useful angle, flag what wasn't asked") drives breadth — the model decides what those angles and visuals are.
 
-Dropped: **Narrative** (→ Report), **Infographic** (an aesthetic, not a consumption context), **Slides** (→ becomes a _Report export format_, not a compose style — any artifact can export to PPTX).
+Dropped: **Narrative** (→ Report), **Infographic** (an aesthetic, not a consumption context), **Slides** (→ a _Report export format_, not a compose style — any artifact can export to PPTX).
 
-**Why recommended:** four buttons, four genuinely different artifacts, every name true to its output, zero overlap. Less is more — and it's enforceable.
+**Why recommended:** four buttons, four genuinely different _frames_, every name true to its reading mode, zero overlap — and the LLM keeps full authority over content.
 
 ### Option B — **Keep 6, fix names + enforce**
 
@@ -100,16 +112,27 @@ This is more surface area to maintain and still risks overlap; Option A is clean
 
 ---
 
-## The real fix (independent of taxonomy): **enforce structure**
+## The real fix (independent of taxonomy): **enforce FORM, not content**
 
-Prompt text alone will never guarantee differentiation. Each style should have a **skeleton the composer must fill** and a **post-compose validation**:
+Prompt text alone won't guarantee a visible difference between styles. But the enforcement must stay strictly on the **frame** — the things the user explicitly asked for by picking the style — and never on the **content budget**, which is the LLM's call.
 
-- **Dashboard:** root MUST be a `LayoutGrid`/`LayoutColumn` of a `LayoutGrid` of StatCards (the KPI row) followed by a chart `LayoutGrid` (≥2 columns). Reject/repair specs that are a single column of prose.
-- **Brief:** hard cap (≤8 components, exactly 1 chart, ≤4 stat cards). Trim or re-ask on violation.
-- **Report:** require ≥2 `SectionBreak`s and ≥1 `DataTable`; headings numbered.
-- **Deep dive:** require ≥4 charts and ≥1 `Annotation` (methodology/caveat).
+**What a style MAY enforce (form the user requested):**
 
-This is the same posture already used elsewhere (the result-validator, the grounding pass): the composer proposes, a deterministic check enforces the contract. Cheap, and it's what turns "a prompt hint" into "a product guarantee."
+- **Container / reading mode.** If the user picked Dashboard, honor the grid/scan container; if Report, honor sectioned-document flow; if Brief, one-screen/BLUF order. This is _obeying the user's stated intent_, not overriding the model. A post-compose check can repair an obvious frame violation (e.g. a "Dashboard" that came back as a single prose column → wrap into the grid container) without touching what's inside.
+- **Narrative density & tone.** Strip/condense prose for Dashboard; require prose paragraphs for Report. Density is form, not content.
+- **Depth instruction.** Pass the explore-minimally ⟷ explore-exhaustively signal so breadth tracks the style. The model still decides the angles.
+
+**What a style must NOT do (this was the error in my first draft):**
+
+- ❌ Cap or require a number of charts ("exactly 1", "≥4").
+- ❌ Require/forbid specific component types ("must include a DataTable", "no charts").
+- ❌ Cap total component count.
+
+Those are content decisions the tool exists to make from the question and the shape of the answer — hard-coding them fights the product's core value. The differentiation comes from the **frame**, and two styles with the same charts will still read very differently because the container and density differ.
+
+> Where guardrails are still useful, make them about the _frame_ and keep them generous: a "Brief" that returns 30 components has broken the one-screen frame (worth a nudge); a "Brief" that picks 2 charts instead of 1 has not. Judge frame violations, not content counts.
+
+This is the same proposer/checker posture used elsewhere (result-validator, grounding pass) — but pointed only at form.
 
 Two more, regardless of option chosen:
 
@@ -120,9 +143,11 @@ Two more, regardless of option chosen:
 
 ## What's in `prototypes.html`
 
-For each proposed style, the prototype renders **two concrete design options (A/B)** over the _same_ sample dataset (regional revenue), so the only thing varying is structure/style — making the differentiation (or lack of it) visually obvious. Use it to choose:
+For each proposed style, the prototype renders **two concrete design options (A/B)** over the _same_ sample dataset (regional revenue), so the only thing varying is the **frame** — making the differentiation (or lack of it) visually obvious. Use it to choose:
 
 1. Which **taxonomy** (the tight 4, or the fixed 6).
-2. For each style you keep, which **layout option** (A or B) becomes the enforced skeleton.
+2. For each style you keep, which **frame option** (A or B) reads best.
 
-Open it, click through the styles in the top nav, and note your A/B pick per style. I'll turn the chosen skeletons into the enforced composer contracts + the renamed/trimmed selector.
+> **Read the mockups as frames, not recipes.** The specific chart counts and types shown (a 2×2 grid here, five angles there) are _illustrative placeholders_ for the container and density — not prescriptions. In the real product the LLM chooses the number, type, and volume of visuals per question; the style only fixes the frame they're poured into.
+
+Open it, click through the styles in the top nav, and note your A/B pick per style. I'll turn the chosen **frames** into composer contracts (container + density + depth instruction, with content left to the model) plus the renamed/trimmed selector.
