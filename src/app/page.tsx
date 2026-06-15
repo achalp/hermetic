@@ -20,6 +20,7 @@ import { LocalFileBrowser } from "@/components/app/local-file-browser";
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 
 import { StyleSelector } from "@/components/app/style-selector";
+import { StyleDropdown } from "@/components/app/style-dropdown";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 import { useArtifacts } from "@/hooks/use-artifacts";
@@ -940,9 +941,10 @@ export default function Home() {
             {isState4 && (
               <>
                 {/* Switch the output style on an existing result — re-composes
-                    with the new form (and animates the transition). */}
-                <div className="mr-1 hidden sm:flex">
-                  <StyleSelector selected={purpose} onSelect={handleStyleChange} />
+                    with the new form (and animates the transition). Compact
+                    dropdown so it doesn't crowd the toolbar. */}
+                <div className="hidden sm:block">
+                  <StyleDropdown selected={purpose} onSelect={handleStyleChange} />
                 </div>
                 {loadedVizId && (
                   <button
