@@ -710,15 +710,25 @@ ${drillDownContext.chart_title ? `- Source chart: ${drillDownContext.chart_title
 Focus the analysis specifically on data where ${filterClause}. Provide detailed breakdown and insights for this specific segment.`;
           }
 
-          // Append conversation history for follow-ups (from server-side cache)
-          if (priorTurns.length > 0) {
+          // Append conversation history for follow-ups (from server-side
+          // cache). BUT: re-asking the SAME question is a style/re-render
+          // request, not a follow-up — including the "build on / maintain
+          // continuity" anchor there makes the model replicate the previous
+          // dashboard's structure and ignore the newly selected style. So we
+          // only attach continuity context for a genuinely NEW question, and
+          // even then we tell it the requested style governs the form.
+          const isRestyle =
+            priorTurns.length > 0 &&
+            priorTurns[priorTurns.length - 1].question.trim().toLowerCase() ===
+              question.trim().toLowerCase();
+          if (priorTurns.length > 0 && !isRestyle) {
             userPrompt += `
 
 ## Conversation History
 The user is asking a follow-up question. Previous turns in this conversation:
 ${priorTurns.map((turn, i) => `### Turn ${i + 1}: "${turn.question}"\nDashboard showed:\n${turn.specSummary}`).join("\n\n")}
 
-Build on the prior analysis. Evolve the dashboard to address the new question while maintaining continuity with previous insights where relevant.`;
+Build on the prior analysis where relevant, but compose THIS response in the requested output style/form (see the style rules) — do not simply replicate the previous dashboard's structure.`;
           }
 
           if (workbookContext) {
@@ -731,7 +741,7 @@ ${workbookContext}`;
 
           userPrompt += `
 
-Compose a dashboard that answers the user's question. Choose the layout that best tells the data story — lead with the most impactful component. Interleave brief insights between visualizations for a narrative flow.`;
+Compose the output that answers the user's question, following the OUTPUT STYLE described in the rules above — that style governs the form (layout, density, framing). Let the question and data decide which visualizations and how many.`;
 
           // Domain-aware UI rules
           const domainUiRules: string[] = [];
