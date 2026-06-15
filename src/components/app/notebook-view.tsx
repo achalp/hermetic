@@ -27,6 +27,7 @@ import { CodeEditor } from "@/components/app/code-editor";
 import { Markdown } from "@/components/app/markdown";
 import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
 import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
+import { downloadAsSlides } from "@/lib/slides-export";
 import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/lib/export-utils";
 import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -48,6 +49,7 @@ export interface NotebookExportApi {
   markdown: () => void;
   html: () => Promise<void>;
   pdf: () => Promise<void>;
+  slides: () => Promise<void>;
 }
 
 export interface NotebookCellModel {
@@ -880,16 +882,33 @@ export function NotebookView({
     downloadCodeAsFile(html, `${sanitizeFilename(trace.originalQuestion || "notebook")}.html`);
   }, [trace, synthesis]);
 
+  const handleExportSlides = useCallback(async () => {
+    if (!containerRef.current || !trace) return;
+    await downloadAsSlides(containerRef.current, trace.originalQuestion || "notebook");
+  }, [trace]);
+
   // Register/unregister the export handlers with the page menu.
   useEffect(() => {
     if (!onExportApiChange) return;
     onExportApiChange(
       canExport
-        ? { markdown: handleExportMarkdown, html: handleExportHtml, pdf: handleExportPdf }
+        ? {
+            markdown: handleExportMarkdown,
+            html: handleExportHtml,
+            pdf: handleExportPdf,
+            slides: handleExportSlides,
+          }
         : null
     );
     return () => onExportApiChange(null);
-  }, [onExportApiChange, canExport, handleExportMarkdown, handleExportHtml, handleExportPdf]);
+  }, [
+    onExportApiChange,
+    canExport,
+    handleExportMarkdown,
+    handleExportHtml,
+    handleExportPdf,
+    handleExportSlides,
+  ]);
 
   if (cells.length === 0) {
     return (
@@ -900,7 +919,12 @@ export function NotebookView({
   }
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-3" data-testid="notebook-view">
+    <div
+      ref={containerRef}
+      className="flex flex-col gap-3"
+      data-testid="notebook-view"
+      data-slides-root
+    >
       {approach && (
         <p className="px-1 text-xs text-t-tertiary">
           <span className="font-medium text-t-secondary">Approach:</span> {approach}

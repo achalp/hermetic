@@ -1,20 +1,16 @@
 "use client";
 
+import { PURPOSE_LIST, resolvePurpose } from "@/lib/purpose-prompts";
+
 interface StyleSelectorProps {
   selected: string;
   onSelect: (id: string) => void;
 }
 
-const STYLES = [
-  { label: "Dashboard", id: "infographic" },
-  { label: "Narrative", id: "narrative" },
-  { label: "Summary", id: "executive-summary" },
-  { label: "Deep dive", id: "deep-analysis" },
-  { label: "Slides", id: "presentation" },
-  { label: "Report", id: "report" },
-];
+const STYLES = PURPOSE_LIST;
 
 export function StyleSelector({ selected, onSelect }: StyleSelectorProps) {
+  const active = resolvePurpose(selected);
   return (
     <div
       role="radiogroup"
@@ -27,7 +23,8 @@ export function StyleSelector({ selected, onSelect }: StyleSelectorProps) {
           {i > 0 && <span style={{ color: "var(--color-border-default)" }}> · </span>}
           <button
             role="radio"
-            aria-checked={selected === style.id}
+            aria-checked={active === style.id}
+            title={style.description}
             onClick={() => onSelect(style.id)}
             style={{
               background: "none",
@@ -35,7 +32,7 @@ export function StyleSelector({ selected, onSelect }: StyleSelectorProps) {
               cursor: "pointer",
               fontSize: 13,
               padding: 0,
-              ...(selected === style.id
+              ...(active === style.id
                 ? {
                     color: "var(--color-accent)",
                     textDecoration: "underline",
@@ -46,12 +43,12 @@ export function StyleSelector({ selected, onSelect }: StyleSelectorProps) {
                   }),
             }}
             onMouseEnter={(e) => {
-              if (selected !== style.id) {
+              if (active !== style.id) {
                 e.currentTarget.style.color = "var(--color-t-primary)";
               }
             }}
             onMouseLeave={(e) => {
-              if (selected !== style.id) {
+              if (active !== style.id) {
                 e.currentTarget.style.color = "var(--color-t-secondary)";
               }
             }}

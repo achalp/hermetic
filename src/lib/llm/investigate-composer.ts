@@ -20,6 +20,7 @@ import { streamText, generateText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { UI_COMPOSE_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { getPurposePrompt } from "@/lib/purpose-prompts";
 import type { CSVSchema } from "@/lib/types";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
 import type { InvestigationPlan, PlannedSubQuestion } from "@/lib/llm/investigate-planner";
@@ -171,8 +172,17 @@ function flattenStepArtifacts(subResults: SubQuestionResult[]): {
 
 // ── Prompt construction ──────────────────────────────────────────────
 
-function buildComposerSystemPrompt(): string {
+function buildComposerSystemPrompt(purpose?: string): string {
+  // The investigation always has the step-driven backbone below; the style
+  // (purpose) modulates its FORM — density, framing, tone — without changing
+  // the step structure or dictating how many visuals each step gets.
+  const styleBlock = purpose
+    ? `\n## Output style (applies to the FORM of the dashboard, not the step structure)\n${getPurposePrompt(
+        purpose
+      )}\nApply this as a frame: keep the per-step backbone below, but shape density, layout, and tone to match. Do NOT let the style cap how many charts a step shows — that follows the data.\n`
+    : "";
   return `You compose a unified data-analysis dashboard from the results of an INVESTIGATION — a multi-step analysis where each step answered one focused sub-question.
+${styleBlock}
 
 Output format: streaming JSONL patches that build a JSON-Render spec, exactly the same as the standard dashboard composition. Output ONLY raw JSONL lines, no markdown fencing.
 
@@ -275,6 +285,8 @@ export interface ComposeArgs {
   schema: CSVSchema;
   subResults: SubQuestionResult[];
   uiComposeModel?: string;
+  /** Output style — shapes the dashboard's form (density/framing/tone). */
+  purpose?: string;
 }
 
 export interface ComposeStreamOutput {
@@ -497,7 +509,7 @@ export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
 
   const model = getModel(args.uiComposeModel ?? UI_COMPOSE_MODEL);
 
-  const systemPrompt = buildComposerSystemPrompt();
+  const systemPrompt = buildComposerSystemPrompt(args.purpose);
   const userPrompt = buildComposerUserPrompt({
     originalQuestion: args.originalQuestion,
     plan: args.plan,

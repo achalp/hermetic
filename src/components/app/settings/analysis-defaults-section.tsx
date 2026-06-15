@@ -1,5 +1,7 @@
 "use client";
 
+import { PURPOSE_LIST, resolvePurpose } from "@/lib/purpose-prompts";
+
 interface AnalysisDefaultsSectionProps {
   defaultStyle: string;
   onDefaultStyleChange: (style: string) => void;
@@ -7,7 +9,6 @@ interface AnalysisDefaultsSectionProps {
   onSchemaModeChange: (mode: string) => void;
 }
 
-const STYLES = ["Dashboard", "Narrative", "Summary", "Deep dive", "Slides", "Report"];
 const SCHEMA_MODES = ["Metadata", "Sample"];
 
 export function AnalysisDefaultsSection({
@@ -29,12 +30,13 @@ export function AnalysisDefaultsSection({
       {/* Default style pills */}
       <div style={labelStyle}>DEFAULT STYLE</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {STYLES.map((s) => {
-          const value = s.toLowerCase();
-          const active = defaultStyle === value;
+        {PURPOSE_LIST.map((s) => {
+          const value = s.id;
+          const active = resolvePurpose(defaultStyle) === value;
           return (
             <button
               key={value}
+              title={s.description}
               onClick={() => onDefaultStyleChange(value)}
               style={{
                 fontSize: 12,
@@ -59,7 +61,7 @@ export function AnalysisDefaultsSection({
                 }
               }}
             >
-              {s}
+              {s.label}
             </button>
           );
         })}

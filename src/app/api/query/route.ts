@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     const question: string = context?.question ?? prompt ?? "";
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";
-    const purpose: string = context?.purpose ?? "infographic";
+    const purpose: string = context?.purpose ?? "dashboard";
     /**
      * Optional pre-generated code. When provided, the route skips code-gen
      * (step 1) and runs only the sandbox-execute → UI-compose path. Used by

@@ -103,6 +103,7 @@ interface InvestigateContext {
   code_gen_model?: string;
   ui_compose_model?: string;
   sandbox_runtime?: string;
+  purpose?: string;
 }
 
 interface InvestigateBody {
@@ -691,6 +692,7 @@ export async function POST(request: Request) {
             schema: stored.schema,
             subResults,
             uiComposeModel,
+            purpose: context.purpose,
           });
 
           // Inject merged data into spec.state so $result/$chartData

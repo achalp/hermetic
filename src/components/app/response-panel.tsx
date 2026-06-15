@@ -133,7 +133,7 @@ export function ResponsePanel({
   codeGenModel,
   uiComposeModel,
   sandboxRuntime,
-  purpose = "infographic",
+  purpose = "dashboard",
   onRerun,
   loadedVizId,
   onArtifactsChange,
@@ -580,10 +580,13 @@ export function ResponsePanel({
           ungrounded figures are surfaced in the narrative, not buried. */}
       {activeSpec?.root && <InvestigationCaveats spec={activeSpec} />}
 
-      {/* Active level: notebook view (Investigate) or composed dashboard */}
+      {/* Active level: notebook view (Investigate) or composed dashboard.
+          `formKey` keys the Card so the morph-in animation replays whenever
+          the FORM changes — a new query (incl. a style switch that re-asks)
+          or a Dashboard↔Notebook toggle — making the re-shape visible. */}
       <CitationNavigateContext.Provider value={notebookAvailable ? navigateToCell : null}>
         {notebookActive ? (
-          <Card ref={dashboardRef}>
+          <Card key={`nb-${questionSeq}`} ref={dashboardRef} className="form-morph">
             <NotebookView
               spec={activeSpec}
               artifacts={artifacts}
@@ -598,7 +601,7 @@ export function ResponsePanel({
         ) : (
           activeSpec?.root &&
           activeSpec?.elements && (
-            <Card ref={dashboardRef}>
+            <Card key={`db-${questionSeq}`} ref={dashboardRef} className="form-morph">
               {dashboardStale && (
                 <div
                   className="mb-3 flex items-center justify-between gap-2 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"
@@ -627,7 +630,11 @@ export function ResponsePanel({
                   <ActionProvider>
                     <VisibilityProvider>
                       <RendererErrorBoundary>
-                        <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                        {/* data-slides-root: the Slides export segments this
+                            content into per-section deck slides. */}
+                        <div data-slides-root>
+                          <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
+                        </div>
                       </RendererErrorBoundary>
                     </VisibilityProvider>
                   </ActionProvider>

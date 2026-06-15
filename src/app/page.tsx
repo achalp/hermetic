@@ -373,6 +373,30 @@ export default function Home() {
     [handleQuery, openSettings, queryMode]
   );
 
+  // Changing the output style re-asks the current question with the new
+  // style so the form actually changes (and the transition is visible).
+  // The settings "default style" picker uses plain setPurpose (no re-run) —
+  // it only affects the NEXT question.
+  const handleStyleChange = useCallback(
+    (id: string) => {
+      setPurpose(id);
+      // Re-ask only when a result already exists for the current question.
+      if (currentQuestion && !isAnalyzing) {
+        handleGuardedQuery(currentQuestion, currentMode);
+      }
+    },
+    [currentQuestion, isAnalyzing, currentMode, handleGuardedQuery]
+  );
+
+  // Dashboard "Slides" export — segment the rendered dashboard into a Reveal
+  // deck. (Notebook view registers its own slides handler via the export API.)
+  const handleExportSlides = useCallback(async () => {
+    const root = dashboardRef.current;
+    if (!root) return;
+    const { downloadAsSlides } = await import("@/lib/slides-export");
+    await downloadAsSlides(root, currentQuestionRef.current ?? "dashboard");
+  }, []);
+
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
     setSandboxRuntime(r);
     localStorage.setItem("gud-sandbox-runtime", r);
@@ -912,9 +936,14 @@ export default function Home() {
                 />
               </svg>
             </button>
-            {/* State 4 actions: Re-run, Save, Export, Artifacts */}
+            {/* State 4 actions: style switch, Re-run, Save, Export, Artifacts */}
             {isState4 && (
               <>
+                {/* Switch the output style on an existing result — re-composes
+                    with the new form (and animates the transition). */}
+                <div className="mr-1 hidden sm:flex">
+                  <StyleSelector selected={purpose} onSelect={handleStyleChange} />
+                </div>
                 {loadedVizId && (
                   <button
                     onClick={handleRefreshFromToolbar}
@@ -963,11 +992,13 @@ export default function Home() {
                             { label: "Markdown", fn: notebookExportApi.markdown },
                             { label: "HTML", fn: notebookExportApi.html },
                             { label: "PDF", fn: notebookExportApi.pdf },
+                            { label: "Slides", fn: notebookExportApi.slides },
                           ]
                         : [
                             { label: "PDF", fn: handleExportPdf },
                             { label: "DOCX", fn: handleExportDocx },
                             { label: "PPTX", fn: handleExportPptx },
+                            { label: "Slides", fn: handleExportSlides },
                           ]
                       ).map((item) => (
                         <button
@@ -1247,7 +1278,7 @@ export default function Home() {
               style={{ minHeight: "calc(100vh - 56px)", paddingTop: "calc(35vh - 56px)" }}
             >
               <div className="mb-6">
-                <StyleSelector selected={purpose} onSelect={setPurpose} />
+                <StyleSelector selected={purpose} onSelect={handleStyleChange} />
               </div>
 
               {llmWarning && (

@@ -959,6 +959,22 @@ body {
   }
 }
 
+/* Form transition: plays when the output style / view changes so the
+   re-shaped artifact visibly morphs in rather than snapping. */
+@keyframes formMorphIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.form-morph {
+  animation: formMorphIn 0.42s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 @keyframes indeterminate {
   0% {
     transform: translateX(-100%);
