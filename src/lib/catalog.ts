@@ -742,6 +742,116 @@ export const catalog = defineCatalog(schema, {
       description:
         "Compact inline trend line with no axes — for a tiny sparkline beside a label/value (e.g. a metric's recent history in a row or stat strip). Use show_value to print the latest number. For a full trend with axes use LineChart.",
     },
+    ParetoChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.object({ label: z.string(), value: z.number() })),
+        threshold_percent: z.number().nullable(),
+        bar_color: z.string().nullable(),
+        line_color: z.string().nullable(),
+      }),
+      description:
+        "Pareto chart: bars sorted descending with a cumulative-% line on a secondary axis and an 80% reference line. Use for the 80/20 rule — finding the vital few categories that drive most of a total (defects, revenue, complaints). Pass raw {label, value}; sorting and cumulative % are computed.",
+    },
+    QQPlot: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        value_key: z.string().nullable(),
+        theoretical_key: z.string().nullable(),
+        sample_key: z.string().nullable(),
+        x_label: z.string().nullable(),
+        y_label: z.string().nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Quantile-quantile plot for checking whether a sample is normally distributed (points on the diagonal = normal). Pass raw values via value_key and theoretical normal quantiles are computed, OR pass precomputed theoretical_key + sample_key pairs.",
+    },
+    ECDFChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        value_key: z.string(),
+        group_key: z.string().nullable(),
+        x_label: z.string().nullable(),
+        complementary: z.boolean().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Empirical cumulative distribution function (ECDF) as a step curve — shows the full distribution and percentiles without binning choices. Pass raw values via value_key; group_key draws one curve per group for comparison. Set complementary for a survival (1−F) view.",
+    },
+    SurvivalChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        curves: z.array(
+          z.object({
+            label: z.string(),
+            points: z.array(
+              z.object({
+                time: z.number(),
+                survival: z.number(),
+                lower: z.number().nullable(),
+                upper: z.number().nullable(),
+              })
+            ),
+          })
+        ),
+        x_label: z.string().nullable(),
+        y_label: z.string().nullable(),
+        show_ci: z.boolean().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Kaplan–Meier survival curve(s) as descending step functions with optional confidence bands. Use for time-to-event / retention / churn analysis. Compute the KM estimate (e.g. lifelines KaplanMeierFitter) and pass precomputed {time, survival, lower?, upper?} points per group.",
+    },
+    ForestPlot: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(
+          z.object({
+            label: z.string(),
+            estimate: z.number(),
+            lower: z.number(),
+            upper: z.number(),
+          })
+        ),
+        reference_value: z.number().nullable(),
+        x_label: z.string().nullable(),
+        x_log: z.boolean().nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Forest plot: point estimates with confidence intervals stacked vertically, plus a reference line (0 for differences, 1 for ratios). Use for meta-analyses, regression coefficients, or subgroup effect sizes. Set x_log for odds/hazard/risk ratios.",
+    },
+    ControlChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        value_key: z.string(),
+        x_key: z.string().nullable(),
+        center: z.number().nullable(),
+        ucl: z.number().nullable(),
+        lcl: z.number().nullable(),
+        sigma_multiple: z.number().nullable(),
+        x_label: z.string().nullable(),
+        y_label: z.string().nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Statistical process control (SPC) chart: a metric over time with a center line and upper/lower control limits; out-of-control points (beyond the limits) are highlighted red. Limits default to mean ± 3σ if not supplied. Use for process monitoring, quality control, anomaly spotting in sequential data.",
+    },
+    Correlogram: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.object({ lag: z.number(), value: z.number() })),
+        n: z.number().nullable(),
+        conf_band: z.number().nullable(),
+        kind: z.enum(["acf", "pacf"]).nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Correlogram (ACF or PACF): autocorrelation coefficient as stems per lag with a significance band. Use for time-series diagnostics — detecting seasonality, choosing ARIMA orders. Compute coefficients (e.g. statsmodels acf/pacf) and pass {lag, value}; provide n (sample size) for the ±1.96/√n band.",
+    },
     Annotation: {
       props: z.object({
         icon: z.enum(["alert", "info", "trend", "check", "flag"]).nullable(),

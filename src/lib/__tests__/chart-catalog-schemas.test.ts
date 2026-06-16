@@ -109,3 +109,102 @@ describe("chart catalog schemas — Batch 1 (capability + analytics)", () => {
     expect(validateNode("NotARealChart", {})).toBe(false);
   });
 });
+
+// name -> a valid props sample for the statistics charts.
+const BATCH2_SAMPLES: Record<string, Record<string, unknown>> = {
+  ParetoChart: {
+    title: "Defects by cause",
+    data: [
+      { label: "Scratch", value: 80 },
+      { label: "Dent", value: 40 },
+      { label: "Misprint", value: 12 },
+    ],
+    threshold_percent: 80,
+    bar_color: null,
+    line_color: null,
+  },
+  QQPlot: {
+    title: "Normality check",
+    data: [{ v: -1.2 }, { v: 0.1 }, { v: 0.9 }, { v: 2.3 }],
+    value_key: "v",
+    theoretical_key: null,
+    sample_key: null,
+    x_label: null,
+    y_label: null,
+    color: null,
+  },
+  ECDFChart: {
+    title: "Latency ECDF",
+    data: [{ ms: 12 }, { ms: 18 }, { ms: 25 }, { ms: 40 }],
+    value_key: "ms",
+    group_key: null,
+    x_label: "Latency (ms)",
+    complementary: null,
+    color_map: null,
+  },
+  SurvivalChart: {
+    title: "Retention",
+    curves: [
+      {
+        label: "Cohort A",
+        points: [
+          { time: 0, survival: 1, lower: 1, upper: 1 },
+          { time: 30, survival: 0.82, lower: 0.78, upper: 0.86 },
+          { time: 60, survival: 0.65, lower: 0.6, upper: 0.7 },
+        ],
+      },
+    ],
+    x_label: "Days",
+    y_label: null,
+    show_ci: true,
+    color_map: null,
+  },
+  ForestPlot: {
+    title: "Subgroup effects",
+    data: [
+      { label: "Overall", estimate: 1.2, lower: 1.05, upper: 1.38 },
+      { label: "Region A", estimate: 0.9, lower: 0.7, upper: 1.16 },
+    ],
+    reference_value: 1,
+    x_label: "Hazard ratio",
+    x_log: true,
+    color: null,
+  },
+  ControlChart: {
+    title: "Process mean",
+    data: [{ v: 9.8 }, { v: 10.1 }, { v: 9.9 }, { v: 12.5 }, { v: 10.0 }],
+    value_key: "v",
+    x_key: null,
+    center: null,
+    ucl: null,
+    lcl: null,
+    sigma_multiple: 3,
+    x_label: null,
+    y_label: null,
+    color: null,
+  },
+  Correlogram: {
+    title: "ACF",
+    data: [
+      { lag: 0, value: 1 },
+      { lag: 1, value: 0.6 },
+      { lag: 2, value: 0.3 },
+    ],
+    n: 120,
+    conf_band: null,
+    kind: "acf",
+    color: null,
+  },
+};
+
+describe("chart catalog schemas — Batch 2 (statistics)", () => {
+  for (const [name, sample] of Object.entries(BATCH2_SAMPLES)) {
+    it(`${name} is registered in the catalog`, () => {
+      expect(cat.componentNames).toContain(name);
+    });
+
+    it(`${name} accepts a representative spec`, () => {
+      expect(validateNode(name, sample)).toBe(true);
+    });
+  }
+});

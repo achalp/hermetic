@@ -192,6 +192,34 @@ const SparklineComponent = dynamic(
   () => import("./charts/sparkline-chart").then((m) => m.SparklineComponent),
   { ssr: false }
 );
+const ParetoChartComponent = dynamic(
+  () => import("./charts/pareto-chart").then((m) => m.ParetoChartComponent),
+  { ssr: false }
+);
+const QQChartComponent = dynamic(
+  () => import("./charts/qq-chart").then((m) => m.QQChartComponent),
+  { ssr: false }
+);
+const ECDFChartComponent = dynamic(
+  () => import("./charts/ecdf-chart").then((m) => m.ECDFChartComponent),
+  { ssr: false }
+);
+const SurvivalChartComponent = dynamic(
+  () => import("./charts/survival-chart").then((m) => m.SurvivalChartComponent),
+  { ssr: false }
+);
+const ForestPlotComponent = dynamic(
+  () => import("./charts/forest-plot-chart").then((m) => m.ForestPlotComponent),
+  { ssr: false }
+);
+const ControlChartComponent = dynamic(
+  () => import("./charts/control-chart").then((m) => m.ControlChartComponent),
+  { ssr: false }
+);
+const CorrelogramComponent = dynamic(
+  () => import("./charts/correlogram-chart").then((m) => m.CorrelogramComponent),
+  { ssr: false }
+);
 
 const { registry } = defineRegistry(catalog, {
   components: {
@@ -469,6 +497,41 @@ const { registry } = defineRegistry(catalog, {
       </ChartExpandWrapper>
     ),
     Sparkline: ({ props }) => <SparklineComponent props={props} />,
+    ParetoChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ParetoChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    QQPlot: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <QQChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ECDFChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ECDFChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    SurvivalChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <SurvivalChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ForestPlot: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ForestPlotComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ControlChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ControlChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    Correlogram: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <CorrelogramComponent props={props} />
+      </ChartExpandWrapper>
+    ),
     Annotation: ({ props }) => <AnnotationComponent props={props} />,
     TrendIndicator: ({ props }) => <TrendIndicatorComponent props={props} />,
     ChartImage: ({ props }) => <ChartImageComponent props={props} />,
