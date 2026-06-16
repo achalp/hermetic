@@ -208,3 +208,86 @@ describe("chart catalog schemas — Batch 2 (statistics)", () => {
     });
   }
 });
+
+// name -> a valid props sample for the data science / ML charts.
+const BATCH3_SAMPLES: Record<string, Record<string, unknown>> = {
+  CalibrationCurve: {
+    title: "Reliability",
+    curves: [
+      {
+        label: "Model A",
+        predicted: [0.1, 0.4, 0.7, 0.9],
+        observed: [0.08, 0.42, 0.66, 0.94],
+      },
+    ],
+    show_diagonal: true,
+    color_map: null,
+  },
+  LiftChart: {
+    title: "Gain",
+    curves: [{ label: "Model A", x: [0, 0.25, 0.5, 1], y: [0, 0.6, 0.85, 1] }],
+    kind: "gain",
+    show_baseline: true,
+    color_map: null,
+  },
+  PartialDependence: {
+    title: "PDP — age",
+    x_values: [20, 30, 40, 50, 60],
+    pdp: [0.1, 0.18, 0.3, 0.41, 0.5],
+    ice: [
+      [0.1, 0.15, 0.28, 0.4, 0.48],
+      [0.12, 0.2, 0.32, 0.43, 0.52],
+    ],
+    feature_name: "Age",
+    y_label: null,
+    color: null,
+  },
+  Dendrogram: {
+    title: "Cluster tree",
+    icoord: [
+      [5, 5, 15, 15],
+      [25, 25, 35, 35],
+    ],
+    dcoord: [
+      [0, 1.2, 1.2, 0],
+      [0, 0.8, 0.8, 0],
+    ],
+    labels: ["a", "b", "c", "d"],
+    orientation: "top",
+    color: null,
+  },
+  SilhouettePlot: {
+    title: "Silhouette",
+    data: [
+      { cluster: "0", s: 0.7 },
+      { cluster: "0", s: 0.55 },
+      { cluster: "1", s: 0.42 },
+    ],
+    cluster_key: "cluster",
+    value_key: "s",
+    avg_silhouette: null,
+    color_map: null,
+  },
+  NetworkGraph: {
+    title: "Co-occurrence",
+    nodes: [
+      { id: "A", x: 0, y: 0, label: "A", size: 12, group: "g1" },
+      { id: "B", x: 1, y: 1, label: "B", size: 8, group: "g2" },
+    ],
+    edges: [{ source: "A", target: "B", weight: 3 }],
+    show_labels: true,
+    color_map: null,
+  },
+};
+
+describe("chart catalog schemas — Batch 3 (data science / ML)", () => {
+  for (const [name, sample] of Object.entries(BATCH3_SAMPLES)) {
+    it(`${name} is registered in the catalog`, () => {
+      expect(cat.componentNames).toContain(name);
+    });
+
+    it(`${name} accepts a representative spec`, () => {
+      expect(validateNode(name, sample)).toBe(true);
+    });
+  }
+});

@@ -852,6 +852,102 @@ export const catalog = defineCatalog(schema, {
       description:
         "Correlogram (ACF or PACF): autocorrelation coefficient as stems per lag with a significance band. Use for time-series diagnostics — detecting seasonality, choosing ARIMA orders. Compute coefficients (e.g. statsmodels acf/pacf) and pass {lag, value}; provide n (sample size) for the ±1.96/√n band.",
     },
+    CalibrationCurve: {
+      props: z.object({
+        title: z.string().nullable(),
+        curves: z.array(
+          z.object({
+            label: z.string(),
+            predicted: z.array(z.number()),
+            observed: z.array(z.number()),
+          })
+        ),
+        show_diagonal: z.boolean().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Calibration / reliability curve for a probabilistic classifier: mean predicted probability vs. observed fraction of positives, against the perfect-calibration diagonal. Multiple curves compare models. Compute with sklearn.calibration.calibration_curve and pass predicted/observed arrays per curve.",
+    },
+    LiftChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        curves: z.array(
+          z.object({
+            label: z.string(),
+            x: z.array(z.number()),
+            y: z.array(z.number()),
+          })
+        ),
+        kind: z.enum(["lift", "gain"]).nullable(),
+        show_baseline: z.boolean().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Lift or cumulative-gain chart for ranking/targeting model evaluation. x is the fraction of population targeted (0..1); y is lift (×) or cumulative gain (0..1). Use for marketing/propensity models. Baseline is 1× (lift) or the diagonal (gain).",
+    },
+    PartialDependence: {
+      props: z.object({
+        title: z.string().nullable(),
+        x_values: z.array(z.number()),
+        pdp: z.array(z.number()),
+        ice: z.array(z.array(z.number())).nullable(),
+        feature_name: z.string().nullable(),
+        y_label: z.string().nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Partial dependence plot (PDP) with optional ICE curves: how a model's prediction changes across one feature's range. pdp is the average effect; ice is one faint curve per instance (aligned to x_values). Compute with sklearn.inspection.partial_dependence. Use for model interpretation.",
+    },
+    Dendrogram: {
+      props: z.object({
+        title: z.string().nullable(),
+        icoord: z.array(z.array(z.number())),
+        dcoord: z.array(z.array(z.number())),
+        labels: z.array(z.string()).nullable(),
+        orientation: z.enum(["top", "left"]).nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Dendrogram for hierarchical clustering. Pass the scipy dendrogram output directly: icoord, dcoord (link coordinates) and labels (leaf order, 'ivl'). Compute with scipy.cluster.hierarchy.linkage + dendrogram(no_plot=True). y-axis is merge distance.",
+    },
+    SilhouettePlot: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        cluster_key: z.string(),
+        value_key: z.string(),
+        avg_silhouette: z.number().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Silhouette plot for assessing clustering quality: per-sample silhouette coefficients grouped into cluster wedges, with the overall average marked. Pass one row per sample with its cluster label and silhouette value (sklearn.metrics.silhouette_samples). Wide/positive wedges indicate well-separated clusters.",
+    },
+    NetworkGraph: {
+      props: z.object({
+        title: z.string().nullable(),
+        nodes: z.array(
+          z.object({
+            id: z.string(),
+            x: z.number().nullable(),
+            y: z.number().nullable(),
+            label: z.string().nullable(),
+            size: z.number().nullable(),
+            group: z.string().nullable(),
+          })
+        ),
+        edges: z.array(
+          z.object({
+            source: z.string(),
+            target: z.string(),
+            weight: z.number().nullable(),
+          })
+        ),
+        show_labels: z.boolean().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Node-link network / graph for relationships (social graphs, dependencies, co-occurrence). Provide precomputed node x/y positions (e.g. networkx spring_layout) for a meaningful layout — otherwise nodes fall back to a circle. group colours nodes; size scales them. For flows between stages use SankeyChart instead.",
+    },
     Annotation: {
       props: z.object({
         icon: z.enum(["alert", "info", "trend", "check", "flag"]).nullable(),

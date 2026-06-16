@@ -220,6 +220,30 @@ const CorrelogramComponent = dynamic(
   () => import("./charts/correlogram-chart").then((m) => m.CorrelogramComponent),
   { ssr: false }
 );
+const CalibrationCurveComponent = dynamic(
+  () => import("./charts/calibration-curve-chart").then((m) => m.CalibrationCurveComponent),
+  { ssr: false }
+);
+const LiftChartComponent = dynamic(
+  () => import("./charts/lift-chart").then((m) => m.LiftChartComponent),
+  { ssr: false }
+);
+const PartialDependenceComponent = dynamic(
+  () => import("./charts/partial-dependence-chart").then((m) => m.PartialDependenceComponent),
+  { ssr: false }
+);
+const DendrogramComponent = dynamic(
+  () => import("./charts/dendrogram-chart").then((m) => m.DendrogramComponent),
+  { ssr: false }
+);
+const SilhouetteComponent = dynamic(
+  () => import("./charts/silhouette-chart").then((m) => m.SilhouetteComponent),
+  { ssr: false }
+);
+const NetworkGraphComponent = dynamic(
+  () => import("./charts/network-graph-chart").then((m) => m.NetworkGraphComponent),
+  { ssr: false }
+);
 
 const { registry } = defineRegistry(catalog, {
   components: {
@@ -530,6 +554,36 @@ const { registry } = defineRegistry(catalog, {
     Correlogram: ({ props }) => (
       <ChartExpandWrapper title={props.title}>
         <CorrelogramComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    CalibrationCurve: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <CalibrationCurveComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    LiftChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <LiftChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    PartialDependence: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <PartialDependenceComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    Dendrogram: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <DendrogramComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    SilhouettePlot: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <SilhouetteComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    NetworkGraph: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <NetworkGraphComponent props={props} />
       </ChartExpandWrapper>
     ),
     Annotation: ({ props }) => <AnnotationComponent props={props} />,
