@@ -948,6 +948,113 @@ export const catalog = defineCatalog(schema, {
       description:
         "Node-link network / graph for relationships (social graphs, dependencies, co-occurrence). Provide precomputed node x/y positions (e.g. networkx spring_layout) for a meaningful layout — otherwise nodes fall back to a circle. group colours nodes; size scales them. For flows between stages use SankeyChart instead.",
     },
+    ContourChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        z: z.array(z.array(z.number())),
+        x: z.array(z.number()).nullable(),
+        y: z.array(z.number()).nullable(),
+        x_label: z.string().nullable(),
+        y_label: z.string().nullable(),
+        filled: z.boolean().nullable(),
+        ncontours: z.number().nullable(),
+        colorscale: z.string().nullable(),
+      }),
+      description:
+        "Contour plot of a 2D scalar field or density (z grid). Use for 2D kernel-density estimates, response surfaces, or topographic/level data. Pass z as a 2D array (rows=y, cols=x) with optional x/y coordinate axes; compute KDE on a grid (e.g. scipy.stats.gaussian_kde) for density. Set filled for filled bands vs. lines.",
+    },
+    TernaryChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        a_key: z.string(),
+        b_key: z.string(),
+        c_key: z.string(),
+        a_label: z.string().nullable(),
+        b_label: z.string().nullable(),
+        c_label: z.string().nullable(),
+        group_key: z.string().nullable(),
+        size_key: z.string().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Ternary plot for three-part compositional data that sums to a whole (e.g. soil sand/silt/clay, vote share across 3 parties, portfolio mix). Each point has three components a/b/c. group_key colours by category; size_key scales markers.",
+    },
+    PopulationPyramid: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        category_key: z.string(),
+        left_key: z.string(),
+        right_key: z.string(),
+        left_label: z.string().nullable(),
+        right_label: z.string().nullable(),
+        left_color: z.string().nullable(),
+        right_color: z.string().nullable(),
+        x_label: z.string().nullable(),
+      }),
+      description:
+        "Population / pyramid chart: back-to-back horizontal bars comparing two groups across ordered categories (classically age bands by sex, but any A-vs-B breakdown by category). left_key is drawn to the left, right_key to the right.",
+    },
+    GanttChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        tasks: z.array(
+          z.object({
+            task: z.string(),
+            start: z.union([z.string(), z.number()]),
+            end: z.union([z.string(), z.number()]),
+            group: z.string().nullable(),
+          })
+        ),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Gantt / timeline chart: horizontal bars spanning each task's start→end on a date axis. Use for project schedules, phase timelines, or any interval-per-entity data. start/end are ISO date strings or epoch ms; group colours and legends the bars.",
+    },
+    CohortGrid: {
+      props: z.object({
+        title: z.string().nullable(),
+        z: z.array(z.array(z.number())),
+        row_labels: z.array(z.string()),
+        col_labels: z.array(z.string()),
+        value_suffix: z.string().nullable(),
+        precision: z.number().nullable(),
+        colorscale: z.string().nullable(),
+        x_label: z.string().nullable(),
+        y_label: z.string().nullable(),
+      }),
+      description:
+        "Cohort retention grid: a labelled, colour-coded matrix of cohorts (rows) by period-since-start (columns), each cell a retention/value figure. Use for retention, churn, and cohort analysis. Pass z as the matrix with row_labels (cohorts) and col_labels (periods); value_suffix like '%'.",
+    },
+    QuiverChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        x_key: z.string(),
+        y_key: z.string(),
+        u_key: z.string(),
+        v_key: z.string(),
+        scale: z.number().nullable(),
+        x_label: z.string().nullable(),
+        y_label: z.string().nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Quiver / vector-field plot: arrows showing direction and magnitude at grid points. Use for flow fields, gradients, or 2D force/velocity data. Each row is {x, y, u, v} (position + vector components); scale multiplies arrow length.",
+    },
+    WindRose: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        direction_key: z.string(),
+        bucket_key: z.string(),
+        value_key: z.string(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Wind rose / polar histogram: stacked petals showing frequency by compass direction, split into magnitude buckets. Use for directional data (wind speed/direction, but also any angle × magnitude distribution). direction_key is degrees (0–360) or compass labels (N/NE/…); bucket_key bands the magnitude; value_key is the frequency.",
+    },
     Annotation: {
       props: z.object({
         icon: z.enum(["alert", "info", "trend", "check", "flag"]).nullable(),

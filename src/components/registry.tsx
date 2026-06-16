@@ -244,6 +244,34 @@ const NetworkGraphComponent = dynamic(
   () => import("./charts/network-graph-chart").then((m) => m.NetworkGraphComponent),
   { ssr: false }
 );
+const ContourChartComponent = dynamic(
+  () => import("./charts/contour-chart").then((m) => m.ContourChartComponent),
+  { ssr: false }
+);
+const TernaryChartComponent = dynamic(
+  () => import("./charts/ternary-chart").then((m) => m.TernaryChartComponent),
+  { ssr: false }
+);
+const PopulationPyramidComponent = dynamic(
+  () => import("./charts/population-pyramid-chart").then((m) => m.PopulationPyramidComponent),
+  { ssr: false }
+);
+const GanttChartComponent = dynamic(
+  () => import("./charts/gantt-chart").then((m) => m.GanttChartComponent),
+  { ssr: false }
+);
+const CohortGridComponent = dynamic(
+  () => import("./charts/cohort-grid-chart").then((m) => m.CohortGridComponent),
+  { ssr: false }
+);
+const QuiverChartComponent = dynamic(
+  () => import("./charts/quiver-chart").then((m) => m.QuiverChartComponent),
+  { ssr: false }
+);
+const WindRoseComponent = dynamic(
+  () => import("./charts/wind-rose-chart").then((m) => m.WindRoseComponent),
+  { ssr: false }
+);
 
 const { registry } = defineRegistry(catalog, {
   components: {
@@ -584,6 +612,41 @@ const { registry } = defineRegistry(catalog, {
     NetworkGraph: ({ props }) => (
       <ChartExpandWrapper title={props.title}>
         <NetworkGraphComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    ContourChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ContourChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    TernaryChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <TernaryChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    PopulationPyramid: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <PopulationPyramidComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    GanttChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <GanttChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    CohortGrid: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <CohortGridComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    QuiverChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <QuiverChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    WindRose: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <WindRoseComponent props={props} />
       </ChartExpandWrapper>
     ),
     Annotation: ({ props }) => <AnnotationComponent props={props} />,

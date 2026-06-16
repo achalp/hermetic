@@ -291,3 +291,114 @@ describe("chart catalog schemas — Batch 3 (data science / ML)", () => {
     });
   }
 });
+
+// name -> a valid props sample for the commerce / scientific charts.
+const BATCH4_SAMPLES: Record<string, Record<string, unknown>> = {
+  ContourChart: {
+    title: "Density",
+    z: [
+      [0, 1, 2],
+      [1, 3, 2],
+      [0, 2, 1],
+    ],
+    x: [0, 1, 2],
+    y: [0, 1, 2],
+    x_label: "x",
+    y_label: "y",
+    filled: true,
+    ncontours: 10,
+    colorscale: "Viridis",
+  },
+  TernaryChart: {
+    title: "Soil composition",
+    data: [
+      { sand: 0.3, silt: 0.4, clay: 0.3, type: "A" },
+      { sand: 0.6, silt: 0.2, clay: 0.2, type: "B" },
+    ],
+    a_key: "sand",
+    b_key: "silt",
+    c_key: "clay",
+    a_label: "Sand",
+    b_label: "Silt",
+    c_label: "Clay",
+    group_key: "type",
+    size_key: null,
+    color_map: null,
+  },
+  PopulationPyramid: {
+    title: "Age × sex",
+    data: [
+      { band: "0-9", male: 120, female: 110 },
+      { band: "10-19", male: 100, female: 98 },
+    ],
+    category_key: "band",
+    left_key: "male",
+    right_key: "female",
+    left_label: "Male",
+    right_label: "Female",
+    left_color: null,
+    right_color: null,
+    x_label: "Population",
+  },
+  GanttChart: {
+    title: "Project plan",
+    tasks: [
+      { task: "Design", start: "2026-01-01", end: "2026-01-15", group: "Phase 1" },
+      { task: "Build", start: "2026-01-16", end: "2026-02-10", group: "Phase 2" },
+    ],
+    color_map: null,
+  },
+  CohortGrid: {
+    title: "Retention",
+    z: [
+      [100, 60, 42],
+      [100, 55, 38],
+    ],
+    row_labels: ["Jan", "Feb"],
+    col_labels: ["M0", "M1", "M2"],
+    value_suffix: "%",
+    precision: 0,
+    colorscale: "Blues",
+    x_label: null,
+    y_label: null,
+  },
+  QuiverChart: {
+    title: "Flow field",
+    data: [
+      { x: 0, y: 0, u: 1, v: 0.5 },
+      { x: 1, y: 1, u: -0.5, v: 1 },
+    ],
+    x_key: "x",
+    y_key: "y",
+    u_key: "u",
+    v_key: "v",
+    scale: 1,
+    x_label: null,
+    y_label: null,
+    color: null,
+  },
+  WindRose: {
+    title: "Wind",
+    data: [
+      { dir: "N", speed: "0-5", freq: 12 },
+      { dir: "N", speed: "5-10", freq: 6 },
+      { dir: "NE", speed: "0-5", freq: 9 },
+    ],
+    direction_key: "dir",
+    bucket_key: "speed",
+    value_key: "freq",
+    color_map: null,
+  },
+};
+
+describe("chart catalog schemas — Batch 4 (commerce / scientific)", () => {
+  for (const [name, sample] of Object.entries(BATCH4_SAMPLES)) {
+    it(`${name} is registered in the catalog`, () => {
+      expect(cat.componentNames).toContain(name);
+    });
+
+    it(`${name} accepts a representative spec`, () => {
+      expect(validateNode(name, sample)).toBe(true);
+    });
+  }
+});
