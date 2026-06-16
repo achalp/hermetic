@@ -652,6 +652,96 @@ export const catalog = defineCatalog(schema, {
       description:
         "Decision tree for ML interpretation or decision flowcharts. Branch nodes show conditions, leaves show values.",
     },
+    ErrorBarChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        x_key: z.string(),
+        y_key: z.string(),
+        error_key: z.string().nullable(),
+        error_minus_key: z.string().nullable(),
+        group_key: z.string().nullable(),
+        mode: z.enum(["markers", "bars"]).nullable(),
+        y_log: z.boolean().nullable(),
+        x_label: z.string().nullable(),
+        y_label: z.string().nullable(),
+        color_map: z.record(z.string(), z.string()).nullable(),
+      }),
+      description:
+        "Points or bars with error bars / confidence intervals. error_key is the symmetric magnitude (SE, SD, or half-CI-width); set error_minus_key as well for asymmetric (then error_key is the upper). Use when comparing group means with uncertainty, measurement spread, or any value ± interval. Set y_log for log-scale y. group_key splits into coloured series.",
+    },
+    DualAxisChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        x_key: z.string(),
+        left_series: z.array(
+          z.object({
+            key: z.string(),
+            label: z.string().nullable(),
+            type: z.enum(["bar", "line"]).nullable(),
+            color: z.string().nullable(),
+          })
+        ),
+        right_series: z.array(
+          z.object({
+            key: z.string(),
+            label: z.string().nullable(),
+            type: z.enum(["bar", "line"]).nullable(),
+            color: z.string().nullable(),
+          })
+        ),
+        left_label: z.string().nullable(),
+        right_label: z.string().nullable(),
+        left_log: z.boolean().nullable(),
+        right_log: z.boolean().nullable(),
+        x_label: z.string().nullable(),
+      }),
+      description:
+        "Combo chart with two independent y-axes for series on different scales/units (e.g. revenue vs. margin %, volume vs. price). Each series renders as a bar or line. Set left_log/right_log for log-scale axes. Use ONLY when units genuinely differ — otherwise prefer a normal bar/line chart.",
+    },
+    FunnelChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.object({ label: z.string(), value: z.number() })),
+        orientation: z.enum(["vertical", "horizontal"]).nullable(),
+        show_percent: z.enum(["initial", "previous", "none"]).nullable(),
+        colors: z.array(z.string()).nullable(),
+      }),
+      description:
+        "Funnel chart for sequential conversion / drop-off across ordered stages (e.g. signup → activation → purchase). Pass stages in order, highest at the top. show_percent: 'initial' (% of first stage) or 'previous' (step conversion).",
+    },
+    GaugeChart: {
+      props: z.object({
+        title: z.string().nullable(),
+        value: z.number(),
+        min: z.number().nullable(),
+        max: z.number().nullable(),
+        target: z.number().nullable(),
+        ranges: z.array(z.object({ to: z.number(), color: z.string() })).nullable(),
+        reference: z.number().nullable(),
+        bar_color: z.string().nullable(),
+        suffix: z.string().nullable(),
+        prefix: z.string().nullable(),
+        number_format: z.string().nullable(),
+      }),
+      description:
+        "Radial gauge for a single KPI against a scale, with optional qualitative bands (ranges, ascending 'to' values) and a target threshold line. reference shows a delta. Use for one headline metric vs. goal; for several use StatCards or BulletChart.",
+    },
+    Sparkline: {
+      props: z.object({
+        title: z.string().nullable(),
+        data: z.array(z.record(z.string(), z.unknown())),
+        value_key: z.string(),
+        label: z.string().nullable(),
+        show_value: z.boolean().nullable(),
+        area: z.boolean().nullable(),
+        show_last_point: z.boolean().nullable(),
+        color: z.string().nullable(),
+      }),
+      description:
+        "Compact inline trend line with no axes — for a tiny sparkline beside a label/value (e.g. a metric's recent history in a row or stat strip). Use show_value to print the latest number. For a full trend with axes use LineChart.",
+    },
     Annotation: {
       props: z.object({
         icon: z.enum(["alert", "info", "trend", "check", "flag"]).nullable(),

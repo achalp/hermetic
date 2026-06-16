@@ -172,6 +172,26 @@ const DecisionTreeComponent = dynamic(
   () => import("./charts/decision-tree-chart").then((m) => m.DecisionTreeComponent),
   { ssr: false }
 );
+const ErrorBarChartComponent = dynamic(
+  () => import("./charts/error-bar-chart").then((m) => m.ErrorBarChartComponent),
+  { ssr: false }
+);
+const DualAxisChartComponent = dynamic(
+  () => import("./charts/dual-axis-chart").then((m) => m.DualAxisChartComponent),
+  { ssr: false }
+);
+const FunnelChartComponent = dynamic(
+  () => import("./charts/funnel-chart").then((m) => m.FunnelChartComponent),
+  { ssr: false }
+);
+const GaugeChartComponent = dynamic(
+  () => import("./charts/gauge-chart").then((m) => m.GaugeChartComponent),
+  { ssr: false }
+);
+const SparklineComponent = dynamic(
+  () => import("./charts/sparkline-chart").then((m) => m.SparklineComponent),
+  { ssr: false }
+);
 
 const { registry } = defineRegistry(catalog, {
   components: {
@@ -428,6 +448,27 @@ const { registry } = defineRegistry(catalog, {
         <DecisionTreeComponent props={props} />
       </ChartExpandWrapper>
     ),
+    ErrorBarChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <ErrorBarChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    DualAxisChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <DualAxisChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    FunnelChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <FunnelChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    GaugeChart: ({ props }) => (
+      <ChartExpandWrapper title={props.title}>
+        <GaugeChartComponent props={props} />
+      </ChartExpandWrapper>
+    ),
+    Sparkline: ({ props }) => <SparklineComponent props={props} />,
     Annotation: ({ props }) => <AnnotationComponent props={props} />,
     TrendIndicator: ({ props }) => <TrendIndicatorComponent props={props} />,
     ChartImage: ({ props }) => <ChartImageComponent props={props} />,
