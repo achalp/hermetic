@@ -29,6 +29,11 @@ import {
   buildTurnFromArtifacts,
 } from "@/lib/pipeline/conversation-cache";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
+import {
+  repairStateBindings,
+  harvestStateKeys,
+  type ValidStateKeys,
+} from "@/lib/llm/resolve-placeholders";
 import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
@@ -879,6 +884,25 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
           let stateInjected = false;
           let lineCount = 0;
 
+          // Valid data-key sets for repairing chart `$state` bindings. Seeded
+          // up front from the keys the analysis produced (chart_data / results
+          // mirror the /computed + /datasets seeds), then augmented as
+          // DataController outputs and /state seeds stream in. Lets us rewrite
+          // a chart bound to e.g. /computed/wind_rose onto the produced
+          // /computed/windrose when the compose step drifted on the key name.
+          const validStateKeys: ValidStateKeys | null = useDataController
+            ? {
+                computed: new Set<string>([
+                  ...Object.keys(executionResult.chart_data ?? {}),
+                  ...Object.keys(executionResult.results ?? {}),
+                ]),
+                datasets: new Set<string>([
+                  ...Object.keys(executionResult.chart_data ?? {}),
+                  "main",
+                ]),
+              }
+            : null;
+
           const processLine = (trimmed: string): string | null => {
             if (trimmed === "" || trimmed.startsWith("```")) return null;
             // Replace image placeholders with actual base64 data URIs
@@ -1030,6 +1054,24 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
                 }
               } catch {
                 // Not valid JSON yet, pass through
+              }
+            }
+
+            // Repair chart `$state` bindings so charts read the keys the
+            // analysis actually produced. Harvest declared keys from every
+            // patch (DataController outputs / state seeds), then rewrite any
+            // drifted /computed|/datasets binding on element patches.
+            if (validStateKeys) {
+              try {
+                const parsed = JSON.parse(processed);
+                harvestStateKeys(parsed, validStateKeys);
+                if (typeof parsed?.path === "string" && parsed.path.startsWith("/elements/")) {
+                  if (repairStateBindings(parsed.value, validStateKeys) > 0) {
+                    processed = JSON.stringify(parsed);
+                  }
+                }
+              } catch {
+                // Partial / non-JSON line — pass through unchanged.
               }
             }
 

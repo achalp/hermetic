@@ -45,6 +45,114 @@ function unwrapChartRows(value: unknown): unknown {
   return value;
 }
 
+// ── Chart $state binding repair ──────────────────────────────────
+// Unlike $result/$chartData, `{"$state":"/computed/<key>"}` bindings are NOT
+// resolved server-side — json-render resolves them on the client. So when the
+// analysis step writes a table to `/computed/windrose` but the (separately
+// generated) compose step binds a chart to `/computed/wind_rose`, nothing
+// catches it and the chart renders empty. These helpers repair such bindings
+// against the set of keys the analysis actually produced, matching on a
+// case/underscore/hyphen-insensitive basis.
+
+export interface ValidStateKeys {
+  computed: Set<string>;
+  datasets: Set<string>;
+}
+
+const normalizeStateKey = (s: string): string => s.toLowerCase().replace(/[-_\s]/g, "");
+
+/**
+ * Rewrite a single `/computed/<base>[/...]` or `/datasets/<base>[/...]` path so
+ * its base segment matches a produced key when it differs only by
+ * case/underscores/hyphens (e.g. "/computed/wind_rose" → "/computed/windrose").
+ * Returns the path unchanged when already valid or no normalized match exists.
+ */
+function repairStatePath(path: string, valid: ValidStateKeys): string {
+  const m = /^\/(computed|datasets)\/([^/]+)(\/.*)?$/.exec(path);
+  if (!m) return path;
+  const prefix = m[1] as "computed" | "datasets";
+  const base = m[2];
+  const rest = m[3] ?? "";
+  const set = valid[prefix];
+  if (set.size === 0 || set.has(base)) return path;
+  const norm = normalizeStateKey(base);
+  for (const v of set) {
+    if (normalizeStateKey(v) === norm) return `/${prefix}/${v}${rest}`;
+  }
+  return path;
+}
+
+/**
+ * Recursively repair `{"$state":"/computed|datasets/..."}` bindings in a
+ * streamed patch value so charts read the keys the analysis actually produced.
+ * Mutates `value` in place; returns the number of bindings rewritten.
+ */
+export function repairStateBindings(value: unknown, valid: ValidStateKeys): number {
+  let repairs = 0;
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const n of node) visit(n);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.$state === "string") {
+      const next = repairStatePath(obj.$state, valid);
+      if (next !== obj.$state) {
+        obj.$state = next;
+        repairs++;
+      }
+    }
+    for (const k of Object.keys(obj)) {
+      if (k === "$state") continue;
+      visit(obj[k]);
+    }
+  };
+  visit(value);
+  return repairs;
+}
+
+/**
+ * Harvest `/computed` and `/datasets` base keys *declared* by a streamed patch
+ * (DataController `outputs[].statePath`, `/state` seeds, and direct
+ * `/state/<prefix>/<key>` adds) into the valid-key sets, so chart bindings that
+ * stream nearby can be matched against them. Mutates `valid` in place.
+ */
+export function harvestStateKeys(patch: unknown, valid: ValidStateKeys): void {
+  if (!patch || typeof patch !== "object") return;
+  const p = patch as { path?: unknown; value?: unknown };
+  const path = typeof p.path === "string" ? p.path : "";
+
+  const addFromStatePath = (sp: string): void => {
+    const m = /^\/(computed|datasets)\/([^/]+)/.exec(sp);
+    if (m) valid[m[1] as "computed" | "datasets"].add(m[2]);
+  };
+
+  // DataController element → outputs[].statePath declare /computed keys.
+  if (path.startsWith("/elements/")) {
+    const el = p.value as { type?: unknown; props?: { outputs?: unknown } } | null;
+    if (el && el.type === "DataController" && Array.isArray(el.props?.outputs)) {
+      for (const o of el.props!.outputs as Array<{ statePath?: unknown }>) {
+        if (typeof o?.statePath === "string") addFromStatePath(o.statePath);
+      }
+    }
+  }
+
+  // /state seed carrying computed/datasets objects.
+  if (path === "/state" && p.value && typeof p.value === "object") {
+    for (const prefix of ["computed", "datasets"] as const) {
+      const o = (p.value as Record<string, unknown>)[prefix];
+      if (o && typeof o === "object") {
+        for (const k of Object.keys(o as Record<string, unknown>)) valid[prefix].add(k);
+      }
+    }
+  }
+
+  // Direct /state/computed/<key> or /state/datasets/<key> add.
+  const dm = /^\/state\/(computed|datasets)\/([^/]+)/.exec(path);
+  if (dm) valid[dm[1] as "computed" | "datasets"].add(dm[2]);
+}
+
 /** Replace all `$result:<key>` and `$chartData:<key>` placeholders in a line. */
 export function resolveSpecPlaceholders(
   line: string,
