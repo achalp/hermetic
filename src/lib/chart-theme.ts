@@ -133,13 +133,18 @@ const THEME_TREND_COLORS: Record<
  */
 export function unwrapChartData(data: unknown): Record<string, unknown>[] {
   if (Array.isArray(data)) return data;
-  if (
-    data &&
-    typeof data === "object" &&
-    "data" in data &&
-    Array.isArray((data as Record<string, unknown>).data)
-  ) {
-    return (data as Record<string, unknown>).data as Record<string, unknown>[];
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    // Common wrapper conventions from the sandbox / LLM: {data: [...]} or
+    // {rows: [...]} (mirrors resolve-placeholders' unwrapChartRows so inline
+    // and placeholder-bound chart data behave identically).
+    if (Array.isArray(obj.data)) return obj.data as Record<string, unknown>[];
+    if (Array.isArray(obj.rows)) return obj.rows as Record<string, unknown>[];
+    // Single-key wrapper around an array, e.g. {records: [...]}.
+    const entries = Object.entries(obj);
+    if (entries.length === 1 && Array.isArray(entries[0][1])) {
+      return entries[0][1] as Record<string, unknown>[];
+    }
   }
   return [];
 }

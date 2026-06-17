@@ -1,0 +1,93 @@
+{
+  "state": {},
+  "root": "root",
+  "elements": {
+    "root": {
+      "type": "LayoutColumn",
+      "props": { "gap": 24 },
+      "children": ["h_wind", "windrose", "h_gantt", "gantt", "h_quiver", "quiver"]
+    },
+    "h_wind": {
+      "type": "TextBlock",
+      "props": { "content": "WindRose (custom polar bundle)", "variant": "heading" }
+    },
+    "windrose": {
+      "type": "WindRose",
+      "props": {
+        "title": "Wind frequency by direction and speed band",
+        "data": [
+          { "dir": "N", "speed": "0-10", "freq": 5 },
+          { "dir": "N", "speed": "10-20", "freq": 3 },
+          { "dir": "NE", "speed": "0-10", "freq": 7 },
+          { "dir": "NE", "speed": "10-20", "freq": 4 },
+          { "dir": "E", "speed": "0-10", "freq": 6 },
+          { "dir": "SE", "speed": "0-10", "freq": 8 },
+          { "dir": "S", "speed": "0-10", "freq": 9 },
+          { "dir": "SW", "speed": "0-10", "freq": 14 },
+          { "dir": "SW", "speed": "10-20", "freq": 10 },
+          { "dir": "SW", "speed": "20-30", "freq": 5 },
+          { "dir": "W", "speed": "0-10", "freq": 16 },
+          { "dir": "W", "speed": "10-20", "freq": 12 },
+          { "dir": "W", "speed": "20-30", "freq": 6 },
+          { "dir": "NW", "speed": "0-10", "freq": 8 },
+          { "dir": "NW", "speed": "10-20", "freq": 4 }
+        ],
+        "direction_key": "dir",
+        "bucket_key": "speed",
+        "value_key": "freq",
+        "color_map": null
+      }
+    },
+    "h_gantt": {
+      "type": "TextBlock",
+      "props": { "content": "Gantt (date-axis bars)", "variant": "heading" }
+    },
+    "gantt": {
+      "type": "GanttChart",
+      "props": {
+        "title": "Project timeline",
+        "tasks": [
+          {
+            "task": "Requirements",
+            "start": "2026-01-05",
+            "end": "2026-01-19",
+            "group": "Discovery"
+          },
+          { "task": "Wireframes", "start": "2026-02-03", "end": "2026-02-17", "group": "Design" },
+          { "task": "Backend API", "start": "2026-03-02", "end": "2026-04-06", "group": "Build" },
+          { "task": "Frontend", "start": "2026-03-16", "end": "2026-04-20", "group": "Build" },
+          { "task": "QA & UAT", "start": "2026-04-21", "end": "2026-05-08", "group": "Launch" }
+        ],
+        "color_map": null
+      }
+    },
+    "h_quiver": {
+      "type": "TextBlock",
+      "props": { "content": "Quiver (arrowhead orientation)", "variant": "heading" }
+    },
+    "quiver": {
+      "type": "QuiverChart",
+      "props": {
+        "title": "Circular flow field (u = -y, v = x)",
+        "data": [
+          { "x": -2, "y": -2, "u": 2, "v": -2 },
+          { "x": 0, "y": -2, "u": 2, "v": 0 },
+          { "x": 2, "y": -2, "u": 2, "v": 2 },
+          { "x": -2, "y": 0, "u": 0, "v": -2 },
+          { "x": 2, "y": 0, "u": 0, "v": 2 },
+          { "x": -2, "y": 2, "u": -2, "v": -2 },
+          { "x": 0, "y": 2, "u": -2, "v": 0 },
+          { "x": 2, "y": 2, "u": -2, "v": 2 }
+        ],
+        "x_key": "x",
+        "y_key": "y",
+        "u_key": "u",
+        "v_key": "v",
+        "scale": 1,
+        "x_label": "x",
+        "y_label": "y",
+        "color": null
+      }
+    }
+  }
+}

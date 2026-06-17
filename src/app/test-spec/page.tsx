@@ -6,10 +6,12 @@ import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
 import dataControllerSpec from "../../../test-specs/data-controller-test.json";
 import formControllerSpec from "../../../test-specs/form-controller-test.json";
+import newChartsSmokeSpec from "../../../test-specs/new-charts-smoke.json";
 
 const specs: Record<string, Spec> = {
   "data-controller": dataControllerSpec as unknown as Spec,
   "form-controller": formControllerSpec as unknown as Spec,
+  "new-charts-smoke": newChartsSmokeSpec as unknown as Spec,
 };
 
 export default function TestSpecPage() {

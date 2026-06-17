@@ -59,9 +59,8 @@ export function WindRoseComponent({ props }: { props: WindRoseProps }) {
   const buckets = Array.from(new Set(rows.map((r) => String(r[props.bucket_key] ?? "—"))));
   const colors = useColorMap(buckets, props.color_map);
 
-  if (rows.length === 0) return <div style={{ height: chart.height }} />;
-
   // One stacked barpolar trace per magnitude bucket.
+  let plotted = 0;
   const traces: Data[] = buckets.map((b, i) => {
     const br = rows.filter((r) => String(r[props.bucket_key] ?? "—") === b);
     const theta: number[] = [];
@@ -71,6 +70,7 @@ export function WindRoseComponent({ props }: { props: WindRoseProps }) {
       if (t == null) continue;
       theta.push(t);
       radial.push(Number(r[props.value_key]) || 0);
+      plotted++;
     }
     return {
       type: "barpolar" as const,
@@ -80,6 +80,22 @@ export function WindRoseComponent({ props }: { props: WindRoseProps }) {
       marker: { color: colors[i] ?? palette[i % palette.length] },
     } as Data;
   });
+
+  // Visible empty-state: distinguishes "no/mismatched data" from a render
+  // failure so a blank cell is never ambiguous.
+  if (plotted === 0) {
+    return (
+      <div
+        className="flex items-center justify-center text-t-tertiary"
+        style={{ height: chart.height, fontSize: 13 }}
+      >
+        No directional data to plot — expected columns:{" "}
+        <code className="mx-1">{props.direction_key}</code>,
+        <code className="mx-1">{props.bucket_key}</code>,
+        <code className="mx-1">{props.value_key}</code>.
+      </div>
+    );
+  }
 
   const layout: Partial<Layout> = {
     barmode: "stack",
