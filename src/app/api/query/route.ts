@@ -29,11 +29,8 @@ import {
   buildTurnFromArtifacts,
 } from "@/lib/pipeline/conversation-cache";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
-import {
-  repairStateBindings,
-  harvestStateKeys,
-  type ValidStateKeys,
-} from "@/lib/llm/resolve-placeholders";
+import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
+import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
@@ -44,43 +41,6 @@ import { extractSchema } from "@/lib/csv/schema";
 import { parseCSV } from "@/lib/csv/parser";
 
 export const maxDuration = 300; // 5 min — large Parquet datasets need more time
-
-/**
- * Unwrap a `{value: X, format: "n0", label: "..."}`-style scalar wrapper to
- * its inner primitive. Some Python code generations emit results in this
- * shape; without unwrapping, StatCard `value` props render "[object Object]".
- * Returns the value unchanged if it is not a recognized wrapper.
- */
-function unwrapScalarResult(value: unknown): unknown {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
-  const obj = value as Record<string, unknown>;
-  if (!("value" in obj)) return value;
-  const inner = obj.value;
-  const isScalar =
-    inner === null ||
-    typeof inner === "string" ||
-    typeof inner === "number" ||
-    typeof inner === "boolean";
-  if (!isScalar) return value;
-  const allowed = new Set([
-    "value",
-    "format",
-    "label",
-    "unit",
-    "prefix",
-    "suffix",
-    "is_integer",
-    "delta",
-    "previous",
-    "trend",
-    "icon",
-    "color",
-  ]);
-  for (const k of Object.keys(obj)) {
-    if (!allowed.has(k)) return value;
-  }
-  return inner;
-}
 
 interface DrillDownContext {
   parent_question: string;
@@ -903,180 +863,45 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
               }
             : null;
 
-          const processLine = (trimmed: string): string | null => {
-            if (trimmed === "" || trimmed.startsWith("```")) return null;
-            // Replace image placeholders with actual base64 data URIs
-            let processed = trimmed;
-            for (const [key, dataUri] of Object.entries(imagePlaceholders)) {
-              processed = processed.replaceAll(`IMAGE_PLACEHOLDER_${key}`, dataUri);
-            }
-
-            // Replace $chartData:<key> placeholders with actual data
-            const hasChartPlaceholder = processed.includes("$chartData:");
-            if (hasChartPlaceholder) {
-              logger.debug("chartData replacement: scanning line", {
-                line: processed.slice(0, 200),
-                availableKeys: Object.keys(executionResult.chart_data),
-              });
-            }
-            for (const [key, value] of Object.entries(executionResult.chart_data)) {
-              // Handle top-level keys: "$chartData:scatter"
-              const placeholder = `"$chartData:${key}"`;
-              if (processed.includes(placeholder)) {
-                logger.debug("chartData replacement: matched", { key, placeholder });
-                processed = processed.replaceAll(placeholder, JSON.stringify(value));
-              }
-              // Handle nested keys: "$chartData:heatmap.z"
-              if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-                for (const [subKey, subVal] of Object.entries(value as Record<string, unknown>)) {
-                  const subPlaceholder = `"$chartData:${key}.${subKey}"`;
-                  if (processed.includes(subPlaceholder)) {
-                    logger.debug("chartData replacement: matched nested", {
-                      key,
-                      subKey,
-                      subPlaceholder,
-                    });
-                    processed = processed.replaceAll(subPlaceholder, JSON.stringify(subVal));
-                  }
+          // The shared finalization stage (placeholder resolution + image
+          // inlining + $state repair), the same one Investigate / recompose /
+          // notebook cells use. Ask mode additionally injects the full dataset
+          // into the first `/state` patch so the DataController can filter it
+          // client-side.
+          const finalize = createSpecFinalizer({
+            results: executionResult.results,
+            chartData: executionResult.chart_data,
+            imagePlaceholders,
+            validStateKeys,
+            mutatePatch: (patch) => {
+              if (
+                useDataController &&
+                !stateInjected &&
+                mainDataset &&
+                patch.op === "add" &&
+                patch.path === "/state" &&
+                patch.value &&
+                typeof patch.value === "object"
+              ) {
+                const value = patch.value as Record<string, unknown>;
+                const datasets = (value.datasets ??= {}) as Record<string, unknown>;
+                datasets.main = mainDataset;
+                // Structured chart_data (geojson, globe, sankey, etc.) → datasets
+                for (const [key, v] of Object.entries(executionResult.chart_data)) {
+                  if (v && typeof v === "object") datasets[key] = v;
                 }
+                stateInjected = true;
+                return true;
               }
-            }
-            // Fallback: resolve unmatched placeholders by assembling from available keys.
-            // e.g. "$chartData:globe" → {points: chart_data.points, arcs: chart_data.arcs}
-            if (processed.includes("$chartData:")) {
-              const fallbackRegex = /"\$chartData:([^"]+)"/g;
-              processed = processed.replace(fallbackRegex, (_match, keyPath: string) => {
-                // Check if the placeholder refers to a composite object
-                // that should be assembled from individual top-level keys
-                const chart = executionResult.chart_data;
-                if (keyPath === "globe" || keyPath === "globe_data") {
-                  const assembled: Record<string, unknown> = {};
-                  if ("points" in chart) assembled.points = chart.points;
-                  if ("arcs" in chart) assembled.arcs = chart.arcs;
-                  if (Object.keys(assembled).length > 0) {
-                    logger.debug("chartData replacement: assembled composite", {
-                      keyPath,
-                      keys: Object.keys(assembled),
-                    });
-                    return JSON.stringify(assembled);
-                  }
-                }
-                // Generic fallback: if keyPath matches no key, try without underscores/hyphens
-                const normalized = keyPath.toLowerCase().replace(/[-_]/g, "");
-                for (const [k, v] of Object.entries(chart)) {
-                  if (k.toLowerCase().replace(/[-_]/g, "") === normalized) {
-                    logger.debug("chartData replacement: fuzzy matched", {
-                      keyPath,
-                      matchedKey: k,
-                    });
-                    return JSON.stringify(v);
-                  }
-                }
-                logger.warn("chartData replacement: unresolved placeholder, replacing with null", {
-                  keyPath,
-                  availableKeys: Object.keys(chart),
-                });
-                return "null";
-              });
-            }
+              return false;
+            },
+          });
 
-            // Replace $result:<key> placeholders with actual values from execution results.
-            // Resolve dot-notation paths greedily to handle keys containing literal dots
-            // (e.g. "significant_at_0.05" is a single key, not nested).
-            const resolveResultKey = (keyPath: string): unknown => {
-              const resolve = (obj: unknown, path: string): unknown => {
-                if (obj === null || obj === undefined || typeof obj !== "object") return undefined;
-                const rec = obj as Record<string, unknown>;
-                if (path in rec) return rec[path];
-                const dot = path.indexOf(".");
-                if (dot === -1) return undefined;
-                const head = path.slice(0, dot);
-                const tail = path.slice(dot + 1);
-                if (head in rec) return resolve(rec[head], tail);
-                return undefined;
-              };
-              return resolve(executionResult.results, keyPath);
-            };
-
-            // Pass 1: standalone JSON string values like "$result:total_sales" → raw JSON value
-            // Uses [^"]+ to support keys with spaces (e.g. "$result:status.On Track").
-            // Unwraps `{value: X, format: "n0"}` wrappers so StatCard `value`
-            // props don't end up rendering as "[object Object]".
-            const resultRegex = /"\$result:([^"]+)"/g;
-            processed = processed.replace(resultRegex, (_match, keyPath: string) => {
-              const value = resolveResultKey(keyPath.trim());
-              if (value === undefined) return _match;
-              return JSON.stringify(unwrapScalarResult(value));
-            });
-
-            // Pass 2: inline placeholders within larger strings like "F-stat: $result:f_stat"
-            // These survive Pass 1 because the quotes don't wrap just the placeholder.
-            // Lookahead `[^a-zA-Z0-9_.]|$` stops at any non-key char so trailing
-            // punctuation (`)`, `%`, `:`, `;`, `]`) doesn't keep the placeholder
-            // raw in narrative text.
-            const inlineResultRegex =
-              /\$result:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=[^a-zA-Z0-9_.]|$)/g;
-            processed = processed.replace(inlineResultRegex, (_match, keyPath: string) => {
-              const raw = resolveResultKey(keyPath.trim());
-              if (raw === undefined) return _match;
-              const value = unwrapScalarResult(raw);
-              if (typeof value === "number") {
-                return Number.isInteger(value)
-                  ? String(value)
-                  : parseFloat(value.toFixed(4)).toString();
-              }
-              if (typeof value === "boolean") return value ? "Yes" : "No";
-              if (value === null) return "null";
-              if (typeof value === "object") return JSON.stringify(value);
-              return String(value);
-            });
-
-            // Inject datasets.main (+ structured chart_data) into a JSON-Patch that sets /state
-            if (useDataController && !stateInjected && mainDataset) {
-              try {
-                const parsed = JSON.parse(processed);
-                if (
-                  parsed.op === "add" &&
-                  parsed.path === "/state" &&
-                  typeof parsed.value === "object" &&
-                  parsed.value !== null
-                ) {
-                  if (!parsed.value.datasets) parsed.value.datasets = {};
-                  parsed.value.datasets.main = mainDataset;
-                  // Inject structured chart_data (geojson, globe, sankey, etc.) into datasets
-                  for (const [key, value] of Object.entries(executionResult.chart_data)) {
-                    if (typeof value === "object" && value !== null) {
-                      parsed.value.datasets[key] = value;
-                    }
-                  }
-                  processed = JSON.stringify(parsed);
-                  stateInjected = true;
-                }
-              } catch {
-                // Not valid JSON yet, pass through
-              }
-            }
-
-            // Repair chart `$state` bindings so charts read the keys the
-            // analysis actually produced. Harvest declared keys from every
-            // patch (DataController outputs / state seeds), then rewrite any
-            // drifted /computed|/datasets binding on element patches.
-            if (validStateKeys) {
-              try {
-                const parsed = JSON.parse(processed);
-                harvestStateKeys(parsed, validStateKeys);
-                if (typeof parsed?.path === "string" && parsed.path.startsWith("/elements/")) {
-                  if (repairStateBindings(parsed.value, validStateKeys) > 0) {
-                    processed = JSON.stringify(parsed);
-                  }
-                }
-              } catch {
-                // Partial / non-JSON line — pass through unchanged.
-              }
-            }
-
+          const processLine = (line: string): string | null => {
+            const result = finalize(line);
+            if (result.skip) return null;
             lineCount++;
-            return processed;
+            return result.line;
           };
 
           try {

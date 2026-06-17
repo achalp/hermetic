@@ -15,7 +15,7 @@ import { applySpecPatch, parseSpecStreamLine, type Spec } from "@json-render/cor
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getStoredCSV } from "@/lib/csv/storage";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
-import { resolveSpecPlaceholders } from "@/lib/llm/resolve-placeholders";
+import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import { isValidModelId, UI_COMPOSE_MODEL } from "@/lib/constants";
@@ -133,13 +133,16 @@ export async function POST(request: Request) {
       },
     };
 
+    const finalize = createSpecFinalizer({
+      results: mergedResults,
+      chartData: mergedChartData,
+    });
     let buffer = "";
     let applied = 0;
     const ingest = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("```")) return;
-      const resolved = resolveSpecPlaceholders(trimmed, mergedResults, mergedChartData);
-      const patch = parseSpecStreamLine(resolved);
+      const r = finalize(line);
+      if (r.skip) return;
+      const patch = parseSpecStreamLine(r.line);
       if (!patch) return;
       try {
         applySpecPatch(spec, patch);

@@ -22,7 +22,7 @@ import {
 } from "@/lib/pipeline/investigate-orchestrator";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
-import { resolveSpecPlaceholders } from "@/lib/llm/resolve-placeholders";
+import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   buildInvestigationTrace,
@@ -735,35 +735,38 @@ export async function POST(request: Request) {
           const CONCLUSION_PATH_RE = /^\/elements\/conclusion(?:[-_][a-z0-9]+)?$/;
           const synthesis: { summary?: string; conclusion?: string } = {};
 
-          const ingestComposedLine = (preResolution: string, resolved: string) => {
+          const ingestComposedLine = (preResolution: string, patch: SpecPatch | null) => {
             // Raw line: only unambiguous $result/$chartData placeholders count
             // as citations — prose-scanning the raw JSON would match element
             // IDs / key paths named after steps and suppress the
             // uncited-steps advisory.
             for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
-            try {
-              const patch = JSON.parse(resolved) as { path?: string; value?: unknown };
-              if (patch && "value" in patch) {
-                const isSummary = !!patch.path && SUMMARY_PATH_RE.test(patch.path);
-                const isConclusion =
-                  !isSummary && !!patch.path && CONCLUSION_PATH_RE.test(patch.path);
-                if (isSummary || isConclusion) {
-                  const content = (patch.value as { props?: { content?: unknown } } | null)?.props
-                    ?.content;
-                  if (typeof content === "string" && content.trim()) {
-                    if (isSummary) synthesis.summary = content;
-                    else synthesis.conclusion = content;
-                  }
-                }
-                for (const text of collectNarrativeStrings(patch.value)) {
-                  narrativeTexts.push(text);
-                  for (const n of extractCitedSteps(text)) citedSteps.add(n);
+            if (patch && "value" in patch) {
+              const isSummary = !!patch.path && SUMMARY_PATH_RE.test(patch.path);
+              const isConclusion =
+                !isSummary && !!patch.path && CONCLUSION_PATH_RE.test(patch.path);
+              if (isSummary || isConclusion) {
+                const content = (patch.value as { props?: { content?: unknown } } | null)?.props
+                  ?.content;
+                if (typeof content === "string" && content.trim()) {
+                  if (isSummary) synthesis.summary = content;
+                  else synthesis.conclusion = content;
                 }
               }
-            } catch {
-              // Non-JSON or partial line — skip; grounding is best-effort.
+              for (const text of collectNarrativeStrings(patch.value)) {
+                narrativeTexts.push(text);
+                for (const n of extractCitedSteps(text)) citedSteps.add(n);
+              }
             }
           };
+
+          // Shared finalization stage (placeholder resolution + $state repair),
+          // identical to Ask mode. Investigate inlines per-step data via
+          // $chartData/$result, so no DataController $state repair is needed.
+          const finalize = createSpecFinalizer({
+            results: mergedResults,
+            chartData: mergedChartData,
+          });
 
           let buffer = "";
           for await (const chunk of compose.textStream) {
@@ -772,18 +775,18 @@ export async function POST(request: Request) {
             const lines = buffer.split("\n");
             buffer = lines.pop() ?? "";
             for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed) continue;
-              if (trimmed.startsWith("```")) continue;
-              const resolved = resolveSpecPlaceholders(trimmed, mergedResults, mergedChartData);
-              ingestComposedLine(trimmed, resolved);
-              emit(resolved + "\n");
+              const r = finalize(line);
+              if (r.skip) continue;
+              ingestComposedLine(r.raw, r.patch);
+              emit(r.line + "\n");
             }
           }
-          if (buffer.trim() && !buffer.trim().startsWith("```")) {
-            const resolved = resolveSpecPlaceholders(buffer.trim(), mergedResults, mergedChartData);
-            ingestComposedLine(buffer.trim(), resolved);
-            emit(resolved + "\n");
+          if (buffer.trim()) {
+            const r = finalize(buffer);
+            if (!r.skip) {
+              ingestComposedLine(r.raw, r.patch);
+              emit(r.line + "\n");
+            }
           }
 
           // ── Notebook cells: settle and attach ──

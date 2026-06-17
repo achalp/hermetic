@@ -24,7 +24,8 @@ import { applySpecPatch, parseSpecStreamLine, type Spec } from "@json-render/cor
 import { getModel } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { describeShape, describeResultsSchema } from "@/lib/llm/investigate-composer";
-import { resolveSpecPlaceholders, unwrapScalar } from "@/lib/llm/resolve-placeholders";
+import { unwrapScalar } from "@/lib/llm/resolve-placeholders";
+import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { UI_COMPOSE_MODEL } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
@@ -147,11 +148,11 @@ export function assembleCellSpec(
 ): Spec | null {
   const spec: Spec = { root: "", elements: {} };
   let applied = 0;
+  const finalize = createSpecFinalizer({ results, chartData });
   for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("```")) continue;
-    const resolved = resolveSpecPlaceholders(trimmed, results, chartData);
-    const patch = parseSpecStreamLine(resolved);
+    const r = finalize(line);
+    if (r.skip) continue;
+    const patch = parseSpecStreamLine(r.line);
     if (!patch) continue;
     try {
       applySpecPatch(spec, patch);
