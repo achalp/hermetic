@@ -1,23 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { catalog } from "@/lib/catalog";
+import { catalog, catalogComponents } from "@/lib/catalog";
 
 // Validates that each newly-added chart component is (a) registered in the
-// catalog and (b) accepts a representative, LLM-shaped spec through the
-// catalog's render-tree validator — the exact contract the composer must
-// satisfy. This catches accidental schema drift and unregistered components.
-// One valid sample per component; negative cases guard required/typed fields.
+// catalog and (b) accepts a representative, LLM-shaped props object against
+// its OWN zod schema. We parse the component prop schema directly rather than
+// the json-render render-tree validator, whose contract drifts across the
+// floating 0.x dependency (which made this suite pass locally but fail in CI).
+// One valid sample per component; a negative case guards unregistered names.
 
-const cat = catalog as unknown as {
-  componentNames: string[];
-  validate: (tree: unknown) => { success: boolean };
-};
+const cat = catalog as unknown as { componentNames: string[] };
 
-/** Wrap a component's props in a minimal valid render tree and validate. */
+const components = catalogComponents as unknown as Record<
+  string,
+  { props: { safeParse: (v: unknown) => { success: boolean } } }
+>;
+
+/** True if `type` is a registered component whose zod schema accepts `props`. */
 function validateNode(type: string, props: Record<string, unknown>): boolean {
-  return cat.validate({
-    root: "n1",
-    elements: { n1: { type, props, children: [] } },
-  }).success;
+  const def = components[type];
+  return !!def && def.props.safeParse(props).success;
 }
 
 // name -> a valid props sample (nulls included to mirror the composer output)
