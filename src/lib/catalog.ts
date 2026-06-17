@@ -1048,12 +1048,12 @@ export const catalog = defineCatalog(schema, {
         title: z.string().nullable(),
         data: z.array(z.record(z.string(), z.unknown())),
         direction_key: z.string(),
-        bucket_key: z.string(),
-        value_key: z.string(),
+        bucket_key: z.string().nullable(),
+        value_key: z.string().nullable(),
         color_map: z.record(z.string(), z.string()).nullable(),
       }),
       description:
-        "Wind rose / polar histogram: stacked petals showing frequency by compass direction, split into magnitude buckets. Use for directional data (wind speed/direction, but also any angle × magnitude distribution). direction_key is degrees (0–360) or compass labels (N/NE/…); bucket_key bands the magnitude; value_key is the frequency.",
+        "Wind rose / polar histogram: stacked petals showing frequency by compass direction, split into magnitude buckets. Use for directional data (wind speed/direction, but any angle × magnitude distribution works). direction_key names the direction column (degrees 0–360 or compass labels N/NE/…). Accepts EITHER wide rows {direction, <band1>: freq, <band2>: freq, ...} (one row per direction, one numeric column per band — the natural pivot output; leave bucket_key/value_key null) OR long rows {direction, bucket, frequency} (set bucket_key and value_key). CRITICAL: bind data to the EXACT same state/result key the analysis writes the aggregated table to — the key name in the chart's data binding must match the analysis output key character-for-character.",
     },
     Annotation: {
       props: z.object({
