@@ -38,7 +38,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Smart question suggestions.** After loading data, the LLM analyzes your schema and suggests specific, insightful questions tailored to your actual columns and patterns.
 - **Try with sample data.** One-click sample dataset to explore Hermetic without needing your own data.
 - **Show your work.** Every analysis includes a plain-English methodology explanation — how many rows were analyzed, which columns were used, what operations were performed.
-- **Six output styles.** Choose how results are presented: Dashboard, Narrative, Summary, Deep dive, Slides, or Report.
+- **Four output styles.** Choose how results are framed: Dashboard (at-a-glance grid), Brief (bottom-line-up-front), Report (formal sectioned document), or Deep dive (exhaustive multi-angle). Slides (PPTX / Reveal deck) is an export format.
 - **Light / Dark / System mode.** Toggle between light and dark themes, or follow your OS preference.
 
 ### Agentic Analysis
@@ -59,14 +59,14 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 ### Visualization
 
-- **32 chart types.** Bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick, sankey, treemap, sunburst, radar, bump, chord, waterfall, calendar, stream, ridgeline, dumbbell, slope, beeswarm, marimekko, bullet, parallel coordinates, confusion matrix, ROC curve, SHAP beeswarm, decision tree.
+- **57 chart types.** Core (bar, line, area, pie, scatter, histogram, box, violin, heatmap); financial & KPI (candlestick, waterfall, funnel, gauge, bullet, dual-axis); flow & hierarchy (sankey, chord, treemap, sunburst, marimekko); statistics (Pareto, QQ, ECDF, survival/Kaplan–Meier, forest, control/SPC, correlogram, error bars/CI); ML (confusion matrix, ROC, calibration, lift/gain, partial dependence, SHAP beeswarm, dendrogram, silhouette, decision tree, network graph); and scientific/temporal (contour, ternary, population pyramid, Gantt, cohort grid, quiver, wind rose, calendar, stream, ridgeline, bump, radar, dumbbell, slope, beeswarm, sparkline, parallel coordinates).
 - **3D visualizations.** Scatter3D, Surface3D, Globe3D, deck.gl maps.
 - **Geographic maps.** MapLibre GL vector tile maps with GeoJSON overlays, deck.gl layers (hexagon, column, arc, scatterplot, heatmap) with click/hover interactivity.
 - **Interactive pivot tables.** Sort, drill-through, drill-down, cross-filter against other widgets on the same dashboard, aggregator switcher, heatmap mode, multi-value and multi-aggregator support.
 - **Adaptive dashboards.** The LLM composes layouts tailored to each question — bar charts for comparisons, line charts for trends, stat cards for KPIs.
 - **Drill-down navigation.** Click chart segments to explore deeper.
 - **Client-side filtering.** DataController enables instant cross-filtering across dashboards.
-- **Expanded mode for every chart.** All 32 chart components support full-height expanded rendering; labels truncate with tooltips instead of overlapping; WCAG-compliant font sizes throughout.
+- **Expanded mode for every chart.** Chart components support full-height expanded rendering; labels truncate with tooltips instead of overlapping; WCAG-compliant font sizes throughout.
 
 ### Operations
 
@@ -383,7 +383,7 @@ src/
       analysis-history.tsx  Session + persistent history of past analyses
       saved-vizs-panel.tsx  Saved dashboards with schedule pills
       suggestion-pills.tsx  LLM-generated question + follow-up suggestions
-    charts/             32 chart components (Nivo, Plotly, deck.gl, MapLibre GL)
+    charts/             57 chart components (Nivo, Plotly, deck.gl, MapLibre GL)
     pivot-table.tsx     Interactive pivot table (sort, drill, cross-filter)
     controllers/        DataController for client-side filtering
     inputs/             Form inputs (Select, NumberInput, Toggle)
@@ -412,7 +412,7 @@ src/
     saved/              Saved viz storage, versioning, scheduler (node-cron)
     history/            Persistent on-disk history
     suggest-questions.ts  Heuristic question suggestion fallback
-    purpose-prompts.ts  Output style definitions (Dashboard, Narrative, etc.)
+    purpose-prompts.ts  Output style definitions (Dashboard, Brief, Report, Deep dive)
 ```
 
 ### How It Works
@@ -522,38 +522,63 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 
 ### Charts
 
-| Component           | Purpose                             | Library    |
-| ------------------- | ----------------------------------- | ---------- |
-| BarChart            | Categorical comparisons             | Nivo       |
-| LineChart           | Trends over time                    | Nivo       |
-| AreaChart           | Trends with volume                  | Nivo       |
-| PieChart            | Part-of-whole composition           | Nivo       |
-| ScatterChart        | Correlation between variables       | Nivo       |
-| RadarChart          | Multivariate comparison             | Nivo       |
-| BumpChart           | Ranking changes over time           | Nivo       |
-| ChordChart          | Flow between categories             | Nivo       |
-| SunburstChart       | Hierarchical composition            | Nivo       |
-| TreemapChart        | Hierarchical proportions            | Nivo       |
-| SankeyChart         | Flow quantities between nodes       | Nivo       |
-| MarimekkoChart      | Two-dimensional composition         | Nivo       |
-| CalendarChart       | Values over calendar days           | Nivo       |
-| StreamChart         | Stacked trends over time            | Nivo       |
-| Histogram           | Value distribution                  | Plotly     |
-| BoxPlot             | Statistical distribution            | Plotly     |
-| HeatMap             | Matrix of values by color           | Plotly     |
-| ViolinChart         | Distribution shape comparison       | Plotly     |
-| CandlestickChart    | OHLC financial data                 | Plotly     |
-| WaterfallChart      | Cumulative value changes            | Plotly     |
-| RidgelineChart      | Overlapping distributions           | Plotly     |
-| DumbbellChart       | Range between two values            | Plotly     |
-| SlopeChart          | Change between two points           | Plotly     |
-| BeeswarmChart       | Distribution with individual points | Plotly     |
-| ShapBeeswarm        | SHAP feature importance             | Plotly     |
-| ConfusionMatrix     | Classification performance          | Plotly     |
-| RocCurve            | Binary classifier performance       | Plotly     |
-| ParallelCoordinates | Multivariate patterns               | Custom SVG |
-| BulletChart         | Progress toward a target            | Custom SVG |
-| DecisionTree        | Tree model visualization            | Custom SVG |
+| Component           | Purpose                                | Library    |
+| ------------------- | -------------------------------------- | ---------- |
+| BarChart            | Categorical comparisons                | Nivo       |
+| LineChart           | Trends over time                       | Nivo       |
+| AreaChart           | Trends with volume                     | Nivo       |
+| PieChart            | Part-of-whole composition              | Nivo       |
+| ScatterChart        | Correlation between variables          | Nivo       |
+| RadarChart          | Multivariate comparison                | Nivo       |
+| BumpChart           | Ranking changes over time              | Nivo       |
+| ChordChart          | Flow between categories                | Nivo       |
+| SunburstChart       | Hierarchical composition               | Nivo       |
+| TreemapChart        | Hierarchical proportions               | Nivo       |
+| SankeyChart         | Flow quantities between nodes          | Nivo       |
+| MarimekkoChart      | Two-dimensional composition            | Nivo       |
+| CalendarChart       | Values over calendar days              | Nivo       |
+| StreamChart         | Stacked trends over time               | Nivo       |
+| Histogram           | Value distribution                     | Plotly     |
+| BoxPlot             | Statistical distribution               | Plotly     |
+| HeatMap             | Matrix of values by color              | Plotly     |
+| ViolinChart         | Distribution shape comparison          | Plotly     |
+| CandlestickChart    | OHLC financial data                    | Plotly     |
+| WaterfallChart      | Cumulative value changes               | Plotly     |
+| RidgelineChart      | Overlapping distributions              | Plotly     |
+| DumbbellChart       | Range between two values               | Plotly     |
+| SlopeChart          | Change between two points              | Plotly     |
+| BeeswarmChart       | Distribution with individual points    | Plotly     |
+| ShapBeeswarm        | SHAP feature importance                | Plotly     |
+| ConfusionMatrix     | Classification performance             | Plotly     |
+| RocCurve            | Binary classifier performance          | Plotly     |
+| ParallelCoordinates | Multivariate patterns                  | Custom SVG |
+| BulletChart         | Progress toward a target               | Custom SVG |
+| DecisionTree        | Tree model visualization               | Custom SVG |
+| ErrorBarChart       | Points/bars with confidence intervals  | Plotly     |
+| DualAxisChart       | Two measures on independent y-axes     | Plotly     |
+| FunnelChart         | Sequential conversion / drop-off       | Plotly     |
+| GaugeChart          | Single KPI against a scale             | Plotly     |
+| Sparkline           | Compact inline trend                   | Custom SVG |
+| ParetoChart         | 80/20 — sorted bars + cumulative %     | Plotly     |
+| QQPlot              | Normality check vs. quantiles          | Plotly     |
+| ECDFChart           | Empirical cumulative distribution      | Plotly     |
+| SurvivalChart       | Kaplan–Meier survival curves           | Plotly     |
+| ForestPlot          | Effect sizes with confidence intervals | Plotly     |
+| ControlChart        | SPC chart with control limits          | Plotly     |
+| Correlogram         | ACF / PACF autocorrelation             | Plotly     |
+| CalibrationCurve    | Classifier reliability diagram         | Plotly     |
+| LiftChart           | Lift / cumulative gain                 | Plotly     |
+| PartialDependence   | Model PDP / ICE curves                 | Plotly     |
+| Dendrogram          | Hierarchical clustering tree           | Plotly     |
+| SilhouettePlot      | Clustering quality by cluster          | Plotly     |
+| NetworkGraph        | Node-link relationships                | Plotly     |
+| ContourChart        | 2D density / scalar field              | Plotly     |
+| TernaryChart        | Three-part compositional data          | Plotly     |
+| PopulationPyramid   | Back-to-back category comparison       | Plotly     |
+| GanttChart          | Task timelines on a date axis          | Plotly     |
+| CohortGrid          | Retention matrix by cohort × period    | Plotly     |
+| QuiverChart         | Vector / flow field                    | Plotly     |
+| WindRose            | Polar histogram by direction           | Plotly     |
 
 ### 3D and Geospatial
 
