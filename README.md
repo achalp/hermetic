@@ -291,9 +291,14 @@ The setup script checks prerequisites, installs dependencies, sets up your chose
 
 1. **Install dependencies**
 
+   This project uses [pnpm](https://pnpm.io). Enable it with Corepack (bundled with Node), then install:
+
    ```bash
-   npm install
+   corepack enable
+   pnpm install
    ```
+
+   The committed `pnpm-lock.yaml` is registry-agnostic, so it installs cleanly against the public npm registry or a corporate mirror (e.g. Artifactory) configured in your `~/.npmrc`.
 
 2. **Configure environment**
 
@@ -344,7 +349,7 @@ The setup script checks prerequisites, installs dependencies, sets up your chose
 4. **Start the dev server**
 
    ```bash
-   npm run dev
+   pnpm dev
    ```
 
 5. Open [http://localhost:3000](http://localhost:3000)
@@ -445,16 +450,16 @@ src/
 ## Development
 
 ```bash
-npm run dev          # Start dev server
-npm run build        # Production build
-npm run lint         # ESLint
-npm run lint:fix     # ESLint with auto-fix
-npm run format       # Prettier format
-npm run format:check # Prettier check
-npm run type-check   # TypeScript check
-npm test             # Run tests
-npm run test:watch   # Tests in watch mode
-npm run analyze      # Bundle analysis
+pnpm dev             # Start dev server
+pnpm build           # Production build
+pnpm lint            # ESLint
+pnpm lint:fix        # ESLint with auto-fix
+pnpm format          # Prettier format
+pnpm format:check    # Prettier check
+pnpm type-check      # TypeScript check
+pnpm test            # Run tests
+pnpm test:watch      # Tests in watch mode
+pnpm analyze         # Bundle analysis
 ```
 
 ## Sandbox Runtimes

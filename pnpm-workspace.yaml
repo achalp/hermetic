@@ -1,0 +1,32 @@
+# pnpm 10+ reads project settings from here (not the "pnpm" field in
+# package.json, and — for pnpm 11 — not these keys from .npmrc either).
+#
+# Registry is intentionally not set anywhere in the repo: each environment
+# supplies its own (Artifactory locally via ~/.npmrc, public npm in CI). The
+# lockfile is registry-agnostic (content-addressed integrity), so the same
+# committed pnpm-lock.yaml installs against either.
+
+# Flat node_modules like npm — lowest migration risk, and keeps long-standing
+# phantom imports (e.g. @luma.gl/* via deck.gl) resolvable.
+nodeLinker: hoisted
+
+strictPeerDependencies: false
+
+# CI installs once with --frozen-lockfile, so don't re-verify deps before every
+# `pnpm run <script>` (would otherwise hit the network on each script).
+verifyDepsBeforeRun: false
+
+# Native dependencies whose install/build scripts are allowed to run.
+onlyBuiltDependencies:
+  - core-js
+  - es5-ext
+  - lz4
+  - sharp
+  - unrs-resolver
+
+allowBuilds:
+  core-js: set this to true or false
+  es5-ext: set this to true or false
+  lz4: set this to true or false
+  sharp: set this to true or false
+  unrs-resolver: set this to true or false
