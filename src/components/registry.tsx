@@ -694,12 +694,16 @@ const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
  * ActionProvider-compatible handlers for the registry's custom actions
  * (currently `drillDown`). MUST be passed to `<ActionProvider handlers={...}>`
  * or custom actions emitted by charts (e.g. drillDown) won't be registered and
- * clicking a drillable chart silently no-ops. The drillDown handler reads the
- * module-level drillDownCallbackRef and doesn't touch state, so the
- * state getters are unused here.
+ * clicking a drillable chart silently no-ops.
+ *
+ * IMPORTANT: json-render's generated handler wraps each action as
+ *   async (params) => { const setState = getSetState(); if (setState) await action(params, setState, state); }
+ * so `getSetState` MUST return a truthy function or the action is silently
+ * skipped (guard fails). drillDown reads the module-level drillDownCallbackRef
+ * and never touches state, so a no-op setState satisfies the guard.
  */
 export const registryActionHandlers = createRegistryHandlers(
-  () => undefined,
+  () => () => {},
   () => ({})
 );
 
