@@ -15,11 +15,16 @@
  */
 
 import type { Spec } from "@json-render/core";
-import { generatePlan } from "@/lib/llm/investigate-planner";
+import { generatePlan, type InvestigateScope } from "@/lib/llm/investigate-planner";
 import {
   runInvestigation,
   type InvestigateProgressEvent,
 } from "@/lib/pipeline/investigate-orchestrator";
+import { runPipeline } from "@/lib/pipeline/orchestrator";
+import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
+import { classifyFollowupDepth } from "@/lib/llm/followup-classifier";
+import { tryConsumeAutoInvestigation } from "@/lib/pipeline/auto-investigation-budget";
+import { MAX_AUTO_INVESTIGATIONS_PER_SESSION } from "@/lib/constants";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -104,6 +109,13 @@ interface InvestigateContext {
   ui_compose_model?: string;
   sandbox_runtime?: string;
   purpose?: string;
+  /**
+   * Prior-investigation context for a scoped follow-up (drill-as-sub-
+   * investigation). Set by the client when the user drills into a chart
+   * segment or asks a follow-up on an Investigate result; threaded into the
+   * planner so the new plan goes deeper instead of repeating the parent.
+   */
+  scope?: InvestigateScope;
 }
 
 interface InvestigateBody {
@@ -339,6 +351,72 @@ export async function POST(request: Request) {
             }
           }
 
+          // ── Drill-as-sub-investigation cost gate ──
+          // A scoped follow-up (chart drill or sticky follow-up) is classified
+          // lookup-vs-deep. Lookups — and any auto-routed follow-up beyond the
+          // per-session budget — answer with a single-shot dashboard instead of
+          // a full multi-step investigation, so LLM cost stays bounded. The gate
+          // is lookup-biased and fail-safe: a classifier error defaults to the
+          // cheap path. Fresh (unscoped) investigations are never gated.
+          if (context.scope) {
+            const scope = context.scope;
+            const depth = await classifyFollowupDepth({ question, scope });
+            const budgetKey = csvId ?? warehouseId ?? "default";
+            const goDeep =
+              depth === "deep" &&
+              tryConsumeAutoInvestigation(budgetKey, MAX_AUTO_INVESTIGATIONS_PER_SESSION);
+            if (!goDeep) {
+              logger.info("Investigate: scoped follow-up routed to single-shot", {
+                depth,
+                question: question.slice(0, 120),
+              });
+              const drillDownContext = scope.filters?.length
+                ? {
+                    parent_question: scope.parent_question ?? question,
+                    filter_column: scope.filters[0].column,
+                    filter_value: scope.filters[0].value,
+                    segment_label: scope.segment_label ?? "",
+                    chart_title: null,
+                    additional_filters: scope.filters.slice(1),
+                  }
+                : null;
+              const cheap = await runPipeline(
+                stored.schema,
+                csvContent || "",
+                question,
+                (stage) => {
+                  if (stage === "generating_code") emitProgress("analyzing", 1, 3);
+                  else if (stage === "executing") emitProgress("computing", 2, 3);
+                },
+                "metadata",
+                codeGenModel,
+                sandboxRuntime,
+                geojsonContent,
+                undefined,
+                undefined,
+                localMountPath,
+                localFileContext,
+                undefined
+              );
+              await composeAndStreamDashboard({
+                executionResult: cheap.executionResult,
+                opts: {
+                  question,
+                  schema: stored.schema,
+                  schemaMode: "metadata",
+                  purpose: context.purpose ?? "dashboard",
+                  priorTurns: [],
+                  drillDownContext,
+                },
+                uiComposeModel,
+                emit,
+                isClosed: () => closed,
+                onComposing: () => emitProgress("composing", 3, 3),
+              });
+              return;
+            }
+          }
+
           // ── Step 1: Plan ──
           emitProgress("planning", 1, 99);
           // For warehouse investigations, give the planner the FULL table
@@ -348,7 +426,8 @@ export async function POST(request: Request) {
             question,
             stored.schema,
             warehouseState?.warehouse.tableSchemas,
-            codeGenModel
+            codeGenModel,
+            context.scope
           );
           if (!planResult.ok) {
             throw new Error(`Plan generation failed: ${planResult.error}`);

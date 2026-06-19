@@ -297,12 +297,24 @@ export function pickTickValues(
 ): (string | number)[] | undefined {
   if (data.length <= maxTicks) return undefined;
   const step = Math.ceil(data.length / maxTicks);
+  // Dedup by string value: with un-aggregated data (e.g. one row per
+  // month-per-region) the same x can be sampled twice, and Nivo keys each axis
+  // tick by its value — duplicate ticks trigger React's "two children with the
+  // same key" error. The point scale already collapses duplicate x positions,
+  // so the tick list must match.
   const ticks: (string | number)[] = [];
+  const seen = new Set<string>();
+  const pushUnique = (v: string | number) => {
+    const k = String(v);
+    if (!seen.has(k)) {
+      seen.add(k);
+      ticks.push(v);
+    }
+  };
   for (let i = 0; i < data.length; i += step) {
-    ticks.push(data[i][xKey] as string | number);
+    pushUnique(data[i][xKey] as string | number);
   }
-  const last = data[data.length - 1][xKey] as string | number;
-  if (ticks[ticks.length - 1] !== last) ticks.push(last);
+  pushUnique(data[data.length - 1][xKey] as string | number);
   return ticks;
 }
 

@@ -11,6 +11,8 @@ import {
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { drillClickValueRef } from "@/lib/drill-down-context";
+import { lineClickRecord } from "@/lib/drill-resolve";
 
 interface AreaChartProps {
   title?: string | null;
@@ -69,7 +71,6 @@ export function AreaChartComponent({
   return (
     <div
       className={`w-full${isDrillable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
-      onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
         <h3
@@ -127,6 +128,16 @@ export function AreaChartComponent({
           pointSize={chart.pointSize}
           useMesh
           enableSlices="x"
+          onClick={
+            isDrillable
+              ? (datum) => {
+                  const rec = lineClickRecord(datum, props.x_key);
+                  if (!rec) return;
+                  drillClickValueRef.current = rec;
+                  emit?.("click");
+                }
+              : undefined
+          }
           legends={
             hasLegend
               ? [

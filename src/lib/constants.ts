@@ -26,6 +26,14 @@ export const INVESTIGATE_MAX_SUBQUESTIONS = 10; // hard cap on total sub-questio
 // for an extra wave before being forced to compose with what it has.
 export const COMPOSER_MAX_DISPATCHES = 1;
 
+// Drill-as-sub-investigation cost control. A follow-up/drill auto-routed to
+// Investigate is first classified lookup-vs-deep by a cheap model; lookups run
+// the single-shot path instead of a full investigation. The per-session budget
+// is a hard backstop against pathological drilling — beyond it, auto-routed
+// follow-ups degrade to lookup regardless of the classifier.
+export const FOLLOWUP_CLASSIFIER_MODEL = "claude-haiku-4-5-20251001" as const;
+export const MAX_AUTO_INVESTIGATIONS_PER_SESSION = 4;
+
 export const AVAILABLE_MODELS = [
   { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },

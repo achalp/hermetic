@@ -11,6 +11,8 @@ import {
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { drillClickValueRef } from "@/lib/drill-down-context";
+import { lineClickRecord } from "@/lib/drill-resolve";
 
 type CurveType = "linear" | "monotone" | "step";
 
@@ -83,7 +85,6 @@ export function LineChartComponent({
   return (
     <div
       className={`w-full${isDrillable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
-      onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
         <h3
@@ -136,6 +137,18 @@ export function LineChartComponent({
           pointBorderColor={{ from: "serieColor" }}
           useMesh
           enableSlices="x"
+          onClick={
+            isDrillable
+              ? (datum) => {
+                  // Drill by the clicked x value (Nivo passes a point or, with
+                  // enableSlices, an x-slice).
+                  const rec = lineClickRecord(datum, props.x_key);
+                  if (!rec) return;
+                  drillClickValueRef.current = rec;
+                  emit?.("click");
+                }
+              : undefined
+          }
           legends={
             hasLegend
               ? [

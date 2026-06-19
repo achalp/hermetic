@@ -5,6 +5,8 @@ import { ResponsivePie } from "@nivo/pie";
 import { resolveColors, useChartColors, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { drillClickValueRef } from "@/lib/drill-down-context";
+import { CLICK_PRIMARY } from "@/lib/drill-resolve";
 
 interface PieChartProps {
   title?: string | null;
@@ -103,7 +105,6 @@ export function PieChartComponent({
   return (
     <div
       className={`w-full${isDrillable || isSelectable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
-      onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
         <h3
@@ -166,7 +167,13 @@ export function PieChartComponent({
             isSelectable
               ? (datum) => onSelect(String(datum.id))
               : isDrillable
-                ? () => emit?.("click")
+                ? (datum) => {
+                    // A pie slice knows its label but not the underlying column
+                    // name, so capture it under the primary sentinel — the drill
+                    // callback falls back to it when a column lookup misses.
+                    drillClickValueRef.current = { [CLICK_PRIMARY]: String(datum.id) };
+                    emit?.("click");
+                  }
                 : undefined
           }
         />

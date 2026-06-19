@@ -10,12 +10,14 @@ import {
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
 import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
-import { drillDownCallbackRef } from "@/lib/drill-down-context";
+import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-context";
+import { resolveDrillValues } from "@/lib/drill-resolve";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, SchemaMode } from "@/lib/types";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
+import type { InvestigateScope } from "@/lib/llm/investigate-planner";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { getArtifacts, recomposeInvestigation } from "@/lib/api";
@@ -38,6 +40,38 @@ interface DrillLevel {
  */
 function specHasInvestigation(spec: Spec | null | undefined): boolean {
   return Boolean(spec?.state && "__plan" in (spec.state as Record<string, unknown>));
+}
+
+/**
+ * Build the scoped-follow-up context for an Investigate, from the prior
+ * investigation's `__plan` (approach + the sub-questions it already explored)
+ * plus any drilled-segment filters. Drives drill-as-sub-investigation: the new
+ * plan goes deeper instead of repeating the parent. Returns undefined when
+ * there's nothing to scope (no prior plan and no filters).
+ */
+function buildInvestigateScope(
+  spec: Spec | null | undefined,
+  extra?: {
+    parentQuestion?: string;
+    filters?: { column: string; value: string | number }[];
+    segmentLabel?: string;
+  }
+): InvestigateScope | undefined {
+  const plan = (spec?.state as Record<string, unknown> | undefined)?.__plan as
+    | { approach?: string; steps?: { question?: string }[] }
+    | undefined;
+  const hasPlan = !!plan && typeof plan === "object";
+  if (!hasPlan && !extra?.filters?.length) return undefined;
+  return {
+    parent_question: extra?.parentQuestion,
+    prior_approach: hasPlan ? plan!.approach : undefined,
+    prior_steps:
+      hasPlan && Array.isArray(plan!.steps)
+        ? plan!.steps.map((s) => s.question).filter((q): q is string => !!q)
+        : undefined,
+    filters: extra?.filters,
+    segment_label: extra?.segmentLabel,
+  };
 }
 
 const VIEW_MODE_STORAGE_KEY = "hermetic-investigate-view";
@@ -251,6 +285,14 @@ export function ResponsePanel({
 
     if ((!csvId && !warehouseId) || !question) return;
 
+    // Capture the prior result's investigation plan BEFORE it's cleared below.
+    // A follow-up asked in Investigate mode on an Investigate result becomes a
+    // scoped sub-investigation: the planner sees what the parent already
+    // explored and goes deeper instead of repeating it (drill-as-sub-
+    // investigation). No scope on a first question or an Ask-mode follow-up.
+    const followUpScope =
+      mode === "investigate" ? buildInvestigateScope(currentSpecRef.current) : undefined;
+
     // Show previous spec dimmed while streaming
     if (currentSpecRef.current) {
       setPreviousSpec(currentSpecRef.current);
@@ -279,6 +321,8 @@ export function ResponsePanel({
       // Used for Edit-and-Rerun: rebuild dashboard from edited Python and/or SQL.
       code: rerunCode ?? undefined,
       sql: rerunSql ?? undefined,
+      // Scoped follow-up on a prior Investigate (consumed by the investigate route).
+      scope: followUpScope,
     });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -289,6 +333,17 @@ export function ResponsePanel({
     drillDownCallbackRef.current = (params: DrillDownParams) => {
       if (!currentSpecRef.current || !csvId) return;
 
+      // Charts aren't json-render list/repeater contexts, so the composer's
+      // {"$item": ...} drill bindings arrive unresolved. Resolve them against
+      // the dimension values the chart captured on click (drillClickValueRef).
+      const clicked = drillClickValueRef.current;
+      drillClickValueRef.current = null;
+      const resolved = resolveDrillValues(params, clicked);
+      // Value-less click on a bound chart, or a binding with nothing captured
+      // — nothing meaningful to drill into.
+      if (!resolved) return;
+      const { filterValue, segmentLabel, additionalFilters: resolvedAdditional } = resolved;
+
       const currentQuestion = currentQuestionRef.current ?? "Analysis";
       // Deep-clone the spec so later stream mutations don't corrupt the snapshot
       const snapshotSpec = JSON.parse(JSON.stringify(currentSpecRef.current!));
@@ -296,18 +351,37 @@ export function ResponsePanel({
         ...prev,
         {
           question: currentQuestion,
-          segmentLabel: params.segment_label,
+          segmentLabel,
           spec: snapshotSpec,
         },
       ]);
 
-      const additionalFilters = params.additional_filters ?? [];
+      const additionalFilters = resolvedAdditional;
       const filterDesc = [
-        `${params.filter_column} = ${params.filter_value}`,
+        `${params.filter_column} = ${filterValue}`,
         ...additionalFilters.map((f) => `${f.column} = ${f.value}`),
       ].join(", ");
-      const drillQuestion = `Drill down into "${params.segment_label}" (${filterDesc}): analyze this segment in detail`;
+      // Neutral phrasing — the depth (quick lookup vs. scoped sub-investigation)
+      // is decided by the classifier on the investigate route, not pre-biased by
+      // wording like "analyze in detail".
+      const drillQuestion = `Analyze the "${segmentLabel}" segment (${filterDesc})`;
       currentQuestionRef.current = drillQuestion;
+
+      // Drill-as-sub-investigation: when drilling a chart on an Investigate
+      // result, route the segment through a scoped Investigate (the segment
+      // filters + the parent plan become the planner's scope). On an Ask
+      // result this is undefined and the existing drill_down_context path runs.
+      const drillFilters = [
+        { column: params.filter_column, value: filterValue },
+        ...additionalFilters,
+      ];
+      const drillScope = specHasInvestigation(snapshotSpec as Spec)
+        ? buildInvestigateScope(snapshotSpec as Spec, {
+            parentQuestion: currentQuestion,
+            filters: drillFilters,
+            segmentLabel,
+          })
+        : undefined;
       currentSpecRef.current = null;
 
       send("", {
@@ -317,11 +391,12 @@ export function ResponsePanel({
         drill_down_context: {
           parent_question: currentQuestion,
           filter_column: params.filter_column,
-          filter_value: params.filter_value,
-          segment_label: params.segment_label,
+          filter_value: filterValue,
+          segment_label: segmentLabel,
           chart_title: params.chart_title,
           additional_filters: additionalFilters.length > 0 ? additionalFilters : undefined,
         },
+        scope: drillScope,
         schema_mode: schemaMode,
         code_gen_model: codeGenModel,
         ui_compose_model: uiComposeModel,

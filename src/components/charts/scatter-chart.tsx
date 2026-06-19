@@ -10,6 +10,8 @@ import {
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { drillClickValueRef } from "@/lib/drill-down-context";
+import { CLICK_PRIMARY } from "@/lib/drill-resolve";
 
 interface ScatterChartProps {
   title?: string | null;
@@ -143,7 +145,6 @@ export function ScatterChartComponent({
   return (
     <div
       className={`w-full${isDrillable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
-      onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
         <h3
@@ -191,6 +192,22 @@ export function ScatterChartComponent({
             legendOffset: -56,
           }}
           nodeSize={chart.pointSize + 2}
+          onClick={
+            isDrillable
+              ? (node) => {
+                  // The clicked node's group is the drillable category; also
+                  // capture x/y so a 2-D drill can filter on them.
+                  const sid = String(node.serieId);
+                  drillClickValueRef.current = {
+                    ...(groupKey ? { [groupKey]: sid } : {}),
+                    [xKey]: node.data.x as number,
+                    [yKey]: node.data.y as number,
+                    [CLICK_PRIMARY]: sid,
+                  };
+                  emit?.("click");
+                }
+              : undefined
+          }
           layers={[
             "grid",
             "axes",

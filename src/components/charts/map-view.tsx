@@ -12,6 +12,8 @@ import MapGL, {
 import "maplibre-gl/dist/maplibre-gl.css";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
+import { drillClickValueRef } from "@/lib/drill-down-context";
+import { featureClickRecord } from "@/lib/drill-resolve";
 
 interface MarkerItem {
   lat: number;
@@ -426,21 +428,35 @@ export function MapViewComponent({
     map.getCanvas().style.cursor = "";
   }, []);
 
-  const onMapClick = useCallback((e: MapLayerMouseEvent) => {
-    if (!e.features || e.features.length === 0) {
-      setSelectedFeature(null);
-      return;
-    }
-    const feature = e.features[0];
-    const geometry = feature.geometry as unknown as Record<string, unknown>;
-    const centroid = computeCentroid(geometry);
-    const properties = (feature.properties ?? {}) as Record<string, unknown>;
+  const onMapClick = useCallback(
+    (e: MapLayerMouseEvent) => {
+      if (!e.features || e.features.length === 0) {
+        setSelectedFeature(null);
+        return;
+      }
+      const feature = e.features[0];
+      const properties = (feature.properties ?? {}) as Record<string, unknown>;
 
-    setSelectedFeature((prev) => {
-      if (prev && prev.anchor[0] === centroid[0] && prev.anchor[1] === centroid[1]) return null;
-      return { properties, anchor: centroid };
-    });
-  }, []);
+      // When drill is bound, a feature click drills into that region instead
+      // of opening the property popup.
+      if (isDrillable) {
+        const rec = featureClickRecord(properties);
+        if (rec) {
+          drillClickValueRef.current = rec;
+          emit?.("click");
+          return;
+        }
+      }
+
+      const geometry = feature.geometry as unknown as Record<string, unknown>;
+      const centroid = computeCentroid(geometry);
+      setSelectedFeature((prev) => {
+        if (prev && prev.anchor[0] === centroid[0] && prev.anchor[1] === centroid[1]) return null;
+        return { properties, anchor: centroid };
+      });
+    },
+    [isDrillable, emit]
+  );
 
   const hasData = markers.length > 0 || geojson;
   if (!hasData) {
@@ -448,10 +464,7 @@ export function MapViewComponent({
   }
 
   return (
-    <div
-      className={`w-full${isDrillable ? " cursor-pointer" : ""}`}
-      onClick={isDrillable ? () => emit?.("click") : undefined}
-    >
+    <div className={`w-full${isDrillable ? " cursor-pointer" : ""}`}>
       {props.title && (
         <h3
           className="mb-2 text-t-secondary"

@@ -149,18 +149,62 @@ function summarizeSchemaForPlanner(
   return "(no schema available)";
 }
 
+/**
+ * Prior-investigation context for a scoped follow-up (drill-as-sub-
+ * investigation). When the user drills into a chart segment or asks a
+ * follow-up on an Investigate result, the planner receives what the parent
+ * investigation already established so it can go DEEPER instead of repeating
+ * it, optionally restricted to a drilled segment.
+ */
+export interface InvestigateScope {
+  /** The question the parent investigation answered. */
+  parent_question?: string;
+  /** The parent investigation's approach (from its plan). */
+  prior_approach?: string;
+  /** Sub-questions the parent already explored (so we don't repeat them). */
+  prior_steps?: string[];
+  /** Segment filters to restrict every sub-question to (from a chart drill). */
+  filters?: { column: string; value: string | number }[];
+  /** Human-readable label for the drilled segment. */
+  segment_label?: string;
+}
+
+function buildScopeBlock(scope: InvestigateScope): string {
+  const lines: string[] = ["## Prior Investigation Context — this is a scoped follow-up"];
+  lines.push(
+    `The user previously investigated: "${scope.parent_question ?? "(a prior analysis)"}"`
+  );
+  if (scope.prior_approach) lines.push(`Prior approach: ${scope.prior_approach}`);
+  if (scope.prior_steps?.length) {
+    lines.push(`Already explored (do NOT repeat these):`);
+    for (const s of scope.prior_steps.slice(0, 8)) lines.push(`- ${s}`);
+  }
+  if (scope.filters?.length) {
+    const f = scope.filters.map((x) => `${x.column} = ${x.value}`).join(" AND ");
+    lines.push(
+      `SCOPE every sub-question to this segment${scope.segment_label ? ` (${scope.segment_label})` : ""}: ${f}. Filter to it in the generated code.`
+    );
+  }
+  lines.push(
+    `\nTreat the prior findings as established — do not re-derive them. Decompose the follow-up into 2-4 sub-questions that go DEEPER${scope.filters?.length ? " within this segment" : ""}, building on what was already explored rather than restating it.`
+  );
+  return lines.join("\n") + "\n\n";
+}
+
 function buildPlannerUserPrompt(
   question: string,
   schema: CSVSchema | null,
-  warehouse?: WarehouseTableSchema[]
+  warehouse?: WarehouseTableSchema[],
+  scope?: InvestigateScope
 ): string {
-  return `## User Question
+  const scopeBlock = scope ? buildScopeBlock(scope) : "";
+  return `${scopeBlock}## User Question
 ${question}
 
 ## Schema
 ${summarizeSchemaForPlanner(schema, warehouse)}
 
-Decompose the question into 3-5 sub-questions following the rules above. Output JSON only.`;
+Decompose the question into ${scope ? "2-4" : "3-5"} sub-questions following the rules above. Output JSON only.`;
 }
 
 /**
@@ -295,18 +339,21 @@ export async function generatePlan(
   question: string,
   schema: CSVSchema | null,
   warehouse: WarehouseTableSchema[] | undefined,
-  model: string = CODE_GEN_MODEL
+  model: string = CODE_GEN_MODEL,
+  scope?: InvestigateScope
 ): Promise<ParsedPlanResult | ParseError> {
   logger.info("Investigate: generating plan", {
     question: question.slice(0, 200),
     hasSchema: !!schema,
     warehouseTables: warehouse?.length ?? 0,
+    scoped: !!scope,
+    scopeFilters: scope?.filters?.length ?? 0,
   });
 
   const result = await generateText({
     model: getModel(model),
     system: PLANNER_SYSTEM_PROMPT,
-    prompt: buildPlannerUserPrompt(question, schema, warehouse),
+    prompt: buildPlannerUserPrompt(question, schema, warehouse, scope),
     temperature: 0.3,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
@@ -612,4 +659,5 @@ export const __testing = {
   summarizeSchemaForPlanner,
   normalizeDependsOn,
   parseReplannerOutput,
+  buildPlannerUserPrompt,
 };

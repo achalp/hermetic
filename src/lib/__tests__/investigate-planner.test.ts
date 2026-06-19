@@ -5,7 +5,44 @@ import {
   __testing,
 } from "@/lib/llm/investigate-planner";
 
-const { extractJsonObject, normalizeDependsOn, parseReplannerOutput } = __testing;
+const { extractJsonObject, normalizeDependsOn, parseReplannerOutput, buildPlannerUserPrompt } =
+  __testing;
+
+describe("buildPlannerUserPrompt — scoped follow-up (drill-as-sub-investigation)", () => {
+  it("omits the scope block and asks for 3-5 sub-questions when unscoped", () => {
+    const p = buildPlannerUserPrompt("What drives revenue?", null, undefined);
+    expect(p).not.toContain("Prior Investigation Context");
+    expect(p).toContain("3-5 sub-questions");
+  });
+
+  it("injects prior approach + already-explored steps and asks for 2-4 when scoped", () => {
+    const p = buildPlannerUserPrompt("Why did it spike in March?", null, undefined, {
+      parent_question: "What drives revenue?",
+      prior_approach: "Break revenue down by region and month",
+      prior_steps: ["Revenue by region", "Revenue by month"],
+    });
+    expect(p).toContain("Prior Investigation Context");
+    expect(p).toContain("What drives revenue?");
+    expect(p).toContain("Break revenue down by region and month");
+    expect(p).toContain("Revenue by region");
+    expect(p).toContain("do NOT repeat");
+    expect(p).toContain("2-4 sub-questions");
+  });
+
+  it("emits a hard segment-scope instruction when drill filters are present", () => {
+    const p = buildPlannerUserPrompt('Analyze the "West" segment', null, undefined, {
+      parent_question: "Top regions?",
+      filters: [
+        { column: "region", value: "West" },
+        { column: "tier", value: "Enterprise" },
+      ],
+      segment_label: "West / Enterprise",
+    });
+    expect(p).toContain("SCOPE every sub-question to this segment");
+    expect(p).toContain("region = West AND tier = Enterprise");
+    expect(p).toContain("within this segment");
+  });
+});
 
 describe("normalizeDependsOn", () => {
   it("returns [] for null/undefined/strings/booleans", () => {

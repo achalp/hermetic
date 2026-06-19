@@ -10,6 +10,8 @@ import {
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { drillClickValueRef } from "@/lib/drill-down-context";
+import { CLICK_PRIMARY } from "@/lib/drill-resolve";
 
 interface BarChartProps {
   title?: string | null;
@@ -131,7 +133,6 @@ export function BarChartComponent({
   return (
     <div
       className={`w-full${isDrillable || isSelectable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
-      onClick={isDrillable ? () => emit?.("click") : undefined}
     >
       {props.title && (
         <h3
@@ -219,7 +220,16 @@ export function BarChartComponent({
             isSelectable
               ? (datum) => onSelect(String(datum.indexValue))
               : isDrillable
-                ? () => emit?.("click")
+                ? (datum) => {
+                    // Capture the clicked category (keyed by its real column)
+                    // so the drill callback can resolve the spec's {"$item": …}
+                    // filter binding.
+                    drillClickValueRef.current = {
+                      [props.x_key]: datum.indexValue,
+                      [CLICK_PRIMARY]: datum.indexValue,
+                    };
+                    emit?.("click");
+                  }
                 : undefined
           }
         />

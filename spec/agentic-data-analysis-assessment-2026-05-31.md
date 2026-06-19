@@ -1,10 +1,12 @@
 # Agentic Data Analysis — SOTA Assessment & Hermetic Gap Analysis
 
-_Last updated: 2026-06-07_
+_Last updated: 2026-06-18_
 
 > **Status update (2026-06-04):** All four Tier 1 items have shipped. Hermetic now rates **level 4** on the capability ladder below. The body of this document is preserved as the pre-Tier-1 assessment; see [Appendix A — What shipped](#appendix-a--what-shipped-2026-06-04) for the post-implementation rating and what remains.
 >
 > **Status update (2026-06-07):** The verifiability work in [§4 — Verifiability](#4-verifiability--grounding-and-the-audit-trail-shipped-2026-06-07) has shipped: narrative grounding (the guard against plausible-but-wrong), citation discipline in the composer, deterministic surfacing of degraded/failed/dropped branches, and a full, re-runnable per-step audit trail in the artifacts panel. This is a trust-axis improvement, not a capability-ladder level; the level-4 **outcome** claim still rests on the outstanding 50-run eval (Appendix A).
+>
+> **Status update (2026-06-18) — Tier 2 & Tier 3 re-assessed; most of it rejected.** A critical pass concluded that the Tier 2 (multi-tool) and Tier 3 (frontier) roadmaps below are largely **ladder-chasing**, not user value, and that several items actively fight Hermetic's two moats (schema-only privacy; verifiability). **Shipped:** drill-as-sub-investigation (Tier 3). **Rejected as distractions:** web/multi-tool use, hypothesis mode, cross-investigation memory, open-ended auto-run. The §3.1 Tier 2/3 lists are preserved as the original thinking; see [Appendix B — Tier 2 & Tier 3 re-assessment](#appendix-b--tier-2--tier-3-re-assessment-2026-06-18) for what we're actually doing and why.
 
 **Companion document:** [`agentic-tier-1-implementation-plan-2026-05-31.md`](./agentic-tier-1-implementation-plan-2026-05-31.md) — concrete implementation plan for the four Tier 1 items called out at the end of this doc.
 
@@ -316,3 +318,34 @@ Bounds are hard-coded in `src/lib/constants.ts`: `INVESTIGATE_MAX_HOPS = 2`, `IN
 **Shipped since (2026-06-07):** the verifiability layer in [§4](#4-verifiability--grounding-and-the-audit-trail-shipped-2026-06-07) — narrative grounding, composer citation discipline, deterministic degraded/failed surfacing, and a re-runnable per-step audit trail in the artifacts panel. This addresses the plausible-but-wrong risk the capability work introduced, but does not change the ladder rating or retire the eval gate below.
 
 Gap 4 (no tool use beyond code-gen) is the only remaining gap below level 5. The next capability tier is **Tier 2 — multi-tool use** (§3.1): a privacy-preserving tool registry (`searchWeb`, `readDbtModel`, `queryWarehouseMetadata`) plus tool-use prompting in the planner. Tier 3 (cross-investigation memory, hypothesis mode, open-ended exploration, drill-as-sub-investigation) follows once Tier 2 lands and there is telemetry on real investigations.
+
+> **Superseded (2026-06-18):** this "what's next" reflects the original ladder-climbing plan. After a critical re-assessment we are **not** pursuing Tier 2 as specified, and only one Tier 3 item (drill-as-sub-investigation) was worth building. See [Appendix B](#appendix-b--tier-2--tier-3-re-assessment-2026-06-18).
+
+---
+
+## Appendix B — Tier 2 & Tier 3 re-assessment (2026-06-18)
+
+A critical pass on the Tier 2 (multi-tool) and Tier 3 (frontier) roadmaps. The conclusion: **most of it is ladder-chasing, not user value.** Two framing errors run through §3:
+
+1. **The capability ladder is the wrong north star.** It comes from academic agent benchmarks (DSBench, MLE-bench, Data Interpreter) built for _open-ended autonomous ML on arbitrary tasks_. Hermetic's job is narrower and clearer: turn a question about **a specific dataset** into a **trustworthy dashboard**. Climbing a benchmark-shaped ladder pulls a focused product toward generic-assistant territory — where it competes with ChatGPT/Claude's data-plus-web and loses its differentiation. A higher ladder score is not intrinsically user value.
+2. **The decision was made without the eval.** The 50-run eval (Appendix A) was deliberately skipped, so we don't actually know where the loop fails. Tier 2/3 prioritization here is on first-principles judgment, not observed failure modes.
+
+**The throughline:** Hermetic's value and differentiation are in **depth + trust** — rigorous analysis of _your_ data, verifiably — not breadth. Every item below that we keep _deepens_ that core; every one we reject _expands breadth_ at the cost of the moats (schema-only privacy; the verifiability layer in §4).
+
+### Tier 2 — Multi-tool use: **rejected as specified**
+
+- **`searchWeb` — reject.** It breaks both moats: it sends analysis-derived queries off the machine (privacy), and it injects unverifiable external claims into the narrative, voiding the grounding guarantee (§4) that every number traces to the user's computed data. It's also a commodity (ChatGPT/Claude already do data + web).
+- **`queryWarehouseMetadata` — redundant.** The "shape over samples" schema extraction already captures distinct counts, uniqueness, distributions, ranges, correlations (`csv/schema.ts`), and anything else is already expressible as a SQL query the agent generates and self-repairs (`warehouse/sql-generation.ts`). Not a missing tool; at most a prompting pattern.
+- **`readDbtModel` — already shipped + narrow.** `warehouse/dbt-metadata.ts` already pulls dbt column descriptions into context. The increment is marginal and serves only the dbt-power-user segment, not the core "non-technical, has data" audience.
+- **The only defensible slice — deferred:** _privacy-safe reconnaissance over the user's own data_ (profile-a-column, sample-distinct-values, check-join-cardinality, verify-a-filter-returns-rows). This attacks the real failure mode (degenerate results, bad joins) and is aligned with both moats — but it's "more SQL/Python reconnaissance," achievable mostly through prompting + a thin wrapper, and should clear a cheap **falsification probe** (find 3 real cases where a named tool beats the current loop) before any build.
+
+### Tier 3 — Frontier: **one item built, three rejected as distractions**
+
+- **Drill-as-sub-investigation — ✅ shipped (2026-06-18).** When a user drills into a chart segment or asks a follow-up on an Investigate result, it now routes through a **scoped** Investigate: the planner receives the parent's approach + already-explored steps (and any drilled-segment filters) as `InvestigateScope`, and goes _deeper_ (2–4 sub-questions within the segment) instead of repeating the parent or falling through to a shallow single-shot. Concrete, low-risk, mostly plumbing on the existing loop, aligned with real follow-up behavior. **Key code:** `InvestigateScope` + scoped prompt in `llm/investigate-planner.ts`; `context.scope` threaded in `api/query/investigate/route.ts`; `buildInvestigateScope` + drill/follow-up wiring in `components/app/response-panel.tsx`. **Escalation policy (MVP):** sticky depth (follow-ups stay in Investigate by default; the user drops to Ask via the picker for a quick lookup) + planner graceful degradation (scoped plans are smaller). An automatic lookup-vs-deep classifier is the documented fast-follow — it's the genuinely hard 20%, but the planner already keeps lookups small, so the degradation is graceful.
+- **Hypothesis mode — ❌ rejected (distraction).** Strategically the most _aligned_ (falsification = the antidote to confirmation bias, fits the trust moat) but the highest execution risk: done badly it manufactures false certainty ("refuted, p<0.05" on observational data with unhandled confounders), which is _worse_ than not having it. Audience fit is also narrow (shines for causal/comparative questions, feels academic for descriptive lookups). Not worth the risk now.
+- **Cross-investigation memory — ❌ rejected (distraction).** The "validated findings" half is a hazard (data changes — scheduled refresh exists — so injected findings go stale and _anchor_ the agent on a dead premise; it also reintroduces the un-recomputed-claim problem §4 just killed). Value concentrates in recurring-same-dataset power users, not the broad one-off-upload audience, and partly overlaps the conversation cache + persistent history. The only durable slice ("dead-ends / data-quirks" memory) is marginal and deferred.
+- **Open-ended auto-run ("find something interesting") — ❌ rejected (distraction).** The valuable half — _proposing_ good questions from schema/stats — already ships (smart question suggestions + suggested follow-ups). The novel half — _auto-running_ exploration — is the classic auto-EDA trap: without a goal it surfaces the statistically-obvious (which the user already knows), is expensive (3–5 full investigations), and "interesting" needs domain context the tool lacks.
+
+### Net
+
+Build the depth-deepeners, drop the breadth plays. Drill-as-sub-investigation is shipped. The recon-on-own-data slice of Tier 2 is the only other candidate, gated behind a falsification probe. Hypothesis mode, cross-investigation memory, and open-ended auto-run are out.

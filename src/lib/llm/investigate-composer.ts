@@ -204,6 +204,7 @@ Wrap everything in a LayoutColumn root. Then produce, in order:
 - Each step's data is namespaced with prefix \`step_<N>_\` where N is 1-based. Reference it like "$result:step_2_total_revenue" or "$chartData:step_2_bar_data".
 - Use the EXACT key names provided in the data shapes — case-sensitive, fully prefixed.
 - Use stat cards for top-line numbers, bar charts for category comparisons, line charts for trends, treemap/sunburst for hierarchies.
+- **Drill-down:** when a step's chart breaks a metric down by a category the user could explore further (region, segment, product, channel, etc.), add an \`on.click\` binding with the \`drillDown\` action so clicking a bar/slice opens a focused, scoped follow-up on that segment. Set params: segment_label (human label of the clicked value), segment_value (the value), chart_title, x_key/y_key, filter_column (the REAL underlying dataset column being broken down, e.g. "region" — NOT the step-prefixed chart key), filter_value (the clicked value). Add it on the main breakdown charts where a deeper look is meaningful — not on summary/KPI/stat charts.
 - Keep total component count under 30 (this is a longer dashboard than a single Ask but should still be readable).
 
 ## Grounding & citations (STRICT — a wrong number stated confidently is the worst failure)
