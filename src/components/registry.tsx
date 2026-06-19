@@ -273,7 +273,7 @@ const WindRoseComponent = dynamic(
   { ssr: false }
 );
 
-const { registry } = defineRegistry(catalog, {
+const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
   components: {
     LayoutRow: ({ props, children }) => (
       <div
@@ -689,5 +689,18 @@ const { registry } = defineRegistry(catalog, {
     },
   },
 });
+
+/**
+ * ActionProvider-compatible handlers for the registry's custom actions
+ * (currently `drillDown`). MUST be passed to `<ActionProvider handlers={...}>`
+ * or custom actions emitted by charts (e.g. drillDown) won't be registered and
+ * clicking a drillable chart silently no-ops. The drillDown handler reads the
+ * module-level drillDownCallbackRef and doesn't touch state, so the
+ * state getters are unused here.
+ */
+export const registryActionHandlers = createRegistryHandlers(
+  () => undefined,
+  () => ({})
+);
 
 export { registry };

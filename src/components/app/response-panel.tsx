@@ -8,7 +8,7 @@ import {
   VisibilityProvider,
 } from "@json-render/react";
 import type { Spec } from "@json-render/react";
-import { registry } from "@/components/registry";
+import { registry, registryActionHandlers } from "@/components/registry";
 import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-context";
 import { resolveDrillValues } from "@/lib/drill-resolve";
@@ -331,7 +331,9 @@ export function ResponsePanel({
   // Set up drill-down callback ref
   useEffect(() => {
     drillDownCallbackRef.current = (params: DrillDownParams) => {
-      if (!currentSpecRef.current || !csvId) return;
+      // Use effectiveCsvId (csvId ?? warehouseCsvId) so warehouse-sourced
+      // investigations can drill too — the raw csvId is null for those.
+      if (!currentSpecRef.current || (!effectiveCsvId && !warehouseId)) return;
 
       // Charts aren't json-render list/repeater contexts, so the composer's
       // {"$item": ...} drill bindings arrive unresolved. Resolve them against
@@ -385,7 +387,7 @@ export function ResponsePanel({
       currentSpecRef.current = null;
 
       send("", {
-        csv_id: csvId,
+        csv_id: effectiveCsvId,
         warehouse_id: warehouseId ?? undefined,
         question: drillQuestion,
         drill_down_context: {
@@ -409,7 +411,7 @@ export function ResponsePanel({
       drillDownCallbackRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [csvId, send]);
+  }, [effectiveCsvId, warehouseId, send]);
 
   const handleClear = useCallback(() => {
     clear();
@@ -621,7 +623,7 @@ export function ResponsePanel({
               {level.spec?.root && level.spec?.elements && (
                 <CitationsContext.Provider value={specHasInvestigation(level.spec)}>
                   <StateProvider initialState={level.spec.state ?? {}}>
-                    <ActionProvider>
+                    <ActionProvider handlers={registryActionHandlers}>
                       <VisibilityProvider>
                         <RendererErrorBoundary>
                           <Renderer spec={level.spec} registry={registry} />
@@ -702,7 +704,7 @@ export function ResponsePanel({
               )}
               <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
                 <StateProvider initialState={activeSpec.state ?? {}}>
-                  <ActionProvider>
+                  <ActionProvider handlers={registryActionHandlers}>
                     <VisibilityProvider>
                       <RendererErrorBoundary>
                         {/* data-slides-root: the Slides export segments this
@@ -730,7 +732,7 @@ export function ResponsePanel({
         <Card className="opacity-40">
           <CitationsContext.Provider value={specHasInvestigation(previousSpec)}>
             <StateProvider initialState={previousSpec.state ?? {}}>
-              <ActionProvider>
+              <ActionProvider handlers={registryActionHandlers}>
                 <VisibilityProvider>
                   <RendererErrorBoundary>
                     <Renderer spec={previousSpec} registry={registry} />
