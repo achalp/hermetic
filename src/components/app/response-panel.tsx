@@ -24,6 +24,7 @@ import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
+import type { CostInfo } from "@/components/app/cost-footer";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
 import { Card } from "@/components/ui/card";
@@ -137,6 +138,8 @@ interface ResponsePanelProps {
   onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
   onEffectiveCsvIdChange?: (csvId: string | null) => void;
   onAnalysisComplete?: (entry: { question: string; spec: Spec }) => void;
+  /** Per-analysis cost (from the streamed /state/__cost). Drives the footer. */
+  onCost?: (cost: CostInfo) => void;
   /** Registers the active notebook's export handlers with the page Export
    *  menu (null when not in notebook view / no trail). */
   onNotebookExportApiChange?: (api: NotebookExportApi | null) => void;
@@ -174,6 +177,7 @@ export function ResponsePanel({
   onArtifactsChange,
   onEffectiveCsvIdChange,
   onAnalysisComplete,
+  onCost,
   onNotebookExportApiChange,
   rerunCode,
   rerunSql,
@@ -230,6 +234,10 @@ export function ResponsePanel({
       currentSpecRef.current = completedSpec;
       setPreviousSpec(null);
       onStreamEnd?.();
+      const cost = (completedSpec?.state as Record<string, unknown> | undefined)?.__cost as
+        | CostInfo
+        | undefined;
+      if (cost) onCost?.(cost);
       if (completedSpec?.root && currentQuestionRef.current) {
         onAnalysisComplete?.({
           question: currentQuestionRef.current,

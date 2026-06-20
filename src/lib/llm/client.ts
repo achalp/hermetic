@@ -1,11 +1,13 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import type { SystemModelMessage, TextPart } from "ai";
+import { wrapLanguageModel } from "ai";
+import type { SystemModelMessage, TextPart, LanguageModelMiddleware } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { recordCall } from "@/lib/cost/accumulator";
 import { logger } from "@/lib/logger";
 
 /**
@@ -899,9 +901,66 @@ function createProviderClient(provider: LLMProviderId) {
  * Get a LanguageModelV3 instance for the given internal model ID.
  * Routes to the correct provider based on env config.
  */
+/**
+ * Middleware that reports each call's token usage to the cost accumulator (a
+ * no-op outside a tracked analysis scope). `costKey` is the pricing key: the
+ * internal model id for cloud Anthropic providers (matches MODEL_PRICING),
+ * otherwise the local model name (priced at $0, tokens still tracked).
+ */
+/** The V3 provider-level usage shape (structured input/output token buckets). */
+interface V3Usage {
+  inputTokens?: { noCache?: number; cacheRead?: number; cacheWrite?: number; total?: number };
+  outputTokens?: { total?: number };
+}
+
+function reportUsage(costKey: string, usage: V3Usage | undefined): void {
+  const inp = usage?.inputTokens;
+  recordCall(costKey, {
+    uncachedInputTokens: inp?.noCache ?? inp?.total ?? 0,
+    cacheReadTokens: inp?.cacheRead ?? 0,
+    cacheWriteTokens: inp?.cacheWrite ?? 0,
+    outputTokens: usage?.outputTokens?.total ?? 0,
+  });
+}
+
+function usageMiddleware(costKey: string): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v3",
+    wrapGenerate: async ({ doGenerate }) => {
+      const result = await doGenerate();
+      reportUsage(costKey, result.usage as V3Usage);
+      return result;
+    },
+    wrapStream: async ({ doStream }) => {
+      const { stream, ...rest } = await doStream();
+      return {
+        stream: stream.pipeThrough(
+          new TransformStream({
+            transform(chunk, controller) {
+              if (chunk.type === "finish") {
+                reportUsage(costKey, (chunk as { usage?: V3Usage }).usage);
+              }
+              controller.enqueue(chunk);
+            },
+          })
+        ),
+        ...rest,
+      };
+    },
+  };
+}
+
+type ProviderModel = Parameters<typeof wrapLanguageModel>[0]["model"];
+
+function track(model: ProviderModel, costKey: string): ProviderModel {
+  return wrapLanguageModel({ model, middleware: usageMiddleware(costKey) });
+}
+
 export function getModel(internalModelId: string) {
   const provider = getActiveProvider();
   const client = createProviderClient(provider);
+  const cloudAnthropic =
+    provider === "anthropic" || provider === "bedrock" || provider === "vertex";
 
   // OpenAI-compatible uses a single user-configured model for all calls
   if (provider === "openai-compatible") {
@@ -909,7 +968,7 @@ export function getModel(internalModelId: string) {
     if (!model) {
       throw new Error("OPENAI_MODEL is required when using the openai-compatible provider.");
     }
-    return client(model);
+    return track(client(model), model);
   }
 
   // Local backends use the active model from runtime config
@@ -917,23 +976,23 @@ export function getModel(internalModelId: string) {
     const rc = getRuntimeConfig();
     const model = rc.mlx?.activeModel;
     if (!model) throw new Error("No MLX model selected. Choose a model in Settings.");
-    return client(model);
+    return track(client(model), model);
   }
   if (provider === "llama-cpp") {
     const rc = getRuntimeConfig();
     const model = rc.llamaCpp?.activeModel;
     if (!model) throw new Error("No llama.cpp model selected. Choose a model in Settings.");
-    return client(model);
+    return track(client(model), model);
   }
   if (provider === "ollama") {
     const rc = getRuntimeConfig();
     const model = rc.ollama?.activeModel;
     if (!model) throw new Error("No Ollama model selected. Choose a model in Settings.");
-    return client(model);
+    return track(client(model), model);
   }
 
   const mappedId = MODEL_MAP[provider][internalModelId] ?? internalModelId;
-  return client(mappedId);
+  return track(client(mappedId), cloudAnthropic ? internalModelId : mappedId);
 }
 
 /**

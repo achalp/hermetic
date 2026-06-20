@@ -11,6 +11,8 @@
  */
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { isValidModelId, type ModelId } from "@/lib/constants";
+import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
+import { appendCostRow } from "@/lib/cost/storage";
 import { logger } from "@/lib/logger";
 
 interface CellRequestStep {
@@ -54,36 +56,65 @@ export async function POST(request: Request): Promise<Response> {
 
   // Compose all requested cells in parallel; a failed one is simply omitted
   // (the client renders a stub, exactly as the streaming path does).
-  const composed = await Promise.all(
-    steps.map(async (s) => {
-      try {
-        const spec = await composeStepCell({
-          stepNo: s.stepNo,
-          question: s.question,
-          rationale: s.rationale,
-          originalQuestion,
-          approach,
-          results: s.results ?? {},
-          chartData: s.chart_data ?? {},
-          degraded: s.degraded,
-          degradedReason: s.degradedReason,
-          uiComposeModel,
+  return runWithCostTracking(async () => {
+    const composed = await Promise.all(
+      steps.map(async (s) => {
+        try {
+          const spec = await composeStepCell({
+            stepNo: s.stepNo,
+            question: s.question,
+            rationale: s.rationale,
+            originalQuestion,
+            approach,
+            results: s.results ?? {},
+            chartData: s.chart_data ?? {},
+            degraded: s.degraded,
+            degradedReason: s.degradedReason,
+            uiComposeModel,
+          });
+          return spec ? ([s.index, spec] as const) : null;
+        } catch (err) {
+          logger.warn("Lazy cell compose failed", {
+            index: s.index,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        }
+      })
+    );
+
+    const cells: Record<number, unknown> = {};
+    for (const entry of composed) {
+      if (entry) cells[entry[0]] = entry[1];
+    }
+
+    // Persist the deferred cell-compose cost (best-effort; no live footer here).
+    try {
+      const acc = getCostAccumulator();
+      if (acc) {
+        const cost = computeCost(acc);
+        const now = new Date();
+        await appendCostRow({
+          timestamp: now.toISOString(),
+          date: now.toISOString().slice(0, 10),
+          dataset: "(notebook cells)",
+          question: originalQuestion || "(notebook cells)",
+          mode: "notebook-cells",
+          models: cost.models.join(", "),
+          llm_calls: cost.llmCalls,
+          input_tokens: cost.inputTokens,
+          cache_read_tokens: cost.cacheReadTokens,
+          cache_write_tokens: cost.cacheWriteTokens,
+          output_tokens: cost.outputTokens,
+          cost_usd: cost.costUsd,
         });
-        return spec ? ([s.index, spec] as const) : null;
-      } catch (err) {
-        logger.warn("Lazy cell compose failed", {
-          index: s.index,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return null;
       }
-    })
-  );
+    } catch (costErr) {
+      logger.warn("Cost logging failed (cells)", {
+        error: costErr instanceof Error ? costErr.message : String(costErr),
+      });
+    }
 
-  const cells: Record<number, unknown> = {};
-  for (const entry of composed) {
-    if (entry) cells[entry[0]] = entry[1];
-  }
-
-  return Response.json({ cells });
+    return Response.json({ cells });
+  });
 }

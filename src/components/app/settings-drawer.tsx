@@ -107,6 +107,18 @@ export function SettingsDrawer({
         />
       </CollapsibleSection>
 
+      <CollapsibleSection title="Cost & Usage" defaultOpen={false}>
+        <div style={{ fontSize: 13, color: "var(--color-t-secondary)", lineHeight: 1.6 }}>
+          Token cost of each analysis, logged per day. The session total also shows at the bottom of
+          the page.
+          <div style={{ marginTop: 12 }}>
+            <a href="/cost" className="text-accent" style={{ fontSize: 13, fontWeight: 600 }}>
+              Open cost &amp; usage →
+            </a>
+          </div>
+        </div>
+      </CollapsibleSection>
+
       <div
         style={{
           padding: 20,

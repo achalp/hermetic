@@ -21,6 +21,8 @@ import {
   type InvestigateProgressEvent,
 } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
+import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
+import { appendCostRow } from "@/lib/cost/storage";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import { classifyFollowupDepth } from "@/lib/llm/followup-classifier";
 import { tryConsumeAutoInvestigation } from "@/lib/pipeline/auto-investigation-budget";
@@ -261,690 +263,728 @@ export async function POST(request: Request) {
           emit(JSON.stringify(patch) + "\n");
         };
 
-        try {
-          // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
-          // The pull is intentionally row-level (not pre-aggregated): the
-          // sub-questions aren't known yet, so the materialized CSV must
-          // leave room for whatever angles the planner takes.
-          let warehouseSQL: string | undefined;
-          if (warehouseState) {
-            const { warehouse, connector } = warehouseState;
-            emitProgress("generating_sql", 1, 99);
-            const materializationQuestion =
-              `Retrieve the DETAILED rows needed to investigate this question from multiple angles: ${question}\n` +
-              `Return row-level data (not pre-aggregated summaries) and include every column plausibly relevant to the question — ` +
-              `dimensions for grouping, dates for trends, and measures for computation. Cap the result at 50000 rows if the source is larger.`;
-            // Generate + execute with an automatic repair loop: if the engine
-            // rejects the query (bad GROUP BY, type mismatch, …) the error is
-            // fed back to the LLM and the query is regenerated, up to 2 times.
-            let warehouseCsvContent: string;
-            try {
-              const outcome = await generateSQLWithRepair({
-                tables: warehouse.tableSchemas,
-                question: materializationQuestion,
-                warehouseType: warehouse.config.type,
-                model: codeGenModel,
-                execute: async (sql) => {
-                  const csv = await connector.executeSQL(sql);
-                  if (!csv || csv.trim() === "") {
-                    throw new Error("SQL query returned no results");
-                  }
-                  return csv;
-                },
-                onAttempt: (attempt, phase) => {
-                  if (phase === "repairing") {
-                    emitProgress("generating_sql", 1, 99);
-                    logger.info("Investigate: repairing warehouse SQL", { attempt });
-                  } else if (phase === "executing") {
-                    emitProgress("querying_warehouse", 1, 99);
-                  }
-                },
+        let datasetLabel = csvId ?? warehouseId ?? "dataset";
+        let analysisMode = "investigate";
+
+        await runWithCostTracking(async () => {
+          try {
+            // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
+            // The pull is intentionally row-level (not pre-aggregated): the
+            // sub-questions aren't known yet, so the materialized CSV must
+            // leave room for whatever angles the planner takes.
+            let warehouseSQL: string | undefined;
+            if (warehouseState) {
+              const { warehouse, connector } = warehouseState;
+              emitProgress("generating_sql", 1, 99);
+              const materializationQuestion =
+                `Retrieve the DETAILED rows needed to investigate this question from multiple angles: ${question}\n` +
+                `Return row-level data (not pre-aggregated summaries) and include every column plausibly relevant to the question — ` +
+                `dimensions for grouping, dates for trends, and measures for computation. Cap the result at 50000 rows if the source is larger.`;
+              // Generate + execute with an automatic repair loop: if the engine
+              // rejects the query (bad GROUP BY, type mismatch, …) the error is
+              // fed back to the LLM and the query is regenerated, up to 2 times.
+              let warehouseCsvContent: string;
+              try {
+                const outcome = await generateSQLWithRepair({
+                  tables: warehouse.tableSchemas,
+                  question: materializationQuestion,
+                  warehouseType: warehouse.config.type,
+                  model: codeGenModel,
+                  execute: async (sql) => {
+                    const csv = await connector.executeSQL(sql);
+                    if (!csv || csv.trim() === "") {
+                      throw new Error("SQL query returned no results");
+                    }
+                    return csv;
+                  },
+                  onAttempt: (attempt, phase) => {
+                    if (phase === "repairing") {
+                      emitProgress("generating_sql", 1, 99);
+                      logger.info("Investigate: repairing warehouse SQL", { attempt });
+                    } else if (phase === "executing") {
+                      emitProgress("querying_warehouse", 1, 99);
+                    }
+                  },
+                });
+                warehouseSQL = outcome.sql;
+                warehouseCsvContent = outcome.result;
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                throw new Error(
+                  `Warehouse query failed after repair attempts: ${msg}` +
+                    (warehouseSQL ? `\n\nLast SQL:\n${warehouseSQL}` : "")
+                );
+              }
+              logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
+              const parsed = parseCSV(warehouseCsvContent);
+              const newCsvId = randomUUID();
+              const schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
+              schema.source_type = "warehouse";
+              schema.warehouse_type = warehouse.config.type;
+              await storeCSV(newCsvId, warehouseCsvContent, schema);
+              csvId = newCsvId;
+              logger.info("Investigate: warehouse data materialized", {
+                csvId: newCsvId,
+                columns: schema.columns.length,
               });
-              warehouseSQL = outcome.sql;
-              warehouseCsvContent = outcome.result;
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              throw new Error(
-                `Warehouse query failed after repair attempts: ${msg}` +
-                  (warehouseSQL ? `\n\nLast SQL:\n${warehouseSQL}` : "")
+              // Emit the generated csvId so the client can use it for
+              // artifacts, notebook cell re-runs, and follow-ups.
+              emit(
+                JSON.stringify({
+                  op: "add",
+                  path: "/state/__warehouse_csv_id",
+                  value: newCsvId,
+                }) + "\n"
               );
             }
-            logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
-            const parsed = parseCSV(warehouseCsvContent);
-            const newCsvId = randomUUID();
-            const schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
-            schema.source_type = "warehouse";
-            schema.warehouse_type = warehouse.config.type;
-            await storeCSV(newCsvId, warehouseCsvContent, schema);
-            csvId = newCsvId;
-            logger.info("Investigate: warehouse data materialized", {
-              csvId: newCsvId,
-              columns: schema.columns.length,
-            });
-            // Emit the generated csvId so the client can use it for
-            // artifacts, notebook cell re-runs, and follow-ups.
+
+            // ── Resolve the source (file upload, local mount, or the CSV
+            //     just materialized from the warehouse) ──
+            const stored = getStoredCSV(csvId!);
+            if (!stored) {
+              throw new Error("CSV not found or expired");
+            }
+            datasetLabel = stored.schema.filename;
+            const isLocal = isLocalFile(csvId!);
+            const csvContent = isLocal ? "" : ((await getCSVContent(csvId!)) ?? "");
+            const geojsonContent = stored.schema.has_geojson
+              ? await getGeoJSONContent(csvId!)
+              : null;
+
+            // Local-mount path resolution (mirrors the logic in /api/query)
+            let localMountPath: string | undefined;
+            let localFileContext: string | undefined;
+            if (isLocal) {
+              const hostPath = stored.localFolderPath || stored.localPath;
+              if (!hostPath) {
+                throw new Error("Local file path not found");
+              }
+              const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
+              const path = await import("node:path");
+              if (stored.localFolderPath) {
+                localMountPath = LOCAL_MOUNT_PATH;
+                localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH}. Use DuckDB: con.execute("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet')").df().`;
+              } else {
+                const fname = path.basename(hostPath);
+                localMountPath = `${LOCAL_MOUNT_PATH}/${fname}`;
+                localFileContext = `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
+              }
+            }
+
+            // ── Drill-as-sub-investigation cost gate ──
+            // A scoped follow-up (chart drill or sticky follow-up) is classified
+            // lookup-vs-deep. Lookups — and any auto-routed follow-up beyond the
+            // per-session budget — answer with a single-shot dashboard instead of
+            // a full multi-step investigation, so LLM cost stays bounded. The gate
+            // is lookup-biased and fail-safe: a classifier error defaults to the
+            // cheap path. Fresh (unscoped) investigations are never gated.
+            if (context.scope) {
+              const scope = context.scope;
+              const depth = await classifyFollowupDepth({ question, scope });
+              const budgetKey = csvId ?? warehouseId ?? "default";
+              const goDeep =
+                depth === "deep" &&
+                tryConsumeAutoInvestigation(budgetKey, MAX_AUTO_INVESTIGATIONS_PER_SESSION);
+              if (!goDeep) {
+                logger.info("Investigate: scoped follow-up routed to single-shot", {
+                  depth,
+                  question: question.slice(0, 120),
+                });
+                const drillDownContext = scope.filters?.length
+                  ? {
+                      parent_question: scope.parent_question ?? question,
+                      filter_column: scope.filters[0].column,
+                      filter_value: scope.filters[0].value,
+                      segment_label: scope.segment_label ?? "",
+                      chart_title: null,
+                      additional_filters: scope.filters.slice(1),
+                    }
+                  : null;
+                const cheap = await runPipeline(
+                  stored.schema,
+                  csvContent || "",
+                  question,
+                  (stage) => {
+                    if (stage === "generating_code") emitProgress("analyzing", 1, 3);
+                    else if (stage === "executing") emitProgress("computing", 2, 3);
+                  },
+                  "metadata",
+                  codeGenModel,
+                  sandboxRuntime,
+                  geojsonContent,
+                  undefined,
+                  undefined,
+                  localMountPath,
+                  localFileContext,
+                  undefined
+                );
+                await composeAndStreamDashboard({
+                  executionResult: cheap.executionResult,
+                  opts: {
+                    question,
+                    schema: stored.schema,
+                    schemaMode: "metadata",
+                    purpose: context.purpose ?? "dashboard",
+                    priorTurns: [],
+                    drillDownContext,
+                  },
+                  uiComposeModel,
+                  emit,
+                  isClosed: () => closed,
+                  onComposing: () => emitProgress("composing", 3, 3),
+                });
+                analysisMode = "ask"; // routed to the single-shot lookup path
+                return;
+              }
+            }
+
+            // ── Step 1: Plan ──
+            emitProgress("planning", 1, 99);
+            // For warehouse investigations, give the planner the FULL table
+            // schemas (so sub-questions can span tables that per-step SQL will
+            // join) alongside the materialized schema.
+            const planResult = await generatePlan(
+              question,
+              stored.schema,
+              warehouseState?.warehouse.tableSchemas,
+              codeGenModel,
+              context.scope
+            );
+            if (!planResult.ok) {
+              throw new Error(`Plan generation failed: ${planResult.error}`);
+            }
+            const plan = planResult.plan;
+            const totalSteps = plan.subQuestions.length + 2; // +1 plan, +1 compose
+
+            // Surface the plan to the client immediately so the user sees structure
             emit(
               JSON.stringify({
                 op: "add",
-                path: "/state/__warehouse_csv_id",
-                value: newCsvId,
+                path: "/state/__plan",
+                value: {
+                  approach: plan.approach,
+                  steps: plan.subQuestions.map((sq, i) => ({
+                    index: i,
+                    question: sq.question,
+                    rationale: sq.rationale,
+                    depends_on: sq.depends_on,
+                    status: "pending",
+                  })),
+                },
               }) + "\n"
             );
-          }
 
-          // ── Resolve the source (file upload, local mount, or the CSV
-          //     just materialized from the warehouse) ──
-          const stored = getStoredCSV(csvId!);
-          if (!stored) {
-            throw new Error("CSV not found or expired");
-          }
-          const isLocal = isLocalFile(csvId!);
-          const csvContent = isLocal ? "" : ((await getCSVContent(csvId!)) ?? "");
-          const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
+            // Notebook cells: container for per-step composed mini-specs.
+            // Cells stream in as `/state/__cells/{index}` the moment each
+            // step's compose finishes — the notebook view fills in live.
+            emit(JSON.stringify({ op: "add", path: "/state/__cells", value: {} }) + "\n");
 
-          // Local-mount path resolution (mirrors the logic in /api/query)
-          let localMountPath: string | undefined;
-          let localFileContext: string | undefined;
-          if (isLocal) {
-            const hostPath = stored.localFolderPath || stored.localPath;
-            if (!hostPath) {
-              throw new Error("Local file path not found");
-            }
-            const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
-            const path = await import("node:path");
-            if (stored.localFolderPath) {
-              localMountPath = LOCAL_MOUNT_PATH;
-              localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH}. Use DuckDB: con.execute("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet')").df().`;
-            } else {
-              const fname = path.basename(hostPath);
-              localMountPath = `${LOCAL_MOUNT_PATH}/${fname}`;
-              localFileContext = `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
-            }
-          }
+            // ── Step 2: Execute sub-questions (with re-planning between waves) ──
+            let stepCount = 1;
 
-          // ── Drill-as-sub-investigation cost gate ──
-          // A scoped follow-up (chart drill or sticky follow-up) is classified
-          // lookup-vs-deep. Lookups — and any auto-routed follow-up beyond the
-          // per-session budget — answer with a single-shot dashboard instead of
-          // a full multi-step investigation, so LLM cost stays bounded. The gate
-          // is lookup-biased and fail-safe: a classifier error defaults to the
-          // cheap path. Fresh (unscoped) investigations are never gated.
-          if (context.scope) {
-            const scope = context.scope;
-            const depth = await classifyFollowupDepth({ question, scope });
-            const budgetKey = csvId ?? warehouseId ?? "default";
-            const goDeep =
-              depth === "deep" &&
-              tryConsumeAutoInvestigation(budgetKey, MAX_AUTO_INVESTIGATIONS_PER_SESSION);
-            if (!goDeep) {
-              logger.info("Investigate: scoped follow-up routed to single-shot", {
-                depth,
-                question: question.slice(0, 120),
-              });
-              const drillDownContext = scope.filters?.length
-                ? {
-                    parent_question: scope.parent_question ?? question,
-                    filter_column: scope.filters[0].column,
-                    filter_value: scope.filters[0].value,
-                    segment_label: scope.segment_label ?? "",
-                    chart_title: null,
-                    additional_filters: scope.filters.slice(1),
-                  }
-                : null;
-              const cheap = await runPipeline(
-                stored.schema,
-                csvContent || "",
-                question,
-                (stage) => {
-                  if (stage === "generating_code") emitProgress("analyzing", 1, 3);
-                  else if (stage === "executing") emitProgress("computing", 2, 3);
-                },
-                "metadata",
-                codeGenModel,
-                sandboxRuntime,
-                geojsonContent,
-                undefined,
-                undefined,
-                localMountPath,
-                localFileContext,
-                undefined
+            // Per-step cell composes, dispatched on sub_finished/sub_degraded
+            // so they run concurrently with later waves' sandbox execution.
+            // Best-effort: a failed compose just leaves the cell as a stub.
+            const cellSpecs = new Map<number, Spec>();
+            const cellComposes: Promise<void>[] = [];
+            const dispatchCellCompose = (event: InvestigateProgressEvent) => {
+              if (!composeCells) return; // lazy-composed on Notebook-open instead
+              const sub = event.stepResult;
+              const exec = sub?.result?.executionResult;
+              if (!sub || !exec || event.index === undefined) return;
+              const index = event.index;
+              cellComposes.push(
+                composeStepCell({
+                  stepNo: index + 1,
+                  question: sub.question,
+                  rationale: sub.rationale,
+                  originalQuestion: question,
+                  approach: plan.approach,
+                  results: (exec.results ?? {}) as Record<string, unknown>,
+                  chartData: (exec.chart_data ?? {}) as Record<string, unknown>,
+                  degraded: sub.degraded,
+                  degradedReason: sub.degradedReason,
+                  uiComposeModel,
+                }).then((spec) => {
+                  if (!spec) return;
+                  cellSpecs.set(index, spec);
+                  emit(
+                    JSON.stringify({
+                      op: "add",
+                      path: `/state/__cells/${index}`,
+                      value: { status: sub.degraded ? "degraded" : "success", cellSpec: spec },
+                    }) + "\n"
+                  );
+                })
               );
-              await composeAndStreamDashboard({
-                executionResult: cheap.executionResult,
-                opts: {
-                  question,
-                  schema: stored.schema,
-                  schemaMode: "metadata",
-                  purpose: context.purpose ?? "dashboard",
-                  priorTurns: [],
-                  drillDownContext,
-                },
-                uiComposeModel,
-                emit,
-                isClosed: () => closed,
-                onComposing: () => emitProgress("composing", 3, 3),
-              });
-              return;
-            }
-          }
+            };
 
-          // ── Step 1: Plan ──
-          emitProgress("planning", 1, 99);
-          // For warehouse investigations, give the planner the FULL table
-          // schemas (so sub-questions can span tables that per-step SQL will
-          // join) alongside the materialized schema.
-          const planResult = await generatePlan(
-            question,
-            stored.schema,
-            warehouseState?.warehouse.tableSchemas,
-            codeGenModel,
-            context.scope
-          );
-          if (!planResult.ok) {
-            throw new Error(`Plan generation failed: ${planResult.error}`);
-          }
-          const plan = planResult.plan;
-          const totalSteps = plan.subQuestions.length + 2; // +1 plan, +1 compose
+            // Accumulate the audit trail's decision log and per-step provenance
+            // from the orchestrator's progress events. The events are the only
+            // place the re-planner's and composer's rationales surface, so we
+            // capture them here for the trace the artifacts panel renders.
+            const decisions: TraceDecision[] = [];
+            const sourceByIndex = new Map<number, StepSource>();
+            // subs_amended events carry their provenance (amendmentSource), so
+            // attribution never depends on event ordering. currentReplan only
+            // tracks the most recent replan decision so a re-planner amendment
+            // can fill in its added/removed indices.
+            let currentReplan: TraceDecision | null = null;
+            let pendingComposerAdded: number[] = [];
 
-          // Surface the plan to the client immediately so the user sees structure
-          emit(
-            JSON.stringify({
-              op: "add",
-              path: "/state/__plan",
-              value: {
-                approach: plan.approach,
-                steps: plan.subQuestions.map((sq, i) => ({
-                  index: i,
-                  question: sq.question,
-                  rationale: sq.rationale,
-                  depends_on: sq.depends_on,
-                  status: "pending",
-                })),
-              },
-            }) + "\n"
-          );
-
-          // Notebook cells: container for per-step composed mini-specs.
-          // Cells stream in as `/state/__cells/{index}` the moment each
-          // step's compose finishes — the notebook view fills in live.
-          emit(JSON.stringify({ op: "add", path: "/state/__cells", value: {} }) + "\n");
-
-          // ── Step 2: Execute sub-questions (with re-planning between waves) ──
-          let stepCount = 1;
-
-          // Per-step cell composes, dispatched on sub_finished/sub_degraded
-          // so they run concurrently with later waves' sandbox execution.
-          // Best-effort: a failed compose just leaves the cell as a stub.
-          const cellSpecs = new Map<number, Spec>();
-          const cellComposes: Promise<void>[] = [];
-          const dispatchCellCompose = (event: InvestigateProgressEvent) => {
-            if (!composeCells) return; // lazy-composed on Notebook-open instead
-            const sub = event.stepResult;
-            const exec = sub?.result?.executionResult;
-            if (!sub || !exec || event.index === undefined) return;
-            const index = event.index;
-            cellComposes.push(
-              composeStepCell({
-                stepNo: index + 1,
-                question: sub.question,
-                rationale: sub.rationale,
-                originalQuestion: question,
-                approach: plan.approach,
-                results: (exec.results ?? {}) as Record<string, unknown>,
-                chartData: (exec.chart_data ?? {}) as Record<string, unknown>,
-                degraded: sub.degraded,
-                degradedReason: sub.degradedReason,
-                uiComposeModel,
-              }).then((spec) => {
-                if (!spec) return;
-                cellSpecs.set(index, spec);
-                emit(
-                  JSON.stringify({
-                    op: "add",
-                    path: `/state/__cells/${index}`,
-                    value: { status: sub.degraded ? "degraded" : "success", cellSpec: spec },
-                  }) + "\n"
-                );
-              })
-            );
-          };
-
-          // Accumulate the audit trail's decision log and per-step provenance
-          // from the orchestrator's progress events. The events are the only
-          // place the re-planner's and composer's rationales surface, so we
-          // capture them here for the trace the artifacts panel renders.
-          const decisions: TraceDecision[] = [];
-          const sourceByIndex = new Map<number, StepSource>();
-          // subs_amended events carry their provenance (amendmentSource), so
-          // attribution never depends on event ordering. currentReplan only
-          // tracks the most recent replan decision so a re-planner amendment
-          // can fill in its added/removed indices.
-          let currentReplan: TraceDecision | null = null;
-          let pendingComposerAdded: number[] = [];
-
-          const subResults = await runInvestigation(plan.subQuestions, {
-            schema: stored.schema,
-            csvContent,
-            geojsonContent,
-            workbookContext: undefined,
-            localMountPath,
-            localFileContext,
-            runtime: sandboxRuntime,
-            model: codeGenModel,
-            originalQuestion: question,
-            approach: plan.approach,
-            // Per-step SQL: each sub-question issues its own warehouse query
-            // (the up-front materialization above still seeds the planner's
-            // schema + serves as the fallback if a step's SQL fails). For
-            // file investigations these are undefined and steps run Python
-            // over the shared CSV as before.
-            warehouse: warehouseState?.warehouse.tableSchemas,
-            warehouseType: warehouseState?.warehouse.config.type,
-            warehouseExecutor: warehouseState
-              ? (sql: string) => warehouseState!.connector.executeSQL(sql)
-              : undefined,
-            onProgress: (event) => {
-              if (event.kind === "sub_started" && event.index !== undefined) {
-                stepCount++;
-                emitProgress("investigating", stepCount, totalSteps);
-                emit(
-                  JSON.stringify({
-                    op: "replace",
-                    path: `/state/__plan/steps/${event.index}/status`,
-                    value: "running",
-                  }) + "\n"
-                );
-              } else if (event.kind === "sub_finished" && event.index !== undefined) {
-                emit(
-                  JSON.stringify({
-                    op: "replace",
-                    path: `/state/__plan/steps/${event.index}/status`,
-                    value: "done",
-                  }) + "\n"
-                );
-                dispatchCellCompose(event);
-              } else if (event.kind === "sub_degraded" && event.index !== undefined) {
-                emit(
-                  JSON.stringify({
-                    op: "replace",
-                    path: `/state/__plan/steps/${event.index}/status`,
-                    value: "degraded",
-                  }) + "\n"
-                );
-                if (event.degradedReason) {
+            const subResults = await runInvestigation(plan.subQuestions, {
+              schema: stored.schema,
+              csvContent,
+              geojsonContent,
+              workbookContext: undefined,
+              localMountPath,
+              localFileContext,
+              runtime: sandboxRuntime,
+              model: codeGenModel,
+              originalQuestion: question,
+              approach: plan.approach,
+              // Per-step SQL: each sub-question issues its own warehouse query
+              // (the up-front materialization above still seeds the planner's
+              // schema + serves as the fallback if a step's SQL fails). For
+              // file investigations these are undefined and steps run Python
+              // over the shared CSV as before.
+              warehouse: warehouseState?.warehouse.tableSchemas,
+              warehouseType: warehouseState?.warehouse.config.type,
+              warehouseExecutor: warehouseState
+                ? (sql: string) => warehouseState!.connector.executeSQL(sql)
+                : undefined,
+              onProgress: (event) => {
+                if (event.kind === "sub_started" && event.index !== undefined) {
+                  stepCount++;
+                  emitProgress("investigating", stepCount, totalSteps);
                   emit(
                     JSON.stringify({
-                      op: "add",
-                      path: `/state/__plan/steps/${event.index}/degradedReason`,
-                      value: event.degradedReason,
+                      op: "replace",
+                      path: `/state/__plan/steps/${event.index}/status`,
+                      value: "running",
                     }) + "\n"
                   );
-                }
-                dispatchCellCompose(event);
-              } else if (event.kind === "sub_failed" && event.index !== undefined) {
-                emit(
-                  JSON.stringify({
-                    op: "replace",
-                    path: `/state/__plan/steps/${event.index}/status`,
-                    value: "failed",
-                  }) + "\n"
-                );
-                if (event.error) {
-                  // Surface the failure reason so the notebook's failed-cell
-                  // stub can show it live (the trace carries it post-stream).
+                } else if (event.kind === "sub_finished" && event.index !== undefined) {
                   emit(
                     JSON.stringify({
-                      op: "add",
-                      path: `/state/__plan/steps/${event.index}/error`,
-                      value: event.error.slice(0, 300),
+                      op: "replace",
+                      path: `/state/__plan/steps/${event.index}/status`,
+                      value: "done",
                     }) + "\n"
                   );
-                }
-              } else if (event.kind === "replan_decision") {
-                // Record for the audit trail. The matching subs_amended (if the
-                // action was "amend") fills in added/removed indices below.
-                currentReplan = {
-                  kind: "replan",
-                  action: event.replanAction,
-                  rationale: event.replanRationale ?? "",
-                  addedIndices: [],
-                  removedIndices: [],
-                };
-                decisions.push(currentReplan);
-                // Surface the re-planner's decision as a sibling entry on the plan.
-                // The UI can render this inline as a "Planner re-evaluated" step.
-                emit(
-                  JSON.stringify({
-                    op: "add",
-                    path: "/state/__plan/replan",
-                    value: {
-                      action: event.replanAction,
-                      rationale: event.replanRationale,
-                      atStepCount: stepCount,
-                    },
-                  }) + "\n"
-                );
-              } else if (event.kind === "subs_amended") {
-                // Audit-trail provenance, read directly off the event.
-                const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
-                if (event.amendmentSource === "composer") {
-                  pendingComposerAdded = addedIndices;
-                  for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
-                } else if (currentReplan) {
-                  currentReplan.addedIndices = addedIndices;
-                  currentReplan.removedIndices = event.removedIndices ?? [];
-                  for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
-                  currentReplan = null;
-                }
-                // Append new steps to the visible plan and mark removed ones.
-                if (event.addedSteps) {
-                  for (const step of event.addedSteps) {
+                  dispatchCellCompose(event);
+                } else if (event.kind === "sub_degraded" && event.index !== undefined) {
+                  emit(
+                    JSON.stringify({
+                      op: "replace",
+                      path: `/state/__plan/steps/${event.index}/status`,
+                      value: "degraded",
+                    }) + "\n"
+                  );
+                  if (event.degradedReason) {
                     emit(
                       JSON.stringify({
                         op: "add",
-                        path: `/state/__plan/steps/${step.index}`,
-                        value: {
-                          index: step.index,
-                          question: step.question,
-                          rationale: step.rationale,
-                          depends_on: step.depends_on,
-                          status: "pending",
-                          addedByReplanner: event.amendmentSource !== "composer",
-                          addedByComposer: event.amendmentSource === "composer",
-                        },
+                        path: `/state/__plan/steps/${event.index}/degradedReason`,
+                        value: event.degradedReason,
                       }) + "\n"
                     );
                   }
-                }
-                if (event.removedIndices) {
-                  for (const idx of event.removedIndices) {
+                  dispatchCellCompose(event);
+                } else if (event.kind === "sub_failed" && event.index !== undefined) {
+                  emit(
+                    JSON.stringify({
+                      op: "replace",
+                      path: `/state/__plan/steps/${event.index}/status`,
+                      value: "failed",
+                    }) + "\n"
+                  );
+                  if (event.error) {
+                    // Surface the failure reason so the notebook's failed-cell
+                    // stub can show it live (the trace carries it post-stream).
                     emit(
                       JSON.stringify({
-                        op: "replace",
-                        path: `/state/__plan/steps/${idx}/status`,
-                        value: "removed",
+                        op: "add",
+                        path: `/state/__plan/steps/${event.index}/error`,
+                        value: event.error.slice(0, 300),
                       }) + "\n"
                     );
                   }
+                } else if (event.kind === "replan_decision") {
+                  // Record for the audit trail. The matching subs_amended (if the
+                  // action was "amend") fills in added/removed indices below.
+                  currentReplan = {
+                    kind: "replan",
+                    action: event.replanAction,
+                    rationale: event.replanRationale ?? "",
+                    addedIndices: [],
+                    removedIndices: [],
+                  };
+                  decisions.push(currentReplan);
+                  // Surface the re-planner's decision as a sibling entry on the plan.
+                  // The UI can render this inline as a "Planner re-evaluated" step.
+                  emit(
+                    JSON.stringify({
+                      op: "add",
+                      path: "/state/__plan/replan",
+                      value: {
+                        action: event.replanAction,
+                        rationale: event.replanRationale,
+                        atStepCount: stepCount,
+                      },
+                    }) + "\n"
+                  );
+                } else if (event.kind === "subs_amended") {
+                  // Audit-trail provenance, read directly off the event.
+                  const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
+                  if (event.amendmentSource === "composer") {
+                    pendingComposerAdded = addedIndices;
+                    for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
+                  } else if (currentReplan) {
+                    currentReplan.addedIndices = addedIndices;
+                    currentReplan.removedIndices = event.removedIndices ?? [];
+                    for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
+                    currentReplan = null;
+                  }
+                  // Append new steps to the visible plan and mark removed ones.
+                  if (event.addedSteps) {
+                    for (const step of event.addedSteps) {
+                      emit(
+                        JSON.stringify({
+                          op: "add",
+                          path: `/state/__plan/steps/${step.index}`,
+                          value: {
+                            index: step.index,
+                            question: step.question,
+                            rationale: step.rationale,
+                            depends_on: step.depends_on,
+                            status: "pending",
+                            addedByReplanner: event.amendmentSource !== "composer",
+                            addedByComposer: event.amendmentSource === "composer",
+                          },
+                        }) + "\n"
+                      );
+                    }
+                  }
+                  if (event.removedIndices) {
+                    for (const idx of event.removedIndices) {
+                      emit(
+                        JSON.stringify({
+                          op: "replace",
+                          path: `/state/__plan/steps/${idx}/status`,
+                          value: "removed",
+                        }) + "\n"
+                      );
+                    }
+                  }
+                } else if (event.kind === "composer_dispatched") {
+                  // Record the composer's gap-check dispatch in the audit trail,
+                  // attributing the steps added by the preceding subs_amended.
+                  decisions.push({
+                    kind: "composer_dispatch",
+                    rationale: event.composerRationale ?? "",
+                    addedIndices: pendingComposerAdded,
+                    removedIndices: [],
+                  });
+                  pendingComposerAdded = [];
+                  // Surface the composer's gap-check decision. Newly added steps
+                  // arrive via a sibling subs_amended event with addedByReplanner.
+                  // Override the flag on those steps to indicate composer-source.
+                  emit(
+                    JSON.stringify({
+                      op: "add",
+                      path: "/state/__plan/composerDispatch",
+                      value: {
+                        rationale: event.composerRationale,
+                        atStepCount: stepCount,
+                      },
+                    }) + "\n"
+                  );
                 }
-              } else if (event.kind === "composer_dispatched") {
-                // Record the composer's gap-check dispatch in the audit trail,
-                // attributing the steps added by the preceding subs_amended.
-                decisions.push({
-                  kind: "composer_dispatch",
-                  rationale: event.composerRationale ?? "",
-                  addedIndices: pendingComposerAdded,
-                  removedIndices: [],
-                });
-                pendingComposerAdded = [];
-                // Surface the composer's gap-check decision. Newly added steps
-                // arrive via a sibling subs_amended event with addedByReplanner.
-                // Override the flag on those steps to indicate composer-source.
-                emit(
-                  JSON.stringify({
-                    op: "add",
-                    path: "/state/__plan/composerDispatch",
-                    value: {
-                      rationale: event.composerRationale,
-                      atStepCount: stepCount,
-                    },
-                  }) + "\n"
-                );
-              }
-            },
-          });
-
-          if (closed) return;
-
-          // Build the full audit trail: every sub-question's code + result,
-          // the re-planner / composer decisions, and (added after compose) the
-          // grounding verdict. This is what the artifacts panel renders as a
-          // re-runnable per-step trail — the agentic loop extending Hermetic's
-          // "see the Python and re-run it" moat, not outrunning it.
-          const trace = buildInvestigationTrace({
-            approach: plan.approach,
-            originalQuestion: question,
-            subResults,
-            sourceByIndex,
-            decisions,
-          });
-
-          // Cache artifacts under the csvId. The top-level code/results mirror
-          // the LAST successful step (back-compat with the single-view panel);
-          // `investigation` carries the whole trail. Cached before compose so a
-          // composer failure still leaves an inspectable trail; `trace.grounding`
-          // is set below on the same object, so the cached entry sees it too.
-          const lastSuccess = [...subResults].reverse().find((r) => r.result);
-          const prior = getCachedArtifacts(csvId!);
-          const topLevel = lastSuccess?.result
-            ? {
-                code: lastSuccess.result.generatedCode,
-                question,
-                results: lastSuccess.result.executionResult.results as Record<string, unknown>,
-                chart_data: lastSuccess.result.executionResult.chart_data as Record<
-                  string,
-                  unknown
-                >,
-                datasets: (lastSuccess.result.executionResult.datasets ?? {}) as Record<
-                  string,
-                  Record<string, unknown>[]
-                >,
-                execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
-                // The materialization SQL for a warehouse investigation —
-                // surfaces in the artifacts SQL tab.
-                sql: warehouseSQL,
-              }
-            : {
-                // Every sub-question failed: keep the previously cached
-                // top-level artifacts (a failed investigation must not clobber
-                // a prior good run's re-runnable code) and attach the trail.
-                code: prior?.code ?? "",
-                question: prior?.question ?? question,
-                results: prior?.results ?? {},
-                chart_data: prior?.chart_data ?? {},
-                datasets: prior?.datasets ?? {},
-                execution_ms: prior?.execution_ms ?? 0,
-                sql: warehouseSQL ?? prior?.sql,
-              };
-          cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
-
-          // Deterministic data-quality surfacing — guarantees degraded / failed
-          // / dropped branches reach the user regardless of whether the composer
-          // remembered to annotate them. Rendered as a banner above the
-          // dashboard by ResponsePanel.
-          const dataQuality = {
-            degraded: trace.steps
-              .filter((s) => s.status === "degraded")
-              .map((s) => ({ stepNo: s.stepNo, question: s.question, reason: s.degradedReason })),
-            failed: trace.steps
-              .filter((s) => s.status === "failed")
-              .map((s) => ({ stepNo: s.stepNo, question: s.question, error: s.error })),
-            removed: trace.steps
-              .filter((s) => s.status === "removed")
-              .map((s) => ({ stepNo: s.stepNo, question: s.question })),
-          };
-          if (
-            dataQuality.degraded.length ||
-            dataQuality.failed.length ||
-            dataQuality.removed.length
-          ) {
-            emit(
-              JSON.stringify({ op: "add", path: "/state/__dataQuality", value: dataQuality }) + "\n"
-            );
-          }
-
-          // ── Step 3: Compose unified dashboard ──
-          stepCount++;
-          emitProgress("composing", stepCount, totalSteps);
-
-          const compose = composeInvestigation({
-            originalQuestion: question,
-            plan,
-            schema: stored.schema,
-            subResults,
-            uiComposeModel,
-            purpose: context.purpose,
-          });
-
-          // Inject merged data into spec.state so $result/$chartData
-          // placeholders resolve client-side
-          emit(
-            JSON.stringify({
-              op: "add",
-              path: "/state/__results",
-              value: compose.initialState.results,
-            }) + "\n"
-          );
-          emit(
-            JSON.stringify({
-              op: "add",
-              path: "/state/__chart_data",
-              value: compose.initialState.chart_data,
-            }) + "\n"
-          );
-
-          // Stream the composed spec — the LLM emits raw JSONL patches that
-          // build the spec tree, same protocol as /api/query. Resolve
-          // $result:<key> and $chartData:<key> placeholders against the
-          // merged per-step results before emitting (mirrors /api/query).
-          const mergedResults = compose.initialState.results;
-          const mergedChartData = compose.initialState.chart_data;
-
-          // Collect the composed narrative for the grounding pass: prose text
-          // (post-resolution, so placeholder values are inlined) and the steps
-          // the narrative cited (from $result:step_N_ placeholders pre-resolution
-          // and "Step N" mentions post-resolution).
-          const narrativeTexts: string[] = [];
-          const citedSteps = new Set<number>();
-          // Notebook synthesis cell: the composer is instructed to use the
-          // element IDs `exec_summary` and `conclusion` for those two blocks;
-          // we lift their (post-resolution) content here. Matching is
-          // tolerant of the LLM's id-styling drift ("exec-summary",
-          // "conclusion-block"). Best-effort — if the composer ignores the
-          // IDs entirely, the notebook omits the synthesis.
-          const SUMMARY_PATH_RE = /^\/elements\/exec[-_]summary(?:[-_][a-z0-9]+)?$/;
-          const CONCLUSION_PATH_RE = /^\/elements\/conclusion(?:[-_][a-z0-9]+)?$/;
-          const synthesis: { summary?: string; conclusion?: string } = {};
-
-          const ingestComposedLine = (preResolution: string, patch: SpecPatch | null) => {
-            // Raw line: only unambiguous $result/$chartData placeholders count
-            // as citations — prose-scanning the raw JSON would match element
-            // IDs / key paths named after steps and suppress the
-            // uncited-steps advisory.
-            for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
-            if (patch && "value" in patch) {
-              const isSummary = !!patch.path && SUMMARY_PATH_RE.test(patch.path);
-              const isConclusion =
-                !isSummary && !!patch.path && CONCLUSION_PATH_RE.test(patch.path);
-              if (isSummary || isConclusion) {
-                const content = (patch.value as { props?: { content?: unknown } } | null)?.props
-                  ?.content;
-                if (typeof content === "string" && content.trim()) {
-                  if (isSummary) synthesis.summary = content;
-                  else synthesis.conclusion = content;
-                }
-              }
-              for (const text of collectNarrativeStrings(patch.value)) {
-                narrativeTexts.push(text);
-                for (const n of extractCitedSteps(text)) citedSteps.add(n);
-              }
-            }
-          };
-
-          // Shared finalization stage (placeholder resolution + $state repair),
-          // identical to Ask mode. Investigate inlines per-step data via
-          // $chartData/$result, so no DataController $state repair is needed.
-          const finalize = createSpecFinalizer({
-            results: mergedResults,
-            chartData: mergedChartData,
-          });
-
-          let buffer = "";
-          for await (const chunk of compose.textStream) {
-            if (closed) break;
-            buffer += chunk;
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              const r = finalize(line);
-              if (r.skip) continue;
-              ingestComposedLine(r.raw, r.patch);
-              emit(r.line + "\n");
-            }
-          }
-          if (buffer.trim()) {
-            const r = finalize(buffer);
-            if (!r.skip) {
-              ingestComposedLine(r.raw, r.patch);
-              emit(r.line + "\n");
-            }
-          }
-
-          // ── Notebook cells: settle and attach ──
-          // Most cell composes finish during the waves; only the final
-          // wave's may still be in flight. Their `__cells` patches emit as
-          // they land (the .then handlers above); attaching to the trace
-          // mutates the shared ref, so the cached artifacts entry sees the
-          // cellSpecs too — notebooks reload from history for free.
-          await Promise.allSettled(cellComposes);
-          for (const step of trace.steps) {
-            const cell = cellSpecs.get(step.index);
-            if (cell) step.cellSpec = cell;
-          }
-
-          // Notebook synthesis cell content, lifted from the composed
-          // narrative. Lives in spec state, so it persists with history.
-          if (synthesis.summary || synthesis.conclusion) {
-            emit(
-              JSON.stringify({ op: "add", path: "/state/__synthesis", value: synthesis }) + "\n"
-            );
-          }
-
-          // ── Grounding verdict ──
-          // Verify the composed narrative against what the investigation
-          // actually computed. Ungrounded figures (numbers that trace to no
-          // computed value) are surfaced as an advisory caveat and recorded in
-          // the trail — the guard against plausible-but-wrong, where semantic
-          // validation only catches degenerate.
-          if (!closed) {
-            const grounded = collectGroundedValues(mergedResults, mergedChartData);
-            const grounding = verifyGrounding({
-              narrativeTexts,
-              citedSteps: [...citedSteps].sort((a, b) => a - b),
-              grounded,
-              successfulStepNos: successfulStepNos(trace),
+              },
             });
-            trace.grounding = grounding; // shared ref — updates the cached entry
+
+            if (closed) return;
+
+            // Build the full audit trail: every sub-question's code + result,
+            // the re-planner / composer decisions, and (added after compose) the
+            // grounding verdict. This is what the artifacts panel renders as a
+            // re-runnable per-step trail — the agentic loop extending Hermetic's
+            // "see the Python and re-run it" moat, not outrunning it.
+            const trace = buildInvestigationTrace({
+              approach: plan.approach,
+              originalQuestion: question,
+              subResults,
+              sourceByIndex,
+              decisions,
+            });
+
+            // Cache artifacts under the csvId. The top-level code/results mirror
+            // the LAST successful step (back-compat with the single-view panel);
+            // `investigation` carries the whole trail. Cached before compose so a
+            // composer failure still leaves an inspectable trail; `trace.grounding`
+            // is set below on the same object, so the cached entry sees it too.
+            const lastSuccess = [...subResults].reverse().find((r) => r.result);
+            const prior = getCachedArtifacts(csvId!);
+            const topLevel = lastSuccess?.result
+              ? {
+                  code: lastSuccess.result.generatedCode,
+                  question,
+                  results: lastSuccess.result.executionResult.results as Record<string, unknown>,
+                  chart_data: lastSuccess.result.executionResult.chart_data as Record<
+                    string,
+                    unknown
+                  >,
+                  datasets: (lastSuccess.result.executionResult.datasets ?? {}) as Record<
+                    string,
+                    Record<string, unknown>[]
+                  >,
+                  execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
+                  // The materialization SQL for a warehouse investigation —
+                  // surfaces in the artifacts SQL tab.
+                  sql: warehouseSQL,
+                }
+              : {
+                  // Every sub-question failed: keep the previously cached
+                  // top-level artifacts (a failed investigation must not clobber
+                  // a prior good run's re-runnable code) and attach the trail.
+                  code: prior?.code ?? "",
+                  question: prior?.question ?? question,
+                  results: prior?.results ?? {},
+                  chart_data: prior?.chart_data ?? {},
+                  datasets: prior?.datasets ?? {},
+                  execution_ms: prior?.execution_ms ?? 0,
+                  sql: warehouseSQL ?? prior?.sql,
+                };
+            cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
+
+            // Deterministic data-quality surfacing — guarantees degraded / failed
+            // / dropped branches reach the user regardless of whether the composer
+            // remembered to annotate them. Rendered as a banner above the
+            // dashboard by ResponsePanel.
+            const dataQuality = {
+              degraded: trace.steps
+                .filter((s) => s.status === "degraded")
+                .map((s) => ({ stepNo: s.stepNo, question: s.question, reason: s.degradedReason })),
+              failed: trace.steps
+                .filter((s) => s.status === "failed")
+                .map((s) => ({ stepNo: s.stepNo, question: s.question, error: s.error })),
+              removed: trace.steps
+                .filter((s) => s.status === "removed")
+                .map((s) => ({ stepNo: s.stepNo, question: s.question })),
+            };
             if (
-              !grounding.ok ||
-              grounding.uncitedSuccessfulSteps.length > 0 ||
-              grounding.checkedCount > 0
+              dataQuality.degraded.length ||
+              dataQuality.failed.length ||
+              dataQuality.removed.length
             ) {
               emit(
-                JSON.stringify({ op: "add", path: "/state/__grounding", value: grounding }) + "\n"
+                JSON.stringify({ op: "add", path: "/state/__dataQuality", value: dataQuality }) +
+                  "\n"
               );
             }
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          logger.error("Investigate: failed", { error: msg.slice(0, 500) });
-          emit(
-            JSON.stringify({
-              op: "add",
-              path: "/state/__error",
-              value: msg,
-            }) + "\n"
-          );
-        } finally {
-          clearInterval(keepalive);
-          if (!closed) {
+
+            // ── Step 3: Compose unified dashboard ──
+            stepCount++;
+            emitProgress("composing", stepCount, totalSteps);
+
+            const compose = composeInvestigation({
+              originalQuestion: question,
+              plan,
+              schema: stored.schema,
+              subResults,
+              uiComposeModel,
+              purpose: context.purpose,
+            });
+
+            // Inject merged data into spec.state so $result/$chartData
+            // placeholders resolve client-side
+            emit(
+              JSON.stringify({
+                op: "add",
+                path: "/state/__results",
+                value: compose.initialState.results,
+              }) + "\n"
+            );
+            emit(
+              JSON.stringify({
+                op: "add",
+                path: "/state/__chart_data",
+                value: compose.initialState.chart_data,
+              }) + "\n"
+            );
+
+            // Stream the composed spec — the LLM emits raw JSONL patches that
+            // build the spec tree, same protocol as /api/query. Resolve
+            // $result:<key> and $chartData:<key> placeholders against the
+            // merged per-step results before emitting (mirrors /api/query).
+            const mergedResults = compose.initialState.results;
+            const mergedChartData = compose.initialState.chart_data;
+
+            // Collect the composed narrative for the grounding pass: prose text
+            // (post-resolution, so placeholder values are inlined) and the steps
+            // the narrative cited (from $result:step_N_ placeholders pre-resolution
+            // and "Step N" mentions post-resolution).
+            const narrativeTexts: string[] = [];
+            const citedSteps = new Set<number>();
+            // Notebook synthesis cell: the composer is instructed to use the
+            // element IDs `exec_summary` and `conclusion` for those two blocks;
+            // we lift their (post-resolution) content here. Matching is
+            // tolerant of the LLM's id-styling drift ("exec-summary",
+            // "conclusion-block"). Best-effort — if the composer ignores the
+            // IDs entirely, the notebook omits the synthesis.
+            const SUMMARY_PATH_RE = /^\/elements\/exec[-_]summary(?:[-_][a-z0-9]+)?$/;
+            const CONCLUSION_PATH_RE = /^\/elements\/conclusion(?:[-_][a-z0-9]+)?$/;
+            const synthesis: { summary?: string; conclusion?: string } = {};
+
+            const ingestComposedLine = (preResolution: string, patch: SpecPatch | null) => {
+              // Raw line: only unambiguous $result/$chartData placeholders count
+              // as citations — prose-scanning the raw JSON would match element
+              // IDs / key paths named after steps and suppress the
+              // uncited-steps advisory.
+              for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
+              if (patch && "value" in patch) {
+                const isSummary = !!patch.path && SUMMARY_PATH_RE.test(patch.path);
+                const isConclusion =
+                  !isSummary && !!patch.path && CONCLUSION_PATH_RE.test(patch.path);
+                if (isSummary || isConclusion) {
+                  const content = (patch.value as { props?: { content?: unknown } } | null)?.props
+                    ?.content;
+                  if (typeof content === "string" && content.trim()) {
+                    if (isSummary) synthesis.summary = content;
+                    else synthesis.conclusion = content;
+                  }
+                }
+                for (const text of collectNarrativeStrings(patch.value)) {
+                  narrativeTexts.push(text);
+                  for (const n of extractCitedSteps(text)) citedSteps.add(n);
+                }
+              }
+            };
+
+            // Shared finalization stage (placeholder resolution + $state repair),
+            // identical to Ask mode. Investigate inlines per-step data via
+            // $chartData/$result, so no DataController $state repair is needed.
+            const finalize = createSpecFinalizer({
+              results: mergedResults,
+              chartData: mergedChartData,
+            });
+
+            let buffer = "";
+            for await (const chunk of compose.textStream) {
+              if (closed) break;
+              buffer += chunk;
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                const r = finalize(line);
+                if (r.skip) continue;
+                ingestComposedLine(r.raw, r.patch);
+                emit(r.line + "\n");
+              }
+            }
+            if (buffer.trim()) {
+              const r = finalize(buffer);
+              if (!r.skip) {
+                ingestComposedLine(r.raw, r.patch);
+                emit(r.line + "\n");
+              }
+            }
+
+            // ── Notebook cells: settle and attach ──
+            // Most cell composes finish during the waves; only the final
+            // wave's may still be in flight. Their `__cells` patches emit as
+            // they land (the .then handlers above); attaching to the trace
+            // mutates the shared ref, so the cached artifacts entry sees the
+            // cellSpecs too — notebooks reload from history for free.
+            await Promise.allSettled(cellComposes);
+            for (const step of trace.steps) {
+              const cell = cellSpecs.get(step.index);
+              if (cell) step.cellSpec = cell;
+            }
+
+            // Notebook synthesis cell content, lifted from the composed
+            // narrative. Lives in spec state, so it persists with history.
+            if (synthesis.summary || synthesis.conclusion) {
+              emit(
+                JSON.stringify({ op: "add", path: "/state/__synthesis", value: synthesis }) + "\n"
+              );
+            }
+
+            // ── Grounding verdict ──
+            // Verify the composed narrative against what the investigation
+            // actually computed. Ungrounded figures (numbers that trace to no
+            // computed value) are surfaced as an advisory caveat and recorded in
+            // the trail — the guard against plausible-but-wrong, where semantic
+            // validation only catches degenerate.
+            if (!closed) {
+              const grounded = collectGroundedValues(mergedResults, mergedChartData);
+              const grounding = verifyGrounding({
+                narrativeTexts,
+                citedSteps: [...citedSteps].sort((a, b) => a - b),
+                grounded,
+                successfulStepNos: successfulStepNos(trace),
+              });
+              trace.grounding = grounding; // shared ref — updates the cached entry
+              if (
+                !grounding.ok ||
+                grounding.uncitedSuccessfulSteps.length > 0 ||
+                grounding.checkedCount > 0
+              ) {
+                emit(
+                  JSON.stringify({ op: "add", path: "/state/__grounding", value: grounding }) + "\n"
+                );
+              }
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.error("Investigate: failed", { error: msg.slice(0, 500) });
+            emit(
+              JSON.stringify({
+                op: "add",
+                path: "/state/__error",
+                value: msg,
+              }) + "\n"
+            );
+          } finally {
+            // ── Cost tracking: runs for every exit path (cheap fast-path,
+            // main investigation, or error) before the stream closes. ──
             try {
-              controller.close();
-            } catch {
-              // already closed
+              const acc = getCostAccumulator();
+              if (acc) {
+                const cost = computeCost(acc);
+                emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
+                const now = new Date();
+                await appendCostRow({
+                  timestamp: now.toISOString(),
+                  date: now.toISOString().slice(0, 10),
+                  dataset: datasetLabel,
+                  question,
+                  mode: analysisMode,
+                  models: cost.models.join(", "),
+                  llm_calls: cost.llmCalls,
+                  input_tokens: cost.inputTokens,
+                  cache_read_tokens: cost.cacheReadTokens,
+                  cache_write_tokens: cost.cacheWriteTokens,
+                  output_tokens: cost.outputTokens,
+                  cost_usd: cost.costUsd,
+                });
+              }
+            } catch (costErr) {
+              logger.warn("Cost logging failed", {
+                error: costErr instanceof Error ? costErr.message : String(costErr),
+              });
+            }
+            clearInterval(keepalive);
+            if (!closed) {
+              try {
+                controller.close();
+              } catch {
+                // already closed
+              }
             }
           }
-        }
+        });
       },
       cancel() {
         // Client aborted — best-effort: subsequent emits become no-ops.

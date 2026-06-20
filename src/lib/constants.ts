@@ -50,6 +50,30 @@ export function isValidModelId(id: string): id is ModelId {
   return AVAILABLE_MODELS.some((m) => m.id === id);
 }
 
+/**
+ * Per-token pricing for cost tracking, in USD per 1,000,000 tokens.
+ * HAND-MAINTAINED — update when Anthropic prices change. Cache-write is the
+ * 5-minute ephemeral rate (1.25× input); cache-read is 0.1× input. Models not
+ * listed (e.g. local Ollama/MLX) have no entry → cost is treated as $0 (tokens
+ * are still tracked). Keyed by the resolved model id.
+ */
+export interface ModelPrice {
+  /** uncached input tokens */
+  input: number;
+  /** output tokens */
+  output: number;
+  /** cache write (ephemeral 5m) */
+  cacheWrite: number;
+  /** cache read */
+  cacheRead: number;
+}
+
+export const MODEL_PRICING: Record<string, ModelPrice> = {
+  "claude-opus-4-6": { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
+  "claude-sonnet-4-6": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
+  "claude-haiku-4-5-20251001": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+};
+
 export const AVAILABLE_RUNTIMES = [
   { id: "docker", label: "Docker (Local)" },
   { id: "e2b", label: "E2B (Cloud)" },

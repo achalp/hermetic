@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // reference the spy safely.
 const { composeStepCell } = vi.hoisted(() => ({ composeStepCell: vi.fn() }));
 vi.mock("@/lib/llm/step-cell-composer", () => ({ composeStepCell }));
+// Don't let cost logging write real files during the test.
+vi.mock("@/lib/cost/storage", () => ({ appendCostRow: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: () => {}, info: () => {}, error: () => {} } }));
 
 import { POST } from "@/app/api/query/investigate/compose-cell/route";

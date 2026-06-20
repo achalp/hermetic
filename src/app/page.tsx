@@ -23,6 +23,7 @@ import { StyleSelector } from "@/components/app/style-selector";
 import { StyleDropdown } from "@/components/app/style-dropdown";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
+import { CostFooter, type CostInfo } from "@/components/app/cost-footer";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { generateSuggestions, generateWarehouseSuggestions } from "@/lib/suggest-questions";
 import { AnalysisHistory, type HistoryEntry } from "@/components/app/analysis-history";
@@ -140,6 +141,9 @@ export default function Home() {
   // ── New redesign state ──────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [railExpanded, setRailExpanded] = useState(false);
+  // Cost footer: last analysis cost + running session total.
+  const [lastCost, setLastCost] = useState<CostInfo | null>(null);
+  const [sessionCost, setSessionCost] = useState(0);
   const [railFullscreen, setRailFullscreen] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
@@ -1397,6 +1401,10 @@ export default function Home() {
                       saveHistoryEntry(cid, entry.spec, entry.question).catch(() => {});
                     }
                   }}
+                  onCost={(cost) => {
+                    setLastCost(cost);
+                    setSessionCost((s) => s + (cost.costUsd ?? 0));
+                  }}
                 />
               </div>
               {/* Follow-up suggestions — surfaces after each successful analysis */}
@@ -1413,6 +1421,8 @@ export default function Home() {
           )}
         </main>
       </MainContent>
+
+      <CostFooter lastCost={lastCost} sessionCostUsd={sessionCost} />
 
       {/* Artifacts Panel — bottom sheet per design spec */}
       <ArtifactsPanel

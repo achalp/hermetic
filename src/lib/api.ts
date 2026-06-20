@@ -344,6 +344,13 @@ export async function listHistory(signal?: AbortSignal): Promise<HistoryMeta[]> 
   return data.entries;
 }
 
+/** Per-analysis cost rows (raw CSV columns as strings), newest first. */
+export async function getCostRows(signal?: AbortSignal): Promise<Record<string, string>[]> {
+  const res = await fetch("/api/cost", { signal });
+  const data = await json<{ rows: Record<string, string>[] }>(res);
+  return data.rows ?? [];
+}
+
 export interface LoadedHistory {
   meta: HistoryMeta;
   spec: Record<string, unknown>;
