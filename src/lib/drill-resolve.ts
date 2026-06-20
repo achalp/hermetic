@@ -1,4 +1,9 @@
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams, FilterValue } from "@/lib/types";
+
+/** Human-readable label for a filter value (multi-select joins with ", "). */
+export function formatFilterValue(v: FilterValue): string {
+  return Array.isArray(v) ? v.join(", ") : String(v);
+}
 
 /**
  * A record of the dimension values for the chart mark the user clicked, keyed
@@ -14,9 +19,9 @@ export type ClickedRecord = Record<string, string | number> | null;
 export const CLICK_PRIMARY = "__value";
 
 export interface ResolvedDrill {
-  filterValue: string | number;
+  filterValue: FilterValue;
   segmentLabel: string;
-  additionalFilters: { column: string; value: string | number }[];
+  additionalFilters: { column: string; value: FilterValue }[];
 }
 
 /**
@@ -79,7 +84,7 @@ function resolveFilterValue(
   // breakdown dimension. A secondary filter that can't be matched to a real
   // column must NOT silently collapse onto the primary clicked value.
   allowPrimaryFallback: boolean
-): string | number | null {
+): FilterValue | null {
   if (clicked && column && clicked[column] != null) return clicked[column];
   if (isBinding(value)) {
     if (clicked && clicked[value.$item] != null) return clicked[value.$item];
@@ -89,6 +94,11 @@ function resolveFilterValue(
     return null;
   }
   if (typeof value === "string" || typeof value === "number") return value;
+  // Multi-select: a non-empty array of categories (column IN (...)).
+  if (Array.isArray(value)) {
+    const vals = value.filter((v) => typeof v === "string" || typeof v === "number");
+    return vals.length > 0 ? (vals as (string | number)[]) : null;
+  }
   if (allowPrimaryFallback && clicked && clicked[CLICK_PRIMARY] != null) {
     return clicked[CLICK_PRIMARY];
   }
@@ -122,15 +132,15 @@ export function resolveDrillValues(
       const value = resolveFilterValue(f.value, f.column, clicked, false);
       return value == null ? null : { column: f.column, value };
     })
-    .filter((f): f is { column: string; value: string | number } => f != null);
+    .filter((f): f is { column: string; value: FilterValue } => f != null);
 
   let segmentLabel: string;
   if (fromClick || isBinding(params.segment_label)) {
-    segmentLabel = String(filterValue);
+    segmentLabel = formatFilterValue(filterValue);
   } else if (typeof params.segment_label === "string" && params.segment_label.length > 0) {
     segmentLabel = params.segment_label;
   } else {
-    segmentLabel = String(filterValue);
+    segmentLabel = formatFilterValue(filterValue);
   }
 
   return { filterValue, segmentLabel, additionalFilters };

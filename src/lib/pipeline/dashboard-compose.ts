@@ -20,16 +20,22 @@ import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { logger } from "@/lib/logger";
-import type { SandboxExecutionResult, CSVSchema, SchemaMode, ConversationTurn } from "@/lib/types";
+import type {
+  SandboxExecutionResult,
+  CSVSchema,
+  SchemaMode,
+  ConversationTurn,
+  FilterValue,
+} from "@/lib/types";
 
 export interface DrillDownContext {
   parent_question: string;
   filter_column: string;
-  filter_value: string | number;
+  filter_value: FilterValue;
   segment_label: string;
   chart_title: string | null;
-  /** Additional filters AND-combined with the primary filter (2D pivot drill-down). */
-  additional_filters?: { column: string; value: string | number }[] | null;
+  /** Additional filters AND-combined with the primary filter (2D / multi-select). */
+  additional_filters?: { column: string; value: FilterValue }[] | null;
 }
 
 export interface DashboardComposeOpts {
@@ -238,13 +244,18 @@ Use a DataController component to enable instant client-side filtering. The full
   // Append drill-down context if present
   if (drillDownContext) {
     const extraFilters = drillDownContext.additional_filters ?? [];
+    // Multi-select values become "col is one of [...]" / "col IN (...)".
+    const fmtLine = (col: string, v: FilterValue) =>
+      Array.isArray(v) ? `- Filter: ${col} is one of [${v.join(", ")}]` : `- Filter: ${col} = ${v}`;
+    const fmtClause = (col: string, v: FilterValue) =>
+      Array.isArray(v) ? `${col} IN (${v.map((x) => `"${x}"`).join(", ")})` : `${col} = "${v}"`;
     const filterLines = [
-      `- Filter: ${drillDownContext.filter_column} = ${drillDownContext.filter_value}`,
-      ...extraFilters.map((f) => `- Filter: ${f.column} = ${f.value}`),
+      fmtLine(drillDownContext.filter_column, drillDownContext.filter_value),
+      ...extraFilters.map((f) => fmtLine(f.column, f.value)),
     ].join("\n");
     const filterClause = [
-      `${drillDownContext.filter_column} = "${drillDownContext.filter_value}"`,
-      ...extraFilters.map((f) => `${f.column} = "${f.value}"`),
+      fmtClause(drillDownContext.filter_column, drillDownContext.filter_value),
+      ...extraFilters.map((f) => fmtClause(f.column, f.value)),
     ].join(" AND ");
     userPrompt += `
 

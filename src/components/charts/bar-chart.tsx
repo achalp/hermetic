@@ -34,13 +34,13 @@ export function BarChartComponent({
   props,
   emit,
   on,
-  selectedValue,
+  selectedValues = [],
   onSelect,
 }: {
   props: BarChartProps;
   emit?: (event: string) => void;
   on?: (event: string) => EventHandle;
-  selectedValue?: string | null;
+  selectedValues?: string[];
   onSelect?: (value: string) => void;
 }) {
   const isSelectable = !!onSelect;
@@ -77,13 +77,13 @@ export function BarChartComponent({
   })();
   const baseColors = useColorMap(y_keys, props.color_map);
 
-  // When a bar is selected, dim unselected bars via hex alpha suffix
+  // When a selection is active, dim unselected bars via hex alpha suffix
   const colors =
-    isSelectable && selectedValue
+    isSelectable && selectedValues.length > 0
       ? (bar: { indexValue: string | number; id: string | number }) => {
           const colorIdx = y_keys.indexOf(String(bar.id));
           const baseColor = baseColors[colorIdx >= 0 ? colorIdx : 0];
-          return String(bar.indexValue) === selectedValue ? baseColor : baseColor + "40"; // 25% opacity
+          return selectedValues.includes(String(bar.indexValue)) ? baseColor : baseColor + "40"; // 25% opacity
         }
       : baseColors;
   const layout = props.orientation === "horizontal" ? "horizontal" : "vertical";
@@ -143,7 +143,7 @@ export function BarChartComponent({
           {isDrillable && (
             <span className="ml-2 text-xs font-normal text-accent">Click to drill down</span>
           )}
-          {isSelectable && !selectedValue && (
+          {isSelectable && selectedValues.length === 0 && (
             <span className="ml-2 text-xs font-normal text-t-tertiary">Click to filter</span>
           )}
         </h3>

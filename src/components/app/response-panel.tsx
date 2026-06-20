@@ -11,9 +11,9 @@ import type { Spec } from "@json-render/react";
 import { registry, registryActionHandlers } from "@/components/registry";
 import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-context";
-import { resolveDrillValues } from "@/lib/drill-resolve";
+import { resolveDrillValues, formatFilterValue } from "@/lib/drill-resolve";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DrillDownParams, SchemaMode } from "@/lib/types";
+import type { DrillDownParams, SchemaMode, FilterValue } from "@/lib/types";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
@@ -23,6 +23,7 @@ import { useArtifacts } from "@/hooks/use-artifacts";
 import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
+import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
 import { Card } from "@/components/ui/card";
@@ -53,7 +54,7 @@ function buildInvestigateScope(
   spec: Spec | null | undefined,
   extra?: {
     parentQuestion?: string;
-    filters?: { column: string; value: string | number }[];
+    filters?: { column: string; value: FilterValue }[];
     segmentLabel?: string;
   }
 ): InvestigateScope | undefined {
@@ -359,9 +360,14 @@ export function ResponsePanel({
       ]);
 
       const additionalFilters = resolvedAdditional;
+      // Multi-select values read "col in (a, b)"; single values "col = v".
+      const describeFilter = (column: string, value: typeof filterValue) =>
+        Array.isArray(value)
+          ? `${column} in (${formatFilterValue(value)})`
+          : `${column} = ${value}`;
       const filterDesc = [
-        `${params.filter_column} = ${filterValue}`,
-        ...additionalFilters.map((f) => `${f.column} = ${f.value}`),
+        describeFilter(params.filter_column, filterValue),
+        ...additionalFilters.map((f) => describeFilter(f.column, f.value)),
       ].join(", ");
       // Neutral phrasing — the depth (quick lookup vs. scoped sub-investigation)
       // is decided by the classifier on the investigate route, not pre-biased by
@@ -704,6 +710,7 @@ export function ResponsePanel({
               )}
               <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
                 <StateProvider initialState={activeSpec.state ?? {}}>
+                  <SelectionDrillBar />
                   <ActionProvider handlers={registryActionHandlers}>
                     <VisibilityProvider>
                       <RendererErrorBoundary>

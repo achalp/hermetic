@@ -30,7 +30,7 @@
 import { generateText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
-import type { CSVSchema, WarehouseTableSchema } from "@/lib/types";
+import type { CSVSchema, WarehouseTableSchema, FilterValue } from "@/lib/types";
 import { logger } from "@/lib/logger";
 
 /** Hard cap on how many prior sub-questions a single dependent can reference. */
@@ -164,7 +164,7 @@ export interface InvestigateScope {
   /** Sub-questions the parent already explored (so we don't repeat them). */
   prior_steps?: string[];
   /** Segment filters to restrict every sub-question to (from a chart drill). */
-  filters?: { column: string; value: string | number }[];
+  filters?: { column: string; value: FilterValue }[];
   /** Human-readable label for the drilled segment. */
   segment_label?: string;
 }
@@ -180,7 +180,13 @@ function buildScopeBlock(scope: InvestigateScope): string {
     for (const s of scope.prior_steps.slice(0, 8)) lines.push(`- ${s}`);
   }
   if (scope.filters?.length) {
-    const f = scope.filters.map((x) => `${x.column} = ${x.value}`).join(" AND ");
+    const f = scope.filters
+      .map((x) =>
+        Array.isArray(x.value)
+          ? `${x.column} in (${x.value.join(", ")})`
+          : `${x.column} = ${x.value}`
+      )
+      .join(" AND ");
     lines.push(
       `SCOPE every sub-question to this segment${scope.segment_label ? ` (${scope.segment_label})` : ""}: ${f}. Filter to it in the generated code.`
     );

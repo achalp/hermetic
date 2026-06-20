@@ -28,13 +28,13 @@ export function PieChartComponent({
   props,
   emit,
   on,
-  selectedValue,
+  selectedValues = [],
   onSelect,
 }: {
   props: PieChartProps;
   emit?: (event: string) => void;
   on?: (event: string) => EventHandle;
-  selectedValue?: string | null;
+  selectedValues?: string[];
   onSelect?: (value: string) => void;
 }) {
   const isSelectable = !!onSelect;
@@ -88,13 +88,13 @@ export function PieChartComponent({
     ? resolveColors(props.colors)
     : themeColors.slice(0, nivoData.length);
 
-  // When a slice is selected, dim unselected slices via hex alpha suffix
+  // When a selection is active, dim unselected slices via hex alpha suffix
   const colors =
-    isSelectable && selectedValue
+    isSelectable && selectedValues.length > 0
       ? (datum: { id: string | number }) => {
           const idx = nivoData.findIndex((d) => d.id === datum.id);
           const baseColor = baseColors[idx >= 0 ? idx : 0];
-          return String(datum.id) === selectedValue ? baseColor : baseColor + "40"; // 25% opacity
+          return selectedValues.includes(String(datum.id)) ? baseColor : baseColor + "40"; // 25% opacity
         }
       : baseColors;
 
@@ -115,7 +115,7 @@ export function PieChartComponent({
           {isDrillable && (
             <span className="ml-2 text-xs font-normal text-accent">Click to drill down</span>
           )}
-          {isSelectable && !selectedValue && (
+          {isSelectable && selectedValues.length === 0 && (
             <span className="ml-2 text-xs font-normal text-t-tertiary">Click to filter</span>
           )}
         </h3>
@@ -132,8 +132,8 @@ export function PieChartComponent({
           cornerRadius={chart.pieCornerRadius}
           margin={{ top: 20, right: 80, bottom: props.show_legend ? 60 : 40, left: 80 }}
           theme={theme}
-          activeId={isSelectable && selectedValue ? selectedValue : undefined}
-          activeOuterRadiusOffset={isSelectable && selectedValue ? 8 : undefined}
+          activeId={isSelectable && selectedValues.length > 0 ? selectedValues[0] : undefined}
+          activeOuterRadiusOffset={isSelectable && selectedValues.length > 0 ? 8 : undefined}
           enableArcLabels={props.show_labels ?? false}
           enableArcLinkLabels={props.show_labels ?? true}
           arcLabelsSkipAngle={15}

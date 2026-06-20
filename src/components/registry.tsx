@@ -328,13 +328,13 @@ const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
       </PivotSelectionBridge>
     ),
     BarChart: ({ props, emit, on }) => {
-      const inner = (sel?: { selectedValue: string | null; onSelect: (v: string) => void }) => (
+      const inner = (sel?: { selectedValues: string[]; onSelect: (v: string) => void }) => (
         <ChartExpandWrapper title={props.title}>
           <BarChartComponent
             props={props}
             emit={emit}
             on={on}
-            selectedValue={sel?.selectedValue ?? null}
+            selectedValues={sel?.selectedValues ?? []}
             onSelect={sel?.onSelect}
           />
         </ChartExpandWrapper>
@@ -356,13 +356,13 @@ const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
       </ChartExpandWrapper>
     ),
     PieChart: ({ props, emit, on }) => {
-      const inner = (sel?: { selectedValue: string | null; onSelect: (v: string) => void }) => (
+      const inner = (sel?: { selectedValues: string[]; onSelect: (v: string) => void }) => (
         <ChartExpandWrapper title={props.title}>
           <PieChartComponent
             props={props}
             emit={emit}
             on={on}
-            selectedValue={sel?.selectedValue ?? null}
+            selectedValues={sel?.selectedValues ?? []}
             onSelect={sel?.onSelect}
           />
         </ChartExpandWrapper>

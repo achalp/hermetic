@@ -64,6 +64,45 @@ describe("resolveDrillValues — bar/pie $item bindings", () => {
   });
 });
 
+describe("resolveDrillValues — multi-select (array) values", () => {
+  it("passes a non-empty array filter_value through", () => {
+    const p = params({
+      filter_value: ["North", "East"] as unknown as string,
+      filter_column: "region",
+      segment_label: "Region",
+    });
+    const r = resolveDrillValues(p, null);
+    expect(r?.filterValue).toEqual(["North", "East"]);
+    // A static, non-empty segment_label is preserved as-is.
+    expect(r?.segmentLabel).toBe("Region");
+  });
+
+  it("labels an array readably when no static label is given", () => {
+    const p = params({
+      filter_value: ["North", "East"] as unknown as string,
+      filter_column: "region",
+      segment_label: "",
+    });
+    expect(resolveDrillValues(p, null)?.segmentLabel).toBe("North, East");
+  });
+
+  it("treats an empty array as no selection (bails)", () => {
+    const p = params({ filter_value: [] as unknown as string });
+    expect(resolveDrillValues(p, null)).toBeNull();
+  });
+
+  it("carries an array in additional_filters", () => {
+    const p = params({
+      filter_value: "West",
+      filter_column: "region",
+      segment_label: "West",
+      additional_filters: [{ column: "channel", value: ["Online", "Retail"] as unknown as string }],
+    });
+    const r = resolveDrillValues(p, null);
+    expect(r?.additionalFilters).toEqual([{ column: "channel", value: ["Online", "Retail"] }]);
+  });
+});
+
 describe("resolveDrillValues — value-less / unresolved clicks bail", () => {
   it("returns null for an $item binding with no captured click", () => {
     const p = params({ filter_value: { $item: "region" } });
