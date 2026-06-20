@@ -764,16 +764,22 @@ function localOpenAIFetch(baseUrl: string) {
  */
 const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
   anthropic: {
+    "claude-opus-4-8": "claude-opus-4-8",
     "claude-opus-4-6": "claude-opus-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
   },
+  // NOTE: Bedrock cross-region inference-profile IDs follow the `us.anthropic.…`
+  // convention; confirm the exact 4.8 profile string against the AWS Bedrock
+  // model catalog for your region before deploying there.
   bedrock: {
+    "claude-opus-4-8": "us.anthropic.claude-opus-4-8-v1",
     "claude-opus-4-6": "us.anthropic.claude-opus-4-6-v1",
     "claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
     "claude-haiku-4-5-20251001": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   },
   vertex: {
+    "claude-opus-4-8": "claude-opus-4-8",
     "claude-opus-4-6": "claude-opus-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001": "claude-haiku-4-5@20251001",
@@ -950,10 +956,41 @@ function usageMiddleware(costKey: string): LanguageModelMiddleware {
   };
 }
 
+/**
+ * Opus 4.7+ (claude-opus-4-7, -4-8, …) and the Fable/Mythos family removed the
+ * sampling parameters — temperature/top_p/top_k (and budget_tokens) return a 400;
+ * only adaptive thinking is supported. Our call sites set `temperature` for the
+ * 4.6-family models (Sonnet 4.6, Haiku 4.5) that still accept it, so we strip the
+ * sampling params centrally for the adaptive-only models rather than touching
+ * every call site.
+ */
+export function isAdaptiveOnlyModel(internalModelId: string): boolean {
+  return (
+    /^claude-opus-4-(?:[7-9]|\d\d)/.test(internalModelId) ||
+    /^claude-(?:fable|mythos)-/.test(internalModelId)
+  );
+}
+
+const stripSamplingMiddleware: LanguageModelMiddleware = {
+  specificationVersion: "v3",
+  transformParams: async ({ params }) => {
+    const next = { ...params };
+    delete next.temperature;
+    delete next.topP;
+    delete next.topK;
+    return next;
+  },
+};
+
 type ProviderModel = Parameters<typeof wrapLanguageModel>[0]["model"];
 
-function track(model: ProviderModel, costKey: string): ProviderModel {
-  return wrapLanguageModel({ model, middleware: usageMiddleware(costKey) });
+function track(model: ProviderModel, costKey: string, stripSampling = false): ProviderModel {
+  return wrapLanguageModel({
+    model,
+    middleware: stripSampling
+      ? [stripSamplingMiddleware, usageMiddleware(costKey)]
+      : usageMiddleware(costKey),
+  });
 }
 
 export function getModel(internalModelId: string) {
@@ -992,7 +1029,8 @@ export function getModel(internalModelId: string) {
   }
 
   const mappedId = MODEL_MAP[provider][internalModelId] ?? internalModelId;
-  return track(client(mappedId), cloudAnthropic ? internalModelId : mappedId);
+  const stripSampling = cloudAnthropic && isAdaptiveOnlyModel(internalModelId);
+  return track(client(mappedId), cloudAnthropic ? internalModelId : mappedId, stripSampling);
 }
 
 /**

@@ -118,4 +118,10 @@ describe("MODEL_PRICING", () => {
       expect(p.cacheRead).toBeCloseTo(p.input * 0.1, 6);
     }
   });
+
+  // Regression guard: Opus 4.x is $5/$25 per MTok — NOT the Claude 3 Opus
+  // $15/$75 rate that was previously (wrongly) hard-coded.
+  it("prices Opus at the 4.x rate ($5 in / $25 out)", () => {
+    expect(MODEL_PRICING["claude-opus-4-8"]).toMatchObject({ input: 5, output: 25 });
+  });
 });
