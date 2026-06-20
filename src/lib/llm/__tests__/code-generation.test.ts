@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   cleanGeneratedCode,
   fixUpFilenames,
+  fixExcelReadOnCsv,
   fixReadCsvDelimiter,
   stripValueAssertions,
 } from "@/lib/llm/code-generation";
@@ -102,6 +103,39 @@ describe("fixUpFilenames", () => {
   it("is a no-op (aside from double-ext fix) when filename is empty", () => {
     const code = 'pd.read_csv("/data/input.csv")';
     expect(fixUpFilenames(code, "")).toBe(code);
+  });
+});
+
+describe("fixExcelReadOnCsv", () => {
+  it("rewrites read_excel on the CSV input to read_csv (the reported crash)", () => {
+    expect(fixExcelReadOnCsv('df = pd.read_excel("/data/input.csv")')).toBe(
+      'df = pd.read_csv("/data/input.csv")'
+    );
+  });
+
+  it("drops Excel-only kwargs like engine=openpyxl", () => {
+    expect(fixExcelReadOnCsv('pd.read_excel("/data/input.csv", engine="openpyxl")')).toBe(
+      'pd.read_csv("/data/input.csv")'
+    );
+    expect(fixExcelReadOnCsv("pd.read_excel('/data/input.csv', sheet_name=0)")).toBe(
+      "pd.read_csv('/data/input.csv')"
+    );
+  });
+
+  it("preserves a non-pd prefix (e.g. pandas.read_excel)", () => {
+    expect(fixExcelReadOnCsv('pandas.read_excel("/data/input.csv")')).toBe(
+      'pandas.read_csv("/data/input.csv")'
+    );
+  });
+
+  it("leaves a genuine .xlsx read untouched (path is not a .csv)", () => {
+    const code = 'pd.read_excel("/data/report.xlsx")';
+    expect(fixExcelReadOnCsv(code)).toBe(code);
+  });
+
+  it("leaves an existing read_csv call unchanged", () => {
+    const code = 'pd.read_csv("/data/input.csv")';
+    expect(fixExcelReadOnCsv(code)).toBe(code);
   });
 });
 

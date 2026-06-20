@@ -63,6 +63,25 @@ export function fixUpFilenames(code: string, originalFilename: string): string {
 }
 
 /**
+ * Rewrite `pd.read_excel(...)` calls that target the CSV input into
+ * `read_csv(...)`. The sandbox input is ALWAYS a CSV at /data/input.csv —
+ * Excel uploads are converted to CSV server-side, and openpyxl is not
+ * installed in the sandbox — so reading it with the Excel engine is
+ * unconditionally wrong. Weaker models sometimes emit
+ * `pd.read_excel("/data/input.csv", engine="openpyxl")`, which fails with
+ * ModuleNotFoundError. We only match read_excel calls whose path argument is a
+ * `.csv` literal (so a genuine `.xlsx` read is left untouched) and drop the
+ * Excel-only kwargs (engine, sheet_name, …) that read_csv doesn't accept.
+ * Run after fixUpFilenames so the path is already normalized to /data/input.csv.
+ */
+export function fixExcelReadOnCsv(code: string): string {
+  return code.replace(
+    /(\bpd\s*\.\s*)?read_excel\(\s*(["'][^"']*\.csv["'])[^)]*\)/g,
+    (_match, pdPrefix, path) => `${pdPrefix ?? ""}read_csv(${path})`
+  );
+}
+
+/**
  * Ensure DuckDB read_csv calls include an explicit delimiter to prevent
  * auto-detection failures on small result sets (e.g. 1-2 rows from warehouse queries).
  */
@@ -121,6 +140,8 @@ export async function generateAnalysisCode(
   });
 
   return stripValueAssertions(
-    fixReadCsvDelimiter(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+    fixReadCsvDelimiter(
+      fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+    )
   );
 }
