@@ -17,9 +17,9 @@
  */
 
 import { streamText, generateText } from "ai";
-import { getModel } from "@/lib/llm/client";
+import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
-import { UI_COMPOSE_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { UI_COMPOSE_MODEL, GAP_CHECK_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import type { CSVSchema } from "@/lib/types";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
@@ -462,7 +462,9 @@ export async function gapCheckComposer(args: ComposeArgs): Promise<GapCheckResul
   const { perStepMetadata } = flattenStepArtifacts(args.subResults);
   // Count non-removed, non-failed steps for depends_on bounds
   const existingStepCount = args.subResults.length;
-  const model = getModel(args.uiComposeModel ?? UI_COMPOSE_MODEL);
+  // Gap-check is a small JSON coverage verdict — use the cheap model, not the
+  // (Sonnet) compose model.
+  const model = getModel(GAP_CHECK_MODEL);
 
   logger.info("Investigate: gap-check", {
     stepCount: existingStepCount,
@@ -472,7 +474,7 @@ export async function gapCheckComposer(args: ComposeArgs): Promise<GapCheckResul
   try {
     const result = await generateText({
       model,
-      system: GAP_CHECK_SYSTEM_PROMPT,
+      system: cachedSystem(GAP_CHECK_SYSTEM_PROMPT),
       prompt: buildGapCheckUserPrompt({
         originalQuestion: args.originalQuestion,
         plan: args.plan,
@@ -530,7 +532,7 @@ export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
 
   const result = streamText({
     model,
-    system: catalog.prompt({ customRules: [systemPrompt] }),
+    system: cachedSystem(catalog.prompt({ customRules: [systemPrompt] })),
     prompt: userPrompt,
     temperature: 0.2,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,

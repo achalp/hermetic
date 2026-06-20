@@ -8,6 +8,7 @@ vi.mock("ai", () => ({
 }));
 vi.mock("@/lib/llm/client", () => ({
   getModel: () => ({}),
+  cachedSystem: (s: string) => s,
 }));
 
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";

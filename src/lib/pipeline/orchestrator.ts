@@ -4,11 +4,11 @@ import {
   fixUpFilenames,
   fixReadCsvDelimiter,
 } from "@/lib/llm/code-generation";
-import { buildRetryPromptMulti } from "@/lib/llm/prompts";
+import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { generateText } from "ai";
-import { getModel } from "@/lib/llm/client";
+import { getModel, cachedSystem } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, ConversationTurn, SandboxExecutionResult, SchemaMode } from "@/lib/types";
@@ -125,7 +125,7 @@ export async function runPipeline(
   //     verdict says the output is degenerate (empty / NaN-only / etc.)
   // For semantic failures, the "error" string fed to the retry prompt is
   // the validator's reason + suggested fix, not a Python traceback.
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 2;
   const priorAttempts: { code: string; error: string }[] = [];
   let attempt = 0;
 
@@ -163,9 +163,13 @@ export async function runPipeline(
     try {
       const retryResult = await generateText({
         model: getModel(model),
-        system:
-          "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing." +
-          retrySystemExtra,
+        // The static "Common fixes" guidance lives here (cached) rather than in
+        // the per-attempt user prompt, so it isn't re-billed on every retry.
+        system: cachedSystem(
+          "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
+            RETRY_GUIDANCE +
+            retrySystemExtra
+        ),
         prompt: buildRetryPromptMulti(priorAttempts, schema),
         temperature: 0,
         maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,

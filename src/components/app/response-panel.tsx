@@ -324,6 +324,10 @@ export function ResponsePanel({
       sql: rerunSql ?? undefined,
       // Scoped follow-up on a prior Investigate (consumed by the investigate route).
       scope: followUpScope,
+      // Only eager-compose notebook cells if the user is already in Notebook
+      // view; otherwise they're composed lazily on Notebook-open (saves N
+      // compose calls for the common Dashboard path). Investigate route only.
+      compose_cells: viewMode === "notebook",
     });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -405,6 +409,7 @@ export function ResponsePanel({
           additional_filters: additionalFilters.length > 0 ? additionalFilters : undefined,
         },
         scope: drillScope,
+        compose_cells: viewMode === "notebook",
         schema_mode: schemaMode,
         code_gen_model: codeGenModel,
         ui_compose_model: uiComposeModel,

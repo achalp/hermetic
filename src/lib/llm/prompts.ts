@@ -416,6 +416,25 @@ export function buildCodeGenUserPrompt(
   workbookContext?: string,
   localFileContext?: string
 ): string {
+  return `${buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)}
+## Question
+${question}`;
+}
+
+/**
+ * The schema/context block shared by the single-shot and chat code-gen prompts.
+ * It's stable for a given dataset, so callers send it as a cached content part
+ * (the prefix) with the variable question appended as a separate, uncached part
+ * — that's the Anthropic prompt-cache breakpoint for the user prompt. Returns
+ * the exact text that previously lived inline in buildCodeGenUserPrompt minus
+ * the trailing "## Question" tail.
+ */
+export function buildCodeGenSchemaBlock(
+  schema: CSVSchema,
+  mode: SchemaMode = "metadata",
+  workbookContext?: string,
+  localFileContext?: string
+): string {
   const columnDescriptions = formatColumns(schema, mode);
 
   const geomType = schema.geojson_geometry_type ?? "unknown";
@@ -458,9 +477,7 @@ Rows: ${schema.row_count}${domainSection}${warehouseSection}${localFileSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${correlationSection}${geojsonSection}${workbookSection}
-## Question
-${question}`;
+${correlationSection}${geojsonSection}${workbookSection}`;
 }
 
 // ── User prompt (chat follow-up) ──────────────────────────────────
@@ -505,11 +522,15 @@ export function buildCodeGenChatPrompt(
   workbookContext?: string,
   localFileContext?: string
 ): string {
-  const columnDescriptions = formatColumns(schema, mode);
+  return `${buildConversationHistorySection(turns)}${buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)}
+## Question
+${question}`;
+}
 
-  const historySection =
-    turns.length > 0
-      ? `## Prior Analysis Context
+/** The "Prior Analysis Context" block for chat follow-ups (empty when none). */
+export function buildConversationHistorySection(turns: ConversationTurn[]): string {
+  if (turns.length === 0) return "";
+  return `## Prior Analysis Context
 The user is asking a follow-up question. Here is what was analyzed previously:
 
 ${formatConversationTurns(turns)}
@@ -517,52 +538,7 @@ ${formatConversationTurns(turns)}
 Generate fresh code that reads the same source data and addresses the new question.
 Build on the prior analysis: if the user references previous results (e.g. "break that down by region", "also show trends"), use the context above to understand what "that" refers to and what was already computed.
 
-`
-      : "";
-
-  const geomType = schema.geojson_geometry_type ?? "unknown";
-  const isPolygonGeom = geomType === "Polygon" || geomType === "MultiPolygon";
-  const geojsonSection = schema.has_geojson
-    ? `\n## GeoJSON Source
-This data was uploaded as a GeoJSON file. Geometry type: ${geomType}.
-A GeoJSON file is available at "/data/input.geojson" alongside the tabular CSV.${
-        isPolygonGeom
-          ? `\nIMPORTANT: This contains polygon geometry. Pass the full GeoJSON FeatureCollection as chart_data["geojson"]. Do NOT extract centroids or use point markers — render the actual polygon boundaries.`
-          : ""
-      }\n`
-    : "";
-
-  const workbookSection = workbookContext ? `\n## Workbook Context\n${workbookContext}\n` : "";
-
-  const correlationSection =
-    schema.correlations && schema.correlations.length > 0
-      ? `\n## Notable Correlations\n${schema.correlations.map((c) => `- ${c.col_a} ↔ ${c.col_b}: r=${c.pearson}`).join("\n")}\n`
-      : "";
-
-  const domainSection =
-    schema.detected_domain && schema.detected_domain !== "general"
-      ? `\nDetected data domain: ${schema.detected_domain}\n`
-      : "";
-
-  const warehouseSection =
-    schema.source_type === "warehouse"
-      ? `\nData source: ${schema.warehouse_type} warehouse, table: ${schema.warehouse_table}
-Column types are database-native (high fidelity). The data has been loaded as CSV at /data/input.csv.\n`
-      : "";
-
-  const localFileSection = localFileContext ? `\n## Data Location\n${localFileContext}\n` : "";
-
-  const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
-
-  return `${historySection}## ${headerLabel}
-Filename: ${schema.filename}
-Rows: ${schema.row_count}${domainSection}${warehouseSection}${localFileSection}
-Columns:
-${columnDescriptions}
-${formatDataSection(schema, mode)}
-${correlationSection}${geojsonSection}${workbookSection}
-## Question
-${question}`;
+`;
 }
 
 // ── Workbook context builder ──────────────────────────────────────
@@ -686,9 +662,16 @@ export function buildRetryPromptMulti(
 
   return `Your previous code failed. Fix it.
 
-${attemptHistory}${schemaContext}${reflectionPrompt}
-## Common fixes
-- **KeyError / column not found**: use the EXACT column name from "Available Columns" above (case-sensitive). For case-insensitive matching: \`col = next((c for c in df.columns if c.lower() == "target".lower()), None)\`.
+${attemptHistory}${schemaContext}${reflectionPrompt}`;
+}
+
+/**
+ * Static retry guidance ("Common fixes"). Lives in the retry SYSTEM prompt (and
+ * is cached) rather than the per-attempt user prompt, so it isn't re-billed on
+ * every retry / sub-question. Appended after the base retry system instruction.
+ */
+export const RETRY_GUIDANCE = `## Common fixes
+- **KeyError / column not found**: use the EXACT column name from the Available Columns in the prompt (case-sensitive). For case-insensitive matching: \`col = next((c for c in df.columns if c.lower() == "target".lower()), None)\`.
 - **TypeError on aggregation**: column is stored as strings — coerce with \`pd.to_numeric(df[col], errors="coerce")\` first.
 - **ValueError: could not convert string to float**: clean before parsing — strip currency symbols, commas: \`df[col].str.replace(r'[$,]', '', regex=True).astype(float)\`.
 - **NaN in JSON output**: use \`df.fillna("")\` or \`df.fillna(0)\` before serialization, or \`obj.where(pd.notna(obj), None)\`.
@@ -698,4 +681,3 @@ ${attemptHistory}${schemaContext}${reflectionPrompt}
 - **Code timed out**: the dataset may be large — sample first with \`df.head(10_000)\` or aggregate before plotting.
 
 Fix the code and return only the corrected Python script. No markdown fencing, no explanation.`;
-}

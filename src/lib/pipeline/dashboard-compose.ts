@@ -13,7 +13,7 @@
  */
 
 import { streamText } from "ai";
-import { getModel } from "@/lib/llm/client";
+import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
@@ -446,7 +446,7 @@ export async function composeAndStreamDashboard(args: {
 
   const llmResult = streamText({
     model: getModel(uiComposeModel),
-    system: catalog.prompt({ customRules }),
+    system: cachedSystem(catalog.prompt({ customRules })),
     prompt: userPrompt,
     temperature: 0,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,

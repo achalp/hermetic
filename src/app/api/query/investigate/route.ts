@@ -116,6 +116,14 @@ interface InvestigateContext {
    * planner so the new plan goes deeper instead of repeating the parent.
    */
   scope?: InvestigateScope;
+  /**
+   * Whether to eagerly compose per-step notebook cells during the run. The
+   * client sets this to true only when the Notebook view is active at submit;
+   * otherwise the cells are composed lazily on demand when the user opens the
+   * Notebook (see /api/query/investigate/compose-cell), saving N compose calls
+   * for the common Dashboard-only path. Defaults to true if unset.
+   */
+  compose_cells?: boolean;
 }
 
 interface InvestigateBody {
@@ -178,6 +186,9 @@ export async function POST(request: Request) {
       context.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
         ? context.sandbox_runtime
         : getActiveSandboxRuntime();
+    // Compose notebook cells eagerly only when the client is in Notebook view;
+    // otherwise they're composed lazily on Notebook-open (cost optimization).
+    const composeCells = context.compose_cells !== false;
 
     // Warehouse investigations: materialize the data with ONE broad SQL
     // pull, then run the standard file-source investigation over the
@@ -467,6 +478,7 @@ export async function POST(request: Request) {
           const cellSpecs = new Map<number, Spec>();
           const cellComposes: Promise<void>[] = [];
           const dispatchCellCompose = (event: InvestigateProgressEvent) => {
+            if (!composeCells) return; // lazy-composed on Notebook-open instead
             const sub = event.stepResult;
             const exec = sub?.result?.executionResult;
             if (!sub || !exec || event.index === undefined) return;

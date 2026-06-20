@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { getModel } from "@/lib/llm/client";
+import { getModel, cachedSystem } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
 
@@ -114,7 +114,7 @@ export async function generateSQL(
 ): Promise<string> {
   const result = await generateText({
     model: getModel(model),
-    system: buildSQLGenSystemPrompt(warehouseType),
+    system: cachedSystem(buildSQLGenSystemPrompt(warehouseType)),
     prompt: buildSQLGenUserPrompt(tables, question, warehouseType),
     temperature: 0,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
@@ -139,13 +139,14 @@ export async function repairSQL(args: {
   const schemaText = formatTableSchemas(args.tables, args.warehouseType);
   const result = await generateText({
     model: getModel(args.model ?? CODE_GEN_MODEL),
-    system: `You are a SQL expert. A query you generated failed to execute. Fix it so it runs and still answers the question.
+    system:
+      cachedSystem(`You are a SQL expert. A query you generated failed to execute. Fix it so it runs and still answers the question.
 
 ## Rules
 - Output ONLY the corrected SQL query. No explanation, no markdown fencing, no comments.
 - ${DIALECT_NOTES[args.warehouseType]}
 - Address the SPECIFIC error reported. Common fixes: reference SELECT aliases (or repeat the full expression) in GROUP BY / window ORDER BY rather than raw columns that aren't grouped; quote/qualify identifiers correctly for the dialect; cast mismatched types; remove DDL/DML.
-- Keep it a single SELECT that returns a result set, LIMIT at most 50000 rows.`,
+- Keep it a single SELECT that returns a result set, LIMIT at most 50000 rows.`),
     prompt: `## Database Schema (${args.warehouseType})\n\n${schemaText}\n\n## Question\n${args.question}\n\n## Failed SQL\n${args.failedSQL}\n\n## Engine Error\n${args.error}\n\nReturn the corrected SQL only.`,
     temperature: 0,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,

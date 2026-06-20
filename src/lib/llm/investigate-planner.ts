@@ -28,7 +28,7 @@
  */
 
 import { generateText } from "ai";
-import { getModel } from "@/lib/llm/client";
+import { getModel, cachedSystem } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema, WarehouseTableSchema, FilterValue } from "@/lib/types";
 import { logger } from "@/lib/logger";
@@ -358,7 +358,7 @@ export async function generatePlan(
 
   const result = await generateText({
     model: getModel(model),
-    system: PLANNER_SYSTEM_PROMPT,
+    system: cachedSystem(PLANNER_SYSTEM_PROMPT),
     prompt: buildPlannerUserPrompt(question, schema, warehouse, scope),
     temperature: 0.3,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
@@ -632,7 +632,7 @@ export async function generateReplan(args: {
   try {
     const result = await generateText({
       model: getModel(args.model ?? CODE_GEN_MODEL),
-      system: REPLANNER_SYSTEM_PROMPT,
+      system: cachedSystem(REPLANNER_SYSTEM_PROMPT),
       prompt: buildReplannerUserPrompt(args),
       temperature: 0.3,
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,

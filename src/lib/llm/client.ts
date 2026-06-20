@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import type { SystemModelMessage, TextPart } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -933,4 +934,38 @@ export function getModel(internalModelId: string) {
 
   const mappedId = MODEL_MAP[provider][internalModelId] ?? internalModelId;
   return client(mappedId);
+}
+
+/**
+ * Wrap a static system prompt for Anthropic prompt caching (~90% input discount
+ * on cache hits, 5-min TTL). Use for LARGE, stable system prompts that are
+ * re-sent across many calls — the code-gen system prompt and the JSON-render
+ * catalog prompt, which an Investigate run re-sends on every sub-question / cell
+ * compose / retry. Only applied for the direct Anthropic provider; other
+ * providers (bedrock/vertex/local) use a different or no cache mechanism, so we
+ * return the plain string to keep their behavior unchanged.
+ */
+export function cachedSystem(content: string): string | SystemModelMessage {
+  if (getActiveProvider() !== "anthropic") return content;
+  return {
+    role: "system",
+    content,
+    providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+  };
+}
+
+/**
+ * A user-message TEXT content part with a cache breakpoint after it (Anthropic
+ * only). Use to cache a large, stable PREFIX inside the user prompt — e.g. the
+ * dataset schema, which is identical across an Investigate run's N sub-questions
+ * and code-gen retries. The variable tail (the question) follows as a separate,
+ * uncached text part. Returns a plain text part for non-Anthropic providers.
+ */
+export function cachedText(text: string): TextPart {
+  if (getActiveProvider() !== "anthropic") return { type: "text", text };
+  return {
+    type: "text",
+    text,
+    providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+  };
 }

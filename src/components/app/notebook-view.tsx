@@ -706,6 +706,17 @@ export function NotebookView({
   const [stale, setStale] = useState<Set<number>>(new Set());
   const [rerunning, setRerunning] = useState<Set<number>>(new Set());
   const [rerunErrors, setRerunErrors] = useState<Map<number, string>>(new Map());
+  // Cells composed lazily on Notebook-open (when the run skipped eager composes
+  // because it was submitted from the Dashboard). Keyed by step index.
+  const [lazyCells, setLazyCells] = useState<Map<number, Spec>>(new Map());
+  const lazyFetchedRef = useRef<Set<number>>(new Set());
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Reset when the underlying investigation changes. A parent merge after a
   // re-run swaps the trace identity too — that only clears `overrides`
@@ -719,6 +730,8 @@ export function NotebookView({
   if (trace !== prevTrace) {
     setPrevTrace(trace);
     setOverrides(new Map());
+    setLazyCells(new Map());
+    lazyFetchedRef.current = new Set();
     // Adopt a newly-loaded layout, but don't clobber in-progress local edits
     // when the trace identity changes only because of a step re-run merge.
     if (trace?.notebook?.cells && layout === null) setLayout(trace.notebook.cells);
@@ -811,13 +824,14 @@ export function NotebookView({
   const derivedCells = buildNotebookCells(spec, artifacts);
   const cells = derivedCells.map((cell) => {
     const override = overrides.get(cell.index);
-    if (!override) return cell;
+    const lazy = lazyCells.get(cell.index);
+    if (!override) return lazy && !cell.cellSpec ? { ...cell, cellSpec: lazy } : cell;
     return {
       ...cell,
       status: normalizeStatus(override.status),
       degradedReason: override.degradedReason,
       error: override.error,
-      cellSpec: override.cellSpec ?? cell.cellSpec,
+      cellSpec: override.cellSpec ?? cell.cellSpec ?? lazy,
       trace: override,
     };
   });
@@ -825,6 +839,64 @@ export function NotebookView({
   const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
   const plan = state.__plan as { approach?: string } | undefined;
   const approach = plan?.approach ?? artifacts?.investigation?.approach;
+
+  // Lazy cell composition: when the run skipped eager composes (submitted from
+  // Dashboard), compose the missing cells once now that the Notebook is open.
+  // The per-step results/chart_data are already in the trace client-side.
+  useEffect(() => {
+    if (isStreaming) return;
+    const originalQuestion = artifacts?.investigation?.originalQuestion ?? "";
+    const need = derivedCells.filter(
+      (c) =>
+        (c.status === "done" || c.status === "degraded") &&
+        !c.cellSpec &&
+        !lazyCells.has(c.index) &&
+        !overrides.get(c.index)?.cellSpec &&
+        !lazyFetchedRef.current.has(c.index) &&
+        c.trace &&
+        (Object.keys(c.trace.results ?? {}).length > 0 ||
+          Object.keys(c.trace.chart_data ?? {}).length > 0)
+    );
+    if (need.length === 0) return;
+    // Mark before the await so a re-render mid-fetch (derivedCells gets a new
+    // identity each render) doesn't re-dispatch. We intentionally do NOT cancel
+    // the in-flight request on re-render — only skip the state write if the
+    // component has unmounted (mountedRef).
+    need.forEach((c) => lazyFetchedRef.current.add(c.index));
+    (async () => {
+      try {
+        const res = await fetch("/api/query/investigate/compose-cell", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            original_question: originalQuestion,
+            approach,
+            steps: need.map((c) => ({
+              index: c.index,
+              stepNo: c.stepNo,
+              question: c.question,
+              rationale: c.rationale ?? "",
+              results: c.trace?.results ?? {},
+              chart_data: c.trace?.chart_data ?? {},
+              degraded: c.status === "degraded",
+              degradedReason: c.degradedReason,
+            })),
+          }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { cells?: Record<string, Spec> };
+        if (!mountedRef.current || !data.cells) return;
+        setLazyCells((prev) => {
+          const next = new Map(prev);
+          for (const [k, v] of Object.entries(data.cells!)) next.set(Number(k), v);
+          return next;
+        });
+      } catch {
+        // Best-effort: a failed lazy compose leaves the cell as a stub, and the
+        // indices stay marked so we don't hammer the endpoint on every render.
+      }
+    })();
+  }, [derivedCells, isStreaming, approach, artifacts, lazyCells, overrides]);
   // Stable identity so the export useCallback dep doesn't change every render.
   const synthesisRaw = state.__synthesis as SynthesisState | undefined;
   const synthesis = useMemo<SynthesisState>(() => synthesisRaw ?? {}, [synthesisRaw]);

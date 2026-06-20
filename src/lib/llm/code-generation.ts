@@ -1,9 +1,9 @@
 import { generateText } from "ai";
-import { getModel } from "./client";
+import { getModel, cachedSystem, cachedText } from "./client";
 import {
   buildCodeGenSystemPrompt,
-  buildCodeGenUserPrompt,
-  buildCodeGenChatPrompt,
+  buildCodeGenSchemaBlock,
+  buildConversationHistorySection,
 } from "./prompts";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema, ConversationTurn, SchemaMode } from "@/lib/types";
@@ -84,14 +84,20 @@ export async function generateAnalysisCode(
   priorTurns?: ConversationTurn[]
 ): Promise<string> {
   const hasTurns = priorTurns && priorTurns.length > 0;
-  const prompt = hasTurns
-    ? buildCodeGenChatPrompt(schema, question, priorTurns, mode, workbookContext, localFileContext)
-    : buildCodeGenUserPrompt(schema, question, mode, workbookContext, localFileContext);
+  // Cache the stable schema/context prefix; the question (and any chat history)
+  // are the variable tail. Across an Investigate run's N sub-questions and the
+  // code-gen retries, the schema is identical → cache hits. Non-chat content is
+  // byte-identical to buildCodeGenUserPrompt; chat moves history after the
+  // (cached) schema.
+  const schemaBlock = buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext);
+  const tail = hasTurns
+    ? `\n${buildConversationHistorySection(priorTurns)}## Question\n${question}`
+    : `\n## Question\n${question}`;
 
   const result = await generateText({
     model: getModel(model),
-    system: buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain),
-    prompt,
+    system: cachedSystem(buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)),
+    messages: [{ role: "user", content: [cachedText(schemaBlock), { type: "text", text: tail }] }],
     temperature: 0,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });

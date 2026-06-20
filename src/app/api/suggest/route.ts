@@ -1,6 +1,6 @@
 import { generateText } from "ai";
-import { getModel } from "@/lib/llm/client";
-import { UI_COMPOSE_MODEL } from "@/lib/constants";
+import { getModel, cachedSystem } from "@/lib/llm/client";
+import { SUGGEST_MODEL } from "@/lib/constants";
 
 /**
  * Question-suggestion endpoint. Two modes:
@@ -203,10 +203,10 @@ export async function POST(request: Request) {
     }
 
     // Schema mode (original behavior)
-    const model = getModel(UI_COMPOSE_MODEL);
+    const model = getModel(SUGGEST_MODEL);
     const result = await generateText({
       model,
-      system: SCHEMA_SYSTEM_PROMPT,
+      system: cachedSystem(SCHEMA_SYSTEM_PROMPT),
       prompt: schemaDesc,
       temperature: 0.7,
     });

@@ -21,7 +21,7 @@
 
 import { generateText } from "ai";
 import { applySpecPatch, parseSpecStreamLine, type Spec } from "@json-render/core";
-import { getModel } from "@/lib/llm/client";
+import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { describeShape, describeResultsSchema } from "@/lib/llm/investigate-composer";
 import { unwrapScalar } from "@/lib/llm/resolve-placeholders";
@@ -179,7 +179,7 @@ export async function composeStepCell(args: ComposeStepCellArgs): Promise<Spec |
   try {
     const result = await generateText({
       model,
-      system: catalog.prompt({ customRules: [CELL_SYSTEM_PROMPT] }),
+      system: cachedSystem(catalog.prompt({ customRules: [CELL_SYSTEM_PROMPT] })),
       prompt: buildCellUserPrompt(flatArgs),
       temperature: 0.2,
       maxOutputTokens: 8_000, // a cell is ≤6 components; data arrives via placeholders
