@@ -10,7 +10,10 @@ interface SavedConn {
 }
 
 interface SourceCardsProps {
+  /** Opens the native file dialog (click affordance). */
   onFileDrop: () => void;
+  /** Receives a file dropped directly onto the upload card. */
+  onFileSelected?: (file: File) => void;
   onWarehouseClick: () => void;
   onLocalBrowse?: () => void;
   onSampleData?: () => void;
@@ -33,6 +36,7 @@ const cardBase =
 
 export function SourceCards({
   onFileDrop,
+  onFileSelected,
   onWarehouseClick,
   onLocalBrowse,
   onSampleData,
@@ -40,6 +44,7 @@ export function SourceCards({
   onSavedConnect,
 }: SourceCardsProps) {
   const [expanded, setExpanded] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const hasSaved = savedConnections && savedConnections.length > 0;
   const hasOverflow = savedConnections && savedConnections.length > 3;
 
@@ -48,13 +53,24 @@ export function SourceCards({
       className="source-cards-grid grid w-full"
       style={{ gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 700 }}
     >
-      {/* Upload a file */}
+      {/* Upload a file — real drop zone (the dashed border is now honest) */}
       <button
         onClick={onFileDrop}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragOver(true);
+        }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragOver(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) onFileSelected?.(file);
+        }}
         className={cardBase}
         style={{
-          background: "var(--color-surface-1)",
-          border: "2px dashed var(--color-border-default)",
+          background: isDragOver ? "var(--color-accent-subtle)" : "var(--color-surface-1)",
+          border: `2px dashed ${isDragOver ? "var(--color-accent)" : "var(--color-border-default)"}`,
           borderRadius: "var(--radius-card)",
           padding: "40px 32px",
         }}
@@ -80,6 +96,9 @@ export function SourceCards({
           Upload a file
         </span>
         <span style={{ fontSize: 13, color: "var(--color-t-secondary)" }}>
+          {isDragOver ? "Drop to upload" : "Drag & drop, or click to browse"}
+        </span>
+        <span style={{ fontSize: 12, color: "var(--color-t-tertiary)" }}>
           CSV &middot; Excel &middot; JSON &middot; GeoJSON
         </span>
       </button>
@@ -234,26 +253,22 @@ export function SourceCards({
       {onSampleData && (
         <button
           onClick={onSampleData}
-          className="transition-colors"
+          className="source-card-hover transition-all"
           style={{
             gridColumn: "1 / -1",
-            padding: "12px",
+            padding: "14px",
             fontSize: 14,
-            color: "var(--color-accent)",
-            background: "none",
-            border: "none",
+            fontWeight: 600,
+            color: "var(--color-accent-text)",
+            background: "var(--color-accent-subtle)",
+            border: "1px solid transparent",
+            borderRadius: "var(--radius-card)",
             cursor: "pointer",
             fontFamily: "inherit",
             textAlign: "center",
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.textDecoration = "underline";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.textDecoration = "none";
-          }}
         >
-          or try with sample data →
+          Explore a sample dataset — no upload needed →
         </button>
       )}
     </div>

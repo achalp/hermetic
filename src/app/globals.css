@@ -95,6 +95,10 @@
   /* Fonts */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Typography sizes (consumed via var() in inline styles) */
+  --text-hero: clamp(2.25rem, 6vw, 3.25rem);
+  --text-subhead: clamp(1rem, 2.2vw, 1.0625rem);
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import type { Spec } from "@json-render/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { QueryInput, type QueryMode } from "@/components/app/query-input";
@@ -448,6 +449,31 @@ export default function Home() {
     [handleUpload, handleExcelSheets]
   );
 
+  // Shared upload path: used by both the hidden <input> and files dropped
+  // directly onto the upload card. Routes Excel workbooks to the sheet picker.
+  const processUploadFile = useCallback(
+    async (file: File) => {
+      try {
+        const formData = new FormData();
+        formData.append("csv", file);
+        const data = await uploadFile(formData);
+        if (data.excel_id && data.sheets) {
+          handleExcelSheets(
+            data.excel_id,
+            data.filename ?? file.name,
+            data.sheets,
+            data.relationships ?? []
+          );
+        } else if (data.csv_id && data.schema) {
+          handleUpload(data.csv_id, data.schema);
+        }
+      } catch (err) {
+        console.error("Upload failed:", err);
+      }
+    },
+    [handleExcelSheets, handleUpload]
+  );
+
   const handleSampleData = useCallback(async () => {
     try {
       const response = await fetch("/sample-data/sales-data.csv");
@@ -856,26 +882,9 @@ export default function Home() {
         type="file"
         accept=".csv,.xlsx,.geojson,.json"
         className="hidden"
-        onChange={async (e) => {
+        onChange={(e) => {
           const file = e.target.files?.[0];
-          if (!file) return;
-          try {
-            const formData = new FormData();
-            formData.append("csv", file);
-            const data = await uploadFile(formData);
-            if (data.excel_id && data.sheets) {
-              handleExcelSheets(
-                data.excel_id,
-                data.filename ?? file.name,
-                data.sheets,
-                data.relationships ?? []
-              );
-            } else if (data.csv_id && data.schema) {
-              handleUpload(data.csv_id, data.schema);
-            }
-          } catch (err) {
-            console.error("Upload failed:", err);
-          }
+          if (file) processUploadFile(file);
         }}
       />
 
@@ -1216,25 +1225,43 @@ export default function Home() {
           )}
           {isState1 && !warehouse.isConnecting && (
             <div
-              className="flex flex-col items-center justify-center gap-8"
-              style={{ minHeight: "calc(100vh - 56px)" }}
+              className="flex flex-col items-center gap-8"
+              style={{
+                minHeight: "calc(100vh - 56px)",
+                paddingTop: "max(7vh, 40px)",
+                paddingBottom: 56,
+              }}
             >
-              <h1
-                className="text-center text-t-primary"
-                style={{
-                  fontSize: 36,
-                  fontWeight: "var(--font-heading-weight)",
-                  letterSpacing: "-0.5px",
-                }}
+              <div
+                className="flex flex-col items-center gap-3 text-center"
+                style={{ maxWidth: 640 }}
               >
-                Ask your data anything.
-              </h1>
+                <h1
+                  className="text-t-primary"
+                  style={{
+                    fontSize: "var(--text-hero)",
+                    fontWeight: "var(--font-heading-weight)",
+                    letterSpacing: "-1px",
+                    lineHeight: 1.05,
+                  }}
+                >
+                  Ask your data anything.
+                </h1>
+                <p
+                  className="text-t-secondary"
+                  style={{ fontSize: "var(--text-subhead)", lineHeight: 1.5, maxWidth: 540 }}
+                >
+                  Upload a file or connect a warehouse, ask in plain English, and get an interactive
+                  dashboard. The model writes the code &mdash; it never sees your rows.
+                </p>
+              </div>
 
               <SourceCards
                 onFileDrop={() => {
                   if (uploadInputRef.current) uploadInputRef.current.value = "";
                   uploadInputRef.current?.click();
                 }}
+                onFileSelected={processUploadFile}
                 onWarehouseClick={() => setShowWarehouseForm((v) => !v)}
                 onLocalBrowse={() => {
                   if (sandboxRuntime !== "docker") {
@@ -1271,8 +1298,31 @@ export default function Home() {
                 }
               />
 
-              <div className="text-center text-sm text-t-tertiary">
-                🔒 Sealed. Your data stays local.
+              {/* Payoff preview — show the artifact before asking for data */}
+              <PreviewStrip />
+
+              {/* Trust strip — the differentiator, promoted out of the footnote */}
+              <div
+                className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-t-tertiary"
+                style={{ fontSize: 13 }}
+              >
+                <span className="flex items-center gap-1.5">
+                  <svg
+                    className="h-3.5 w-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <rect x="5" y="11" width="14" height="10" rx="2" />
+                    <path d="M8 11V7a4 4 0 018 0v4" />
+                  </svg>
+                  Sealed &mdash; your data stays local
+                </span>
+                <span aria-hidden>&middot;</span>
+                <span>Runs on local models or your own API key</span>
+                <span aria-hidden>&middot;</span>
+                <span>Sandboxed execution</span>
               </div>
             </div>
           )}
@@ -1464,6 +1514,67 @@ export default function Home() {
         />
       )}
     </>
+  );
+}
+
+// ── Payoff preview strip ──────────────────────────────────────
+// Two real Hermetic-generated dashboards (light + dark) shown as framed
+// thumbnails so a first-time visitor sees the output before committing data.
+
+const PREVIEWS = [
+  {
+    src: "/previews/dashboard-light.png",
+    alt: "Generated dashboard: scatter, radar, and a statistical test",
+    w: 1100,
+    h: 557,
+  },
+  {
+    src: "/previews/dashboard-dark.png",
+    alt: "Generated sales dashboard with KPIs, filters, and charts",
+    w: 900,
+    h: 620,
+  },
+] as const;
+
+function PreviewStrip() {
+  return (
+    <div className="flex w-full flex-col items-center gap-2" style={{ maxWidth: 700 }}>
+      <div
+        className="source-cards-grid grid w-full"
+        style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}
+      >
+        {PREVIEWS.map((p) => (
+          <div
+            key={p.src}
+            style={{
+              overflow: "hidden",
+              borderRadius: "var(--radius-card)",
+              border: "1px solid var(--color-border-default)",
+              boxShadow: "var(--shadow-card)",
+            }}
+          >
+            <Image
+              src={p.src}
+              alt={p.alt}
+              width={p.w}
+              height={p.h}
+              unoptimized
+              sizes="(max-width: 767px) 100vw, 342px"
+              style={{
+                display: "block",
+                width: "100%",
+                height: 200,
+                objectFit: "cover",
+                objectPosition: "center",
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <span className="text-t-tertiary" style={{ fontSize: 12 }}>
+        Real dashboards generated from one question — charts, stats, and narrative.
+      </span>
+    </div>
   );
 }
 

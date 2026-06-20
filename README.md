@@ -1,6 +1,6 @@
 # Hermetic
 
-**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, or schedule a saved dashboard to refresh on a cron. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via MLX, llama.cpp, or Ollama.
+**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, schedule a saved dashboard to refresh on a cron, and see exactly what each analysis costs. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via MLX, llama.cpp, or Ollama.
 
 ![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
 
@@ -37,13 +37,14 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Suggested follow-ups.** After a fresh analysis, inline pills suggest the next obvious questions based on what just came back.
 - **Smart question suggestions.** After loading data, the LLM analyzes your schema and suggests specific, insightful questions tailored to your actual columns and patterns.
 - **Try with sample data.** One-click sample dataset to explore Hermetic without needing your own data.
+- **Start in one drag.** Drag a file straight onto the home screen (or click to browse), and see real example dashboards — the kind Hermetic generates — before you upload anything. The start screen leads with the privacy guarantee: the model writes the analysis code, but never sees your rows.
 - **Show your work.** Every analysis includes a plain-English methodology explanation — how many rows were analyzed, which columns were used, what operations were performed.
 - **Four output styles.** Choose how results are framed: Dashboard (at-a-glance grid), Brief (bottom-line-up-front), Report (formal sectioned document), or Deep dive (exhaustive multi-angle). Slides (PPTX / Reveal deck) is an export format.
 - **Light / Dark / System mode.** Toggle between light and dark themes, or follow your OS preference.
 
 ### Agentic Analysis
 
-- **Investigate agent.** One question, a full deep-dive. The planner decomposes a question into 3–7 focused sub-questions, the orchestrator runs independent ones in parallel waves and dependent ones serially, and a composer synthesizes the results into a single unified dashboard. Progress streams live as a step list with status icons. The planner sees schema and stats only — never row values.
+- **Investigate agent.** One question, a full deep-dive. The planner decomposes a question into 3–7 focused sub-questions, the orchestrator runs independent ones in parallel waves and dependent ones serially, and a composer synthesizes the results into a single unified dashboard. Progress streams live as a step list with status icons. The planner sees schema and stats only — never row values. Results render as a unified dashboard or as a step-by-step **notebook view** (each step's question, code, and result as a cell), exportable to Markdown, HTML, PDF, or Slides.
 - **Multi-retry with reflection.** When generated code fails, the pipeline retries up to three times, carrying the full history of failed attempts forward. A reflection prompt kicks in after two failures so the model sees what it tried and why it broke, not just the original prompt.
 - **Scheduled runs.** Saved dashboards can be scheduled with node-cron. Schedule popover anchored to the dashboard toolbar, schedule pills on saved-viz cards with edit/delete in place — a dashboard you built last week refreshes itself every Monday morning.
 - **Persistent history.** Every analysis auto-saves to disk (generated code, results, visualizations). History survives restarts. Browse from a dedicated page, restore any previous result instantly, or re-run it against fresh data.
@@ -74,6 +75,8 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Save and export.** Save visualizations, export as PDF, DOCX, or PPTX. Individual charts downloadable as PNG.
 - **Artifacts viewer.** Bottom sheet panel with syntax-highlighted SQL, Python code, and computed data tables. Copy to clipboard or export as CSV/XLSX.
 - **Update data.** Re-run saved visualizations with new data files. Schema-compatible updates skip LLM calls.
+- **Cost tracking.** Every analysis' LLM token cost is captured automatically across the whole fan-out (code-gen, retries, planner, sub-questions, compose) with zero call-site threading, and surfaced three ways: a live footer (last analysis + running session total), a per-day CSV log (`data/cost/<date>.csv` with token buckets and per-analysis cost), and a `/cost` page with totals and a per-dataset breakdown, linked from Settings. Local or unknown models report $0 but still track tokens.
+- **Cost-optimized by default.** Prompt caching (Anthropic ephemeral cache — roughly a 90% input discount on cache hits) wraps the large static prompts that every compose call re-sends, plus cheaper models for heavy vs. classification work, fewer retries, and lazy cell composition. The wins are largest on Investigate, which fans out into many LLM calls.
 
 ### Configuration
 
@@ -416,6 +419,7 @@ src/
     sandbox/            Code execution (Docker warm / E2B / Microsandbox warm)
     saved/              Saved viz storage, versioning, scheduler (node-cron)
     history/            Persistent on-disk history
+    cost/               Per-analysis LLM cost capture (usage middleware + accumulator), pricing, daily CSV storage
     suggest-questions.ts  Heuristic question suggestion fallback
     purpose-prompts.ts  Output style definitions (Dashboard, Brief, Report, Deep dive)
 ```
