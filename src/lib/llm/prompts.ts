@@ -235,6 +235,8 @@ Rules:
   You can filter features, add properties, or transform the GeoJSON as needed.
   Do NOT use geopandas — it is not available.
 - Always handle missing values gracefully.
+- NEVER write assert statements (or any test/verification code) that compare a COMPUTED value to a hard-coded expected number — e.g. \`assert corr.loc["revenue","units"] == 0.785\` or \`assert df["x"].sum() == 1000\`. The script COMPUTES and WRITES output; it does not self-test. Such assertions crash on perfectly valid data (floating-point, different inputs). The ONLY acceptable asserts are structural sanity checks that don't hard-code a value, like \`assert len(df) > 0\`.
+- Use real, existing library functions only. Do NOT invent function names. If unsure an import exists, use a more basic approach (e.g. \`numpy\`/\`pandas\`) rather than a guessed scikit-learn function.
 - DEFENSIVE CODING — always verify columns exist before using them:
   - After reading the CSV, check df.columns to confirm expected column names are present.
   - Use case-insensitive lookup when column names might differ in casing: match = [c for c in df.columns if c.lower() == expected.lower()].
@@ -678,6 +680,8 @@ export const RETRY_GUIDANCE = `## Common fixes
 - **AttributeError 'Series' object has no attribute X**: you're calling a DataFrame method on a Series — use \`df[[col1, col2]]\` (note double brackets) to get a DataFrame.
 - **FileNotFoundError for sheets**: use the exact paths from the workbook context.
 - **Empty result / 0 rows after filter**: your filter may be too strict; check the actual values in the column with \`df[col].unique()\` first.
+- **AssertionError**: DELETE the failing \`assert\`. Do NOT assert a computed value equals a hard-coded number (e.g. \`assert corr == 0.785\`) — it crashes on valid data. Just compute the value and put it in the output. Keep only structural checks like \`assert len(df) > 0\`.
+- **ImportError / cannot import name**: you used a function that doesn't exist (e.g. \`auc_score\` — it's \`sklearn.metrics.auc\`). Use the correct name, or compute it with numpy/pandas/scipy instead of a guessed import.
 - **Code timed out**: the dataset may be large — sample first with \`df.head(10_000)\` or aggregate before plotting.
 
 Fix the code and return only the corrected Python script. No markdown fencing, no explanation.`;

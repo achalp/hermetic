@@ -3,6 +3,7 @@ import {
   cleanGeneratedCode,
   fixUpFilenames,
   fixReadCsvDelimiter,
+  stripValueAssertions,
 } from "@/lib/llm/code-generation";
 import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
 import { executeSandbox } from "@/lib/sandbox";
@@ -175,8 +176,8 @@ export async function runPipeline(
         maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
       });
 
-      retryCode = fixReadCsvDelimiter(
-        fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
+      retryCode = stripValueAssertions(
+        fixReadCsvDelimiter(fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename))
       );
     } catch (err) {
       // LLM call itself failed — surface the underlying error since

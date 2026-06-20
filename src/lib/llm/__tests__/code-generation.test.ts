@@ -1,5 +1,45 @@
 import { describe, it, expect } from "vitest";
-import { cleanGeneratedCode, fixUpFilenames, fixReadCsvDelimiter } from "@/lib/llm/code-generation";
+import {
+  cleanGeneratedCode,
+  fixUpFilenames,
+  fixReadCsvDelimiter,
+  stripValueAssertions,
+} from "@/lib/llm/code-generation";
+
+describe("stripValueAssertions", () => {
+  it("removes a hard-coded value assertion (the reported crash)", () => {
+    const out = stripValueAssertions(
+      'assert corr.loc["revenue", "units"] == 0.785, "Correlation not found"'
+    );
+    expect(out).toContain("pass");
+    expect(out).not.toContain("0.785");
+  });
+
+  it("removes integer-equality assertions too", () => {
+    expect(stripValueAssertions('assert df["x"].sum() == 1000')).toContain("pass");
+    expect(stripValueAssertions("assert n == -5")).toContain("pass");
+  });
+
+  it("preserves indentation so the block stays valid", () => {
+    const code = "if True:\n    assert x == 0.5\n    y = 1";
+    const out = stripValueAssertions(code);
+    expect(out).toBe("if True:\n    pass  # removed hard-coded value assertion\n    y = 1");
+  });
+
+  it("keeps structural asserts that don't hard-code a value", () => {
+    expect(stripValueAssertions("assert len(df) > 0")).toBe("assert len(df) > 0");
+    expect(stripValueAssertions("assert not df.empty")).toBe("assert not df.empty");
+  });
+
+  it("keeps asserts comparing against a variable (not a literal)", () => {
+    expect(stripValueAssertions("assert total == expected")).toBe("assert total == expected");
+  });
+
+  it("leaves code without asserts unchanged", () => {
+    const code = "df = pd.read_csv('/data/input.csv')\nresult = df['x'].mean()";
+    expect(stripValueAssertions(code)).toBe(code);
+  });
+});
 
 describe("cleanGeneratedCode", () => {
   it("extracts code from a ```python fenced block", () => {

@@ -74,6 +74,24 @@ export function fixReadCsvDelimiter(code: string): string {
   });
 }
 
+/**
+ * Remove hard-coded value assertions like `assert corr == 0.785` that LLMs
+ * (especially weaker local models) emit as self-tests. They crash on perfectly
+ * valid data — a computed correlation is 0.7849…, never exactly 0.785. Only
+ * lines asserting equality against a NUMBER literal are matched; structural
+ * checks like `assert len(df) > 0` are left intact. Replaced with `pass` to
+ * preserve block indentation.
+ */
+export function stripValueAssertions(code: string): string {
+  return code
+    .split("\n")
+    .map((line) => {
+      const m = line.match(/^(\s*)assert\s+.+==\s*-?\d+(?:\.\d+)?(?:\s*,.*)?\s*$/);
+      return m ? `${m[1]}pass  # removed hard-coded value assertion` : line;
+    })
+    .join("\n");
+}
+
 export async function generateAnalysisCode(
   schema: CSVSchema,
   question: string,
@@ -102,5 +120,7 @@ export async function generateAnalysisCode(
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
-  return fixReadCsvDelimiter(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename));
+  return stripValueAssertions(
+    fixReadCsvDelimiter(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+  );
 }
