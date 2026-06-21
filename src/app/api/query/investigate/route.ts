@@ -26,7 +26,7 @@ import { appendCostRow } from "@/lib/cost/storage";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import { classifyFollowupDepth } from "@/lib/llm/followup-classifier";
 import { tryConsumeAutoInvestigation } from "@/lib/pipeline/auto-investigation-budget";
-import { MAX_AUTO_INVESTIGATIONS_PER_SESSION } from "@/lib/constants";
+import { MAX_AUTO_INVESTIGATIONS_PER_SESSION, PLANNER_MODEL } from "@/lib/constants";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -447,7 +447,7 @@ export async function POST(request: Request) {
               question,
               stored.schema,
               warehouseState?.warehouse.tableSchemas,
-              codeGenModel,
+              PLANNER_MODEL,
               context.scope
             );
             if (!planResult.ok) {

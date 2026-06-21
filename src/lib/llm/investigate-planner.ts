@@ -29,7 +29,7 @@
 
 import { generateText } from "ai";
 import { getModel, cachedSystem } from "@/lib/llm/client";
-import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { PLANNER_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema, WarehouseTableSchema, FilterValue } from "@/lib/types";
 import { logger } from "@/lib/logger";
 
@@ -345,7 +345,7 @@ export async function generatePlan(
   question: string,
   schema: CSVSchema | null,
   warehouse: WarehouseTableSchema[] | undefined,
-  model: string = CODE_GEN_MODEL,
+  model: string = PLANNER_MODEL,
   scope?: InvestigateScope
 ): Promise<ParsedPlanResult | ParseError> {
   logger.info("Investigate: generating plan", {
@@ -631,7 +631,7 @@ export async function generateReplan(args: {
 
   try {
     const result = await generateText({
-      model: getModel(args.model ?? CODE_GEN_MODEL),
+      model: getModel(args.model ?? PLANNER_MODEL),
       system: cachedSystem(REPLANNER_SYSTEM_PROMPT),
       prompt: buildReplannerUserPrompt(args),
       temperature: 0.3,

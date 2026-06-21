@@ -32,6 +32,12 @@ export const COMPOSER_MAX_DISPATCHES = 1;
 // is a hard backstop against pathological drilling — beyond it, auto-routed
 // follow-ups degrade to lookup regardless of the classifier.
 export const FOLLOWUP_CLASSIFIER_MODEL = "claude-haiku-4-5-20251001" as const;
+// Planning (decompose → JSON plan) and re-planning (continue/amend/stop) are
+// structured tasks on schema+stats only — not user-facing dashboard quality — so
+// they run on the cheap model regardless of the user's chosen code-gen model.
+// The planner ingests the full schema (and, for warehouses, every table), so
+// this is a meaningful per-investigation saving.
+export const PLANNER_MODEL = "claude-haiku-4-5-20251001" as const;
 // Cheap model for low-stakes structured tasks: the composer gap-check (small
 // JSON coverage verdict) and query suggestions. ~1/3 the input price of Sonnet.
 export const GAP_CHECK_MODEL = "claude-haiku-4-5-20251001" as const;

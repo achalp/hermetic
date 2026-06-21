@@ -48,6 +48,7 @@ import {
   INVESTIGATE_MAX_HOPS,
   INVESTIGATE_MAX_SUBQUESTIONS,
   COMPOSER_MAX_DISPATCHES,
+  PLANNER_MODEL,
 } from "@/lib/constants";
 import type { CSVSchema, ConversationTurn, WarehouseTableSchema, WarehouseType } from "@/lib/types";
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
@@ -754,7 +755,7 @@ export async function runInvestigation(
         hopCount,
         remainingHops,
         subQuestionsBudget: INVESTIGATE_MAX_SUBQUESTIONS - subQuestions.length,
-        model: options.model,
+        model: PLANNER_MODEL, // re-plan is a cheap structured decision — don't ride the code-gen model
       });
       hopCount++;
 
