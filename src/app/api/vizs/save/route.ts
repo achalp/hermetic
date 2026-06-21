@@ -17,18 +17,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Look up cached code
-    const cached = getCachedCode(csvId);
-    if (!cached) {
-      return NextResponse.json(
-        {
-          error:
-            "Generated code not found in cache. It may have expired — please re-run the query.",
-        },
-        { status: 404 }
-      );
-    }
-
     // Look up CSV
     const stored = getStoredCSV(csvId);
     if (!stored) {
@@ -45,6 +33,21 @@ export async function POST(request: Request) {
 
     // Grab artifacts from in-memory cache (best-effort — may have expired)
     const artifacts = getCachedArtifacts(csvId);
+
+    // generatedCode: single-shot Ask caches its one script; an Investigate
+    // mirrors its last successful step's code onto the cached artifacts. Without
+    // the artifacts fallback, saving an investigation 404'd ("code not found").
+    const generatedCode = getCachedCode(csvId)?.code ?? artifacts?.code;
+    if (!generatedCode) {
+      return NextResponse.json(
+        {
+          error:
+            "Generated code not found in cache. It may have expired — please re-run the query.",
+        },
+        { status: 404 }
+      );
+    }
+
     const fingerprint = schemaFingerprint(stored.schema);
 
     // Determine source type for refresh support
@@ -66,7 +69,7 @@ export async function POST(request: Request) {
       const meta = await saveNewVersion(parentVizId, {
         csvFilename: stored.schema.filename,
         csvContent,
-        generatedCode: cached.code,
+        generatedCode,
         spec,
         artifacts: artifacts ?? undefined,
         schemaFingerprint: fingerprint,
@@ -81,7 +84,7 @@ export async function POST(request: Request) {
       question,
       csvFilename: stored.schema.filename,
       csvContent,
-      generatedCode: cached.code,
+      generatedCode,
       spec,
       artifacts: artifacts ?? undefined,
       schemaFingerprint: fingerprint,

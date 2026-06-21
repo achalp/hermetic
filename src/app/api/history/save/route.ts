@@ -26,13 +26,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ skipped: true });
     }
 
-    const cached = getCachedCode(csvId);
-    if (!cached) {
-      logger.debug("History auto-save skipped: code cache expired", { csvId });
-      return NextResponse.json({ skipped: true });
-    }
-
     const artifacts = getCachedArtifacts(csvId);
+    // Single-shot Ask caches its one Python script in the code cache. An
+    // Investigate doesn't — its per-step code lives in the trail — but the
+    // investigate route mirrors the last successful step's code onto the cached
+    // artifacts. Fall back to that so investigations aren't silently dropped
+    // from history (the data check above is the only real "can't save" gate).
+    const generatedCode = getCachedCode(csvId)?.code ?? artifacts?.code ?? "";
 
     // Determine source type
     const isLocal = !!(stored.localPath || stored.localFolderPath);
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     const meta = await saveHistoryEntry({
       question,
       spec,
-      generatedCode: cached.code,
+      generatedCode,
       schema: stored.schema,
       artifacts: artifacts ?? undefined,
       sourceFile: stored.schema.filename,
