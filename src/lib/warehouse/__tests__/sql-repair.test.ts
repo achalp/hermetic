@@ -30,6 +30,31 @@ function queueSQL(...sqls: string[]) {
 describe("generateSQLWithRepair", () => {
   beforeEach(() => generateTextMock.mockReset());
 
+  it("strips a readonly-forbidden ClickHouse SETTINGS clause (read-limit knobs)", async () => {
+    queueSQL("SELECT * FROM t LIMIT 10 SETTINGS max_rows_to_read=50000000000");
+    const execute = vi.fn().mockResolvedValue("col\n1");
+    const out = await generateSQLWithRepair({
+      tables: TABLES,
+      question: "q",
+      warehouseType: "clickhouse",
+      execute,
+    });
+    expect(out.sql).toBe("SELECT * FROM t LIMIT 10");
+    expect(out.sql).not.toMatch(/SETTINGS/i);
+  });
+
+  it("keeps a SETTINGS clause that doesn't touch read limits", async () => {
+    queueSQL("SELECT * FROM t SETTINGS join_use_nulls = 1");
+    const execute = vi.fn().mockResolvedValue("col\n1");
+    const out = await generateSQLWithRepair({
+      tables: TABLES,
+      question: "q",
+      warehouseType: "clickhouse",
+      execute,
+    });
+    expect(out.sql).toContain("SETTINGS join_use_nulls = 1");
+  });
+
   it("returns immediately when the first query executes", async () => {
     queueSQL("SELECT 1");
     const execute = vi.fn().mockResolvedValue("col\n1");

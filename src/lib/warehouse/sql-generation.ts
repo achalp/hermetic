@@ -88,7 +88,8 @@ function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
 - Include appropriate JOINs when the question requires data from multiple tables. Use the foreign key relationships provided.
 - Use aggregations (GROUP BY, COUNT, SUM, AVG) when the question asks for summaries.
 - WINDOW FUNCTIONS with GROUP BY: when you combine an aggregate query (GROUP BY) with a window function (LAG/LEAD/ROW_NUMBER/SUM() OVER ...), every column inside the window's PARTITION BY / ORDER BY must be a GROUP BY column, an aggregate, or a SELECT alias — NOT a raw column. Common failure: \`LAG(COUNT(*)) OVER (ORDER BY EXTRACT(YEAR FROM created_at))\` errors because \`created_at\` isn't grouped. Fix: GROUP BY the period expression and order the window by it, e.g. \`... GROUP BY EXTRACT(YEAR FROM created_at) AS yr ... LAG(COUNT(*)) OVER (ORDER BY yr)\` (repeat the expression if the dialect rejects the alias).
-- COST/TIMEOUT: queries run against large tables and time out if they scan everything. Prefer aggregated/grouped output over returning raw rows; push filters (WHERE) as early as possible; avoid SELECT * on big tables and avoid per-row window functions over an unbounded, ungrouped table. Keep the returned result set small.
+- COST/TIMEOUT (critical): the warehouse enforces a ~60s timeout AND a hard cap on rows scanned. The table sizes are shown next to each table as \`~N rows\` — TREAT THEM AS REAL. For any table with millions+ of rows you MUST narrow the scan, not just the output: add a SELECTIVE WHERE on a date/time column or the table's primary/ORDER BY key, aggregate (GROUP BY) instead of returning raw rows, and select only the columns you need. Do NOT scan a billion-row table unfiltered — it will hit "Timeout exceeded" or "rows or bytes to read exceeded" and fail. For exploratory aggregates over a very large ClickHouse table, prefer a tight time window or the \`SAMPLE\` clause.
+- NEVER add a \`SETTINGS\` clause (ClickHouse) or \`SET\` statement to raise limits like max_rows_to_read / max_execution_time / max_bytes_to_read — the connection may be READ-ONLY and it errors ("Cannot modify ... in readonly mode"). The only way to fit under the limits is a cheaper query.
 - Always LIMIT results to at most 50000 rows to prevent excessive data transfer.
 - If the question is ambiguous about which columns to use, prefer columns that seem most relevant based on their names and types.
 - Handle NULLs appropriately (COALESCE, IS NOT NULL filters where sensible).
@@ -148,6 +149,9 @@ export async function repairSQL(args: {
 - Output ONLY the corrected SQL query. No explanation, no markdown fencing, no comments.
 - ${DIALECT_NOTES[args.warehouseType]}
 - Address the SPECIFIC error reported. Common fixes: reference SELECT aliases (or repeat the full expression) in GROUP BY / window ORDER BY rather than raw columns that aren't grouped; quote/qualify identifiers correctly for the dialect; cast mismatched types; remove DDL/DML.
+- "Timeout exceeded" / "Limit for rows or bytes to read exceeded" / "TOO_MANY_ROWS": the query scans too much data. Make it CHEAPER — add or tighten a WHERE filter on a date/time column or the primary/ORDER BY key, shorten the time window, aggregate (GROUP BY) instead of returning raw rows, select fewer columns, or (ClickHouse) add a \`SAMPLE\` clause. Do NOT try to raise the limit.
+- "Cannot modify '<setting>' setting in readonly mode" / READONLY: REMOVE the \`SETTINGS\` clause / \`SET\` statement entirely. The connection is read-only — you cannot raise max_rows_to_read / max_execution_time. Instead make the query inherently cheaper (see above).
+- "Unknown expression or function identifier": a column referenced in an outer query (e.g. inside an aggregate or window) isn't exposed by the subquery's SELECT, or isn't grouped. Add it to the inner SELECT / GROUP BY, or qualify it.
 - Keep it a single SELECT that returns a result set, LIMIT at most 50000 rows.`),
     prompt: `## Database Schema (${args.warehouseType})\n\n${schemaText}\n\n## Question\n${args.question}\n\n## Failed SQL\n${args.failedSQL}\n\n## Engine Error\n${args.error}\n\nReturn the corrected SQL only.`,
     temperature: 0,
@@ -219,6 +223,16 @@ function cleanSQL(raw: string): string {
   sql = sql.replace(/<\|im_end\|>/g, "");
   sql = sql.replace(/<\|im_start\|>[^\n]*/g, "");
   sql = sql.replace(/<\|end\|>/g, "");
+
+  // ClickHouse: the LLM sometimes appends `SETTINGS max_rows_to_read=...` to dodge
+  // the read limits. On a read-only connection (e.g. the public playground) that
+  // errors with "Cannot modify '<setting>' setting in readonly mode". Drop a
+  // trailing SETTINGS clause that touches the read-limit knobs — the right fix is
+  // a cheaper query, not a raised ceiling.
+  sql = sql.replace(
+    /\s+SETTINGS\s+[^;]*\b(?:max_rows_to_read|max_bytes_to_read|max_execution_time|max_result_rows|max_result_bytes|readonly)\b[^;]*$/i,
+    ""
+  );
 
   return sql.trim();
 }
