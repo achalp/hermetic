@@ -38,9 +38,27 @@ export class WarmSandboxManager {
   private warmupPromise: Promise<void> | null = null;
   private preparationPromise: Promise<void> | null = null;
   private loadedCsvId: string | null = null;
+  // Serializes every backend container operation (load + execute). The warm
+  // Docker backend shares ONE container and ONE set of /data paths, so concurrent
+  // operations — e.g. an Investigate wave running sub-questions in parallel —
+  // would interleave their `cat > /data/script.py` writes (corrupting the script,
+  // dropping the prelude → NameError), clobber each other's /data/input.csv, and
+  // even tear down the container mid-run. Chaining makes each load+run atomic.
+  private opChain: Promise<unknown> = Promise.resolve();
 
   constructor(backend: WarmSandboxBackend) {
     this.backend = backend;
+  }
+
+  /** Run `fn` exclusively on the shared container — never concurrently. */
+  private withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.opChain.then(fn, fn);
+    // Keep the chain alive regardless of this op's success.
+    this.opChain = run.then(
+      () => {},
+      () => {}
+    );
+    return run;
   }
 
   /** Idempotent warmup — deduplicates concurrent calls */
@@ -54,6 +72,22 @@ export class WarmSandboxManager {
     return this.warmupPromise;
   }
 
+  /** Ensure the container is up and healthy (re-warming a dead one). */
+  private async ensureWarm(): Promise<void> {
+    await this.warmup();
+    let healthy = false;
+    try {
+      healthy = await this.backend.isHealthy();
+    } catch {
+      healthy = false;
+    }
+    if (!healthy) {
+      this.warmupPromise = null;
+      this.loadedCsvId = null;
+      await this.warmup();
+    }
+  }
+
   /** Fire-and-forget data preparation. Stores Promise for later await. */
   prepareData(
     csvId: string,
@@ -61,26 +95,27 @@ export class WarmSandboxManager {
     geojsonContent?: string | null,
     additionalFiles?: AdditionalFile[]
   ): void {
-    // Replace any in-flight preparation
-    this.loadedCsvId = null;
-
-    this.preparationPromise = (async () => {
+    this.preparationPromise = this.withLock(async () => {
       try {
-        await this.warmup();
+        await this.ensureWarm();
         await this.backend.loadData(csvId, csvContent, geojsonContent, additionalFiles);
         this.loadedCsvId = csvId;
         logger.info("Warm sandbox data pre-loaded", { csvId });
       } catch (err) {
+        this.loadedCsvId = null;
         logger.warn("Warm sandbox preparation failed", {
           csvId,
           error: err instanceof Error ? err.message : String(err),
         });
-        this.loadedCsvId = null;
       }
-    })();
+    });
   }
 
-  /** Execute code. Uses fast path if csvId matches loaded data, otherwise full execution. */
+  /**
+   * Execute code on the shared warm container — serialized so concurrent callers
+   * (parallel Investigate sub-questions) never clobber each other. Reuses the
+   * container, reloading data only when it differs from what's already loaded.
+   */
   async execute(
     csvId: string,
     csvContent: string,
@@ -88,45 +123,29 @@ export class WarmSandboxManager {
     geojsonContent?: string | null,
     additionalFiles?: AdditionalFile[]
   ): Promise<ExecutionResult> {
-    // Await any in-flight preparation
-    if (this.preparationPromise) {
-      await this.preparationPromise.catch(() => {});
-    }
-
-    // Fast path: data already loaded and sandbox healthy
-    if (this.loadedCsvId === csvId) {
+    return this.withLock(async () => {
       try {
-        const healthy = await this.backend.isHealthy();
-        if (healthy) {
-          logger.info("Warm sandbox fast path", { csvId });
-          return await this.backend.executeScript(code);
+        await this.ensureWarm();
+        if (this.loadedCsvId !== csvId) {
+          this.loadedCsvId = null; // invalidate before the (possibly failing) load
+          await this.backend.loadData(csvId, csvContent, geojsonContent, additionalFiles);
+          this.loadedCsvId = csvId;
+          logger.info("Warm sandbox execution", { csvId, reloaded: true });
+        } else {
+          logger.info("Warm sandbox execution (data reused)", { csvId });
         }
-      } catch {
-        // Fall through to full execution
+        return await this.backend.executeScript(code);
+      } catch (err) {
+        // Container may be wedged — force a fresh warmup on the next call.
+        this.warmupPromise = null;
+        this.loadedCsvId = null;
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+          execution_ms: 0,
+        };
       }
-      // Sandbox unhealthy — reset state
-      logger.warn("Warm sandbox unhealthy, falling back to full execution");
-      this.warmupPromise = null;
-      this.loadedCsvId = null;
-    }
-
-    // Fallback: full execution
-    logger.info("Warm sandbox full execution", { csvId });
-    try {
-      const result = await this.backend.executeFull(
-        csvContent,
-        code,
-        geojsonContent,
-        additionalFiles
-      );
-      // After successful full execution, the sandbox has this data loaded
-      this.loadedCsvId = csvId;
-      return result;
-    } catch (err) {
-      this.warmupPromise = null;
-      this.loadedCsvId = null;
-      throw err;
-    }
+    });
   }
 
   async destroy(): Promise<void> {
