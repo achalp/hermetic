@@ -157,12 +157,24 @@ export class WarmSandboxManager {
 }
 
 // ── Global registry (survives HMR) ──────────────────────────────────
+// The manager is cached on globalThis so the warm container survives Hot Module
+// Reload (no re-warm on every edit). The downside: a code change to
+// WarmSandboxManager itself won't take effect on HMR — the OLD instance lingers.
+// REGISTRY_VERSION guards against that: BUMP IT whenever this class's logic
+// changes, and HMR will drop the stale instance. The replacement reuses the
+// still-running container via its health check, so there's no re-warm cost.
+const REGISTRY_VERSION = 2;
 
 const globalRegistry = globalThis as unknown as {
   __warmSandboxManagers?: Map<SandboxRuntimeId, WarmSandboxManager>;
+  __warmSandboxRegistryVersion?: number;
 };
-if (!globalRegistry.__warmSandboxManagers) {
+if (
+  !globalRegistry.__warmSandboxManagers ||
+  globalRegistry.__warmSandboxRegistryVersion !== REGISTRY_VERSION
+) {
   globalRegistry.__warmSandboxManagers = new Map();
+  globalRegistry.__warmSandboxRegistryVersion = REGISTRY_VERSION;
 }
 const managers = globalRegistry.__warmSandboxManagers;
 
