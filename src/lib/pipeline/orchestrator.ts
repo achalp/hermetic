@@ -2,10 +2,13 @@ import {
   generateAnalysisCode,
   cleanGeneratedCode,
   fixUpFilenames,
+  fixExcelReadOnCsv,
   fixReadCsvDelimiter,
+  fixColumnNameCase,
   stripValueAssertions,
 } from "@/lib/llm/code-generation";
 import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
+import { recordFailure } from "@/lib/diagnostics/failure-log";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { generateText } from "ai";
@@ -126,7 +129,11 @@ export async function runPipeline(
   //     verdict says the output is degenerate (empty / NaN-only / etc.)
   // For semantic failures, the "error" string fed to the retry prompt is
   // the validator's reason + suggested fix, not a Python traceback.
-  const MAX_RETRIES = 2;
+  // Restored to 3 (was briefly cut to 2 in the cost-optimization pass): each
+  // struggling sub-question needs a final recovery attempt, and 2 measurably
+  // raised the degraded/failed rate on Investigate, where it compounds across
+  // sub-questions. Retries are cheap now that the system prompt is cached.
+  const MAX_RETRIES = 3;
   const priorAttempts: { code: string; error: string }[] = [];
   let attempt = 0;
 
@@ -158,6 +165,12 @@ export async function runPipeline(
       kind: result.success ? "semantic" : "execution",
       errorPreview: retryError.slice(0, 200),
     });
+    void recordFailure({
+      stage: "code-exec",
+      attempt,
+      kind: result.success ? "semantic" : "execution",
+      errorText: retryError,
+    });
 
     const retrySystemExtra = localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "";
     let retryCode: string;
@@ -176,8 +189,13 @@ export async function runPipeline(
         maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
       });
 
-      retryCode = stripValueAssertions(
-        fixReadCsvDelimiter(fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename))
+      retryCode = fixColumnNameCase(
+        stripValueAssertions(
+          fixReadCsvDelimiter(
+            fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename))
+          )
+        ),
+        schema.columns.map((c) => c.name)
       );
     } catch (err) {
       // LLM call itself failed — surface the underlying error since
@@ -209,6 +227,12 @@ export async function runPipeline(
   // Execution-level failure after exhausting retries → throw, same as
   // before. Semantic failures degrade gracefully (see below).
   if (!result.success) {
+    void recordFailure({
+      stage: "code-exec",
+      attempt: attempt + 1,
+      kind: "execution",
+      errorText: result.error,
+    });
     const summary = priorAttempts
       .map((a, i) => `Attempt ${i + 1}: ${a.error.slice(0, 200).replace(/\n/g, " ")}`)
       .concat(`Attempt ${attempt + 1}: ${result.error.slice(0, 200).replace(/\n/g, " ")}`)
@@ -229,6 +253,12 @@ export async function runPipeline(
     logger.warn("Pipeline returning degraded result", {
       reason: semanticVerdict.reason,
       retriesUsed: attempt,
+    });
+    void recordFailure({
+      stage: "code-exec",
+      attempt,
+      kind: "semantic",
+      errorText: semanticVerdict.reason,
     });
     return {
       executionResult: result,

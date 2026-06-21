@@ -7,6 +7,62 @@
  */
 
 import { logger } from "@/lib/logger";
+import { recordFailure } from "@/lib/diagnostics/failure-log";
+
+/**
+ * Conservatively map a requested chartData key onto one the analysis actually
+ * produced, when the composer drifted the name. Only returns a match that is
+ * UNAMBIGUOUS — a wrong bind (showing chart A's data under chart B) is worse
+ * than a blank chart, so we never guess between candidates.
+ *
+ *   1. exact after normalizing case / non-alphanumerics
+ *   2. unique substring containment (e.g. "revenue" ⊂ "total_revenue")
+ *   3. unique high token-overlap (Jaccard ≥ 0.6) — catches reordered tokens
+ *
+ * Returns undefined when there's no confident, unique match.
+ */
+function repairChartKey(requested: string, available: string[]): string | undefined {
+  if (available.length === 0) return undefined;
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const rn = norm(requested);
+  if (!rn) return undefined;
+
+  const exact = available.filter((k) => norm(k) === rn);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return undefined;
+
+  const contained = available.filter((k) => {
+    const kn = norm(k);
+    return kn.length > 2 && rn.length > 2 && (kn.includes(rn) || rn.includes(kn));
+  });
+  if (contained.length === 1) return contained[0];
+
+  const toks = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean)
+    );
+  const rt = toks(requested);
+  if (rt.size === 0) return undefined;
+  let best: { k: string; score: number } | undefined;
+  let tie = false;
+  for (const k of available) {
+    const kt = toks(k);
+    if (kt.size === 0) continue;
+    const inter = [...rt].filter((t) => kt.has(t)).length;
+    const union = new Set([...rt, ...kt]).size;
+    const score = union ? inter / union : 0;
+    if (!best || score > best.score) {
+      best = { k, score };
+      tie = false;
+    } else if (score === best.score) {
+      tie = true;
+    }
+  }
+  return best && best.score >= 0.6 && !tie ? best.k : undefined;
+}
 
 /**
  * Resolve a dot-notation key path against a results object. Greedy: tries the
@@ -176,17 +232,26 @@ export function resolveSpecPlaceholders(
       return JSON.stringify(unwrapScalar(value));
     }
     const direct = key in chartData ? chartData[key] : resolveKeyPath(chartData, key);
-    if (direct === undefined) {
-      logger.warn(
-        "resolveSpecPlaceholders: unresolved object-form chartData, replacing with null",
-        {
-          keyPath: key,
-          availableKeys: Object.keys(chartData),
-        }
-      );
-      return "null";
+    if (direct !== undefined) return JSON.stringify(unwrapChartRows(direct));
+    const repairKey = repairChartKey(key, Object.keys(chartData));
+    if (repairKey) {
+      logger.info("resolveSpecPlaceholders: repaired object-form chartData key", {
+        from: key,
+        to: repairKey,
+      });
+      return JSON.stringify(unwrapChartRows(chartData[repairKey]));
     }
-    return JSON.stringify(unwrapChartRows(direct));
+    logger.warn("resolveSpecPlaceholders: unresolved object-form chartData, replacing with null", {
+      keyPath: key,
+      availableKeys: Object.keys(chartData),
+    });
+    void recordFailure({
+      stage: "compose",
+      kind: "compose",
+      errorClass: "compose_key_unresolved",
+      detail: key,
+    });
+    return "null";
   });
 
   // ── $chartData substitution ────────────────────────────────────
@@ -221,6 +286,14 @@ export function resolveSpecPlaceholders(
           return JSON.stringify(v);
         }
       }
+      const repairKey = repairChartKey(keyPath, Object.keys(chartData));
+      if (repairKey) {
+        logger.info("resolveSpecPlaceholders: repaired chartData key", {
+          from: keyPath,
+          to: repairKey,
+        });
+        return JSON.stringify(unwrapChartRows(chartData[repairKey]));
+      }
       logger.warn(
         "resolveSpecPlaceholders: unresolved chartData placeholder, replacing with null",
         {
@@ -228,6 +301,12 @@ export function resolveSpecPlaceholders(
           availableKeys: Object.keys(chartData),
         }
       );
+      void recordFailure({
+        stage: "compose",
+        kind: "compose",
+        errorClass: "compose_key_unresolved",
+        detail: keyPath,
+      });
       return "null";
     });
   }

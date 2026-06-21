@@ -154,13 +154,17 @@ export function buildCodeGenSystemPrompt(
 Your job is to write a single Python script that:
 1. Reads the CSV from "/data/input.csv"
 2. Performs the necessary analysis using pandas, numpy, scipy
-3. Writes a single JSON object to the file "/data/output.json" with this exact structure:
-   {
-     "results": { ... },       // computed values, aggregations, statistics
-     "chart_data": { ... },    // objects with arrays formatted for chart components
-     "images": { "key": "base64..." },  // any matplotlib/seaborn output (optional)
-     "datasets": { "main": [ ... ] }    // the working dataset as row objects (up to 5000 rows)
-   }
+3. Emits the result by calling the preloaded helper write_output(...) — do NOT build the
+   JSON or call json.dump yourself:
+       write_output(
+           results={ ... },        # computed values, aggregations, statistics
+           chart_data={ ... },      # objects/arrays formatted for chart components
+           datasets={"main": df},   # the working DataFrame (capped to 5000 rows for you)
+           images={ ... },          # optional base64 matplotlib/seaborn PNGs
+       )
+   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion and always writes all four
+   keys, so the output is never silently empty. results and chart_data must EACH contain at
+   least one entry. (It writes "/data/output.json".)
 
 Rules:
 - IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}
@@ -245,12 +249,18 @@ Rules:
   - For correlation, PCA, or any operation requiring numeric data, select numeric columns first: df.select_dtypes(include="number"). Never call df.corr() on a DataFrame with string columns.
   - When aggregating (sum, mean, etc.), verify the result is not NaN/0 due to type issues. If a numeric column is stored as strings with formatting (e.g. "$1,234"), strip non-numeric characters first: df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^0-9.\-]', '', regex=True), errors='coerce').
   - For workbook joins, verify the join produced rows: assert len(merged) > 0 or fall back gracefully.
-- Do NOT use print() at all. Write the final JSON output to "/data/output.json" using: json.dump(output, open("/data/output.json", "w"), default=str, allow_nan=False). Replace NaN/None values in DataFrames before serialization: df = df.fillna("") or df = df.where(df.notna(), None).
+- PRELOADED HELPERS (already defined — use them; they prevent the most common crashes):
+  - write_output(results=, chart_data=, datasets=, images=) — the ONLY way to emit output (see structure above).
+  - to_num(series) — coerce to numeric, stripping currency symbols, commas, percent signs and whitespace. Use before ANY arithmetic on a column that might be stored as strings (currency/percentage columns are flagged in the schema).
+  - numeric(df, cols=None) — a numeric-only coerced view. Use it before df.diff(), .pct_change(), .corr(), or matrix math. NEVER call .diff()/.pct_change()/.corr() on a frame that may contain non-numeric columns.
+  - safe_qcut(series, q) — quantile bucketing that won't crash. Use it INSTEAD of pd.qcut: plain qcut raises on skewed / low-cardinality columns (duplicate bin edges). Check the column's "distinct" / "zeros" stats in the schema first — if a column is mostly one value, bucket by value rather than by quantile.
+- Avoid degenerate output: a percent-change / QoQ on small-magnitude integer columns (see the range/zeros stats) can round to all-zeros — also include the ABSOLUTE change so the chart isn't empty. Before calling write_output, confirm results and chart_data are each non-empty.
+- Do NOT use print() at all, and do NOT call json.dump or open("/data/output.json") yourself — emit results ONLY via write_output(...). It handles NaN/None and type coercion, so you never need fillna() before serialization.
 - Do not install packages. Available: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, duckdb.
 - The input is ALWAYS a CSV at "/data/input.csv" — read it with pd.read_csv(). NEVER use pd.read_excel(): Excel uploads are pre-converted to CSV and openpyxl is not installed.
 - Datetime arithmetic: ensure both operands share the same tz-awareness before subtracting. Parse with pd.to_datetime(s) (tz-naive) or pd.to_datetime(s, utc=True) (tz-aware) and normalize both sides the same way, or you will hit "Cannot subtract tz-naive and tz-aware datetime-like objects". To get the current time, use pd.Timestamp.now(tz="UTC") only when the column is tz-aware; otherwise pd.Timestamp.now().
 - DuckDB is available via \`import duckdb\`. Use \`duckdb.sql()\` for SQL queries on data. It can read Parquet files (\`duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')")\`), CSV files (\`duckdb.sql("SELECT * FROM read_csv('/data/input.csv', delimiter=',')")\`), and query pandas DataFrames by variable name (\`duckdb.sql("SELECT * FROM df WHERE x > 1")\`). Convert DuckDB results to pandas with \`.df()\`. Use DuckDB when SQL is more natural than pandas (complex joins, window functions, large aggregations). IMPORTANT: Always specify delimiter=',' when using read_csv to avoid auto-detection failures on small result sets.
-- Always include datasets.main in the output: the working DataFrame converted to row-objects via df.head(5000).to_dict(orient="records"). This enables client-side interactive filtering. If you filter the data for the analysis, use the ORIGINAL unfiltered DataFrame for datasets.main.${
+- Always pass datasets={"main": df} to write_output, using the ORIGINAL unfiltered DataFrame (it is capped to 5000 rows for you). This enables client-side interactive filtering.${
     hasWorkbookContext
       ? `
 - Multiple CSV sheets from an Excel workbook are available in the sandbox.
@@ -678,7 +688,10 @@ export const RETRY_GUIDANCE = `## Common fixes
 - **KeyError / column not found**: use the EXACT column name from the Available Columns in the prompt (case-sensitive). For case-insensitive matching: \`col = next((c for c in df.columns if c.lower() == "target".lower()), None)\`.
 - **TypeError on aggregation**: column is stored as strings — coerce with \`pd.to_numeric(df[col], errors="coerce")\` first.
 - **ValueError: could not convert string to float**: clean before parsing — strip currency symbols, commas: \`df[col].str.replace(r'[$,]', '', regex=True).astype(float)\`.
-- **NaN in JSON output**: use \`df.fillna("")\` or \`df.fillna(0)\` before serialization, or \`obj.where(pd.notna(obj), None)\`.
+- **NaN in JSON output / serialization / to_dict errors**: do NOT serialize yourself — call the preloaded \`write_output(results=, chart_data=, datasets=)\`; it coerces NaN/Inf/numpy/Timestamp/Decimal for you.
+- **"no results or chart data" (degenerate/empty output)**: you must call \`write_output(...)\` with at least one entry in BOTH \`results\` and \`chart_data\`. If a filter emptied the frame, check \`df[col].unique()\` and widen it; then populate and emit.
+- **qcut "Bin edges must be unique" / ValueError on binning**: use the preloaded \`safe_qcut(series, q)\` instead of \`pd.qcut\`.
+- **TypeError on .diff()/.pct_change()/.corr()**: wrap with the preloaded \`numeric(df)\` (or \`to_num(series)\`) first — the frame has non-numeric columns.
 - **AttributeError 'Series' object has no attribute X**: you're calling a DataFrame method on a Series — use \`df[[col1, col2]]\` (note double brackets) to get a DataFrame.
 - **FileNotFoundError for sheets**: use the exact paths from the workbook context.
 - **Empty result / 0 rows after filter**: your filter may be too strict; check the actual values in the column with \`df[col].unique()\` first.

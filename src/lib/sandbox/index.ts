@@ -58,6 +58,118 @@ try:
     _duckdb_mod.sql = _safe_duckdb_sql
 except ImportError:
     pass
+
+# Hermetic runtime helpers (auto-injected). Prefer these over hand-rolling the
+# output dict, numeric coercion, or qcut — they are the recurring crash sites.
+import math as _math
+def _to_native(o):
+    try:
+        import numpy as _np
+    except Exception:
+        _np = None
+    import datetime as _dt
+    from decimal import Decimal as _Dec
+    if o is None:
+        return None
+    if isinstance(o, bool):
+        return o
+    if isinstance(o, float):
+        return None if (_math.isnan(o) or _math.isinf(o)) else o
+    if isinstance(o, (str, int)):
+        return o
+    if _np is not None and isinstance(o, _np.generic):
+        return _to_native(o.item())
+    if _np is not None and isinstance(o, _np.ndarray):
+        return [_to_native(x) for x in o.tolist()]
+    if isinstance(o, _Dec):
+        f = float(o)
+        return None if (_math.isnan(f) or _math.isinf(f)) else f
+    if isinstance(o, (_dt.datetime, _dt.date)):
+        return o.isoformat()
+    try:
+        import pandas as _pd
+        if o is getattr(_pd, 'NaT', None):
+            return None
+        if isinstance(o, _pd.Timestamp):
+            return o.isoformat()
+        if isinstance(o, _pd.DataFrame):
+            return [_to_native(r) for r in o.to_dict(orient='records')]
+        if isinstance(o, _pd.Series):
+            return _to_native(o.to_dict())
+    except Exception:
+        pass
+    if isinstance(o, dict):
+        return {str(k): _to_native(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple, set)):
+        return [_to_native(x) for x in o]
+    try:
+        return str(o)
+    except Exception:
+        return None
+
+def write_output(results=None, chart_data=None, datasets=None, images=None):
+    # Write /data/output.json in the required structure. Coerces NaN/Inf/numpy/
+    # Timestamp/Decimal to JSON-safe values and caps each dataset at 5000 rows.
+    # Always writes the four top-level keys, so output is never silently empty.
+    out = {
+        'results': _to_native(results if results is not None else {}),
+        'chart_data': _to_native(chart_data if chart_data is not None else {}),
+        'datasets': {},
+        'images': _to_native(images if images is not None else {}),
+    }
+    try:
+        import pandas as _pd
+    except Exception:
+        _pd = None
+    for _k, _v in (datasets or {}).items():
+        if _pd is not None and isinstance(_v, _pd.DataFrame):
+            _v = _v.head(5000).to_dict(orient='records')
+        elif isinstance(_v, list):
+            _v = _v[:5000]
+        out['datasets'][str(_k)] = _to_native(_v)
+    import json as _json2
+    with open('/data/output.json', 'w') as _f:
+        _json2.dump(out, _f, default=str, allow_nan=False)
+    return out
+
+def to_num(s):
+    # Coerce a Series/sequence to numeric, stripping currency/commas/percent.
+    import pandas as _pd
+    ser = s if isinstance(s, _pd.Series) else _pd.Series(s)
+    if ser.dtype.kind in 'biufc':
+        return _pd.to_numeric(ser, errors='coerce')
+    cleaned = (ser.astype(str)
+               .str.replace(',', '', regex=False)
+               .str.replace('$', '', regex=False)
+               .str.replace('%', '', regex=False)
+               .str.strip())
+    return _pd.to_numeric(cleaned, errors='coerce')
+
+def numeric(df, cols=None):
+    # Numeric-only view of df (coerced) — safe for diff/corr/arithmetic.
+    import pandas as _pd
+    if cols is None:
+        return df.apply(lambda c: _pd.to_numeric(c, errors='coerce')).select_dtypes(include='number')
+    return _pd.DataFrame({c: to_num(df[c]) for c in cols})
+
+def safe_qcut(s, q, labels=None):
+    # qcut that won't crash on skewed / low-cardinality columns: drops duplicate
+    # bin edges, falls back to fewer bins or a rank-based split.
+    import pandas as _pd
+    ser = to_num(s)
+    nun = int(ser.dropna().nunique())
+    if nun < 2:
+        return _pd.Series(['all'] * len(ser), index=ser.index)
+    k = q if isinstance(q, int) else len(q) - 1
+    k = max(1, min(k, nun))
+    lab = labels if (labels is None or len(labels) == k) else None
+    try:
+        return _pd.qcut(ser, k, labels=lab, duplicates='drop')
+    except Exception:
+        try:
+            return _pd.qcut(ser.rank(method='first'), k, labels=lab, duplicates='drop')
+        except Exception:
+            return _pd.cut(ser, min(k, 2), duplicates='drop')
 `;
 
 type SandboxExecutor = (

@@ -4,6 +4,7 @@ import {
   fixUpFilenames,
   fixExcelReadOnCsv,
   fixReadCsvDelimiter,
+  fixColumnNameCase,
   stripValueAssertions,
 } from "@/lib/llm/code-generation";
 
@@ -136,6 +137,36 @@ describe("fixExcelReadOnCsv", () => {
   it("leaves an existing read_csv call unchanged", () => {
     const code = 'pd.read_csv("/data/input.csv")';
     expect(fixExcelReadOnCsv(code)).toBe(code);
+  });
+});
+
+describe("fixColumnNameCase", () => {
+  const cols = ["revenue", "Region", "order_date"];
+
+  it('fixes a case-only typo in df["..."] access', () => {
+    expect(fixColumnNameCase('x = df["Revenue"].sum()', cols)).toBe('x = df["revenue"].sum()');
+    expect(fixColumnNameCase("y = df['REGION']", cols)).toBe("y = df['Region']");
+  });
+
+  it("leaves exact-case access unchanged", () => {
+    const code = 'df["revenue"] + df["Region"]';
+    expect(fixColumnNameCase(code, cols)).toBe(code);
+  });
+
+  it("does not touch output dicts or unknown keys (scoped to df[])", () => {
+    // results["revenue"] is an output key, not a df column access — must be left alone.
+    const code = 'results["Revenue"] = df["Revenue"].sum()';
+    expect(fixColumnNameCase(code, cols)).toBe('results["Revenue"] = df["revenue"].sum()');
+  });
+
+  it("leaves a genuinely new column name alone", () => {
+    const code = 'df["revenue_growth"] = df["revenue"].pct_change()';
+    expect(fixColumnNameCase(code, cols)).toBe(code);
+  });
+
+  it("does not rewrite when the lowercase is ambiguous", () => {
+    const code = 'df["VALUE"]';
+    expect(fixColumnNameCase(code, ["value", "Value"])).toBe(code); // two cols share lowercase
   });
 });
 

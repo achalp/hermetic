@@ -320,8 +320,9 @@ export async function executeSandbox(
       }
     }
 
-    // Write the script — rewrite /data paths to per-query paths (with NaN-safety prelude)
-    const patchedCode = PYTHON_NAN_PRELUDE + code.replace(/\/data\//g, `${workDir}/`);
+    // Write the script — rewrite /data paths to per-query paths. The rewrite now
+    // includes the prelude, so write_output()'s /data/output.json maps correctly.
+    const patchedCode = (PYTHON_NAN_PRELUDE + code).replace(/\/data\//g, `${workDir}/`);
     const patchedB64 = Buffer.from(patchedCode).toString("base64");
     const writeExec = await sandbox.run(
       `import base64, pathlib\n` +

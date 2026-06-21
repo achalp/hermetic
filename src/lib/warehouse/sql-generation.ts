@@ -87,6 +87,8 @@ function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
 - The query MUST return a result set (SELECT statement). Never write DDL/DML.
 - Include appropriate JOINs when the question requires data from multiple tables. Use the foreign key relationships provided.
 - Use aggregations (GROUP BY, COUNT, SUM, AVG) when the question asks for summaries.
+- WINDOW FUNCTIONS with GROUP BY: when you combine an aggregate query (GROUP BY) with a window function (LAG/LEAD/ROW_NUMBER/SUM() OVER ...), every column inside the window's PARTITION BY / ORDER BY must be a GROUP BY column, an aggregate, or a SELECT alias — NOT a raw column. Common failure: \`LAG(COUNT(*)) OVER (ORDER BY EXTRACT(YEAR FROM created_at))\` errors because \`created_at\` isn't grouped. Fix: GROUP BY the period expression and order the window by it, e.g. \`... GROUP BY EXTRACT(YEAR FROM created_at) AS yr ... LAG(COUNT(*)) OVER (ORDER BY yr)\` (repeat the expression if the dialect rejects the alias).
+- COST/TIMEOUT: queries run against large tables and time out if they scan everything. Prefer aggregated/grouped output over returning raw rows; push filters (WHERE) as early as possible; avoid SELECT * on big tables and avoid per-row window functions over an unbounded, ungrouped table. Keep the returned result set small.
 - Always LIMIT results to at most 50000 rows to prevent excessive data transfer.
 - If the question is ambiguous about which columns to use, prefer columns that seem most relevant based on their names and types.
 - Handle NULLs appropriately (COALESCE, IS NOT NULL filters where sensible).

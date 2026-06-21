@@ -101,6 +101,29 @@ export function fixReadCsvDelimiter(code: string): string {
  * checks like `assert len(df) > 0` are left intact. Replaced with `pass` to
  * preserve block indentation.
  */
+/**
+ * Fix case-only column typos in `df["Col"]` access against the known schema —
+ * the single most common first-shot crash (KeyError on a column that exists but
+ * was referenced with the wrong case). Deliberately scoped to the canonical input
+ * frame `df`, so it never rewrites output-dict keys (results/chart_data) or a
+ * deliberately-created new column. Only rewrites when the literal's lowercase
+ * UNIQUELY matches one real column and the exact case differs — never a guess.
+ */
+export function fixColumnNameCase(code: string, columnNames: string[]): string {
+  if (columnNames.length === 0) return code;
+  const exact = new Set(columnNames);
+  const byLower = new Map<string, string | null>();
+  for (const name of columnNames) {
+    const lc = name.toLowerCase();
+    byLower.set(lc, byLower.has(lc) ? null : name); // null = ambiguous lowercase
+  }
+  return code.replace(/(\bdf\s*\[\s*)(["'])([^"'\n]+)\2/g, (m, pre, q, name) => {
+    if (exact.has(name)) return m;
+    const fixed = byLower.get(name.toLowerCase());
+    return fixed && fixed !== name ? `${pre}${q}${fixed}${q}` : m;
+  });
+}
+
 export function stripValueAssertions(code: string): string {
   return code
     .split("\n")
@@ -139,9 +162,12 @@ export async function generateAnalysisCode(
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
-  return stripValueAssertions(
-    fixReadCsvDelimiter(
-      fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
-    )
+  return fixColumnNameCase(
+    stripValueAssertions(
+      fixReadCsvDelimiter(
+        fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+      )
+    ),
+    schema.columns.map((c) => c.name)
   );
 }
