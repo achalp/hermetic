@@ -73,17 +73,22 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     };
   }
 
-  // Check #3 — empty chart_data arrays
-  for (const k of chartKeys) {
-    const v = exec.chart_data[k];
-    if (Array.isArray(v) && v.length === 0) {
-      return {
-        ok: false,
-        reason: `Chart "${k}" has no rows.`,
-        suggestedFix:
-          "Check that your filter clauses match the data — try printing `df[col].unique()` first to confirm the values you're filtering on actually exist.",
-      };
-    }
+  // Check #3 — EVERY chart is an empty array and there are no results either.
+  // A single empty chart alongside real results or a populated chart is legitimate
+  // (that particular breakdown simply had no matching rows) — flagging it just
+  // burns a retry. Only flag when the step produced nothing chartable AND no
+  // scalar results: that's a genuinely degenerate output (usually a filter that
+  // matched zero rows).
+  const chartVals = chartKeys.map((k) => exec.chart_data[k]);
+  const allChartsEmpty =
+    chartVals.length > 0 && chartVals.every((v) => Array.isArray(v) && v.length === 0);
+  if (allChartsEmpty && resultKeys.length === 0) {
+    return {
+      ok: false,
+      reason: "Every chart is empty and no results were computed.",
+      suggestedFix:
+        "Your filters likely matched no rows — print `df[col].unique()` and widen them. If the empty result is legitimate, record the finding in results (e.g. results['no_X_found'] = True) instead of emitting empty chart arrays.",
+    };
   }
 
   // Check #2 — null / NaN / "nan" / "None" scalar in results

@@ -192,9 +192,8 @@ Wrap everything in a LayoutColumn root. Then produce, in order:
 1. **Title block** — a TextBlock (variant: heading) with the original user question.
 2. **Executive summary** — a TextBlock (variant: insight) with 2-4 sentences synthesizing what the investigation found across all steps. Every number MUST be a $result placeholder, and every claim MUST end with the step(s) it rests on, e.g. "Revenue grew to $result:step_2_total (Step 2)." Use the EXACT element ID \`exec_summary\` for this block — downstream tooling extracts it by ID.
 3. **Section per successful step** — for each successful sub-question:
-   - A SectionBreak with the variant: line and the step heading as label (e.g. "Step 2 — Where did the decline originate?")
-   - A TextBlock (variant: heading) restating the sub-question
-   - The visualization(s) for that step's data (bar chart, line chart, stat cards, table — pick what fits the chart_data shape)
+   - A SectionBreak (variant: line) with the step heading as label (e.g. "Step 2 — Where did the decline originate?"). This IS the step heading — do NOT add a separate heading TextBlock restating it.
+   - The visualization(s) for that step's data — pick the ONE or TWO that best fit the chart_data shape (bar/line/stat-cards/table). Don't render multiple views of the same data.
    - A TextBlock (variant: insight) with 1-2 sentences interpreting THIS step's finding specifically, ending with its citation "(Step N)"
 4. **Failed steps** — for any sub-question that failed, render an Annotation (severity: warning) noting the question and the failure reason. Do NOT skip them silently.
 5. **Degraded steps** — for any sub-question marked DEGRADED, still render its visualization but ALSO add an Annotation (severity: info) above it noting the validator's concern ("empty result", "all-zero values", etc.). The number / chart MAY be correct; the validator just flagged it as suspicious.
@@ -203,9 +202,9 @@ Wrap everything in a LayoutColumn root. Then produce, in order:
 ## Component & data rules
 - Each step's data is namespaced with prefix \`step_<N>_\` where N is 1-based. Reference it like "$result:step_2_total_revenue" or "$chartData:step_2_bar_data".
 - Use the EXACT key names provided in the data shapes — case-sensitive, fully prefixed.
-- Use stat cards for top-line numbers, bar charts for category comparisons, line charts for trends, treemap/sunburst for hierarchies.
+- Use stat cards for top-line numbers, bar charts for category comparisons, line charts for trends, treemap/sunburst for hierarchies. Be selective: surface only the 2-4 most decision-relevant numbers per step as stat cards — do NOT create a stat card for every result key. The full result set is in the Artifacts panel.
 - **Cross-select:** when a step's chart breaks a metric down by a category the user could explore further (region, segment, product, channel, etc.), add a \`selects\` prop to that bar/pie chart: \`selects: { column: "<REAL underlying dataset column being broken down, e.g. \\"region\\" — NOT the step-prefixed chart key>", bindTo: "/filters/<column>" }\`. Clicking a bar/slice selects that segment and highlights it; charts that break down by the SAME column MUST use the SAME bindTo path so they cross-highlight together. A shared "Investigate this selection" action (rendered outside your spec) lets the user re-run a focused, scoped sub-investigation on the selected segment(s) — so you do NOT need an on.click drillDown binding. Add \`selects\` only on the main categorical breakdown charts — NOT on summary/KPI/stat charts or trend/time-series (line/area) charts. Do NOT also add an \`on.click\` drillDown to a chart that has \`selects\` (one click can't do both).
-- Keep total component count under 30 (this is a longer dashboard than a single Ask but should still be readable).
+- Keep total component count to about 20 — a focused dashboard reads better and composes faster than an exhaustive one. Favor a few high-signal components per step over many low-value ones.
 
 ## Grounding & citations (STRICT — a wrong number stated confidently is the worst failure)
 - NEVER write a literal number in prose. Every figure MUST be a $result:step_N_<key> placeholder so it resolves from a value the analysis actually computed. If you cannot express a number as a placeholder, do not state the number.

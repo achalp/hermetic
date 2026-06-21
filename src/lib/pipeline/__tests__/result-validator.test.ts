@@ -39,14 +39,21 @@ describe("validateExecutionResult", () => {
     expect(v.suggestedFix).toMatch(/results dict|chart_data dict/);
   });
 
-  it("flags an empty chart_data array (length 0)", () => {
-    const exec = ok();
+  it("does NOT flag a single empty chart when real results exist (legit empty breakdown)", () => {
+    const exec = ok(); // results: { total: 100 }
     exec.chart_data = { sales_by_quarter: [] };
+    const v = validateExecutionResult(exec);
+    expect(v.ok).toBe(true); // relaxed: an empty breakdown beside real data isn't degenerate
+  });
+
+  it("flags only when EVERY chart is empty AND no results were computed", () => {
+    const exec = ok();
+    exec.results = {};
+    exec.chart_data = { a: [], b: [] };
     const v = validateExecutionResult(exec);
     expect(v.ok).toBe(false);
     if (v.ok) return;
-    expect(v.reason).toMatch(/no rows/);
-    expect(v.reason).toContain("sales_by_quarter");
+    expect(v.reason).toMatch(/Every chart is empty/);
   });
 
   it("flags a single-result NaN scalar", () => {
