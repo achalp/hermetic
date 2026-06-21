@@ -17,7 +17,7 @@ describe("cachedSystem", () => {
     const msg = result as SystemModelMessage;
     expect(msg.role).toBe("system");
     expect(msg.content).toBe("SYSTEM PROMPT");
-    expect(msg.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
+    expect(msg.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   it("returns a plain string (no caching) for non-anthropic providers", () => {
@@ -32,7 +32,7 @@ describe("cachedText", () => {
     const part = cachedText("SCHEMA BLOCK");
     expect(part.type).toBe("text");
     expect(part.text).toBe("SCHEMA BLOCK");
-    expect(part.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
+    expect(part.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   it("returns a plain text part (no cacheControl) for non-anthropic providers", () => {

@@ -1041,13 +1041,23 @@ export function getModel(internalModelId: string) {
  * compose / retry. Only applied for the direct Anthropic provider; other
  * providers (bedrock/vertex/local) use a different or no cache mechanism, so we
  * return the plain string to keep their behavior unchanged.
+ *
+ * TTL is 1 hour, not the 5-minute default: an Investigate run fans out over
+ * several MINUTES (planner → waves of sub-questions → cell composes → final
+ * compose), so a 5m entry written early expires before later calls read it —
+ * we were paying to write caches that never got read. 1h keeps the schema /
+ * catalog warm for the whole run (and across conversational Ask follow-ups on
+ * the same dataset). The write costs 2× vs 1.25×, but reads vastly outnumber
+ * writes here, so it's a large net win.
  */
+const CACHE_CONTROL = { type: "ephemeral", ttl: "1h" } as const;
+
 export function cachedSystem(content: string): string | SystemModelMessage {
   if (getActiveProvider() !== "anthropic") return content;
   return {
     role: "system",
     content,
-    providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    providerOptions: { anthropic: { cacheControl: CACHE_CONTROL } },
   };
 }
 
@@ -1063,6 +1073,6 @@ export function cachedText(text: string): TextPart {
   return {
     type: "text",
     text,
-    providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    providerOptions: { anthropic: { cacheControl: CACHE_CONTROL } },
   };
 }
