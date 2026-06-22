@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { getModel, cachedSystem, cachedText } from "./client";
+import { getModel, cachedSystem, cachedText, getActiveProvider } from "./client";
 import {
   buildCodeGenSystemPrompt,
   buildCodeGenSchemaBlock,
@@ -170,4 +170,46 @@ export async function generateAnalysisCode(
     ),
     schema.columns.map((c) => c.name)
   );
+}
+
+/**
+ * Warm the code-gen prompt cache with a tiny (max 1 output token) request that
+ * sends the EXACT same cached prefix generateAnalysisCode uses — the system
+ * prompt and the schema block. Call it ONCE before an Investigate fans a wave of
+ * sub-questions out in parallel: otherwise every parallel code-gen call hits a
+ * cold cache (none can read another's in-flight write) and re-pays full input
+ * for the shared prefix. After this, the wave reads the warm cache.
+ *
+ * Anthropic-only (the only provider with caching) and strictly best-effort —
+ * never block the investigation. Note: for warehouse investigations each
+ * sub-question runs its OWN SQL → its own per-step schema, so only the system
+ * prompt is shared; file investigations share the whole prefix and benefit most.
+ */
+export async function prewarmCodeGenCache(
+  schema: CSVSchema,
+  mode: SchemaMode = "metadata",
+  model: string = CODE_GEN_MODEL,
+  workbookContext?: string,
+  localFileContext?: string
+): Promise<void> {
+  if (getActiveProvider() !== "anthropic") return;
+  try {
+    const schemaBlock = buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext);
+    await generateText({
+      model: getModel(model),
+      system: cachedSystem(
+        buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)
+      ),
+      messages: [
+        {
+          role: "user",
+          content: [cachedText(schemaBlock), { type: "text", text: "\n## Question\nwarmup" }],
+        },
+      ],
+      temperature: 0,
+      maxOutputTokens: 1,
+    });
+  } catch {
+    // Best-effort: a failed warm-up must never break the run.
+  }
 }

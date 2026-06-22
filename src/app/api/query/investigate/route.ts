@@ -21,6 +21,7 @@ import {
   type InvestigateProgressEvent,
 } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
+import { prewarmCodeGenCache } from "@/lib/llm/code-generation";
 import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
 import { appendCostRow } from "@/lib/cost/storage";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
@@ -531,6 +532,17 @@ export async function POST(request: Request) {
             // can fill in its added/removed indices.
             let currentReplan: TraceDecision | null = null;
             let pendingComposerAdded: number[] = [];
+
+            // Warm the shared code-gen prompt cache before the first wave fans
+            // out in parallel, so concurrent sub-questions read it instead of
+            // each re-paying full input for the (cached) system + schema prefix.
+            await prewarmCodeGenCache(
+              stored.schema,
+              "metadata",
+              codeGenModel,
+              undefined,
+              localFileContext
+            );
 
             const subResults = await runInvestigation(plan.subQuestions, {
               schema: stored.schema,
