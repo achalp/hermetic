@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { getModel, cachedSystem } from "@/lib/llm/client";
+import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
 
@@ -97,13 +97,16 @@ function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
 - Return all columns that would be useful for visualization (don't over-aggregate — the analysis layer will handle charting).`;
 }
 
-function buildSQLGenUserPrompt(
+/**
+ * The schema half of the SQL-gen user prompt — identical across every
+ * sub-question's SQL generation in an Investigate run, so it is sent as its own
+ * cache breakpoint (the question is the variable tail). See prewarmSQLGenCache.
+ */
+function buildSQLGenSchemaBlock(
   tables: WarehouseTableSchema[],
-  question: string,
   warehouseType: WarehouseType
 ): string {
-  const schemaText = formatTableSchemas(tables, warehouseType);
-  return `## Database Schema (${warehouseType})\n\n${schemaText}\n\n## Question\n${question}`;
+  return `## Database Schema (${warehouseType})\n\n${formatTableSchemas(tables, warehouseType)}`;
 }
 
 /**
@@ -118,12 +121,55 @@ export async function generateSQL(
   const result = await generateText({
     model: getModel(model),
     system: cachedSystem(buildSQLGenSystemPrompt(warehouseType)),
-    prompt: buildSQLGenUserPrompt(tables, question, warehouseType),
+    messages: [
+      {
+        role: "user",
+        content: [
+          cachedText(buildSQLGenSchemaBlock(tables, warehouseType)),
+          { type: "text", text: `\n\n## Question\n${question}` },
+        ],
+      },
+    ],
     temperature: 0,
     maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
   });
 
   return cleanSQL(result.text);
+}
+
+/**
+ * Warm the SQL-gen prompt cache (system + the shared table-schema block) once
+ * before an Investigate fans its sub-questions out in parallel. Without it,
+ * each wave-0 sub-question's SQL generation cold-writes the table schema (none
+ * can read another's in-flight write) and re-pays full input for it. After this,
+ * the wave reads the warm cache. Anthropic-only and strictly best-effort — a
+ * failed warm-up must never break the run. Mirrors prewarmCodeGenCache.
+ */
+export async function prewarmSQLGenCache(
+  tables: WarehouseTableSchema[],
+  warehouseType: WarehouseType,
+  model: string = CODE_GEN_MODEL
+): Promise<void> {
+  if (getActiveProvider() !== "anthropic") return;
+  try {
+    await generateText({
+      model: getModel(model),
+      system: cachedSystem(buildSQLGenSystemPrompt(warehouseType)),
+      messages: [
+        {
+          role: "user",
+          content: [
+            cachedText(buildSQLGenSchemaBlock(tables, warehouseType)),
+            { type: "text", text: "\n\n## Question\nwarmup" },
+          ],
+        },
+      ],
+      temperature: 0,
+      maxOutputTokens: 1,
+    });
+  } catch {
+    // Best-effort: a failed warm-up must never break the run.
+  }
 }
 
 /**

@@ -52,7 +52,7 @@ import {
   storeCSV,
 } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
+import { generateSQLWithRepair, prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { randomUUID } from "crypto";
@@ -543,14 +543,28 @@ export async function POST(request: Request) {
             // write nothing reads). Per-step schemas inherit the table's domain
             // (see runWarehouseSubQuestion) so every step's system prompt is
             // byte-identical to this warm-up and hits the cache.
-            await prewarmCodeGenCache(
-              stored.schema,
-              "metadata",
-              codeGenModel,
-              undefined,
-              warehouseState ? undefined : localFileContext,
-              !!warehouseState // systemOnly for warehouse
-            );
+            // For warehouse runs, also warm the SQL-gen cache: every
+            // sub-question generates its own SQL from the SAME table schema, so
+            // without this each wave-0 SQL generation cold-writes that schema in
+            // parallel. Run both warm-ups concurrently — they're independent and
+            // both best-effort.
+            await Promise.all([
+              prewarmCodeGenCache(
+                stored.schema,
+                "metadata",
+                codeGenModel,
+                undefined,
+                warehouseState ? undefined : localFileContext,
+                !!warehouseState // systemOnly for warehouse
+              ),
+              warehouseState
+                ? prewarmSQLGenCache(
+                    warehouseState.warehouse.tableSchemas,
+                    warehouseState.warehouse.config.type,
+                    codeGenModel
+                  )
+                : Promise.resolve(),
+            ]);
 
             const subResults = await runInvestigation(plan.subQuestions, {
               schema: stored.schema,
