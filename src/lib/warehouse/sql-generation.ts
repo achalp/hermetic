@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
 
 /**
@@ -283,8 +284,16 @@ export async function generateSQLWithRepair<T>(args: {
       return { sql, result };
     } catch (err) {
       lastError = err;
-      if (attempt === maxRepairs) break;
       const message = err instanceof Error ? err.message : String(err);
+      // Surface the exact SQL that failed — otherwise we can only infer query
+      // shape (self-join? dropped filter?) from the engine error and row counts.
+      logger.warn("Warehouse SQL attempt failed", {
+        attempt,
+        question: args.question.slice(0, 120),
+        error: message.slice(0, 200),
+        sql,
+      });
+      if (attempt === maxRepairs) break;
       args.onAttempt?.(attempt + 1, "repairing");
       sql = await repairSQL({
         tables: args.tables,
