@@ -156,3 +156,4 @@
 {"level":"INFO","message":"[1:11:16.358 AM]: Easy Logging is disabled as no config has been found"}
 {"level":"INFO","message":"[1:11:16.359 AM]: Connection[id: a0c3822a-27d7-4711-8845-c832656b094f] - authentication successful using: SNOWFLAKE"}
 {"level":"INFO","message":"[1:11:35.770 AM]: Creating new connection object"}
+{"level":"INFO","message":"[1:15:49.743 AM]: Creating new connection object"}
