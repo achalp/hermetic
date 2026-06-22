@@ -180,6 +180,42 @@ export async function prewarmSQLGenCache(
 }
 
 /**
+ * The repair-specific instructions + failed SQL + engine error. Sent as the
+ * uncached tail AFTER the shared cached schema block, so it never disturbs the
+ * cache prefix. Dialect notes are omitted here because the shared system prompt
+ * (buildSQLGenSystemPrompt) already carries them.
+ */
+function buildSQLRepairInstructions(args: {
+  question: string;
+  failedSQL: string;
+  error: string;
+}): string {
+  return `## Fix the failed query
+The SQL below was generated against the schema above but FAILED to execute. Return a corrected query that runs and still answers the question.
+- Output ONLY the corrected SQL query. No explanation, no markdown fencing, no comments.
+- Address the SPECIFIC error reported. Common fixes: reference SELECT aliases (or repeat the full expression) in GROUP BY / window ORDER BY rather than raw columns that aren't grouped; quote/qualify identifiers correctly for the dialect; cast mismatched types; remove DDL/DML.
+- "Aggregate function ... is found in WHERE" / ILLEGAL_AGGREGATION: an aggregate (min/max/count/sum/avg/quantile/...) is in a WHERE clause, which is illegal — WHERE runs before grouping. Move that condition to HAVING (after GROUP BY), or compute the aggregate in a subquery/CTE and filter it in an outer query. Keep WHERE for raw-column conditions only.
+- "Lateral joins are not supported" / "Correlated column ... is found in the FROM clause" / NOT_IMPLEMENTED (ClickHouse): a subquery in FROM/JOIN references another table's columns. Remove the correlation: compute any derived value (e.g. a bucket) with multiIf()/CASE over the joined columns in the SELECT (or in an outer SELECT wrapping the join), and pre-aggregate each side in its own independent subquery joined on keys — never CROSS JOIN a subquery that reads the other table's columns.
+- "Identifier ... cannot be resolved" / UNKNOWN_IDENTIFIER on a computed column: a SELECT alias is referenced in WHERE (same level) or in an outer query whose subquery doesn't SELECT it. Repeat the full expression in the filter, or add the computed column to the subquery's SELECT and filter one level up.
+- "Timeout exceeded" / "Limit for rows or bytes to read exceeded" / "TOO_MANY_ROWS": the query scans too much data. Make it CHEAPER — add or tighten a WHERE filter on a date/time column or the primary/ORDER BY key, shorten the time window, aggregate (GROUP BY) instead of returning raw rows, select fewer columns, or (ClickHouse) add a \`SAMPLE\` clause. Do NOT try to raise the limit.
+- "Query memory limit exceeded" / MEMORY_LIMIT_EXCEEDED (code 241): the query holds too much in memory — almost always a JOIN of large row-level tables, or a high-cardinality GROUP BY. Restructure so you aggregate BEFORE joining: in each side's subquery, apply the WHERE filters and GROUP BY to the join grain (e.g. collapse the checks fact table to one row per pull_request_number with countIf/maxIf flags), then JOIN the compact per-key aggregates on keys. Put the smaller/more-filtered table on the RIGHT. Tighten time/key filters and reduce GROUP BY cardinality. Do NOT raise the limit.
+- "Cannot modify '<setting>' setting in readonly mode" / READONLY: REMOVE the \`SETTINGS\` clause / \`SET\` statement entirely. The connection is read-only — you cannot raise max_rows_to_read / max_execution_time. Instead make the query inherently cheaper (see above).
+- "Unknown expression or function identifier": a column referenced in an outer query (e.g. inside an aggregate or window) isn't exposed by the subquery's SELECT, or isn't grouped. Add it to the inner SELECT / GROUP BY, or qualify it.
+- Keep it a single SELECT that returns a result set, LIMIT at most 50000 rows.
+
+## Question
+${args.question}
+
+## Failed SQL
+${args.failedSQL}
+
+## Engine Error
+${args.error}
+
+Return the corrected SQL only.`;
+}
+
+/**
  * Repair a SQL query that failed to execute by feeding the exact engine
  * error back to the LLM. Returns a corrected query (best-effort — the caller
  * decides whether to re-execute or give up).
@@ -192,26 +228,25 @@ export async function repairSQL(args: {
   error: string;
   model?: string;
 }): Promise<string> {
-  const schemaText = formatTableSchemas(args.tables, args.warehouseType);
+  // Reuse the EXACT [system][schema] prefix that generateSQL / prewarmSQLGenCache
+  // already cached — same cachedSystem(buildSQLGenSystemPrompt) and
+  // cachedText(buildSQLGenSchemaBlock) — so a repair READS the warm schema cache
+  // instead of re-sending the full table DDL uncached. (Dialect guidance lives in
+  // that shared system prompt.) The repair-specific instructions, failed SQL, and
+  // engine error are the uncached tail; they vary per repair.
   const result = await withPhase("sql_repair", () =>
     generateText({
       model: getModel(args.model ?? CODE_GEN_MODEL),
-      system:
-        cachedSystem(`You are a SQL expert. A query you generated failed to execute. Fix it so it runs and still answers the question.
-
-## Rules
-- Output ONLY the corrected SQL query. No explanation, no markdown fencing, no comments.
-- ${DIALECT_NOTES[args.warehouseType]}
-- Address the SPECIFIC error reported. Common fixes: reference SELECT aliases (or repeat the full expression) in GROUP BY / window ORDER BY rather than raw columns that aren't grouped; quote/qualify identifiers correctly for the dialect; cast mismatched types; remove DDL/DML.
-- "Aggregate function ... is found in WHERE" / ILLEGAL_AGGREGATION: an aggregate (min/max/count/sum/avg/quantile/...) is in a WHERE clause, which is illegal — WHERE runs before grouping. Move that condition to HAVING (after GROUP BY), or compute the aggregate in a subquery/CTE and filter it in an outer query. Keep WHERE for raw-column conditions only.
-- "Lateral joins are not supported" / "Correlated column ... is found in the FROM clause" / NOT_IMPLEMENTED (ClickHouse): a subquery in FROM/JOIN references another table's columns. Remove the correlation: compute any derived value (e.g. a bucket) with multiIf()/CASE over the joined columns in the SELECT (or in an outer SELECT wrapping the join), and pre-aggregate each side in its own independent subquery joined on keys — never CROSS JOIN a subquery that reads the other table's columns.
-- "Identifier ... cannot be resolved" / UNKNOWN_IDENTIFIER on a computed column: a SELECT alias is referenced in WHERE (same level) or in an outer query whose subquery doesn't SELECT it. Repeat the full expression in the filter, or add the computed column to the subquery's SELECT and filter one level up.
-- "Timeout exceeded" / "Limit for rows or bytes to read exceeded" / "TOO_MANY_ROWS": the query scans too much data. Make it CHEAPER — add or tighten a WHERE filter on a date/time column or the primary/ORDER BY key, shorten the time window, aggregate (GROUP BY) instead of returning raw rows, select fewer columns, or (ClickHouse) add a \`SAMPLE\` clause. Do NOT try to raise the limit.
-- "Query memory limit exceeded" / MEMORY_LIMIT_EXCEEDED (code 241): the query holds too much in memory — almost always a JOIN of large row-level tables, or a high-cardinality GROUP BY. Restructure so you aggregate BEFORE joining: in each side's subquery, apply the WHERE filters and GROUP BY to the join grain (e.g. collapse the checks fact table to one row per pull_request_number with countIf/maxIf flags), then JOIN the compact per-key aggregates on keys. Put the smaller/more-filtered table on the RIGHT. Tighten time/key filters and reduce GROUP BY cardinality. Do NOT raise the limit.
-- "Cannot modify '<setting>' setting in readonly mode" / READONLY: REMOVE the \`SETTINGS\` clause / \`SET\` statement entirely. The connection is read-only — you cannot raise max_rows_to_read / max_execution_time. Instead make the query inherently cheaper (see above).
-- "Unknown expression or function identifier": a column referenced in an outer query (e.g. inside an aggregate or window) isn't exposed by the subquery's SELECT, or isn't grouped. Add it to the inner SELECT / GROUP BY, or qualify it.
-- Keep it a single SELECT that returns a result set, LIMIT at most 50000 rows.`),
-      prompt: `## Database Schema (${args.warehouseType})\n\n${schemaText}\n\n## Question\n${args.question}\n\n## Failed SQL\n${args.failedSQL}\n\n## Engine Error\n${args.error}\n\nReturn the corrected SQL only.`,
+      system: cachedSystem(buildSQLGenSystemPrompt(args.warehouseType)),
+      messages: [
+        {
+          role: "user",
+          content: [
+            cachedText(buildSQLGenSchemaBlock(args.tables, args.warehouseType)),
+            { type: "text", text: `\n\n${buildSQLRepairInstructions(args)}` },
+          ],
+        },
+      ],
       temperature: 0,
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     })

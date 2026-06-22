@@ -91,10 +91,37 @@ describe("generateSQLWithRepair", () => {
     // 1 initial generate + 1 repair
     expect(generateTextMock).toHaveBeenCalledTimes(2);
     expect(phases).toContain("repairing");
-    // The repair prompt must carry the engine error
-    const repairCall = generateTextMock.mock.calls[1][0] as { prompt: string };
-    expect(repairCall.prompt).toContain("neither grouped nor aggregated");
-    expect(repairCall.prompt).toContain("SELECT bad");
+    // The repair carries the engine error + failed SQL in the uncached tail
+    // (after the cached schema block), so it reuses the warm [system][schema]
+    // cache from generation instead of re-sending the schema.
+    const repairCall = generateTextMock.mock.calls[1][0] as {
+      messages: { content: { text?: string }[] }[];
+    };
+    const tail = repairCall.messages[0].content.map((c) => c.text ?? "").join("");
+    expect(tail).toContain("neither grouped nor aggregated");
+    expect(tail).toContain("SELECT bad");
+  });
+
+  it("repair reuses generation's [system][schema] cache prefix verbatim", async () => {
+    queueSQL("SELECT bad", "SELECT good");
+    const execute = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce("ok");
+    await generateSQLWithRepair({
+      tables: TABLES,
+      question: "q",
+      warehouseType: "bigquery",
+      execute,
+    });
+
+    type Call = {
+      system: string;
+      messages: { content: { type: string; text?: string }[] }[];
+    };
+    const gen = generateTextMock.mock.calls[0][0] as Call;
+    const repair = generateTextMock.mock.calls[1][0] as Call;
+    // Same system prompt and same (first) cached schema block → the API matches
+    // the prefix and the repair READS the warm cache instead of re-sending it.
+    expect(repair.system).toBe(gen.system);
+    expect(repair.messages[0].content[0]).toEqual(gen.messages[0].content[0]);
   });
 
   it("throws the last error after exhausting repairs", async () => {
