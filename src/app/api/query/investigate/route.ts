@@ -533,22 +533,24 @@ export async function POST(request: Request) {
             let currentReplan: TraceDecision | null = null;
             let pendingComposerAdded: number[] = [];
 
-            // Warm the shared code-gen prompt cache before the first wave fans
-            // out in parallel, so concurrent sub-questions read it instead of
-            // each re-paying full input for the (cached) system + schema prefix.
-            // ONLY for file investigations: those share one schema across all
-            // sub-questions. Warehouse investigations run per-step SQL → a
-            // different schema per sub-question, so warming the materialized
-            // schema is a wasted (2× under 1h TTL) cache write nothing reads.
-            if (!warehouseState) {
-              await prewarmCodeGenCache(
-                stored.schema,
-                "metadata",
-                codeGenModel,
-                undefined,
-                localFileContext
-              );
-            }
+            // Warm the code-gen prompt cache before the first wave fans out in
+            // parallel, so concurrent sub-questions read it instead of each
+            // cold-writing the (cached) prefix. File investigations share one
+            // schema across all sub-questions → warm the whole prefix (system +
+            // schema). Warehouse investigations run per-step SQL → a different
+            // schema per sub-question, so only the (large) system prompt is
+            // shared → warm system-only (warming the schema would be a wasted
+            // write nothing reads). Per-step schemas inherit the table's domain
+            // (see runWarehouseSubQuestion) so every step's system prompt is
+            // byte-identical to this warm-up and hits the cache.
+            await prewarmCodeGenCache(
+              stored.schema,
+              "metadata",
+              codeGenModel,
+              undefined,
+              warehouseState ? undefined : localFileContext,
+              !!warehouseState // systemOnly for warehouse
+            );
 
             const subResults = await runInvestigation(plan.subQuestions, {
               schema: stored.schema,

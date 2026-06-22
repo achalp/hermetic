@@ -263,6 +263,12 @@ async function runWarehouseSubQuestion(
   const stepSchema = extractSchema(parsed, stepCsvId, "step_result");
   stepSchema.source_type = "warehouse";
   stepSchema.warehouse_type = options.warehouseType;
+  // Inherit the warehouse table's domain rather than re-detecting it from the
+  // small aggregated step result. This keeps the code-gen system prompt
+  // byte-identical across every sub-question, so they all hit the system-prompt
+  // cache warmed before wave-0 (re-detection on a few aggregate columns can
+  // otherwise drift to a different domain and miss the cache).
+  stepSchema.detected_domain = options.schema.detected_domain;
   await storeCSV(stepCsvId, normalized, stepSchema);
 
   const result = await runPipeline(

@@ -181,31 +181,37 @@ export async function generateAnalysisCode(
  * for the shared prefix. After this, the wave reads the warm cache.
  *
  * Anthropic-only (the only provider with caching) and strictly best-effort —
- * never block the investigation. Note: for warehouse investigations each
- * sub-question runs its OWN SQL → its own per-step schema, so only the system
- * prompt is shared; file investigations share the whole prefix and benefit most.
+ * never block the investigation.
+ *
+ * `systemOnly` warms ONLY the system-prompt cache breakpoint (not the schema).
+ * Use it for warehouse investigations: each sub-question runs its OWN SQL → its
+ * own per-step schema, so the schema block is single-use and warming it is a
+ * wasted write — but the (large, ~4.9k-token) system prompt IS shared, and the
+ * per-step code-gen calls read it via prefix match. File investigations share
+ * the whole prefix, so they warm system + schema together (systemOnly=false).
  */
 export async function prewarmCodeGenCache(
   schema: CSVSchema,
   mode: SchemaMode = "metadata",
   model: string = CODE_GEN_MODEL,
   workbookContext?: string,
-  localFileContext?: string
+  localFileContext?: string,
+  systemOnly = false
 ): Promise<void> {
   if (getActiveProvider() !== "anthropic") return;
   try {
-    const schemaBlock = buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext);
+    const content = systemOnly
+      ? [{ type: "text" as const, text: "\n## Question\nwarmup" }]
+      : [
+          cachedText(buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)),
+          { type: "text" as const, text: "\n## Question\nwarmup" },
+        ];
     await generateText({
       model: getModel(model),
       system: cachedSystem(
         buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)
       ),
-      messages: [
-        {
-          role: "user",
-          content: [cachedText(schemaBlock), { type: "text", text: "\n## Question\nwarmup" }],
-        },
-      ],
+      messages: [{ role: "user", content }],
       temperature: 0,
       maxOutputTokens: 1,
     });
