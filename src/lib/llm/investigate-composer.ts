@@ -17,6 +17,7 @@
  */
 
 import { streamText, generateText } from "ai";
+import { withPhase, withPhaseSync } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { UI_COMPOSE_MODEL, GAP_CHECK_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
@@ -471,18 +472,20 @@ export async function gapCheckComposer(args: ComposeArgs): Promise<GapCheckResul
   });
 
   try {
-    const result = await generateText({
-      model,
-      system: cachedSystem(GAP_CHECK_SYSTEM_PROMPT),
-      prompt: buildGapCheckUserPrompt({
-        originalQuestion: args.originalQuestion,
-        plan: args.plan,
-        schema: args.schema,
-        perStepMetadata,
-      }),
-      temperature: 0.3,
-      maxOutputTokens: 2_000, // gap-check output is small JSON
-    });
+    const result = await withPhase("gap_check", () =>
+      generateText({
+        model,
+        system: cachedSystem(GAP_CHECK_SYSTEM_PROMPT),
+        prompt: buildGapCheckUserPrompt({
+          originalQuestion: args.originalQuestion,
+          plan: args.plan,
+          schema: args.schema,
+          perStepMetadata,
+        }),
+        temperature: 0.3,
+        maxOutputTokens: 2_000, // gap-check output is small JSON
+      })
+    );
     const parsed = parseGapCheckOutput(result.text, existingStepCount);
     logger.info("Investigate: gap-check decision", {
       needsCount: parsed.needs.length,
@@ -529,13 +532,15 @@ export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
     chartDataKeys: Object.keys(mergedChartData).length,
   });
 
-  const result = streamText({
-    model,
-    system: cachedSystem(catalog.prompt({ customRules: [systemPrompt] })),
-    prompt: userPrompt,
-    temperature: 0.2,
-    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-  });
+  const result = withPhaseSync("compose", () =>
+    streamText({
+      model,
+      system: cachedSystem(catalog.prompt({ customRules: [systemPrompt] })),
+      prompt: userPrompt,
+      temperature: 0.2,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+    })
+  );
 
   return {
     textStream: result.textStream,

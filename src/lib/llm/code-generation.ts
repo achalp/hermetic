@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "./client";
 import {
   buildCodeGenSystemPrompt,
@@ -154,13 +155,19 @@ export async function generateAnalysisCode(
     ? `\n${buildConversationHistorySection(priorTurns)}## Question\n${question}`
     : `\n## Question\n${question}`;
 
-  const result = await generateText({
-    model: getModel(model),
-    system: cachedSystem(buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)),
-    messages: [{ role: "user", content: [cachedText(schemaBlock), { type: "text", text: tail }] }],
-    temperature: 0,
-    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-  });
+  const result = await withPhase("code_gen", () =>
+    generateText({
+      model: getModel(model),
+      system: cachedSystem(
+        buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)
+      ),
+      messages: [
+        { role: "user", content: [cachedText(schemaBlock), { type: "text", text: tail }] },
+      ],
+      temperature: 0,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+    })
+  );
 
   return fixColumnNameCase(
     stripValueAssertions(
@@ -206,15 +213,17 @@ export async function prewarmCodeGenCache(
           cachedText(buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)),
           { type: "text" as const, text: "\n## Question\nwarmup" },
         ];
-    await generateText({
-      model: getModel(model),
-      system: cachedSystem(
-        buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)
-      ),
-      messages: [{ role: "user", content }],
-      temperature: 0,
-      maxOutputTokens: 1,
-    });
+    await withPhase("prewarm", () =>
+      generateText({
+        model: getModel(model),
+        system: cachedSystem(
+          buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)
+        ),
+        messages: [{ role: "user", content }],
+        temperature: 0,
+        maxOutputTokens: 1,
+      })
+    );
   } catch {
     // Best-effort: a failed warm-up must never break the run.
   }

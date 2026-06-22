@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
@@ -120,21 +121,23 @@ export async function generateSQL(
   warehouseType: WarehouseType,
   model: string = CODE_GEN_MODEL
 ): Promise<string> {
-  const result = await generateText({
-    model: getModel(model),
-    system: cachedSystem(buildSQLGenSystemPrompt(warehouseType)),
-    messages: [
-      {
-        role: "user",
-        content: [
-          cachedText(buildSQLGenSchemaBlock(tables, warehouseType)),
-          { type: "text", text: `\n\n## Question\n${question}` },
-        ],
-      },
-    ],
-    temperature: 0,
-    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-  });
+  const result = await withPhase("sql_gen", () =>
+    generateText({
+      model: getModel(model),
+      system: cachedSystem(buildSQLGenSystemPrompt(warehouseType)),
+      messages: [
+        {
+          role: "user",
+          content: [
+            cachedText(buildSQLGenSchemaBlock(tables, warehouseType)),
+            { type: "text", text: `\n\n## Question\n${question}` },
+          ],
+        },
+      ],
+      temperature: 0,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+    })
+  );
 
   return cleanSQL(result.text);
 }
@@ -154,21 +157,23 @@ export async function prewarmSQLGenCache(
 ): Promise<void> {
   if (getActiveProvider() !== "anthropic") return;
   try {
-    await generateText({
-      model: getModel(model),
-      system: cachedSystem(buildSQLGenSystemPrompt(warehouseType)),
-      messages: [
-        {
-          role: "user",
-          content: [
-            cachedText(buildSQLGenSchemaBlock(tables, warehouseType)),
-            { type: "text", text: "\n\n## Question\nwarmup" },
-          ],
-        },
-      ],
-      temperature: 0,
-      maxOutputTokens: 1,
-    });
+    await withPhase("prewarm", () =>
+      generateText({
+        model: getModel(model),
+        system: cachedSystem(buildSQLGenSystemPrompt(warehouseType)),
+        messages: [
+          {
+            role: "user",
+            content: [
+              cachedText(buildSQLGenSchemaBlock(tables, warehouseType)),
+              { type: "text", text: "\n\n## Question\nwarmup" },
+            ],
+          },
+        ],
+        temperature: 0,
+        maxOutputTokens: 1,
+      })
+    );
   } catch {
     // Best-effort: a failed warm-up must never break the run.
   }
@@ -188,10 +193,11 @@ export async function repairSQL(args: {
   model?: string;
 }): Promise<string> {
   const schemaText = formatTableSchemas(args.tables, args.warehouseType);
-  const result = await generateText({
-    model: getModel(args.model ?? CODE_GEN_MODEL),
-    system:
-      cachedSystem(`You are a SQL expert. A query you generated failed to execute. Fix it so it runs and still answers the question.
+  const result = await withPhase("sql_repair", () =>
+    generateText({
+      model: getModel(args.model ?? CODE_GEN_MODEL),
+      system:
+        cachedSystem(`You are a SQL expert. A query you generated failed to execute. Fix it so it runs and still answers the question.
 
 ## Rules
 - Output ONLY the corrected SQL query. No explanation, no markdown fencing, no comments.
@@ -205,10 +211,11 @@ export async function repairSQL(args: {
 - "Cannot modify '<setting>' setting in readonly mode" / READONLY: REMOVE the \`SETTINGS\` clause / \`SET\` statement entirely. The connection is read-only — you cannot raise max_rows_to_read / max_execution_time. Instead make the query inherently cheaper (see above).
 - "Unknown expression or function identifier": a column referenced in an outer query (e.g. inside an aggregate or window) isn't exposed by the subquery's SELECT, or isn't grouped. Add it to the inner SELECT / GROUP BY, or qualify it.
 - Keep it a single SELECT that returns a result set, LIMIT at most 50000 rows.`),
-    prompt: `## Database Schema (${args.warehouseType})\n\n${schemaText}\n\n## Question\n${args.question}\n\n## Failed SQL\n${args.failedSQL}\n\n## Engine Error\n${args.error}\n\nReturn the corrected SQL only.`,
-    temperature: 0,
-    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-  });
+      prompt: `## Database Schema (${args.warehouseType})\n\n${schemaText}\n\n## Question\n${args.question}\n\n## Failed SQL\n${args.failedSQL}\n\n## Engine Error\n${args.error}\n\nReturn the corrected SQL only.`,
+      temperature: 0,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+    })
+  );
   return cleanSQL(result.text);
 }
 

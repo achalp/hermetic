@@ -4,8 +4,18 @@ import {
   getCostAccumulator,
   recordCall,
   computeCost,
+  withPhase,
+  withPhaseSync,
+  formatPhaseBreakdown,
 } from "@/lib/cost/accumulator";
 import { MODEL_PRICING, AVAILABLE_MODELS } from "@/lib/constants";
+
+const OUT = (n: number) => ({
+  uncachedInputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  outputTokens: n,
+});
 
 describe("computeCost / recordCall", () => {
   it("prices input and output tokens at the model's rate", async () => {
@@ -89,6 +99,7 @@ describe("computeCost / recordCall", () => {
       outputTokens: 0,
       llmCalls: 0,
       models: [],
+      byPhase: [],
     });
   });
 
@@ -102,6 +113,52 @@ describe("computeCost / recordCall", () => {
         outputTokens: 1,
       })
     ).not.toThrow();
+  });
+});
+
+describe("per-phase attribution", () => {
+  it("tags calls with their withPhase scope and rolls them up by phase", async () => {
+    const summary = await runWithCostTracking(async () => {
+      await withPhase("code_gen", async () => {
+        recordCall("claude-sonnet-4-6", OUT(1000));
+        recordCall("claude-sonnet-4-6", OUT(500));
+      });
+      withPhaseSync("compose", () => recordCall("claude-sonnet-4-6", OUT(4000)));
+      return computeCost(getCostAccumulator()!);
+    });
+    const phases = Object.fromEntries(summary.byPhase.map((p) => [p.phase, p]));
+    expect(phases.code_gen.outputTokens).toBe(1500);
+    expect(phases.code_gen.llmCalls).toBe(2);
+    expect(phases.compose.outputTokens).toBe(4000);
+    // sorted by cost descending — compose (4000 out) outranks code_gen (1500)
+    expect(summary.byPhase[0].phase).toBe("compose");
+  });
+
+  it("labels calls outside any withPhase scope as 'other'", async () => {
+    const summary = await runWithCostTracking(async () => {
+      recordCall("claude-sonnet-4-6", OUT(100));
+      return computeCost(getCostAccumulator()!);
+    });
+    expect(summary.byPhase.map((p) => p.phase)).toEqual(["other"]);
+  });
+
+  it("an explicit phase arg overrides the ambient scope (middleware path)", async () => {
+    const summary = await runWithCostTracking(async () => {
+      await withPhase("code_gen", async () => {
+        // The middleware captures phase at request start and passes it through;
+        // simulate a streamed call whose phase is bound explicitly.
+        recordCall("claude-sonnet-4-6", OUT(200), "compose");
+      });
+      return computeCost(getCostAccumulator()!);
+    });
+    expect(summary.byPhase.map((p) => p.phase)).toEqual(["compose"]);
+  });
+
+  it("formatPhaseBreakdown renders a compact one-liner", () => {
+    const s = formatPhaseBreakdown([
+      { phase: "compose", llmCalls: 1, inputTokens: 100, outputTokens: 4000, costUsd: 0.06 },
+    ]);
+    expect(s).toBe("compose=$0.0600(out:4000,calls:1)");
   });
 });
 

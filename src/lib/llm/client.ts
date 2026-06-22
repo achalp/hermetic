@@ -7,7 +7,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
-import { recordCall } from "@/lib/cost/accumulator";
+import { recordCall, currentPhase } from "@/lib/cost/accumulator";
 import { logger } from "@/lib/logger";
 
 /**
@@ -919,32 +919,43 @@ interface V3Usage {
   outputTokens?: { total?: number };
 }
 
-function reportUsage(costKey: string, usage: V3Usage | undefined): void {
+function reportUsage(costKey: string, usage: V3Usage | undefined, phase?: string): void {
   const inp = usage?.inputTokens;
-  recordCall(costKey, {
-    uncachedInputTokens: inp?.noCache ?? inp?.total ?? 0,
-    cacheReadTokens: inp?.cacheRead ?? 0,
-    cacheWriteTokens: inp?.cacheWrite ?? 0,
-    outputTokens: usage?.outputTokens?.total ?? 0,
-  });
+  recordCall(
+    costKey,
+    {
+      uncachedInputTokens: inp?.noCache ?? inp?.total ?? 0,
+      cacheReadTokens: inp?.cacheRead ?? 0,
+      cacheWriteTokens: inp?.cacheWrite ?? 0,
+      outputTokens: usage?.outputTokens?.total ?? 0,
+    },
+    phase
+  );
 }
 
 function usageMiddleware(costKey: string): LanguageModelMiddleware {
   return {
     specificationVersion: "v3",
     wrapGenerate: async ({ doGenerate }) => {
+      // Capture the phase NOW (within the caller's withPhase scope), not after
+      // the await — belt-and-suspenders so attribution can't drift.
+      const phase = currentPhase();
       const result = await doGenerate();
-      reportUsage(costKey, result.usage as V3Usage);
+      reportUsage(costKey, result.usage as V3Usage, phase);
       return result;
     },
     wrapStream: async ({ doStream }) => {
+      // streamText reports usage on the "finish" chunk during consumption —
+      // outside the withPhase scope — so we MUST bind the phase here, at stream
+      // initiation, which still runs inside the scope (streamText is eager).
+      const phase = currentPhase();
       const { stream, ...rest } = await doStream();
       return {
         stream: stream.pipeThrough(
           new TransformStream({
             transform(chunk, controller) {
               if (chunk.type === "finish") {
-                reportUsage(costKey, (chunk as { usage?: V3Usage }).usage);
+                reportUsage(costKey, (chunk as { usage?: V3Usage }).usage, phase);
               }
               controller.enqueue(chunk);
             },

@@ -28,6 +28,7 @@
  */
 
 import { generateText } from "ai";
+import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { PLANNER_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { CSVSchema, WarehouseTableSchema, FilterValue } from "@/lib/types";
@@ -356,13 +357,15 @@ export async function generatePlan(
     scopeFilters: scope?.filters?.length ?? 0,
   });
 
-  const result = await generateText({
-    model: getModel(model),
-    system: cachedSystem(PLANNER_SYSTEM_PROMPT),
-    prompt: buildPlannerUserPrompt(question, schema, warehouse, scope),
-    temperature: 0.3,
-    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-  });
+  const result = await withPhase("planner", () =>
+    generateText({
+      model: getModel(model),
+      system: cachedSystem(PLANNER_SYSTEM_PROMPT),
+      prompt: buildPlannerUserPrompt(question, schema, warehouse, scope),
+      temperature: 0.3,
+      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+    })
+  );
 
   const parsed = parsePlannerOutput(result.text);
   if (parsed.ok) {
@@ -630,13 +633,15 @@ export async function generateReplan(args: {
   });
 
   try {
-    const result = await generateText({
-      model: getModel(args.model ?? PLANNER_MODEL),
-      system: cachedSystem(REPLANNER_SYSTEM_PROMPT),
-      prompt: buildReplannerUserPrompt(args),
-      temperature: 0.3,
-      maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-    });
+    const result = await withPhase("replan", () =>
+      generateText({
+        model: getModel(args.model ?? PLANNER_MODEL),
+        system: cachedSystem(REPLANNER_SYSTEM_PROMPT),
+        prompt: buildReplannerUserPrompt(args),
+        temperature: 0.3,
+        maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+      })
+    );
     const parsed = parseReplannerOutput(result.text, args.allSubQuestions.length);
     if (!parsed.ok) {
       logger.warn("Investigate: re-planner parse failed; falling back to continue", {

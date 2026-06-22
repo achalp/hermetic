@@ -26,6 +26,7 @@ export const COST_HEADERS = [
   "cache_write_tokens",
   "output_tokens",
   "cost_usd",
+  "phase_breakdown",
 ] as const;
 
 export interface CostRow {
@@ -41,6 +42,8 @@ export interface CostRow {
   cache_write_tokens: number;
   output_tokens: number;
   cost_usd: number;
+  /** Per-phase cost rollup, e.g. "compose=$0.18(out:9500,calls:1); …". */
+  phase_breakdown?: string;
 }
 
 function toStringRow(row: CostRow): Record<string, string> {
@@ -57,6 +60,7 @@ function toStringRow(row: CostRow): Record<string, string> {
     cache_write_tokens: String(row.cache_write_tokens),
     output_tokens: String(row.output_tokens),
     cost_usd: row.cost_usd.toFixed(6),
+    phase_breakdown: row.phase_breakdown ?? "",
   };
 }
 

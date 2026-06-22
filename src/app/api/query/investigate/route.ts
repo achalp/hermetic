@@ -22,7 +22,12 @@ import {
 } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { prewarmCodeGenCache } from "@/lib/llm/code-generation";
-import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
+import {
+  runWithCostTracking,
+  getCostAccumulator,
+  computeCost,
+  formatPhaseBreakdown,
+} from "@/lib/cost/accumulator";
 import { appendCostRow } from "@/lib/cost/storage";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import { classifyFollowupDepth } from "@/lib/llm/followup-classifier";
@@ -988,6 +993,12 @@ export async function POST(request: Request) {
               if (acc) {
                 const cost = computeCost(acc);
                 emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
+                const phaseBreakdown = formatPhaseBreakdown(cost.byPhase);
+                logger.info("Investigate: cost by phase", {
+                  total: Number(cost.costUsd.toFixed(4)),
+                  output: cost.outputTokens,
+                  breakdown: phaseBreakdown,
+                });
                 const now = new Date();
                 await appendCostRow({
                   timestamp: now.toISOString(),
@@ -1002,6 +1013,7 @@ export async function POST(request: Request) {
                   cache_write_tokens: cost.cacheWriteTokens,
                   output_tokens: cost.outputTokens,
                   cost_usd: cost.costUsd,
+                  phase_breakdown: phaseBreakdown,
                 });
               }
             } catch (costErr) {
