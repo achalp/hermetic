@@ -124,6 +124,39 @@ describe("generateSQLWithRepair", () => {
     expect(repair.messages[0].content[0]).toEqual(gen.messages[0].content[0]);
   });
 
+  it("bails immediately on a resource-limit error when bailOnResourceError is set (no repair)", async () => {
+    queueSQL("SELECT * FROM huge");
+    const execute = vi.fn().mockRejectedValue(new Error("Timeout error."));
+    await expect(
+      generateSQLWithRepair({
+        tables: TABLES,
+        question: "q",
+        warehouseType: "clickhouse",
+        execute,
+        bailOnResourceError: true,
+      })
+    ).rejects.toThrow("Timeout error");
+    expect(execute).toHaveBeenCalledTimes(1); // no repair attempts
+    expect(generateTextMock).toHaveBeenCalledTimes(1); // only the initial generate
+  });
+
+  it("still repairs a LOGIC error even when bailOnResourceError is set", async () => {
+    queueSQL("SELECT bad", "SELECT good");
+    const execute = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("column foo is neither grouped nor aggregated"))
+      .mockResolvedValueOnce("col\n1");
+    const out = await generateSQLWithRepair({
+      tables: TABLES,
+      question: "q",
+      warehouseType: "clickhouse",
+      execute,
+      bailOnResourceError: true,
+    });
+    expect(out.sql).toBe("SELECT good");
+    expect(generateTextMock).toHaveBeenCalledTimes(2); // initial + 1 repair
+  });
+
   it("throws the last error after exhausting repairs", async () => {
     queueSQL("q0", "q1", "q2"); // initial + 2 repairs
     const execute = vi.fn().mockRejectedValue(new Error("syntax error"));

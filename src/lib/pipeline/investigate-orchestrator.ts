@@ -326,6 +326,10 @@ async function runPerStepSQL(
     question: sqlQuestion,
     warehouseType: options.warehouseType!,
     model: options.model,
+    // The window is already bounded, so a timeout/row/memory limit means the
+    // query SHAPE is too expensive — repairs would just repeat the multi-minute
+    // timeout. Bail fast; the caller keeps the already-computed CSV result.
+    bailOnResourceError: true,
     execute: async (candidate) => {
       const csv = await options.warehouseExecutor!(candidate);
       if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");

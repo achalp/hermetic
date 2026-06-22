@@ -263,6 +263,19 @@ export async function repairSQL(args: {
  * finally worked alongside its result; throws the last error if all attempts
  * fail.
  */
+/**
+ * Engine errors signalling the query is simply too expensive — a timeout, a
+ * read-row cap, or a memory cap. These reflect the query's SHAPE/scale, not a
+ * fixable mistake, so re-prompting just repeats them. Callers that already have
+ * a fallback (per-step escalation) can bail on these instead of burning the
+ * repair budget on more multi-minute timeouts.
+ */
+export function isResourceLimitError(message: string): boolean {
+  return /timeout|rows or bytes to read exceeded|too_many_rows|memory limit exceeded|memory_limit_exceeded/i.test(
+    message
+  );
+}
+
 export async function generateSQLWithRepair<T>(args: {
   tables: WarehouseTableSchema[];
   question: string;
@@ -270,6 +283,13 @@ export async function generateSQLWithRepair<T>(args: {
   execute: (sql: string) => Promise<T>;
   model?: string;
   maxRepairs?: number;
+  /**
+   * Stop immediately (don't repair) on a resource-limit error — timeout / rows /
+   * memory. Use when the caller has a fallback and repairs can't help (e.g. the
+   * window is already bounded, so the cost is the query shape). Logic errors
+   * still repair as normal.
+   */
+  bailOnResourceError?: boolean;
   onAttempt?: (attempt: number, phase: "generating" | "executing" | "repairing") => void;
 }): Promise<{ sql: string; result: T }> {
   const maxRepairs = args.maxRepairs ?? 2;
@@ -293,6 +313,13 @@ export async function generateSQLWithRepair<T>(args: {
         error: message.slice(0, 200),
         sql,
       });
+      if (args.bailOnResourceError && isResourceLimitError(message)) {
+        logger.warn("Warehouse SQL hit a resource limit; not repairing (query too expensive)", {
+          question: args.question.slice(0, 120),
+          error: message.slice(0, 120),
+        });
+        break;
+      }
       if (attempt === maxRepairs) break;
       args.onAttempt?.(attempt + 1, "repairing");
       sql = await repairSQL({
