@@ -52,11 +52,7 @@ import {
   storeCSV,
 } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import {
-  generateSQLWithRepair,
-  prewarmSQLGenCache,
-  selectRelevantTables,
-} from "@/lib/warehouse/sql-generation";
+import { generateSQLWithRepair, prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { randomUUID } from "crypto";
@@ -67,7 +63,6 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import type { WarehouseTableSchema } from "@/lib/types";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { logger } from "@/lib/logger";
@@ -207,11 +202,6 @@ export async function POST(request: Request) {
       warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
       connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
     } | null = null;
-    // The subset of warehouse tables relevant to this question (a Haiku
-    // pre-pass prunes a wide warehouse so we don't ship every table's DDL to
-    // the materialization query, planner, and per-step SQL). Falls back to all
-    // tables. Set once in the warehouse branch below, then threaded everywhere.
-    let relevantTables: WarehouseTableSchema[] | undefined;
     if (warehouseId && !csvId) {
       const warehouse = getStoredWarehouse(warehouseId);
       if (!warehouse) {
@@ -287,23 +277,6 @@ export async function POST(request: Request) {
             if (warehouseState) {
               const { warehouse, connector } = warehouseState;
               emitProgress("generating_sql", 1, 99);
-              // Prune the schema to the tables this question needs (cheap Haiku
-              // pass), so the full DDL for dozens of unrelated tables isn't sent
-              // to the materialization query, the planner, and every per-step
-              // SQL generation. Best-effort: falls back to all tables.
-              const selected = await selectRelevantTables(
-                warehouse.tableSchemas,
-                question,
-                PLANNER_MODEL
-              );
-              relevantTables = selected;
-              if (selected.length < warehouse.tableSchemas.length) {
-                logger.info("Investigate: pruned warehouse tables", {
-                  from: warehouse.tableSchemas.length,
-                  to: selected.length,
-                  kept: selected.map((t) => t.name),
-                });
-              }
               const materializationQuestion =
                 `Retrieve the DETAILED rows needed to investigate this question from multiple angles: ${question}\n` +
                 `Return row-level data (not pre-aggregated summaries) and include every column plausibly relevant to the question — ` +
@@ -314,7 +287,7 @@ export async function POST(request: Request) {
               let warehouseCsvContent: string;
               try {
                 const outcome = await generateSQLWithRepair({
-                  tables: selected,
+                  tables: warehouse.tableSchemas,
                   question: materializationQuestion,
                   warehouseType: warehouse.config.type,
                   model: codeGenModel,
@@ -474,7 +447,7 @@ export async function POST(request: Request) {
             const planResult = await generatePlan(
               question,
               stored.schema,
-              relevantTables,
+              warehouseState?.warehouse.tableSchemas,
               PLANNER_MODEL,
               context.scope
             );
@@ -586,7 +559,7 @@ export async function POST(request: Request) {
               ),
               warehouseState
                 ? prewarmSQLGenCache(
-                    relevantTables ?? warehouseState.warehouse.tableSchemas,
+                    warehouseState.warehouse.tableSchemas,
                     warehouseState.warehouse.config.type,
                     codeGenModel
                   )
@@ -609,7 +582,7 @@ export async function POST(request: Request) {
               // schema + serves as the fallback if a step's SQL fails). For
               // file investigations these are undefined and steps run Python
               // over the shared CSV as before.
-              warehouse: relevantTables ?? warehouseState?.warehouse.tableSchemas,
+              warehouse: warehouseState?.warehouse.tableSchemas,
               warehouseType: warehouseState?.warehouse.config.type,
               warehouseExecutor: warehouseState
                 ? (sql: string) => warehouseState!.connector.executeSQL(sql)

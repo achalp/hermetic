@@ -31,6 +31,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# runtime logs (accidentally committed before; never track)
+*.log
+
 # env files
 .env*
 !.env.example
