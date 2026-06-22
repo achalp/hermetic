@@ -18,6 +18,7 @@ import type { Spec } from "@json-render/core";
 import { generatePlan, type InvestigateScope } from "@/lib/llm/investigate-planner";
 import {
   runInvestigation,
+  deriveAnalysisWindow,
   type InvestigateProgressEvent,
 } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
@@ -582,13 +583,15 @@ export async function POST(request: Request) {
               model: codeGenModel,
               originalQuestion: question,
               approach: plan.approach,
-              // Per-step SQL: each sub-question issues its own warehouse query
-              // (the up-front materialization above still seeds the planner's
-              // schema + serves as the fallback if a step's SQL fails). For
-              // file investigations these are undefined and steps run Python
-              // over the shared CSV as before.
+              // Warehouse steps analyze the materialized CSV first, then escalate
+              // to their own (window-bounded) query only when a conservative
+              // judge finds the snapshot insufficient. The materialization SQL is
+              // passed so the judge knows what the snapshot holds and any
+              // escalated query reuses the same time window. File investigations
+              // leave these undefined and run Python over the shared CSV.
               warehouse: warehouseState?.warehouse.tableSchemas,
               warehouseType: warehouseState?.warehouse.config.type,
+              materializationSQL: warehouseSQL,
               warehouseExecutor: warehouseState
                 ? (sql: string) => warehouseState!.connector.executeSQL(sql)
                 : undefined,
@@ -834,6 +837,9 @@ export async function POST(request: Request) {
               subResults,
               uiComposeModel,
               purpose: context.purpose,
+              // Warehouse investigations cover the materialized pull's time
+              // window; surface it so the dashboard states its scope.
+              analysisWindow: warehouseState ? deriveAnalysisWindow(stored.schema) : undefined,
             });
 
             // Inject merged data into spec.state so $result/$chartData

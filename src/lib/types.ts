@@ -376,6 +376,21 @@ export interface WarehouseTableSchema {
   description?: string;
 }
 
+/**
+ * The time range a warehouse investigation's data covers — derived from the
+ * materialized pull's date column. Used to (a) keep escalated per-step SQL
+ * within the same window and (b) label the dashboard so the reader knows the
+ * analysis scope.
+ */
+export interface AnalysisWindow {
+  /** The date/time column the window is measured on. */
+  column: string;
+  /** ISO-ish start (the column's min in the materialized data). */
+  start: string;
+  /** ISO-ish end (the column's max in the materialized data). */
+  end: string;
+}
+
 export interface StoredWarehouse {
   warehouseId: string;
   config: WarehouseConnectionConfig;

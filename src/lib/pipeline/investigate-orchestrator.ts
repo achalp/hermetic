@@ -50,8 +50,15 @@ import {
   COMPOSER_MAX_DISPATCHES,
   PLANNER_MODEL,
 } from "@/lib/constants";
-import type { CSVSchema, ConversationTurn, WarehouseTableSchema, WarehouseType } from "@/lib/types";
+import type {
+  CSVSchema,
+  ConversationTurn,
+  WarehouseTableSchema,
+  WarehouseType,
+  AnalysisWindow,
+} from "@/lib/types";
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
+import { assessAnswerSufficiency } from "@/lib/llm/answer-sufficiency";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV } from "@/lib/csv/storage";
@@ -194,17 +201,114 @@ interface OrchestrateOptions {
    */
   warehouseExecutor?: (sql: string) => Promise<string>;
   warehouseType?: WarehouseType;
+  /**
+   * The broad up-front pull's SQL. Given to the sufficiency judge (so it knows
+   * what the materialized snapshot contains) and to any escalated per-step SQL
+   * (so it reuses the same time window instead of re-scanning the full table).
+   */
+  materializationSQL?: string;
   /** Reported per-sub-question and per-wave status updates. */
   onProgress?: (event: InvestigateProgressEvent) => void;
 }
 
 /**
- * Per-step SQL path: generate a warehouse query scoped to this sub-question,
- * execute it (with repair), then run the standard Python pipeline over the
- * result. Falls back to analyzing the shared materialized CSV if SQL
- * generation/execution fails, so a step still produces something.
+ * Derive the investigation's time window from the materialized data's first
+ * date column (its min/max). Robust — reads the already-computed schema
+ * metadata rather than parsing SQL. Used to label the dashboard.
  */
-async function runWarehouseSubQuestion(
+export function deriveAnalysisWindow(schema: CSVSchema): AnalysisWindow | undefined {
+  for (const col of schema.columns) {
+    if (col.meta.kind === "date") {
+      return { column: col.name, start: col.meta.min_date, end: col.meta.max_date };
+    }
+  }
+  return undefined;
+}
+
+/** A compact description of what the materialized snapshot holds, for the judge. */
+function describeMaterializedSnapshot(options: OrchestrateOptions): string {
+  const cols = options.schema.columns.map((c) => c.name).join(", ");
+  const rows = options.schema.row_count;
+  const capped = rows >= 50000;
+  const parts = [
+    `Columns: ${cols}.`,
+    `Rows: ${rows}${capped ? " (capped at 50000 — may be a partial sample)" : ""}.`,
+  ];
+  if (options.materializationSQL) {
+    parts.unshift(`Pulled by this query:\n${options.materializationSQL}`);
+  }
+  return parts.join("\n");
+}
+
+/** Summarize what a pipeline result computed, for the sufficiency judge. */
+function summarizePipelineResult(result: PipelineResult): string {
+  const exec = result.executionResult;
+  const results = (exec.results ?? {}) as Record<string, unknown>;
+  const chart = (exec.chart_data ?? {}) as Record<string, unknown>;
+  const chartShapes = Object.entries(chart).map(([k, v]) => {
+    const rows = Array.isArray(v) ? v.length : 0;
+    const cols =
+      Array.isArray(v) && v.length > 0 && typeof v[0] === "object"
+        ? Object.keys(v[0] as Record<string, unknown>)
+        : [];
+    return `${k} (${rows} rows${cols.length ? `, cols: ${cols.join(", ")}` : ""})`;
+  });
+  const lines = [
+    `Result keys: ${Object.keys(results).join(", ") || "(none)"}`,
+    `Chart data: ${chartShapes.join("; ") || "(none)"}`,
+  ];
+  if (result.degraded) {
+    lines.push(`NOTE: validator flagged this result degenerate: ${result.degradedReason ?? ""}`);
+  }
+  return lines.join("\n");
+}
+
+/** True when a result is empty/degenerate (no usable output) — auto-insufficient. */
+function isDegenerateResult(result: PipelineResult): boolean {
+  if (result.degraded) return true;
+  const exec = result.executionResult;
+  const noResults = Object.keys((exec.results ?? {}) as Record<string, unknown>).length === 0;
+  const noCharts = Object.keys((exec.chart_data ?? {}) as Record<string, unknown>).length === 0;
+  return noResults && noCharts;
+}
+
+/**
+ * Analyze the shared materialized CSV in Python for this sub-question. This is
+ * the DEFAULT path for warehouse steps: the up-front broad pull usually already
+ * holds what a sub-question needs, and analyzing it avoids re-querying the
+ * (often enormous) warehouse table.
+ */
+function runCsvSubQuestion(
+  sq: PlannedSubQuestion,
+  options: OrchestrateOptions,
+  priorTurns: ConversationTurn[],
+  depFrames: { files: SandboxFile[]; context: string }
+): Promise<PipelineResult> {
+  return runPipeline(
+    options.schema,
+    options.csvContent,
+    sq.question,
+    undefined,
+    "metadata",
+    options.model,
+    options.runtime,
+    options.geojsonContent ?? undefined,
+    [...(options.additionalFiles ?? []), ...depFrames.files],
+    options.workbookContext,
+    options.localMountPath,
+    joinContext(options.localFileContext, depFrames.context),
+    priorTurns.length > 0 ? priorTurns : undefined
+  );
+}
+
+/**
+ * Escalation path: generate a warehouse query scoped to this sub-question —
+ * constrained to the SAME time window the up-front materialization used so it
+ * doesn't re-scan the full table — execute it (with repair), then run the
+ * standard Python pipeline over the result. Throws if SQL gen/exec fails (the
+ * caller falls back to the already-computed CSV result).
+ */
+async function runPerStepSQL(
   sq: PlannedSubQuestion,
   options: OrchestrateOptions,
   priorTurns: ConversationTurn[],
@@ -212,52 +316,26 @@ async function runWarehouseSubQuestion(
 ): Promise<PipelineResult> {
   const sqlQuestion =
     `Fetch exactly the data needed to answer this analytical question: ${sq.question}\n` +
-    `Aggregate/filter/join server-side as appropriate. Return tidy rows ready for charting; cap at 50000 rows.`;
+    `Aggregate/filter/join server-side as appropriate. Return tidy rows ready for charting; cap at 50000 rows.` +
+    (options.materializationSQL
+      ? `\n\nIMPORTANT — keep the SAME time window as the dataset already materialized for this investigation; do NOT widen the date range (the source table is enormous and a wider scan is rejected with "rows to read exceeded"). LIMIT does NOT reduce rows scanned — only a bounded WHERE on the date/partition key does. That dataset was pulled with:\n${options.materializationSQL}`
+      : "");
 
-  let sql: string;
-  let csvContent: string;
-  try {
-    const outcome = await generateSQLWithRepair({
-      tables: options.warehouse!,
-      question: sqlQuestion,
-      warehouseType: options.warehouseType!,
-      model: options.model,
-      execute: async (candidate) => {
-        const csv = await options.warehouseExecutor!(candidate);
-        if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
-        return csv;
-      },
-    });
-    sql = outcome.sql;
-    csvContent = outcome.result;
-  } catch (err) {
-    // SQL path failed — degrade to analyzing the shared materialized CSV so
-    // the step is not lost entirely.
-    logger.warn("Investigate: per-step SQL failed, falling back to materialized CSV", {
-      question: sq.question.slice(0, 120),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    const result = await runPipeline(
-      options.schema,
-      options.csvContent,
-      sq.question,
-      undefined,
-      "metadata",
-      options.model,
-      options.runtime,
-      options.geojsonContent ?? undefined,
-      [...(options.additionalFiles ?? []), ...depFrames.files],
-      options.workbookContext,
-      options.localMountPath,
-      joinContext(options.localFileContext, depFrames.context),
-      priorTurns.length > 0 ? priorTurns : undefined
-    );
-    return result;
-  }
+  const outcome = await generateSQLWithRepair({
+    tables: options.warehouse!,
+    question: sqlQuestion,
+    warehouseType: options.warehouseType!,
+    model: options.model,
+    execute: async (candidate) => {
+      const csv = await options.warehouseExecutor!(candidate);
+      if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
+      return csv;
+    },
+  });
 
   // Materialize the step's SQL result as an ephemeral CSV the sandbox can run
   // over (and the notebook can re-run against later).
-  const parsed = parseCSV(csvContent);
+  const parsed = parseCSV(outcome.result);
   const normalized = toCSVText(parsed);
   const stepCsvId = randomUUID();
   const stepSchema = extractSchema(parsed, stepCsvId, "step_result");
@@ -286,9 +364,63 @@ async function runWarehouseSubQuestion(
     joinContext(depFrames.context),
     priorTurns.length > 0 ? priorTurns : undefined
   );
-  result.sql = sql;
+  result.sql = outcome.sql;
   result.stepCsvId = stepCsvId;
   return result;
+}
+
+/**
+ * Warehouse sub-question: analyze the materialized CSV first, conservatively
+ * judge whether that answered it, and only escalate to a targeted (window-
+ * bounded) per-step warehouse query when the snapshot genuinely lacks what's
+ * needed. If the escalation fails, keep the already-computed CSV result.
+ */
+async function runWarehouseSubQuestion(
+  sq: PlannedSubQuestion,
+  options: OrchestrateOptions,
+  priorTurns: ConversationTurn[],
+  depFrames: { files: SandboxFile[]; context: string }
+): Promise<PipelineResult> {
+  // 1) Analyze the shared materialized snapshot.
+  const csvResult = await runCsvSubQuestion(sq, options, priorTurns, depFrames);
+
+  // No warehouse to escalate into → this is all we can do.
+  if (!options.warehouseExecutor || !options.warehouse || !options.warehouseType) {
+    return csvResult;
+  }
+
+  // 2) Conservative sufficiency judgement (a degenerate result skips the call).
+  const verdict = isDegenerateResult(csvResult)
+    ? { sufficient: false, reason: "CSV analysis produced no usable result" }
+    : await assessAnswerSufficiency({
+        question: sq.question,
+        datasetDescription: describeMaterializedSnapshot(options),
+        resultSummary: summarizePipelineResult(csvResult),
+        model: PLANNER_MODEL,
+      });
+
+  if (verdict.sufficient) {
+    logger.info("Investigate: materialized CSV sufficed for sub-question", {
+      question: sq.question.slice(0, 120),
+      reason: verdict.reason,
+    });
+    return csvResult;
+  }
+
+  // 3) Escalate to a window-bounded per-step query; keep the CSV result if it fails.
+  logger.info("Investigate: escalating sub-question to per-step SQL", {
+    question: sq.question.slice(0, 120),
+    reason: verdict.reason,
+  });
+  try {
+    return await runPerStepSQL(sq, options, priorTurns, depFrames);
+  } catch (err) {
+    logger.warn("Investigate: per-step SQL failed; keeping materialized-CSV result", {
+      question: sq.question.slice(0, 120),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return csvResult;
+  }
 }
 
 /** Build a synthetic ConversationTurn from a completed sub-question result. */
