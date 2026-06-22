@@ -36,8 +36,8 @@ describe("computeCost / recordCall", () => {
       });
       return computeCost(getCostAccumulator()!);
     });
-    // 1M cache read @ $0.30 + 1M cache write @ $3.75
-    expect(summary.costUsd).toBeCloseTo(4.05, 6);
+    // 1M cache read @ $0.30 + 1M cache write @ $6.00 (1h TTL = 2× input)
+    expect(summary.costUsd).toBeCloseTo(6.3, 6);
     expect(summary.cacheReadTokens).toBe(1_000_000);
     expect(summary.cacheWriteTokens).toBe(1_000_000);
     expect(summary.inputTokens).toBe(2_000_000); // total includes cache buckets
@@ -112,9 +112,9 @@ describe("MODEL_PRICING", () => {
     }
   });
 
-  it("cache-write is 1.25x input and cache-read is 0.1x input", () => {
+  it("cache-write is 2x input (1h TTL) and cache-read is 0.1x input", () => {
     for (const p of Object.values(MODEL_PRICING)) {
-      expect(p.cacheWrite).toBeCloseTo(p.input * 1.25, 6);
+      expect(p.cacheWrite).toBeCloseTo(p.input * 2, 6);
       expect(p.cacheRead).toBeCloseTo(p.input * 0.1, 6);
     }
   });

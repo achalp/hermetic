@@ -74,13 +74,16 @@ export interface ModelPrice {
   cacheRead: number;
 }
 
+// cacheWrite is the 1-HOUR ephemeral rate (2× input) because cachedSystem/
+// cachedText use ttl:"1h"; cacheRead is 0.1× input. If the cache TTL changes
+// back to the 5-minute default, cacheWrite drops to 1.25× input.
+// Opus 4.x list price is $5/$25 per MTok (the $15/$75 figure is Claude 3 Opus).
 export const MODEL_PRICING: Record<string, ModelPrice> = {
-  // Opus 4.x list price is $5/$25 per MTok (the $15/$75 figure is Claude 3 Opus).
-  "claude-opus-4-8": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
+  "claude-opus-4-8": { input: 5, output: 25, cacheWrite: 10, cacheRead: 0.5 },
   // Retained so historical analyses that ran on Opus 4.6 still price correctly.
-  "claude-opus-4-6": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-  "claude-sonnet-4-6": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
-  "claude-haiku-4-5-20251001": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+  "claude-opus-4-6": { input: 5, output: 25, cacheWrite: 10, cacheRead: 0.5 },
+  "claude-sonnet-4-6": { input: 3, output: 15, cacheWrite: 6, cacheRead: 0.3 },
+  "claude-haiku-4-5-20251001": { input: 1, output: 5, cacheWrite: 2, cacheRead: 0.1 },
 };
 
 export const AVAILABLE_RUNTIMES = [

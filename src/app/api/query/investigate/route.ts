@@ -536,13 +536,19 @@ export async function POST(request: Request) {
             // Warm the shared code-gen prompt cache before the first wave fans
             // out in parallel, so concurrent sub-questions read it instead of
             // each re-paying full input for the (cached) system + schema prefix.
-            await prewarmCodeGenCache(
-              stored.schema,
-              "metadata",
-              codeGenModel,
-              undefined,
-              localFileContext
-            );
+            // ONLY for file investigations: those share one schema across all
+            // sub-questions. Warehouse investigations run per-step SQL → a
+            // different schema per sub-question, so warming the materialized
+            // schema is a wasted (2× under 1h TTL) cache write nothing reads.
+            if (!warehouseState) {
+              await prewarmCodeGenCache(
+                stored.schema,
+                "metadata",
+                codeGenModel,
+                undefined,
+                localFileContext
+              );
+            }
 
             const subResults = await runInvestigation(plan.subQuestions, {
               schema: stored.schema,
