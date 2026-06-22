@@ -33,7 +33,11 @@ import { appendCostRow } from "@/lib/cost/storage";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import { classifyFollowupDepth } from "@/lib/llm/followup-classifier";
 import { tryConsumeAutoInvestigation } from "@/lib/pipeline/auto-investigation-budget";
-import { MAX_AUTO_INVESTIGATIONS_PER_SESSION, PLANNER_MODEL } from "@/lib/constants";
+import {
+  MAX_AUTO_INVESTIGATIONS_PER_SESSION,
+  PLANNER_MODEL,
+  WAREHOUSE_MAX_ROWS,
+} from "@/lib/constants";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -280,13 +284,19 @@ export async function POST(request: Request) {
             // sub-questions aren't known yet, so the materialized CSV must
             // leave room for whatever angles the planner takes.
             let warehouseSQL: string | undefined;
+            // True when the materialized pull hit the row cap — i.e. the analysis
+            // ran over a sample, so aggregates/rankings are estimates. Surfaced
+            // in the dashboard so we never present a biased subset as the truth.
+            let materializationSampled = false;
             if (warehouseState) {
               const { warehouse, connector } = warehouseState;
               emitProgress("generating_sql", 1, 99);
               const materializationQuestion =
                 `Retrieve the DETAILED rows needed to investigate this question from multiple angles: ${question}\n` +
                 `Return row-level data (not pre-aggregated summaries) and include every column plausibly relevant to the question — ` +
-                `dimensions for grouping, dates for trends, and measures for computation. Cap the result at 50000 rows if the source is larger.`;
+                `dimensions for grouping, dates for trends, and measures for computation. ` +
+                `Limit the result to ${WAREHOUSE_MAX_ROWS} rows. If the filtered data may exceed that, return a REPRESENTATIVE sample, NOT the first rows by sort — ` +
+                `use the dialect's sampling (ClickHouse \`SAMPLE\`, BigQuery \`TABLESAMPLE SYSTEM (n PERCENT)\`, Postgres/Snowflake \`TABLESAMPLE\`), or order by a hash/random (\`cityHash64\`, \`rand()\`) before the limit. Never bias the sample by ordering on a meaningful key (id, date) before LIMIT.`;
               // Generate + execute with an automatic repair loop: if the engine
               // rejects the query (bad GROUP BY, type mismatch, …) the error is
               // fed back to the LLM and the query is regenerated, up to 2 times.
@@ -330,9 +340,14 @@ export async function POST(request: Request) {
               schema.warehouse_type = warehouse.config.type;
               await storeCSV(newCsvId, warehouseCsvContent, schema);
               csvId = newCsvId;
+              // Hitting the cap means the source had more rows than we pulled —
+              // the analysis is over a sample, not the full data.
+              materializationSampled = schema.row_count >= WAREHOUSE_MAX_ROWS;
               logger.info("Investigate: warehouse data materialized", {
                 csvId: newCsvId,
                 columns: schema.columns.length,
+                rows: schema.row_count,
+                sampled: materializationSampled,
               });
               // Emit the generated csvId so the client can use it for
               // artifacts, notebook cell re-runs, and follow-ups.
@@ -840,6 +855,9 @@ export async function POST(request: Request) {
               // Warehouse investigations cover the materialized pull's time
               // window; surface it so the dashboard states its scope.
               analysisWindow: warehouseState ? deriveAnalysisWindow(stored.schema) : undefined,
+              // When the pull hit the row cap, the analysis is over a sample —
+              // tell the composer to disclose it.
+              sampleRows: materializationSampled ? WAREHOUSE_MAX_ROWS : undefined,
             });
 
             // Inject merged data into spec.state so $result/$chartData
