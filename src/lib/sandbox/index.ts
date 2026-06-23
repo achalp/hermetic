@@ -192,21 +192,30 @@ export function executeSandbox(
   geojsonContent?: string | null,
   additionalFiles?: AdditionalFile[],
   csvId?: string,
-  localMountPath?: string
+  localMountPath?: string,
+  inputParquetPath?: string
 ): Promise<ExecutionResult> {
   const rt = runtime ?? getActiveSandboxRuntime();
 
-  // Local file bind-mount: only supported on Docker, bypass warm path
-  // (can't add volumes to a running container)
-  if (localMountPath) {
+  // Both a bind-mount (browsed local files) and a copied-in Parquet (materialized
+  // data) need the ephemeral Docker path — the warm container can't take a volume,
+  // and a per-run copied file shouldn't leak across the shared warm container.
+  if (localMountPath || inputParquetPath) {
     if (rt !== "docker") {
       return Promise.resolve({
         success: false,
-        error: "Local file browsing is only supported with the Docker sandbox runtime.",
+        error: "Parquet/local-file analysis is only supported with the Docker sandbox runtime.",
         execution_ms: 0,
       });
     }
-    return dockerExecutor(csvContent, code, geojsonContent, additionalFiles, localMountPath);
+    return dockerExecutor(
+      csvContent,
+      code,
+      geojsonContent,
+      additionalFiles,
+      localMountPath,
+      inputParquetPath
+    );
   }
 
   // Route through warm manager when available (not for E2B)

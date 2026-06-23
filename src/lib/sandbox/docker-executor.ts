@@ -10,29 +10,42 @@ export async function executeSandbox(
   code: string,
   geojsonContent?: string | null,
   additionalFiles?: AdditionalFile[],
-  localMountPath?: string
+  localMountPath?: string,
+  inputParquetPath?: string
 ): Promise<ExecutionResult> {
   const start = Date.now();
   const id = `hermetic-sandbox-${randomUUID()}`;
 
   try {
-    // 1. Create container (with optional bind-mount for local files)
+    // 1. Create container (with optional bind-mount for browsed local files)
     const runArgs = ["run", "-d", "--name", id];
     if (localMountPath) {
       runArgs.push("-v", `${localMountPath}:${LOCAL_MOUNT_PATH}:ro`);
     }
     runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", "300");
-    logger.debug("Docker: creating container", { id, hasMount: !!localMountPath });
+    logger.debug("Docker: creating container", {
+      id,
+      hasMount: !!localMountPath,
+      hasParquet: !!inputParquetPath,
+    });
     await run("docker", runArgs, { timeoutMs: 15_000 });
     logger.debug("Docker: container created");
 
-    // 2. Write data files. The primary input CSV is skipped in local-mount mode
-    //    (data is bind-mounted at /data/local). But geojson and additional files
-    //    — including step-dependency frames like /data/step_1.csv — must ALWAYS
-    //    be written: they live under /data/ (writable even with a read-only
-    //    bind-mount at /data/local), and dependent sub-questions read them.
-    //    Skipping them in mount mode broke every dependent step.
-    if (!localMountPath) {
+    // A materialized Parquet is copied IN with `docker cp` (binary-safe, and —
+    // unlike a bind-mount — with NO dependency on Docker's host file-sharing
+    // config, so it works no matter where the host file lives).
+    if (inputParquetPath) {
+      await run("docker", ["cp", inputParquetPath, `${id}:/data/input.parquet`], {
+        timeoutMs: 120_000,
+      });
+    }
+
+    // 2. Write data files. The primary input CSV is skipped when the data comes
+    //    from a bind-mount or a copied-in Parquet. But geojson and additional
+    //    files — including step-dependency frames like /data/step_1.csv — must
+    //    ALWAYS be written: they live under /data/ (writable), and dependent
+    //    sub-questions read them.
+    if (!localMountPath && !inputParquetPath) {
       await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/input.csv"], {
         input: csvContent,
         timeoutMs: 15_000,
@@ -65,8 +78,9 @@ export async function executeSandbox(
     logger.debug("Docker: script written");
 
     // 4. Run script
-    const execTimeout = localMountPath ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
-    logger.info("Docker: executing script", { execTimeout, localMount: !!localMountPath });
+    const isLargeData = !!localMountPath || !!inputParquetPath;
+    const execTimeout = isLargeData ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
+    logger.info("Docker: executing script", { execTimeout, largeData: isLargeData });
     const execResult = await run(
       "docker",
       [

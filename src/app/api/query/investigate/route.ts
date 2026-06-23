@@ -39,7 +39,7 @@ import {
   WAREHOUSE_MAX_ROWS,
   PARQUET_MATERIALIZE_THRESHOLD,
 } from "@/lib/constants";
-import { materializeCsvToParquet, PARQUET_DIR } from "@/lib/parquet/materialize";
+import { materializeCsvToParquet } from "@/lib/parquet/materialize";
 import { pickMaterializationScope } from "@/lib/warehouse/materialization-scope";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
@@ -308,9 +308,10 @@ export async function POST(request: Request) {
             // ran over a sample, so aggregates/rankings are estimates. Surfaced
             // in the dashboard so we never present a biased subset as the truth.
             let materializationSampled = false;
-            // Set when a large pull was materialized to Parquet: the host dir to
-            // bind-mount and the DuckDB read instructions for the analysis.
-            let warehouseParquetMount: string | undefined;
+            // Set when a large pull was materialized to Parquet: the host file to
+            // copy into the sandbox (docker cp → /data/input.parquet) and the
+            // DuckDB read instructions for the analysis.
+            let warehouseParquetFile: string | undefined;
             let warehouseParquetContext: string | undefined;
             if (warehouseState) {
               const { warehouse, connector } = warehouseState;
@@ -411,10 +412,10 @@ export async function POST(request: Request) {
                   schema = mat.schema;
                   schema.source_type = "warehouse";
                   schema.warehouse_type = warehouse.config.type;
-                  warehouseParquetMount = PARQUET_DIR;
+                  warehouseParquetFile = mat.parquetPath;
                   warehouseParquetContext =
-                    `The materialized dataset is a Parquet file at /data/local/${newCsvId}.parquet (${schema.row_count.toLocaleString()} rows).\n` +
-                    `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/local/${newCsvId}.parquet')").df().\n` +
+                    `The materialized dataset is a Parquet file at /data/input.parquet (${schema.row_count.toLocaleString()} rows).\n` +
+                    `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')").df().\n` +
                     `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.`;
                   logger.info("Investigate: materialized warehouse data to Parquet", {
                     csvId: newCsvId,
@@ -445,7 +446,7 @@ export async function POST(request: Request) {
                 csvId: newCsvId,
                 columns: schema.columns.length,
                 rows: schema.row_count,
-                parquet: !!warehouseParquetMount,
+                parquet: !!warehouseParquetFile,
                 sampled: materializationSampled,
               });
               // Emit the generated csvId so the client can use it for
@@ -470,7 +471,7 @@ export async function POST(request: Request) {
             // In Parquet mode the analysis reads the bind-mounted Parquet, so we
             // never load the (large) CSV into memory.
             const csvContent =
-              isLocal || warehouseParquetMount ? "" : ((await getCSVContent(csvId!)) ?? "");
+              isLocal || warehouseParquetFile ? "" : ((await getCSVContent(csvId!)) ?? "");
             const geojsonContent = stored.schema.has_geojson
               ? await getGeoJSONContent(csvId!)
               : null;
@@ -478,10 +479,11 @@ export async function POST(request: Request) {
             // Local-mount path resolution (mirrors the logic in /api/query)
             let localMountPath: string | undefined;
             let localFileContext: string | undefined;
-            if (warehouseParquetMount) {
-              // Large warehouse pull materialized to Parquet → analyze it via the
-              // bind-mounted DuckDB path (same mechanism as local Parquet files).
-              localMountPath = warehouseParquetMount;
+            if (warehouseParquetFile) {
+              // Large warehouse pull materialized to Parquet → copied into the
+              // sandbox (docker cp → /data/input.parquet, no bind-mount) and read
+              // via DuckDB. Only the read instructions are needed here; the file
+              // is threaded as inputParquetPath in the runInvestigation options.
               localFileContext = warehouseParquetContext;
             } else if (isLocal) {
               const hostPath = stored.localFolderPath || stored.localPath;
@@ -706,6 +708,7 @@ export async function POST(request: Request) {
               workbookContext: undefined,
               localMountPath,
               localFileContext,
+              inputParquetPath: warehouseParquetFile,
               runtime: sandboxRuntime,
               model: codeGenModel,
               originalQuestion: question,

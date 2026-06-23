@@ -208,6 +208,13 @@ interface OrchestrateOptions {
    * (so it reuses the same time window instead of re-scanning the full table).
    */
   materializationSQL?: string;
+  /**
+   * Host path to the materialized Parquet, copied into the sandbox at
+   * /data/input.parquet (via docker cp — no bind-mount). Set for large warehouse
+   * pulls; the CSV-first analysis reads it via DuckDB. Mutually exclusive with
+   * localMountPath.
+   */
+  inputParquetPath?: string;
   /** Reported per-sub-question and per-wave status updates. */
   onProgress?: (event: InvestigateProgressEvent) => void;
 }
@@ -298,7 +305,8 @@ function runCsvSubQuestion(
     options.workbookContext,
     options.localMountPath,
     joinContext(options.localFileContext, depFrames.context),
-    priorTurns.length > 0 ? priorTurns : undefined
+    priorTurns.length > 0 ? priorTurns : undefined,
+    options.inputParquetPath
   );
 }
 

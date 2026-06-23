@@ -67,7 +67,8 @@ export async function runPipeline(
   workbookContext?: string,
   localMountPath?: string,
   localFileContext?: string,
-  priorTurns?: ConversationTurn[]
+  priorTurns?: ConversationTurn[],
+  inputParquetPath?: string
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code
   onStage?.("generating_code");
@@ -117,7 +118,8 @@ export async function runPipeline(
     geojsonContent,
     additionalFiles,
     schema.csv_id,
-    localMountPath
+    localMountPath,
+    inputParquetPath
   );
 
   // Step 3: Self-correction loop. Up to MAX_RETRIES attempts. Each retry
@@ -220,7 +222,8 @@ export async function runPipeline(
       geojsonContent,
       additionalFiles,
       schema.csv_id,
-      localMountPath
+      localMountPath,
+      inputParquetPath
     );
 
     code = retryCode;
