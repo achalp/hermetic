@@ -60,6 +60,7 @@ import type {
 } from "@/lib/types";
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
 import { assessAnswerSufficiency } from "@/lib/llm/answer-sufficiency";
+import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV } from "@/lib/csv/storage";
@@ -423,10 +424,14 @@ async function runWarehouseSubQuestion(
       question: sq.question.slice(0, 120),
       reason: verdict.reason,
     });
+    diagEvent("step_done", { step: sq.question, path: "csv-first" });
     return csvResult;
   }
 
   // 3) Escalate to a window-bounded per-step query; keep the CSV result if it fails.
+  // Escalation DOUBLES a step's code-gen (CSV-first analysis is discarded), so
+  // it's the dominant Investigate cost driver — record it.
+  diagEvent("escalation", { step: sq.question, reason: verdict.reason });
   logger.info("Investigate: escalating sub-question to per-step SQL", {
     question: sq.question.slice(0, 120),
     reason: verdict.reason,
@@ -649,6 +654,11 @@ async function runOneSubQuestion(
     if (result.degraded) {
       slot.degraded = true;
       slot.degradedReason = result.degradedReason;
+      diagEvent("step_done", {
+        step: sq.question,
+        status: "degraded",
+        statusReason: result.degradedReason,
+      });
       options.onProgress?.({
         kind: "sub_degraded",
         index: i,
@@ -658,6 +668,7 @@ async function runOneSubQuestion(
         stepResult: slot,
       });
     } else {
+      diagEvent("step_done", { step: sq.question, status: "ok" });
       options.onProgress?.({
         kind: "sub_finished",
         index: i,
@@ -670,6 +681,11 @@ async function runOneSubQuestion(
     const msg = err instanceof Error ? err.message : String(err);
     slot.error = msg;
     slot.finishedAt = Date.now();
+    diagEvent("step_done", {
+      step: sq.question,
+      status: "failed",
+      statusReason: msg.slice(0, 200),
+    });
     logger.warn("Investigate: sub-question failed", {
       index: i,
       question: sq.question,

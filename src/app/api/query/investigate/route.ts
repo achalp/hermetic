@@ -30,6 +30,11 @@ import {
   formatPhaseBreakdown,
 } from "@/lib/cost/accumulator";
 import { appendCostRow } from "@/lib/cost/storage";
+import {
+  runWithDiagnostics,
+  writeRunDiagnostics,
+  diagEvent,
+} from "@/lib/diagnostics/run-diagnostics";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import { classifyFollowupDepth } from "@/lib/llm/followup-classifier";
 import { tryConsumeAutoInvestigation } from "@/lib/pipeline/auto-investigation-budget";
@@ -297,886 +302,914 @@ export async function POST(request: Request) {
         let datasetLabel = csvId ?? warehouseId ?? "dataset";
         let analysisMode = "investigate";
 
-        await runWithCostTracking(async () => {
-          try {
-            // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
-            // The pull is intentionally row-level (not pre-aggregated): the
-            // sub-questions aren't known yet, so the materialized CSV must
-            // leave room for whatever angles the planner takes.
-            let warehouseSQL: string | undefined;
-            // True when the materialized pull hit the row cap — i.e. the analysis
-            // ran over a sample, so aggregates/rankings are estimates. Surfaced
-            // in the dashboard so we never present a biased subset as the truth.
-            let materializationSampled = false;
-            // Set when a large pull was materialized to Parquet: the host file to
-            // copy into the sandbox (docker cp → /data/input.parquet) and the
-            // DuckDB read instructions for the analysis.
-            let warehouseParquetFile: string | undefined;
-            let warehouseParquetContext: string | undefined;
-            if (warehouseState) {
-              const { warehouse, connector } = warehouseState;
-              emitProgress("generating_sql", 1, 99);
+        await runWithCostTracking(() =>
+          runWithDiagnostics(async () => {
+            try {
+              // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
+              // The pull is intentionally row-level (not pre-aggregated): the
+              // sub-questions aren't known yet, so the materialized CSV must
+              // leave room for whatever angles the planner takes.
+              let warehouseSQL: string | undefined;
+              // True when the materialized pull hit the row cap — i.e. the analysis
+              // ran over a sample, so aggregates/rankings are estimates. Surfaced
+              // in the dashboard so we never present a biased subset as the truth.
+              let materializationSampled = false;
+              // How many SQL repairs the up-front pull needed (0 = clean first try).
+              let materializationRepairs = 0;
+              // Set when a large pull was materialized to Parquet: the host file to
+              // copy into the sandbox (docker cp → /data/input.parquet) and the
+              // DuckDB read instructions for the analysis.
+              let warehouseParquetFile: string | undefined;
+              let warehouseParquetContext: string | undefined;
+              if (warehouseState) {
+                const { warehouse, connector } = warehouseState;
+                emitProgress("generating_sql", 1, 99);
 
-              // Deterministic scan bound: pick the primary table+time column, then
-              // size a recent window to the row budget from ENGINE METADATA (no
-              // scan). Hand that exact window to the SQL-gen as a hard constraint
-              // so it can't guess a too-wide range. Best-effort — null on any step
-              // just falls back to the LLM choosing the window.
-              let scanWindowHint = "";
-              try {
-                const scope = await pickMaterializationScope(
-                  question,
-                  warehouse.tableSchemas,
-                  PLANNER_MODEL
-                );
-                if (scope && connector.getScanSafeWindow) {
-                  const win = await connector.getScanSafeWindow(
-                    scope.table,
-                    scope.dateColumn,
-                    WAREHOUSE_MAX_ROWS
+                // Deterministic scan bound: pick the primary table+time column, then
+                // size a recent window to the row budget from ENGINE METADATA (no
+                // scan). Hand that exact window to the SQL-gen as a hard constraint
+                // so it can't guess a too-wide range. Best-effort — null on any step
+                // just falls back to the LLM choosing the window.
+                let scanWindowHint = "";
+                try {
+                  const scope = await pickMaterializationScope(
+                    question,
+                    warehouse.tableSchemas,
+                    PLANNER_MODEL
                   );
-                  if (win) {
-                    scanWindowHint =
-                      `\nSCAN BUDGET (sized from table metadata — use it EXACTLY, do not widen): constrain \`${scope.dateColumn}\` to >= '${win.start}' AND <= '${win.end}'. ` +
-                      `A wider range exceeds "rows to read". If you filter to a status/category, keep this window too.`;
-                    logger.info("Investigate: metadata scan window", {
-                      table: scope.table,
-                      column: scope.dateColumn,
-                      start: win.start,
-                      end: win.end,
-                      estimatedRows: win.estimatedRows,
+                  if (scope && connector.getScanSafeWindow) {
+                    const win = await connector.getScanSafeWindow(
+                      scope.table,
+                      scope.dateColumn,
+                      WAREHOUSE_MAX_ROWS
+                    );
+                    if (win) {
+                      scanWindowHint =
+                        `\nSCAN BUDGET (sized from table metadata — use it EXACTLY, do not widen): constrain \`${scope.dateColumn}\` to >= '${win.start}' AND <= '${win.end}'. ` +
+                        `A wider range exceeds "rows to read". If you filter to a status/category, keep this window too.`;
+                      logger.info("Investigate: metadata scan window", {
+                        table: scope.table,
+                        column: scope.dateColumn,
+                        start: win.start,
+                        end: win.end,
+                        estimatedRows: win.estimatedRows,
+                      });
+                    }
+                  }
+                } catch {
+                  // fall through with no hint
+                }
+
+                const materializationQuestion =
+                  `Pull the ROW-LEVEL data that later analysis steps will need to investigate this question: ${question}\n` +
+                  `Return RAW ROWS — NOT pre-aggregated summaries and NOT the final analysis. Do NOT compute pairwise/co-occurrence counts, GROUP BY rollups, or joins here; later steps do that. Just select the relevant rows with every column plausibly useful (dimensions, dates, measures).\n` +
+                  `Keep the query SIMPLE and keep the SCAN small so it stays under the engine's read limit. The ONLY reliable way to bound the scan on a large table is a SELECTIVE WHERE on the partition/date key: prefer a BOUNDED recent window (e.g. the most recent ~3 months that has data), plus any obvious status/category filter. Then ORDER BY the date key and LIMIT ${WAREHOUSE_MAX_ROWS}.\n` +
+                  `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.` +
+                  scanWindowHint;
+                // Generate + execute with an automatic repair loop: if the engine
+                // rejects the query (bad GROUP BY, type mismatch, …) the error is
+                // fed back to the LLM and the query is regenerated, up to 2 times.
+                let warehouseCsvContent: string;
+                try {
+                  const outcome = await generateSQLWithRepair({
+                    tables: warehouse.tableSchemas,
+                    question: materializationQuestion,
+                    warehouseType: warehouse.config.type,
+                    model: codeGenModel,
+                    execute: async (sql) => {
+                      const csv = await connector.executeSQL(sql);
+                      if (!csv || csv.trim() === "") {
+                        throw new Error("SQL query returned no results");
+                      }
+                      return csv;
+                    },
+                    onAttempt: (attempt, phase) => {
+                      if (phase === "repairing") {
+                        materializationRepairs++;
+                        emitProgress("generating_sql", 1, 99);
+                        logger.info("Investigate: repairing warehouse SQL", { attempt });
+                      } else if (phase === "executing") {
+                        emitProgress("querying_warehouse", 1, 99);
+                      }
+                    },
+                  });
+                  warehouseSQL = outcome.sql;
+                  warehouseCsvContent = outcome.result;
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  throw new Error(
+                    `Warehouse query failed after repair attempts: ${msg}` +
+                      (warehouseSQL ? `\n\nLast SQL:\n${warehouseSQL}` : "")
+                  );
+                }
+                logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
+                const newCsvId = randomUUID();
+                // Cheap row estimate (count newlines; no full parse) to decide the path.
+                const approxRows = countCsvRows(warehouseCsvContent);
+                let schema: CSVSchema | undefined;
+
+                // Large pull → Parquet + DuckDB (no Node parse, scales to millions).
+                // Best-effort: any failure falls back to the proven CSV path below.
+                if (approxRows >= PARQUET_MATERIALIZE_THRESHOLD && sandboxRuntime === "docker") {
+                  try {
+                    const mat = await materializeCsvToParquet(
+                      warehouseCsvContent,
+                      newCsvId,
+                      "warehouse_query_result",
+                      sandboxRuntime
+                    );
+                    schema = mat.schema;
+                    schema.source_type = "warehouse";
+                    schema.warehouse_type = warehouse.config.type;
+                    warehouseParquetFile = mat.parquetPath;
+                    const cappedSample = schema.row_count >= WAREHOUSE_MAX_ROWS;
+                    warehouseParquetContext =
+                      `The materialized dataset is a Parquet file at /data/input.parquet (${schema.row_count.toLocaleString()} rows).\n` +
+                      `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')").df().\n` +
+                      `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.` +
+                      (cappedSample
+                        ? `\nIMPORTANT — this is a CAPPED SAMPLE of ${schema.row_count.toLocaleString()} rows; the source has MORE. Do NOT present absolute totals or counts as findings (a "total" here just equals the sample size, ${schema.row_count.toLocaleString()}, and is misleading). Express results as RATES, proportions, percentages, or per-entity averages instead.`
+                        : "");
+                    logger.info("Investigate: materialized warehouse data to Parquet", {
+                      csvId: newCsvId,
+                      rows: schema.row_count,
                     });
+                  } catch (err) {
+                    logger.warn(
+                      "Investigate: Parquet materialization failed, falling back to CSV",
+                      {
+                        error: err instanceof Error ? err.message : String(err),
+                        approxRows,
+                      }
+                    );
                   }
                 }
-              } catch {
-                // fall through with no hint
-              }
 
-              const materializationQuestion =
-                `Pull the ROW-LEVEL data that later analysis steps will need to investigate this question: ${question}\n` +
-                `Return RAW ROWS — NOT pre-aggregated summaries and NOT the final analysis. Do NOT compute pairwise/co-occurrence counts, GROUP BY rollups, or joins here; later steps do that. Just select the relevant rows with every column plausibly useful (dimensions, dates, measures).\n` +
-                `Keep the query SIMPLE and keep the SCAN small so it stays under the engine's read limit. The ONLY reliable way to bound the scan on a large table is a SELECTIVE WHERE on the partition/date key: prefer a BOUNDED recent window (e.g. the most recent ~3 months that has data), plus any obvious status/category filter. Then ORDER BY the date key and LIMIT ${WAREHOUSE_MAX_ROWS}.\n` +
-                `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.` +
-                scanWindowHint;
-              // Generate + execute with an automatic repair loop: if the engine
-              // rejects the query (bad GROUP BY, type mismatch, …) the error is
-              // fed back to the LLM and the query is regenerated, up to 2 times.
-              let warehouseCsvContent: string;
-              try {
-                const outcome = await generateSQLWithRepair({
-                  tables: warehouse.tableSchemas,
-                  question: materializationQuestion,
-                  warehouseType: warehouse.config.type,
-                  model: codeGenModel,
-                  execute: async (sql) => {
-                    const csv = await connector.executeSQL(sql);
-                    if (!csv || csv.trim() === "") {
-                      throw new Error("SQL query returned no results");
-                    }
-                    return csv;
-                  },
-                  onAttempt: (attempt, phase) => {
-                    if (phase === "repairing") {
-                      emitProgress("generating_sql", 1, 99);
-                      logger.info("Investigate: repairing warehouse SQL", { attempt });
-                    } else if (phase === "executing") {
-                      emitProgress("querying_warehouse", 1, 99);
-                    }
-                  },
-                });
-                warehouseSQL = outcome.sql;
-                warehouseCsvContent = outcome.result;
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                throw new Error(
-                  `Warehouse query failed after repair attempts: ${msg}` +
-                    (warehouseSQL ? `\n\nLast SQL:\n${warehouseSQL}` : "")
-                );
-              }
-              logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
-              const newCsvId = randomUUID();
-              // Cheap row estimate (count newlines; no full parse) to decide the path.
-              const approxRows = countCsvRows(warehouseCsvContent);
-              let schema: CSVSchema | undefined;
-
-              // Large pull → Parquet + DuckDB (no Node parse, scales to millions).
-              // Best-effort: any failure falls back to the proven CSV path below.
-              if (approxRows >= PARQUET_MATERIALIZE_THRESHOLD && sandboxRuntime === "docker") {
-                try {
-                  const mat = await materializeCsvToParquet(
-                    warehouseCsvContent,
-                    newCsvId,
-                    "warehouse_query_result",
-                    sandboxRuntime
-                  );
-                  schema = mat.schema;
+                // CSV path (default for small pulls, and the fallback if Parquet failed).
+                if (!schema) {
+                  const parsed = parseCSV(warehouseCsvContent);
+                  schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
                   schema.source_type = "warehouse";
                   schema.warehouse_type = warehouse.config.type;
-                  warehouseParquetFile = mat.parquetPath;
-                  const cappedSample = schema.row_count >= WAREHOUSE_MAX_ROWS;
-                  warehouseParquetContext =
-                    `The materialized dataset is a Parquet file at /data/input.parquet (${schema.row_count.toLocaleString()} rows).\n` +
-                    `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')").df().\n` +
-                    `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.` +
-                    (cappedSample
-                      ? `\nIMPORTANT — this is a CAPPED SAMPLE of ${schema.row_count.toLocaleString()} rows; the source has MORE. Do NOT present absolute totals or counts as findings (a "total" here just equals the sample size, ${schema.row_count.toLocaleString()}, and is misleading). Express results as RATES, proportions, percentages, or per-entity averages instead.`
-                      : "");
-                  logger.info("Investigate: materialized warehouse data to Parquet", {
-                    csvId: newCsvId,
-                    rows: schema.row_count,
-                  });
-                } catch (err) {
-                  logger.warn("Investigate: Parquet materialization failed, falling back to CSV", {
-                    error: err instanceof Error ? err.message : String(err),
-                    approxRows,
-                  });
+                }
+
+                await storeCSV(newCsvId, warehouseCsvContent, schema);
+                csvId = newCsvId;
+                // Hitting the cap means the source had more rows than we pulled —
+                // the analysis is over a sample, not the full data.
+                materializationSampled = schema.row_count >= WAREHOUSE_MAX_ROWS;
+                diagEvent("materialization", {
+                  rows: schema.row_count,
+                  columns: schema.columns.length,
+                  sampled: materializationSampled,
+                  parquet: !!warehouseParquetFile,
+                  sqlRepairs: materializationRepairs,
+                });
+                logger.info("Investigate: warehouse data materialized", {
+                  csvId: newCsvId,
+                  columns: schema.columns.length,
+                  rows: schema.row_count,
+                  parquet: !!warehouseParquetFile,
+                  sampled: materializationSampled,
+                });
+                // Emit the generated csvId so the client can use it for
+                // artifacts, notebook cell re-runs, and follow-ups.
+                emit(
+                  JSON.stringify({
+                    op: "add",
+                    path: "/state/__warehouse_csv_id",
+                    value: newCsvId,
+                  }) + "\n"
+                );
+              }
+
+              // ── Resolve the source (file upload, local mount, or the CSV
+              //     just materialized from the warehouse) ──
+              const stored = getStoredCSV(csvId!);
+              if (!stored) {
+                throw new Error("CSV not found or expired");
+              }
+              datasetLabel = stored.schema.filename;
+              const isLocal = isLocalFile(csvId!);
+              // In Parquet mode the analysis reads the bind-mounted Parquet, so we
+              // never load the (large) CSV into memory.
+              const csvContent =
+                isLocal || warehouseParquetFile ? "" : ((await getCSVContent(csvId!)) ?? "");
+              const geojsonContent = stored.schema.has_geojson
+                ? await getGeoJSONContent(csvId!)
+                : null;
+
+              // Local-mount path resolution (mirrors the logic in /api/query)
+              let localMountPath: string | undefined;
+              let localFileContext: string | undefined;
+              if (warehouseParquetFile) {
+                // Large warehouse pull materialized to Parquet → copied into the
+                // sandbox (docker cp → /data/input.parquet, no bind-mount) and read
+                // via DuckDB. Only the read instructions are needed here; the file
+                // is threaded as inputParquetPath in the runInvestigation options.
+                localFileContext = warehouseParquetContext;
+              } else if (isLocal) {
+                const hostPath = stored.localFolderPath || stored.localPath;
+                if (!hostPath) {
+                  throw new Error("Local file path not found");
+                }
+                const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
+                const path = await import("node:path");
+                if (stored.localFolderPath) {
+                  // Mount the host folder; read the Parquet shards via DuckDB.
+                  localMountPath = hostPath;
+                  const hiveFlag = stored.isHivePartitioned ? ", hive_partitioning=true" : "";
+                  localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH} (${stored.schema.row_count.toLocaleString()} rows). Read via DuckDB: duckdb.sql("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet'${hiveFlag})").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation.`;
+                } else {
+                  const fname = path.basename(hostPath);
+                  // Mount the host directory; the file lands at /data/local/<fname>.
+                  localMountPath = path.dirname(hostPath);
+                  localFileContext = stored.isParquet
+                    ? `The dataset is a Parquet file mounted at /data/local/${fname} (${stored.schema.row_count.toLocaleString()} rows). Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/local/${fname}')").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.`
+                    : `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
                 }
               }
 
-              // CSV path (default for small pulls, and the fallback if Parquet failed).
-              if (!schema) {
-                const parsed = parseCSV(warehouseCsvContent);
-                schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
-                schema.source_type = "warehouse";
-                schema.warehouse_type = warehouse.config.type;
+              // ── Drill-as-sub-investigation cost gate ──
+              // A scoped follow-up (chart drill or sticky follow-up) is classified
+              // lookup-vs-deep. Lookups — and any auto-routed follow-up beyond the
+              // per-session budget — answer with a single-shot dashboard instead of
+              // a full multi-step investigation, so LLM cost stays bounded. The gate
+              // is lookup-biased and fail-safe: a classifier error defaults to the
+              // cheap path. Fresh (unscoped) investigations are never gated.
+              if (context.scope) {
+                const scope = context.scope;
+                const depth = await classifyFollowupDepth({ question, scope });
+                const budgetKey = csvId ?? warehouseId ?? "default";
+                const goDeep =
+                  depth === "deep" &&
+                  tryConsumeAutoInvestigation(budgetKey, MAX_AUTO_INVESTIGATIONS_PER_SESSION);
+                if (!goDeep) {
+                  logger.info("Investigate: scoped follow-up routed to single-shot", {
+                    depth,
+                    question: question.slice(0, 120),
+                  });
+                  const drillDownContext = scope.filters?.length
+                    ? {
+                        parent_question: scope.parent_question ?? question,
+                        filter_column: scope.filters[0].column,
+                        filter_value: scope.filters[0].value,
+                        segment_label: scope.segment_label ?? "",
+                        chart_title: null,
+                        additional_filters: scope.filters.slice(1),
+                      }
+                    : null;
+                  const cheap = await runPipeline(
+                    stored.schema,
+                    csvContent || "",
+                    question,
+                    (stage) => {
+                      if (stage === "generating_code") emitProgress("analyzing", 1, 3);
+                      else if (stage === "executing") emitProgress("computing", 2, 3);
+                    },
+                    "metadata",
+                    codeGenModel,
+                    sandboxRuntime,
+                    geojsonContent,
+                    undefined,
+                    undefined,
+                    localMountPath,
+                    localFileContext,
+                    undefined
+                  );
+                  await composeAndStreamDashboard({
+                    executionResult: cheap.executionResult,
+                    opts: {
+                      question,
+                      schema: stored.schema,
+                      schemaMode: "metadata",
+                      purpose: context.purpose ?? "dashboard",
+                      priorTurns: [],
+                      drillDownContext,
+                    },
+                    uiComposeModel,
+                    emit,
+                    isClosed: () => closed,
+                    onComposing: () => emitProgress("composing", 3, 3),
+                  });
+                  analysisMode = "ask"; // routed to the single-shot lookup path
+                  return;
+                }
               }
 
-              await storeCSV(newCsvId, warehouseCsvContent, schema);
-              csvId = newCsvId;
-              // Hitting the cap means the source had more rows than we pulled —
-              // the analysis is over a sample, not the full data.
-              materializationSampled = schema.row_count >= WAREHOUSE_MAX_ROWS;
-              logger.info("Investigate: warehouse data materialized", {
-                csvId: newCsvId,
-                columns: schema.columns.length,
-                rows: schema.row_count,
-                parquet: !!warehouseParquetFile,
-                sampled: materializationSampled,
-              });
-              // Emit the generated csvId so the client can use it for
-              // artifacts, notebook cell re-runs, and follow-ups.
+              // ── Step 1: Plan ──
+              emitProgress("planning", 1, 99);
+              // For warehouse investigations, give the planner the FULL table
+              // schemas (so sub-questions can span tables that per-step SQL will
+              // join) alongside the materialized schema.
+              const planResult = await generatePlan(
+                question,
+                stored.schema,
+                warehouseState?.warehouse.tableSchemas,
+                PLANNER_MODEL,
+                context.scope
+              );
+              if (!planResult.ok) {
+                throw new Error(`Plan generation failed: ${planResult.error}`);
+              }
+              const plan = planResult.plan;
+              const totalSteps = plan.subQuestions.length + 2; // +1 plan, +1 compose
+
+              // Surface the plan to the client immediately so the user sees structure
               emit(
                 JSON.stringify({
                   op: "add",
-                  path: "/state/__warehouse_csv_id",
-                  value: newCsvId,
+                  path: "/state/__plan",
+                  value: {
+                    approach: plan.approach,
+                    steps: plan.subQuestions.map((sq, i) => ({
+                      index: i,
+                      question: sq.question,
+                      rationale: sq.rationale,
+                      depends_on: sq.depends_on,
+                      status: "pending",
+                    })),
+                  },
                 }) + "\n"
               );
-            }
 
-            // ── Resolve the source (file upload, local mount, or the CSV
-            //     just materialized from the warehouse) ──
-            const stored = getStoredCSV(csvId!);
-            if (!stored) {
-              throw new Error("CSV not found or expired");
-            }
-            datasetLabel = stored.schema.filename;
-            const isLocal = isLocalFile(csvId!);
-            // In Parquet mode the analysis reads the bind-mounted Parquet, so we
-            // never load the (large) CSV into memory.
-            const csvContent =
-              isLocal || warehouseParquetFile ? "" : ((await getCSVContent(csvId!)) ?? "");
-            const geojsonContent = stored.schema.has_geojson
-              ? await getGeoJSONContent(csvId!)
-              : null;
+              // Notebook cells: container for per-step composed mini-specs.
+              // Cells stream in as `/state/__cells/{index}` the moment each
+              // step's compose finishes — the notebook view fills in live.
+              emit(JSON.stringify({ op: "add", path: "/state/__cells", value: {} }) + "\n");
 
-            // Local-mount path resolution (mirrors the logic in /api/query)
-            let localMountPath: string | undefined;
-            let localFileContext: string | undefined;
-            if (warehouseParquetFile) {
-              // Large warehouse pull materialized to Parquet → copied into the
-              // sandbox (docker cp → /data/input.parquet, no bind-mount) and read
-              // via DuckDB. Only the read instructions are needed here; the file
-              // is threaded as inputParquetPath in the runInvestigation options.
-              localFileContext = warehouseParquetContext;
-            } else if (isLocal) {
-              const hostPath = stored.localFolderPath || stored.localPath;
-              if (!hostPath) {
-                throw new Error("Local file path not found");
-              }
-              const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
-              const path = await import("node:path");
-              if (stored.localFolderPath) {
-                // Mount the host folder; read the Parquet shards via DuckDB.
-                localMountPath = hostPath;
-                const hiveFlag = stored.isHivePartitioned ? ", hive_partitioning=true" : "";
-                localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH} (${stored.schema.row_count.toLocaleString()} rows). Read via DuckDB: duckdb.sql("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet'${hiveFlag})").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation.`;
-              } else {
-                const fname = path.basename(hostPath);
-                // Mount the host directory; the file lands at /data/local/<fname>.
-                localMountPath = path.dirname(hostPath);
-                localFileContext = stored.isParquet
-                  ? `The dataset is a Parquet file mounted at /data/local/${fname} (${stored.schema.row_count.toLocaleString()} rows). Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/local/${fname}')").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.`
-                  : `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
-              }
-            }
+              // ── Step 2: Execute sub-questions (with re-planning between waves) ──
+              let stepCount = 1;
 
-            // ── Drill-as-sub-investigation cost gate ──
-            // A scoped follow-up (chart drill or sticky follow-up) is classified
-            // lookup-vs-deep. Lookups — and any auto-routed follow-up beyond the
-            // per-session budget — answer with a single-shot dashboard instead of
-            // a full multi-step investigation, so LLM cost stays bounded. The gate
-            // is lookup-biased and fail-safe: a classifier error defaults to the
-            // cheap path. Fresh (unscoped) investigations are never gated.
-            if (context.scope) {
-              const scope = context.scope;
-              const depth = await classifyFollowupDepth({ question, scope });
-              const budgetKey = csvId ?? warehouseId ?? "default";
-              const goDeep =
-                depth === "deep" &&
-                tryConsumeAutoInvestigation(budgetKey, MAX_AUTO_INVESTIGATIONS_PER_SESSION);
-              if (!goDeep) {
-                logger.info("Investigate: scoped follow-up routed to single-shot", {
-                  depth,
-                  question: question.slice(0, 120),
-                });
-                const drillDownContext = scope.filters?.length
-                  ? {
-                      parent_question: scope.parent_question ?? question,
-                      filter_column: scope.filters[0].column,
-                      filter_value: scope.filters[0].value,
-                      segment_label: scope.segment_label ?? "",
-                      chart_title: null,
-                      additional_filters: scope.filters.slice(1),
-                    }
-                  : null;
-                const cheap = await runPipeline(
+              // Per-step cell composes, dispatched on sub_finished/sub_degraded
+              // so they run concurrently with later waves' sandbox execution.
+              // Best-effort: a failed compose just leaves the cell as a stub.
+              const cellSpecs = new Map<number, Spec>();
+              const cellComposes: Promise<void>[] = [];
+              const dispatchCellCompose = (event: InvestigateProgressEvent) => {
+                if (!composeCells) return; // lazy-composed on Notebook-open instead
+                const sub = event.stepResult;
+                const exec = sub?.result?.executionResult;
+                if (!sub || !exec || event.index === undefined) return;
+                const index = event.index;
+                cellComposes.push(
+                  composeStepCell({
+                    stepNo: index + 1,
+                    question: sub.question,
+                    rationale: sub.rationale,
+                    originalQuestion: question,
+                    approach: plan.approach,
+                    results: (exec.results ?? {}) as Record<string, unknown>,
+                    chartData: (exec.chart_data ?? {}) as Record<string, unknown>,
+                    degraded: sub.degraded,
+                    degradedReason: sub.degradedReason,
+                    uiComposeModel,
+                  }).then((spec) => {
+                    if (!spec) return;
+                    cellSpecs.set(index, spec);
+                    emit(
+                      JSON.stringify({
+                        op: "add",
+                        path: `/state/__cells/${index}`,
+                        value: { status: sub.degraded ? "degraded" : "success", cellSpec: spec },
+                      }) + "\n"
+                    );
+                  })
+                );
+              };
+
+              // Accumulate the audit trail's decision log and per-step provenance
+              // from the orchestrator's progress events. The events are the only
+              // place the re-planner's and composer's rationales surface, so we
+              // capture them here for the trace the artifacts panel renders.
+              const decisions: TraceDecision[] = [];
+              const sourceByIndex = new Map<number, StepSource>();
+              // subs_amended events carry their provenance (amendmentSource), so
+              // attribution never depends on event ordering. currentReplan only
+              // tracks the most recent replan decision so a re-planner amendment
+              // can fill in its added/removed indices.
+              let currentReplan: TraceDecision | null = null;
+              let pendingComposerAdded: number[] = [];
+
+              // Warm the code-gen prompt cache before the first wave fans out in
+              // parallel, so concurrent sub-questions read it instead of each
+              // cold-writing the (cached) prefix. File investigations share one
+              // schema across all sub-questions → warm the whole prefix (system +
+              // schema). Warehouse investigations run per-step SQL → a different
+              // schema per sub-question, so only the (large) system prompt is
+              // shared → warm system-only (warming the schema would be a wasted
+              // write nothing reads). Per-step schemas inherit the table's domain
+              // (see runWarehouseSubQuestion) so every step's system prompt is
+              // byte-identical to this warm-up and hits the cache.
+              // For warehouse runs, also warm the SQL-gen cache: every
+              // sub-question generates its own SQL from the SAME table schema, so
+              // without this each wave-0 SQL generation cold-writes that schema in
+              // parallel. Run both warm-ups concurrently — they're independent and
+              // both best-effort.
+              await Promise.all([
+                prewarmCodeGenCache(
                   stored.schema,
-                  csvContent || "",
-                  question,
-                  (stage) => {
-                    if (stage === "generating_code") emitProgress("analyzing", 1, 3);
-                    else if (stage === "executing") emitProgress("computing", 2, 3);
-                  },
                   "metadata",
                   codeGenModel,
-                  sandboxRuntime,
-                  geojsonContent,
                   undefined,
-                  undefined,
-                  localMountPath,
-                  localFileContext,
-                  undefined
-                );
-                await composeAndStreamDashboard({
-                  executionResult: cheap.executionResult,
-                  opts: {
-                    question,
-                    schema: stored.schema,
-                    schemaMode: "metadata",
-                    purpose: context.purpose ?? "dashboard",
-                    priorTurns: [],
-                    drillDownContext,
-                  },
-                  uiComposeModel,
-                  emit,
-                  isClosed: () => closed,
-                  onComposing: () => emitProgress("composing", 3, 3),
-                });
-                analysisMode = "ask"; // routed to the single-shot lookup path
-                return;
-              }
-            }
+                  warehouseState ? undefined : localFileContext,
+                  !!warehouseState, // systemOnly for warehouse
+                  context.purpose // same purpose → same cached system prompt
+                ),
+                warehouseState
+                  ? prewarmSQLGenCache(
+                      warehouseState.warehouse.tableSchemas,
+                      warehouseState.warehouse.config.type,
+                      codeGenModel
+                    )
+                  : Promise.resolve(),
+              ]);
 
-            // ── Step 1: Plan ──
-            emitProgress("planning", 1, 99);
-            // For warehouse investigations, give the planner the FULL table
-            // schemas (so sub-questions can span tables that per-step SQL will
-            // join) alongside the materialized schema.
-            const planResult = await generatePlan(
-              question,
-              stored.schema,
-              warehouseState?.warehouse.tableSchemas,
-              PLANNER_MODEL,
-              context.scope
-            );
-            if (!planResult.ok) {
-              throw new Error(`Plan generation failed: ${planResult.error}`);
-            }
-            const plan = planResult.plan;
-            const totalSteps = plan.subQuestions.length + 2; // +1 plan, +1 compose
-
-            // Surface the plan to the client immediately so the user sees structure
-            emit(
-              JSON.stringify({
-                op: "add",
-                path: "/state/__plan",
-                value: {
-                  approach: plan.approach,
-                  steps: plan.subQuestions.map((sq, i) => ({
-                    index: i,
-                    question: sq.question,
-                    rationale: sq.rationale,
-                    depends_on: sq.depends_on,
-                    status: "pending",
-                  })),
-                },
-              }) + "\n"
-            );
-
-            // Notebook cells: container for per-step composed mini-specs.
-            // Cells stream in as `/state/__cells/{index}` the moment each
-            // step's compose finishes — the notebook view fills in live.
-            emit(JSON.stringify({ op: "add", path: "/state/__cells", value: {} }) + "\n");
-
-            // ── Step 2: Execute sub-questions (with re-planning between waves) ──
-            let stepCount = 1;
-
-            // Per-step cell composes, dispatched on sub_finished/sub_degraded
-            // so they run concurrently with later waves' sandbox execution.
-            // Best-effort: a failed compose just leaves the cell as a stub.
-            const cellSpecs = new Map<number, Spec>();
-            const cellComposes: Promise<void>[] = [];
-            const dispatchCellCompose = (event: InvestigateProgressEvent) => {
-              if (!composeCells) return; // lazy-composed on Notebook-open instead
-              const sub = event.stepResult;
-              const exec = sub?.result?.executionResult;
-              if (!sub || !exec || event.index === undefined) return;
-              const index = event.index;
-              cellComposes.push(
-                composeStepCell({
-                  stepNo: index + 1,
-                  question: sub.question,
-                  rationale: sub.rationale,
-                  originalQuestion: question,
-                  approach: plan.approach,
-                  results: (exec.results ?? {}) as Record<string, unknown>,
-                  chartData: (exec.chart_data ?? {}) as Record<string, unknown>,
-                  degraded: sub.degraded,
-                  degradedReason: sub.degradedReason,
-                  uiComposeModel,
-                }).then((spec) => {
-                  if (!spec) return;
-                  cellSpecs.set(index, spec);
-                  emit(
-                    JSON.stringify({
-                      op: "add",
-                      path: `/state/__cells/${index}`,
-                      value: { status: sub.degraded ? "degraded" : "success", cellSpec: spec },
-                    }) + "\n"
-                  );
-                })
-              );
-            };
-
-            // Accumulate the audit trail's decision log and per-step provenance
-            // from the orchestrator's progress events. The events are the only
-            // place the re-planner's and composer's rationales surface, so we
-            // capture them here for the trace the artifacts panel renders.
-            const decisions: TraceDecision[] = [];
-            const sourceByIndex = new Map<number, StepSource>();
-            // subs_amended events carry their provenance (amendmentSource), so
-            // attribution never depends on event ordering. currentReplan only
-            // tracks the most recent replan decision so a re-planner amendment
-            // can fill in its added/removed indices.
-            let currentReplan: TraceDecision | null = null;
-            let pendingComposerAdded: number[] = [];
-
-            // Warm the code-gen prompt cache before the first wave fans out in
-            // parallel, so concurrent sub-questions read it instead of each
-            // cold-writing the (cached) prefix. File investigations share one
-            // schema across all sub-questions → warm the whole prefix (system +
-            // schema). Warehouse investigations run per-step SQL → a different
-            // schema per sub-question, so only the (large) system prompt is
-            // shared → warm system-only (warming the schema would be a wasted
-            // write nothing reads). Per-step schemas inherit the table's domain
-            // (see runWarehouseSubQuestion) so every step's system prompt is
-            // byte-identical to this warm-up and hits the cache.
-            // For warehouse runs, also warm the SQL-gen cache: every
-            // sub-question generates its own SQL from the SAME table schema, so
-            // without this each wave-0 SQL generation cold-writes that schema in
-            // parallel. Run both warm-ups concurrently — they're independent and
-            // both best-effort.
-            await Promise.all([
-              prewarmCodeGenCache(
-                stored.schema,
-                "metadata",
-                codeGenModel,
-                undefined,
-                warehouseState ? undefined : localFileContext,
-                !!warehouseState, // systemOnly for warehouse
-                context.purpose // same purpose → same cached system prompt
-              ),
-              warehouseState
-                ? prewarmSQLGenCache(
-                    warehouseState.warehouse.tableSchemas,
-                    warehouseState.warehouse.config.type,
-                    codeGenModel
-                  )
-                : Promise.resolve(),
-            ]);
-
-            const subResults = await runInvestigation(plan.subQuestions, {
-              schema: stored.schema,
-              csvContent,
-              geojsonContent,
-              workbookContext: undefined,
-              localMountPath,
-              localFileContext,
-              inputParquetPath: warehouseParquetFile,
-              runtime: sandboxRuntime,
-              model: codeGenModel,
-              originalQuestion: question,
-              approach: plan.approach,
-              // Scales each step's analysis volume to the output mode.
-              purpose: context.purpose,
-              // Warehouse steps analyze the materialized CSV first, then escalate
-              // to their own (window-bounded) query only when a conservative
-              // judge finds the snapshot insufficient. The materialization SQL is
-              // passed so the judge knows what the snapshot holds and any
-              // escalated query reuses the same time window. File investigations
-              // leave these undefined and run Python over the shared CSV.
-              warehouse: warehouseState?.warehouse.tableSchemas,
-              warehouseType: warehouseState?.warehouse.config.type,
-              materializationSQL: warehouseSQL,
-              warehouseExecutor: warehouseState
-                ? (sql: string) => warehouseState!.connector.executeSQL(sql)
-                : undefined,
-              onProgress: (event) => {
-                if (event.kind === "sub_started" && event.index !== undefined) {
-                  stepCount++;
-                  emitProgress("investigating", stepCount, totalSteps);
-                  emit(
-                    JSON.stringify({
-                      op: "replace",
-                      path: `/state/__plan/steps/${event.index}/status`,
-                      value: "running",
-                    }) + "\n"
-                  );
-                } else if (event.kind === "sub_finished" && event.index !== undefined) {
-                  emit(
-                    JSON.stringify({
-                      op: "replace",
-                      path: `/state/__plan/steps/${event.index}/status`,
-                      value: "done",
-                    }) + "\n"
-                  );
-                  dispatchCellCompose(event);
-                } else if (event.kind === "sub_degraded" && event.index !== undefined) {
-                  emit(
-                    JSON.stringify({
-                      op: "replace",
-                      path: `/state/__plan/steps/${event.index}/status`,
-                      value: "degraded",
-                    }) + "\n"
-                  );
-                  if (event.degradedReason) {
+              const subResults = await runInvestigation(plan.subQuestions, {
+                schema: stored.schema,
+                csvContent,
+                geojsonContent,
+                workbookContext: undefined,
+                localMountPath,
+                localFileContext,
+                inputParquetPath: warehouseParquetFile,
+                runtime: sandboxRuntime,
+                model: codeGenModel,
+                originalQuestion: question,
+                approach: plan.approach,
+                // Scales each step's analysis volume to the output mode.
+                purpose: context.purpose,
+                // Warehouse steps analyze the materialized CSV first, then escalate
+                // to their own (window-bounded) query only when a conservative
+                // judge finds the snapshot insufficient. The materialization SQL is
+                // passed so the judge knows what the snapshot holds and any
+                // escalated query reuses the same time window. File investigations
+                // leave these undefined and run Python over the shared CSV.
+                warehouse: warehouseState?.warehouse.tableSchemas,
+                warehouseType: warehouseState?.warehouse.config.type,
+                materializationSQL: warehouseSQL,
+                warehouseExecutor: warehouseState
+                  ? (sql: string) => warehouseState!.connector.executeSQL(sql)
+                  : undefined,
+                onProgress: (event) => {
+                  if (event.kind === "sub_started" && event.index !== undefined) {
+                    stepCount++;
+                    emitProgress("investigating", stepCount, totalSteps);
                     emit(
                       JSON.stringify({
-                        op: "add",
-                        path: `/state/__plan/steps/${event.index}/degradedReason`,
-                        value: event.degradedReason,
+                        op: "replace",
+                        path: `/state/__plan/steps/${event.index}/status`,
+                        value: "running",
                       }) + "\n"
                     );
-                  }
-                  dispatchCellCompose(event);
-                } else if (event.kind === "sub_failed" && event.index !== undefined) {
-                  emit(
-                    JSON.stringify({
-                      op: "replace",
-                      path: `/state/__plan/steps/${event.index}/status`,
-                      value: "failed",
-                    }) + "\n"
-                  );
-                  if (event.error) {
-                    // Surface the failure reason so the notebook's failed-cell
-                    // stub can show it live (the trace carries it post-stream).
+                  } else if (event.kind === "sub_finished" && event.index !== undefined) {
                     emit(
                       JSON.stringify({
-                        op: "add",
-                        path: `/state/__plan/steps/${event.index}/error`,
-                        value: event.error.slice(0, 300),
+                        op: "replace",
+                        path: `/state/__plan/steps/${event.index}/status`,
+                        value: "done",
                       }) + "\n"
                     );
-                  }
-                } else if (event.kind === "replan_decision") {
-                  // Record for the audit trail. The matching subs_amended (if the
-                  // action was "amend") fills in added/removed indices below.
-                  currentReplan = {
-                    kind: "replan",
-                    action: event.replanAction,
-                    rationale: event.replanRationale ?? "",
-                    addedIndices: [],
-                    removedIndices: [],
-                  };
-                  decisions.push(currentReplan);
-                  // Surface the re-planner's decision as a sibling entry on the plan.
-                  // The UI can render this inline as a "Planner re-evaluated" step.
-                  emit(
-                    JSON.stringify({
-                      op: "add",
-                      path: "/state/__plan/replan",
-                      value: {
-                        action: event.replanAction,
-                        rationale: event.replanRationale,
-                        atStepCount: stepCount,
-                      },
-                    }) + "\n"
-                  );
-                } else if (event.kind === "subs_amended") {
-                  // Audit-trail provenance, read directly off the event.
-                  const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
-                  if (event.amendmentSource === "composer") {
-                    pendingComposerAdded = addedIndices;
-                    for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
-                  } else if (currentReplan) {
-                    currentReplan.addedIndices = addedIndices;
-                    currentReplan.removedIndices = event.removedIndices ?? [];
-                    for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
-                    currentReplan = null;
-                  }
-                  // Append new steps to the visible plan and mark removed ones.
-                  if (event.addedSteps) {
-                    for (const step of event.addedSteps) {
+                    dispatchCellCompose(event);
+                  } else if (event.kind === "sub_degraded" && event.index !== undefined) {
+                    emit(
+                      JSON.stringify({
+                        op: "replace",
+                        path: `/state/__plan/steps/${event.index}/status`,
+                        value: "degraded",
+                      }) + "\n"
+                    );
+                    if (event.degradedReason) {
                       emit(
                         JSON.stringify({
                           op: "add",
-                          path: `/state/__plan/steps/${step.index}`,
-                          value: {
-                            index: step.index,
-                            question: step.question,
-                            rationale: step.rationale,
-                            depends_on: step.depends_on,
-                            status: "pending",
-                            addedByReplanner: event.amendmentSource !== "composer",
-                            addedByComposer: event.amendmentSource === "composer",
-                          },
+                          path: `/state/__plan/steps/${event.index}/degradedReason`,
+                          value: event.degradedReason,
                         }) + "\n"
                       );
                     }
-                  }
-                  if (event.removedIndices) {
-                    for (const idx of event.removedIndices) {
+                    dispatchCellCompose(event);
+                  } else if (event.kind === "sub_failed" && event.index !== undefined) {
+                    emit(
+                      JSON.stringify({
+                        op: "replace",
+                        path: `/state/__plan/steps/${event.index}/status`,
+                        value: "failed",
+                      }) + "\n"
+                    );
+                    if (event.error) {
+                      // Surface the failure reason so the notebook's failed-cell
+                      // stub can show it live (the trace carries it post-stream).
                       emit(
                         JSON.stringify({
-                          op: "replace",
-                          path: `/state/__plan/steps/${idx}/status`,
-                          value: "removed",
+                          op: "add",
+                          path: `/state/__plan/steps/${event.index}/error`,
+                          value: event.error.slice(0, 300),
                         }) + "\n"
                       );
                     }
+                  } else if (event.kind === "replan_decision") {
+                    // Record for the audit trail. The matching subs_amended (if the
+                    // action was "amend") fills in added/removed indices below.
+                    currentReplan = {
+                      kind: "replan",
+                      action: event.replanAction,
+                      rationale: event.replanRationale ?? "",
+                      addedIndices: [],
+                      removedIndices: [],
+                    };
+                    decisions.push(currentReplan);
+                    // Surface the re-planner's decision as a sibling entry on the plan.
+                    // The UI can render this inline as a "Planner re-evaluated" step.
+                    emit(
+                      JSON.stringify({
+                        op: "add",
+                        path: "/state/__plan/replan",
+                        value: {
+                          action: event.replanAction,
+                          rationale: event.replanRationale,
+                          atStepCount: stepCount,
+                        },
+                      }) + "\n"
+                    );
+                  } else if (event.kind === "subs_amended") {
+                    // Audit-trail provenance, read directly off the event.
+                    const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
+                    if (event.amendmentSource === "composer") {
+                      pendingComposerAdded = addedIndices;
+                      for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
+                    } else if (currentReplan) {
+                      currentReplan.addedIndices = addedIndices;
+                      currentReplan.removedIndices = event.removedIndices ?? [];
+                      for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
+                      currentReplan = null;
+                    }
+                    // Append new steps to the visible plan and mark removed ones.
+                    if (event.addedSteps) {
+                      for (const step of event.addedSteps) {
+                        emit(
+                          JSON.stringify({
+                            op: "add",
+                            path: `/state/__plan/steps/${step.index}`,
+                            value: {
+                              index: step.index,
+                              question: step.question,
+                              rationale: step.rationale,
+                              depends_on: step.depends_on,
+                              status: "pending",
+                              addedByReplanner: event.amendmentSource !== "composer",
+                              addedByComposer: event.amendmentSource === "composer",
+                            },
+                          }) + "\n"
+                        );
+                      }
+                    }
+                    if (event.removedIndices) {
+                      for (const idx of event.removedIndices) {
+                        emit(
+                          JSON.stringify({
+                            op: "replace",
+                            path: `/state/__plan/steps/${idx}/status`,
+                            value: "removed",
+                          }) + "\n"
+                        );
+                      }
+                    }
+                  } else if (event.kind === "composer_dispatched") {
+                    // Record the composer's gap-check dispatch in the audit trail,
+                    // attributing the steps added by the preceding subs_amended.
+                    decisions.push({
+                      kind: "composer_dispatch",
+                      rationale: event.composerRationale ?? "",
+                      addedIndices: pendingComposerAdded,
+                      removedIndices: [],
+                    });
+                    pendingComposerAdded = [];
+                    // Surface the composer's gap-check decision. Newly added steps
+                    // arrive via a sibling subs_amended event with addedByReplanner.
+                    // Override the flag on those steps to indicate composer-source.
+                    emit(
+                      JSON.stringify({
+                        op: "add",
+                        path: "/state/__plan/composerDispatch",
+                        value: {
+                          rationale: event.composerRationale,
+                          atStepCount: stepCount,
+                        },
+                      }) + "\n"
+                    );
                   }
-                } else if (event.kind === "composer_dispatched") {
-                  // Record the composer's gap-check dispatch in the audit trail,
-                  // attributing the steps added by the preceding subs_amended.
-                  decisions.push({
-                    kind: "composer_dispatch",
-                    rationale: event.composerRationale ?? "",
-                    addedIndices: pendingComposerAdded,
-                    removedIndices: [],
-                  });
-                  pendingComposerAdded = [];
-                  // Surface the composer's gap-check decision. Newly added steps
-                  // arrive via a sibling subs_amended event with addedByReplanner.
-                  // Override the flag on those steps to indicate composer-source.
-                  emit(
-                    JSON.stringify({
-                      op: "add",
-                      path: "/state/__plan/composerDispatch",
-                      value: {
-                        rationale: event.composerRationale,
-                        atStepCount: stepCount,
-                      },
-                    }) + "\n"
-                  );
-                }
-              },
-            });
-
-            if (closed) return;
-
-            // Build the full audit trail: every sub-question's code + result,
-            // the re-planner / composer decisions, and (added after compose) the
-            // grounding verdict. This is what the artifacts panel renders as a
-            // re-runnable per-step trail — the agentic loop extending Hermetic's
-            // "see the Python and re-run it" moat, not outrunning it.
-            const trace = buildInvestigationTrace({
-              approach: plan.approach,
-              originalQuestion: question,
-              subResults,
-              sourceByIndex,
-              decisions,
-            });
-
-            // Cache artifacts under the csvId. The top-level code/results mirror
-            // the LAST successful step (back-compat with the single-view panel);
-            // `investigation` carries the whole trail. Cached before compose so a
-            // composer failure still leaves an inspectable trail; `trace.grounding`
-            // is set below on the same object, so the cached entry sees it too.
-            const lastSuccess = [...subResults].reverse().find((r) => r.result);
-            const prior = getCachedArtifacts(csvId!);
-            const topLevel = lastSuccess?.result
-              ? {
-                  code: lastSuccess.result.generatedCode,
-                  question,
-                  results: lastSuccess.result.executionResult.results as Record<string, unknown>,
-                  chart_data: lastSuccess.result.executionResult.chart_data as Record<
-                    string,
-                    unknown
-                  >,
-                  datasets: (lastSuccess.result.executionResult.datasets ?? {}) as Record<
-                    string,
-                    Record<string, unknown>[]
-                  >,
-                  execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
-                  // The materialization SQL for a warehouse investigation —
-                  // surfaces in the artifacts SQL tab.
-                  sql: warehouseSQL,
-                }
-              : {
-                  // Every sub-question failed: keep the previously cached
-                  // top-level artifacts (a failed investigation must not clobber
-                  // a prior good run's re-runnable code) and attach the trail.
-                  code: prior?.code ?? "",
-                  question: prior?.question ?? question,
-                  results: prior?.results ?? {},
-                  chart_data: prior?.chart_data ?? {},
-                  datasets: prior?.datasets ?? {},
-                  execution_ms: prior?.execution_ms ?? 0,
-                  sql: warehouseSQL ?? prior?.sql,
-                };
-            cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
-
-            // Deterministic data-quality surfacing — guarantees degraded / failed
-            // / dropped branches reach the user regardless of whether the composer
-            // remembered to annotate them. Rendered as a banner above the
-            // dashboard by ResponsePanel.
-            const dataQuality = {
-              degraded: trace.steps
-                .filter((s) => s.status === "degraded")
-                .map((s) => ({ stepNo: s.stepNo, question: s.question, reason: s.degradedReason })),
-              failed: trace.steps
-                .filter((s) => s.status === "failed")
-                .map((s) => ({ stepNo: s.stepNo, question: s.question, error: s.error })),
-              removed: trace.steps
-                .filter((s) => s.status === "removed")
-                .map((s) => ({ stepNo: s.stepNo, question: s.question })),
-            };
-            if (
-              dataQuality.degraded.length ||
-              dataQuality.failed.length ||
-              dataQuality.removed.length
-            ) {
-              emit(
-                JSON.stringify({ op: "add", path: "/state/__dataQuality", value: dataQuality }) +
-                  "\n"
-              );
-            }
-
-            // ── Step 3: Compose unified dashboard ──
-            stepCount++;
-            emitProgress("composing", stepCount, totalSteps);
-
-            const compose = composeInvestigation({
-              originalQuestion: question,
-              plan,
-              schema: stored.schema,
-              subResults,
-              uiComposeModel,
-              purpose: context.purpose,
-              // Warehouse investigations cover the materialized pull's time
-              // window; surface it so the dashboard states its scope.
-              analysisWindow: warehouseState ? deriveAnalysisWindow(stored.schema) : undefined,
-              // When the pull hit the row cap, the analysis is over a sample —
-              // tell the composer to disclose it.
-              sampleRows: materializationSampled ? WAREHOUSE_MAX_ROWS : undefined,
-            });
-
-            // Inject merged data into spec.state so $result/$chartData
-            // placeholders resolve client-side
-            emit(
-              JSON.stringify({
-                op: "add",
-                path: "/state/__results",
-                value: compose.initialState.results,
-              }) + "\n"
-            );
-            emit(
-              JSON.stringify({
-                op: "add",
-                path: "/state/__chart_data",
-                value: compose.initialState.chart_data,
-              }) + "\n"
-            );
-
-            // Stream the composed spec — the LLM emits raw JSONL patches that
-            // build the spec tree, same protocol as /api/query. Resolve
-            // $result:<key> and $chartData:<key> placeholders against the
-            // merged per-step results before emitting (mirrors /api/query).
-            const mergedResults = compose.initialState.results;
-            const mergedChartData = compose.initialState.chart_data;
-
-            // Collect the composed narrative for the grounding pass: prose text
-            // (post-resolution, so placeholder values are inlined) and the steps
-            // the narrative cited (from $result:step_N_ placeholders pre-resolution
-            // and "Step N" mentions post-resolution).
-            const narrativeTexts: string[] = [];
-            const citedSteps = new Set<number>();
-            // Notebook synthesis cell: the composer is instructed to use the
-            // element IDs `exec_summary` and `conclusion` for those two blocks;
-            // we lift their (post-resolution) content here. Matching is
-            // tolerant of the LLM's id-styling drift ("exec-summary",
-            // "conclusion-block"). Best-effort — if the composer ignores the
-            // IDs entirely, the notebook omits the synthesis.
-            const SUMMARY_PATH_RE = /^\/elements\/exec[-_]summary(?:[-_][a-z0-9]+)?$/;
-            const CONCLUSION_PATH_RE = /^\/elements\/conclusion(?:[-_][a-z0-9]+)?$/;
-            const synthesis: { summary?: string; conclusion?: string } = {};
-
-            const ingestComposedLine = (preResolution: string, patch: SpecPatch | null) => {
-              // Raw line: only unambiguous $result/$chartData placeholders count
-              // as citations — prose-scanning the raw JSON would match element
-              // IDs / key paths named after steps and suppress the
-              // uncited-steps advisory.
-              for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
-              if (patch && "value" in patch) {
-                const isSummary = !!patch.path && SUMMARY_PATH_RE.test(patch.path);
-                const isConclusion =
-                  !isSummary && !!patch.path && CONCLUSION_PATH_RE.test(patch.path);
-                if (isSummary || isConclusion) {
-                  const content = (patch.value as { props?: { content?: unknown } } | null)?.props
-                    ?.content;
-                  if (typeof content === "string" && content.trim()) {
-                    if (isSummary) synthesis.summary = content;
-                    else synthesis.conclusion = content;
-                  }
-                }
-                for (const text of collectNarrativeStrings(patch.value)) {
-                  narrativeTexts.push(text);
-                  for (const n of extractCitedSteps(text)) citedSteps.add(n);
-                }
-              }
-            };
-
-            // Shared finalization stage (placeholder resolution + $state repair),
-            // identical to Ask mode. Investigate inlines per-step data via
-            // $chartData/$result, so no DataController $state repair is needed.
-            const finalize = createSpecFinalizer({
-              results: mergedResults,
-              chartData: mergedChartData,
-            });
-
-            let buffer = "";
-            for await (const chunk of compose.textStream) {
-              if (closed) break;
-              buffer += chunk;
-              const lines = buffer.split("\n");
-              buffer = lines.pop() ?? "";
-              for (const line of lines) {
-                const r = finalize(line);
-                if (r.skip) continue;
-                ingestComposedLine(r.raw, r.patch);
-                emit(r.line + "\n");
-              }
-            }
-            if (buffer.trim()) {
-              const r = finalize(buffer);
-              if (!r.skip) {
-                ingestComposedLine(r.raw, r.patch);
-                emit(r.line + "\n");
-              }
-            }
-
-            // ── Notebook cells: settle and attach ──
-            // Most cell composes finish during the waves; only the final
-            // wave's may still be in flight. Their `__cells` patches emit as
-            // they land (the .then handlers above); attaching to the trace
-            // mutates the shared ref, so the cached artifacts entry sees the
-            // cellSpecs too — notebooks reload from history for free.
-            await Promise.allSettled(cellComposes);
-            for (const step of trace.steps) {
-              const cell = cellSpecs.get(step.index);
-              if (cell) step.cellSpec = cell;
-            }
-
-            // Notebook synthesis cell content, lifted from the composed
-            // narrative. Lives in spec state, so it persists with history.
-            if (synthesis.summary || synthesis.conclusion) {
-              emit(
-                JSON.stringify({ op: "add", path: "/state/__synthesis", value: synthesis }) + "\n"
-              );
-            }
-
-            // ── Grounding verdict ──
-            // Verify the composed narrative against what the investigation
-            // actually computed. Ungrounded figures (numbers that trace to no
-            // computed value) are surfaced as an advisory caveat and recorded in
-            // the trail — the guard against plausible-but-wrong, where semantic
-            // validation only catches degenerate.
-            if (!closed) {
-              const grounded = collectGroundedValues(mergedResults, mergedChartData);
-              const grounding = verifyGrounding({
-                narrativeTexts,
-                citedSteps: [...citedSteps].sort((a, b) => a - b),
-                grounded,
-                successfulStepNos: successfulStepNos(trace),
+                },
               });
-              trace.grounding = grounding; // shared ref — updates the cached entry
+
+              if (closed) return;
+
+              // Build the full audit trail: every sub-question's code + result,
+              // the re-planner / composer decisions, and (added after compose) the
+              // grounding verdict. This is what the artifacts panel renders as a
+              // re-runnable per-step trail — the agentic loop extending Hermetic's
+              // "see the Python and re-run it" moat, not outrunning it.
+              const trace = buildInvestigationTrace({
+                approach: plan.approach,
+                originalQuestion: question,
+                subResults,
+                sourceByIndex,
+                decisions,
+              });
+
+              // Cache artifacts under the csvId. The top-level code/results mirror
+              // the LAST successful step (back-compat with the single-view panel);
+              // `investigation` carries the whole trail. Cached before compose so a
+              // composer failure still leaves an inspectable trail; `trace.grounding`
+              // is set below on the same object, so the cached entry sees it too.
+              const lastSuccess = [...subResults].reverse().find((r) => r.result);
+              const prior = getCachedArtifacts(csvId!);
+              const topLevel = lastSuccess?.result
+                ? {
+                    code: lastSuccess.result.generatedCode,
+                    question,
+                    results: lastSuccess.result.executionResult.results as Record<string, unknown>,
+                    chart_data: lastSuccess.result.executionResult.chart_data as Record<
+                      string,
+                      unknown
+                    >,
+                    datasets: (lastSuccess.result.executionResult.datasets ?? {}) as Record<
+                      string,
+                      Record<string, unknown>[]
+                    >,
+                    execution_ms: lastSuccess.result.executionResult.execution_ms ?? 0,
+                    // The materialization SQL for a warehouse investigation —
+                    // surfaces in the artifacts SQL tab.
+                    sql: warehouseSQL,
+                  }
+                : {
+                    // Every sub-question failed: keep the previously cached
+                    // top-level artifacts (a failed investigation must not clobber
+                    // a prior good run's re-runnable code) and attach the trail.
+                    code: prior?.code ?? "",
+                    question: prior?.question ?? question,
+                    results: prior?.results ?? {},
+                    chart_data: prior?.chart_data ?? {},
+                    datasets: prior?.datasets ?? {},
+                    execution_ms: prior?.execution_ms ?? 0,
+                    sql: warehouseSQL ?? prior?.sql,
+                  };
+              cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
+
+              // Deterministic data-quality surfacing — guarantees degraded / failed
+              // / dropped branches reach the user regardless of whether the composer
+              // remembered to annotate them. Rendered as a banner above the
+              // dashboard by ResponsePanel.
+              const dataQuality = {
+                degraded: trace.steps
+                  .filter((s) => s.status === "degraded")
+                  .map((s) => ({
+                    stepNo: s.stepNo,
+                    question: s.question,
+                    reason: s.degradedReason,
+                  })),
+                failed: trace.steps
+                  .filter((s) => s.status === "failed")
+                  .map((s) => ({ stepNo: s.stepNo, question: s.question, error: s.error })),
+                removed: trace.steps
+                  .filter((s) => s.status === "removed")
+                  .map((s) => ({ stepNo: s.stepNo, question: s.question })),
+              };
               if (
-                !grounding.ok ||
-                grounding.uncitedSuccessfulSteps.length > 0 ||
-                grounding.checkedCount > 0
+                dataQuality.degraded.length ||
+                dataQuality.failed.length ||
+                dataQuality.removed.length
               ) {
                 emit(
-                  JSON.stringify({ op: "add", path: "/state/__grounding", value: grounding }) + "\n"
+                  JSON.stringify({ op: "add", path: "/state/__dataQuality", value: dataQuality }) +
+                    "\n"
                 );
               }
-            }
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.error("Investigate: failed", { error: msg.slice(0, 500) });
-            emit(
-              JSON.stringify({
-                op: "add",
-                path: "/state/__error",
-                value: msg,
-              }) + "\n"
-            );
-          } finally {
-            // ── Cost tracking: runs for every exit path (cheap fast-path,
-            // main investigation, or error) before the stream closes. ──
-            try {
-              const acc = getCostAccumulator();
-              if (acc) {
-                const cost = computeCost(acc);
-                emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
-                const phaseBreakdown = formatPhaseBreakdown(cost.byPhase);
-                logger.info("Investigate: cost by phase", {
-                  total: Number(cost.costUsd.toFixed(4)),
-                  output: cost.outputTokens,
-                  breakdown: phaseBreakdown,
-                });
-                const now = new Date();
-                await appendCostRow({
-                  timestamp: now.toISOString(),
-                  date: now.toISOString().slice(0, 10),
-                  dataset: datasetLabel,
-                  question,
-                  mode: analysisMode,
-                  models: cost.models.join(", "),
-                  llm_calls: cost.llmCalls,
-                  input_tokens: cost.inputTokens,
-                  cache_read_tokens: cost.cacheReadTokens,
-                  cache_write_tokens: cost.cacheWriteTokens,
-                  output_tokens: cost.outputTokens,
-                  cost_usd: cost.costUsd,
-                  phase_breakdown: phaseBreakdown,
-                });
-              }
-            } catch (costErr) {
-              logger.warn("Cost logging failed", {
-                error: costErr instanceof Error ? costErr.message : String(costErr),
+
+              // ── Step 3: Compose unified dashboard ──
+              stepCount++;
+              emitProgress("composing", stepCount, totalSteps);
+
+              const compose = composeInvestigation({
+                originalQuestion: question,
+                plan,
+                schema: stored.schema,
+                subResults,
+                uiComposeModel,
+                purpose: context.purpose,
+                // Warehouse investigations cover the materialized pull's time
+                // window; surface it so the dashboard states its scope.
+                analysisWindow: warehouseState ? deriveAnalysisWindow(stored.schema) : undefined,
+                // When the pull hit the row cap, the analysis is over a sample —
+                // tell the composer to disclose it.
+                sampleRows: materializationSampled ? WAREHOUSE_MAX_ROWS : undefined,
               });
-            }
-            clearInterval(keepalive);
-            if (!closed) {
+
+              // Inject merged data into spec.state so $result/$chartData
+              // placeholders resolve client-side
+              emit(
+                JSON.stringify({
+                  op: "add",
+                  path: "/state/__results",
+                  value: compose.initialState.results,
+                }) + "\n"
+              );
+              emit(
+                JSON.stringify({
+                  op: "add",
+                  path: "/state/__chart_data",
+                  value: compose.initialState.chart_data,
+                }) + "\n"
+              );
+
+              // Stream the composed spec — the LLM emits raw JSONL patches that
+              // build the spec tree, same protocol as /api/query. Resolve
+              // $result:<key> and $chartData:<key> placeholders against the
+              // merged per-step results before emitting (mirrors /api/query).
+              const mergedResults = compose.initialState.results;
+              const mergedChartData = compose.initialState.chart_data;
+
+              // Collect the composed narrative for the grounding pass: prose text
+              // (post-resolution, so placeholder values are inlined) and the steps
+              // the narrative cited (from $result:step_N_ placeholders pre-resolution
+              // and "Step N" mentions post-resolution).
+              const narrativeTexts: string[] = [];
+              const citedSteps = new Set<number>();
+              // Notebook synthesis cell: the composer is instructed to use the
+              // element IDs `exec_summary` and `conclusion` for those two blocks;
+              // we lift their (post-resolution) content here. Matching is
+              // tolerant of the LLM's id-styling drift ("exec-summary",
+              // "conclusion-block"). Best-effort — if the composer ignores the
+              // IDs entirely, the notebook omits the synthesis.
+              const SUMMARY_PATH_RE = /^\/elements\/exec[-_]summary(?:[-_][a-z0-9]+)?$/;
+              const CONCLUSION_PATH_RE = /^\/elements\/conclusion(?:[-_][a-z0-9]+)?$/;
+              const synthesis: { summary?: string; conclusion?: string } = {};
+
+              const ingestComposedLine = (preResolution: string, patch: SpecPatch | null) => {
+                // Raw line: only unambiguous $result/$chartData placeholders count
+                // as citations — prose-scanning the raw JSON would match element
+                // IDs / key paths named after steps and suppress the
+                // uncited-steps advisory.
+                for (const n of extractPlaceholderCitedSteps(preResolution)) citedSteps.add(n);
+                if (patch && "value" in patch) {
+                  const isSummary = !!patch.path && SUMMARY_PATH_RE.test(patch.path);
+                  const isConclusion =
+                    !isSummary && !!patch.path && CONCLUSION_PATH_RE.test(patch.path);
+                  if (isSummary || isConclusion) {
+                    const content = (patch.value as { props?: { content?: unknown } } | null)?.props
+                      ?.content;
+                    if (typeof content === "string" && content.trim()) {
+                      if (isSummary) synthesis.summary = content;
+                      else synthesis.conclusion = content;
+                    }
+                  }
+                  for (const text of collectNarrativeStrings(patch.value)) {
+                    narrativeTexts.push(text);
+                    for (const n of extractCitedSteps(text)) citedSteps.add(n);
+                  }
+                }
+              };
+
+              // Shared finalization stage (placeholder resolution + $state repair),
+              // identical to Ask mode. Investigate inlines per-step data via
+              // $chartData/$result, so no DataController $state repair is needed.
+              const finalize = createSpecFinalizer({
+                results: mergedResults,
+                chartData: mergedChartData,
+              });
+
+              let buffer = "";
+              for await (const chunk of compose.textStream) {
+                if (closed) break;
+                buffer += chunk;
+                const lines = buffer.split("\n");
+                buffer = lines.pop() ?? "";
+                for (const line of lines) {
+                  const r = finalize(line);
+                  if (r.skip) continue;
+                  ingestComposedLine(r.raw, r.patch);
+                  emit(r.line + "\n");
+                }
+              }
+              if (buffer.trim()) {
+                const r = finalize(buffer);
+                if (!r.skip) {
+                  ingestComposedLine(r.raw, r.patch);
+                  emit(r.line + "\n");
+                }
+              }
+
+              // ── Notebook cells: settle and attach ──
+              // Most cell composes finish during the waves; only the final
+              // wave's may still be in flight. Their `__cells` patches emit as
+              // they land (the .then handlers above); attaching to the trace
+              // mutates the shared ref, so the cached artifacts entry sees the
+              // cellSpecs too — notebooks reload from history for free.
+              await Promise.allSettled(cellComposes);
+              for (const step of trace.steps) {
+                const cell = cellSpecs.get(step.index);
+                if (cell) step.cellSpec = cell;
+              }
+
+              // Notebook synthesis cell content, lifted from the composed
+              // narrative. Lives in spec state, so it persists with history.
+              if (synthesis.summary || synthesis.conclusion) {
+                emit(
+                  JSON.stringify({ op: "add", path: "/state/__synthesis", value: synthesis }) + "\n"
+                );
+              }
+
+              // ── Grounding verdict ──
+              // Verify the composed narrative against what the investigation
+              // actually computed. Ungrounded figures (numbers that trace to no
+              // computed value) are surfaced as an advisory caveat and recorded in
+              // the trail — the guard against plausible-but-wrong, where semantic
+              // validation only catches degenerate.
+              if (!closed) {
+                const grounded = collectGroundedValues(mergedResults, mergedChartData);
+                const grounding = verifyGrounding({
+                  narrativeTexts,
+                  citedSteps: [...citedSteps].sort((a, b) => a - b),
+                  grounded,
+                  successfulStepNos: successfulStepNos(trace),
+                });
+                trace.grounding = grounding; // shared ref — updates the cached entry
+                if (
+                  !grounding.ok ||
+                  grounding.uncitedSuccessfulSteps.length > 0 ||
+                  grounding.checkedCount > 0
+                ) {
+                  emit(
+                    JSON.stringify({ op: "add", path: "/state/__grounding", value: grounding }) +
+                      "\n"
+                  );
+                }
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              logger.error("Investigate: failed", { error: msg.slice(0, 500) });
+              emit(
+                JSON.stringify({
+                  op: "add",
+                  path: "/state/__error",
+                  value: msg,
+                }) + "\n"
+              );
+            } finally {
+              // ── Cost tracking: runs for every exit path (cheap fast-path,
+              // main investigation, or error) before the stream closes. ──
               try {
-                controller.close();
-              } catch {
-                // already closed
+                const acc = getCostAccumulator();
+                if (acc) {
+                  const cost = computeCost(acc);
+                  emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
+                  const phaseBreakdown = formatPhaseBreakdown(cost.byPhase);
+                  logger.info("Investigate: cost by phase", {
+                    total: Number(cost.costUsd.toFixed(4)),
+                    output: cost.outputTokens,
+                    breakdown: phaseBreakdown,
+                  });
+                  const now = new Date();
+                  await appendCostRow({
+                    timestamp: now.toISOString(),
+                    date: now.toISOString().slice(0, 10),
+                    dataset: datasetLabel,
+                    question,
+                    mode: analysisMode,
+                    models: cost.models.join(", "),
+                    llm_calls: cost.llmCalls,
+                    input_tokens: cost.inputTokens,
+                    cache_read_tokens: cost.cacheReadTokens,
+                    cache_write_tokens: cost.cacheWriteTokens,
+                    output_tokens: cost.outputTokens,
+                    cost_usd: cost.costUsd,
+                    phase_breakdown: phaseBreakdown,
+                  });
+                  await writeRunDiagnostics({
+                    timestamp: now.toISOString(),
+                    mode: analysisMode,
+                    purpose: context.purpose,
+                    question,
+                    costUsd: cost.costUsd,
+                    llmCalls: cost.llmCalls,
+                  });
+                }
+              } catch (costErr) {
+                logger.warn("Cost logging failed", {
+                  error: costErr instanceof Error ? costErr.message : String(costErr),
+                });
+              }
+              clearInterval(keepalive);
+              if (!closed) {
+                try {
+                  controller.close();
+                } catch {
+                  // already closed
+                }
               }
             }
-          }
-        });
+          })
+        );
       },
       cancel() {
         // Client aborted — best-effort: subsequent emits become no-ops.

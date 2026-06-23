@@ -12,23 +12,7 @@
  * Strictly best-effort — recording must never break an analysis.
  */
 
-import { mkdir, readFile, writeFile } from "fs/promises";
-import { join } from "path";
-import { parseCSV, toCSVText } from "@/lib/csv/parser";
-import { logger } from "@/lib/logger";
-
-const DIAG_DIR = join(process.cwd(), "data", "diagnostics");
-
-export const FAILURE_HEADERS = [
-  "timestamp",
-  "date",
-  "mode", // "ask" | "investigate"
-  "stage", // "code-exec" | "compose"
-  "attempt", // retry index (0 = initial)
-  "kind", // "execution" | "semantic" | "compose" | "infra"
-  "error_class",
-  "detail", // failing op / reason snippet
-] as const;
+import { diagEvent } from "./run-diagnostics";
 
 export type FailureKind = "execution" | "semantic" | "compose" | "infra";
 
@@ -93,6 +77,8 @@ export interface FailureEvent {
   stage: "code-exec" | "compose";
   attempt?: number;
   kind: FailureKind;
+  /** The sub-question this failure belongs to — groups per-step in the run record. */
+  step?: string;
   /** Raw error/traceback text, classified into error_class + detail. */
   errorText?: string;
   /** Override the classifier (used by the compose stage, which has no traceback). */
@@ -100,47 +86,22 @@ export interface FailureEvent {
   detail?: string;
 }
 
-/** Append one failure to data/diagnostics/<date>.csv. Best-effort; never throws. */
-export async function recordFailure(ev: FailureEvent): Promise<void> {
-  // Don't litter the working tree with diagnostics CSVs during unit tests.
-  if (process.env.VITEST || process.env.NODE_ENV === "test") return;
-  try {
-    const now = new Date();
-    const timestamp = now.toISOString();
-    const date = timestamp.slice(0, 10);
-    const classified =
-      ev.errorClass != null
-        ? { errorClass: ev.errorClass, detail: ev.detail ?? "" }
-        : classifyFailure(ev.kind, ev.errorText ?? "");
-
-    const row: Record<string, string> = {
-      timestamp,
-      date,
-      mode: ev.mode ?? "",
-      stage: ev.stage,
-      attempt: String(ev.attempt ?? 0),
-      kind: ev.kind,
-      error_class: classified.errorClass,
-      detail: ev.detail ?? classified.detail,
-    };
-
-    await mkdir(DIAG_DIR, { recursive: true });
-    const file = join(DIAG_DIR, `${date}.csv`);
-    let existing: Record<string, string>[] = [];
-    try {
-      existing = parseCSV(await readFile(file, "utf-8")).data;
-    } catch {
-      // New day file.
-    }
-    const data = [...existing, row];
-    await writeFile(
-      file,
-      toCSVText({ headers: [...FAILURE_HEADERS], data, rowCount: data.length }),
-      "utf-8"
-    );
-  } catch (err) {
-    logger.debug("recordFailure failed (best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+/**
+ * Classify a failure and push it into the per-run diagnostics accumulator (no
+ * disk I/O — reliable, no read-modify-write race). The run record is written
+ * once at the end by writeRunDiagnostics. Best-effort; never throws.
+ */
+export function recordFailure(ev: FailureEvent): void {
+  const classified =
+    ev.errorClass != null
+      ? { errorClass: ev.errorClass, detail: ev.detail ?? "" }
+      : classifyFailure(ev.kind, ev.errorText ?? "");
+  diagEvent("retry", {
+    step: ev.step,
+    stage: ev.stage,
+    attempt: ev.attempt ?? 0,
+    kind: ev.kind,
+    errorClass: classified.errorClass,
+    detail: ev.detail ?? classified.detail,
+  });
 }

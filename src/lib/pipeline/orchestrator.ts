@@ -185,6 +185,7 @@ export async function runPipeline(
       stage: "code-exec",
       attempt,
       kind: result.success ? "semantic" : "execution",
+      step: question,
       errorText: retryError,
     });
 
@@ -252,6 +253,7 @@ export async function runPipeline(
       stage: "code-exec",
       attempt: attempt + 1,
       kind: "execution",
+      step: question,
       errorText: result.error,
     });
     const summary = priorAttempts
@@ -279,6 +281,7 @@ export async function runPipeline(
       stage: "code-exec",
       attempt,
       kind: "semantic",
+      step: question,
       errorText: semanticVerdict.reason,
     });
     return {
