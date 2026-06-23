@@ -137,6 +137,12 @@ export async function runPipeline(
   // raised the degraded/failed rate on Investigate, where it compounds across
   // sub-questions. Retries are cheap now that the system prompt is cached.
   const MAX_RETRIES = 3;
+  // A clean run that just produced no results/charts is usually a LEGITIMATE
+  // "no signal" answer, not a bug — so give it ONE fix attempt and then accept
+  // it as degraded, rather than burning the whole budget manufacturing a token
+  // result. Execution CRASHES are real bugs and keep the full MAX_RETRIES.
+  const MAX_SEMANTIC_RETRIES = 1;
+  let semanticRetries = 0;
   const priorAttempts: { code: string; error: string }[] = [];
   let attempt = 0;
 
@@ -154,6 +160,10 @@ export async function runPipeline(
     if (!result.success) {
       retryError = result.error;
     } else if (semanticVerdict && !semanticVerdict.ok) {
+      // Already gave the empty result its one fix attempt → accept it as
+      // degraded ("no signal") instead of retrying further.
+      if (semanticRetries >= MAX_SEMANTIC_RETRIES) break;
+      semanticRetries++;
       retryError = formatSemanticVerdictForRetry(semanticVerdict);
     } else {
       break; // success
