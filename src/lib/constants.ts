@@ -1,7 +1,14 @@
 export const ALLOWED_LOCAL_EXTENSIONS = [".parquet", ".csv", ".xlsx", ".geojson", ".json"] as const;
 export const LOCAL_MOUNT_PATH = "/data/local"; // mount point inside sandbox container
 
-export const WAREHOUSE_MAX_ROWS = 50_000; // max rows to extract from a warehouse table
+// Max rows the materialization pulls. Raised well past the pandas-era 50K
+// because large pulls now go through Parquet + DuckDB (materializeCsvToParquet),
+// so most filtered slices load COMPLETE instead of being sampled.
+export const WAREHOUSE_MAX_ROWS = 1_000_000;
+// At/above this row count, materialize to Parquet and analyze via DuckDB
+// (bind-mounted) instead of parsing the CSV in Node + pandas. Below it the
+// proven CSV path is unchanged.
+export const PARQUET_MATERIALIZE_THRESHOLD = 100_000;
 export const MAX_CSV_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
 export const MAX_CSV_SIZE_LABEL = "100MB";
 export const SANDBOX_TIMEOUT_MS = 30_000; // 30 seconds

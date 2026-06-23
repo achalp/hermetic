@@ -37,7 +37,9 @@ import {
   MAX_AUTO_INVESTIGATIONS_PER_SESSION,
   PLANNER_MODEL,
   WAREHOUSE_MAX_ROWS,
+  PARQUET_MATERIALIZE_THRESHOLD,
 } from "@/lib/constants";
+import { materializeCsvToParquet, PARQUET_DIR } from "@/lib/parquet/materialize";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -73,6 +75,7 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
+import type { CSVSchema } from "@/lib/types";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { logger } from "@/lib/logger";
@@ -142,6 +145,22 @@ interface InvestigateContext {
 interface InvestigateBody {
   prompt?: string;
   context?: InvestigateContext;
+}
+
+/**
+ * Cheap row estimate for a CSV string — counts newlines without a full parse, so
+ * it stays fast even on a multi-hundred-MB pull. Used only to choose the Parquet
+ * vs CSV path; exact accuracy isn't needed (off-by-one on a trailing newline is
+ * fine).
+ */
+function countCsvRows(csv: string): number {
+  let rows = 0;
+  let i = csv.indexOf("\n");
+  while (i !== -1) {
+    rows++;
+    i = csv.indexOf("\n", i + 1);
+  }
+  return Math.max(0, rows - 1); // minus the header line
 }
 
 export async function POST(request: Request) {
@@ -288,6 +307,10 @@ export async function POST(request: Request) {
             // ran over a sample, so aggregates/rankings are estimates. Surfaced
             // in the dashboard so we never present a biased subset as the truth.
             let materializationSampled = false;
+            // Set when a large pull was materialized to Parquet: the host dir to
+            // bind-mount and the DuckDB read instructions for the analysis.
+            let warehouseParquetMount: string | undefined;
+            let warehouseParquetContext: string | undefined;
             if (warehouseState) {
               const { warehouse, connector } = warehouseState;
               emitProgress("generating_sql", 1, 99);
@@ -333,11 +356,49 @@ export async function POST(request: Request) {
                 );
               }
               logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
-              const parsed = parseCSV(warehouseCsvContent);
               const newCsvId = randomUUID();
-              const schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
-              schema.source_type = "warehouse";
-              schema.warehouse_type = warehouse.config.type;
+              // Cheap row estimate (count newlines; no full parse) to decide the path.
+              const approxRows = countCsvRows(warehouseCsvContent);
+              let schema: CSVSchema | undefined;
+
+              // Large pull → Parquet + DuckDB (no Node parse, scales to millions).
+              // Best-effort: any failure falls back to the proven CSV path below.
+              if (approxRows >= PARQUET_MATERIALIZE_THRESHOLD && sandboxRuntime === "docker") {
+                try {
+                  const mat = await materializeCsvToParquet(
+                    warehouseCsvContent,
+                    newCsvId,
+                    "warehouse_query_result",
+                    sandboxRuntime
+                  );
+                  schema = mat.schema;
+                  schema.source_type = "warehouse";
+                  schema.warehouse_type = warehouse.config.type;
+                  warehouseParquetMount = PARQUET_DIR;
+                  warehouseParquetContext =
+                    `The materialized dataset is a Parquet file at /data/local/${newCsvId}.parquet (${schema.row_count.toLocaleString()} rows).\n` +
+                    `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/local/${newCsvId}.parquet')").df().\n` +
+                    `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.`;
+                  logger.info("Investigate: materialized warehouse data to Parquet", {
+                    csvId: newCsvId,
+                    rows: schema.row_count,
+                  });
+                } catch (err) {
+                  logger.warn("Investigate: Parquet materialization failed, falling back to CSV", {
+                    error: err instanceof Error ? err.message : String(err),
+                    approxRows,
+                  });
+                }
+              }
+
+              // CSV path (default for small pulls, and the fallback if Parquet failed).
+              if (!schema) {
+                const parsed = parseCSV(warehouseCsvContent);
+                schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
+                schema.source_type = "warehouse";
+                schema.warehouse_type = warehouse.config.type;
+              }
+
               await storeCSV(newCsvId, warehouseCsvContent, schema);
               csvId = newCsvId;
               // Hitting the cap means the source had more rows than we pulled —
@@ -347,6 +408,7 @@ export async function POST(request: Request) {
                 csvId: newCsvId,
                 columns: schema.columns.length,
                 rows: schema.row_count,
+                parquet: !!warehouseParquetMount,
                 sampled: materializationSampled,
               });
               // Emit the generated csvId so the client can use it for
@@ -368,7 +430,10 @@ export async function POST(request: Request) {
             }
             datasetLabel = stored.schema.filename;
             const isLocal = isLocalFile(csvId!);
-            const csvContent = isLocal ? "" : ((await getCSVContent(csvId!)) ?? "");
+            // In Parquet mode the analysis reads the bind-mounted Parquet, so we
+            // never load the (large) CSV into memory.
+            const csvContent =
+              isLocal || warehouseParquetMount ? "" : ((await getCSVContent(csvId!)) ?? "");
             const geojsonContent = stored.schema.has_geojson
               ? await getGeoJSONContent(csvId!)
               : null;
@@ -376,7 +441,12 @@ export async function POST(request: Request) {
             // Local-mount path resolution (mirrors the logic in /api/query)
             let localMountPath: string | undefined;
             let localFileContext: string | undefined;
-            if (isLocal) {
+            if (warehouseParquetMount) {
+              // Large warehouse pull materialized to Parquet → analyze it via the
+              // bind-mounted DuckDB path (same mechanism as local Parquet files).
+              localMountPath = warehouseParquetMount;
+              localFileContext = warehouseParquetContext;
+            } else if (isLocal) {
               const hostPath = stored.localFolderPath || stored.localPath;
               if (!hostPath) {
                 throw new Error("Local file path not found");
