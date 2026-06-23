@@ -2,14 +2,31 @@ import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
-import { storeCSV, storeGeoJSON } from "@/lib/csv/storage";
+import { storeCSV, storeGeoJSON, storeLocalFileRef } from "@/lib/csv/storage";
 import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { storeExcel } from "@/lib/excel/storage";
 import { detectRelationships } from "@/lib/excel/relationships";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
-import { MAX_CSV_SIZE_BYTES, MAX_CSV_SIZE_LABEL } from "@/lib/constants";
+import {
+  MAX_CSV_SIZE_BYTES,
+  MAX_CSV_SIZE_LABEL,
+  PARQUET_MATERIALIZE_THRESHOLD,
+} from "@/lib/constants";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { materializeCsvToParquet } from "@/lib/parquet/materialize";
+import { logger } from "@/lib/logger";
+
+/** Cheap row estimate (count newlines, no parse) to choose Parquet vs CSV. */
+function countCsvRows(csv: string): number {
+  let rows = 0;
+  let i = csv.indexOf("\n");
+  while (i !== -1) {
+    rows++;
+    i = csv.indexOf("\n", i + 1);
+  }
+  return Math.max(0, rows - 1);
+}
 
 export async function POST(request: Request) {
   try {
@@ -85,20 +102,46 @@ export async function POST(request: Request) {
       );
     }
 
-    // ── CSV path (unchanged) ──────────────────────────────────────
+    // ── CSV path ──────────────────────────────────────────────────
     if (isCSV) {
       const text = await file.text();
-      const parsed = parseCSV(text);
 
+      // Large CSV → materialize to Parquet + DuckDB schema (no Node parse) and
+      // analyze it via the bind-mounted local-files path, so it scales past the
+      // pandas-era cap. Best-effort: any failure falls back to the CSV path.
+      const csvId = uuidv4();
+      if (
+        countCsvRows(text) >= PARQUET_MATERIALIZE_THRESHOLD &&
+        getActiveSandboxRuntime() === "docker"
+      ) {
+        try {
+          const { parquetPath, schema } = await materializeCsvToParquet(
+            text,
+            csvId,
+            file.name,
+            "docker"
+          );
+          storeLocalFileRef(csvId, schema, parquetPath, Date.now(), false);
+          logger.info("Upload: materialized large CSV to Parquet", {
+            csvId,
+            rows: schema.row_count,
+          });
+          return NextResponse.json({ csv_id: csvId, schema });
+        } catch (err) {
+          logger.warn("Upload: Parquet materialization failed, falling back to CSV", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const parsed = parseCSV(text);
       if (parsed.headers.length === 0) {
         return NextResponse.json({ error: "CSV file has no columns" }, { status: 400 });
       }
-
       if (parsed.rowCount === 0) {
         return NextResponse.json({ error: "CSV file has no data rows" }, { status: 400 });
       }
 
-      const csvId = uuidv4();
       const schema = extractSchema(parsed, csvId, file.name);
       const csvText2 = toCSVText(parsed);
       await storeCSV(csvId, csvText2, schema);

@@ -454,12 +454,17 @@ export async function POST(request: Request) {
               const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
               const path = await import("node:path");
               if (stored.localFolderPath) {
-                localMountPath = LOCAL_MOUNT_PATH;
-                localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH}. Use DuckDB: con.execute("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet')").df().`;
+                // Mount the host folder; read the Parquet shards via DuckDB.
+                localMountPath = hostPath;
+                const hiveFlag = stored.isHivePartitioned ? ", hive_partitioning=true" : "";
+                localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH} (${stored.schema.row_count.toLocaleString()} rows). Read via DuckDB: duckdb.sql("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet'${hiveFlag})").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation.`;
               } else {
                 const fname = path.basename(hostPath);
-                localMountPath = `${LOCAL_MOUNT_PATH}/${fname}`;
-                localFileContext = `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
+                // Mount the host directory; the file lands at /data/local/<fname>.
+                localMountPath = path.dirname(hostPath);
+                localFileContext = stored.isParquet
+                  ? `The dataset is a Parquet file mounted at /data/local/${fname} (${stored.schema.row_count.toLocaleString()} rows). Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/local/${fname}')").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.`
+                  : `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
               }
             }
 
