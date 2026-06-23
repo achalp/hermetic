@@ -31,6 +31,11 @@ import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { PLANNER_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import {
+  getPurposePlanScope,
+  getPurposeMaxSubQuestions,
+  DEFAULT_PURPOSE,
+} from "@/lib/purpose-prompts";
 import type { CSVSchema, WarehouseTableSchema, FilterValue } from "@/lib/types";
 import { logger } from "@/lib/logger";
 
@@ -58,7 +63,7 @@ export interface InvestigationPlan {
   subQuestions: PlannedSubQuestion[];
 }
 
-const PLANNER_SYSTEM_PROMPT = `You are a data analysis planner. Given a user's question and a dataset schema, decompose the question into 3-5 focused sub-questions that together answer the original.
+const PLANNER_SYSTEM_PROMPT = `You are a data analysis planner. Given a user's question and a dataset schema, decompose the question into the FEWEST, most penetrating sub-questions that together answer the original. Favor sharp, insightful questions that directly answer what was asked over broad coverage — never pad for breadth. The user prompt specifies the target count for this request; treat it as a ceiling, not a quota.
 
 Each sub-question should:
 - Be answerable by ONE Python data-analysis script (groupBy, aggregation, simple chart, statistical test, etc.)
@@ -96,7 +101,7 @@ Example with a multi-dependency step:
   ]
 }
 
-Output ONLY the JSON object. No markdown fencing, no preamble. The minimum number of sub-questions is 3, the maximum is 7.`;
+Output ONLY the JSON object. No markdown fencing, no preamble. Emit at least 2 sub-questions, and no more than the target count given in the user prompt.`;
 
 function summarizeSchemaForPlanner(
   schema: CSVSchema | null,
@@ -202,16 +207,22 @@ function buildPlannerUserPrompt(
   question: string,
   schema: CSVSchema | null,
   warehouse?: WarehouseTableSchema[],
-  scope?: InvestigateScope
+  scope?: InvestigateScope,
+  planScope?: string
 ): string {
   const scopeBlock = scope ? buildScopeBlock(scope) : "";
+  // A scoped follow-up has its own "go DEEPER" count guidance in the scope
+  // block; otherwise the purpose-driven planScope sets the target.
+  const target =
+    planScope ?? "Generate up to 3 sharp sub-questions that most directly answer the question.";
   return `${scopeBlock}## User Question
 ${question}
 
 ## Schema
 ${summarizeSchemaForPlanner(schema, warehouse)}
 
-Decompose the question into ${scope ? "2-4" : "3-5"} sub-questions following the rules above. Output JSON only.`;
+${scope ? "Decompose into 2-4 deeper sub-questions" : target}
+Follow the rules above. Output JSON only.`;
 }
 
 /**
@@ -287,7 +298,10 @@ export interface ParseError {
  * Parse and validate the planner's JSON output. Returns a tagged result so
  * callers can decide whether to fall back to a single-shot Ask on failure.
  */
-export function parsePlannerOutput(raw: string): ParsedPlanResult | ParseError {
+export function parsePlannerOutput(
+  raw: string,
+  maxSubQuestions = 7
+): ParsedPlanResult | ParseError {
   const stripped = extractJsonObject(raw);
   let parsed: unknown;
   try {
@@ -329,9 +343,10 @@ export function parsePlannerOutput(raw: string): ParsedPlanResult | ParseError {
       rawOutput: raw,
     };
   }
-  if (subQuestions.length > 7) {
-    // Hard cap to keep cost predictable
-    subQuestions.length = 7;
+  if (subQuestions.length > maxSubQuestions) {
+    // Hard cap to keep cost predictable (purpose-scoped: dashboard/brief 3,
+    // report 4, deep-dive 10). Enforced here even if the model overproduces.
+    subQuestions.length = maxSubQuestions;
   }
 
   return { ok: true, plan: { approach, subQuestions } };
@@ -347,27 +362,36 @@ export async function generatePlan(
   schema: CSVSchema | null,
   warehouse: WarehouseTableSchema[] | undefined,
   model: string = PLANNER_MODEL,
-  scope?: InvestigateScope
+  scope?: InvestigateScope,
+  purpose?: string
 ): Promise<ParsedPlanResult | ParseError> {
+  // Purpose scales investigation breadth (and cost): dashboard/brief target 3,
+  // report 4, deep-dive 5+. The planScope tells the model how many + how sharp;
+  // maxSubQuestions hard-caps the parser so an over-eager model can't blow it.
+  const planScope = getPurposePlanScope(purpose ?? DEFAULT_PURPOSE);
+  const maxSubQuestions = getPurposeMaxSubQuestions(purpose ?? DEFAULT_PURPOSE);
+
   logger.info("Investigate: generating plan", {
     question: question.slice(0, 200),
     hasSchema: !!schema,
     warehouseTables: warehouse?.length ?? 0,
     scoped: !!scope,
     scopeFilters: scope?.filters?.length ?? 0,
+    purpose: purpose ?? DEFAULT_PURPOSE,
+    maxSubQuestions,
   });
 
   const result = await withPhase("planner", () =>
     generateText({
       model: getModel(model),
       system: cachedSystem(PLANNER_SYSTEM_PROMPT),
-      prompt: buildPlannerUserPrompt(question, schema, warehouse, scope),
+      prompt: buildPlannerUserPrompt(question, schema, warehouse, scope, planScope),
       temperature: 0.3,
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
     })
   );
 
-  const parsed = parsePlannerOutput(result.text);
+  const parsed = parsePlannerOutput(result.text, maxSubQuestions);
   if (parsed.ok) {
     logger.info("Investigate: plan generated", {
       subQuestionCount: parsed.plan.subQuestions.length,

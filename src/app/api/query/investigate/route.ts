@@ -45,6 +45,7 @@ import {
   PARQUET_MATERIALIZE_THRESHOLD,
 } from "@/lib/constants";
 import { materializeCsvToParquet } from "@/lib/parquet/materialize";
+import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { pickMaterializationScope } from "@/lib/warehouse/materialization-scope";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
@@ -607,7 +608,8 @@ export async function POST(request: Request) {
                 stored.schema,
                 warehouseState?.warehouse.tableSchemas,
                 PLANNER_MODEL,
-                context.scope
+                context.scope,
+                context.purpose
               );
               if (!planResult.ok) {
                 throw new Error(`Plan generation failed: ${planResult.error}`);
@@ -739,12 +741,14 @@ export async function POST(request: Request) {
                 approach: plan.approach,
                 // Scales each step's analysis volume to the output mode.
                 purpose: context.purpose,
-                // Warehouse steps analyze the materialized CSV first, then escalate
-                // to their own (window-bounded) query only when a conservative
-                // judge finds the snapshot insufficient. The materialization SQL is
-                // passed so the judge knows what the snapshot holds and any
-                // escalated query reuses the same time window. File investigations
-                // leave these undefined and run Python over the shared CSV.
+                // Purpose-scoped cap on total sub-questions (dashboard/brief 3,
+                // report 4, deep-dive 10) — bounds re-plan/gap-check growth.
+                maxSubQuestions: getPurposeMaxSubQuestions(context.purpose ?? "dashboard"),
+                // Warehouse steps generate their OWN window-bounded query and analyze
+                // the small result (per-step SQL is the default; CSV-snapshot analysis
+                // is only the fallback if SQL fails). The materialization SQL is passed
+                // so each per-step query reuses the same time window. File
+                // investigations leave these undefined and run Python over the shared CSV.
                 warehouse: warehouseState?.warehouse.tableSchemas,
                 warehouseType: warehouseState?.warehouse.config.type,
                 materializationSQL: warehouseSQL,

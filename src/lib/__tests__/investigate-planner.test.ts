@@ -9,10 +9,17 @@ const { extractJsonObject, normalizeDependsOn, parseReplannerOutput, buildPlanne
   __testing;
 
 describe("buildPlannerUserPrompt — scoped follow-up (drill-as-sub-investigation)", () => {
-  it("omits the scope block and asks for 3-5 sub-questions when unscoped", () => {
+  it("omits the scope block and injects the purpose planScope when unscoped", () => {
+    const planScope = "Generate UP TO 3 penetrating sub-questions.";
+    const p = buildPlannerUserPrompt("What drives revenue?", null, undefined, undefined, planScope);
+    expect(p).not.toContain("Prior Investigation Context");
+    expect(p).toContain(planScope);
+  });
+
+  it("falls back to a sane default target when no planScope is given", () => {
     const p = buildPlannerUserPrompt("What drives revenue?", null, undefined);
     expect(p).not.toContain("Prior Investigation Context");
-    expect(p).toContain("3-5 sub-questions");
+    expect(p.toLowerCase()).toMatch(/sub-question/);
   });
 
   it("injects prior approach + already-explored steps and asks for 2-4 when scoped", () => {

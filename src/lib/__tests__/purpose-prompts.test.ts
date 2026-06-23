@@ -5,6 +5,8 @@ import {
   DEFAULT_PURPOSE,
   resolvePurpose,
   getPurposePrompt,
+  getPurposeMaxSubQuestions,
+  getPurposePlanScope,
 } from "@/lib/purpose-prompts";
 
 describe("purpose taxonomy", () => {
@@ -38,6 +40,27 @@ describe("purpose taxonomy", () => {
   it("getPurposePrompt returns the resolved mode's prompt", () => {
     expect(getPurposePrompt("infographic")).toBe(PURPOSE_MODES.dashboard.prompt);
     expect(getPurposePrompt("report")).toBe(PURPOSE_MODES.report.prompt);
+  });
+
+  it("scopes the sub-question budget to intent (dashboard/brief 3, report 4, deep-dive 5+)", () => {
+    expect(getPurposeMaxSubQuestions("dashboard")).toBe(3);
+    expect(getPurposeMaxSubQuestions("brief")).toBe(3);
+    expect(getPurposeMaxSubQuestions("report")).toBe(4);
+    expect(getPurposeMaxSubQuestions("deep-dive")).toBeGreaterThanOrEqual(5);
+    // legacy id + unknown both resolve through the same path
+    expect(getPurposeMaxSubQuestions("executive-summary")).toBe(3);
+    expect(getPurposeMaxSubQuestions("nonsense")).toBe(3); // → dashboard default
+  });
+
+  it("every mode's planScope tells the planner a target count and to stay sharp", () => {
+    for (const m of PURPOSE_LIST) {
+      const scope = getPurposePlanScope(m.id);
+      expect(scope.length).toBeGreaterThan(20);
+      expect(scope).toMatch(/\d/); // names a number
+    }
+    // dashboard/brief cap the count; deep-dive opens it up
+    expect(getPurposePlanScope("dashboard")).toMatch(/up to 3|at most 3|3/i);
+    expect(getPurposePlanScope("deep-dive")).toMatch(/5 or more|or more|wide/i);
   });
 
   it("prompts steer FORM and explicitly leave chart count to the data", () => {

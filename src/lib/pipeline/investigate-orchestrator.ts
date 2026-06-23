@@ -194,6 +194,13 @@ interface OrchestrateOptions {
   /** Output mode (dashboard/brief/report/deep-dive) — scales each step's
    * analysis volume to the intent via the code-gen prompt. */
   purpose?: string;
+  /**
+   * Hard cap on TOTAL sub-questions (initial + re-planner + gap-check),
+   * derived from `purpose` (dashboard/brief 3, report 4, deep-dive 10). The
+   * dominant cost lever — bounds how far the re-plan loop can grow the plan.
+   * Defaults to INVESTIGATE_MAX_SUBQUESTIONS when unset.
+   */
+  maxSubQuestions?: number;
   /** Warehouse table schemas, if this Investigate is over a warehouse (passed to the re-planner). */
   warehouse?: WarehouseTableSchema[];
   /**
@@ -667,6 +674,7 @@ function applyAmendment(
   options: OrchestrateOptions,
   source: "replanner" | "composer"
 ): boolean {
+  const maxSubQuestions = options.maxSubQuestions ?? INVESTIGATE_MAX_SUBQUESTIONS;
   // Drop pending sub-questions the re-planner marked for removal. Skip any
   // index that's already completed, failed, or removed — we don't unwind
   // finished work and we don't silently clobber failures.
@@ -689,9 +697,9 @@ function applyAmendment(
   const addedSteps: NonNullable<InvestigateProgressEvent["addedSteps"]> = [];
   const startIndex = subQuestions.length;
   for (let pos = 0; pos < decision.addSubQuestions.length; pos++) {
-    if (subQuestions.length >= INVESTIGATE_MAX_SUBQUESTIONS) {
+    if (subQuestions.length >= maxSubQuestions) {
       logger.warn("Investigate: hit MAX_SUBQUESTIONS cap; ignoring further amendments", {
-        cap: INVESTIGATE_MAX_SUBQUESTIONS,
+        cap: maxSubQuestions,
         dropped: decision.addSubQuestions.length - pos,
       });
       break;
@@ -781,6 +789,10 @@ export async function runInvestigation(
   initialSubQuestions: PlannedSubQuestion[],
   options: OrchestrateOptions
 ): Promise<SubQuestionResult[]> {
+  // Purpose-scoped cap on total sub-questions (dashboard/brief 3, report 4,
+  // deep-dive 10). Bounds how far the re-plan loop + gap-check can grow the
+  // plan — the dominant cost lever.
+  const maxSubQuestions = options.maxSubQuestions ?? INVESTIGATE_MAX_SUBQUESTIONS;
   // Mutable copy of the plan — the re-planner can append. Indices stay
   // stable across amendments: removed pending sub-questions are tracked
   // in a Set, not spliced out.
@@ -812,7 +824,7 @@ export async function runInvestigation(
   // (if budget allows) before deciding the next wave.
   // Hard upper bound prevents infinite loops if the re-planner
   // pathologically adds sub-questions that all depend on each other.
-  const MAX_WAVES = INVESTIGATE_MAX_SUBQUESTIONS + 2;
+  const MAX_WAVES = maxSubQuestions + 2;
 
   while (waveCount < MAX_WAVES) {
     const wave = nextWaveIndices(subQuestions, completed, failed, removed);
@@ -841,7 +853,7 @@ export async function runInvestigation(
 
     // Consult the re-planner if there's budget AND there's something left to plan.
     const remainingHops = INVESTIGATE_MAX_HOPS - hopCount;
-    if (remainingHops > 0 && stillPending && subQuestions.length < INVESTIGATE_MAX_SUBQUESTIONS) {
+    if (remainingHops > 0 && stillPending && subQuestions.length < maxSubQuestions) {
       const completedSummaries = Array.from(completed)
         .sort((a, b) => a - b)
         .map((i) => summaryFromResult(results[i]));
@@ -865,7 +877,7 @@ export async function runInvestigation(
         warehouse: options.warehouse,
         hopCount,
         remainingHops,
-        subQuestionsBudget: INVESTIGATE_MAX_SUBQUESTIONS - subQuestions.length,
+        subQuestionsBudget: maxSubQuestions - subQuestions.length,
         model: PLANNER_MODEL, // re-plan is a cheap structured decision — don't ride the code-gen model
       });
       hopCount++;
@@ -920,7 +932,7 @@ export async function runInvestigation(
   // the augmented results.
   if (
     COMPOSER_MAX_DISPATCHES > 0 &&
-    subQuestions.length < INVESTIGATE_MAX_SUBQUESTIONS &&
+    subQuestions.length < maxSubQuestions &&
     // Only call gap-check if SOMETHING ran successfully — no point asking
     // about gaps in an empty result set.
     completed.size > 0

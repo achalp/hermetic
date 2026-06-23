@@ -33,6 +33,19 @@ export interface PurposeMode {
    * exhaustive battery the composer then discards. Scales compute to intent.
    */
   codegenScope: string;
+  /**
+   * Hard cap on TOTAL sub-questions (initial plan + re-planner + composer
+   * gap-check) for this mode. Each sub-question is ~one SQL-gen + one code-gen,
+   * so this is the dominant cost lever — it scales investigation breadth (and
+   * spend) to intent. The planner is also told to target this count.
+   */
+  maxSubQuestions: number;
+  /**
+   * Prompt block injected into the PLANNER user prompt: how many sub-questions
+   * to target and how sharp they should be. Pairs with maxSubQuestions (which
+   * also caps the parser + the orchestrator's re-plan growth).
+   */
+  planScope: string;
 }
 
 export const PURPOSE_MODES: Record<string, PurposeMode> = {
@@ -44,6 +57,9 @@ export const PURPOSE_MODES: Record<string, PurposeMode> = {
       "Compose for at-a-glance scanning, like a monitoring dashboard. Use a GRID-ORIENTED layout: lead with a LayoutGrid of the headline metrics as StatCards, then arrange visualizations in a LayoutGrid / LayoutRow so several read side by side rather than stacked in one tall column. Keep text minimal — short labels and at most one-line annotations, no paragraphs. The reader scans many things quickly, so prioritize visual density and parallel layout over narration. Let the question and the data decide WHICH metrics and charts appear and HOW MANY — never pad to fill the grid or force a fixed count.",
     codegenScope:
       "Output scope: produce a FOCUSED set for a scannable dashboard — the handful of headline metrics (results) and the 2-4 chart_data structures that best answer THIS question. Do not build an exhaustive battery of charts/breakdowns that won't be shown; compute what a focused dashboard needs.",
+    maxSubQuestions: 3,
+    planScope:
+      "Generate the FEWEST, most penetrating sub-questions — UP TO 3 — that most directly answer the user's question. Each must earn its place; prefer 2 decisive, insightful questions over 3 diffuse ones. Do NOT pad to reach 3.",
   },
   brief: {
     id: "brief",
@@ -53,6 +69,9 @@ export const PURPOSE_MODES: Record<string, PurposeMode> = {
       "Compose a bottom-line-up-front brief that fits roughly one screen. Lead with a single TextBlock (variant: insight) stating the direct answer in one or two sentences. Follow with only the few elements that most support that answer — the most decision-relevant metrics and the single clearest visualization. Keep it terse and scannable and end with at most one short caveat or next step. The reader has about 30 seconds. Choose the minimum that genuinely answers the question — let the data decide whether that is one chart or a couple of stat cards; do not exhaustively explore.",
     codegenScope:
       "Output scope: this feeds a one-screen brief — compute the MINIMUM that answers the question: the 1-2 most decision-relevant numbers (results) and AT MOST ONE clear chart_data. Do NOT explore multiple angles or build a battery of charts; anything extra is wasted.",
+    maxSubQuestions: 3,
+    planScope:
+      "Generate AT MOST 3 sub-questions — ideally just the 1-2 most decisive that directly answer the question. Favor a single penetrating question over breadth; this feeds a 30-second brief.",
   },
   report: {
     id: "report",
@@ -62,6 +81,9 @@ export const PURPOSE_MODES: Record<string, PurposeMode> = {
       "Compose a formal, linear document meant to be read top to bottom and shared. Structure it into titled sections separated by SectionBreak (variant: line); use TextBlock (variant: heading) for section titles and TextBlock (variant: body) for complete, professional prose paragraphs that narrate the analysis. Introduce each visualization in prose before it and interpret it after, with a caption beneath. Prefer a DataTable where precise figures matter. Open with a brief overview section and close with a summary / recommendation. Tone: formal, suitable for emailing leadership or a DOCX export. The number and type of visuals are yours to choose from the data — the constraint is the document FORM, not a chart count.",
     codegenScope:
       "Output scope: this feeds a written report — compute the key figures (results) and the few chart_data / table structures the narrative needs to make its case (typically 2-4). Enough to support the prose, not an exhaustive battery.",
+    maxSubQuestions: 4,
+    planScope:
+      "Generate UP TO 4 sub-questions covering the distinct angles a written report needs. Each must earn its place and not overlap the others; prefer sharp, insightful questions over filler sections.",
   },
   "deep-dive": {
     id: "deep-dive",
@@ -71,6 +93,9 @@ export const PURPOSE_MODES: Record<string, PurposeMode> = {
       "Compose an exhaustive, multi-angle analysis for someone who wants to understand the question fully. Examine it from every useful angle the data supports — trends, distributions, comparisons, breakdowns, correlations — and interleave a short TextBlock (variant: insight) after each that states the finding. Surface unexpected patterns or outliers the user did not ask about but should know, and include an Annotation (severity: info) noting methodology, data-quality, or sample-size caveats. Use SectionBreak components between major angles and include a DataTable slice where row-level detail helps. End with findings plus open questions. Drive breadth by what the data genuinely supports — go as wide as is warranted, not to a fixed number.",
     codegenScope:
       "Output scope: this feeds an exhaustive deep-dive — explore the question from every useful angle the data supports (trends, distributions, comparisons, breakdowns, correlations), computing the multiple charts and result metrics that breadth needs. Go as wide as the data genuinely warrants.",
+    maxSubQuestions: 10,
+    planScope:
+      "Generate 5 OR MORE sub-questions (up to 10), exploring the question from every useful angle the data supports — trends, segments, comparisons, breakdowns, correlations, outliers. Breadth is wanted here: go as wide as the data genuinely warrants.",
   },
 };
 
@@ -107,4 +132,14 @@ export function getPurposePrompt(purposeId: string): string {
 /** Code-gen output-scope block for a mode (scales analysis volume to intent). */
 export function getPurposeCodegenScope(purposeId: string): string {
   return PURPOSE_MODES[resolvePurpose(purposeId)].codegenScope;
+}
+
+/** Planner target/sharpness block for a mode (scales investigation breadth). */
+export function getPurposePlanScope(purposeId: string): string {
+  return PURPOSE_MODES[resolvePurpose(purposeId)].planScope;
+}
+
+/** Hard cap on total sub-questions for a mode (the dominant cost lever). */
+export function getPurposeMaxSubQuestions(purposeId: string): number {
+  return PURPOSE_MODES[resolvePurpose(purposeId)].maxSubQuestions;
 }
