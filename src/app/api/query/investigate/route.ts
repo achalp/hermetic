@@ -329,7 +329,11 @@ export async function POST(request: Request) {
                   PLANNER_MODEL
                 );
                 if (scope && connector.getScanSafeWindow) {
-                  const win = await connector.getScanSafeWindow(scope.table, WAREHOUSE_MAX_ROWS);
+                  const win = await connector.getScanSafeWindow(
+                    scope.table,
+                    scope.dateColumn,
+                    WAREHOUSE_MAX_ROWS
+                  );
                   if (win) {
                     scanWindowHint =
                       `\nSCAN BUDGET (sized from table metadata — use it EXACTLY, do not widen): constrain \`${scope.dateColumn}\` to >= '${win.start}' AND <= '${win.end}'. ` +

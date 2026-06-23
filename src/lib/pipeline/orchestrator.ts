@@ -12,6 +12,7 @@ import { recordFailure } from "@/lib/diagnostics/failure-log";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { generateText } from "ai";
+import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -175,19 +176,21 @@ export async function runPipeline(
     const retrySystemExtra = localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "";
     let retryCode: string;
     try {
-      const retryResult = await generateText({
-        model: getModel(model),
-        // The static "Common fixes" guidance lives here (cached) rather than in
-        // the per-attempt user prompt, so it isn't re-billed on every retry.
-        system: cachedSystem(
-          "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
-            RETRY_GUIDANCE +
-            retrySystemExtra
-        ),
-        prompt: buildRetryPromptMulti(priorAttempts, schema),
-        temperature: 0,
-        maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-      });
+      const retryResult = await withPhase("code_gen", () =>
+        generateText({
+          model: getModel(model),
+          // The static "Common fixes" guidance lives here (cached) rather than in
+          // the per-attempt user prompt, so it isn't re-billed on every retry.
+          system: cachedSystem(
+            "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
+              RETRY_GUIDANCE +
+              retrySystemExtra
+          ),
+          prompt: buildRetryPromptMulti(priorAttempts, schema),
+          temperature: 0,
+          maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+        })
+      );
 
       retryCode = fixColumnNameCase(
         stripValueAssertions(

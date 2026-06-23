@@ -114,45 +114,85 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
       return await result.text();
     },
 
-    async getScanSafeWindow(table: string, budgetRows: number) {
-      // system.parts is pure metadata (no data scan) and readable under
-      // read-only: min_time/max_time/rows per active part. Size a recent window
-      // to ~budgetRows from the table's time span + total rows.
+    async getScanSafeWindow(table: string, dateColumn: string, budgetRows: number) {
       const tbl = table.includes(".") ? table.split(".").pop()! : table;
-      try {
-        const result = await client.query({
-          query: `SELECT toUnixTimestamp(min(min_time)) AS min_t,
-                         toUnixTimestamp(max(max_time)) AS max_t,
-                         sum(rows) AS total
-                  FROM system.parts
-                  WHERE database = currentDatabase() AND table = {tbl:String} AND active`,
-          query_params: { tbl },
-          format: "JSONEachRow",
-        });
-        const rows = await result.json<{ min_t: number; max_t: number; total: number }>();
-        const r = rows[0];
-        const minT = Number(r?.min_t),
-          maxT = Number(r?.max_t),
-          total = Number(r?.total);
-        // No time-partition metadata (min/max are 0 / epoch) or empty → can't size.
-        if (!total || !maxT || !minT || maxT <= minT) return null;
-        // Whole table already fits the budget — no window needed.
-        if (total <= budgetRows) return null;
 
-        const spanSec = maxT - minT;
-        const rowsPerSec = total / spanSec;
-        const windowSec = Math.min(spanSec, Math.ceil(budgetRows / rowsPerSec));
-        const startT = maxT - windowSec;
-        const fmt = (t: number) => new Date(t * 1000).toISOString().slice(0, 19).replace("T", " ");
-        return {
-          start: fmt(startT),
-          end: fmt(maxT),
-          column: "", // the time column name is supplied by the caller's spec
-          estimatedRows: Math.round(rowsPerSec * windowSec),
-        };
-      } catch {
-        return null; // best-effort: fall back to the LLM-chosen window
-      }
+      // Two metadata sources, both no-full-scan:
+      //  1. system.parts (min_time/max_time/rows) — cleanest, but some readonly
+      //     users lack SELECT on it ("Not enough privileges").
+      //  2. min/max(dateColumn) + count() on the table itself — the readonly user
+      //     CAN read the table, and min/max on an indexed time column reads the
+      //     index (no full scan). Works where system.parts is denied.
+      const fromParts = async (): Promise<{ minT: number; maxT: number; total: number } | null> => {
+        try {
+          const result = await client.query({
+            query: `SELECT toUnixTimestamp(min(min_time)) AS min_t,
+                           toUnixTimestamp(max(max_time)) AS max_t,
+                           sum(rows) AS total
+                    FROM system.parts
+                    WHERE database = currentDatabase() AND table = {tbl:String} AND active`,
+            query_params: { tbl },
+            format: "JSONEachRow",
+          });
+          const r = (await result.json<{ min_t: number; max_t: number; total: number }>())[0];
+          const minT = Number(r?.min_t),
+            maxT = Number(r?.max_t),
+            total = Number(r?.total);
+          return total && maxT && minT && maxT > minT ? { minT, maxT, total } : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const fromTable = async (): Promise<{ minT: number; maxT: number; total: number } | null> => {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(dateColumn)) return null; // identifier guard
+        try {
+          // min/max only reads the index (no full scan) when dateColumn is the
+          // FIRST sort-key column. system.tables.sorting_key is granted even where
+          // system.parts isn't. If it's not the sort-key prefix, a min/max would
+          // full-scan and fail noisily — so skip and fall back to the LLM window.
+          const skResult = await client.query({
+            query: `SELECT sorting_key FROM system.tables
+                    WHERE database = currentDatabase() AND name = {tbl:String}`,
+            query_params: { tbl },
+            format: "JSONEachRow",
+          });
+          const sortingKey = (await skResult.json<{ sorting_key: string }>())[0]?.sorting_key ?? "";
+          const firstKey = sortingKey.split(",")[0]?.trim().replace(/`/g, "");
+          if (firstKey !== dateColumn) return null;
+
+          const result = await client.query({
+            query: `SELECT toUnixTimestamp(min(\`${dateColumn}\`)) AS min_t,
+                           toUnixTimestamp(max(\`${dateColumn}\`)) AS max_t,
+                           count() AS total
+                    FROM \`${tbl}\``,
+            format: "JSONEachRow",
+          });
+          const r = (await result.json<{ min_t: number; max_t: number; total: number }>())[0];
+          const minT = Number(r?.min_t),
+            maxT = Number(r?.max_t),
+            total = Number(r?.total);
+          return total && maxT && minT && maxT > minT ? { minT, maxT, total } : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const range = (await fromParts()) ?? (await fromTable());
+      if (!range) return null;
+      if (range.total <= budgetRows) return null; // whole table fits — no window
+
+      const spanSec = range.maxT - range.minT;
+      const rowsPerSec = range.total / spanSec;
+      const windowSec = Math.min(spanSec, Math.ceil(budgetRows / rowsPerSec));
+      const startT = range.maxT - windowSec;
+      const fmt = (t: number) => new Date(t * 1000).toISOString().slice(0, 19).replace("T", " ");
+      return {
+        start: fmt(startT),
+        end: fmt(range.maxT),
+        column: dateColumn,
+        estimatedRows: Math.round(rowsPerSec * windowSec),
+      };
     },
 
     async close() {

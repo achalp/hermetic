@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { mkdir, stat } from "node:fs/promises";
 import type { CSVSchema } from "@/lib/types";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
@@ -10,8 +10,14 @@ import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
 import { buildSchemaScript } from "./schema-script";
 import { logger } from "@/lib/logger";
 
-/** Host dir holding materialized Parquet files (bind-mounted into analysis sandboxes). */
-export const PARQUET_DIR = join(tmpdir(), "hermetic-parquet");
+/**
+ * Host dir holding materialized Parquet files, bind-mounted into analysis
+ * sandboxes. MUST live somewhere Docker Desktop shares for bind-mounts — the OS
+ * temp dir (/var/folders on macOS) is NOT shared, so the mount comes up empty
+ * and read_parquet finds nothing. The home dir (/Users/...) is shared by default
+ * (it's where the working local-files mounts live), so we anchor here.
+ */
+export const PARQUET_DIR = join(homedir(), ".hermetic", "parquet");
 
 /**
  * Convert CSV text into a Parquet file on the host AND extract its schema, in a
@@ -84,9 +90,22 @@ _con.close()
     }
 
     // Copy the Parquet out to the host so the analysis sandbox can bind-mount it.
-    await run("docker", ["cp", `${containerId}:${LOCAL_MOUNT_PATH}/output.parquet`, parquetPath], {
-      timeoutMs: 60_000,
-    });
+    const cp = await run(
+      "docker",
+      ["cp", `${containerId}:${LOCAL_MOUNT_PATH}/output.parquet`, parquetPath],
+      { timeoutMs: 60_000 }
+    );
+    // Verify it actually landed and is non-empty — otherwise the analysis mount
+    // would be broken and every step would fail with "no parquet found". Throwing
+    // here makes the caller fall back to the proven CSV path instead.
+    const size = await stat(parquetPath)
+      .then((s) => s.size)
+      .catch(() => 0);
+    if (cp.exitCode !== 0 || size === 0) {
+      throw new Error(
+        `Parquet copy-out failed (exit ${cp.exitCode}, ${size} bytes): ${cp.stderr.slice(0, 200)}`
+      );
+    }
 
     const outputResult = await run("docker", ["exec", containerId, "cat", "/data/output.json"]);
     if (!outputResult.stdout.trim()) {

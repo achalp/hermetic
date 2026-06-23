@@ -37,7 +37,11 @@ export interface WarehouseConnector {
    * engine can't size it cheaply (no time-partition metadata) or the whole table
    * already fits the budget. Optional — engines without cheap metadata omit it.
    */
-  getScanSafeWindow?(table: string, budgetRows: number): Promise<ScanWindow | null>;
+  getScanSafeWindow?(
+    table: string,
+    dateColumn: string,
+    budgetRows: number
+  ): Promise<ScanWindow | null>;
   close(): Promise<void>;
 }
 

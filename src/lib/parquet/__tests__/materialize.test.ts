@@ -4,6 +4,13 @@ const runMock = vi.fn();
 vi.mock("@/lib/sandbox/docker-utils", () => ({
   run: (...args: unknown[]) => runMock(...args),
 }));
+// No real filesystem: mkdir is a no-op, stat reports a non-empty parquet (the
+// copy-verification path). The "copy failed" case overrides stat to throw.
+const statMock = vi.fn();
+vi.mock("node:fs/promises", () => ({
+  mkdir: vi.fn(() => Promise.resolve(undefined)),
+  stat: () => statMock(),
+}));
 // Keep the prelude + schema-script as real string builders (no Docker needed).
 
 import { materializeCsvToParquet } from "@/lib/parquet/materialize";
@@ -30,7 +37,11 @@ function wireHappyPath() {
   });
 }
 
-beforeEach(wireHappyPath);
+beforeEach(() => {
+  wireHappyPath();
+  statMock.mockReset();
+  statMock.mockResolvedValue({ size: 4096 });
+});
 
 describe("materializeCsvToParquet", () => {
   it("rejects non-docker runtimes", async () => {
@@ -54,6 +65,15 @@ describe("materializeCsvToParquet", () => {
     expect(cp?.[2]).toMatch(/id1\.parquet$/);
     // Container always torn down
     expect(calls.some((a) => a[0] === "rm" && a.includes("-f"))).toBe(true);
+  });
+
+  it("throws when the parquet didn't land on the host (so the caller falls back to CSV)", async () => {
+    statMock.mockResolvedValue({ size: 0 }); // copy produced nothing
+    await expect(materializeCsvToParquet("a\n1", "id9", "f.csv", "docker")).rejects.toThrow(
+      /copy-out failed/
+    );
+    const calls = runMock.mock.calls.map((c) => c[1] as string[]);
+    expect(calls.some((a) => a[0] === "rm" && a.includes("-f"))).toBe(true); // still torn down
   });
 
   it("surfaces the sandbox stderr on a non-zero exit and still tears down", async () => {
