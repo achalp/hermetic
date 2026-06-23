@@ -26,29 +26,34 @@ export async function executeSandbox(
     await run("docker", runArgs, { timeoutMs: 15_000 });
     logger.debug("Docker: container created");
 
-    // 2. Write data files (skip for local files — data is bind-mounted)
+    // 2. Write data files. The primary input CSV is skipped in local-mount mode
+    //    (data is bind-mounted at /data/local). But geojson and additional files
+    //    — including step-dependency frames like /data/step_1.csv — must ALWAYS
+    //    be written: they live under /data/ (writable even with a read-only
+    //    bind-mount at /data/local), and dependent sub-questions read them.
+    //    Skipping them in mount mode broke every dependent step.
     if (!localMountPath) {
       await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/input.csv"], {
         input: csvContent,
         timeoutMs: 15_000,
       });
+    }
 
-      if (geojsonContent) {
-        await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/input.geojson"], {
-          input: geojsonContent,
+    if (geojsonContent) {
+      await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/input.geojson"], {
+        input: geojsonContent,
+        timeoutMs: 15_000,
+      });
+    }
+
+    if (additionalFiles && additionalFiles.length > 0) {
+      await run("docker", ["exec", id, "mkdir", "-p", "/data/sheets"], { timeoutMs: 5_000 });
+      for (const file of additionalFiles) {
+        const safePath = file.path.replace(/'/g, "'\\''");
+        await run("docker", ["exec", "-i", id, "sh", "-c", `cat > '${safePath}'`], {
+          input: file.content,
           timeoutMs: 15_000,
         });
-      }
-
-      if (additionalFiles && additionalFiles.length > 0) {
-        await run("docker", ["exec", id, "mkdir", "-p", "/data/sheets"], { timeoutMs: 5_000 });
-        for (const file of additionalFiles) {
-          const safePath = file.path.replace(/'/g, "'\\''");
-          await run("docker", ["exec", "-i", id, "sh", "-c", `cat > '${safePath}'`], {
-            input: file.content,
-            timeoutMs: 15_000,
-          });
-        }
       }
     }
 

@@ -14,7 +14,10 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
     username: config.user,
     password: config.password,
     database: config.database,
-    request_timeout: 120_000,
+    // Large materialization pulls (up to WAREHOUSE_MAX_ROWS) can take a while to
+    // scan + transfer; 120s was aborting them mid-stream ("socket closed before
+    // response fully read").
+    request_timeout: 300_000,
   });
 
   return {

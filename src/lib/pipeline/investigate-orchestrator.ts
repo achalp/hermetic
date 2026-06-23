@@ -49,6 +49,7 @@ import {
   INVESTIGATE_MAX_SUBQUESTIONS,
   COMPOSER_MAX_DISPATCHES,
   PLANNER_MODEL,
+  WAREHOUSE_MAX_ROWS,
 } from "@/lib/constants";
 import type {
   CSVSchema,
@@ -229,10 +230,10 @@ export function deriveAnalysisWindow(schema: CSVSchema): AnalysisWindow | undefi
 function describeMaterializedSnapshot(options: OrchestrateOptions): string {
   const cols = options.schema.columns.map((c) => c.name).join(", ");
   const rows = options.schema.row_count;
-  const capped = rows >= 50000;
+  const capped = rows >= WAREHOUSE_MAX_ROWS;
   const parts = [
     `Columns: ${cols}.`,
-    `Rows: ${rows}${capped ? " (capped at 50000 — may be a partial sample)" : ""}.`,
+    `Rows: ${rows.toLocaleString()}${capped ? ` (hit the ${WAREHOUSE_MAX_ROWS.toLocaleString()}-row cap — the source has more, so this is a sample)` : " (the COMPLETE filtered set — not a sample)"}.`,
   ];
   if (options.materializationSQL) {
     parts.unshift(`Pulled by this query:\n${options.materializationSQL}`);
@@ -316,7 +317,7 @@ async function runPerStepSQL(
 ): Promise<PipelineResult> {
   const sqlQuestion =
     `Fetch exactly the data needed to answer this analytical question: ${sq.question}\n` +
-    `Aggregate/filter/join server-side as appropriate. Return tidy rows ready for charting; cap at 50000 rows.` +
+    `Aggregate/filter/join server-side as appropriate. Return tidy rows ready for charting; LIMIT ${WAREHOUSE_MAX_ROWS}.` +
     (options.materializationSQL
       ? `\n\nIMPORTANT — keep the SAME time window as the dataset already materialized for this investigation; do NOT widen the date range (the source table is enormous and a wider scan is rejected with "rows to read exceeded"). LIMIT does NOT reduce rows scanned — only a bounded WHERE on the date/partition key does. That dataset was pulled with:\n${options.materializationSQL}`
       : "");
