@@ -1,0 +1,125 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
+import type { CSVSchema } from "@/lib/types";
+import type { SandboxRuntimeId } from "@/lib/constants";
+import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
+import { run } from "@/lib/sandbox/docker-utils";
+import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
+import { buildSchemaScript } from "./schema-script";
+import { logger } from "@/lib/logger";
+
+/** Host dir holding materialized Parquet files (bind-mounted into analysis sandboxes). */
+export const PARQUET_DIR = join(tmpdir(), "hermetic-parquet");
+
+/**
+ * Convert CSV text into a Parquet file on the host AND extract its schema, in a
+ * single ephemeral Docker/DuckDB pass with ZERO Node-side parsing. This is the
+ * foundation of the "data is what it is" path: DuckDB reads the CSV out-of-core,
+ * writes a compact, typed Parquet, and computes the schema over a large sample —
+ * so analysis can scale far past the pandas-era row cap. Returns the host Parquet
+ * path (for later bind-mount into the analysis sandbox) and the CSVSchema.
+ *
+ * Reuses the UNMODIFIED local-files schema script by writing the Parquet to the
+ * mount path and pointing the script at "output.parquet" — so this adds no risk
+ * to the existing local-files Parquet flow.
+ */
+export async function materializeCsvToParquet(
+  csvContent: string,
+  csvId: string,
+  filename: string,
+  runtime: SandboxRuntimeId
+): Promise<{ parquetPath: string; schema: CSVSchema }> {
+  if (runtime !== "docker") {
+    throw new Error("Parquet materialization is only supported with the Docker sandbox runtime.");
+  }
+  await mkdir(PARQUET_DIR, { recursive: true });
+  const parquetPath = join(PARQUET_DIR, `${csvId}.parquet`);
+  const containerId = `hermetic-materialize-${randomUUID()}`;
+
+  // Convert, then run the existing schema script over the result. Writing the
+  // Parquet to LOCAL_MOUNT_PATH/output.parquet lets buildSchemaScript read it
+  // unchanged (it builds DATA_PATH = `${LOCAL_MOUNT_PATH}/<filename>`).
+  const conversionPrefix = `
+import os as _os, duckdb as _ddb
+_os.makedirs('${LOCAL_MOUNT_PATH}', exist_ok=True)
+_con = _ddb.connect()
+_con.execute("COPY (SELECT * FROM read_csv_auto('/data/input.csv', header=true)) TO '${LOCAL_MOUNT_PATH}/output.parquet' (FORMAT PARQUET)")
+_con.close()
+`;
+  const script = PYTHON_NAN_PRELUDE + conversionPrefix + buildSchemaScript("output.parquet", false);
+
+  try {
+    await run(
+      "docker",
+      ["run", "-d", "--name", containerId, DOCKER_SANDBOX_IMAGE, "sleep", "300"],
+      { timeoutMs: 15_000 }
+    );
+    await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/input.csv"], {
+      input: csvContent,
+      timeoutMs: 60_000,
+    });
+    await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
+      input: script,
+      timeoutMs: 15_000,
+    });
+    const execResult = await run(
+      "docker",
+      [
+        "exec",
+        containerId,
+        "sh",
+        "-c",
+        "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
+      ],
+      { timeoutMs: SANDBOX_TIMEOUT_MS * 4 } // 120s — conversion + schema over large data
+    );
+    const exitCode = parseInt(execResult.stdout.trim(), 10);
+    if (exitCode !== 0) {
+      const stderr = await run("docker", ["exec", containerId, "cat", "/data/stderr.txt"]).catch(
+        () => ({ stdout: "unknown error", stderr: "", exitCode: 1 })
+      );
+      throw new Error(`Parquet materialization failed: ${stderr.stdout.slice(0, 500)}`);
+    }
+
+    // Copy the Parquet out to the host so the analysis sandbox can bind-mount it.
+    await run("docker", ["cp", `${containerId}:${LOCAL_MOUNT_PATH}/output.parquet`, parquetPath], {
+      timeoutMs: 60_000,
+    });
+
+    const outputResult = await run("docker", ["exec", containerId, "cat", "/data/output.json"]);
+    if (!outputResult.stdout.trim()) {
+      throw new Error("Parquet materialization produced no schema output");
+    }
+    const rawJson = outputResult.stdout
+      .replace(/\bNaN\b/g, "null")
+      .replace(/\b-?Infinity\b/g, "null");
+    const data = JSON.parse(rawJson) as {
+      row_count: number;
+      columns: CSVSchema["columns"];
+      sample_rows: CSVSchema["sample_rows"];
+      correlations: CSVSchema["correlations"];
+      detected_domain: CSVSchema["detected_domain"];
+    };
+
+    const schema: CSVSchema = {
+      csv_id: csvId,
+      filename,
+      row_count: data.row_count,
+      columns: data.columns,
+      sample_rows: data.sample_rows,
+      correlations: data.correlations ?? undefined,
+      detected_domain: data.detected_domain ?? "general",
+      source_type: "file",
+    };
+    logger.info("Materialized CSV to Parquet", {
+      csvId,
+      rows: data.row_count,
+      columns: data.columns.length,
+    });
+    return { parquetPath, schema };
+  } finally {
+    await run("docker", ["rm", "-f", containerId], { timeoutMs: 10_000 }).catch(() => {});
+  }
+}
