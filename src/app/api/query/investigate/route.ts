@@ -40,6 +40,7 @@ import {
   PARQUET_MATERIALIZE_THRESHOLD,
 } from "@/lib/constants";
 import { materializeCsvToParquet, PARQUET_DIR } from "@/lib/parquet/materialize";
+import { pickMaterializationScope } from "@/lib/warehouse/materialization-scope";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -314,11 +315,44 @@ export async function POST(request: Request) {
             if (warehouseState) {
               const { warehouse, connector } = warehouseState;
               emitProgress("generating_sql", 1, 99);
+
+              // Deterministic scan bound: pick the primary table+time column, then
+              // size a recent window to the row budget from ENGINE METADATA (no
+              // scan). Hand that exact window to the SQL-gen as a hard constraint
+              // so it can't guess a too-wide range. Best-effort — null on any step
+              // just falls back to the LLM choosing the window.
+              let scanWindowHint = "";
+              try {
+                const scope = await pickMaterializationScope(
+                  question,
+                  warehouse.tableSchemas,
+                  PLANNER_MODEL
+                );
+                if (scope && connector.getScanSafeWindow) {
+                  const win = await connector.getScanSafeWindow(scope.table, WAREHOUSE_MAX_ROWS);
+                  if (win) {
+                    scanWindowHint =
+                      `\nSCAN BUDGET (sized from table metadata — use it EXACTLY, do not widen): constrain \`${scope.dateColumn}\` to >= '${win.start}' AND <= '${win.end}'. ` +
+                      `A wider range exceeds "rows to read". If you filter to a status/category, keep this window too.`;
+                    logger.info("Investigate: metadata scan window", {
+                      table: scope.table,
+                      column: scope.dateColumn,
+                      start: win.start,
+                      end: win.end,
+                      estimatedRows: win.estimatedRows,
+                    });
+                  }
+                }
+              } catch {
+                // fall through with no hint
+              }
+
               const materializationQuestion =
                 `Pull the ROW-LEVEL data that later analysis steps will need to investigate this question: ${question}\n` +
                 `Return RAW ROWS — NOT pre-aggregated summaries and NOT the final analysis. Do NOT compute pairwise/co-occurrence counts, GROUP BY rollups, or joins here; later steps do that. Just select the relevant rows with every column plausibly useful (dimensions, dates, measures).\n` +
                 `Keep the query SIMPLE and keep the SCAN small so it stays under the engine's read limit. The ONLY reliable way to bound the scan on a large table is a SELECTIVE WHERE on the partition/date key: prefer a BOUNDED recent window (e.g. the most recent ~3 months that has data), plus any obvious status/category filter. Then ORDER BY the date key and LIMIT ${WAREHOUSE_MAX_ROWS}.\n` +
-                `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.`;
+                `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.` +
+                scanWindowHint;
               // Generate + execute with an automatic repair loop: if the engine
               // rejects the query (bad GROUP BY, type mismatch, …) the error is
               // fed back to the LLM and the query is regenerated, up to 2 times.

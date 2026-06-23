@@ -114,6 +114,47 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
       return await result.text();
     },
 
+    async getScanSafeWindow(table: string, budgetRows: number) {
+      // system.parts is pure metadata (no data scan) and readable under
+      // read-only: min_time/max_time/rows per active part. Size a recent window
+      // to ~budgetRows from the table's time span + total rows.
+      const tbl = table.includes(".") ? table.split(".").pop()! : table;
+      try {
+        const result = await client.query({
+          query: `SELECT toUnixTimestamp(min(min_time)) AS min_t,
+                         toUnixTimestamp(max(max_time)) AS max_t,
+                         sum(rows) AS total
+                  FROM system.parts
+                  WHERE database = currentDatabase() AND table = {tbl:String} AND active`,
+          query_params: { tbl },
+          format: "JSONEachRow",
+        });
+        const rows = await result.json<{ min_t: number; max_t: number; total: number }>();
+        const r = rows[0];
+        const minT = Number(r?.min_t),
+          maxT = Number(r?.max_t),
+          total = Number(r?.total);
+        // No time-partition metadata (min/max are 0 / epoch) or empty → can't size.
+        if (!total || !maxT || !minT || maxT <= minT) return null;
+        // Whole table already fits the budget — no window needed.
+        if (total <= budgetRows) return null;
+
+        const spanSec = maxT - minT;
+        const rowsPerSec = total / spanSec;
+        const windowSec = Math.min(spanSec, Math.ceil(budgetRows / rowsPerSec));
+        const startT = maxT - windowSec;
+        const fmt = (t: number) => new Date(t * 1000).toISOString().slice(0, 19).replace("T", " ");
+        return {
+          start: fmt(startT),
+          end: fmt(maxT),
+          column: "", // the time column name is supplied by the caller's spec
+          estimatedRows: Math.round(rowsPerSec * windowSec),
+        };
+      } catch {
+        return null; // best-effort: fall back to the LLM-chosen window
+      }
+    },
+
     async close() {
       await client.close();
     },
