@@ -315,11 +315,10 @@ export async function POST(request: Request) {
               const { warehouse, connector } = warehouseState;
               emitProgress("generating_sql", 1, 99);
               const materializationQuestion =
-                `Retrieve the DETAILED rows needed to investigate this question from multiple angles: ${question}\n` +
-                `Return row-level data (not pre-aggregated summaries) and include every column plausibly relevant to the question — ` +
-                `dimensions for grouping, dates for trends, and measures for computation. ` +
-                `Limit the result to ${WAREHOUSE_MAX_ROWS} rows. If the filtered data may exceed that, return a REPRESENTATIVE sample, NOT the first rows by sort — ` +
-                `use the dialect's sampling (ClickHouse \`SAMPLE\`, BigQuery \`TABLESAMPLE SYSTEM (n PERCENT)\`, Postgres/Snowflake \`TABLESAMPLE\`), or order by a hash/random (\`cityHash64\`, \`rand()\`) before the limit. Never bias the sample by ordering on a meaningful key (id, date) before LIMIT.`;
+                `Pull the ROW-LEVEL data that later analysis steps will need to investigate this question: ${question}\n` +
+                `Return RAW ROWS — NOT pre-aggregated summaries and NOT the final analysis. Do NOT compute pairwise/co-occurrence counts, GROUP BY rollups, or joins here; later steps do that. Just select the relevant rows with every column plausibly useful (dimensions, dates, measures).\n` +
+                `Keep the query SIMPLE and keep the SCAN small so it stays under the engine's read limit. The ONLY reliable way to bound the scan on a large table is a SELECTIVE WHERE on the partition/date key: prefer a BOUNDED recent window (e.g. the most recent ~3 months that has data), plus any obvious status/category filter. Then ORDER BY the date key and LIMIT ${WAREHOUSE_MAX_ROWS}.\n` +
+                `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.`;
               // Generate + execute with an automatic repair loop: if the engine
               // rejects the query (bad GROUP BY, type mismatch, …) the error is
               // fed back to the LLM and the query is regenerated, up to 2 times.
