@@ -708,24 +708,33 @@ export async function POST(request: Request) {
               // without this each wave-0 SQL generation cold-writes that schema in
               // parallel. Run both warm-ups concurrently — they're independent and
               // both best-effort.
-              await Promise.all([
-                prewarmCodeGenCache(
-                  stored.schema,
-                  "metadata",
-                  codeGenModel,
-                  undefined,
-                  warehouseState ? undefined : localFileContext,
-                  !!warehouseState, // systemOnly for warehouse
-                  context.purpose // same purpose → same cached system prompt
-                ),
-                warehouseState
-                  ? prewarmSQLGenCache(
-                      warehouseState.warehouse.tableSchemas,
-                      warehouseState.warehouse.config.type,
-                      codeGenModel
-                    )
-                  : Promise.resolve(),
-              ]);
+              //
+              // Prewarm only pays off when wave-0 fans out across ENOUGH parallel
+              // steps to amortize its cache-WRITE: it trades K cold writes for 1
+              // warm write + K reads. At ≤2 steps that trade is roughly break-even
+              // and the extra prewarm call's write (~$0.02-0.04, seen as a large
+              // prewarm phase on tiny runs) isn't recovered — so skip it and let the
+              // 1-2 steps cold-write directly.
+              if (plan.subQuestions.length > 2) {
+                await Promise.all([
+                  prewarmCodeGenCache(
+                    stored.schema,
+                    "metadata",
+                    codeGenModel,
+                    undefined,
+                    warehouseState ? undefined : localFileContext,
+                    !!warehouseState, // systemOnly for warehouse
+                    context.purpose // same purpose → same cached system prompt
+                  ),
+                  warehouseState
+                    ? prewarmSQLGenCache(
+                        warehouseState.warehouse.tableSchemas,
+                        warehouseState.warehouse.config.type,
+                        codeGenModel
+                      )
+                    : Promise.resolve(),
+                ]);
+              }
 
               const subResults = await runInvestigation(plan.subQuestions, {
                 schema: stored.schema,
