@@ -59,7 +59,6 @@ import type {
   AnalysisWindow,
 } from "@/lib/types";
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
-import { assessAnswerSufficiency } from "@/lib/llm/answer-sufficiency";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
@@ -201,22 +200,23 @@ interface OrchestrateOptions {
    * Per-step SQL mode. When set (alongside `warehouse` + `warehouseType`),
    * each sub-question generates and runs its OWN warehouse query, then
    * analyzes that result in Python — instead of every step sharing one
-   * up-front materialized CSV. The executor runs a SQL string against the
-   * warehouse and resolves with CSV content.
+   * up-front materialized CSV. This is the default for warehouse sources.
+   * The executor runs a SQL string against the warehouse and resolves with
+   * CSV content.
    */
   warehouseExecutor?: (sql: string) => Promise<string>;
   warehouseType?: WarehouseType;
   /**
-   * The broad up-front pull's SQL. Given to the sufficiency judge (so it knows
-   * what the materialized snapshot contains) and to any escalated per-step SQL
-   * (so it reuses the same time window instead of re-scanning the full table).
+   * The broad up-front pull's SQL. Given to each per-step query so it reuses
+   * the same time window instead of re-scanning the full (often enormous)
+   * table.
    */
   materializationSQL?: string;
   /**
    * Host path to the materialized Parquet, copied into the sandbox at
-   * /data/input.parquet (via docker cp — no bind-mount). Set for large warehouse
-   * pulls; the CSV-first analysis reads it via DuckDB. Mutually exclusive with
-   * localMountPath.
+   * /data/input.parquet (via docker cp — no bind-mount). Read only by the
+   * snapshot-analysis fallback (when per-step SQL fails) and by file sources.
+   * Mutually exclusive with localMountPath.
    */
   inputParquetPath?: string;
   /** Reported per-sub-question and per-wave status updates. */
@@ -237,58 +237,11 @@ export function deriveAnalysisWindow(schema: CSVSchema): AnalysisWindow | undefi
   return undefined;
 }
 
-/** A compact description of what the materialized snapshot holds, for the judge. */
-function describeMaterializedSnapshot(options: OrchestrateOptions): string {
-  const cols = options.schema.columns.map((c) => c.name).join(", ");
-  const rows = options.schema.row_count;
-  const capped = rows >= WAREHOUSE_MAX_ROWS;
-  const parts = [
-    `Columns: ${cols}.`,
-    `Rows: ${rows.toLocaleString()}${capped ? ` (hit the ${WAREHOUSE_MAX_ROWS.toLocaleString()}-row cap — the source has more, so this is a sample)` : " (the COMPLETE filtered set — not a sample)"}.`,
-  ];
-  if (options.materializationSQL) {
-    parts.unshift(`Pulled by this query:\n${options.materializationSQL}`);
-  }
-  return parts.join("\n");
-}
-
-/** Summarize what a pipeline result computed, for the sufficiency judge. */
-function summarizePipelineResult(result: PipelineResult): string {
-  const exec = result.executionResult;
-  const results = (exec.results ?? {}) as Record<string, unknown>;
-  const chart = (exec.chart_data ?? {}) as Record<string, unknown>;
-  const chartShapes = Object.entries(chart).map(([k, v]) => {
-    const rows = Array.isArray(v) ? v.length : 0;
-    const cols =
-      Array.isArray(v) && v.length > 0 && typeof v[0] === "object"
-        ? Object.keys(v[0] as Record<string, unknown>)
-        : [];
-    return `${k} (${rows} rows${cols.length ? `, cols: ${cols.join(", ")}` : ""})`;
-  });
-  const lines = [
-    `Result keys: ${Object.keys(results).join(", ") || "(none)"}`,
-    `Chart data: ${chartShapes.join("; ") || "(none)"}`,
-  ];
-  if (result.degraded) {
-    lines.push(`NOTE: validator flagged this result degenerate: ${result.degradedReason ?? ""}`);
-  }
-  return lines.join("\n");
-}
-
-/** True when a result is empty/degenerate (no usable output) — auto-insufficient. */
-function isDegenerateResult(result: PipelineResult): boolean {
-  if (result.degraded) return true;
-  const exec = result.executionResult;
-  const noResults = Object.keys((exec.results ?? {}) as Record<string, unknown>).length === 0;
-  const noCharts = Object.keys((exec.chart_data ?? {}) as Record<string, unknown>).length === 0;
-  return noResults && noCharts;
-}
-
 /**
- * Analyze the shared materialized CSV in Python for this sub-question. This is
- * the DEFAULT path for warehouse steps: the up-front broad pull usually already
- * holds what a sub-question needs, and analyzing it avoids re-querying the
- * (often enormous) warehouse table.
+ * Analyze the shared materialized snapshot in Python for this sub-question.
+ * For FILE sources this is the only path. For WAREHOUSE sources it is now only
+ * the fallback when per-step SQL gen/exec fails (see runWarehouseSubQuestion) —
+ * a biased snapshot answer beats failing the step outright.
  */
 function runCsvSubQuestion(
   sq: PlannedSubQuestion,
@@ -390,10 +343,22 @@ async function runPerStepSQL(
 }
 
 /**
- * Warehouse sub-question: analyze the materialized CSV first, conservatively
- * judge whether that answered it, and only escalate to a targeted (window-
- * bounded) per-step warehouse query when the snapshot genuinely lacks what's
- * needed. If the escalation fails, keep the already-computed CSV result.
+ * Warehouse sub-question: generate a targeted, window-bounded warehouse query
+ * for THIS sub-question, run it, and analyze the (small) result in Python.
+ *
+ * This is now the DEFAULT — and only — path for warehouse sources. We used to
+ * analyze a shared up-front materialized snapshot first and only escalate to
+ * per-step SQL when a sufficiency judge deemed the snapshot inadequate. But the
+ * snapshot is a capped SAMPLE, so counts/rates/lift over it are biased, and the
+ * diagnostics showed the judge rejecting it on nearly every step (3/4, then
+ * 5/5) — each rejection paying for a DISCARDED CSV-first analysis before
+ * escalating. That doubling was the dominant Investigate cost driver. Going
+ * straight to per-step SQL removes the doubling, the judge, and the sampling
+ * bias in one move: each sub-question aggregates server-side over the full
+ * population and pulls back a tiny result.
+ *
+ * If SQL gen/exec fails outright, fall back to analyzing the materialized
+ * snapshot — a biased answer beats no answer.
  */
 async function runWarehouseSubQuestion(
   sq: PlannedSubQuestion,
@@ -401,49 +366,20 @@ async function runWarehouseSubQuestion(
   priorTurns: ConversationTurn[],
   depFrames: { files: SandboxFile[]; context: string }
 ): Promise<PipelineResult> {
-  // 1) Analyze the shared materialized snapshot.
-  const csvResult = await runCsvSubQuestion(sq, options, priorTurns, depFrames);
-
-  // No warehouse to escalate into → this is all we can do.
-  if (!options.warehouseExecutor || !options.warehouse || !options.warehouseType) {
-    return csvResult;
-  }
-
-  // 2) Conservative sufficiency judgement (a degenerate result skips the call).
-  const verdict = isDegenerateResult(csvResult)
-    ? { sufficient: false, reason: "CSV analysis produced no usable result" }
-    : await assessAnswerSufficiency({
-        question: sq.question,
-        datasetDescription: describeMaterializedSnapshot(options),
-        resultSummary: summarizePipelineResult(csvResult),
-        model: PLANNER_MODEL,
-      });
-
-  if (verdict.sufficient) {
-    logger.info("Investigate: materialized CSV sufficed for sub-question", {
-      question: sq.question.slice(0, 120),
-      reason: verdict.reason,
-    });
-    diagEvent("step_done", { step: sq.question, path: "csv-first" });
-    return csvResult;
-  }
-
-  // 3) Escalate to a window-bounded per-step query; keep the CSV result if it fails.
-  // Escalation DOUBLES a step's code-gen (CSV-first analysis is discarded), so
-  // it's the dominant Investigate cost driver — record it.
-  diagEvent("escalation", { step: sq.question, reason: verdict.reason });
-  logger.info("Investigate: escalating sub-question to per-step SQL", {
-    question: sq.question.slice(0, 120),
-    reason: verdict.reason,
-  });
   try {
-    return await runPerStepSQL(sq, options, priorTurns, depFrames);
+    const result = await runPerStepSQL(sq, options, priorTurns, depFrames);
+    diagEvent("step_done", { step: sq.question, path: "per-step-sql" });
+    return result;
   } catch (err) {
-    logger.warn("Investigate: per-step SQL failed; keeping materialized-CSV result", {
-      question: sq.question.slice(0, 120),
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return csvResult;
+    logger.warn(
+      "Investigate: per-step SQL failed; falling back to materialized-snapshot analysis",
+      {
+        question: sq.question.slice(0, 120),
+        error: err instanceof Error ? err.message : String(err),
+      }
+    );
+    diagEvent("step_done", { step: sq.question, path: "fallback-csv" });
+    return runCsvSubQuestion(sq, options, priorTurns, depFrames);
   }
 }
 

@@ -30,19 +30,14 @@ vi.mock("@/lib/warehouse/sql-generation", () => ({
 vi.mock("@/lib/csv/storage", () => ({
   storeCSV: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("@/lib/llm/answer-sufficiency", () => ({
-  assessAnswerSufficiency: vi.fn(),
-}));
 
 import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateReplan } from "@/lib/llm/investigate-planner";
 import { gapCheckComposer } from "@/lib/llm/investigate-composer";
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
-import { assessAnswerSufficiency } from "@/lib/llm/answer-sufficiency";
 import type { CSVSchema } from "@/lib/types";
 
-const mockedAssess = vi.mocked(assessAnswerSufficiency);
 const mockedRunPipeline = vi.mocked(runPipeline);
 const mockedGenerateReplan = vi.mocked(generateReplan);
 const mockedGapCheck = vi.mocked(gapCheckComposer);
@@ -108,9 +103,6 @@ beforeEach(() => {
   // Default gap-check behavior: no needs (compose immediately)
   mockedGapCheck.mockResolvedValue({ needs: [], rationale: "sufficient" });
   mockedSQLRepair.mockReset();
-  mockedAssess.mockReset();
-  // Default: the materialized CSV is judged sufficient (no escalation).
-  mockedAssess.mockResolvedValue({ sufficient: true, reason: "covered" });
 });
 
 function sq(question: string, depends_on: number[]): PlannedSubQuestion {
@@ -210,10 +202,13 @@ describe("deriveAnalysisWindow", () => {
   });
 });
 
-describe("runInvestigation — warehouse CSV-first + escalation", () => {
-  it("analyzes the materialized CSV and skips SQL when the snapshot is judged sufficient", async () => {
+describe("runInvestigation — warehouse per-step SQL", () => {
+  it("generates a per-step query for every warehouse sub-question", async () => {
     mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
-    // default mockedAssess → sufficient: true
+    mockedSQLRepair.mockImplementation(async ({ execute }) => {
+      const result = await execute("SELECT * FROM t");
+      return { sql: "SELECT * FROM t", result: result as string };
+    });
 
     const results = await runInvestigation([sq("A", []), sq("B", [0])], {
       schema: freshSchema(),
@@ -224,26 +219,24 @@ describe("runInvestigation — warehouse CSV-first + escalation", () => {
       ...WAREHOUSE_OPTS,
     });
 
-    // No per-step SQL was generated — the CSV sufficed for both steps.
-    expect(mockedSQLRepair).not.toHaveBeenCalled();
+    // Every warehouse step pulls its own targeted data — no shared-snapshot
+    // analysis, no escalation judge.
+    expect(mockedSQLRepair).toHaveBeenCalledTimes(2);
     expect(results).toHaveLength(2);
     for (const r of results) {
-      expect(r.result?.sql).toBeUndefined();
-      expect(r.result?.stepCsvId).toBeUndefined();
+      expect(r.result?.sql).toBe("SELECT * FROM t");
+      expect(r.result?.stepCsvId).toBeTruthy();
     }
-    // Python ran over the shared materialized CSV.
-    expect(mockedRunPipeline.mock.calls[0][1]).toBe("materialized-csv");
   });
 
-  it("escalates to a per-step query when the snapshot is judged insufficient", async () => {
+  it("honors the materialization time window in the per-step query", async () => {
     mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
-    mockedAssess.mockResolvedValue({ sufficient: false, reason: "needs other data" });
     mockedSQLRepair.mockImplementation(async ({ execute }) => {
       const result = await execute("SELECT * FROM t");
       return { sql: "SELECT * FROM t", result: result as string };
     });
 
-    const results = await runInvestigation([sq("A", [])], {
+    await runInvestigation([sq("A", [])], {
       schema: freshSchema(),
       csvContent: "materialized-csv",
       model: "test-model",
@@ -254,35 +247,11 @@ describe("runInvestigation — warehouse CSV-first + escalation", () => {
     });
 
     expect(mockedSQLRepair).toHaveBeenCalledTimes(1);
-    // The escalated query must be told to honor the materialization window.
     expect(mockedSQLRepair.mock.calls[0][0].question).toContain("SAME time window");
-    expect(results[0].result?.sql).toBe("SELECT * FROM t");
-    expect(results[0].result?.stepCsvId).toBeTruthy();
   });
 
-  it("skips the judge and escalates when the CSV result is degenerate", async () => {
-    mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineDegraded(q));
-    mockedSQLRepair.mockImplementation(async ({ execute }) => {
-      const result = await execute("SELECT 1");
-      return { sql: "SELECT 1", result: result as string };
-    });
-
-    await runInvestigation([sq("A", [])], {
-      schema: freshSchema(),
-      csvContent: "materialized-csv",
-      model: "test-model",
-      originalQuestion: "test",
-      approach: "test approach",
-      ...WAREHOUSE_OPTS,
-    });
-
-    expect(mockedAssess).not.toHaveBeenCalled(); // degenerate → auto-insufficient
-    expect(mockedSQLRepair).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps the materialized-CSV result when an escalated query fails", async () => {
+  it("falls back to snapshot analysis when the per-step query fails", async () => {
     mockedRunPipeline.mockImplementation((_s, _c, q) => pipelineOk(q));
-    mockedAssess.mockResolvedValue({ sufficient: false, reason: "needs other data" });
     mockedSQLRepair.mockRejectedValue(new Error("SQL exploded after repairs"));
 
     const results = await runInvestigation([sq("A", [])], {
@@ -294,8 +263,9 @@ describe("runInvestigation — warehouse CSV-first + escalation", () => {
       ...WAREHOUSE_OPTS,
     });
 
+    // SQL failed → fall back to analyzing the materialized snapshot (no sql set).
     expect(results[0].result).toBeTruthy();
-    expect(results[0].result?.sql).toBeUndefined(); // CSV result, no SQL
+    expect(results[0].result?.sql).toBeUndefined();
     expect(mockedRunPipeline.mock.calls[0][1]).toBe("materialized-csv");
   });
 });
