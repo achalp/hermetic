@@ -413,10 +413,14 @@ export async function POST(request: Request) {
                   schema.source_type = "warehouse";
                   schema.warehouse_type = warehouse.config.type;
                   warehouseParquetFile = mat.parquetPath;
+                  const cappedSample = schema.row_count >= WAREHOUSE_MAX_ROWS;
                   warehouseParquetContext =
                     `The materialized dataset is a Parquet file at /data/input.parquet (${schema.row_count.toLocaleString()} rows).\n` +
                     `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')").df().\n` +
-                    `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.`;
+                    `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.` +
+                    (cappedSample
+                      ? `\nIMPORTANT — this is a CAPPED SAMPLE of ${schema.row_count.toLocaleString()} rows; the source has MORE. Do NOT present absolute totals or counts as findings (a "total" here just equals the sample size, ${schema.row_count.toLocaleString()}, and is misleading). Express results as RATES, proportions, percentages, or per-entity averages instead.`
+                      : "");
                   logger.info("Investigate: materialized warehouse data to Parquet", {
                     csvId: newCsvId,
                     rows: schema.row_count,

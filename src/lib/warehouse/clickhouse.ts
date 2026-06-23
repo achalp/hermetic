@@ -116,51 +116,25 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
 
     async getScanSafeWindow(table: string, dateColumn: string, budgetRows: number) {
       const tbl = table.includes(".") ? table.split(".").pop()! : table;
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(dateColumn)) return null; // identifier guard
 
-      // Two metadata sources, both no-full-scan:
-      //  1. system.parts (min_time/max_time/rows) — cleanest, but some readonly
-      //     users lack SELECT on it ("Not enough privileges").
-      //  2. min/max(dateColumn) + count() on the table itself — the readonly user
-      //     CAN read the table, and min/max on an indexed time column reads the
-      //     index (no full scan). Works where system.parts is denied.
-      const fromParts = async (): Promise<{ minT: number; maxT: number; total: number } | null> => {
-        try {
-          const result = await client.query({
-            query: `SELECT toUnixTimestamp(min(min_time)) AS min_t,
-                           toUnixTimestamp(max(max_time)) AS max_t,
-                           sum(rows) AS total
-                    FROM system.parts
-                    WHERE database = currentDatabase() AND table = {tbl:String} AND active`,
-            query_params: { tbl },
-            format: "JSONEachRow",
-          });
-          const r = (await result.json<{ min_t: number; max_t: number; total: number }>())[0];
-          const minT = Number(r?.min_t),
-            maxT = Number(r?.max_t),
-            total = Number(r?.total);
-          return total && maxT && minT && maxT > minT ? { minT, maxT, total } : null;
-        } catch {
-          return null;
-        }
-      };
-
-      const fromTable = async (): Promise<{ minT: number; maxT: number; total: number } | null> => {
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(dateColumn)) return null; // identifier guard
-        try {
-          // min/max only reads the index (no full scan) when dateColumn is the
-          // FIRST sort-key column. system.tables.sorting_key is granted even where
-          // system.parts isn't. If it's not the sort-key prefix, a min/max would
-          // full-scan and fail noisily — so skip and fall back to the LLM window.
-          const skResult = await client.query({
-            query: `SELECT sorting_key FROM system.tables
-                    WHERE database = currentDatabase() AND name = {tbl:String}`,
-            query_params: { tbl },
-            format: "JSONEachRow",
-          });
-          const sortingKey = (await skResult.json<{ sorting_key: string }>())[0]?.sorting_key ?? "";
-          const firstKey = sortingKey.split(",")[0]?.trim().replace(/`/g, "");
-          if (firstKey !== dateColumn) return null;
-
+      // Derive the time span from the TABLE itself (not system.parts — many
+      // read-only users lack SELECT on it, and the denial is just noise). min/max
+      // only reads the index (no full scan) when dateColumn is the FIRST sort-key
+      // column, which we check cheaply via system.tables.sorting_key (granted even
+      // where system.parts isn't). If it's not the sort-key prefix we return null
+      // and the caller falls back to the LLM-chosen window — quietly.
+      let range: { minT: number; maxT: number; total: number } | null = null;
+      try {
+        const skResult = await client.query({
+          query: `SELECT sorting_key FROM system.tables
+                  WHERE database = currentDatabase() AND name = {tbl:String}`,
+          query_params: { tbl },
+          format: "JSONEachRow",
+        });
+        const sortingKey = (await skResult.json<{ sorting_key: string }>())[0]?.sorting_key ?? "";
+        const firstKey = sortingKey.split(",")[0]?.trim().replace(/`/g, "");
+        if (firstKey === dateColumn) {
           const result = await client.query({
             query: `SELECT toUnixTimestamp(min(\`${dateColumn}\`)) AS min_t,
                            toUnixTimestamp(max(\`${dateColumn}\`)) AS max_t,
@@ -172,13 +146,12 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
           const minT = Number(r?.min_t),
             maxT = Number(r?.max_t),
             total = Number(r?.total);
-          return total && maxT && minT && maxT > minT ? { minT, maxT, total } : null;
-        } catch {
-          return null;
+          if (total && maxT && minT && maxT > minT) range = { minT, maxT, total };
         }
-      };
+      } catch {
+        return null;
+      }
 
-      const range = (await fromParts()) ?? (await fromTable());
       if (!range) return null;
       if (range.total <= budgetRows) return null; // whole table fits — no window
 
