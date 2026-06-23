@@ -11,6 +11,7 @@ import type {
   ConversationTurn,
 } from "@/lib/types";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
+import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 
 // ── Column metadata formatter ─────────────────────────────────────
 
@@ -142,12 +143,18 @@ function buildDomainLayer(domain: DataDomain): string {
 export function buildCodeGenSystemPrompt(
   mode: SchemaMode,
   hasWorkbookContext?: boolean,
-  domain?: DataDomain
+  domain?: DataDomain,
+  purpose?: string
 ): string {
   const metadataNote =
     mode === "metadata"
       ? "\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics."
       : "";
+
+  // The chosen output mode scales how much each step should compute — a brief
+  // needs the minimum, a deep-dive an exhaustive battery. Without this the model
+  // always over-produces and the composer discards the excess (wasted compute).
+  const scopeNote = purpose ? `\n- ${getPurposeCodegenScope(purpose)}` : "";
 
   return `You are a data analyst. You will be given a CSV schema and a user question.
 
@@ -167,7 +174,7 @@ Your job is to write a single Python script that:
    least one entry. (It writes "/data/output.json".)
 
 Rules:
-- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}
+- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}${scopeNote}
 - Use pandas for all data manipulation.
 - For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.
 - For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.

@@ -429,7 +429,9 @@ export async function POST(request: Request) {
                 workbookContext,
                 localMountPath,
                 localFileContext,
-                priorTurns.length > 0 ? priorTurns : undefined
+                priorTurns.length > 0 ? priorTurns : undefined,
+                undefined,
+                purpose
               );
             }
 

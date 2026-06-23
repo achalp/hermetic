@@ -191,6 +191,9 @@ interface OrchestrateOptions {
   originalQuestion: string;
   /** Planner's high-level approach (passed to the re-planner). */
   approach: string;
+  /** Output mode (dashboard/brief/report/deep-dive) — scales each step's
+   * analysis volume to the intent via the code-gen prompt. */
+  purpose?: string;
   /** Warehouse table schemas, if this Investigate is over a warehouse (passed to the re-planner). */
   warehouse?: WarehouseTableSchema[];
   /**
@@ -306,7 +309,8 @@ function runCsvSubQuestion(
     options.localMountPath,
     joinContext(options.localFileContext, depFrames.context),
     priorTurns.length > 0 ? priorTurns : undefined,
-    options.inputParquetPath
+    options.inputParquetPath,
+    options.purpose
   );
 }
 
@@ -375,7 +379,9 @@ async function runPerStepSQL(
     options.workbookContext,
     undefined,
     joinContext(depFrames.context),
-    priorTurns.length > 0 ? priorTurns : undefined
+    priorTurns.length > 0 ? priorTurns : undefined,
+    undefined,
+    options.purpose
   );
   result.sql = outcome.sql;
   result.stepCsvId = stepCsvId;
@@ -631,7 +637,9 @@ async function runOneSubQuestion(
           options.workbookContext,
           options.localMountPath,
           joinContext(options.localFileContext, depFrames.context),
-          priorTurns.length > 0 ? priorTurns : undefined
+          priorTurns.length > 0 ? priorTurns : undefined,
+          options.inputParquetPath,
+          options.purpose
         );
     slot.result = result;
     slot.finishedAt = Date.now();

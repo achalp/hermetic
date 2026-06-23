@@ -694,7 +694,8 @@ export async function POST(request: Request) {
                 codeGenModel,
                 undefined,
                 warehouseState ? undefined : localFileContext,
-                !!warehouseState // systemOnly for warehouse
+                !!warehouseState, // systemOnly for warehouse
+                context.purpose // same purpose → same cached system prompt
               ),
               warehouseState
                 ? prewarmSQLGenCache(
@@ -717,6 +718,8 @@ export async function POST(request: Request) {
               model: codeGenModel,
               originalQuestion: question,
               approach: plan.approach,
+              // Scales each step's analysis volume to the output mode.
+              purpose: context.purpose,
               // Warehouse steps analyze the materialized CSV first, then escalate
               // to their own (window-bounded) query only when a conservative
               // judge finds the snapshot insufficient. The materialization SQL is

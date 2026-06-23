@@ -142,7 +142,8 @@ export async function generateAnalysisCode(
   model: string = CODE_GEN_MODEL,
   workbookContext?: string,
   localFileContext?: string,
-  priorTurns?: ConversationTurn[]
+  priorTurns?: ConversationTurn[],
+  purpose?: string
 ): Promise<string> {
   const hasTurns = priorTurns && priorTurns.length > 0;
   // Cache the stable schema/context prefix; the question (and any chat history)
@@ -159,7 +160,7 @@ export async function generateAnalysisCode(
     generateText({
       model: getModel(model),
       system: cachedSystem(
-        buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)
+        buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain, purpose)
       ),
       messages: [
         { role: "user", content: [cachedText(schemaBlock), { type: "text", text: tail }] },
@@ -203,7 +204,8 @@ export async function prewarmCodeGenCache(
   model: string = CODE_GEN_MODEL,
   workbookContext?: string,
   localFileContext?: string,
-  systemOnly = false
+  systemOnly = false,
+  purpose?: string
 ): Promise<void> {
   if (getActiveProvider() !== "anthropic") return;
   try {
@@ -217,7 +219,7 @@ export async function prewarmCodeGenCache(
       generateText({
         model: getModel(model),
         system: cachedSystem(
-          buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain)
+          buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain, purpose)
         ),
         messages: [{ role: "user", content }],
         temperature: 0,

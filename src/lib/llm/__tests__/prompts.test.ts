@@ -234,6 +234,23 @@ describe("buildCodeGenSystemPrompt", () => {
     const sample = buildCodeGenSystemPrompt("sample", false);
     expect(sample).not.toContain("Column metadata (types, statistics");
   });
+
+  it("scales output scope to the chosen purpose (compute matches intent)", () => {
+    const none = buildCodeGenSystemPrompt("metadata");
+    expect(none).not.toContain("Output scope:");
+
+    const brief = buildCodeGenSystemPrompt("metadata", false, undefined, "brief");
+    expect(brief).toContain("Output scope:");
+    expect(brief).toContain("MINIMUM");
+    expect(brief).toContain("AT MOST ONE");
+
+    const deep = buildCodeGenSystemPrompt("metadata", false, undefined, "deep-dive");
+    expect(deep).toContain("exhaustive deep-dive");
+
+    // Legacy ids resolve (executive-summary → brief).
+    const legacy = buildCodeGenSystemPrompt("metadata", false, undefined, "executive-summary");
+    expect(legacy).toContain("MINIMUM");
+  });
 });
 
 describe("buildCodeGenUserPrompt", () => {

@@ -13,6 +13,7 @@ import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
+import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -68,7 +69,8 @@ export async function runPipeline(
   localMountPath?: string,
   localFileContext?: string,
   priorTurns?: ConversationTurn[],
-  inputParquetPath?: string
+  inputParquetPath?: string,
+  purpose?: string
 ): Promise<PipelineResult> {
   // Step 1: Generate analysis code
   onStage?.("generating_code");
@@ -81,7 +83,8 @@ export async function runPipeline(
       model,
       workbookContext,
       localFileContext,
-      priorTurns
+      priorTurns,
+      purpose
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -185,7 +188,9 @@ export async function runPipeline(
       errorText: retryError,
     });
 
-    const retrySystemExtra = localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "";
+    const retrySystemExtra =
+      (localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "") +
+      (purpose ? `\n\n${getPurposeCodegenScope(purpose)}` : "");
     let retryCode: string;
     try {
       const retryResult = await withPhase("code_gen", () =>
