@@ -5,7 +5,8 @@ import type {
   WarehouseTableSchema,
   WarehouseColumnInfo,
 } from "@/lib/types";
-import type { WarehouseConnector } from "./connector";
+import type { WarehouseConnector, ScanWindow } from "./connector";
+import { extractDateEpoch, parsePartitionId, sizeScanWindow } from "./scan-window";
 
 export function createBigQueryConnector(config: BigQueryConnectionConfig): WarehouseConnector {
   let credentials: Record<string, unknown>;
@@ -114,6 +115,102 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
       }
 
       return schemas;
+    },
+
+    /**
+     * Size a recent scan window for `table` so a bounded pull stays under
+     * BigQuery's read limit — tiered, cheapest-first:
+     *
+     *   Tier 1 (no data scan): INFORMATION_SCHEMA.PARTITIONS gives the partition
+     *     values AND per-partition row counts as METADATA. We get the date range
+     *     and density for free, on the column that actually prunes the scan.
+     *   Tier 2 (one-column scan): for NON-partitioned tables (which are usually
+     *     modest, so this is cheap), MIN/MAX/COUNT on the requested date column.
+     *
+     * Returns null when we can't size a window (caller falls back to the LLM
+     * choosing one). Window dates are day-granular `YYYY-MM-DD` — enough to bound
+     * a scan; the SQL-gen wraps them with DATE()/TIMESTAMP() per the dialect.
+     */
+    async getScanSafeWindow(table: string, dateColumn: string, budgetRows: number) {
+      const bare = table.includes(".") ? table.split(".").pop()! : table;
+      // Identifier guards — both are interpolated into SQL below.
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(bare)) return null;
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(dateColumn)) return null;
+      const ds = `\`${dataProject}.${datasetName}\``;
+      const fq = `\`${dataProject}.${datasetName}.${bare}\``;
+      const DAY_MS = 86_400_000;
+
+      const withColumn = (
+        w: ReturnType<typeof sizeScanWindow>,
+        column: string
+      ): ScanWindow | null => (w ? { ...w, column } : null);
+
+      // ── Tier 1: partition metadata (no data scan) ──
+      try {
+        const [partRows] = await bq.query({
+          query: `SELECT partition_id, total_rows
+                  FROM ${ds}.INFORMATION_SCHEMA.PARTITIONS
+                  WHERE table_name = '${bare}'`,
+        });
+        const real = (partRows ?? []).filter((r) => {
+          const pid = r.partition_id;
+          return pid && pid !== "__NULL__" && pid !== "__UNPARTITIONED__";
+        });
+        if (real.length > 0) {
+          let minMs = Infinity;
+          let maxMs = -Infinity;
+          let total = 0;
+          let dateLike = true;
+          for (const r of real) {
+            const ms = parsePartitionId(String(r.partition_id));
+            if (ms == null) {
+              dateLike = false; // integer-range partitioning → not a time window
+              break;
+            }
+            minMs = Math.min(minMs, ms);
+            maxMs = Math.max(maxMs, ms);
+            total += Number(r.total_rows ?? 0);
+          }
+          if (dateLike && total > 0) {
+            // The partition_id is the partition's START; extend the end by a day
+            // so the window covers the final (newest) partition inclusively.
+            const [colRows] = await bq.query({
+              query: `SELECT column_name FROM ${ds}.INFORMATION_SCHEMA.COLUMNS
+                      WHERE table_name = '${bare}' AND is_partitioning_column = 'YES'
+                      LIMIT 1`,
+            });
+            // No declared partitioning column ⇒ ingestion-time partitioning.
+            const partCol = colRows?.[0]?.column_name
+              ? String(colRows[0].column_name)
+              : "_PARTITIONDATE";
+            const win = withColumn(
+              sizeScanWindow(minMs, maxMs + DAY_MS, total, budgetRows),
+              partCol
+            );
+            if (win) return win;
+          }
+        }
+      } catch {
+        // INFORMATION_SCHEMA unavailable / denied → fall through to Tier 2.
+      }
+
+      // ── Tier 2: MIN/MAX/COUNT on the requested date column (scans one column) ──
+      try {
+        const [rows] = await bq.query({
+          query: `SELECT CAST(MIN(\`${dateColumn}\`) AS STRING) AS min_d,
+                         CAST(MAX(\`${dateColumn}\`) AS STRING) AS max_d,
+                         COUNT(*) AS total
+                  FROM ${fq}`,
+        });
+        const r = rows?.[0];
+        const minMs = extractDateEpoch(r?.min_d);
+        const maxMs = extractDateEpoch(r?.max_d);
+        const total = Number(r?.total ?? 0);
+        if (minMs == null || maxMs == null) return null;
+        return withColumn(sizeScanWindow(minMs, maxMs + DAY_MS, total, budgetRows), dateColumn);
+      } catch {
+        return null;
+      }
     },
 
     async executeSQL(sql: string): Promise<string> {

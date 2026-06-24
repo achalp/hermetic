@@ -345,12 +345,16 @@ export async function POST(request: Request) {
                       WAREHOUSE_MAX_ROWS
                     );
                     if (win) {
+                      // Use win.column, not scope.dateColumn — the connector may
+                      // window on the table's actual PARTITION column (the one that
+                      // prunes the scan), which can differ from the semantic date
+                      // column the scope picker chose.
                       scanWindowHint =
-                        `\nSCAN BUDGET (sized from table metadata — use it EXACTLY, do not widen): constrain \`${scope.dateColumn}\` to >= '${win.start}' AND <= '${win.end}'. ` +
+                        `\nSCAN BUDGET (sized from table metadata — use it EXACTLY, do not widen): constrain \`${win.column}\` to >= '${win.start}' AND <= '${win.end}'. ` +
                         `A wider range exceeds "rows to read". If you filter to a status/category, keep this window too.`;
                       logger.info("Investigate: metadata scan window", {
                         table: scope.table,
-                        column: scope.dateColumn,
+                        column: win.column,
                         start: win.start,
                         end: win.end,
                         estimatedRows: win.estimatedRows,
