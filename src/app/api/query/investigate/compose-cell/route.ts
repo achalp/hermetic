@@ -10,9 +10,12 @@
  * results/chart_data the client already holds, not raw rows.
  */
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
+import type { Spec } from "@json-render/core";
 import { isValidModelId, type ModelId } from "@/lib/constants";
 import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
 import { appendCostRow } from "@/lib/cost/storage";
+import { getCachedArtifacts, cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { loadArtifactsByCsvId, updateArtifactsByCsvId } from "@/lib/history/storage";
 import { logger } from "@/lib/logger";
 
 interface CellRequestStep {
@@ -31,6 +34,38 @@ interface ComposeCellBody {
   approach?: string;
   ui_compose_model?: string;
   steps?: CellRequestStep[];
+  /** Dataset id of the run — when present, composed cells are persisted back
+   * onto the trail (cache + history) so a reopened notebook skips recomposing. */
+  csv_id?: string;
+}
+
+/**
+ * Persist freshly-composed cell specs back onto the run's investigation trail,
+ * keyed by step index, in BOTH the in-memory artifacts cache and the on-disk
+ * history entry. Best-effort — a miss (cache expired AND no history match) is a
+ * no-op; the cells still render this session, they just won't survive a reload.
+ */
+async function persistCellsToTrail(csvId: string, cells: Record<number, Spec>): Promise<void> {
+  try {
+    const artifacts = getCachedArtifacts(csvId) ?? (await loadArtifactsByCsvId(csvId));
+    const steps = artifacts?.investigation?.steps;
+    if (!artifacts || !steps) return;
+    let changed = false;
+    for (const step of steps) {
+      const cell = cells[step.index];
+      if (cell && !step.cellSpec) {
+        step.cellSpec = cell;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    cacheArtifacts(csvId, artifacts);
+    await updateArtifactsByCsvId(csvId, artifacts);
+  } catch (err) {
+    logger.warn("Persisting lazy cells to trail failed (best-effort)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -83,9 +118,15 @@ export async function POST(request: Request): Promise<Response> {
       })
     );
 
-    const cells: Record<number, unknown> = {};
+    const cells: Record<number, Spec> = {};
     for (const entry of composed) {
       if (entry) cells[entry[0]] = entry[1];
+    }
+
+    // Durably persist the composed cells onto the trail so a reopened notebook
+    // renders them without paying for a recompose (best-effort).
+    if (body.csv_id && Object.keys(cells).length > 0) {
+      await persistCellsToTrail(body.csv_id, cells);
     }
 
     // Persist the deferred cell-compose cost (best-effort; no live footer here).

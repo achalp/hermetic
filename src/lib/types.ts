@@ -192,6 +192,13 @@ export interface HistoryMeta {
   id: string;
   question: string;
   timestamp: number;
+  /**
+   * The dataset id this run executed under (the materialized-result id for
+   * warehouse runs). Lets the artifacts endpoint fall back to this persisted
+   * entry when the in-memory artifacts cache (10-min TTL) has expired, instead
+   * of showing a blank trail. Optional — absent on entries saved before this.
+   */
+  csvId?: string;
   sourceFile: string;
   sourceType: "upload" | "local" | "warehouse";
   localPath?: string;

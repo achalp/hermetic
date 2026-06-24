@@ -871,6 +871,10 @@ export function NotebookView({
           body: JSON.stringify({
             original_question: originalQuestion,
             approach,
+            // So the server can persist the composed cells back onto the trail
+            // (cache + history) — a reopened notebook then renders them without
+            // recomposing.
+            csv_id: csvId,
             steps: need.map((c) => ({
               index: c.index,
               stepNo: c.stepNo,
@@ -896,7 +900,7 @@ export function NotebookView({
         // indices stay marked so we don't hammer the endpoint on every render.
       }
     })();
-  }, [derivedCells, isStreaming, approach, artifacts, lazyCells, overrides]);
+  }, [derivedCells, isStreaming, approach, artifacts, lazyCells, overrides, csvId]);
   // Stable identity so the export useCallback dep doesn't change every render.
   const synthesisRaw = state.__synthesis as SynthesisState | undefined;
   const synthesis = useMemo<SynthesisState>(() => synthesisRaw ?? {}, [synthesisRaw]);

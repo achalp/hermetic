@@ -74,6 +74,8 @@ export interface HistorySaveInput {
   warehouseType?: WarehouseType;
   csvContent?: string; // only for uploaded files
   executionMs: number;
+  /** Dataset id this run ran under — enables the artifacts cache-miss fallback. */
+  csvId?: string;
 }
 
 // ── CRUD ──────────────────────────────────────────────────────
@@ -87,6 +89,7 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
     id,
     question: input.question,
     timestamp: now,
+    csvId: input.csvId,
     sourceFile: input.sourceFile,
     sourceType: input.sourceType,
     localPath: input.localPath,
@@ -189,6 +192,54 @@ export async function loadHistoryEntry(id: string): Promise<LoadedHistoryEntry> 
 export async function deleteHistoryEntry(id: string): Promise<void> {
   validateId(id);
   await rm(join(HISTORY_DIR, id), { recursive: true, force: true });
+}
+
+/**
+ * Find the most recent history entry that ran under `csvId`. Used to recover a
+ * run's artifacts/trail when the in-memory artifacts cache has expired — the
+ * data is persisted on disk, just under a different (UUID) key. Returns null
+ * when nothing matches (e.g. entries saved before `csvId` was tracked).
+ */
+export async function findHistoryIdByCsvId(csvId: string): Promise<string | null> {
+  if (!csvId) return null;
+  const metas = await listHistory(); // newest-first
+  const hit = metas.find((m) => m.csvId === csvId);
+  return hit?.id ?? null;
+}
+
+/**
+ * Load the persisted artifacts (incl. the investigation trail) for the most
+ * recent run under `csvId`. The artifacts-cache fallback path. Best-effort.
+ */
+export async function loadArtifactsByCsvId(csvId: string): Promise<CachedArtifacts | undefined> {
+  const id = await findHistoryIdByCsvId(csvId);
+  if (!id) return undefined;
+  try {
+    const raw = await readFile(join(HISTORY_DIR, id, "artifacts.json"), "utf-8");
+    return JSON.parse(raw) as CachedArtifacts;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Overwrite the persisted artifacts.json for the most recent run under `csvId`.
+ * Used to durably persist lazily-composed notebook cell specs back onto the
+ * trail so a reopened notebook doesn't have to recompose them. Best-effort:
+ * a missing entry is a no-op (returns false).
+ */
+export async function updateArtifactsByCsvId(
+  csvId: string,
+  artifacts: CachedArtifacts
+): Promise<boolean> {
+  const id = await findHistoryIdByCsvId(csvId);
+  if (!id) return false;
+  try {
+    await writeFile(join(HISTORY_DIR, id, "artifacts.json"), JSON.stringify(artifacts), "utf-8");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function validateId(id: string): void {

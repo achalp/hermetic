@@ -57,6 +57,7 @@ export async function POST(request: Request) {
       warehouseType: stored.schema.warehouse_type,
       csvContent,
       executionMs: artifacts?.execution_ms ?? 0,
+      csvId, // enables the artifacts cache-miss → history fallback
     });
 
     // Update the latest conversation turn's specSummary now that the spec is available.
