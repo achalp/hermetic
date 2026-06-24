@@ -349,21 +349,25 @@ export function resolveSpecPlaceholders(
   // genuinely unresolvable (the composer named a key that was never computed,
   // e.g. "$result:step_1_title" for a title that isn't a result scalar). NEVER
   // leak the raw token to the UI: blank the JSON-value form (→ null) and strip
-  // the inline-prose form, recording each miss for the failure log.
-  const recordMiss = (detail: string) =>
+  // the inline-prose form. Log AND record each miss — a warn line for live
+  // visibility (mirrors the $chartData path) plus the failure log for per-run
+  // diagnostics; a recurring key here means composer prompt drift to chase.
+  const recordMiss = (token: string, form: "value" | "inline") => {
+    logger.warn("resolveSpecPlaceholders: unresolved placeholder swept", { token, form });
     void recordFailure({
       stage: "compose",
       kind: "compose",
       errorClass: "compose_key_unresolved",
-      detail,
+      detail: token,
     });
+  };
   processed = processed.replace(/"\$(?:result|chartData):[^"\n]+"/g, (m) => {
-    recordMiss(m);
+    recordMiss(m, "value");
     return "null";
   });
   if (/\$(?:result|chartData):/.test(processed)) {
     processed = processed.replace(/\$(?:result|chartData):[a-zA-Z0-9_.]+/g, (m) => {
-      recordMiss(m);
+      recordMiss(m, "inline");
       return "";
     });
   }
