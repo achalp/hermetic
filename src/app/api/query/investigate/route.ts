@@ -345,13 +345,17 @@ export async function POST(request: Request) {
                       WAREHOUSE_MAX_ROWS
                     );
                     if (win) {
-                      // Use win.column, not scope.dateColumn — the connector may
-                      // window on the table's actual PARTITION column (the one that
-                      // prunes the scan), which can differ from the semantic date
-                      // column the scope picker chose.
+                      // Bind the window to the table it was computed FOR. The scope
+                      // picker chooses one primary table, but the materialization may
+                      // target a DIFFERENT table (or a join) — applying this table's
+                      // partition window to another table's column returns zero rows
+                      // (the bug we saw). So qualify it and tell the model to bound a
+                      // different target's own column instead. (win.column, not
+                      // scope.dateColumn — the connector may pick the actual partition
+                      // column, which can differ from the semantic date column.)
                       scanWindowHint =
-                        `\nSCAN BUDGET (sized from table metadata — use it EXACTLY, do not widen): constrain \`${win.column}\` to >= '${win.start}' AND <= '${win.end}'. ` +
-                        `A wider range exceeds "rows to read". If you filter to a status/category, keep this window too.`;
+                        `\nSCAN BUDGET (sized from metadata for table \`${scope.table}\`): if your main scan IS \`${scope.table}\`, constrain its \`${win.column}\` to >= '${win.start}' AND <= '${win.end}' — do not widen (a wider range exceeds "rows to read"), and keep this window alongside any status/category filter. ` +
+                        `If your query's primary table is DIFFERENT from \`${scope.table}\` (e.g. a join pulls mainly from another table), do NOT copy this column/window — instead bound THAT table's own most-recent partition/date column to a similarly narrow window.`;
                       logger.info("Investigate: metadata scan window", {
                         table: scope.table,
                         column: win.column,
@@ -1144,6 +1148,13 @@ export async function POST(request: Request) {
               // validation only catches degenerate.
               if (!closed) {
                 const grounded = collectGroundedValues(mergedResults, mergedChartData);
+                // The materialized row count (and, when capped, the sample size
+                // WAREHOUSE_MAX_ROWS) is a legitimate provenance figure the narrative
+                // may cite ("based on 1,000,000 rows") — a KNOWN value, not a
+                // hallucination — so ground it to avoid a misleading "untraceable"
+                // caveat on the data-scope sentence.
+                if (stored?.schema?.row_count) grounded.push(stored.schema.row_count);
+                if (materializationSampled) grounded.push(WAREHOUSE_MAX_ROWS);
                 const grounding = verifyGrounding({
                   narrativeTexts,
                   citedSteps: [...citedSteps].sort((a, b) => a - b),

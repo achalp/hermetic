@@ -38,3 +38,30 @@ describe("resolveSpecPlaceholders — chartData key repair", () => {
     expect(out).toBe('{"data": [{"n":5}]}');
   });
 });
+
+describe("resolveSpecPlaceholders — never leak an unresolved placeholder", () => {
+  it("blanks an unresolved standalone $result value to null (not the raw token)", () => {
+    const out = resolveSpecPlaceholders('{"content": "$result:step_1_title"}', {}, {});
+    expect(out).toBe('{"content": null}');
+    expect(out).not.toContain("$result:");
+  });
+
+  it("strips an unresolved $result placeholder embedded in prose", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Overview of $result:step_1_title here"}',
+      {},
+      {}
+    );
+    expect(out).not.toContain("$result:");
+    expect(out).toContain("Overview of");
+  });
+
+  it("resolves real keys and only sweeps the genuinely-missing ones", () => {
+    const out = resolveSpecPlaceholders(
+      '{"a": "$result:total", "b": "$result:missing_key"}',
+      { total: 42 },
+      {}
+    );
+    expect(out).toBe('{"a": 42, "b": null}');
+  });
+});

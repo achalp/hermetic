@@ -345,6 +345,29 @@ export function resolveSpecPlaceholders(
     return String(value);
   });
 
+  // ── Final sweep: any "$result:"/"$chartData:" that survived every pass is
+  // genuinely unresolvable (the composer named a key that was never computed,
+  // e.g. "$result:step_1_title" for a title that isn't a result scalar). NEVER
+  // leak the raw token to the UI: blank the JSON-value form (→ null) and strip
+  // the inline-prose form, recording each miss for the failure log.
+  const recordMiss = (detail: string) =>
+    void recordFailure({
+      stage: "compose",
+      kind: "compose",
+      errorClass: "compose_key_unresolved",
+      detail,
+    });
+  processed = processed.replace(/"\$(?:result|chartData):[^"\n]+"/g, (m) => {
+    recordMiss(m);
+    return "null";
+  });
+  if (/\$(?:result|chartData):/.test(processed)) {
+    processed = processed.replace(/\$(?:result|chartData):[a-zA-Z0-9_.]+/g, (m) => {
+      recordMiss(m);
+      return "";
+    });
+  }
+
   return processed;
 }
 

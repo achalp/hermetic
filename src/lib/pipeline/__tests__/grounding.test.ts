@@ -110,6 +110,19 @@ describe("verifyGrounding", () => {
     expect(report.ungrounded).toContain("$9.9M");
   });
 
+  it("does not flag the data-provenance row count when it's added to grounded", () => {
+    // The route pushes the materialized row count / sample cap onto `grounded`
+    // because "based on 1,000,000 rows" is a KNOWN value, not a hallucination.
+    const report = verifyGrounding({
+      narrativeTexts: ["Analysis based on a sample of 1,000,000 rows."],
+      citedSteps: [1],
+      grounded: [...grounded, 1_000_000],
+      successfulStepNos,
+    });
+    expect(report.ok).toBe(true);
+    expect(report.ungrounded).toEqual([]);
+  });
+
   it("reports successful steps the narrative never cited", () => {
     const report = verifyGrounding({
       narrativeTexts: ["Revenue reached $4.7M."],

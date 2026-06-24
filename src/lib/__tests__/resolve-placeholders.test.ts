@@ -40,10 +40,11 @@ describe("resolveSpecPlaceholders — $result", () => {
     expect(out).toBe('{"text":"Significant: Yes"}');
   });
 
-  it("preserves unresolved placeholders so the client can see what is missing", () => {
+  it("blanks an unresolved placeholder to null — never leaks the raw token to the UI", () => {
     const line = '{"value":"$result:nonexistent"}';
     const out = resolveSpecPlaceholders(line, { other: 1 }, {});
-    expect(out).toBe(line);
+    expect(out).toBe('{"value":null}');
+    expect(out).not.toContain("$result:");
   });
 
   it("resolves nested dot-paths", () => {
