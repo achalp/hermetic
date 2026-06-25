@@ -1148,6 +1148,20 @@ export async function POST(request: Request) {
               // validation only catches degenerate.
               if (!closed) {
                 const grounded = collectGroundedValues(mergedResults, mergedChartData);
+                // Also ground against the per-step DATASETS. initialState carries
+                // only results + chart_data, but an insight/brief narrative often
+                // cites a figure straight from a step's data table (a per-industry
+                // median, a top row's value) — which lives in datasets. Without
+                // this, genuinely-computed numbers get a misleading "untraceable"
+                // caveat. (Caught by the e2e harness: real median_revenue figures
+                // 7.25M / 712.7M were falsely flagged.)
+                for (const s of trace.steps) {
+                  if (s.datasets) {
+                    grounded.push(
+                      ...collectGroundedValues({}, s.datasets as Record<string, unknown>)
+                    );
+                  }
+                }
                 // The materialized row count (and, when capped, the sample size
                 // WAREHOUSE_MAX_ROWS) is a legitimate provenance figure the narrative
                 // may cite ("based on 1,000,000 rows") — a KNOWN value, not a

@@ -110,6 +110,23 @@ describe("verifyGrounding", () => {
     expect(report.ungrounded).toContain("$9.9M");
   });
 
+  it("grounds a figure cited from a step DATASET table (not just results/chart_data)", () => {
+    // The route walks per-step datasets into `grounded`; collectGroundedValues
+    // picks numbers out of any nested structure, so a dataset row's value counts.
+    const datasetNums = collectGroundedValues(
+      {},
+      { main: [{ industry: "X", median_revenue: 712_700_000 }] }
+    );
+    expect(datasetNums).toContain(712_700_000);
+    const report = verifyGrounding({
+      narrativeTexts: ["Least-variable industries have median revenue of $712.7M."],
+      citedSteps: [2],
+      grounded: [...grounded, ...datasetNums],
+      successfulStepNos,
+    });
+    expect(report.ok).toBe(true);
+  });
+
   it("does not flag the data-provenance row count when it's added to grounded", () => {
     // The route pushes the materialized row count / sample cap onto `grounded`
     // because "based on 1,000,000 rows" is a KNOWN value, not a hallucination.
