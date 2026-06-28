@@ -39,6 +39,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Try with sample data.** One-click sample dataset to explore Hermetic without needing your own data.
 - **Start in one drag.** Drag a file straight onto the home screen (or click to browse), and see real example dashboards — the kind Hermetic generates — before you upload anything. The start screen leads with the privacy guarantee: the model writes the analysis code, but never sees your rows.
 - **Show your work.** Every analysis includes a plain-English methodology explanation — how many rows were analyzed, which columns were used, what operations were performed.
+- **Grounded numbers.** Every figure in a dashboard's narrative is checked against what the analysis actually computed; any number that traces to no result is flagged with a "verify this" caveat instead of being presented as fact. Applies to both single-shot dashboards and Investigate.
 - **Four output styles.** Choose how results are framed: Dashboard (at-a-glance grid), Brief (bottom-line-up-front), Report (formal sectioned document), or Deep dive (exhaustive multi-angle). Slides (PPTX / Reveal deck) is an export format.
 - **Light / Dark / System mode.** Toggle between light and dark themes, or follow your OS preference.
 
@@ -102,22 +103,25 @@ Credentials are saved automatically after a successful connection. Saved connect
 
 ```
 User asks question
-    → LLM generates dialect-aware SQL (across all tables)
-    → Server executes SQL against the warehouse
+    → LLM generates dialect-aware SQL (bounded to a metadata-sized scan window)
+    → Server executes it — self-healing on engine errors (repair + retry)
     → Results flow as CSV into the existing pandas pipeline
     → Analysis code runs in sandbox → interactive dashboard
 ```
 
 The SQL is available in the **Artifacts** panel (SQL tab) alongside the Python analysis code.
 
-### Investigate at warehouse scale
+### Warehouse queries are hardened — and Investigate goes further
 
-A single-shot **Ask** runs one query. An **Investigate** is a fan-out of many, so on a large table it has to be careful about what it scans:
+**Every** warehouse query — single-shot **Ask** and multi-step **Investigate** alike — runs through the same shared hardening, so a billion-row table doesn't sink it:
 
-- **Bounded materialization.** Before planning, Hermetic sizes a recent scan window from **engine metadata, not a data scan** — ClickHouse `system.tables` sort-key bounds, BigQuery `INFORMATION_SCHEMA.PARTITIONS` (partition values + row counts), with a `MIN/MAX` fallback on a real date column — and hands that exact window to SQL-gen as a hard constraint so a billion-row table never trips the read/byte limit.
-- **Per-step SQL, full population.** Each sub-question then generates its **own** targeted query that aggregates server-side over the full population and returns a small result — no row-cap sampling bias, and code-gen runs over kilobytes instead of a million-row frame.
-- **Self-healing SQL.** A failed query is repaired by feeding the exact engine error back to the model (bad GROUP BY, memory blowup, an empty result from a dead partition filter). Co-occurrence/pairwise questions are steered to array collapse + `ARRAY JOIN` instead of fact-table self-joins.
-- **Large pulls via Parquet + DuckDB.** When a materialized pull is big, it's converted to Parquet and analyzed through DuckDB before pandas — raising the in-memory ceiling well past a million rows, fallback-safe to CSV.
+- **Bounded scan from engine metadata (not a data scan).** Before generating SQL, Hermetic sizes a recent window from metadata — ClickHouse `system.tables` sort-key bounds, BigQuery `INFORMATION_SCHEMA.PARTITIONS` (partition values + row counts), with a `MIN/MAX` fallback on a real date column — and hands that exact window to SQL-gen so the query never trips the read/byte limit.
+- **Self-healing SQL.** A failed query is repaired by feeding the exact engine error back to the model — bad GROUP BY, memory blowup, a too-wide scan (`rows to read exceeded`), an empty result from a dead partition filter — and retried. Co-occurrence/pairwise questions are steered to array collapse + `ARRAY JOIN` instead of fact-table self-joins.
+
+**Investigate adds more for its fan-out:**
+
+- **Bounded materialization + per-step SQL.** It materializes one bounded snapshot for planning, then each sub-question generates its **own** targeted query that aggregates server-side over the full population (no row-cap sampling bias), returning a small result — code-gen runs over kilobytes instead of a million-row frame.
+- **Large pulls via Parquet + DuckDB.** A big materialized pull is converted to Parquet and analyzed through DuckDB before pandas — raising the in-memory ceiling well past a million rows, fallback-safe to CSV. When the snapshot is a capped sample, the dashboard discloses it.
 
 Tested end-to-end against live public warehouses (ClickHouse Playground, BigQuery public datasets).
 
