@@ -32,7 +32,7 @@ import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import { generateSQL } from "@/lib/warehouse/sql-generation";
+import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
 import { randomUUID } from "crypto";
 import { extractSchema } from "@/lib/csv/schema";
 import { parseCSV } from "@/lib/csv/parser";
@@ -185,60 +185,88 @@ export async function POST(request: Request) {
               if (warehouseState) {
                 const { warehouse, connector } = warehouseState;
 
-                // Step 1/5: Generate SQL — or use the edited SQL if the user
-                // supplied one via Edit-and-Rerun.
+                // Step 1/5 + 2/5: Generate + execute SQL — or use the edited SQL
+                // if the user supplied one via Edit-and-Rerun.
                 emitProgress("generating_sql", 1);
+                let warehouseCsvContent: string;
+
                 if (editedSql) {
+                  // User-supplied SQL — run as-is, no generation/repair.
                   warehouseSQL = editedSql;
                   logger.info("Warehouse query: using edited SQL (skipping LLM)", {
                     warehouseType: warehouse.config.type,
                     chars: editedSql.length,
                   });
+                  if (closed) return;
+                  emitProgress("querying_warehouse", 2);
+                  try {
+                    warehouseCsvContent = await connector.executeSQL(warehouseSQL);
+                    if (!warehouseCsvContent || warehouseCsvContent.trim() === "") {
+                      throw new Error("SQL query returned no results");
+                    }
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "SQL execution failed";
+                    logger.error("Warehouse query: SQL execution failed", {
+                      error: msg,
+                      sql: warehouseSQL,
+                    });
+                    throw new Error(
+                      `SQL execution failed: ${msg}\n\nGenerated SQL:\n${warehouseSQL}`
+                    );
+                  }
                 } else {
+                  // Generate, execute, and SELF-HEAL in one. A failed query — bad
+                  // GROUP BY, memory blowup, or (the common one on huge tables) a
+                  // TOO_MANY_ROWS from a too-wide scan — is repaired by feeding the
+                  // exact engine error back to the model, which tightens the
+                  // window. Ask has no fallback, so unlike Investigate's per-step
+                  // SQL we do NOT bail on resource errors: narrowing the scan IS
+                  // the fix. (Previously Ask was one-shot and hard-failed here.)
                   logger.info("Warehouse query: generating SQL", {
                     warehouseType: warehouse.config.type,
                     tableCount: warehouse.tableSchemas.length,
                     question,
                   });
                   try {
-                    warehouseSQL = await generateSQL(
-                      warehouse.tableSchemas,
+                    const outcome = await generateSQLWithRepair({
+                      tables: warehouse.tableSchemas,
                       question,
-                      warehouse.config.type,
-                      codeGenModel
-                    );
-                    logger.info("Warehouse query: SQL generated", { sql: warehouseSQL });
+                      warehouseType: warehouse.config.type,
+                      model: codeGenModel,
+                      execute: async (sql) => {
+                        const csv = await connector.executeSQL(sql);
+                        if (!csv || csv.trim() === "")
+                          throw new Error("SQL query returned no results");
+                        return csv;
+                      },
+                      onAttempt: (attempt, phase) => {
+                        if (closed) return;
+                        if (phase === "repairing") {
+                          logger.info("Warehouse query: repairing SQL", { attempt });
+                          emitProgress("generating_sql", 1);
+                        } else if (phase === "executing") {
+                          emitProgress("querying_warehouse", 2);
+                        }
+                      },
+                    });
+                    warehouseSQL = outcome.sql;
+                    warehouseCsvContent = outcome.result;
+                    logger.info("Warehouse query: SQL generated + executed", { sql: warehouseSQL });
                   } catch (err) {
-                    const msg = err instanceof Error ? err.message : "SQL generation failed";
-                    logger.error("Warehouse query: SQL generation failed", { error: msg });
-                    throw new Error(`SQL generation failed: ${msg}`);
+                    const msg = err instanceof Error ? err.message : "SQL failed";
+                    logger.error("Warehouse query: SQL failed after repair attempts", {
+                      error: msg,
+                      sql: warehouseSQL,
+                    });
+                    throw new Error(
+                      `SQL execution failed: ${msg}${warehouseSQL ? `\n\nGenerated SQL:\n${warehouseSQL}` : ""}`
+                    );
                   }
                 }
 
                 if (closed) return;
-
-                // Step 2/5: Execute SQL
-                emitProgress("querying_warehouse", 2);
-                logger.info("Warehouse query: executing SQL");
-
-                let warehouseCsvContent: string;
-                try {
-                  warehouseCsvContent = await connector.executeSQL(warehouseSQL);
-                  if (!warehouseCsvContent || warehouseCsvContent.trim() === "") {
-                    throw new Error("SQL query returned no results");
-                  }
-                  const rowCount = warehouseCsvContent.split("\n").length - 2; // minus header and trailing newline
-                  logger.info("Warehouse query: SQL executed", { rows: rowCount });
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : "SQL execution failed";
-                  logger.error("Warehouse query: SQL execution failed", {
-                    error: msg,
-                    sql: warehouseSQL,
-                  });
-                  throw new Error(
-                    `SQL execution failed: ${msg}\n\nGenerated SQL:\n${warehouseSQL}`
-                  );
-                }
+                const rowCount = warehouseCsvContent.split("\n").length - 2; // minus header + trailing newline
+                logger.info("Warehouse query: SQL executed", { rows: rowCount });
 
                 // Parse CSV → extract schema → store as regular CSV
                 const parsed = parseCSV(warehouseCsvContent);
