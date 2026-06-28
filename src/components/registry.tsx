@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { defineRegistry } from "@json-render/react";
+import { defineRegistry, type Components } from "@json-render/react";
 import { catalog } from "@/lib/catalog";
 import type { DrillDownParams } from "@/lib/types";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
@@ -30,6 +30,45 @@ import { MultiSelectComponent } from "./inputs/multi-select";
 import { RangeSliderComponent } from "./inputs/range-slider";
 import { DataTableComponent } from "./data-table";
 import { PivotTableComponent } from "./pivot-table";
+import { RendererErrorBoundary } from "./app/renderer-error-boundary";
+import type { ReactNode } from "react";
+
+/**
+ * Compact inline fallback for a single failed component. The top-level
+ * RendererErrorBoundary replaces the WHOLE dashboard on a crash; this keeps the
+ * blast radius to the one widget that threw, and names its type so the culprit
+ * is obvious instead of a white screen.
+ */
+function componentFallback(type: string): ReactNode {
+  return (
+    <div
+      className="flex min-h-[80px] items-center justify-center border border-error-border bg-error-bg p-3 text-center text-xs text-error-text opacity-80"
+      style={{ borderRadius: "var(--radius-card)" }}
+    >
+      Couldn’t render this {type}.
+    </div>
+  );
+}
+
+/**
+ * Wrap every registry component in its own error boundary so a crash in one
+ * chart (a malformed prop, an unexpected data shape from the composer) degrades
+ * to a placeholder tile instead of taking the entire dashboard down with it.
+ */
+function wrapAll(components: Components<typeof catalog>): Components<typeof catalog> {
+  // Typed loosely inside (the per-key ComponentFn generics aren't worth
+  // threading); the param/return type keeps the call-site literal correctly
+  // typed by the catalog.
+  const src = components as unknown as Record<string, (ctx: unknown) => ReactNode>;
+  const wrapped: Record<string, (ctx: unknown) => ReactNode> = {};
+  for (const key of Object.keys(src)) {
+    const render = src[key];
+    wrapped[key] = (ctx) => (
+      <RendererErrorBoundary fallback={componentFallback(key)}>{render(ctx)}</RendererErrorBoundary>
+    );
+  }
+  return wrapped as unknown as Components<typeof catalog>;
+}
 
 // Lazy-load all chart components to avoid compiling heavy deps (nivo, plotly, deck.gl, three.js)
 // on initial page load. Each chart is only compiled when first rendered.
@@ -274,7 +313,7 @@ const WindRoseComponent = dynamic(
 );
 
 const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
-  components: {
+  components: wrapAll({
     LayoutRow: ({ props, children }) => (
       <div
         className="flex flex-wrap items-stretch [&>*]:flex-1 [&>*]:min-w-[320px]"
@@ -680,7 +719,7 @@ const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
     RangeSlider: ({ props, bindings }) => (
       <RangeSliderComponent props={props} bindings={bindings} />
     ),
-  },
+  }),
   actions: {
     drillDown: async (params) => {
       if (params && drillDownCallbackRef.current) {

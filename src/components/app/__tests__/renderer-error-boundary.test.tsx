@@ -61,4 +61,21 @@ describe("RendererErrorBoundary", () => {
     );
     expect(screen.getByText("Try again")).toBeInTheDocument();
   });
+
+  it("isolates a crash to one component — siblings still render (per-component boundary)", () => {
+    // The pattern wrapAll applies in the registry: each component gets its own
+    // boundary, so one bad chart degrades to a tile instead of blanking the rest.
+    render(
+      <div>
+        <RendererErrorBoundary fallback={<div>Couldn’t render this BarChart.</div>}>
+          <ThrowingChild />
+        </RendererErrorBoundary>
+        <RendererErrorBoundary fallback={<div>Couldn’t render this LineChart.</div>}>
+          <SafeChild />
+        </RendererErrorBoundary>
+      </div>
+    );
+    expect(screen.getByText("Couldn’t render this BarChart.")).toBeInTheDocument();
+    expect(screen.getByText("Child rendered")).toBeInTheDocument(); // sibling survived
+  });
 });
