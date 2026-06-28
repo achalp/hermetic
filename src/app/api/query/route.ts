@@ -17,6 +17,7 @@ import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   UI_COMPOSE_MODEL,
   CODE_GEN_MODEL,
+  WAREHOUSE_MAX_ROWS,
   isValidModelId,
   isValidRuntimeId,
 } from "@/lib/constants";
@@ -32,7 +33,7 @@ import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
+import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { randomUUID } from "crypto";
 import { extractSchema } from "@/lib/csv/schema";
 import { parseCSV } from "@/lib/csv/parser";
@@ -215,30 +216,24 @@ export async function POST(request: Request) {
                     );
                   }
                 } else {
-                  // Generate, execute, and SELF-HEAL in one. A failed query — bad
-                  // GROUP BY, memory blowup, or (the common one on huge tables) a
-                  // TOO_MANY_ROWS from a too-wide scan — is repaired by feeding the
-                  // exact engine error back to the model, which tightens the
-                  // window. Ask has no fallback, so unlike Investigate's per-step
-                  // SQL we do NOT bail on resource errors: narrowing the scan IS
-                  // the fix. (Previously Ask was one-shot and hard-failed here.)
+                  // Shared warehouse hardening: bound the scan from engine
+                  // metadata, then generate → execute → self-heal. Same path
+                  // Investigate uses, so any future SQL-reliability fix applies to
+                  // both. (Previously Ask was one-shot and hard-failed on a
+                  // too-wide scan.)
                   logger.info("Warehouse query: generating SQL", {
                     warehouseType: warehouse.config.type,
                     tableCount: warehouse.tableSchemas.length,
                     question,
                   });
                   try {
-                    const outcome = await generateSQLWithRepair({
+                    const outcome = await runWarehouseQuery({
                       tables: warehouse.tableSchemas,
-                      question,
+                      connector,
                       warehouseType: warehouse.config.type,
+                      question,
                       model: codeGenModel,
-                      execute: async (sql) => {
-                        const csv = await connector.executeSQL(sql);
-                        if (!csv || csv.trim() === "")
-                          throw new Error("SQL query returned no results");
-                        return csv;
-                      },
+                      rowBudget: WAREHOUSE_MAX_ROWS,
                       onAttempt: (attempt, phase) => {
                         if (closed) return;
                         if (phase === "repairing") {
@@ -250,7 +245,7 @@ export async function POST(request: Request) {
                       },
                     });
                     warehouseSQL = outcome.sql;
-                    warehouseCsvContent = outcome.result;
+                    warehouseCsvContent = outcome.csv;
                     logger.info("Warehouse query: SQL generated + executed", { sql: warehouseSQL });
                   } catch (err) {
                     const msg = err instanceof Error ? err.message : "SQL failed";

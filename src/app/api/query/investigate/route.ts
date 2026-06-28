@@ -46,7 +46,7 @@ import {
 } from "@/lib/constants";
 import { materializeCsvToParquet } from "@/lib/parquet/materialize";
 import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
-import { pickMaterializationScope } from "@/lib/warehouse/materialization-scope";
+import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -71,7 +71,7 @@ import {
   storeCSV,
 } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import { generateSQLWithRepair, prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
+import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { randomUUID } from "crypto";
@@ -326,72 +326,24 @@ export async function POST(request: Request) {
                 const { warehouse, connector } = warehouseState;
                 emitProgress("generating_sql", 1, 99);
 
-                // Deterministic scan bound: pick the primary table+time column, then
-                // size a recent window to the row budget from ENGINE METADATA (no
-                // scan). Hand that exact window to the SQL-gen as a hard constraint
-                // so it can't guess a too-wide range. Best-effort — null on any step
-                // just falls back to the LLM choosing the window.
-                let scanWindowHint = "";
-                try {
-                  const scope = await pickMaterializationScope(
-                    question,
-                    warehouse.tableSchemas,
-                    PLANNER_MODEL
-                  );
-                  if (scope && connector.getScanSafeWindow) {
-                    const win = await connector.getScanSafeWindow(
-                      scope.table,
-                      scope.dateColumn,
-                      WAREHOUSE_MAX_ROWS
-                    );
-                    if (win) {
-                      // Bind the window to the table it was computed FOR. The scope
-                      // picker chooses one primary table, but the materialization may
-                      // target a DIFFERENT table (or a join) — applying this table's
-                      // partition window to another table's column returns zero rows
-                      // (the bug we saw). So qualify it and tell the model to bound a
-                      // different target's own column instead. (win.column, not
-                      // scope.dateColumn — the connector may pick the actual partition
-                      // column, which can differ from the semantic date column.)
-                      scanWindowHint =
-                        `\nSCAN BUDGET (sized from metadata for table \`${scope.table}\`): if your main scan IS \`${scope.table}\`, constrain its \`${win.column}\` to >= '${win.start}' AND <= '${win.end}' — do not widen (a wider range exceeds "rows to read"), and keep this window alongside any status/category filter. ` +
-                        `If your query's primary table is DIFFERENT from \`${scope.table}\` (e.g. a join pulls mainly from another table), do NOT copy this column/window — instead bound THAT table's own most-recent partition/date column to a similarly narrow window.`;
-                      logger.info("Investigate: metadata scan window", {
-                        table: scope.table,
-                        column: win.column,
-                        start: win.start,
-                        end: win.end,
-                        estimatedRows: win.estimatedRows,
-                      });
-                    }
-                  }
-                } catch {
-                  // fall through with no hint
-                }
-
+                // Bound the scan + self-heal via the SHARED warehouse path —
+                // runWarehouseQuery (scan-window from engine metadata, then
+                // generate → execute → repair) is the SAME hardening Ask uses, so
+                // every future SQL-reliability fix lands in one place.
                 const materializationQuestion =
                   `Pull the ROW-LEVEL data that later analysis steps will need to investigate this question: ${question}\n` +
                   `Return RAW ROWS — NOT pre-aggregated summaries and NOT the final analysis. Do NOT compute pairwise/co-occurrence counts, GROUP BY rollups, or joins here; later steps do that. Just select the relevant rows with every column plausibly useful (dimensions, dates, measures).\n` +
                   `Keep the query SIMPLE and keep the SCAN small so it stays under the engine's read limit. The ONLY reliable way to bound the scan on a large table is a SELECTIVE WHERE on the partition/date key: prefer a BOUNDED recent window (e.g. the most recent ~3 months that has data), plus any obvious status/category filter. Then ORDER BY the date key and LIMIT ${WAREHOUSE_MAX_ROWS}.\n` +
-                  `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.` +
-                  scanWindowHint;
-                // Generate + execute with an automatic repair loop: if the engine
-                // rejects the query (bad GROUP BY, type mismatch, …) the error is
-                // fed back to the LLM and the query is regenerated, up to 2 times.
+                  `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.`;
                 let warehouseCsvContent: string;
                 try {
-                  const outcome = await generateSQLWithRepair({
+                  const outcome = await runWarehouseQuery({
                     tables: warehouse.tableSchemas,
-                    question: materializationQuestion,
+                    connector,
                     warehouseType: warehouse.config.type,
+                    question: materializationQuestion,
                     model: codeGenModel,
-                    execute: async (sql) => {
-                      const csv = await connector.executeSQL(sql);
-                      if (!csv || csv.trim() === "") {
-                        throw new Error("SQL query returned no results");
-                      }
-                      return csv;
-                    },
+                    rowBudget: WAREHOUSE_MAX_ROWS,
                     onAttempt: (attempt, phase) => {
                       if (phase === "repairing") {
                         materializationRepairs++;
@@ -403,7 +355,7 @@ export async function POST(request: Request) {
                     },
                   });
                   warehouseSQL = outcome.sql;
-                  warehouseCsvContent = outcome.result;
+                  warehouseCsvContent = outcome.csv;
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : String(err);
                   throw new Error(
