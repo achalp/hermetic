@@ -44,7 +44,8 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 ### Agentic Analysis
 
-- **Investigate agent.** One question, a full deep-dive. The planner decomposes a question into 3–7 focused sub-questions, the orchestrator runs independent ones in parallel waves and dependent ones serially, and a composer synthesizes the results into a single unified dashboard. Progress streams live as a step list with status icons. The planner sees schema and stats only — never row values. Results render as a unified dashboard or as a step-by-step **notebook view** (each step's question, code, and result as a cell), exportable to Markdown, HTML, PDF, or Slides.
+- **Investigate agent.** One question, a full deep-dive. The planner decomposes it into a few focused, penetrating sub-questions — the count scaled to the output style (a Brief stays tight at ~3; a Deep dive goes wide) — the orchestrator runs independent ones in parallel waves and dependent ones serially, and a composer synthesizes them into a single unified dashboard. Against a **data warehouse**, each sub-question generates its own targeted SQL that aggregates server-side over the full population (no row-cap sampling bias), bounded to a scan window sized from engine metadata so a billion-row table never blows the read limit. Progress streams live as a step list with status icons. The planner sees schema and stats only — never row values. Results render as a unified dashboard or as a step-by-step **notebook view** (each step's question, code, and result as a cell), exportable to Markdown, HTML, PDF, or Slides.
+- **Per-run diagnostics.** Every Investigate (and Ask) run writes one structured JSON record to `data/diagnostics/<date>.jsonl` — materialization (rows, sampled, Parquet, SQL repairs), per sub-question (path, escalations + reason, retries + error classes, status), an aggregate summary, plus cost and call count. So "why did this run cost or behave this way" is answerable from data, not guesswork.
 - **Multi-retry with reflection.** When generated code fails, the pipeline retries up to three times, carrying the full history of failed attempts forward. A reflection prompt kicks in after two failures so the model sees what it tried and why it broke, not just the original prompt.
 - **Scheduled runs.** Saved dashboards can be scheduled with node-cron. Schedule popover anchored to the dashboard toolbar, schedule pills on saved-viz cards with edit/delete in place — a dashboard you built last week refreshes itself every Monday morning.
 - **Persistent history.** Every analysis auto-saves to disk (generated code, results, visualizations). History survives restarts. Browse from a dedicated page, restore any previous result instantly, or re-run it against fresh data.
@@ -75,8 +76,8 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Save and export.** Save visualizations, export as PDF, DOCX, or PPTX. Individual charts downloadable as PNG.
 - **Artifacts viewer.** Bottom sheet panel with syntax-highlighted SQL, Python code, and computed data tables. Copy to clipboard or export as CSV/XLSX.
 - **Update data.** Re-run saved visualizations with new data files. Schema-compatible updates skip LLM calls.
-- **Cost tracking.** Every analysis' LLM token cost is captured automatically across the whole fan-out (code-gen, retries, planner, sub-questions, compose) with zero call-site threading, and surfaced three ways: a live footer (last analysis + running session total), a per-day CSV log (`data/cost/<date>.csv` with token buckets and per-analysis cost), and a `/cost` page with totals and a per-dataset breakdown, linked from Settings. Local or unknown models report $0 but still track tokens.
-- **Cost-optimized by default.** Prompt caching (Anthropic ephemeral cache — roughly a 90% input discount on cache hits) wraps the large static prompts that every compose call re-sends, plus cheaper models for heavy vs. classification work, fewer retries, and lazy cell composition. The wins are largest on Investigate, which fans out into many LLM calls.
+- **Cost tracking.** Every analysis' LLM token cost is captured automatically across the whole fan-out (code-gen, retries, planner, sub-questions, compose) with zero call-site threading, and surfaced three ways: a live footer (last analysis + running session total), a per-day CSV log (`data/cost/<date>.csv` with token buckets, per-analysis cost, and a **per-phase breakdown** — planner, SQL-gen, SQL-repair, code-gen, compose, …), and a `/cost` page with totals and a per-dataset breakdown, linked from Settings. Local or unknown models report $0 but still track tokens.
+- **Cost-optimized by default.** Prompt caching (Anthropic ephemeral cache — roughly a 90% input discount on cache hits) wraps the large static prompts that every compose call re-sends, plus cheaper models for heavy vs. classification work, fewer retries, lazy cell composition, output volume scaled to the chosen style, and — for warehouse Investigate — per-step SQL that aggregates in the warehouse so code-gen runs over a small result instead of a million-row frame. The wins are largest on Investigate, which fans out into many LLM calls; per-phase cost telemetry is what made each lever measurable.
 
 ### Configuration
 
@@ -108,6 +109,17 @@ User asks question
 ```
 
 The SQL is available in the **Artifacts** panel (SQL tab) alongside the Python analysis code.
+
+### Investigate at warehouse scale
+
+A single-shot **Ask** runs one query. An **Investigate** is a fan-out of many, so on a large table it has to be careful about what it scans:
+
+- **Bounded materialization.** Before planning, Hermetic sizes a recent scan window from **engine metadata, not a data scan** — ClickHouse `system.tables` sort-key bounds, BigQuery `INFORMATION_SCHEMA.PARTITIONS` (partition values + row counts), with a `MIN/MAX` fallback on a real date column — and hands that exact window to SQL-gen as a hard constraint so a billion-row table never trips the read/byte limit.
+- **Per-step SQL, full population.** Each sub-question then generates its **own** targeted query that aggregates server-side over the full population and returns a small result — no row-cap sampling bias, and code-gen runs over kilobytes instead of a million-row frame.
+- **Self-healing SQL.** A failed query is repaired by feeding the exact engine error back to the model (bad GROUP BY, memory blowup, an empty result from a dead partition filter). Co-occurrence/pairwise questions are steered to array collapse + `ARRAY JOIN` instead of fact-table self-joins.
+- **Large pulls via Parquet + DuckDB.** When a materialized pull is big, it's converted to Parquet and analyzed through DuckDB before pandas — raising the in-memory ceiling well past a million rows, fallback-safe to CSV.
+
+Tested end-to-end against live public warehouses (ClickHouse Playground, BigQuery public datasets).
 
 ### PostgreSQL
 
