@@ -62,6 +62,7 @@ import {
   verifyGrounding,
   extractCitedSteps,
   extractPlaceholderCitedSteps,
+  collectNarrativeStrings,
 } from "@/lib/pipeline/grounding";
 import {
   getStoredCSV,
@@ -88,41 +89,6 @@ import { getActiveProvider } from "@/lib/llm/client";
 import { logger } from "@/lib/logger";
 
 export const maxDuration = 600; // 10 minutes — investigations can run longer than Ask
-
-/**
- * Narrative-bearing prop keys in a JSON-Render component node. We collect text
- * from these (not every string) so the grounding pass checks prose and labels
- * but ignores type names, variants, colors, and key paths — which contain
- * digit sequences (hex colors, step_N keys) that would be false positives.
- */
-const NARRATIVE_KEYS = new Set([
-  "content",
-  "label",
-  "title",
-  "caption",
-  "description",
-  "summary",
-  "text",
-]);
-
-/** Recursively pull narrative strings out of a streamed patch's `value`. */
-function collectNarrativeStrings(value: unknown, depth = 0, out: string[] = []): string[] {
-  if (depth > 8 || value == null) return out;
-  if (Array.isArray(value)) {
-    for (const item of value) collectNarrativeStrings(item, depth + 1, out);
-    return out;
-  }
-  if (typeof value === "object") {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof v === "string") {
-        if (NARRATIVE_KEYS.has(k)) out.push(v);
-      } else {
-        collectNarrativeStrings(v, depth + 1, out);
-      }
-    }
-  }
-  return out;
-}
 
 interface InvestigateContext {
   csv_id?: string;

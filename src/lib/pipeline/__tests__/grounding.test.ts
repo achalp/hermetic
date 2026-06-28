@@ -1,12 +1,39 @@
 import { describe, it, expect } from "vitest";
 import {
   collectGroundedValues,
+  collectNarrativeStrings,
   extractNumbers,
   extractCitedSteps,
   extractPlaceholderCitedSteps,
   verifyGrounding,
   __testing,
 } from "@/lib/pipeline/grounding";
+
+describe("collectNarrativeStrings", () => {
+  it("pulls prose from narrative-bearing keys, ignoring type names / colors / keys", () => {
+    const node = {
+      type: "StatCard",
+      props: {
+        title: "Revenue grew to $4.7M",
+        color: "#1a2b3c", // not narrative — must be ignored
+        value: 4_700_000,
+        label: "Total",
+      },
+      children: [{ type: "TextBlock", props: { content: "West led at 42%." } }],
+    };
+    const out = collectNarrativeStrings(node);
+    expect(out).toContain("Revenue grew to $4.7M");
+    expect(out).toContain("Total");
+    expect(out).toContain("West led at 42%."); // nested
+    expect(out).not.toContain("#1a2b3c");
+    expect(out).not.toContain("StatCard");
+  });
+
+  it("returns [] for null / primitives", () => {
+    expect(collectNarrativeStrings(null)).toEqual([]);
+    expect(collectNarrativeStrings(42)).toEqual([]);
+  });
+});
 
 describe("collectGroundedValues", () => {
   it("pulls scalars from results and numeric cells from chart_data", () => {

@@ -104,6 +104,45 @@ export function collectGroundedValues(
   return nums;
 }
 
+/**
+ * Narrative-bearing prop keys in a JSON-Render node. We collect text from these
+ * (not every string) so grounding checks prose and labels but ignores type
+ * names, variants, colors, and key paths — which carry digit sequences (hex
+ * colors, step_N keys) that would be false positives.
+ */
+const NARRATIVE_KEYS = new Set([
+  "content",
+  "label",
+  "title",
+  "caption",
+  "description",
+  "summary",
+  "text",
+]);
+
+/**
+ * Recursively pull narrative strings out of a streamed spec patch's `value`.
+ * Shared by the Investigate route and the single-shot composer so both ground
+ * against the same prose.
+ */
+export function collectNarrativeStrings(value: unknown, depth = 0, out: string[] = []): string[] {
+  if (depth > 8 || value == null) return out;
+  if (Array.isArray(value)) {
+    for (const item of value) collectNarrativeStrings(item, depth + 1, out);
+    return out;
+  }
+  if (typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === "string") {
+        if (NARRATIVE_KEYS.has(k)) out.push(v);
+      } else {
+        collectNarrativeStrings(v, depth + 1, out);
+      }
+    }
+  }
+  return out;
+}
+
 // ── Extracting numbers from narrative prose ───────────────────────────
 
 // Matches optional leading $, then digits with optional thousands separators

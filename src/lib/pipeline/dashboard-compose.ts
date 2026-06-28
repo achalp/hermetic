@@ -19,6 +19,11 @@ import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
+import {
+  collectNarrativeStrings,
+  collectGroundedValues,
+  verifyGrounding,
+} from "@/lib/pipeline/grounding";
 import { logger } from "@/lib/logger";
 import type {
   SandboxExecutionResult,
@@ -456,6 +461,16 @@ export async function composeAndStreamDashboard(args: {
   let buffer = "";
   let stateInjected = false;
   let lineCount = 0;
+  // Narrative prose accumulated across the stream, for the grounding pass below.
+  const narrativeTexts: string[] = [];
+  const emitPatch = (line: string) => {
+    emit(line + "\n");
+    try {
+      collectNarrativeStrings((JSON.parse(line) as { value?: unknown }).value, 0, narrativeTexts);
+    } catch {
+      // non-JSON keepalive / partial — nothing to collect
+    }
+  };
 
   const validStateKeys: ValidStateKeys | null = useDataController
     ? {
@@ -510,12 +525,12 @@ export async function composeAndStreamDashboard(args: {
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         const result = processLine(line.trim());
-        if (result !== null) emit(result + "\n");
+        if (result !== null) emitPatch(result);
       }
     }
     if (!isClosed() && buffer.trim()) {
       const result = processLine(buffer.trim());
-      if (result !== null) emit(result + "\n");
+      if (result !== null) emitPatch(result);
     }
   } catch (streamErr) {
     if (!isClosed()) {
@@ -555,5 +570,33 @@ export async function composeAndStreamDashboard(args: {
       if (typeof value === "object" && value !== null) datasetsPayload[key] = value;
     }
     emit(JSON.stringify({ op: "add", path: "/state/datasets", value: datasetsPayload }) + "\n");
+  }
+
+  // Grounding (SHARED with Investigate): flag any narrative figure that traces
+  // to no computed value, so the same "verify these figures" caveat fires for a
+  // single-shot dashboard too. Best-effort; only surfaced when there's an actual
+  // ungrounded figure (no steps to cite in single-shot, so silence when clean).
+  if (!isClosed()) {
+    try {
+      const grounded = collectGroundedValues(
+        (executionResult.results ?? {}) as Record<string, unknown>,
+        (executionResult.chart_data ?? {}) as Record<string, unknown>
+      );
+      const datasets = executionResult.datasets as Record<string, unknown> | undefined;
+      if (datasets) grounded.push(...collectGroundedValues({}, datasets));
+      const report = verifyGrounding({
+        narrativeTexts,
+        citedSteps: [],
+        grounded,
+        successfulStepNos: [],
+      });
+      if (!report.ok) {
+        emit(JSON.stringify({ op: "add", path: "/state/__grounding", value: report }) + "\n");
+      }
+    } catch (err) {
+      logger.debug("compose grounding failed (best-effort)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
