@@ -65,8 +65,10 @@ export const catalogComponents = {
       highlight_max: z.boolean().nullable(),
       highlight_min: z.boolean().nullable(),
       max_rows: z.number().nullable(),
+      delta_columns: z.array(z.string()).nullable(),
     }),
-    description: "Tabular data view with optional highlighting of extremes.",
+    description:
+      "Tabular data view with optional highlighting of extremes. For a comparison report, pass `delta_columns` (the header names of signed Δ columns) to color positives green / negatives red — e.g. a Metric | A | B | Δ | Assessment table.",
   },
   PivotTable: {
     props: z.object({

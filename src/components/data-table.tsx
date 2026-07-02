@@ -22,6 +22,22 @@ interface DataTableProps {
   highlight_max?: boolean | null;
   highlight_min?: boolean | null;
   max_rows?: number | null;
+  /**
+   * Column headers to render as SIGNED deltas: positive values color green,
+   * negative red, zero neutral — the "Δ" convention of a comparison report
+   * (Metric | A | B | Δ | Assessment). Matched against `columns` by header text
+   * (case-insensitive). A leading + is added to positive numbers when absent.
+   */
+  delta_columns?: string[] | null;
+}
+
+/** Sign of a numeric string, ignoring currency/%, treating tiny magnitudes as 0. */
+function deltaSign(v: string): "pos" | "neg" | "zero" | null {
+  if (v == null || v === "") return null;
+  const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+  if (isNaN(n)) return null;
+  if (Math.abs(n) < 1e-9) return "zero";
+  return n > 0 ? "pos" : "neg";
 }
 
 function isNumericString(v: string): boolean {
@@ -116,6 +132,17 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
     });
   }, [normalizedRows, columnHeaders]);
 
+  // Which column indices are signed-delta columns (green +, red −).
+  const deltaColumnSet = useMemo(() => {
+    const wanted = (props.delta_columns ?? []).map((c) => c.toLowerCase().trim());
+    if (wanted.length === 0) return new Set<number>();
+    const set = new Set<number>();
+    columnHeaders.forEach((h, ci) => {
+      if (wanted.includes(h.toLowerCase().trim())) set.add(ci);
+    });
+    return set;
+  }, [props.delta_columns, columnHeaders]);
+
   // Build TanStack column defs
   const columns = useMemo<ColumnDef<Record<string, string>>[]>(() => {
     return columnHeaders.map((header, ci) => ({
@@ -134,6 +161,22 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
         : "alphanumeric",
       cell: ({ row }) => {
         const value = row.getValue(`col_${ci}`) as string;
+
+        // Signed-delta column: color by sign, prepend + on positives (green good,
+        // red bad) — the comparison-report Δ convention. Takes precedence over
+        // max/min highlighting, which doesn't apply to a delta column.
+        if (deltaColumnSet.has(ci)) {
+          const sign = deltaSign(value);
+          const cls =
+            sign === "pos"
+              ? "font-semibold text-highlight-max"
+              : sign === "neg"
+                ? "font-semibold text-highlight-min"
+                : "text-t-secondary";
+          const display = sign === "pos" && !/^\s*\+/.test(value) ? `+${value.trim()}` : value;
+          return <span className={cls}>{display}</span>;
+        }
+
         const rowData = columnHeaders.map((_, i) => row.getValue(`col_${i}`) as string);
 
         // Highlight max/min logic
@@ -157,7 +200,7 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
         return <span className={className}>{value}</span>;
       },
     }));
-  }, [columnHeaders, numericColumns, props.highlight_max, props.highlight_min]);
+  }, [columnHeaders, numericColumns, props.highlight_max, props.highlight_min, deltaColumnSet]);
 
   // Table state
   const [sorting, setSorting] = useState<SortingState>([]);
