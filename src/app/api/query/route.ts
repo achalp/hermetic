@@ -17,7 +17,7 @@ import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   UI_COMPOSE_MODEL,
   CODE_GEN_MODEL,
-  WAREHOUSE_MAX_ROWS,
+  WAREHOUSE_SCAN_ROW_BUDGET,
   isValidModelId,
   isValidRuntimeId,
 } from "@/lib/constants";
@@ -233,7 +233,7 @@ export async function POST(request: Request) {
                       warehouseType: warehouse.config.type,
                       question,
                       model: codeGenModel,
-                      rowBudget: WAREHOUSE_MAX_ROWS,
+                      scanRowBudget: WAREHOUSE_SCAN_ROW_BUDGET,
                       onAttempt: (attempt, phase) => {
                         if (closed) return;
                         if (phase === "repairing") {

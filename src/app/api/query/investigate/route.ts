@@ -42,6 +42,7 @@ import {
   MAX_AUTO_INVESTIGATIONS_PER_SESSION,
   PLANNER_MODEL,
   WAREHOUSE_MAX_ROWS,
+  WAREHOUSE_SCAN_ROW_BUDGET,
   PARQUET_MATERIALIZE_THRESHOLD,
 } from "@/lib/constants";
 import { materializeCsvToParquet } from "@/lib/parquet/materialize";
@@ -310,7 +311,7 @@ export async function POST(request: Request) {
                     warehouseType: warehouse.config.type,
                     question: materializationQuestion,
                     model: codeGenModel,
-                    rowBudget: WAREHOUSE_MAX_ROWS,
+                    scanRowBudget: WAREHOUSE_SCAN_ROW_BUDGET,
                     onAttempt: (attempt, phase) => {
                       if (phase === "repairing") {
                         materializationRepairs++;

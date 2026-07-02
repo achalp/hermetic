@@ -33,7 +33,9 @@ export async function scanWindowHint(args: {
   question: string;
   tables: WarehouseTableSchema[];
   connector: Pick<WarehouseConnector, "getScanSafeWindow">;
-  rowBudget: number;
+  /** Target rows for sizing the metadata scan window (a SCAN budget, not the
+   *  output cap) — see WAREHOUSE_SCAN_ROW_BUDGET. */
+  scanRowBudget: number;
   model?: string;
 }): Promise<string> {
   try {
@@ -46,7 +48,7 @@ export async function scanWindowHint(args: {
     const win = await args.connector.getScanSafeWindow(
       scope.table,
       scope.dateColumn,
-      args.rowBudget
+      args.scanRowBudget
     );
     if (!win) return "";
     logger.info("Warehouse scan window", {
@@ -60,8 +62,8 @@ export async function scanWindowHint(args: {
     // primary table, but the query may target a DIFFERENT table (or a join), and
     // applying one table's partition window to another's column returns zero rows.
     return (
-      `\nSCAN BUDGET (sized from metadata for table \`${scope.table}\`): if your main scan IS \`${scope.table}\`, constrain its \`${win.column}\` to >= '${win.start}' AND <= '${win.end}' — do not widen (a wider range exceeds "rows to read"), and keep this window alongside any status/category filter. ` +
-      `If your query's primary table is DIFFERENT from \`${scope.table}\` (e.g. a join pulls mainly from another table), do NOT copy this column/window — instead bound THAT table's own most-recent partition/date column to a similarly narrow window.`
+      `\nSCAN BUDGET (sized from metadata for table \`${scope.table}\`): if your main scan IS \`${scope.table}\`, constrain its \`${win.column}\` to >= '${win.start}' AND <= '${win.end}' — this window is already sized to stay under the engine's read limit, so do NOT widen it (a wider range trips "rows to read exceeded"), and keep it alongside any status/category filter. ` +
+      `If your query's primary table is DIFFERENT from \`${scope.table}\` (e.g. a join pulls mainly from another table), do NOT copy this column/window — instead bound THAT table's own most-recent partition/date column to a comparable window.`
     );
   } catch {
     return "";
@@ -84,8 +86,9 @@ export async function runWarehouseQuery(args: {
   question: string;
   /** Code-gen model for SQL generation/repair. */
   model: string;
-  /** Row budget used to size the scan window AND (by the caller) detect sampling. */
-  rowBudget: number;
+  /** Target rows for sizing the metadata scan window (a SCAN budget, not the
+   *  output cap) — see WAREHOUSE_SCAN_ROW_BUDGET. */
+  scanRowBudget: number;
   /** Cheaper model for the scope pick; defaults to PLANNER_MODEL. */
   scopeModel?: string;
   onAttempt?: (attempt: number, phase: SqlAttemptPhase) => void;
@@ -94,7 +97,7 @@ export async function runWarehouseQuery(args: {
     question: args.question,
     tables: args.tables,
     connector: args.connector,
-    rowBudget: args.rowBudget,
+    scanRowBudget: args.scanRowBudget,
     model: args.scopeModel,
   });
   const outcome = await generateSQLWithRepair({

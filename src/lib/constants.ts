@@ -5,6 +5,16 @@ export const LOCAL_MOUNT_PATH = "/data/local"; // mount point inside sandbox con
 // because large pulls now go through Parquet + DuckDB (materializeCsvToParquet),
 // so most filtered slices load COMPLETE instead of being sampled.
 export const WAREHOUSE_MAX_ROWS = 1_000_000;
+// Target row count for sizing the metadata SCAN WINDOW — the span of the recent
+// window handed to SQL-gen as a hard bound. This is a SCAN budget, NOT the output
+// cap (WAREHOUSE_MAX_ROWS): server-side aggregations return a tiny result but must
+// SCAN a real time range to be meaningful ("by day of week", "daily spikes"). On a
+// firehose table, sizing the window to the 1M output cap yields a useless ~2-hour
+// sliver; sizing it to a scan budget gives weeks/months of coverage while staying
+// well under the engine's read-row limit (e.g. ClickHouse's ~20B). Row-level pulls
+// stay bounded by their LIMIT (no ORDER BY → the engine stops early). Tunable: lower
+// it if a warehouse has a tighter read limit or is slow under load.
+export const WAREHOUSE_SCAN_ROW_BUDGET = 100_000_000;
 // At/above this row count, materialize to Parquet and analyze via DuckDB
 // (bind-mounted) instead of parsing the CSV in Node + pandas. Below it the
 // proven CSV path is unchanged.

@@ -24,7 +24,7 @@ describe("scanWindowHint", () => {
       question: "q",
       tables: TABLES,
       connector: { getScanSafeWindow: vi.fn() },
-      rowBudget: 1_000_000,
+      scanRowBudget: 1_000_000,
     });
     expect(hint).toBe("");
   });
@@ -35,26 +35,24 @@ describe("scanWindowHint", () => {
       question: "q",
       tables: TABLES,
       connector: {}, // no getScanSafeWindow
-      rowBudget: 1_000_000,
+      scanRowBudget: 1_000_000,
     });
     expect(hint).toBe("");
   });
 
   it("binds the window to the table it was sized for, naming the column + range", async () => {
     mockedScope.mockResolvedValue({ table: "checks", dateColumn: "d" });
-    const getScanSafeWindow = vi
-      .fn()
-      .mockResolvedValue({
-        column: "_part",
-        start: "2023-10-01",
-        end: "2023-10-20",
-        estimatedRows: 900000,
-      });
+    const getScanSafeWindow = vi.fn().mockResolvedValue({
+      column: "_part",
+      start: "2023-10-01",
+      end: "2023-10-20",
+      estimatedRows: 900000,
+    });
     const hint = await scanWindowHint({
       question: "q",
       tables: TABLES,
       connector: { getScanSafeWindow },
-      rowBudget: 1_000_000,
+      scanRowBudget: 1_000_000,
     });
     expect(getScanSafeWindow).toHaveBeenCalledWith("checks", "d", 1_000_000);
     expect(hint).toContain("`checks`");
@@ -69,7 +67,7 @@ describe("scanWindowHint", () => {
       question: "q",
       tables: TABLES,
       connector: { getScanSafeWindow: vi.fn() },
-      rowBudget: 1_000_000,
+      scanRowBudget: 1_000_000,
     });
     expect(hint).toBe("");
   });
@@ -94,7 +92,7 @@ describe("runWarehouseQuery", () => {
       warehouseType: "clickhouse",
       question: "Which checks fail most?",
       model: "m",
-      rowBudget: 1_000_000,
+      scanRowBudget: 1_000_000,
     });
 
     expect(out.sql).toBe("SELECT 1");
@@ -121,7 +119,7 @@ describe("runWarehouseQuery", () => {
         warehouseType: "clickhouse",
         question: "q",
         model: "m",
-        rowBudget: 1_000_000,
+        scanRowBudget: 1_000_000,
       })
     ).rejects.toThrow(/no results/i);
   });
