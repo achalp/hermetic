@@ -125,7 +125,8 @@ Time-Series Guidelines:
 - Handle missing dates: decide whether to forward-fill (ffill for prices), interpolate (for continuous measures), or leave gaps (for count data).
 - When aggregating time series: use .resample() with appropriate frequency based on the granularity metadata.
 - For seasonality: group by month/quarter/day-of-week to show patterns.
-- Year-over-year or month-over-month comparisons are often more useful than raw trends.`;
+- Year-over-year or month-over-month comparisons are often more useful than raw trends.
+- ANOMALOUS WINDOWS: when a daily/periodic series drives a headline metric and shows spikes far from baseline (e.g. |value − rolling_median| beyond ~2-3 robust std, or top-k days by volume), surface those windows EXPLICITLY: list the specific DATES (or date ranges) and how many periods each spans, and quantify the metric with and without them (e.g. "excluding the 4 outlier windows, the funnel delta flips from +6,278 to +223"). This lets a human attribute each window to a real-world cause (an event, a launch, an outage). Do NOT guess or name the cause yourself — you don't have the external calendar — just pin down the WHEN and the IMPACT precisely and leave the WHY for annotation.`;
 
 function buildDomainLayer(domain: DataDomain): string {
   switch (domain) {
