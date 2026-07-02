@@ -64,4 +64,20 @@ describe("resolveSpecPlaceholders — never leak an unresolved placeholder", () 
     );
     expect(out).toBe('{"a": 42, "b": null}');
   });
+
+  it("removes a malformed key with a hyphen WHOLE — no orphaned tail leaks", () => {
+    // The real bug: a key built from a data value ("on-demand") contains a hyphen.
+    // The sweep must consume the entire "$result:..._on-demand_..._pct", not stop
+    // at the hyphen and leave "-demand_..._pct" in the prose.
+    const out = resolveSpecPlaceholders(
+      '{"content": "the threshold was $result:m7i_4xlarge_on-demand_outlier_threshold_used_pct percent"}',
+      {},
+      {}
+    );
+    expect(out).not.toContain("$result:");
+    expect(out).not.toMatch(/-demand/);
+    expect(out).not.toContain("outlier_threshold_used_pct");
+    expect(out).toContain("the threshold was");
+    expect(out).toContain("percent");
+  });
 });

@@ -366,7 +366,14 @@ export function resolveSpecPlaceholders(
     return "null";
   });
   if (/\$(?:result|chartData):/.test(processed)) {
-    processed = processed.replace(/\$(?:result|chartData):[a-zA-Z0-9_.]+/g, (m) => {
+    // Consume the WHOLE malformed key, including punctuation a bad key may embed
+    // from a data value (".", ",", "-" — e.g. "$result:..._on-demand_pct"). The
+    // earlier passes only match `[a-zA-Z0-9_.]`, so a hyphen would truncate the
+    // token and this sweep would strip just the head, leaving an orphaned tail
+    // ("-demand_pct") in the prose. Match the full key-ish run so nothing leaks.
+    // (Only unresolved survivors reach here — resolved placeholders were already
+    // replaced — so aggressive consumption is safe.)
+    processed = processed.replace(/\$(?:result|chartData):[a-zA-Z0-9_.,-]+/g, (m) => {
       recordMiss(m, "inline");
       return "";
     });
