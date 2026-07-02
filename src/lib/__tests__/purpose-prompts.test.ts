@@ -56,6 +56,13 @@ describe("purpose taxonomy", () => {
     expect(p).toMatch(/do NOT invent an Author/);
   });
 
+  it("report mode closes with an Appendix (definitions + methodology)", () => {
+    const p = PURPOSE_MODES.report.prompt;
+    expect(p).toMatch(/APPENDIX/);
+    expect(p).toMatch(/Definitions/);
+    expect(p).toMatch(/Methodology/);
+  });
+
   it("scopes the sub-question budget to intent (dashboard/brief 3, report 4, deep-dive 5+)", () => {
     expect(getPurposeMaxSubQuestions("dashboard")).toBe(3);
     expect(getPurposeMaxSubQuestions("brief")).toBe(3);
