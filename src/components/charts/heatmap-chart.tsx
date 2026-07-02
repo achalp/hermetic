@@ -47,6 +47,21 @@ export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
   const maxYLen = Math.max(...displayYLabels.map((l) => l.length));
   const leftMargin = Math.min(isExpanded ? 500 : 300, Math.max(80, maxYLen * 7 + 16));
 
+  // Resolve the colorscale. Plotly.js named scales don't include a red→green
+  // diverging one, but a delta grid (negative = bad/red, positive = good/green)
+  // wants exactly that. Map the friendly aliases the composer may emit to an
+  // explicit diverging array; otherwise pass the value straight to Plotly.
+  const resolveColorscale = (name: string | null | undefined): Plotly.ColorScale => {
+    const RED_GREEN: Plotly.ColorScale = [
+      [0, "#d73027"],
+      [0.5, "#ffffbf"],
+      [1, "#1a9850"],
+    ];
+    if (!name) return "RdBu";
+    if (/^(rdylgn|red[-_ ]?green|green[-_ ]?red|delta)$/i.test(name.trim())) return RED_GREEN;
+    return name as Plotly.ColorScale;
+  };
+
   const traces: Data[] = [
     {
       type: "heatmap" as const,
@@ -56,7 +71,7 @@ export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
       // Show full labels on hover
       customdata: props.y_labels.map((y, i) => props.x_labels.map((x) => `${y} / ${x}`)),
       hovertemplate: "%{customdata}<br>Value: %{z}<extra></extra>",
-      colorscale: (props.color_scale as Plotly.ColorScale) ?? "RdBu",
+      colorscale: resolveColorscale(props.color_scale),
       zmin: props.z_min ?? undefined,
       zmax: props.z_max ?? undefined,
       hoverongaps: false,

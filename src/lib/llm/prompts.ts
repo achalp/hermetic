@@ -180,6 +180,7 @@ Rules:
 - For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.
 - For box plots: return raw data rows with the value column and grouping column under chart_data.
 - For heatmaps/correlation matrices: return {z: number[][], x_labels: string[], y_labels: string[]} under chart_data.
+- For a TWO-VARIANT comparison across a 2D segmentation (e.g. metric by hour-segment x distance-bucket, A vs B), do NOT emit a wall of numbers per cell — compute the signed DELTA matrix (B - A) and return it as a heatmap: {z: delta[][], x_labels, y_labels, color_scale: "RdYlGn", z_min: -m, z_max: +m (symmetric about 0 so the midpoint is neutral), show_values: true}. This reads the winners/losers of a dense segment grid at a glance the way per-cell numbers cannot.
 - For violin plots: return raw data rows with the value column and grouping column under chart_data.
 - For 3D scatter plots (Scatter3D): return rows with x, y, z numeric columns plus optional group and size columns under chart_data.
 - For 3D surface plots (Surface3D): return {z: number[][], x_labels: [...], y_labels: [...]} under chart_data (same format as heatmap).
