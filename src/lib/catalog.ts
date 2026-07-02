@@ -70,6 +70,14 @@ export const catalogComponents = {
     description:
       "Tabular data view with optional highlighting of extremes. For a comparison report, pass `delta_columns` (the header names of signed Δ columns) to color positives green / negatives red — e.g. a Metric | A | B | Δ | Assessment table.",
   },
+  DefinitionList: {
+    props: z.object({
+      title: z.string().nullable(),
+      items: z.array(z.object({ term: z.string(), definition: z.string() })),
+    }),
+    description:
+      "A clean key-value / definition block (term → definition) laid out as a two-column definition list — NOT a table. Use for a report's provenance header (Source / Analysis window / Data scope) and its glossary of metric definitions, where a DataTable's search/sort/export chrome would look out of place.",
+  },
   PivotTable: {
     props: z.object({
       rows: z.array(z.record(z.string(), z.unknown())),

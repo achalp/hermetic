@@ -29,6 +29,7 @@ import { ColorPickerComponent } from "./inputs/color-picker";
 import { MultiSelectComponent } from "./inputs/multi-select";
 import { RangeSliderComponent } from "./inputs/range-slider";
 import { DataTableComponent } from "./data-table";
+import { DefinitionListComponent } from "./definition-list";
 import { PivotTableComponent } from "./pivot-table";
 import { RendererErrorBoundary } from "./app/renderer-error-boundary";
 import type { ReactNode } from "react";
@@ -348,6 +349,7 @@ const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
     TextBlock: ({ props }) => <TextBlockComponent props={props} />,
     SectionBreak: ({ props }) => <SectionBreakComponent props={props} />,
     DataTable: ({ props }) => <DataTableComponent props={props} />,
+    DefinitionList: ({ props }) => <DefinitionListComponent props={props} />,
     PivotTable: ({ props, emit, on }) => (
       <PivotSelectionBridge
         selectsRow={props.selectsRow ?? null}
