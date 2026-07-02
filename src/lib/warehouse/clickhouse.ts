@@ -124,7 +124,12 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
       // column, which we check cheaply via system.tables.sorting_key (granted even
       // where system.parts isn't). If it's not the sort-key prefix we return null
       // and the caller falls back to the LLM-chosen window — quietly.
+      //
+      // We also read the column TYPE: a `Date` column can't be compared to a
+      // datetime literal ('2026-07-01 21:30:04' → TYPE_MISMATCH), so the window
+      // must be formatted day-granular for Date columns and datetime for DateTime.
       let range: { minT: number; maxT: number; total: number } | null = null;
+      let isDateOnly = false;
       try {
         const skResult = await client.query({
           query: `SELECT sorting_key FROM system.tables
@@ -135,6 +140,15 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
         const sortingKey = (await skResult.json<{ sorting_key: string }>())[0]?.sorting_key ?? "";
         const firstKey = sortingKey.split(",")[0]?.trim().replace(/`/g, "");
         if (firstKey === dateColumn) {
+          const typeResult = await client.query({
+            query: `SELECT type FROM system.columns
+                    WHERE database = currentDatabase() AND table = {tbl:String} AND name = {col:String}`,
+            query_params: { tbl, col: dateColumn },
+            format: "JSONEachRow",
+          });
+          const colType = (await typeResult.json<{ type: string }>())[0]?.type ?? "";
+          // Date / Date32 (incl. Nullable/LowCardinality wrappers) — but NOT DateTime.
+          isDateOnly = /\bDate(32)?\b/.test(colType) && !/DateTime/.test(colType);
           const result = await client.query({
             query: `SELECT toUnixTimestamp(min(\`${dateColumn}\`)) AS min_t,
                            toUnixTimestamp(max(\`${dateColumn}\`)) AS max_t,
@@ -157,9 +171,17 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
 
       const spanSec = range.maxT - range.minT;
       const rowsPerSec = range.total / spanSec;
-      const windowSec = Math.min(spanSec, Math.ceil(budgetRows / rowsPerSec));
+      const DAY = 86400;
+      let windowSec = Math.min(spanSec, Math.ceil(budgetRows / rowsPerSec));
+      // A Date column's finest bound is a day — never emit a sub-day window for
+      // it (both because a datetime literal is a type error, and because a
+      // sub-day slice of a Date column is meaningless). Floor to one full day.
+      if (isDateOnly) windowSec = Math.min(spanSec, Math.max(windowSec, DAY));
       const startT = range.maxT - windowSec;
-      const fmt = (t: number) => new Date(t * 1000).toISOString().slice(0, 19).replace("T", " ");
+      const fmtDateTime = (t: number) =>
+        new Date(t * 1000).toISOString().slice(0, 19).replace("T", " ");
+      const fmtDate = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
+      const fmt = isDateOnly ? fmtDate : fmtDateTime;
       return {
         start: fmt(startT),
         end: fmt(range.maxT),
