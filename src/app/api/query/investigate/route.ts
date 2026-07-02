@@ -299,7 +299,8 @@ export async function POST(request: Request) {
                 const materializationQuestion =
                   `Pull the ROW-LEVEL data that later analysis steps will need to investigate this question: ${question}\n` +
                   `Return RAW ROWS — NOT pre-aggregated summaries and NOT the final analysis. Do NOT compute pairwise/co-occurrence counts, GROUP BY rollups, or joins here; later steps do that. Just select the relevant rows with every column plausibly useful (dimensions, dates, measures).\n` +
-                  `Keep the query SIMPLE and keep the SCAN small so it stays under the engine's read limit. The ONLY reliable way to bound the scan on a large table is a SELECTIVE WHERE on the partition/date key: prefer a BOUNDED recent window (e.g. the most recent ~3 months that has data), plus any obvious status/category filter. Then ORDER BY the date key and LIMIT ${WAREHOUSE_MAX_ROWS}.\n` +
+                  `Keep the query SIMPLE and keep the SCAN small so it stays under the engine's read limit. The ONLY reliable way to bound the scan on a large table is a SELECTIVE WHERE on the partition/date key: prefer a BOUNDED recent window (e.g. the most recent ~3 months that has data), plus any obvious status/category filter. Then LIMIT ${WAREHOUSE_MAX_ROWS}.\n` +
+                  `Do NOT add an ORDER BY: sorting a wide, million-row result set blows the engine's sort memory (MEMORY_LIMIT_EXCEEDED). A row-level pull does not need to be ordered — later steps sort the small aggregates they compute. Just filter and LIMIT.\n` +
                   `Do NOT use SAMPLE (many tables don't support it) and do NOT use a hash/modulo filter like \`cityHash64(...) % N\` — those still SCAN every row and fail with "rows to read exceeded". A bounded date window is what keeps the scan small.`;
                 let warehouseCsvContent: string;
                 try {
