@@ -42,6 +42,13 @@ describe("purpose taxonomy", () => {
     expect(getPurposePrompt("report")).toBe(PURPOSE_MODES.report.prompt);
   });
 
+  it("report mode specifies the Metric | A | B | Δ | Assessment comparison-table convention", () => {
+    const p = PURPOSE_MODES.report.prompt;
+    expect(p).toMatch(/Assessment/);
+    expect(p).toMatch(/delta_columns/);
+    expect(p).toMatch(/Δ/);
+  });
+
   it("scopes the sub-question budget to intent (dashboard/brief 3, report 4, deep-dive 5+)", () => {
     expect(getPurposeMaxSubQuestions("dashboard")).toBe(3);
     expect(getPurposeMaxSubQuestions("brief")).toBe(3);
