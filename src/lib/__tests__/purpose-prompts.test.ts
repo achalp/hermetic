@@ -49,6 +49,13 @@ describe("purpose taxonomy", () => {
     expect(p).toMatch(/Δ/);
   });
 
+  it("report mode opens with a provenance metadata header (source, window, scope)", () => {
+    const p = PURPOSE_MODES.report.prompt;
+    expect(p).toMatch(/METADATA HEADER/);
+    expect(p).toMatch(/Source/);
+    expect(p).toMatch(/do NOT invent an Author/);
+  });
+
   it("scopes the sub-question budget to intent (dashboard/brief 3, report 4, deep-dive 5+)", () => {
     expect(getPurposeMaxSubQuestions("dashboard")).toBe(3);
     expect(getPurposeMaxSubQuestions("brief")).toBe(3);
