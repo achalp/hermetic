@@ -1,7 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { __testing } from "@/lib/llm/investigate-composer";
+import { __testing, buildComposerSystemPrompt } from "@/lib/llm/investigate-composer";
 
 const { parseGapCheckOutput } = __testing;
+
+describe("buildComposerSystemPrompt — report vs step structure", () => {
+  it("uses semantic sections and drops (Step N) citations in report mode", () => {
+    const p = buildComposerSystemPrompt("report");
+    expect(p).toMatch(/SEMANTIC sections/);
+    expect(p).toMatch(/does not cite internal analysis steps/i);
+    expect(p).not.toMatch(/Section per successful step/);
+    expect(p).not.toMatch(/ending with its citation "\(Step N\)"/);
+  });
+
+  it("keeps the step-driven backbone + (Step N) citations for non-report modes", () => {
+    const p = buildComposerSystemPrompt("dashboard");
+    expect(p).toMatch(/Section per successful step/);
+    expect(p).toMatch(/MUST cite the step it came from, written as "\(Step N\)"/);
+    expect(p).not.toMatch(/SEMANTIC sections/);
+  });
+
+  it("preserves $result number grounding in BOTH modes", () => {
+    for (const mode of ["report", "dashboard"]) {
+      const p = buildComposerSystemPrompt(mode);
+      expect(p).toMatch(/Every number MUST be a \$result placeholder/);
+    }
+  });
+});
 
 describe("parseGapCheckOutput", () => {
   it("returns empty needs for the happy path of {needs: [], rationale: '...'}", () => {

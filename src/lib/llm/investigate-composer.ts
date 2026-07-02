@@ -21,7 +21,7 @@ import { withPhase, withPhaseSync } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { UI_COMPOSE_MODEL, GAP_CHECK_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
-import { getPurposePrompt } from "@/lib/purpose-prompts";
+import { getPurposePrompt, resolvePurpose } from "@/lib/purpose-prompts";
 import type { CSVSchema, AnalysisWindow } from "@/lib/types";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
 import type { InvestigationPlan, PlannedSubQuestion } from "@/lib/llm/investigate-planner";
@@ -173,15 +173,45 @@ function flattenStepArtifacts(subResults: SubQuestionResult[]): {
 
 // ── Prompt construction ──────────────────────────────────────────────
 
-function buildComposerSystemPrompt(purpose?: string): string {
-  // The investigation always has the step-driven backbone below; the style
-  // (purpose) modulates its FORM — density, framing, tone — without changing
-  // the step structure or dictating how many visuals each step gets.
+export function buildComposerSystemPrompt(purpose?: string): string {
+  // A formal REPORT is organized into semantic sections, not one-section-per-step
+  // with "Step N" headings + "(Step N)" citations — that's internal planner
+  // scaffolding leaking into the document. For report mode we swap the structure
+  // and citation rules below; every other mode keeps the step-driven backbone
+  // (which matches how the dashboard/notebook reads). Number grounding via
+  // $result placeholders is IDENTICAL either way — only the visible step
+  // labels/citations differ.
+  const isReport = resolvePurpose(purpose) === "report";
+
+  // The investigation always has a step-driven backbone; the style (purpose)
+  // modulates its FORM — density, framing, tone.
   const styleBlock = purpose
-    ? `\n## Output style (applies to the FORM of the dashboard, not the step structure)\n${getPurposePrompt(
+    ? `\n## Output style (applies to the FORM of the dashboard)\n${getPurposePrompt(
         purpose
-      )}\nApply this as a frame: keep the per-step backbone below, but shape density, layout, and tone to match. Do NOT let the style cap how many charts a step shows — that follows the data.\n`
+      )}\nApply this as a frame: shape density, layout, and tone to match. Do NOT let the style cap how many charts a finding shows — that follows the data.\n`
     : "";
+
+  const sectionStructure = isReport
+    ? `3. **Body — SEMANTIC sections (NOT one-per-step):** do NOT title sections "Step 1/2/3" or mirror the plan's steps — that scaffolding is how the analysis was *produced*, not how a report is *structured*. SYNTHESIZE the findings into a few titled sections named for their CONTENT, each introduced by a SectionBreak (variant: line) label — e.g. Overview, Context, then themed sections like "Funnel Performance" / "Segment Breakdown" / "Anomalies", then Conclusion (these names are examples — derive real ones from the findings). A section may draw on one finding or combine several; related findings belong together regardless of which step produced them. Within each section: a short prose lead-in (TextBlock body), the visualization(s), then a prose interpretation. Let the REPORT'S logic drive the order, not the plan's — but cover every successful finding somewhere.
+   - **Connect the argument:** when one finding tests a hypothesis another raised, link them in prose as an argument (e.g. "the weekend concentration suggested an events effect; excluding festival windows confirms it, reversing the gap") — WITHOUT writing "Step N".`
+    : `3. **Section per successful step** — for each successful sub-question:
+   - A SectionBreak (variant: line) with the step heading as label (e.g. "Step 2 — Where did the decline originate?"). This IS the step heading — do NOT add a separate heading TextBlock restating it.
+   - The visualization(s) for that step's data — pick the ONE or TWO that best fit the chart_data shape (bar/line/stat-cards/table). Don't render multiple views of the same data.
+   - A TextBlock (variant: insight) with 1-2 sentences interpreting THIS step's finding specifically, ending with its citation "(Step N)"
+   - **Reasoning arc (when a step is a follow-up):** when a step DEPENDS ON an earlier step, or its rationale is to validate / explain / drill into a prior finding, frame it as a hypothesis being tested, not an isolated fact. In one short lead-in sentence, state the hypothesis the earlier step raised, then let this step's finding confirm or overturn it — e.g. "Step 1 showed the dip concentrated on weekends, suggesting an events effect; Step 3 tests that by excluding festival windows, and the gap reverses (Steps 1, 3)." This turns a flat list of steps into an argument the reader can follow, which is the point of an investigation over a single query.`;
+
+  const execSummaryCitation = isReport
+    ? `Every number MUST be a $result placeholder. Do NOT write "(Step N)" — a report doesn't cite internal steps.`
+    : `Every number MUST be a $result placeholder, and every claim MUST end with the step(s) it rests on, e.g. "Revenue grew to $result:step_2_total (Step 2)."`;
+
+  const citationRule = isReport
+    ? `- Do NOT write "(Step N)" citations in the prose — a formal report does not cite internal analysis steps; full traceability lives in the Notebook view. (Number grounding is UNCHANGED: keep every figure as a $result placeholder.)`
+    : `- Every sentence that makes a quantitative claim MUST cite the step it came from, written as "(Step N)" (or "(Steps N, M)" when it combines two). The step number matches the \`step_N_\` prefix of the data you referenced.
+- Reference every successful step at least once. If a step's result is uninformative, say so and cite it — don't drop it.`;
+
+  const insightTone = isReport
+    ? `- Section prose: interpret what each section's evidence shows; connect findings into an argument. No "(Step N)".`
+    : `- Per-step insights: focus on what THAT step revealed — the executive summary already gave the big picture. End with "(Step N)".`;
   return `You compose a unified data-analysis dashboard from the results of an INVESTIGATION — a multi-step analysis where each step answered one focused sub-question.
 ${styleBlock}
 
@@ -191,12 +221,8 @@ Output format: streaming JSONL patches that build a JSON-Render spec, exactly th
 Wrap everything in a LayoutColumn root. Then produce, in order:
 
 1. **Title block** — a TextBlock (variant: heading) with the original user question. Immediately under the title, add a TextBlock (variant: caption) stating the data scope when given in the user prompt: the "Analysis Window" period (e.g. "Analysis window: 2024-01-01 to 2024-04-01") and, if a "Sampling" note is present, that figures are estimates from an N-row sample (e.g. "Based on a 50,000-row sample — figures are estimates"). Combine both into the caption when both apply. If neither is given, omit the caption.
-2. **Executive summary** — a TextBlock (variant: insight) with 2-4 sentences synthesizing what the investigation found across all steps. Every number MUST be a $result placeholder, and every claim MUST end with the step(s) it rests on, e.g. "Revenue grew to $result:step_2_total (Step 2)." Use the EXACT element ID \`exec_summary\` for this block — downstream tooling extracts it by ID.
-3. **Section per successful step** — for each successful sub-question:
-   - A SectionBreak (variant: line) with the step heading as label (e.g. "Step 2 — Where did the decline originate?"). This IS the step heading — do NOT add a separate heading TextBlock restating it.
-   - The visualization(s) for that step's data — pick the ONE or TWO that best fit the chart_data shape (bar/line/stat-cards/table). Don't render multiple views of the same data.
-   - A TextBlock (variant: insight) with 1-2 sentences interpreting THIS step's finding specifically, ending with its citation "(Step N)"
-   - **Reasoning arc (when a step is a follow-up):** when a step DEPENDS ON an earlier step, or its rationale is to validate / explain / drill into a prior finding, frame it as a hypothesis being tested, not an isolated fact. In one short lead-in sentence, state the hypothesis the earlier step raised, then let this step's finding confirm or overturn it — e.g. "Step 1 showed the dip concentrated on weekends, suggesting an events effect; Step 3 tests that by excluding festival windows, and the gap reverses (Steps 1, 3)." This turns a flat list of steps into an argument the reader can follow, which is the point of an investigation over a single query.
+2. **Executive summary** — a TextBlock (variant: insight) with 2-4 sentences synthesizing what the investigation found across all steps. ${execSummaryCitation} Use the EXACT element ID \`exec_summary\` for this block — downstream tooling extracts it by ID.
+${sectionStructure}
 4. **Failed steps** — for any sub-question that failed, render an Annotation (severity: warning) noting the question and the failure reason. Do NOT skip them silently.
 5. **Degraded steps** — for any sub-question marked DEGRADED, still render its visualization but ALSO add an Annotation (severity: info) above it noting the validator's concern ("empty result", "all-zero values", etc.). The number / chart MAY be correct; the validator just flagged it as suspicious.
 6. **Conclusion** — a TextBlock (variant: body) with implications and recommended next steps. Use the EXACT element ID \`conclusion\` for this block — downstream tooling extracts it by ID.
@@ -211,13 +237,12 @@ Wrap everything in a LayoutColumn root. Then produce, in order:
 ## Grounding & citations (STRICT — a wrong number stated confidently is the worst failure)
 - NEVER write a literal number in prose. Every figure MUST be a $result:step_N_<key> placeholder so it resolves from a value the analysis actually computed. If you cannot express a number as a placeholder, do not state the number.
 - Do NOT invent derived figures (growth %, ratios, differences) unless a sub-question computed them and exposed a key for them. If the derived value wasn't computed, describe the direction qualitatively ("rose", "roughly doubled") instead of fabricating a precise figure.
-- Every sentence that makes a quantitative claim MUST cite the step it came from, written as "(Step N)" (or "(Steps N, M)" when it combines two). The step number matches the \`step_N_\` prefix of the data you referenced.
-- Reference every successful step at least once. If a step's result is uninformative, say so and cite it — don't drop it.
+${citationRule}
 
 ## Tone for narrative blocks
 - Title heading: just the original question, capitalized.
 - Executive summary: lead with the bottom-line finding. Be specific. No buzzwords. Numbers as placeholders, claims cited.
-- Per-step insights: focus on what THAT step revealed — the executive summary already gave the big picture. End with "(Step N)".
+${insightTone}
 - Conclusion: 2-3 sentences. What the user should do or investigate next.`;
 }
 
