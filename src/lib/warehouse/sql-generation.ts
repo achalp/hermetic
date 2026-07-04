@@ -100,7 +100,8 @@ function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
 - If the question is ambiguous about which columns to use, prefer columns that seem most relevant based on their names and types.
 - Handle NULLs appropriately (COALESCE, IS NOT NULL filters where sensible).
 - For time-based questions, order by the date/time column.
-- Return all columns that would be useful for visualization (don't over-aggregate — the analysis layer will handle charting).`;
+- Return all columns that would be useful for visualization (don't over-aggregate — the analysis layer will handle charting).
+- Output EXACTLY ONE SQL query and NOTHING else — no prose, no explanation, no alternative/"smarter" second query, no "let me try instead". Decide on the single best query and emit only that. Extra prose or a second query corrupts execution.`;
 }
 
 /**
@@ -372,6 +373,24 @@ function cleanSQL(raw: string): string {
   if (!/^\s*(?:WITH|SELECT)\b/i.test(sql)) {
     const start = sql.match(/(?:^|\n)[ \t]*((?:WITH|SELECT)\b[\s\S]*)$/i);
     if (start) sql = start[1];
+  }
+
+  // Keep only the FIRST statement. Models sometimes emit a query, then reasoning,
+  // then a second "smarter" query ("...LIMIT 1\n\nThis is still a cross-join. Let
+  // me...\n\nSELECT ..."). Both queries + the prose become one string and fail
+  // ("Expected end of input"). Split on blank lines and keep the leading blocks
+  // that continue the SQL (a clause keyword, a closing paren/comma, or set-op);
+  // stop at the first block that is prose or a NEW statement (bare SELECT/WITH).
+  const blocks = sql.split(/\n[ \t]*\n/);
+  if (blocks.length > 1) {
+    const continues =
+      /^\s*(?:FROM|WHERE|GROUP|ORDER|HAVING|LIMIT|OFFSET|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|AND|OR|UNION|EXCEPT|INTERSECT|QUALIFY|WINDOW|\)|,)\b/i;
+    const kept = [blocks[0]];
+    for (let k = 1; k < blocks.length; k++) {
+      if (continues.test(blocks[k])) kept.push(blocks[k]);
+      else break; // prose or a second statement — drop it and everything after
+    }
+    sql = kept.join("\n\n");
   }
 
   // ClickHouse: the LLM sometimes appends `SETTINGS max_rows_to_read=...` to dodge

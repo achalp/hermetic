@@ -27,4 +27,19 @@ describe("cleanSQL — leading-prose stripping", () => {
     const raw = "```sql\nSELECT 2\n```";
     expect(cleanSQL(raw)).toBe("SELECT 2");
   });
+
+  it("keeps only the first query when the model appends prose + a second query", () => {
+    // The 'Expected end of input but got "This"' bug: query1, then reasoning,
+    // then a second "smarter" query.
+    const raw =
+      "SELECT a, MIN(d) AS nn FROM t GROUP BY a ORDER BY nn DESC LIMIT 1\n\n" +
+      "This is still a cross-join. Let me use a smarter approach.\n\n" +
+      "SELECT a FROM (SELECT a, ROW_NUMBER() OVER (ORDER BY d) rn FROM t) WHERE rn = 1";
+    expect(cleanSQL(raw)).toBe("SELECT a, MIN(d) AS nn FROM t GROUP BY a ORDER BY nn DESC LIMIT 1");
+  });
+
+  it("keeps a multi-block query whose blocks are SQL continuations", () => {
+    const raw = "SELECT a, b\nFROM t\n\nWHERE a > 0\n\nORDER BY b\nLIMIT 10";
+    expect(cleanSQL(raw)).toBe("SELECT a, b\nFROM t\n\nWHERE a > 0\n\nORDER BY b\nLIMIT 10");
+  });
 });
