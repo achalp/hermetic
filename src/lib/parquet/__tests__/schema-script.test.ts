@@ -16,6 +16,15 @@ describe("buildSchemaScript (local) — unchanged structure", () => {
     expect(s).toContain("/data/local/**/*.parquet");
     expect(s).toContain("hive_partitioning=true");
   });
+
+  it("classifies nested / geometry types as complex so scalar aggregates are skipped", () => {
+    // Guards against the substring-match bug where STRUCT(... DOUBLE ...)[] read
+    // as a number and AVG() crashed. The profiler must detect complex types first.
+    const s = buildSchemaScript("x.parquet", false, false);
+    expect(s).toContain("'STRUCT', 'MAP', 'UNION', 'LIST', 'ARRAY', '[]', 'GEOMETRY'");
+    expect(s).toContain("return 'complex'");
+    expect(s).toContain("elif dtype == 'complex':");
+  });
 });
 
 describe("buildRemoteParquetSchemaScript — reuses the shared tail", () => {

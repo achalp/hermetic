@@ -12,6 +12,12 @@ const SHARED_STATS_TAIL = `
 # Map DuckDB types to schema dtypes
 def map_dtype(duckdb_type):
     t = duckdb_type.upper()
+    # Complex / nested types (STRUCT, LIST/ARRAY, MAP, UNION) and geometry can't
+    # be profiled with scalar aggregates like AVG/MIN — and substring matching
+    # would otherwise misread e.g. STRUCT(... confidence DOUBLE ...)[] as a number.
+    # Treat them as strings; they're sampled via CAST(... AS VARCHAR).
+    if any(k in t for k in ['STRUCT', 'MAP', 'UNION', 'LIST', 'ARRAY', '[]', 'GEOMETRY']):
+        return 'complex'
     if any(k in t for k in ['INT', 'BIGINT', 'SMALLINT', 'TINYINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC', 'REAL', 'HUGEINT']):
         return 'number'
     if any(k in t for k in ['DATE', 'TIMESTAMP', 'TIME']):
@@ -162,6 +168,25 @@ for ci in columns_info:
             'true_count': safe_int(row[0]),
             'false_count': safe_int(row[1]),
             'representation': 'true/false',
+        }
+
+    elif dtype == 'complex':
+        # Nested (STRUCT/LIST/MAP) or geometry columns can't be aggregated or
+        # grouped like scalars. Report them as string-shaped with only the cheap
+        # VARCHAR-cast sample values already gathered above; skip distinct/length
+        # stats that would fail or be meaningless. dtype is surfaced as 'string'
+        # so downstream consumers stay within the known dtype set.
+        dtype = 'string'
+        sample_len = max((len(v) for v in sample_values), default=0)
+        meta = {
+            'kind': 'categorical',
+            'distinct_count': 0,
+            'distinct_values': None,
+            'top_values': [],
+            'avg_length': float(sample_len),
+            'max_length': sample_len,
+            'min_length': 0,
+            'is_unique': False,
         }
 
     else:  # string / categorical
