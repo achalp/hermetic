@@ -48,6 +48,7 @@ import {
 import { materializeCsvToParquet } from "@/lib/parquet/materialize";
 import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
+import { resolveLocalSource } from "@/lib/parquet/duckdb-source";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -428,35 +429,16 @@ export async function POST(request: Request) {
                 ? await getGeoJSONContent(csvId!)
                 : null;
 
-              // Local-mount path resolution (mirrors the logic in /api/query)
+              // Mount path + code-gen "Data Location" context. A materialized
+              // warehouse pull was docker-cp'd to /data/input.parquet (no mount);
+              // a browsed local file resolves via the shared resolver (see
+              // lib/parquet/duckdb-source), the same one /api/query uses.
               let localMountPath: string | undefined;
               let localFileContext: string | undefined;
               if (warehouseParquetFile) {
-                // Large warehouse pull materialized to Parquet → copied into the
-                // sandbox (docker cp → /data/input.parquet, no bind-mount) and read
-                // via DuckDB. Only the read instructions are needed here; the file
-                // is threaded as inputParquetPath in the runInvestigation options.
                 localFileContext = warehouseParquetContext;
               } else if (isLocal) {
-                const hostPath = stored.localFolderPath || stored.localPath;
-                if (!hostPath) {
-                  throw new Error("Local file path not found");
-                }
-                const { LOCAL_MOUNT_PATH } = await import("@/lib/constants");
-                const path = await import("node:path");
-                if (stored.localFolderPath) {
-                  // Mount the host folder; read the Parquet shards via DuckDB.
-                  localMountPath = hostPath;
-                  const hiveFlag = stored.isHivePartitioned ? ", hive_partitioning=true" : "";
-                  localFileContext = `The dataset is a folder of Parquet files mounted at ${LOCAL_MOUNT_PATH} (${stored.schema.row_count.toLocaleString()} rows). Read via DuckDB: duckdb.sql("SELECT * FROM read_parquet('${LOCAL_MOUNT_PATH}/**/*.parquet'${hiveFlag})").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation.`;
-                } else {
-                  const fname = path.basename(hostPath);
-                  // Mount the host directory; the file lands at /data/local/<fname>.
-                  localMountPath = path.dirname(hostPath);
-                  localFileContext = stored.isParquet
-                    ? `The dataset is a Parquet file mounted at /data/local/${fname} (${stored.schema.row_count.toLocaleString()} rows). Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/local/${fname}')").df(). Aggregate/filter in SQL for large data; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.`
-                    : `The data file is mounted at /data/local/${fname}. Read with: pd.read_csv("/data/local/${fname}")`;
-                }
+                ({ localMountPath, localFileContext } = resolveLocalSource(stored));
               }
 
               // ── Drill-as-sub-investigation cost gate ──
