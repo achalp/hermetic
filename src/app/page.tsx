@@ -54,6 +54,8 @@ import {
   saveViz,
   uploadFile,
   extractLocalSchema,
+  extractRemoteParquetSchema,
+  type RemoteParquetCreds,
   saveHistoryEntry,
   loadHistoryEntry,
   refreshHistoryEntry,
@@ -447,6 +449,20 @@ export default function Home() {
       }
     },
     [handleUpload, handleExcelSheets]
+  );
+
+  const handleRemoteFileSelect = useCallback(
+    async (url: string, creds?: RemoteParquetCreds) => {
+      setIsExtractingLocalSchema(true);
+      try {
+        const data = await extractRemoteParquetSchema(url, creds);
+        handleUpload(data.csv_id, data.schema);
+        setShowLocalBrowser(false);
+      } finally {
+        setIsExtractingLocalSchema(false);
+      }
+    },
+    [handleUpload]
   );
 
   // Shared upload path: used by both the hidden <input> and files dropped
@@ -1196,6 +1212,7 @@ export default function Home() {
             open={showLocalBrowser}
             onClose={() => setShowLocalBrowser(false)}
             onSelect={handleLocalFileSelect}
+            onSelectRemote={handleRemoteFileSelect}
             isExtracting={isExtractingLocalSchema}
           />
 

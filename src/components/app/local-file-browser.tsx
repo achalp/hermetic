@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { browseLocalFiles, type LocalFileEntry } from "@/lib/api";
+import { browseLocalFiles, type LocalFileEntry, type RemoteParquetCreds } from "@/lib/api";
 
 interface LocalFileBrowserProps {
   open: boolean;
   onClose: () => void;
   onSelect: (path: string, type: "file" | "folder") => void;
+  /** Load a remote cloud Parquet URL (s3:// or https://). Anon unless creds given. */
+  onSelectRemote: (url: string, creds?: RemoteParquetCreds) => Promise<void>;
   isExtracting?: boolean;
 }
 
@@ -26,12 +28,25 @@ const extensionColors: Record<string, string> = {
   ".json": "#f59e0b",
 };
 
-export function LocalFileBrowser({ open, onClose, onSelect, isExtracting }: LocalFileBrowserProps) {
+export function LocalFileBrowser({
+  open,
+  onClose,
+  onSelect,
+  onSelectRemote,
+  isExtracting,
+}: LocalFileBrowserProps) {
+  const [mode, setMode] = useState<"local" | "cloud">("local");
   const [currentPath, setCurrentPath] = useState<string>("");
   const [entries, setEntries] = useState<LocalFileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<LocalFileEntry | null>(null);
+
+  // Cloud (remote Parquet URL) state — anonymous by default.
+  const [cloudUrl, setCloudUrl] = useState("");
+  const [showCreds, setShowCreds] = useState(false);
+  const [creds, setCreds] = useState<RemoteParquetCreds>({});
+  const [cloudError, setCloudError] = useState<string | null>(null);
 
   const navigate = useCallback(async (path?: string) => {
     setLoading(true);
@@ -77,6 +92,25 @@ export function LocalFileBrowser({ open, onClose, onSelect, isExtracting }: Loca
     navigate(parent);
   };
 
+  const handleLoadCloud = async () => {
+    const url = cloudUrl.trim();
+    if (!url) return;
+    setCloudError(null);
+    // Forward only non-empty credential fields; anon otherwise.
+    const trimmed: RemoteParquetCreds = {
+      s3Region: creds.s3Region?.trim() || undefined,
+      s3AccessKeyId: creds.s3AccessKeyId?.trim() || undefined,
+      s3SecretAccessKey: creds.s3SecretAccessKey?.trim() || undefined,
+      s3Endpoint: creds.s3Endpoint?.trim() || undefined,
+    };
+    const hasCreds = Object.values(trimmed).some(Boolean);
+    try {
+      await onSelectRemote(url, hasCreds ? trimmed : undefined);
+    } catch (err) {
+      setCloudError(err instanceof Error ? err.message : "Failed to load cloud file");
+    }
+  };
+
   const ONE_GB = 1024 * 1024 * 1024;
 
   return (
@@ -118,7 +152,7 @@ export function LocalFileBrowser({ open, onClose, onSelect, isExtracting }: Loca
           }}
         >
           <span style={{ fontSize: 16, fontWeight: 600, color: "var(--color-t-primary)" }}>
-            Browse local files
+            Use local or cloud files
           </span>
           <button
             onClick={onClose}
@@ -137,225 +171,370 @@ export function LocalFileBrowser({ open, onClose, onSelect, isExtracting }: Loca
           </button>
         </div>
 
-        {/* Breadcrumb path */}
+        {/* Local / Cloud tabs */}
         <div
           style={{
-            padding: "10px 20px",
-            borderBottom: "1px solid var(--color-border-default)",
             display: "flex",
-            alignItems: "center",
-            gap: 4,
-            flexWrap: "wrap",
-            fontSize: 13,
-            color: "var(--color-t-secondary)",
+            borderBottom: "1px solid var(--color-border-default)",
           }}
         >
-          <button
-            onClick={goUp}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--color-t-tertiary)",
-              fontSize: 13,
-              padding: "2px 4px",
-              fontFamily: "inherit",
-            }}
-          >
-            ..
-          </button>
-          <span>/</span>
-          {pathSegments.map((seg, i) => {
-            const segPath = "/" + pathSegments.slice(0, i + 1).join("/");
+          {(
+            [
+              ["local", "Browse local"],
+              ["cloud", "Cloud URL"],
+            ] as const
+          ).map(([key, label]) => {
+            const active = mode === key;
             return (
-              <span key={segPath} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <button
-                  onClick={() => navigate(segPath)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color:
-                      i === pathSegments.length - 1
-                        ? "var(--color-t-primary)"
-                        : "var(--color-accent)",
-                    fontSize: 13,
-                    padding: "2px 4px",
-                    fontFamily: "inherit",
-                    fontWeight: i === pathSegments.length - 1 ? 600 : 400,
-                  }}
-                >
-                  {seg}
-                </button>
-                {i < pathSegments.length - 1 && <span>/</span>}
-              </span>
+              <button
+                key={key}
+                onClick={() => setMode(key)}
+                disabled={isExtracting}
+                style={{
+                  flex: 1,
+                  padding: "10px 16px",
+                  background: "none",
+                  border: "none",
+                  borderBottom: active ? "2px solid var(--color-accent)" : "2px solid transparent",
+                  cursor: isExtracting ? "not-allowed" : "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 400,
+                  color: active ? "var(--color-t-primary)" : "var(--color-t-tertiary)",
+                }}
+              >
+                {label}
+              </button>
             );
           })}
         </div>
 
-        {/* File list */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "8px 0",
-          }}
-        >
-          {loading && (
-            <div
-              style={{
-                padding: "40px 20px",
-                textAlign: "center",
-                color: "var(--color-t-tertiary)",
-              }}
-            >
-              Loading...
-            </div>
-          )}
-          {error && (
-            <div
-              style={{ padding: "40px 20px", textAlign: "center", color: "var(--color-danger)" }}
-            >
-              {error}
-            </div>
-          )}
-          {!loading && !error && entries.length === 0 && (
-            <div
-              style={{
-                padding: "40px 20px",
-                textAlign: "center",
-                color: "var(--color-t-tertiary)",
-              }}
-            >
-              No data files found in this directory
-            </div>
-          )}
-          {!loading &&
-            !error &&
-            entries.map((entry) => {
-              const isSelected = selectedEntry?.path === entry.path;
-              const isParquetDir = entry.isDirectory && entry.isParquetFolder;
+        {/* ─────────── CLOUD URL panel ─────────── */}
+        {mode === "cloud" && (
+          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <label style={{ fontSize: 13, color: "var(--color-t-secondary)", fontWeight: 500 }}>
+              Parquet URL
+              <input
+                type="text"
+                value={cloudUrl}
+                onChange={(e) => setCloudUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && cloudUrl.trim() && !isExtracting) handleLoadCloud();
+                }}
+                placeholder="s3://bucket/path/*.parquet  or  https://host/file.parquet"
+                spellCheck={false}
+                autoFocus
+                disabled={isExtracting}
+                style={{
+                  marginTop: 6,
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  border: "1px solid var(--color-border-default)",
+                  background: "var(--color-surface-2, transparent)",
+                  color: "var(--color-t-primary)",
+                  fontFamily: "inherit",
+                  fontSize: 13,
+                  boxSizing: "border-box",
+                }}
+              />
+            </label>
+            <span style={{ fontSize: 12, color: "var(--color-t-tertiary)" }}>
+              Reads public S3 / HTTPS Parquet directly via DuckDB — no download. Anonymous by
+              default.
+            </span>
 
-              return (
-                <button
-                  key={entry.path}
-                  onClick={() => handleEntryClick(entry)}
-                  onDoubleClick={() => {
-                    if (entry.isDirectory && !entry.isParquetFolder) {
-                      navigate(entry.path);
-                    }
-                  }}
+            <button
+              onClick={() => setShowCreds((s) => !s)}
+              disabled={isExtracting}
+              style={{
+                alignSelf: "flex-start",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--color-accent)",
+                fontFamily: "inherit",
+                fontSize: 12,
+                padding: 0,
+              }}
+            >
+              {showCreds ? "▾ " : "▸ "}
+              S3 credentials (optional — for private buckets)
+            </button>
+
+            {showCreds && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {(
+                  [
+                    ["s3Region", "Region", "us-east-1"],
+                    ["s3AccessKeyId", "Access key ID", "AKIA…"],
+                    ["s3SecretAccessKey", "Secret access key", "••••••••"],
+                    ["s3Endpoint", "Endpoint (optional)", "s3.amazonaws.com"],
+                  ] as const
+                ).map(([field, label, placeholder]) => (
+                  <input
+                    key={field}
+                    type={field === "s3SecretAccessKey" ? "password" : "text"}
+                    value={creds[field] ?? ""}
+                    onChange={(e) => setCreds((c) => ({ ...c, [field]: e.target.value }))}
+                    placeholder={`${label} — ${placeholder}`}
+                    spellCheck={false}
+                    disabled={isExtracting}
+                    style={{
+                      width: "100%",
+                      padding: "7px 10px",
+                      borderRadius: 6,
+                      border: "1px solid var(--color-border-default)",
+                      background: "var(--color-surface-2, transparent)",
+                      color: "var(--color-t-primary)",
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {cloudError && (
+              <span style={{ fontSize: 12, color: "var(--color-danger)" }}>{cloudError}</span>
+            )}
+          </div>
+        )}
+
+        {/* Breadcrumb path */}
+        {mode === "local" && (
+          <>
+            <div
+              style={{
+                padding: "10px 20px",
+                borderBottom: "1px solid var(--color-border-default)",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                flexWrap: "wrap",
+                fontSize: 13,
+                color: "var(--color-t-secondary)",
+              }}
+            >
+              <button
+                onClick={goUp}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--color-t-tertiary)",
+                  fontSize: 13,
+                  padding: "2px 4px",
+                  fontFamily: "inherit",
+                }}
+              >
+                ..
+              </button>
+              <span>/</span>
+              {pathSegments.map((seg, i) => {
+                const segPath = "/" + pathSegments.slice(0, i + 1).join("/");
+                return (
+                  <span key={segPath} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button
+                      onClick={() => navigate(segPath)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color:
+                          i === pathSegments.length - 1
+                            ? "var(--color-t-primary)"
+                            : "var(--color-accent)",
+                        fontSize: 13,
+                        padding: "2px 4px",
+                        fontFamily: "inherit",
+                        fontWeight: i === pathSegments.length - 1 ? 600 : 400,
+                      }}
+                    >
+                      {seg}
+                    </button>
+                    {i < pathSegments.length - 1 && <span>/</span>}
+                  </span>
+                );
+              })}
+            </div>
+
+            {/* File list */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "8px 0",
+              }}
+            >
+              {loading && (
+                <div
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    width: "100%",
-                    padding: "8px 20px",
-                    background: isSelected ? "var(--color-accent-subtle)" : "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontFamily: "inherit",
-                    fontSize: 14,
-                    color: "var(--color-t-primary)",
-                    transition: "background 0.1s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected)
-                      e.currentTarget.style.background = "var(--color-surface-2, rgba(0,0,0,0.03))";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) e.currentTarget.style.background = "transparent";
+                    padding: "40px 20px",
+                    textAlign: "center",
+                    color: "var(--color-t-tertiary)",
                   }}
                 >
-                  {/* Icon */}
-                  <span style={{ fontSize: 16, width: 20, textAlign: "center", flexShrink: 0 }}>
-                    {entry.isDirectory ? (isParquetDir ? "\u{1F4C2}" : "\u{1F4C1}") : "\u{1F4C4}"}
-                  </span>
+                  Loading...
+                </div>
+              )}
+              {error && (
+                <div
+                  style={{
+                    padding: "40px 20px",
+                    textAlign: "center",
+                    color: "var(--color-danger)",
+                  }}
+                >
+                  {error}
+                </div>
+              )}
+              {!loading && !error && entries.length === 0 && (
+                <div
+                  style={{
+                    padding: "40px 20px",
+                    textAlign: "center",
+                    color: "var(--color-t-tertiary)",
+                  }}
+                >
+                  No data files found in this directory
+                </div>
+              )}
+              {!loading &&
+                !error &&
+                entries.map((entry) => {
+                  const isSelected = selectedEntry?.path === entry.path;
+                  const isParquetDir = entry.isDirectory && entry.isParquetFolder;
 
-                  {/* Name */}
-                  <span
-                    style={{
-                      flex: 1,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {entry.name}
-                  </span>
-
-                  {/* Parquet folder badge */}
-                  {isParquetDir && (
-                    <span
+                  return (
+                    <button
+                      key={entry.path}
+                      onClick={() => handleEntryClick(entry)}
+                      onDoubleClick={() => {
+                        if (entry.isDirectory && !entry.isParquetFolder) {
+                          navigate(entry.path);
+                        }
+                      }}
                       style={{
-                        fontSize: 10,
-                        padding: "1px 6px",
-                        borderRadius: 4,
-                        background: extensionColors[".parquet"],
-                        color: "white",
-                        fontWeight: 600,
-                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        width: "100%",
+                        padding: "8px 20px",
+                        background: isSelected ? "var(--color-accent-subtle)" : "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        fontFamily: "inherit",
+                        fontSize: 14,
+                        color: "var(--color-t-primary)",
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected)
+                          e.currentTarget.style.background =
+                            "var(--color-surface-2, rgba(0,0,0,0.03))";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) e.currentTarget.style.background = "transparent";
                       }}
                     >
-                      {entry.isHivePartitioned ? "HIVE PARQUET" : "PARQUET"}
-                    </span>
-                  )}
+                      {/* Icon */}
+                      <span style={{ fontSize: 16, width: 20, textAlign: "center", flexShrink: 0 }}>
+                        {entry.isDirectory
+                          ? isParquetDir
+                            ? "\u{1F4C2}"
+                            : "\u{1F4C1}"
+                          : "\u{1F4C4}"}
+                      </span>
 
-                  {/* Extension badge */}
-                  {!entry.isDirectory && entry.extension && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        padding: "1px 6px",
-                        borderRadius: 4,
-                        background: extensionColors[entry.extension] ?? "var(--color-t-tertiary)",
-                        color: "white",
-                        fontWeight: 600,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {entry.extension.replace(".", "").toUpperCase()}
-                    </span>
-                  )}
+                      {/* Name */}
+                      <span
+                        style={{
+                          flex: 1,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.name}
+                      </span>
 
-                  {/* Size */}
-                  {!entry.isDirectory && entry.size !== undefined && (
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: "var(--color-t-tertiary)",
-                        flexShrink: 0,
-                        minWidth: 60,
-                        textAlign: "right",
-                      }}
-                    >
-                      {formatSize(entry.size)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-        </div>
+                      {/* Parquet folder badge */}
+                      {isParquetDir && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            background: extensionColors[".parquet"],
+                            color: "white",
+                            fontWeight: 600,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {entry.isHivePartitioned ? "HIVE PARQUET" : "PARQUET"}
+                        </span>
+                      )}
 
-        {/* Large file info */}
-        {selectedEntry &&
-          !selectedEntry.isDirectory &&
-          selectedEntry.size &&
-          selectedEntry.size > ONE_GB && (
-            <div
-              style={{
-                padding: "8px 20px",
-                fontSize: 12,
-                color: "var(--color-t-secondary)",
-                borderTop: "1px solid var(--color-border-default)",
-                background: "var(--color-accent-subtle)",
-              }}
-            >
-              File is {(selectedEntry.size / ONE_GB).toFixed(1)} GB. DuckDB will stream it
-              efficiently.
+                      {/* Extension badge */}
+                      {!entry.isDirectory && entry.extension && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            background:
+                              extensionColors[entry.extension] ?? "var(--color-t-tertiary)",
+                            color: "white",
+                            fontWeight: 600,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {entry.extension.replace(".", "").toUpperCase()}
+                        </span>
+                      )}
+
+                      {/* Size */}
+                      {!entry.isDirectory && entry.size !== undefined && (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: "var(--color-t-tertiary)",
+                            flexShrink: 0,
+                            minWidth: 60,
+                            textAlign: "right",
+                          }}
+                        >
+                          {formatSize(entry.size)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
             </div>
-          )}
+
+            {/* Large file info */}
+            {selectedEntry &&
+              !selectedEntry.isDirectory &&
+              selectedEntry.size &&
+              selectedEntry.size > ONE_GB && (
+                <div
+                  style={{
+                    padding: "8px 20px",
+                    fontSize: 12,
+                    color: "var(--color-t-secondary)",
+                    borderTop: "1px solid var(--color-border-default)",
+                    background: "var(--color-accent-subtle)",
+                  }}
+                >
+                  File is {(selectedEntry.size / ONE_GB).toFixed(1)} GB. DuckDB will stream it
+                  efficiently.
+                </div>
+              )}
+          </>
+        )}
 
         {/* Footer */}
         <div
@@ -378,7 +557,11 @@ export function LocalFileBrowser({ open, onClose, onSelect, isExtracting }: Loca
               whiteSpace: "nowrap",
             }}
           >
-            {selectedEntry ? selectedEntry.path : "Select a file or Parquet folder"}
+            {mode === "cloud"
+              ? "Load a cloud Parquet URL (s3:// or https://)"
+              : selectedEntry
+                ? selectedEntry.path
+                : "Select a file or Parquet folder"}
           </span>
           <div style={{ display: "flex", gap: 8 }}>
             <button
@@ -397,26 +580,35 @@ export function LocalFileBrowser({ open, onClose, onSelect, isExtracting }: Loca
             >
               Cancel
             </button>
-            <button
-              onClick={handleSelect}
-              disabled={!selectedEntry || isExtracting}
-              style={{
-                padding: "8px 16px",
-                borderRadius: 6,
-                border: "none",
-                background:
-                  selectedEntry && !isExtracting
-                    ? "var(--color-accent)"
-                    : "var(--color-border-default)",
-                color: selectedEntry && !isExtracting ? "white" : "var(--color-t-tertiary)",
-                cursor: selectedEntry && !isExtracting ? "pointer" : "not-allowed",
-                fontFamily: "inherit",
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              {isExtracting ? "Extracting schema..." : "Select"}
-            </button>
+            {(() => {
+              const enabled =
+                !isExtracting && (mode === "cloud" ? !!cloudUrl.trim() : !!selectedEntry);
+              return (
+                <button
+                  onClick={mode === "cloud" ? handleLoadCloud : handleSelect}
+                  disabled={!enabled}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: enabled ? "var(--color-accent)" : "var(--color-border-default)",
+                    color: enabled ? "white" : "var(--color-t-tertiary)",
+                    cursor: enabled ? "pointer" : "not-allowed",
+                    fontFamily: "inherit",
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  {isExtracting
+                    ? mode === "cloud"
+                      ? "Reading schema..."
+                      : "Extracting schema..."
+                    : mode === "cloud"
+                      ? "Load"
+                      : "Select"}
+                </button>
+              );
+            })()}
           </div>
         </div>
       </div>

@@ -470,6 +470,36 @@ export async function extractLocalSchema(
   return json<LocalSchemaResult>(res);
 }
 
+/** Optional S3 credentials for a private cloud Parquet source (anon by default). */
+export interface RemoteParquetCreds {
+  s3Region?: string;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
+  s3Endpoint?: string;
+}
+
+export interface RemoteParquetResult {
+  csv_id: string;
+  schema: CSVSchema;
+}
+
+/**
+ * Register a remote cloud Parquet URL (s3:// or https://) that DuckDB reads
+ * directly — no download. Returns the extracted schema. Anonymous unless `creds`
+ * are supplied.
+ */
+export async function extractRemoteParquetSchema(
+  url: string,
+  creds?: RemoteParquetCreds
+): Promise<RemoteParquetResult> {
+  const res = await fetch("/api/remote-parquet/schema", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, creds }),
+  });
+  return json<RemoteParquetResult>(res);
+}
+
 // ── Warehouse ────────────────────────────────────────────────
 
 export interface ConnectWarehouseResult {

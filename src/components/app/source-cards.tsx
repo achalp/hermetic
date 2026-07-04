@@ -212,7 +212,7 @@ export function SourceCards({
         )}
       </div>
 
-      {/* Browse local files */}
+      {/* Use local or cloud files */}
       {onLocalBrowse && (
         <button
           onClick={onLocalBrowse}
@@ -242,10 +242,10 @@ export function SourceCards({
             </svg>
           </div>
           <span style={{ fontSize: 16, fontWeight: 600, color: "var(--color-t-primary)" }}>
-            Browse local files
+            Use local or cloud files
           </span>
           <span style={{ fontSize: 13, color: "var(--color-t-secondary)" }}>
-            Parquet &middot; CSV &middot; Excel &middot; GeoJSON
+            Local or S3/HTTPS &middot; Parquet &middot; CSV &middot; Excel &middot; GeoJSON
           </span>
         </button>
       )}
