@@ -346,6 +346,7 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
     "Use StatCard for key metrics. Group them in a LayoutGrid (columns: 2-4).",
     "Use the appropriate chart type for the data shape.",
     "Add Annotation components for outliers, notable patterns, or caveats.",
+    "If results includes an `analysis_scope` value, the analysis was bounded to less than the question asked (to fit cost limits). Surface it near the TOP as a TextBlock (variant: warning) or Annotation (severity: info) stating what the result actually covers — do NOT present the answer as global/complete when this is set.",
     "Use TrendIndicator when comparing two time periods.",
     "Use ChartImage ONLY when images were generated in the sandbox (truly custom matplotlib visualizations).",
     "For distribution analysis, use Histogram (pass raw data rows + value_key, optional group_key for overlaid groups).",

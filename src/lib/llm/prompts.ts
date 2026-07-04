@@ -290,7 +290,8 @@ Rules:
 - For all numeric results: round currency to 2dp, percentages to 1-2dp, ratios to 3dp, counts to integers. Avoid raw float precision (e.g. 0.33333333333 → 0.33).
 - Use snake_case for ALL keys in results and chart_data (e.g. "on_track" not "On Track", "total_revenue_usd" not "Total Revenue (USD)"). This ensures reliable placeholder resolution in the UI layer.
 - Result KEYS must be strict identifiers: ONLY [a-z0-9_]. When a key includes a category VALUE (e.g. a per-segment metric like the threshold for instance type "m7i.4xlarge,on-demand"), SANITIZE that value into the key first — lowercase and replace every run of non-alphanumerics with a single "_" (e.g. re.sub(r"[^a-z0-9]+","_", value.lower()).strip("_") → "m7i_4xlarge_on_demand"). A "." "," "-" or space left in a key BREAKS placeholder resolution in the UI (the key gets truncated at the punctuation and a raw fragment leaks into the prose). Prefer a per-segment TABLE (chart_data rows) over many value-named scalar keys when there are several segments.
-- Include units in result keys where possible (e.g. "revenue_usd", "growth_pct", "volume_shares").${domain ? `\n${buildDomainLayer(domain)}` : ""}
+- Include units in result keys where possible (e.g. "revenue_usd", "growth_pct", "volume_shares").
+- If the input data has an \`analysis_scope\` column (a constant note the SQL added to disclose that it bounded the query's scope to fit cost limits), carry its value through: set results["analysis_scope"] to that string. It is provenance for the reader, not a metric — do not chart it or treat it as data.${domain ? `\n${buildDomainLayer(domain)}` : ""}
 - Output ONLY the Python code. No markdown fencing, no explanation.`;
 }
 

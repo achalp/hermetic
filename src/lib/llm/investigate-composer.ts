@@ -237,6 +237,7 @@ ${sectionStructure}
 ## Grounding & citations (STRICT — a wrong number stated confidently is the worst failure)
 - NEVER write a literal number in prose. Every figure MUST be a $result:step_N_<key> placeholder so it resolves from a value the analysis actually computed. If you cannot express a number as a placeholder, do not state the number.
 - Do NOT invent derived figures (growth %, ratios, differences) unless a sub-question computed them and exposed a key for them. If the derived value wasn't computed, describe the direction qualitatively ("rose", "roughly doubled") instead of fabricating a precise figure.
+- SCOPE DISCLOSURE: if any step's results include an \`analysis_scope\` value (the SQL bounded that step to less than the question asked, to fit cost limits), surface it as an Annotation (severity: info) near that step and reflect it in the executive summary — do NOT present a scoped finding as global/complete.
 ${citationRule}
 
 ## Tone for narrative blocks
