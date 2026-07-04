@@ -355,6 +355,16 @@ function cleanSQL(raw: string): string {
   sql = sql.replace(/<\|im_start\|>[^\n]*/g, "");
   sql = sql.replace(/<\|end\|>/g, "");
 
+  // Strip leading natural-language reasoning before the query. Models sometimes
+  // prepend a paragraph ("I need to find ... I'll sample ...") ahead of the SQL;
+  // unfenced, that whole thing becomes the query and fails with "Unexpected
+  // identifier". If the text doesn't already begin with a SQL statement, slice
+  // from the first line that starts one (WITH / SELECT). No-op when clean.
+  if (!/^\s*(?:WITH|SELECT)\b/i.test(sql)) {
+    const start = sql.match(/(?:^|\n)[ \t]*((?:WITH|SELECT)\b[\s\S]*)$/i);
+    if (start) sql = start[1];
+  }
+
   // ClickHouse: the LLM sometimes appends `SETTINGS max_rows_to_read=...` to dodge
   // the read limits. On a read-only connection (e.g. the public playground) that
   // errors with "Cannot modify '<setting>' setting in readonly mode". Drop a
@@ -367,3 +377,6 @@ function cleanSQL(raw: string): string {
 
   return sql.trim();
 }
+
+/** Test seam. */
+export const __testing = { cleanSQL };
