@@ -1,98 +1,14 @@
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
+import { DUCKDB_CLOUD_PRELUDE } from "@/lib/parquet/duckdb-source";
 
 /**
- * Build a Python script that uses DuckDB to extract full CSVSchema-compatible
- * metadata from a Parquet file or folder of Parquet files.
- *
- * The script writes a JSON object to /data/output.json matching the CSVSchema
- * interface (minus csv_id and filename, which are set by the caller).
+ * The source-agnostic tail of the extraction script: given `describe`,
+ * `row_count`, a `stats_data` temp table (aliased `STATS_TABLE`), and the
+ * MAX_* constants, it computes per-column stats + correlations and writes a
+ * CSVSchema-compatible JSON to /data/output.json. Shared verbatim by the local
+ * and remote (cloud Parquet) setups so the profiling logic lives in ONE place.
  */
-export function buildSchemaScript(
-  filename: string,
-  isFolder: boolean,
-  isHivePartitioned?: boolean
-): string {
-  const dataPath = isFolder
-    ? `${LOCAL_MOUNT_PATH}/**/*.parquet`
-    : `${LOCAL_MOUNT_PATH}/${filename}`;
-  const hiveFlag = isFolder && isHivePartitioned ? ", hive_partitioning=true" : "";
-
-  return `
-import duckdb
-import json
-import math
-import glob
-import os
-
-con = duckdb.connect()
-
-DATA_PATH = '${dataPath}'
-IS_FOLDER = ${isFolder ? "True" : "False"}
-IS_HIVE = ${isFolder && isHivePartitioned ? "True" : "False"}
-MAX_SAMPLE_ROWS = 5
-MAX_DISTINCT_VALUES = 20
-MAX_TOP_VALUES = 10
-MAX_CORRELATION_PAIRS = 10
-STATS_SAMPLE_SIZE = 500_000
-
-# ── Smart file discovery for Hive datasets ───────────────────────
-# For Hive-partitioned datasets, avoid globbing all files for every query.
-# Instead: get schema from one file, estimate row count from metadata,
-# and sample from a small subset of partition files.
-
-mount_path = '${LOCAL_MOUNT_PATH}'
-
-if IS_FOLDER:
-    all_files = sorted(glob.glob(os.path.join(mount_path, '**', '*.parquet'), recursive=True))
-    total_files = len(all_files)
-
-    if total_files == 0:
-        raise RuntimeError(f"No .parquet files found under {mount_path}")
-
-    # Schema from the first file (all partitions share the same schema)
-    first_file = all_files[0]
-    hive_opt = ", hive_partitioning=true" if IS_HIVE else ""
-    READ_SINGLE = f"read_parquet('{first_file}'{hive_opt})"
-
-    # For stats, pick a representative subset of files (up to 20 spread across partitions)
-    if total_files <= 20:
-        sample_files = all_files
-    else:
-        step = total_files // 20
-        sample_files = [all_files[i * step] for i in range(20)]
-
-    sample_list = ", ".join(f"'{f}'" for f in sample_files)
-    READ_SAMPLE = f"read_parquet([{sample_list}]{hive_opt})"
-
-    # Full dataset reference (only used for row count via metadata)
-    READ_FULL = f"read_parquet('{mount_path}/**/*.parquet'{hive_opt})"
-
-    # Row count: sum row counts from parquet metadata (reads footers only, no data)
-    try:
-        row_count = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata('{mount_path}/**/*.parquet')").fetchone()[0]
-    except Exception:
-        # Fallback: count from sample and extrapolate
-        sample_count = con.sql(f"SELECT COUNT(*) FROM {READ_SAMPLE}").fetchone()[0]
-        row_count = int(sample_count * total_files / len(sample_files))
-
-    # Schema from full glob (includes Hive partition columns)
-    describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL} LIMIT 0").fetchall()
-
-    # Materialize sample into a temp table for fast repeated stats queries
-    con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_SAMPLE} USING SAMPLE {STATS_SAMPLE_SIZE} ROWS")
-
-else:
-    READ_FULL = f"read_parquet('{DATA_PATH}')"
-    describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
-    row_count = con.sql(f"SELECT COUNT(*) FROM {READ_FULL}").fetchone()[0]
-
-    if row_count > STATS_SAMPLE_SIZE:
-        con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_FULL} USING SAMPLE {STATS_SAMPLE_SIZE}")
-    else:
-        con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_FULL}")
-
-STATS_TABLE = 'stats_data'
-
+const SHARED_STATS_TAIL = `
 # Map DuckDB types to schema dtypes
 def map_dtype(duckdb_type):
     t = duckdb_type.upper()
@@ -363,4 +279,149 @@ output = {
 
 json.dump(output, open('/data/output.json', 'w'), default=str, allow_nan=False)
 `;
+
+/** Source setup for a LOCAL Parquet file or folder (bind-mounted at /data/local).
+ *  Produces con / describe / row_count / stats_data + the MAX_* constants. */
+function localSetup(filename: string, isFolder: boolean, isHivePartitioned?: boolean): string {
+  const dataPath = isFolder
+    ? `${LOCAL_MOUNT_PATH}/**/*.parquet`
+    : `${LOCAL_MOUNT_PATH}/${filename}`;
+  return `
+import duckdb
+import json
+import math
+import glob
+import os
+
+con = duckdb.connect()
+
+DATA_PATH = '${dataPath}'
+IS_FOLDER = ${isFolder ? "True" : "False"}
+IS_HIVE = ${isFolder && isHivePartitioned ? "True" : "False"}
+MAX_SAMPLE_ROWS = 5
+MAX_DISTINCT_VALUES = 20
+MAX_TOP_VALUES = 10
+MAX_CORRELATION_PAIRS = 10
+STATS_SAMPLE_SIZE = 500_000
+
+# ── Smart file discovery for Hive datasets ───────────────────────
+# For Hive-partitioned datasets, avoid globbing all files for every query.
+# Instead: get schema from one file, estimate row count from metadata,
+# and sample from a small subset of partition files.
+
+mount_path = '${LOCAL_MOUNT_PATH}'
+
+if IS_FOLDER:
+    all_files = sorted(glob.glob(os.path.join(mount_path, '**', '*.parquet'), recursive=True))
+    total_files = len(all_files)
+
+    if total_files == 0:
+        raise RuntimeError(f"No .parquet files found under {mount_path}")
+
+    # Schema from the first file (all partitions share the same schema)
+    first_file = all_files[0]
+    hive_opt = ", hive_partitioning=true" if IS_HIVE else ""
+    READ_SINGLE = f"read_parquet('{first_file}'{hive_opt})"
+
+    # For stats, pick a representative subset of files (up to 20 spread across partitions)
+    if total_files <= 20:
+        sample_files = all_files
+    else:
+        step = total_files // 20
+        sample_files = [all_files[i * step] for i in range(20)]
+
+    sample_list = ", ".join(f"'{f}'" for f in sample_files)
+    READ_SAMPLE = f"read_parquet([{sample_list}]{hive_opt})"
+
+    # Full dataset reference (only used for row count via metadata)
+    READ_FULL = f"read_parquet('{mount_path}/**/*.parquet'{hive_opt})"
+
+    # Row count: sum row counts from parquet metadata (reads footers only, no data)
+    try:
+        row_count = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata('{mount_path}/**/*.parquet')").fetchone()[0]
+    except Exception:
+        # Fallback: count from sample and extrapolate
+        sample_count = con.sql(f"SELECT COUNT(*) FROM {READ_SAMPLE}").fetchone()[0]
+        row_count = int(sample_count * total_files / len(sample_files))
+
+    # Schema from full glob (includes Hive partition columns)
+    describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL} LIMIT 0").fetchall()
+
+    # Materialize sample into a temp table for fast repeated stats queries
+    con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_SAMPLE} USING SAMPLE {STATS_SAMPLE_SIZE} ROWS")
+
+else:
+    READ_FULL = f"read_parquet('{DATA_PATH}')"
+    describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
+    row_count = con.sql(f"SELECT COUNT(*) FROM {READ_FULL}").fetchone()[0]
+
+    if row_count > STATS_SAMPLE_SIZE:
+        con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_FULL} USING SAMPLE {STATS_SAMPLE_SIZE}")
+    else:
+        con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_FULL}")
+
+STATS_TABLE = 'stats_data'
+`;
+}
+
+/**
+ * Build a Python script that uses DuckDB to extract full CSVSchema-compatible
+ * metadata from a Parquet file or folder of Parquet files.
+ *
+ * The script writes a JSON object to /data/output.json matching the CSVSchema
+ * interface (minus csv_id and filename, which are set by the caller).
+ */
+export function buildSchemaScript(
+  filename: string,
+  isFolder: boolean,
+  isHivePartitioned?: boolean
+): string {
+  return localSetup(filename, isFolder, isHivePartitioned) + SHARED_STATS_TAIL;
+}
+
+/** Source setup for a REMOTE cloud Parquet URL (s3:// or https://), read directly
+ *  via DuckDB httpfs. Loads the cloud/geo extensions, takes the row count from
+ *  Parquet FOOTERS (metadata only, no data scan — critical over the network), and
+ *  profiles a bounded prefix of the data. `readUrl` MUST be a pre-validated URL
+ *  (see isSafeParquetUrl) — it is interpolated into the DuckDB SQL. */
+function remoteSetup(readUrl: string): string {
+  return `
+import duckdb
+import json
+import math
+
+MAX_SAMPLE_ROWS = 5
+MAX_DISTINCT_VALUES = 20
+MAX_TOP_VALUES = 10
+MAX_CORRELATION_PAIRS = 10
+STATS_SAMPLE_SIZE = 500_000
+
+con = duckdb.connect()
+con.sql("${DUCKDB_CLOUD_PRELUDE}")
+
+READ_FULL = "read_parquet('${readUrl}')"
+describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
+
+# Row count from Parquet footers only (no data scan) — essential over S3/HTTPS.
+try:
+    row_count = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata('${readUrl}')").fetchone()[0]
+    row_count = int(row_count) if row_count is not None else 0
+except Exception:
+    row_count = 0
+
+# Profile a BOUNDED prefix, not the whole remote dataset. A bare LIMIT reads only
+# the first row groups (no full scan / no egress of the entire dataset).
+con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_FULL} LIMIT {STATS_SAMPLE_SIZE}")
+if row_count == 0:
+    row_count = con.sql("SELECT COUNT(*) FROM stats_data").fetchone()[0]
+STATS_TABLE = 'stats_data'
+`;
+}
+
+/**
+ * Build the extraction script for a REMOTE cloud Parquet URL (s3:// or https://).
+ * Reuses the exact same source-agnostic stats/output tail as the local path.
+ */
+export function buildRemoteParquetSchemaScript(readUrl: string): string {
+  return remoteSetup(readUrl) + SHARED_STATS_TAIL;
 }

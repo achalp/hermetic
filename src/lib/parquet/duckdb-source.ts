@@ -35,6 +35,31 @@ export function parquetReadExpr(pathOrUrl: string, hivePartitioned = false): str
   return `read_parquet('${pathOrUrl}'${hivePartitioned ? ", hive_partitioning=true" : ""})`;
 }
 
+/**
+ * Whether a user-supplied cloud-Parquet URL is safe to interpolate into DuckDB
+ * SQL. The URL lands inside a single-quoted `read_parquet('...')` literal, so we
+ * hard-reject any character that could break out of it or inject (quotes,
+ * backslash, backtick, semicolon, control chars) and require a known object-store
+ * / http(s) scheme. A glob (`*`) and query string are allowed. Reject-by-default.
+ */
+export function isSafeParquetUrl(url: unknown): url is string {
+  if (typeof url !== "string" || url.length === 0 || url.length > 2048) return false;
+  if (!/^(s3|s3a|gs|gcs|az|azure|abfss?|https?):\/\//i.test(url)) return false;
+  if (/['"`\\;\n\r\t\0]/.test(url)) return false;
+  return true;
+}
+
+/**
+ * Code-gen "Data Location" context for a REMOTE cloud Parquet URL read directly
+ * via DuckDB httpfs. Reuses parquetReadExpr + parquetFileContext and prepends the
+ * cloud/geo extension prelude. Caller MUST have validated the URL (isSafeParquetUrl).
+ */
+export function resolveRemoteSource(url: string, rowCount: number): { localFileContext: string } {
+  const readExpr = parquetReadExpr(url);
+  const prelude = `FIRST, enable cloud + geo reads once at the top of the script: ${duckdbCloudPreludePy()}\n`;
+  return { localFileContext: prelude + parquetFileContext(readExpr, url, rowCount) };
+}
+
 /** The "reduce in SQL, never SELECT * unaggregated" guidance appended for a large
  *  dataset — shared so the wording is identical everywhere. */
 function largeDataNote(rowCount: number): string {

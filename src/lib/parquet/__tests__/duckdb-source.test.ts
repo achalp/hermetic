@@ -4,6 +4,8 @@ import {
   parquetFolderContext,
   parquetFileContext,
   resolveLocalSource,
+  resolveRemoteSource,
+  isSafeParquetUrl,
   DUCKDB_CLOUD_PRELUDE,
   duckdbCloudPreludePy,
 } from "@/lib/parquet/duckdb-source";
@@ -94,5 +96,41 @@ describe("resolveLocalSource", () => {
 
   it("returns empty for a non-local (upload/warehouse) source", () => {
     expect(resolveLocalSource(storedWith({}))).toEqual({});
+  });
+});
+
+describe("isSafeParquetUrl", () => {
+  it("accepts s3://, https://, gs://, azure globs", () => {
+    expect(
+      isSafeParquetUrl("s3://overturemaps-us-west-2/release/2024/theme=buildings/*.parquet")
+    ).toBe(true);
+    expect(isSafeParquetUrl("https://host/data/file.parquet")).toBe(true);
+    expect(isSafeParquetUrl("gs://bucket/x.parquet")).toBe(true);
+  });
+
+  it("rejects a URL that could break out of the SQL string literal", () => {
+    expect(isSafeParquetUrl("s3://b/x.parquet'); DROP TABLE t; --")).toBe(false); // quote + ;
+    expect(isSafeParquetUrl("https://h/a`b.parquet")).toBe(false); // backtick
+    expect(isSafeParquetUrl("https://h/a\\b.parquet")).toBe(false); // backslash
+    expect(isSafeParquetUrl("https://h/a\nb")).toBe(false); // newline
+  });
+
+  it("rejects a non-object-store scheme and empty/overlong input", () => {
+    expect(isSafeParquetUrl("file:///etc/passwd")).toBe(false);
+    expect(isSafeParquetUrl("/data/local/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("")).toBe(false);
+    expect(isSafeParquetUrl(null)).toBe(false);
+    expect(isSafeParquetUrl("https://h/" + "a".repeat(3000))).toBe(false);
+  });
+});
+
+describe("resolveRemoteSource", () => {
+  it("prepends the cloud prelude and reads via read_parquet(url)", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
+    expect(localFileContext).toContain(DUCKDB_CLOUD_PRELUDE);
+    expect(localFileContext).toContain("read_parquet('s3://bucket/data/*.parquet')");
+    expect(localFileContext).toContain("2,500,000,000 rows");
+    // Large-data guidance carries through for a huge remote dataset.
+    expect(localFileContext).toContain("large dataset");
   });
 });
