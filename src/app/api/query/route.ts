@@ -5,9 +5,10 @@ import {
   getWorkbookManifest,
   storeCSV,
   isLocalFile,
+  isRemoteFile,
 } from "@/lib/csv/storage";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
-import { resolveLocalSource } from "@/lib/parquet/duckdb-source";
+import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
 import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
 import { appendCostRow } from "@/lib/cost/storage";
 import { runWithDiagnostics, writeRunDiagnostics } from "@/lib/diagnostics/run-diagnostics";
@@ -295,8 +296,10 @@ export async function POST(request: Request) {
               }
               datasetLabel = stored.schema.filename;
 
-              // Determine if this is a local file (bind-mount path)
+              // Determine if this is a local file (bind-mount path) or a remote
+              // cloud Parquet source (DuckDB reads the URL directly, no mount).
               const isLocal = isLocalFile(csvId!);
+              const isRemote = isRemoteFile(csvId!);
               let localMountPath: string | undefined;
 
               if (isLocal) {
@@ -332,8 +335,8 @@ export async function POST(request: Request) {
                 ({ localMountPath } = resolveLocalSource(stored));
               }
 
-              const csvContent = isLocal ? "" : await getCSVContent(csvId!);
-              if (!isLocal && !csvContent) {
+              const csvContent = isLocal || isRemote ? "" : await getCSVContent(csvId!);
+              if (!isLocal && !isRemote && !csvContent) {
                 if (stored.schema.source_type === "warehouse") {
                   throw new Error(
                     "This analysis was from a warehouse query. Please connect to the warehouse first, then ask your question."
@@ -380,7 +383,15 @@ export async function POST(request: Request) {
               };
 
               // Build local file context for LLM prompt (tells it where to read data)
-              const { localFileContext } = isLocal ? resolveLocalSource(stored) : {};
+              const { localFileContext } = isLocal
+                ? resolveLocalSource(stored)
+                : isRemote
+                  ? resolveRemoteSource(
+                      stored.remoteParquetUrl!,
+                      stored.schema.row_count,
+                      stored.remoteCreds
+                    )
+                  : {};
 
               // Load prior conversation turns for follow-up context
               const priorTurns = csvId ? getConversationTurns(csvId) : [];

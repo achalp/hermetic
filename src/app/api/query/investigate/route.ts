@@ -48,7 +48,7 @@ import {
 import { materializeCsvToParquet } from "@/lib/parquet/materialize";
 import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
-import { resolveLocalSource } from "@/lib/parquet/duckdb-source";
+import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -71,6 +71,7 @@ import {
   getCSVContent,
   getGeoJSONContent,
   isLocalFile,
+  isRemoteFile,
   storeCSV,
 } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
@@ -421,24 +422,35 @@ export async function POST(request: Request) {
               }
               datasetLabel = stored.schema.filename;
               const isLocal = isLocalFile(csvId!);
-              // In Parquet mode the analysis reads the bind-mounted Parquet, so we
-              // never load the (large) CSV into memory.
+              const isRemote = isRemoteFile(csvId!);
+              // In Parquet mode (local mount, materialized warehouse, or remote
+              // URL) the analysis reads Parquet directly, so we never load the
+              // (large) CSV into memory.
               const csvContent =
-                isLocal || warehouseParquetFile ? "" : ((await getCSVContent(csvId!)) ?? "");
+                isLocal || isRemote || warehouseParquetFile
+                  ? ""
+                  : ((await getCSVContent(csvId!)) ?? "");
               const geojsonContent = stored.schema.has_geojson
                 ? await getGeoJSONContent(csvId!)
                 : null;
 
               // Mount path + code-gen "Data Location" context. A materialized
               // warehouse pull was docker-cp'd to /data/input.parquet (no mount);
-              // a browsed local file resolves via the shared resolver (see
-              // lib/parquet/duckdb-source), the same one /api/query uses.
+              // a browsed local file resolves via the shared resolver; a remote
+              // cloud Parquet URL is read directly by DuckDB (no mount). Same
+              // resolvers as /api/query.
               let localMountPath: string | undefined;
               let localFileContext: string | undefined;
               if (warehouseParquetFile) {
                 localFileContext = warehouseParquetContext;
               } else if (isLocal) {
                 ({ localMountPath, localFileContext } = resolveLocalSource(stored));
+              } else if (isRemote) {
+                ({ localFileContext } = resolveRemoteSource(
+                  stored.remoteParquetUrl!,
+                  stored.schema.row_count,
+                  stored.remoteCreds
+                ));
               }
 
               // ── Drill-as-sub-investigation cost gate ──
