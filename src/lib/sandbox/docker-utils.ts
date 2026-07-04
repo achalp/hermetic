@@ -35,6 +35,21 @@ export function run(
 }
 
 /**
+ * Whether generated code will do slow remote/network IO — a cloud Parquet read
+ * over DuckDB httpfs (s3://, gs://, azure, or a remote https Parquet). Such reads
+ * are far slower than local/in-container data, so the sandbox must budget the
+ * extended timeout for them, same as a large local Parquet. Detected from the
+ * code itself because that is exactly what determines the IO the sandbox does.
+ */
+export function codeDoesRemoteIo(code: string): boolean {
+  return (
+    /\bhttpfs\b/i.test(code) ||
+    /['"](?:s3|s3a|gs|gcs|az|azure|abfss?):\/\//i.test(code) ||
+    /read_parquet\(\s*['"]https?:\/\//i.test(code)
+  );
+}
+
+/**
  * Parse execution output from a container that ran a Python script.
  * Reads output.json or stdout.txt, parses JSON, returns ExecutionResult.
  */

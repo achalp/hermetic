@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
-import { run, parseExecutionOutput } from "./docker-utils";
+import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
 import { logger } from "@/lib/logger";
 
 export async function executeSandbox(
@@ -77,8 +77,9 @@ export async function executeSandbox(
     });
     logger.debug("Docker: script written");
 
-    // 4. Run script
-    const isLargeData = !!localMountPath || !!inputParquetPath;
+    // 4. Run script. Large local Parquet (mount / copied-in) and slow remote
+    //    cloud reads (s3://, https:// via httpfs) both need the extended timeout.
+    const isLargeData = !!localMountPath || !!inputParquetPath || codeDoesRemoteIo(code);
     const execTimeout = isLargeData ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
     logger.info("Docker: executing script", { execTimeout, largeData: isLargeData });
     const execResult = await run(

@@ -2,7 +2,7 @@ import type { WarmSandboxBackend } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS } from "@/lib/constants";
-import { run, parseExecutionOutput } from "./docker-utils";
+import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
 import { logger } from "@/lib/logger";
 
 const CONTAINER_NAME = "hermetic-warm";
@@ -96,7 +96,9 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         timeoutMs: 15_000,
       });
 
-      // Execute
+      // Execute — slow remote cloud reads (httpfs s3://, https://) need the
+      // extended timeout, same as large local Parquet.
+      const execTimeout = codeDoesRemoteIo(code) ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
       const execResult = await run(
         "docker",
         [
@@ -106,7 +108,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
           "-c",
           "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
         ],
-        { timeoutMs: SANDBOX_TIMEOUT_MS }
+        { timeoutMs: execTimeout }
       );
 
       return await parseExecutionOutput(CONTAINER_NAME, start, execResult.stdout);
