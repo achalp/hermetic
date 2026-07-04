@@ -4,6 +4,8 @@ import {
   parquetFolderContext,
   parquetFileContext,
   resolveLocalSource,
+  DUCKDB_CLOUD_PRELUDE,
+  duckdbCloudPreludePy,
 } from "@/lib/parquet/duckdb-source";
 import type { StoredCSV, CSVSchema } from "@/lib/types";
 
@@ -22,6 +24,19 @@ describe("parquetReadExpr", () => {
     expect(parquetReadExpr("/data/local/**/*.parquet", true)).toBe(
       "read_parquet('/data/local/**/*.parquet', hive_partitioning=true)"
     );
+  });
+});
+
+describe("cloud extension prelude", () => {
+  it("installs + loads both httpfs and spatial", () => {
+    expect(DUCKDB_CLOUD_PRELUDE).toContain("INSTALL httpfs");
+    expect(DUCKDB_CLOUD_PRELUDE).toContain("LOAD httpfs");
+    expect(DUCKDB_CLOUD_PRELUDE).toContain("INSTALL spatial");
+    expect(DUCKDB_CLOUD_PRELUDE).toContain("LOAD spatial");
+  });
+  it("wraps the prelude in a duckdb.sql(...) call with the given connection var", () => {
+    expect(duckdbCloudPreludePy()).toBe(`duckdb.sql("${DUCKDB_CLOUD_PRELUDE}")`);
+    expect(duckdbCloudPreludePy("con")).toBe(`con.sql("${DUCKDB_CLOUD_PRELUDE}")`);
   });
 });
 

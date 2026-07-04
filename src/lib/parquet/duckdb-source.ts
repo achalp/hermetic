@@ -13,6 +13,22 @@ import type { StoredCSV } from "@/lib/types";
 /** Rows above which we must push aggregation into DuckDB before `.df()`. */
 const LARGE_ROWS = 1_000_000;
 
+/**
+ * DuckDB prelude to enable reading cloud files (httpfs → s3://, https://) and
+ * spatial/geo ops (spatial). The sandbox image pre-bundles both, so LOAD is
+ * offline + instant; INSTALL stays as a fallback for a runtime that didn't
+ * pre-bundle (it's a no-op when the extension is already present).
+ */
+export const DUCKDB_CLOUD_PRELUDE = "INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;";
+
+/**
+ * Python that runs the prelude on a DuckDB connection before any remote read.
+ * `con` is the DuckDB connection variable name in the generated script.
+ */
+export function duckdbCloudPreludePy(con = "duckdb"): string {
+  return `${con}.sql("${DUCKDB_CLOUD_PRELUDE}")`;
+}
+
 /** A DuckDB `read_parquet(...)` expression for a path OR a remote URL (s3://,
  *  https://). Hive-partitioned folders add the flag so partition columns surface. */
 export function parquetReadExpr(pathOrUrl: string, hivePartitioned = false): string {
