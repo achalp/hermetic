@@ -1,8 +1,8 @@
 import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm/client";
-import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
-import { checkAggregateInputLimit } from "@/lib/warehouse/sql-guard";
+import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from "@/lib/constants";
+import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
 import { logger } from "@/lib/logger";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
 
@@ -103,7 +103,7 @@ function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
 - NEVER add a \`SETTINGS\` clause (ClickHouse) or \`SET\` statement to raise limits like max_rows_to_read / max_execution_time / max_bytes_to_read — the connection may be READ-ONLY and it errors ("Cannot modify ... in readonly mode"). The only way to fit under the limits is a cheaper query.
 - Always LIMIT results to at most 50000 rows to prevent excessive data transfer.
 - LIMIT CAPS OUTPUT ONLY — NEVER SAMPLE THE INPUT OF A GLOBAL COMPUTATION. Putting a LIMIT on the rows that FEED an aggregate, a global max/min, a "farthest / nearest / most / least"-type extremum, a nearest-neighbor or pairwise distance, a ranking, a dedup, or a percentile CHANGES THE ANSWER — you compute the extremum over an arbitrary partial set, not the real one, and return a confidently WRONG result. A final \`LIMIT 1\`/\`LIMIT 100\` on the OUTPUT ranking is fine; a \`LIMIT\` inside the subquery/CTE that the computation reads is not. If such a query is too expensive to run over the full table, make the SCOPE cheaper with a WHERE the QUESTION implies (a named region, a recent time window) — do NOT invent an arbitrary bound the user never asked for (e.g. silently restricting a global "which building is farthest from its neighbor" to one city's bounding box). If you cannot answer the question correctly under the cost limits, return the honestly-scoped answer and make the scope explicit in a column/value rather than passing off a sample as the global answer.
-- SCOPE DISCLOSURE: if — after scaling the algorithm — you STILL bound the DATA to less than the question asks (a region / time window / subset the user did not specify, in order to fit cost limits), you MUST make that scope visible in the OUTPUT: add a constant column \`analysis_scope\` whose value is a short human-readable description of exactly what you restricted and why (e.g. \`'Computed within lat 63–67, lng −25 to −13 (global scan exceeded the byte limit)' AS analysis_scope\`). Add it ONLY when you actually narrowed scope beyond the question — never for a scope the question itself specified. This lets the answer say what it actually covers instead of pretending to be global.
+- SCOPE / METHOD DISCLOSURE: if — after scaling the algorithm — you STILL bound the DATA to less than the question asks (a region / time window / subset the user did not specify, to fit cost limits), OR you compute the answer with a scalable METHOD that introduces a boundary or approximation (a bounded search radius, grid-resolution rounding, an approximate function), you MUST make it visible in the OUTPUT: add a constant column \`analysis_scope\` whose value is a short human-readable description of what you restricted / the method used and why (e.g. \`'Computed within lat 63–67, lng −25 to −13 (global scan exceeded the byte limit)'\` or \`'Nearest neighbor via 1km spatial grid; buildings whose nearest neighbor is >1km away are not resolved' AS analysis_scope\`). Add it ONLY when you actually narrowed scope or introduced an approximation — never for an exact answer at the scope the question specified. This lets the answer say what it actually covers instead of pretending to be exact/global.
 - If the question is ambiguous about which columns to use, prefer columns that seem most relevant based on their names and types.
 - Handle NULLs appropriately (COALESCE, IS NOT NULL filters where sensible).
 - For time-based questions, order by the date/time column.
@@ -310,11 +310,13 @@ export async function generateSQLWithRepair<T>(args: {
 
   for (let attempt = 0; attempt <= maxRepairs; attempt++) {
     try {
-      // Pre-execution guard: reject a query that samples an aggregate's input
-      // with an unordered LIMIT (a wrong-but-valid query the engine would run
-      // happily). Deterministic — the repair loop must fix it BEFORE we spend a
-      // warehouse query on a wrong answer.
-      const guardMsg = checkAggregateInputLimit(sql);
+      // Pre-execution guards: reject a wrong-but-valid query the engine would run
+      // happily, deterministically, so the repair loop fixes it BEFORE we spend a
+      // warehouse query. (1) an aggregate over an unordered-LIMIT sample; (2) a
+      // CROSS / non-equi / self join over a large base table (O(n²) — won't scale).
+      const guardMsg =
+        checkAggregateInputLimit(sql) ??
+        checkUnboundedLargeJoin(sql, args.tables, WAREHOUSE_LARGE_JOIN_ROWS);
       if (guardMsg) throw new Error(guardMsg);
 
       args.onAttempt?.(attempt, "executing");

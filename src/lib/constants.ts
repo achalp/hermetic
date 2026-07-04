@@ -15,6 +15,11 @@ export const WAREHOUSE_MAX_ROWS = 1_000_000;
 // stay bounded by their LIMIT (no ORDER BY → the engine stops early). Tunable: lower
 // it if a warehouse has a tighter read limit or is slow under load.
 export const WAREHOUSE_SCAN_ROW_BUDGET = 100_000_000;
+// A base table at/above this row count is "large" for the unbounded-join guard:
+// a CROSS / self / non-equi join over it is O(n²) and won't scale, so the guard
+// forces a bucketed rewrite. Below it, an all-pairs join is small enough to allow.
+// Tunable from real logs.
+export const WAREHOUSE_LARGE_JOIN_ROWS = 5_000_000;
 // At/above this row count, materialize to Parquet and analyze via DuckDB
 // (bind-mounted) instead of parsing the CSV in Node + pandas. Below it the
 // proven CSV path is unchanged.

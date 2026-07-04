@@ -71,3 +71,64 @@ export function checkAggregateInputLimit(rawSql: string): string | null {
   }
   return null;
 }
+
+/** Last path segment of a (possibly backtick-quoted, dotted) table reference. */
+function tableKey(ref: string): string {
+  const bare = ref.replace(/`/g, "").trim();
+  const seg = bare.split(".").pop() ?? bare;
+  return seg.toLowerCase();
+}
+
+/** Does a JOIN ... ON clause bound the join with a real column equality (not
+ *  !=, <>, <=, >=)? An equi-join is bounded; a purely inequality/distance ON is
+ *  effectively all-pairs. */
+function hasRealEquality(onClause: string): boolean {
+  return /=/.test(onClause.replace(/!=|<>|<=|>=/g, " "));
+}
+
+/**
+ * Flag a CROSS / self / non-equi join over a LARGE base table — an O(n²) all-
+ * pairs computation that won't scale (the "farthest building from its nearest
+ * neighbor" self-join over 2.5B rows). The scalable rewrite is to bucket first
+ * (spatial grid / S2 cell for geo, the natural key otherwise) and join within a
+ * bucket on an EQUALITY of the bucket key — which clears this check, so the guard
+ * forces exactly that repair.
+ *
+ * Precision: only DIRECT base-table references are sized (subquery-wrapped joins
+ * can't be sized statically — those are left to the scale-first prompt + the
+ * unordered-LIMIT guard). An equi-join between large tables is NOT flagged.
+ */
+export function checkUnboundedLargeJoin(
+  rawSql: string,
+  tables: { name: string; row_count_estimate: number }[],
+  largeRowThreshold: number
+): string | null {
+  const sql = stripNoise(rawSql);
+  const sizeByKey = new Map<string, number>();
+  for (const t of tables) sizeByKey.set(tableKey(t.name), t.row_count_estimate ?? 0);
+  const isLarge = (ref: string) => (sizeByKey.get(tableKey(ref)) ?? 0) >= largeRowThreshold;
+
+  const bigMsg = (rows: number) =>
+    `This joins a LARGE table (~${rows.toLocaleString()} rows) with a CROSS / non-equi / self join — that is O(n²) ` +
+    "(it enumerates all pairs) and will not scale. BUCKET first: group rows into buckets — a spatial grid or " +
+    "S2_CELLIDFROMPOINT for geo, the natural key otherwise — and JOIN within a bucket + its immediate neighbors " +
+    "using an EQUALITY on the bucket key; handle the isolated tail (rows with no neighbor in their block) with a " +
+    "wider second pass rather than dropping them. Do NOT cross-join or non-equi-join the raw table. If the bucketed " +
+    "method introduces any boundary or approximation (a bounded search radius, grid-resolution rounding), disclose it " +
+    "with a constant `analysis_scope` column describing the method and its caveat.";
+
+  // 1) CROSS JOIN <largeBaseTable>
+  const crossRe = /\bCROSS\s+JOIN\s+(`[^`]+`|[A-Za-z_][\w.]*)/gi;
+  for (let m; (m = crossRe.exec(sql)); ) {
+    if (isLarge(m[1])) return bigMsg(sizeByKey.get(tableKey(m[1]))!);
+  }
+
+  // 2) JOIN <largeBaseTable> [alias] ON <clause> with no real equality (non-equi)
+  const joinRe =
+    /\bJOIN\s+(`[^`]+`|[A-Za-z_][\w.]*)(?:\s+(?:AS\s+)?[A-Za-z_]\w*)?\s+ON\b([\s\S]*?)(?=\b(?:JOIN|WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|WINDOW|QUALIFY|UNION|EXCEPT|INTERSECT)\b|\)|$)/gi;
+  for (let m; (m = joinRe.exec(sql)); ) {
+    if (isLarge(m[1]) && !hasRealEquality(m[2])) return bigMsg(sizeByKey.get(tableKey(m[1]))!);
+  }
+
+  return null;
+}

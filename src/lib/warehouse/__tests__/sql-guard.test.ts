@@ -1,5 +1,49 @@
 import { describe, it, expect } from "vitest";
-import { checkAggregateInputLimit } from "@/lib/warehouse/sql-guard";
+import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
+
+const TABLES = [
+  { name: "building", row_count_estimate: 2_500_000_000 },
+  { name: "sic_codes", row_count_estimate: 1_200 },
+  { name: "orders", row_count_estimate: 50_000_000 },
+];
+const THRESHOLD = 5_000_000;
+
+describe("checkUnboundedLargeJoin", () => {
+  it("flags a non-equi self-join over a large table (the nearest-neighbor bug)", () => {
+    const sql = `
+      SELECT b1.id, MIN(ST_DISTANCE(b1.geometry, b2.geometry)) AS nn
+      FROM \`bigquery-public-data.overture_maps.building\` b1
+      JOIN \`bigquery-public-data.overture_maps.building\` b2 ON b1.id != b2.id
+      WHERE b1.bbox.xmin BETWEEN -25 AND -13
+      GROUP BY b1.id ORDER BY nn DESC LIMIT 1`;
+    expect(checkUnboundedLargeJoin(sql, TABLES, THRESHOLD)).toMatch(/O\(n²\)|bucket/i);
+  });
+
+  it("flags a CROSS JOIN of a large table", () => {
+    const sql = "SELECT count(*) FROM orders a CROSS JOIN orders b WHERE a.id != b.id";
+    expect(checkUnboundedLargeJoin(sql, TABLES, THRESHOLD)).not.toBeNull();
+  });
+
+  it("does NOT flag an equi-join between large tables (bounded by the key)", () => {
+    const sql = "SELECT * FROM orders o JOIN building b ON o.building_id = b.id";
+    expect(checkUnboundedLargeJoin(sql, TABLES, THRESHOLD)).toBeNull();
+  });
+
+  it("does NOT flag a non-equi join against a SMALL table", () => {
+    // sic_codes is tiny; a range/non-equi join against it is cheap.
+    const sql = "SELECT * FROM orders o JOIN sic_codes s ON o.sic > s.low";
+    expect(checkUnboundedLargeJoin(sql, TABLES, THRESHOLD)).toBeNull();
+  });
+
+  it("does NOT flag a large table joined equi + inequality (still has an equality)", () => {
+    const sql = "SELECT * FROM building a JOIN building b ON a.cell = b.cell AND a.id != b.id";
+    expect(checkUnboundedLargeJoin(sql, TABLES, THRESHOLD)).toBeNull();
+  });
+
+  it("does NOT flag a plain single-table aggregate", () => {
+    expect(checkUnboundedLargeJoin("SELECT count(*) FROM building", TABLES, THRESHOLD)).toBeNull();
+  });
+});
 
 describe("checkAggregateInputLimit", () => {
   it("flags the reported bug: unordered LIMIT feeding a nearest-neighbor aggregate", () => {
