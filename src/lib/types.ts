@@ -121,6 +121,15 @@ export interface SandboxExecutionError {
 
 export type ExecutionResult = SandboxExecutionResult | SandboxExecutionError;
 
+/** Optional cloud credentials for a private remote Parquet bucket. Anonymous
+ *  access (public buckets like Overture) needs none of this. */
+export interface RemoteCreds {
+  s3Region?: string;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
+  s3Endpoint?: string;
+}
+
 export interface StoredCSV {
   schema: CSVSchema;
   filePath: string;
@@ -135,6 +144,11 @@ export interface StoredCSV {
   isParquet?: boolean;
   /** Whether this is a Hive-partitioned Parquet dataset */
   isHivePartitioned?: boolean;
+  /** For a REMOTE cloud Parquet source: the s3:// or https:// URL DuckDB reads
+   *  directly (no download, no bind-mount). */
+  remoteParquetUrl?: string;
+  /** Optional cloud credentials for a private remote bucket (anon when unset). */
+  remoteCreds?: RemoteCreds;
 }
 
 export type PipelineStage =

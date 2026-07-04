@@ -1,7 +1,7 @@
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import type { CSVSchema, StoredCSV, WorkbookManifest } from "@/lib/types";
+import type { CSVSchema, StoredCSV, WorkbookManifest, RemoteCreds } from "@/lib/types";
 import { CSV_TTL_MS } from "@/lib/constants";
 
 // Use globalThis to persist across module reloads in dev mode
@@ -100,11 +100,36 @@ export function storeLocalFileRef(
 }
 
 /**
- * Check if a stored entry is a local file reference.
+ * Register a REMOTE cloud Parquet source (s3:// or https:// URL that DuckDB reads
+ * directly — no download, no bind-mount). `url` must be pre-validated.
+ */
+export function storeRemoteParquetRef(
+  csvId: string,
+  schema: CSVSchema,
+  url: string,
+  creds?: RemoteCreds
+): void {
+  store.set(csvId, {
+    schema,
+    filePath: "",
+    createdAt: Date.now(),
+    isParquet: true,
+    remoteParquetUrl: url,
+    remoteCreds: creds,
+  });
+}
+
+/**
+ * Check if a stored entry is a local file reference (bind-mounted).
  */
 export function isLocalFile(csvId: string): boolean {
   const entry = store.get(csvId);
   return !!entry && !!(entry.localPath || entry.localFolderPath);
+}
+
+/** Check if a stored entry is a remote cloud Parquet source. */
+export function isRemoteFile(csvId: string): boolean {
+  return !!store.get(csvId)?.remoteParquetUrl;
 }
 
 /**

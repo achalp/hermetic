@@ -384,7 +384,8 @@ export function buildSchemaScript(
  *  Parquet FOOTERS (metadata only, no data scan — critical over the network), and
  *  profiles a bounded prefix of the data. `readUrl` MUST be a pre-validated URL
  *  (see isSafeParquetUrl) — it is interpolated into the DuckDB SQL. */
-function remoteSetup(readUrl: string): string {
+function remoteSetup(readUrl: string, authSql: string): string {
+  const auth = authSql ? `con.sql("${authSql}")\n` : "";
   return `
 import duckdb
 import json
@@ -398,7 +399,7 @@ STATS_SAMPLE_SIZE = 500_000
 
 con = duckdb.connect()
 con.sql("${DUCKDB_CLOUD_PRELUDE}")
-
+${auth}
 READ_FULL = "read_parquet('${readUrl}')"
 describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
 
@@ -421,7 +422,8 @@ STATS_TABLE = 'stats_data'
 /**
  * Build the extraction script for a REMOTE cloud Parquet URL (s3:// or https://).
  * Reuses the exact same source-agnostic stats/output tail as the local path.
+ * `authSql` (from duckdbRemoteAuthSql) is empty for anonymous/public access.
  */
-export function buildRemoteParquetSchemaScript(readUrl: string): string {
-  return remoteSetup(readUrl) + SHARED_STATS_TAIL;
+export function buildRemoteParquetSchemaScript(readUrl: string, authSql = ""): string {
+  return remoteSetup(readUrl, authSql) + SHARED_STATS_TAIL;
 }

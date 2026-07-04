@@ -8,7 +8,9 @@
  */
 import { basename, dirname } from "node:path";
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
-import type { StoredCSV } from "@/lib/types";
+import type { StoredCSV, RemoteCreds } from "@/lib/types";
+
+export type { RemoteCreds };
 
 /** Rows above which we must push aggregation into DuckDB before `.df()`. */
 const LARGE_ROWS = 1_000_000;
@@ -49,14 +51,53 @@ export function isSafeParquetUrl(url: unknown): url is string {
   return true;
 }
 
+/** A credential token safe to interpolate into a single-quoted SQL literal. */
+function safeCredValue(v: unknown): string | null {
+  if (typeof v !== "string" || v.length === 0 || v.length > 512) return null;
+  // Keys/regions/endpoints are alphanumerics + a small punctuation set; a quote,
+  // backslash, semicolon, or control char is never legitimate here.
+  if (/['"`\\;\n\r\t\0]/.test(v)) return null;
+  return v;
+}
+
+/**
+ * DuckDB SQL to authenticate cloud reads. Anonymous by default (returns just a
+ * region SET when given, else empty — httpfs reads public https/s3 with no
+ * secret). When an access key + secret are provided, creates an S3 secret.
+ * Reject-by-default on any unsafe credential token (returns empty rather than
+ * risk an injection).
+ */
+export function duckdbRemoteAuthSql(creds?: RemoteCreds): string {
+  if (!creds) return "";
+  const key = safeCredValue(creds.s3AccessKeyId);
+  const secret = safeCredValue(creds.s3SecretAccessKey);
+  const region = creds.s3Region ? safeCredValue(creds.s3Region) : null;
+  const endpoint = creds.s3Endpoint ? safeCredValue(creds.s3Endpoint) : null;
+
+  if (key && secret) {
+    const parts = [`TYPE s3`, `KEY_ID '${key}'`, `SECRET '${secret}'`];
+    if (region) parts.push(`REGION '${region}'`);
+    if (endpoint) parts.push(`ENDPOINT '${endpoint}'`);
+    return `CREATE OR REPLACE SECRET hermetic_s3 (${parts.join(", ")});`;
+  }
+  // Anonymous: a region helps s3:// resolve; https needs nothing.
+  return region ? `SET s3_region='${region}';` : "";
+}
+
 /**
  * Code-gen "Data Location" context for a REMOTE cloud Parquet URL read directly
  * via DuckDB httpfs. Reuses parquetReadExpr + parquetFileContext and prepends the
  * cloud/geo extension prelude. Caller MUST have validated the URL (isSafeParquetUrl).
  */
-export function resolveRemoteSource(url: string, rowCount: number): { localFileContext: string } {
+export function resolveRemoteSource(
+  url: string,
+  rowCount: number,
+  creds?: RemoteCreds
+): { localFileContext: string } {
   const readExpr = parquetReadExpr(url);
-  const prelude = `FIRST, enable cloud + geo reads once at the top of the script: ${duckdbCloudPreludePy()}\n`;
+  const authSql = duckdbRemoteAuthSql(creds);
+  const authLine = authSql ? ` then authenticate: duckdb.sql("${authSql}");` : "";
+  const prelude = `FIRST, enable cloud + geo reads once at the top of the script: ${duckdbCloudPreludePy()}${authLine}\n`;
   return { localFileContext: prelude + parquetFileContext(readExpr, url, rowCount) };
 }
 

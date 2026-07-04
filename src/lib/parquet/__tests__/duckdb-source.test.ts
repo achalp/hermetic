@@ -6,6 +6,7 @@ import {
   resolveLocalSource,
   resolveRemoteSource,
   isSafeParquetUrl,
+  duckdbRemoteAuthSql,
   DUCKDB_CLOUD_PRELUDE,
   duckdbCloudPreludePy,
 } from "@/lib/parquet/duckdb-source";
@@ -124,6 +125,37 @@ describe("isSafeParquetUrl", () => {
   });
 });
 
+describe("duckdbRemoteAuthSql", () => {
+  it("is empty for anonymous access (no creds, or region-less)", () => {
+    expect(duckdbRemoteAuthSql()).toBe("");
+    expect(duckdbRemoteAuthSql({})).toBe("");
+  });
+
+  it("emits only a region SET when just a region is given", () => {
+    expect(duckdbRemoteAuthSql({ s3Region: "us-west-2" })).toBe("SET s3_region='us-west-2';");
+  });
+
+  it("creates an S3 secret with key + secret (+ optional region/endpoint)", () => {
+    const sql = duckdbRemoteAuthSql({
+      s3AccessKeyId: "AKIA123",
+      s3SecretAccessKey: "shhh",
+      s3Region: "eu-west-1",
+      s3Endpoint: "minio.local",
+    });
+    expect(sql).toContain("CREATE OR REPLACE SECRET hermetic_s3");
+    expect(sql).toContain("TYPE s3");
+    expect(sql).toContain("KEY_ID 'AKIA123'");
+    expect(sql).toContain("SECRET 'shhh'");
+    expect(sql).toContain("REGION 'eu-west-1'");
+    expect(sql).toContain("ENDPOINT 'minio.local'");
+  });
+
+  it("rejects (drops to anonymous) any credential that could break the SQL literal", () => {
+    expect(duckdbRemoteAuthSql({ s3AccessKeyId: "k'; DROP", s3SecretAccessKey: "s" })).toBe("");
+    expect(duckdbRemoteAuthSql({ s3Region: "us-west-2'; --" })).toBe("");
+  });
+});
+
 describe("resolveRemoteSource", () => {
   it("prepends the cloud prelude and reads via read_parquet(url)", () => {
     const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
@@ -132,5 +164,16 @@ describe("resolveRemoteSource", () => {
     expect(localFileContext).toContain("2,500,000,000 rows");
     // Large-data guidance carries through for a huge remote dataset.
     expect(localFileContext).toContain("large dataset");
+    // Anonymous: no authenticate line.
+    expect(localFileContext).not.toContain("authenticate");
+  });
+
+  it("includes an authenticate step when credentials are supplied", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/x.parquet", 1000, {
+      s3AccessKeyId: "AKIA123",
+      s3SecretAccessKey: "shhh",
+    });
+    expect(localFileContext).toContain("authenticate");
+    expect(localFileContext).toContain("CREATE OR REPLACE SECRET hermetic_s3");
   });
 });
