@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm/client";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { checkAggregateInputLimit } from "@/lib/warehouse/sql-guard";
 import { logger } from "@/lib/logger";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
 
@@ -301,6 +302,13 @@ export async function generateSQLWithRepair<T>(args: {
 
   for (let attempt = 0; attempt <= maxRepairs; attempt++) {
     try {
+      // Pre-execution guard: reject a query that samples an aggregate's input
+      // with an unordered LIMIT (a wrong-but-valid query the engine would run
+      // happily). Deterministic — the repair loop must fix it BEFORE we spend a
+      // warehouse query on a wrong answer.
+      const guardMsg = checkAggregateInputLimit(sql);
+      if (guardMsg) throw new Error(guardMsg);
+
       args.onAttempt?.(attempt, "executing");
       const result = await args.execute(sql);
       return { sql, result };
