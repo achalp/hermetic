@@ -42,4 +42,18 @@ describe("cleanSQL — leading-prose stripping", () => {
     const raw = "SELECT a, b\nFROM t\n\nWHERE a > 0\n\nORDER BY b\nLIMIT 10";
     expect(cleanSQL(raw)).toBe("SELECT a, b\nFROM t\n\nWHERE a > 0\n\nORDER BY b\nLIMIT 10");
   });
+
+  it("does NOT mistake prose starting with 'With' for a WITH clause", () => {
+    // The 'Unexpected floating point literal "2.5"' bug: pure reasoning, no SQL,
+    // that happened to start with the English word "With".
+    const raw =
+      "With 2.5 billion rows, a global nearest-neighbor computation is impossible without bucketing. I'll use a spatial grid.";
+    // No real statement → returned as-is (the prose-only guard then rejects it).
+    expect(cleanSQL(raw)).toBe(raw);
+  });
+
+  it("still extracts a real WITH cte after leading prose", () => {
+    const raw = "Here's the query.\n\nWITH c AS (SELECT 1 AS x) SELECT x FROM c";
+    expect(cleanSQL(raw)).toBe("WITH c AS (SELECT 1 AS x) SELECT x FROM c");
+  });
 });

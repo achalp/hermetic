@@ -73,7 +73,7 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
 
 const DIALECT_NOTES: Record<WarehouseType, string> = {
   postgresql: `Use PostgreSQL syntax. Use double quotes for identifiers if needed. Use :: for type casts. Use LIMIT for row limits.`,
-  bigquery: `Use Google BigQuery Standard SQL. Use backtick-quoted identifiers (\`project.dataset.table\`). Use LIMIT for row limits. Use APPROX_COUNT_DISTINCT for approximate counts. Date functions: DATE(), TIMESTAMP(), EXTRACT(). IMPORTANT: BigQuery does NOT support backslash escape sequences in strings or LIKE patterns. Do NOT use \\_  to escape underscores in LIKE — underscores are literal wildcard characters in LIKE. To match a literal underscore, use the LIKE ... ESCAPE clause (e.g., LIKE '%x_vendor' ESCAPE 'x') or use REGEXP_CONTAINS instead. To bound a scan, use a real DATE/TIMESTAMP column from the schema — do NOT filter on \`_PARTITIONTIME\`/\`_PARTITIONDATE\` unless the table is genuinely ingestion-time partitioned; on most tables those pseudo-columns are NULL for every row, so any comparison on them returns ZERO rows.`,
+  bigquery: `Use Google BigQuery Standard SQL. Use backtick-quoted identifiers (\`project.dataset.table\`). Use LIMIT for row limits. Use APPROX_COUNT_DISTINCT for approximate counts. Date functions: DATE(), TIMESTAMP(), EXTRACT(). IMPORTANT: BigQuery does NOT support backslash escape sequences in strings or LIKE patterns. Do NOT use \\_  to escape underscores in LIKE — underscores are literal wildcard characters in LIKE. To match a literal underscore, use the LIKE ... ESCAPE clause (e.g., LIKE '%x_vendor' ESCAPE 'x') or use REGEXP_CONTAINS instead. To bound a scan, use a real DATE/TIMESTAMP column from the schema — do NOT filter on \`_PARTITIONTIME\`/\`_PARTITIONDATE\` unless the table is genuinely ingestion-time partitioned; on most tables those pseudo-columns are NULL for every row, so any comparison on them returns ZERO rows. GEOGRAPHY: a \`geometry\` column is often a POLYGON, not a point. ST_X / ST_Y require a single POINT and error on a polygon ("Argument to ST_X must be a single point geography") — wrap with ST_CENTROID(geom) first: ST_X(ST_CENTROID(geom)). ST_DISTANCE works on any geographies (polygons included), so use it directly; only point-EXTRACTION (ST_X/ST_Y) needs ST_CENTROID.`,
   clickhouse: `Use ClickHouse SQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. Aggregation functions: countDistinct(), avg(), quantile(). Date functions: toDate(), toDateTime(), toYear(). IMPORTANT: When doing arithmetic (division, multiplication, percentage) on Decimal columns, ALWAYS cast operands to Float64 first using toFloat64() to avoid Decimal overflow errors. Example: toFloat64(price - open) / toFloat64(open) instead of (price - open) / open. ClickHouse does NOT support LATERAL joins or correlated subqueries in FROM/JOIN — a subquery in the FROM/JOIN list cannot reference columns from another table in the same query (errors "Lateral joins are not supported" / "Correlated column ... is found in the FROM clause"). To derive a value (e.g. a complexity bucket) from already-joined columns, compute it with multiIf()/CASE directly in the SELECT (or wrap the join in a subquery and compute it in the outer SELECT) — never via a CROSS JOIN to a subquery that references the other table's columns. Pre-aggregate each side in its OWN independent subquery, then JOIN them on key columns. Use HAVING (not a correlated subquery) to filter on aggregates. MEMORY (critical): a ClickHouse JOIN builds a hash table from the RIGHT table IN MEMORY, so joining two large row-level tables before aggregating hits "Query memory limit exceeded" (code 241). ALWAYS shrink each side in a subquery BEFORE the join: apply the WHERE filters AND aggregate to the join grain (e.g. collapse checks to one row per pull_request_number with anyIf/maxIf/countIf flags like "had a failed check") so you join compact per-key aggregates, not raw rows. Put the smaller / more-selectively-filtered table on the RIGHT of the JOIN. Never join raw fact tables and aggregate afterwards — aggregate first, then join. CO-OCCURRENCE / PAIRWISE ("which X occur together per group", "pairs that fail together"): do NOT self-join the fact table — that's a many-to-many explosion that times out. Instead collapse each group to a DISTINCT array first (\`SELECT group_key, groupUniqArray(item) AS items FROM ... GROUP BY group_key\`), then form pairs WITHIN each small array by ARRAY JOINing it twice with a \`<\` guard (\`... ARRAY JOIN items AS a ARRAY JOIN items AS b ... WHERE a < b GROUP BY a, b\`). This reads the table once and pairs only within each group, so it scales.`,
   trino: `Use Trino (Presto) SQL syntax. Use double quotes for identifiers. Use catalog.schema.table fully qualified names. Use LIMIT for row limits. Use APPROX_DISTINCT for approximate counts. Cast with CAST(x AS type). Date functions: date(), current_date, date_trunc(). String: concat(), substr(). Arrays: ARRAY[], UNNEST().`,
   hive: `Use HiveQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. String concat: concat(). Date functions: to_date(), date_format(), datediff(). No INTERSECT or EXCEPT. For exploding arrays use LATERAL VIEW EXPLODE. Use CAST to avoid integer division. Subqueries in WHERE are supported but correlated subqueries are limited.`,
@@ -315,6 +315,9 @@ export async function generateSQLWithRepair<T>(args: {
       // warehouse query. (1) an aggregate over an unordered-LIMIT sample; (2) a
       // CROSS / non-equi / self join over a large base table (O(n²) — won't scale).
       const guardMsg =
+        (!/\bselect\b/i.test(sql)
+          ? "You returned an explanation / reasoning, not a SQL query. Respond with ONLY the SQL — no preamble, no commentary, no plan. Start at SELECT or WITH."
+          : null) ??
         checkAggregateInputLimit(sql) ??
         checkUnboundedLargeJoin(sql, args.tables, WAREHOUSE_LARGE_JOIN_ROWS);
       if (guardMsg) throw new Error(guardMsg);
@@ -379,9 +382,16 @@ function cleanSQL(raw: string): string {
   // unfenced, that whole thing becomes the query and fails with "Unexpected
   // identifier". If the text doesn't already begin with a SQL statement, slice
   // from the first line that starts one (WITH / SELECT). No-op when clean.
-  if (!/^\s*(?:WITH|SELECT)\b/i.test(sql)) {
-    const start = sql.match(/(?:^|\n)[ \t]*((?:WITH|SELECT)\b[\s\S]*)$/i);
-    if (start) sql = start[1];
+  // A real statement start: SELECT, or WITH followed by a CTE shape (`WITH name
+  // AS (` / `WITH RECURSIVE`). The CTE shape matters — English prose like "With
+  // 2.5 billion rows, ..." starts with "With" but is NOT a WITH clause, and
+  // mis-slicing it made the whole paragraph run as SQL ("Unexpected ... '2.5'").
+  const STMT_START = /(?:^|\n)[ \t]*(SELECT\b[\s\S]*|WITH\s+(?:RECURSIVE\s+)?[A-Za-z_"`][\s\S]*)$/i;
+  const CTE_SHAPE = /^\s*WITH\s+(?:RECURSIVE\s+)?[A-Za-z_"`][\w"`.]*\s+AS\s*\(/i;
+  if (!/^\s*SELECT\b/i.test(sql) && !CTE_SHAPE.test(sql)) {
+    const m = sql.match(STMT_START);
+    // Only accept a WITH-start if it's an actual CTE, not the word "With".
+    if (m && (/^\s*SELECT\b/i.test(m[1]) || CTE_SHAPE.test(m[1]))) sql = m[1];
   }
 
   // Keep only the FIRST statement. Models sometimes emit a query, then reasoning,

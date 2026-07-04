@@ -158,7 +158,7 @@ describe("generateSQLWithRepair", () => {
   });
 
   it("throws the last error after exhausting repairs", async () => {
-    queueSQL("q0", "q1", "q2"); // initial + 2 repairs
+    queueSQL("SELECT q0", "SELECT q1", "SELECT q2"); // initial + 2 repairs (valid SQL shape)
     const execute = vi.fn().mockRejectedValue(new Error("syntax error"));
     await expect(
       generateSQLWithRepair({
