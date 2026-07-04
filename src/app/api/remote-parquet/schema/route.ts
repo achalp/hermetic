@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { validateLocalOrigin } from "@/lib/local-files/security";
 import { extractRemoteParquetSchema } from "@/lib/parquet/schema-extractor";
 import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
+import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { RemoteCreds } from "@/lib/types";
@@ -47,12 +48,24 @@ export async function POST(request: Request) {
         }
       : undefined;
 
+    // Apply layout conventions: a bare folder/prefix (e.g. an Overture
+    // theme=…/type=… path) becomes a recursive Parquet glob; Hive partitioning
+    // is inferred from key=value segments. A single-file URL passes through.
+    const { readUrl, isHivePartitioned } = normalizeRemoteParquetUrl(url);
+
     const runtime = getActiveSandboxRuntime();
     const csvId = uuidv4();
     const filename = filenameFromUrl(url);
 
-    const schema = await extractRemoteParquetSchema(url, csvId, filename, runtime, creds);
-    storeRemoteParquetRef(csvId, schema, url, creds);
+    const schema = await extractRemoteParquetSchema(
+      readUrl,
+      csvId,
+      filename,
+      runtime,
+      isHivePartitioned,
+      creds
+    );
+    storeRemoteParquetRef(csvId, schema, readUrl, creds, isHivePartitioned);
 
     return NextResponse.json({ csv_id: csvId, schema });
   } catch (err) {

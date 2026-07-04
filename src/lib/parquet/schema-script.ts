@@ -1,5 +1,5 @@
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
-import { DUCKDB_CLOUD_PRELUDE } from "@/lib/parquet/duckdb-source";
+import { DUCKDB_CLOUD_PRELUDE, parquetReadExpr } from "@/lib/parquet/duckdb-source";
 
 /**
  * The source-agnostic tail of the extraction script: given `describe`,
@@ -384,8 +384,9 @@ export function buildSchemaScript(
  *  Parquet FOOTERS (metadata only, no data scan — critical over the network), and
  *  profiles a bounded prefix of the data. `readUrl` MUST be a pre-validated URL
  *  (see isSafeParquetUrl) — it is interpolated into the DuckDB SQL. */
-function remoteSetup(readUrl: string, authSql: string): string {
+function remoteSetup(readUrl: string, authSql: string, isHivePartitioned = false): string {
   const auth = authSql ? `con.sql("${authSql}")\n` : "";
+  const readExpr = parquetReadExpr(readUrl, isHivePartitioned);
   return `
 import duckdb
 import json
@@ -400,7 +401,7 @@ STATS_SAMPLE_SIZE = 500_000
 con = duckdb.connect()
 con.sql("${DUCKDB_CLOUD_PRELUDE}")
 ${auth}
-READ_FULL = "read_parquet('${readUrl}')"
+READ_FULL = "${readExpr}"
 describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
 
 # Row count from Parquet footers only (no data scan) — essential over S3/HTTPS.
@@ -424,6 +425,10 @@ STATS_TABLE = 'stats_data'
  * Reuses the exact same source-agnostic stats/output tail as the local path.
  * `authSql` (from duckdbRemoteAuthSql) is empty for anonymous/public access.
  */
-export function buildRemoteParquetSchemaScript(readUrl: string, authSql = ""): string {
-  return remoteSetup(readUrl, authSql) + SHARED_STATS_TAIL;
+export function buildRemoteParquetSchemaScript(
+  readUrl: string,
+  authSql = "",
+  isHivePartitioned = false
+): string {
+  return remoteSetup(readUrl, authSql, isHivePartitioned) + SHARED_STATS_TAIL;
 }

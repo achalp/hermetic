@@ -107,13 +107,15 @@ export function storeRemoteParquetRef(
   csvId: string,
   schema: CSVSchema,
   url: string,
-  creds?: RemoteCreds
+  creds?: RemoteCreds,
+  isHivePartitioned?: boolean
 ): void {
   store.set(csvId, {
     schema,
     filePath: "",
     createdAt: Date.now(),
     isParquet: true,
+    isHivePartitioned,
     remoteParquetUrl: url,
     remoteCreds: creds,
   });

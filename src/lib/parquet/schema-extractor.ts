@@ -148,6 +148,7 @@ export async function extractRemoteParquetSchema(
   csvId: string,
   filename: string,
   runtime: SandboxRuntimeId,
+  isHivePartitioned?: boolean,
   creds?: RemoteCreds
 ): Promise<CSVSchema> {
   if (runtime !== "docker") {
@@ -157,7 +158,7 @@ export async function extractRemoteParquetSchema(
   }
 
   const schema = await runSchemaExtraction({
-    script: buildRemoteParquetSchemaScript(url, duckdbRemoteAuthSql(creds)),
+    script: buildRemoteParquetSchemaScript(url, duckdbRemoteAuthSql(creds), isHivePartitioned),
     csvId,
     filename,
     // No mount — the container reads the URL over its network.
@@ -169,6 +170,7 @@ export async function extractRemoteParquetSchema(
     filename,
     rowCount: schema.row_count,
     columnCount: schema.columns.length,
+    isHivePartitioned: !!isHivePartitioned,
   });
   return schema;
 }

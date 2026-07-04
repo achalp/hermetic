@@ -221,7 +221,7 @@ export function LocalFileBrowser({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && cloudUrl.trim() && !isExtracting) handleLoadCloud();
                 }}
-                placeholder="s3://bucket/path/*.parquet  or  https://host/file.parquet"
+                placeholder="s3://bucket/prefix/  ·  s3://…/theme=buildings/type=building  ·  https://host/file.parquet"
                 spellCheck={false}
                 autoFocus
                 disabled={isExtracting}
@@ -240,7 +240,8 @@ export function LocalFileBrowser({
               />
             </label>
             <span style={{ fontSize: 12, color: "var(--color-t-tertiary)" }}>
-              Reads public S3 / HTTPS Parquet directly via DuckDB — no download. Anonymous by
+              Reads public S3 / HTTPS Parquet directly via DuckDB — no download. A single file, a
+              folder of shards, or a Hive-partitioned dataset (e.g. Overture Maps). Anonymous by
               default.
             </span>
 

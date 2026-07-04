@@ -2,6 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join, extname, basename } from "node:path";
 import { homedir } from "node:os";
 import { isDotfile, isAllowedExtension } from "./security";
+import { isHivePartitionSegment } from "@/lib/parquet/partition";
 
 export interface FileEntry {
   name: string;
@@ -17,13 +18,6 @@ export interface FileEntry {
   isParquetFolder?: boolean;
   /** True if this is a Hive-partitioned dataset (subdirs like key=value) */
   isHivePartitioned?: boolean;
-}
-
-/**
- * Check if a directory name matches the Hive partition pattern (key=value).
- */
-function isHivePartitionDir(name: string): boolean {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*=.+$/.test(name);
 }
 
 /**
@@ -46,7 +40,7 @@ async function detectParquetFolder(
     }
 
     // Hive: subdirectories matching key=value pattern
-    const hiveDirs = children.filter((c) => c.isDirectory() && isHivePartitionDir(c.name));
+    const hiveDirs = children.filter((c) => c.isDirectory() && isHivePartitionSegment(c.name));
     if (hiveDirs.length > 0) {
       // Check the first partition dir recursively
       const sub = await detectParquetFolder(join(dirPath, hiveDirs[0].name), depth + 1);

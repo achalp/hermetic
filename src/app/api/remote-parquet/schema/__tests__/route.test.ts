@@ -73,6 +73,23 @@ describe("POST /api/remote-parquet/schema", () => {
     expect(storeRemoteParquetRef).toHaveBeenCalledOnce();
   });
 
+  it("normalizes a bare Overture prefix into a recursive glob with hive on", async () => {
+    await POST(
+      makeRequest({
+        url: "s3://overturemaps-us-west-2/release/2026-06-17.0/theme=buildings/type=building",
+      })
+    );
+    const [readUrl, , , , isHive] = extractRemoteParquetSchema.mock.calls[0]!;
+    expect(readUrl).toBe(
+      "s3://overturemaps-us-west-2/release/2026-06-17.0/theme=buildings/type=building/**/*.parquet"
+    );
+    expect(isHive).toBe(true);
+    // The stored reference uses the same normalized read URL + hive flag.
+    const storeArgs = storeRemoteParquetRef.mock.calls[0]!;
+    expect(storeArgs[2]).toBe(readUrl);
+    expect(storeArgs[4]).toBe(true);
+  });
+
   it("forwards only the recognized credential fields (drops unknown keys)", async () => {
     await POST(
       makeRequest({
@@ -86,7 +103,7 @@ describe("POST /api/remote-parquet/schema", () => {
         },
       })
     );
-    const credsArg = extractRemoteParquetSchema.mock.calls[0]?.[4];
+    const credsArg = extractRemoteParquetSchema.mock.calls[0]?.[5];
     expect(credsArg).toEqual({
       s3AccessKeyId: "AKIA",
       s3SecretAccessKey: "shh",

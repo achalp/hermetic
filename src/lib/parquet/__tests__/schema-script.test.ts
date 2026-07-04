@@ -41,4 +41,13 @@ describe("buildRemoteParquetSchemaScript — reuses the shared tail", () => {
     const tailMarker = "# Map DuckDB types to schema dtypes";
     expect(s.slice(s.indexOf(tailMarker))).toBe(local.slice(local.indexOf(tailMarker)));
   });
+
+  it("adds hive_partitioning to the read for a partitioned folder glob", () => {
+    const glob = "s3://overturemaps-us-west-2/release/2026-06-17.0/theme=buildings/**/*.parquet";
+    const hive = buildRemoteParquetSchemaScript(glob, "", true);
+    // The data read uses the hive flag so partition keys surface as columns...
+    expect(hive).toContain(`read_parquet('${glob}', hive_partitioning=true)`);
+    // ...but the footer row-count query globs the files without it.
+    expect(hive).toContain(`parquet_file_metadata('${glob}')`);
+  });
 });

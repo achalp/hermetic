@@ -85,20 +85,30 @@ export function duckdbRemoteAuthSql(creds?: RemoteCreds): string {
 }
 
 /**
- * Code-gen "Data Location" context for a REMOTE cloud Parquet URL read directly
- * via DuckDB httpfs. Reuses parquetReadExpr + parquetFileContext and prepends the
- * cloud/geo extension prelude. Caller MUST have validated the URL (isSafeParquetUrl).
+ * Code-gen "Data Location" context for a REMOTE cloud Parquet source read
+ * directly via DuckDB httpfs. Reuses the same folder/file context builders as
+ * the local path (so a globbed folder gets the "create a view, materialize the
+ * filtered subset first" guidance) and prepends the cloud/geo extension prelude.
+ *
+ * `url` is the already-normalized read expression (see normalizeRemoteParquetUrl):
+ * a glob for a folder/Hive dataset, or a single-file URL. Caller MUST have
+ * validated the original input (isSafeParquetUrl).
  */
 export function resolveRemoteSource(
   url: string,
   rowCount: number,
+  isHivePartitioned = false,
   creds?: RemoteCreds
 ): { localFileContext: string } {
-  const readExpr = parquetReadExpr(url);
+  const isFolder = url.includes("*");
+  const readExpr = parquetReadExpr(url, isHivePartitioned);
   const authSql = duckdbRemoteAuthSql(creds);
   const authLine = authSql ? ` then authenticate: duckdb.sql("${authSql}");` : "";
   const prelude = `FIRST, enable cloud + geo reads once at the top of the script: ${duckdbCloudPreludePy()}${authLine}\n`;
-  return { localFileContext: prelude + parquetFileContext(readExpr, url, rowCount) };
+  const body = isFolder
+    ? parquetFolderContext(readExpr, rowCount, isHivePartitioned)
+    : parquetFileContext(readExpr, url, rowCount);
+  return { localFileContext: prelude + body };
 }
 
 /** The "reduce in SQL, never SELECT * unaggregated" guidance appended for a large

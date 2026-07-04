@@ -449,6 +449,7 @@ export async function POST(request: Request) {
                 ({ localFileContext } = resolveRemoteSource(
                   stored.remoteParquetUrl!,
                   stored.schema.row_count,
+                  stored.isHivePartitioned,
                   stored.remoteCreds
                 ));
               }

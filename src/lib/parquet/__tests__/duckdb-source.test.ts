@@ -157,19 +157,38 @@ describe("duckdbRemoteAuthSql", () => {
 });
 
 describe("resolveRemoteSource", () => {
-  it("prepends the cloud prelude and reads via read_parquet(url)", () => {
-    const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
+  it("uses single-file guidance for a single remote .parquet", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/data/x.parquet", 10_000);
     expect(localFileContext).toContain(DUCKDB_CLOUD_PRELUDE);
-    expect(localFileContext).toContain("read_parquet('s3://bucket/data/*.parquet')");
-    expect(localFileContext).toContain("2,500,000,000 rows");
-    // Large-data guidance carries through for a huge remote dataset.
-    expect(localFileContext).toContain("large dataset");
+    expect(localFileContext).toContain("read_parquet('s3://bucket/data/x.parquet')");
+    expect(localFileContext).toContain("This is a Parquet file at");
     // Anonymous: no authenticate line.
     expect(localFileContext).not.toContain("authenticate");
   });
 
+  it("uses folder guidance (create a view, materialize a subset) for a glob", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
+    expect(localFileContext).toContain("folder of Parquet files");
+    expect(localFileContext).toContain(
+      "CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('s3://bucket/data/*.parquet')"
+    );
+    expect(localFileContext).toContain("Total rows: 2,500,000,000.");
+    // Large-data guidance carries through for a huge remote dataset.
+    expect(localFileContext).toContain("large dataset");
+  });
+
+  it("adds the hive_partitioning flag and partition-column note for a Hive dataset", () => {
+    const { localFileContext } = resolveRemoteSource(
+      "s3://overturemaps-us-west-2/release/2026-06-17.0/theme=buildings/type=building/**/*.parquet",
+      2_500_000_000,
+      true
+    );
+    expect(localFileContext).toContain("hive_partitioning=true");
+    expect(localFileContext).toContain("Partition columns");
+  });
+
   it("includes an authenticate step when credentials are supplied", () => {
-    const { localFileContext } = resolveRemoteSource("s3://bucket/x.parquet", 1000, {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/x.parquet", 1000, false, {
       s3AccessKeyId: "AKIA123",
       s3SecretAccessKey: "shhh",
     });
