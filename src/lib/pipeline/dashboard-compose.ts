@@ -19,6 +19,7 @@ import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
+import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
 import {
   collectNarrativeStrings,
   collectGroundedValues,
@@ -465,6 +466,9 @@ export async function composeAndStreamDashboard(args: {
   let buffer = "";
   let stateInjected = false;
   let lineCount = 0;
+  // Accumulate finalized patches so we can audit computed-key producers once the
+  // spec is fully composed (warn-only — see auditComputedKeys).
+  const composedPatches: PatchLike[] = [];
   // Narrative prose accumulated across the stream, for the grounding pass below.
   const narrativeTexts: string[] = [];
   const emitPatch = (line: string) => {
@@ -518,6 +522,7 @@ export async function composeAndStreamDashboard(args: {
     const result = finalize(line);
     if (result.skip) return null;
     lineCount++;
+    if (result.patch) composedPatches.push(result.patch as PatchLike);
     return result.line;
   };
 
@@ -535,6 +540,16 @@ export async function composeAndStreamDashboard(args: {
     if (!isClosed() && buffer.trim()) {
       const result = processLine(buffer.trim());
       if (result !== null) emitPatch(result);
+    }
+
+    // Warn-only: flag components that read a /computed/<key> nothing produces —
+    // they render empty (blank table/map). Tracked in logs, spec left untouched.
+    const audit = auditComputedKeys(composedPatches);
+    if (audit.unproduced.length > 0) {
+      logger.warn("Composed spec reads unproduced computed keys (will render empty)", {
+        unproduced: audit.unproduced,
+        produced: audit.produced,
+      });
     }
   } catch (streamErr) {
     if (!isClosed()) {

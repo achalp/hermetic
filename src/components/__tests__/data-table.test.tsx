@@ -5,6 +5,33 @@ import { DataTableComponent } from "@/components/data-table";
 
 afterEach(cleanup);
 
+describe("DataTableComponent — record rows with mismatched headers", () => {
+  // Reproduces the Seattle spec: object rows whose keys don't match the display
+  // headers. "NN Distance (m)"/"Subtype"/"Class" resolve via snake-case, but
+  // "Building ID" matches no field — the positional fallback maps it to the
+  // record's first field (short_id) so the cell renders instead of going blank.
+  const props = {
+    columns: ["Building ID", "NN Distance (m)", "Subtype", "Class"],
+    rows: [{ short_id: "9ed9527d", nn_distance_m: 671.4, subtype: "residential", class: "house" }],
+  };
+
+  it("fills a display-only header column from the record's field by position", () => {
+    render(<DataTableComponent props={props} />);
+    expect(screen.getByText("9ed9527d")).toBeInTheDocument();
+    expect(screen.getByText("671.4")).toBeInTheDocument();
+    expect(screen.getByText("residential")).toBeInTheDocument();
+    expect(screen.getByText("house")).toBeInTheDocument();
+  });
+
+  it("does not steal a field another column already matched by name", () => {
+    // "subtype" matches the 3rd column by name; the positional fallback for
+    // "Building ID" must not also grab it. Only short_id (unclaimed) is used.
+    render(<DataTableComponent props={props} />);
+    // "residential" appears exactly once (under Subtype), not duplicated.
+    expect(screen.getAllByText("residential")).toHaveLength(1);
+  });
+});
+
 describe("DataTableComponent — delta columns", () => {
   const base = {
     columns: ["Metric", "Google", "vendor", "Δ"],
