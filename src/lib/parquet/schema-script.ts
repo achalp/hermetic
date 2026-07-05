@@ -422,17 +422,41 @@ MAX_DISTINCT_VALUES = 20
 MAX_TOP_VALUES = 10
 MAX_CORRELATION_PAIRS = 10
 STATS_SAMPLE_SIZE = 500_000
+FOOTER_SAMPLE_FILES = 32
 
 con = duckdb.connect()
 con.sql("${DUCKDB_CLOUD_PRELUDE}")
 ${auth}
+PATTERN = '${readUrl}'
 READ_FULL = "${readExpr}"
+
+# Schema from the dataset (opens one file; partition columns included via hive).
 describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
 
-# Row count from Parquet footers only (no data scan) — essential over S3/HTTPS.
+# Row count from Parquet footers (metadata only, no data scan). Over the network,
+# reading EVERY footer is too slow for a large dataset (hundreds/thousands of
+# shards — Overture buildings is 500+ files), so BOUND it: list the files, read a
+# spread-out sample of footers, and extrapolate by file count. A small dataset
+# (<= the sample size) is counted exactly.
 try:
-    row_count = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata('${readUrl}')").fetchone()[0]
-    row_count = int(row_count) if row_count is not None else 0
+    files = [r[0] for r in con.sql(f"SELECT file FROM glob('{PATTERN}')").fetchall()]
+except Exception:
+    files = []
+total_files = len(files)
+try:
+    if total_files == 0:
+        # DuckDB still resolves a single-file URL (or its own glob) via metadata.
+        row_count = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata('{PATTERN}')").fetchone()[0] or 0
+    else:
+        if total_files <= FOOTER_SAMPLE_FILES:
+            sample = files
+        else:
+            step = total_files // FOOTER_SAMPLE_FILES
+            sample = [files[i * step] for i in range(FOOTER_SAMPLE_FILES)]
+        quoted = ", ".join("'" + f.replace("'", "''") + "'" for f in sample)
+        sampled = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata([{quoted}])").fetchone()[0] or 0
+        row_count = int(sampled * total_files / len(sample))
+    row_count = int(row_count)
 except Exception:
     row_count = 0
 
