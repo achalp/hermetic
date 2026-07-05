@@ -11,6 +11,7 @@ import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
+import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
 import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
@@ -112,6 +113,8 @@ export async function runPipeline(
   logger.debug("Generated code", { chars: code.length, localMount: !!localMountPath });
   if (localMountPath) {
     logger.info("Local file execution", { localMountPath, fullCode: code });
+  } else if (codeDoesRemoteIo(code)) {
+    logger.info("Remote cloud execution", { fullCode: code });
   }
   onStage?.("executing");
   let result = await executeSandbox(
