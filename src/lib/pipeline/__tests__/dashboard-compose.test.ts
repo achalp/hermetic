@@ -74,6 +74,9 @@ describe("buildDashboardComposeRequest", () => {
     // DataTable-in-DataController: bind rows to a produced /computed key with
     // {key,label} columns matching record fields (not plain-string headers).
     expect(customRules.some((r) => r.includes("DataTable inside the DataController"))).toBe(true);
+    // Ranking tables / maps bind to the pre-computed data, not a re-rank of the
+    // truncated /datasets/main (which disagrees with the headline stats).
+    expect(customRules.some((r) => r.includes("do NOT re-rank /datasets/main"))).toBe(true);
   });
 
   it("uses inlined-array DataTable guidance only when there is no DataController", () => {
