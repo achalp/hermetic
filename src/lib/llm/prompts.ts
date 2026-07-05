@@ -501,6 +501,20 @@ Column types are database-native (high fidelity). The data has been loaded as CS
 
   const localFileSection = localFileContext ? `\n## Data Location\n${localFileContext}\n` : "";
 
+  // Geospatial guidance — only when the data actually has a geometry column.
+  // Steers away from the two failure modes seen on Overture: a non-existent
+  // GEOGRAPHY cast, and O(n^2) distance self-joins that time out.
+  const hasGeometryColumn = schema.columns.some((c) =>
+    /^(geometry|geom|the_geom|wkb_geometry|geog|shape)$/i.test(c.name)
+  );
+  const spatialSection =
+    hasGeometryColumn && !schema.has_geojson
+      ? `\n## Geospatial analysis (spatial extension is loaded)
+The geometry column is WKB — parse it once with ST_GeomFromWKB(geometry) before any spatial op (ST_Centroid, ST_X/ST_Y, ST_Intersects, etc.).
+DuckDB has NO GEOGRAPHY type — NEVER cast \`::GEOGRAPHY\`. For distance in METERS between lon/lat points use ST_Distance_Sphere(ST_Point(lon, lat), ST_Point(lon, lat)); plain ST_Distance on lon/lat returns degrees, not meters.
+CRITICAL — nearest/farthest-neighbor and any distance self-join is O(n^2): a self-join over N points is N^2 distance computations and WILL time out for more than a few thousand rows. Do NOT self-join the full table. Instead: (1) restrict the working set (bounding box + a few-thousand-row cap), AND (2) only compare candidate pairs that are already close — join on a bounding-box/grid predicate (e.g. ABS(lat diff) and ABS(lon diff) below a small threshold, or ST_DWithin) BEFORE computing ST_Distance_Sphere. State the search radius / cap in the results.\n`
+      : "";
+
   const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
 
   return `## ${headerLabel}
@@ -509,7 +523,7 @@ Rows: ${schema.row_count}${domainSection}${warehouseSection}${localFileSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${correlationSection}${geojsonSection}${workbookSection}`;
+${correlationSection}${geojsonSection}${spatialSection}${workbookSection}`;
 }
 
 // ── User prompt (chat follow-up) ──────────────────────────────────

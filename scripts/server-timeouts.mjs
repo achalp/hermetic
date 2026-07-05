@@ -27,8 +27,6 @@ function patch(mod) {
   const original = mod.createServer.bind(mod);
   mod.createServer = (...args) => {
     const server = original(...args);
-    // eslint-disable-next-line no-console
-    console.error(`[server-timeouts] patched http server (pid ${process.pid})`);
     // Only raise; never lower a timeout Next may have set intentionally.
     if (server.requestTimeout === 0 || server.requestTimeout > REQUEST_TIMEOUT_MS) {
       // 0 means "no timeout" — already unbounded, leave it.

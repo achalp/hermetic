@@ -65,6 +65,39 @@ describe("sanitizeSheetName", () => {
   });
 });
 
+// ── geospatial guidance in the codegen prompt ─────────────────────
+
+describe("buildCodeGenUserPrompt — geospatial guidance", () => {
+  it("adds spatial guidance when a geometry column is present", () => {
+    const s = schema("buildings.parquet", [catColumn("id"), catColumn("geometry")]);
+    const prompt = buildCodeGenUserPrompt(s, "which building is most isolated?");
+    expect(prompt).toContain("Geospatial analysis");
+    expect(prompt).toContain("NEVER cast `::GEOGRAPHY`");
+    expect(prompt).toContain("ST_Distance_Sphere");
+    expect(prompt).toContain("ST_GeomFromWKB");
+    // Steers away from the O(n^2) self-join that timed out.
+    expect(prompt).toContain("O(n^2)");
+  });
+
+  it("omits spatial guidance for non-geo data", () => {
+    const s = schema("sales.csv", [catColumn("region"), catColumn("product")]);
+    const prompt = buildCodeGenUserPrompt(s, "top products");
+    expect(prompt).not.toContain("Geospatial analysis");
+    expect(prompt).not.toContain("GEOGRAPHY");
+  });
+
+  it("does not duplicate spatial guidance for a GeoJSON upload (its own section handles geometry)", () => {
+    const s: CSVSchema = {
+      ...schema("map.geojson", [catColumn("name"), catColumn("geometry")]),
+      has_geojson: true,
+      geojson_geometry_type: "Polygon",
+    };
+    const prompt = buildCodeGenUserPrompt(s, "map it");
+    expect(prompt).not.toContain("Geospatial analysis (spatial extension is loaded)");
+    expect(prompt).toContain("GeoJSON Source");
+  });
+});
+
 // ── buildWorkbookContext ──────────────────────────────────────────
 
 describe("buildWorkbookContext", () => {
