@@ -81,6 +81,24 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("O(n^2)");
   });
 
+  it("adds bbox-pushdown guidance when a bbox struct column is present", () => {
+    const s = schema("buildings.parquet", [
+      catColumn("id"),
+      catColumn("geometry"),
+      catColumn("bbox"),
+    ]);
+    const prompt = buildCodeGenUserPrompt(s, "buildings in a region");
+    expect(prompt).toContain("bbox STRUCT column");
+    expect(prompt).toContain("filter on bbox FIRST");
+  });
+
+  it("omits bbox guidance when there is no bbox column", () => {
+    const s = schema("pts.parquet", [catColumn("id"), catColumn("geometry")]);
+    const prompt = buildCodeGenUserPrompt(s, "isolated points");
+    expect(prompt).toContain("Geospatial analysis");
+    expect(prompt).not.toContain("bbox STRUCT column");
+  });
+
   it("omits spatial guidance for non-geo data", () => {
     const s = schema("sales.csv", [catColumn("region"), catColumn("product")]);
     const prompt = buildCodeGenUserPrompt(s, "top products");

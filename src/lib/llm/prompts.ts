@@ -507,10 +507,14 @@ Column types are database-native (high fidelity). The data has been loaded as CS
   const hasGeometryColumn = schema.columns.some((c) =>
     /^(geometry|geom|the_geom|wkb_geometry|geog|shape)$/i.test(c.name)
   );
+  const hasBboxColumn = schema.columns.some((c) => /^bbox$/i.test(c.name));
+  const bboxTip = hasBboxColumn
+    ? `\nThis dataset has a bbox STRUCT column (xmin/ymin/xmax/ymax). For a bounding-box / region filter, filter on bbox FIRST (e.g. bbox.xmin BETWEEN lon_min AND lon_max AND bbox.ymin BETWEEN lat_min AND lat_max) — it is a cheap scalar struct with predicate pushdown and is FAR faster than ST_X(ST_Centroid(geometry)) in the WHERE, which decodes every geometry in the dataset. Decode/compute geometry (ST_Centroid, distances) only on the already-filtered subset.`
+    : "";
   const spatialSection =
     hasGeometryColumn && !schema.has_geojson
       ? `\n## Geospatial analysis (spatial extension is loaded)
-Read via read_parquet with spatial loaded, the geometry column is ALREADY a GEOMETRY value — use it DIRECTLY in spatial functions: ST_Centroid(geometry), ST_X(...), ST_Y(...), ST_Intersects(geometry, ...). Do NOT wrap it in ST_GeomFromWKB() or ST_GeomFromText() — those take a BLOB/VARCHAR and ERROR on a GEOMETRY ("No function matches ST_GeomFromWKB(GEOMETRY)"). Only use ST_GeomFromWKB when a column is a raw WKB BLOB.
+Read via read_parquet with spatial loaded, the geometry column is ALREADY a GEOMETRY value — use it DIRECTLY in spatial functions: ST_Centroid(geometry), ST_X(...), ST_Y(...), ST_Intersects(geometry, ...). Do NOT wrap it in ST_GeomFromWKB() or ST_GeomFromText() — those take a BLOB/VARCHAR and ERROR on a GEOMETRY ("No function matches ST_GeomFromWKB(GEOMETRY)"). Only use ST_GeomFromWKB when a column is a raw WKB BLOB.${bboxTip}
 DuckDB has NO GEOGRAPHY type — NEVER cast \`::GEOGRAPHY\`. For distance in METERS between lon/lat points use ST_Distance_Sphere(ST_Point(lon, lat), ST_Point(lon, lat)); plain ST_Distance on lon/lat returns degrees, not meters.
 CRITICAL — nearest/farthest-neighbor and any distance self-join is O(n^2): a self-join over N points is N^2 distance computations and WILL time out for more than a few thousand rows. Do NOT self-join the full table. Instead: (1) restrict the working set (bounding box + a few-thousand-row cap), AND (2) either build a KD-tree in Python (scipy.spatial.cKDTree, O(n log n)) or only compare candidate pairs already close via a bounding-box/grid predicate (e.g. ABS(lat diff) and ABS(lon diff) below a small threshold, or ST_DWithin) BEFORE computing distance. State the search radius / cap in the results.\n`
       : "";
