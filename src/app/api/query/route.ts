@@ -43,6 +43,21 @@ import { parseCSV } from "@/lib/csv/parser";
 export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
 
 export async function POST(request: Request) {
+  // Diagnostic: log exactly when the client connection drops, so a long remote
+  // query that ends in a "network error" tells us WHICH wall was hit (e.g. a
+  // ~300s cap = a hard HTTP timeout still in force, vs later = a different one).
+  const __reqStart = Date.now();
+  try {
+    request.signal.addEventListener("abort", () => {
+      logger.warn("Client disconnected mid-request", {
+        elapsedMs: Date.now() - __reqStart,
+        route: "/api/query",
+      });
+    });
+  } catch {
+    // signal may be unavailable in some runtimes — non-fatal.
+  }
+
   try {
     const body = await request.json();
     const { prompt, context } = body;

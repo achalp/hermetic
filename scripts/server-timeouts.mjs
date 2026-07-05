@@ -20,10 +20,15 @@ import https from "node:https";
 // container/route buffer) so the socket outlives the slowest legitimate query.
 const REQUEST_TIMEOUT_MS = 25 * 60 * 1000; // 25 minutes
 
+// eslint-disable-next-line no-console
+console.error(`[server-timeouts] preload active (pid ${process.pid}) — requestTimeout → 25m`);
+
 function patch(mod) {
   const original = mod.createServer.bind(mod);
   mod.createServer = (...args) => {
     const server = original(...args);
+    // eslint-disable-next-line no-console
+    console.error(`[server-timeouts] patched http server (pid ${process.pid})`);
     // Only raise; never lower a timeout Next may have set intentionally.
     if (server.requestTimeout === 0 || server.requestTimeout > REQUEST_TIMEOUT_MS) {
       // 0 means "no timeout" — already unbounded, leave it.
