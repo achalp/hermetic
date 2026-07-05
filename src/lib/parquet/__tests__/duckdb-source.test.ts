@@ -177,6 +177,14 @@ describe("resolveRemoteSource", () => {
     expect(localFileContext).toContain("large dataset");
   });
 
+  it("steers code-gen to materialize one local pass and skip geometry columns", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
+    expect(localFileContext).toContain("NETWORK COST");
+    expect(localFileContext).toContain("CREATE TEMP TABLE t AS SELECT");
+    expect(localFileContext).toContain("NEVER geometry");
+    expect(localFileContext).toContain("single materialization");
+  });
+
   it("adds the hive_partitioning flag and partition-column note for a Hive dataset", () => {
     const { localFileContext } = resolveRemoteSource(
       "s3://overturemaps-us-west-2/release/2026-06-17.0/theme=buildings/type=building/**/*.parquet",

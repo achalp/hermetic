@@ -108,7 +108,25 @@ export function resolveRemoteSource(
   const body = isFolder
     ? parquetFolderContext(readExpr, rowCount, isHivePartitioned)
     : parquetFileContext(readExpr, url, rowCount);
-  return { localFileContext: prelude + body };
+  return { localFileContext: prelude + body + remoteNetworkNote(readExpr) };
+}
+
+/**
+ * Remote-only guidance: reading over the network is slow and costs egress, and a
+ * naive script re-scans the remote files once per aggregation. Steer code-gen to
+ * pull the needed columns into a LOCAL temp table in a SINGLE pass, then query
+ * that — and to leave the heavy geometry/nested columns behind unless asked for.
+ */
+function remoteNetworkNote(readExpr: string): string {
+  return (
+    `\nNETWORK COST — this data is read over the network; each pass over the remote files is slow. ` +
+    `Do ALL remote reading in ONE pass: create a local DuckDB temp table with ONLY the columns the ` +
+    `question needs (NEVER geometry / struct / list / map columns unless explicitly required — they are ` +
+    `large and slow), then run EVERY subsequent aggregation against that LOCAL temp table, not the remote read:\n` +
+    `  duckdb.sql("CREATE TEMP TABLE t AS SELECT <only needed columns> FROM ${readExpr}")\n` +
+    `  # then query t, e.g. duckdb.sql("SELECT col, COUNT(*) FROM t GROUP BY col ORDER BY 2 DESC LIMIT 20").df()\n` +
+    `Keep remote reads to that single materialization; do not read the remote files more than once.`
+  );
 }
 
 /** The "reduce in SQL, never SELECT * unaggregated" guidance appended for a large
