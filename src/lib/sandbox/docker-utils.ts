@@ -27,7 +27,11 @@ export function run(
       }
     );
 
-    if (opts?.input && child.stdin) {
+    // Close stdin whenever input was provided — INCLUDING an empty string. A
+    // remote/cloud source writes an empty /data/input.csv (its data lives at the
+    // URL); with a truthy check, "" was skipped, stdin never closed, and `cat`
+    // blocked until the timeout fired — surfacing as a spurious "timed out".
+    if (opts?.input !== undefined && child.stdin) {
       child.stdin.write(opts.input);
       child.stdin.end();
     }
