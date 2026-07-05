@@ -16,17 +16,27 @@ export async function executeSandbox(
   const start = Date.now();
   const id = `hermetic-sandbox-${randomUUID()}`;
 
+  // Large local Parquet (mount / copied-in) and slow remote cloud reads (s3://,
+  // https:// via httpfs) both need the extended timeout. Computed up front so the
+  // container is kept alive at least as long AND the value can surface on timeout.
+  const isLargeData = !!localMountPath || !!inputParquetPath || codeDoesRemoteIo(code);
+  const execTimeout = isLargeData ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
+
   try {
-    // 1. Create container (with optional bind-mount for browsed local files)
+    // 1. Create container (with optional bind-mount for browsed local files).
+    //    Keep it alive past the exec budget so a long run can't outlive its host.
+    const containerLifetime = Math.ceil(execTimeout / 1000) + 60;
     const runArgs = ["run", "-d", "--name", id];
     if (localMountPath) {
       runArgs.push("-v", `${localMountPath}:${LOCAL_MOUNT_PATH}:ro`);
     }
-    runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", "300");
+    runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", String(containerLifetime));
     logger.debug("Docker: creating container", {
       id,
       hasMount: !!localMountPath,
       hasParquet: !!inputParquetPath,
+      execTimeout,
+      largeData: isLargeData,
     });
     await run("docker", runArgs, { timeoutMs: 15_000 });
     logger.debug("Docker: container created");
@@ -77,10 +87,7 @@ export async function executeSandbox(
     });
     logger.debug("Docker: script written");
 
-    // 4. Run script. Large local Parquet (mount / copied-in) and slow remote
-    //    cloud reads (s3://, https:// via httpfs) both need the extended timeout.
-    const isLargeData = !!localMountPath || !!inputParquetPath || codeDoesRemoteIo(code);
-    const execTimeout = isLargeData ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
+    // 4. Run script.
     logger.info("Docker: executing script", { execTimeout, largeData: isLargeData });
     const execResult = await run(
       "docker",
@@ -100,16 +107,19 @@ export async function executeSandbox(
     const errorMsg = err instanceof Error ? err.message : String(err);
     const isTimeout = errorMsg.includes("timed out");
 
-    // On timeout, try to grab stderr for context on what was running
+    // On timeout, try to grab stderr for context on what was running. Include the
+    // budget actually applied — the fast way to see whether the extended
+    // (remote/large) timeout kicked in.
     let detail = errorMsg;
     if (isTimeout) {
+      detail = `Sandbox execution timed out after ${execTimeout}ms (largeData=${isLargeData}).`;
       try {
         const stderr = await run("docker", ["exec", id, "cat", "/data/stderr.txt"], {
           timeoutMs: 5_000,
         });
         if (stderr.stdout.trim()) {
           const lastLines = stderr.stdout.trim().split("\n").slice(-10).join("\n");
-          detail = `Sandbox execution timed out. Last stderr:\n${lastLines}`;
+          detail += ` Last stderr:\n${lastLines}`;
         }
       } catch {
         // Container may already be gone
