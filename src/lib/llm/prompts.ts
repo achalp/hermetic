@@ -276,7 +276,7 @@ Rules:
   - pandas is only for reshaping/pivoting that small result into chart_data.
   - Joins and "which X occur together": write them in DuckDB SQL. NEVER load two large frames into pandas and \`pd.merge\` them — that cross-joins in memory and crashes. For co-occurrence: aggregate each group to a list (\`array_agg(DISTINCT x)\`) then pair WITHIN it via \`UNNEST\` twice with a \`<\` guard, or self-join in SQL — all inside DuckDB. Example:
     \`duckdb.sql("WITH g AS (SELECT pr, array_agg(DISTINCT name) c FROM read_parquet('/data/input.parquet') GROUP BY pr) SELECT a, b, count(*) n FROM g, UNNEST(c) t1(a), UNNEST(c) t2(b) WHERE a<b GROUP BY a,b ORDER BY n DESC LIMIT 100").df()\` ← .df() only on the ~100-row result.
-- Always pass datasets={"main": df} to write_output, using the ORIGINAL unfiltered DataFrame (it is capped to 5000 rows for you). This enables client-side interactive filtering.${
+- Always pass datasets={"main": df} to write_output using the ORIGINAL, COMPLETE DataFrame — do NOT pre-truncate it with df.head(...) / df.nlargest(...) / df.sample(...). write_output caps it to 5000 rows for you AND records the true total, which lets the dashboard tell the user when its interactive figures are based on a sample. Pre-truncating hides the total and biases the client-side aggregations.${
     hasWorkbookContext
       ? `
 - Multiple CSV sheets from an Excel workbook are available in the sandbox.

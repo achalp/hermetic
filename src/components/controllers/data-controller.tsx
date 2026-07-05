@@ -74,6 +74,11 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
   storeSetRef.current = store.set;
   const storeGetRef = useRef(store.get);
   storeGetRef.current = store.get;
+  // Snapshot of the pre-computed output seeds (exact full-data values injected
+  // via $chartData). For a SAMPLED dataset we restore these when no filter is
+  // active, instead of re-aggregating the truncated sample — see the outputs
+  // effect below.
+  const seedRef = useRef<Record<string, unknown> | null>(null);
 
   // ── Stabilize props ───────────────────────────────────────────────
   const filtersJson = JSON.stringify(props.filters);
@@ -176,9 +181,44 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
   // (run on the filtered data) or falls back to the shared pipeline result.
   // Pattern A outputs (geojson, globeData, sankeyData) read structured data
   // from a separate state path, filter it, and write the result.
+  const isSample = !!props.sample_note;
   useEffect(() => {
     if (!Array.isArray(dataset) || dataset.length === 0) return;
+
+    // Snapshot the initial seeds (the exact full-data values pre-populated via
+    // $chartData) once, before any recompute can overwrite them.
+    if (seedRef.current === null) {
+      const seeds: Record<string, unknown> = {};
+      for (const o of outputs) {
+        const v = storeGetRef.current(o.statePath);
+        const nonEmpty = Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null;
+        if (nonEmpty) seeds[o.statePath] = v;
+      }
+      seedRef.current = seeds;
+    }
+
+    // Is any filter actually engaged (not "All"/empty)?
+    const anyFilterActive = filters.some((f) => {
+      const v = filterValues[f.key];
+      return v !== undefined && v !== null && v !== "All" && v !== "";
+    });
+
     for (const output of outputs) {
+      // SAMPLED data, no active filter: keep the exact pre-computed seed rather
+      // than re-aggregating /datasets/main (a truncated sample) — recomputing
+      // would silently disagree with the headline figures and can drop
+      // Python-derived fields (e.g. a display label). Only recompute on a real
+      // filter interaction (the sample caveat warns the user then).
+      if (isSample && !anyFilterActive) {
+        const seed = seedRef.current?.[output.statePath];
+        const nonEmpty = Array.isArray(seed)
+          ? seed.length > 0
+          : seed !== undefined && seed !== null;
+        if (nonEmpty) {
+          storeSetRef.current(output.statePath, seed);
+          continue;
+        }
+      }
       // Pattern A: filter structured data directly from state
       if (
         output.sourceStatePath &&
@@ -221,7 +261,7 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
       const formatted = formatOutput(data, output);
       storeSetRef.current(output.statePath, formatted);
     }
-  }, [sharedPipelineResult, filteredData, dataset, outputs, filterValues, filters]);
+  }, [sharedPipelineResult, filteredData, dataset, outputs, filterValues, filters, isSample]);
 
   // Reset child filter values when parent changes make them invalid
   useEffect(() => {
