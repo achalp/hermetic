@@ -397,12 +397,15 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
           'Charts can enable click-to-filter cross-filtering via the "selects" prop. Set selects: {column: "<column>", bindTo: "/filters/<column>"} where bindTo matches a DataController filter. Clicking a bar or pie slice filters the dashboard; clicking again deselects.',
           "Use selects on BarChart and PieChart when the axis or slice represents a filterable category. Do NOT use selects AND on.click drillDown on the same chart.",
           "Cross-filtering is best with 2-3 charts selecting into different filter dimensions.",
+          'CRITICAL: EVERY /computed/<key> that ANY component reads MUST be produced by a DataController output (an entry in `outputs` with that statePath) or pre-populated via "$chartData:". A component bound to a /computed/<key> that no output produces renders EMPTY (blank table, empty map). Never invent a computed key you did not add to `outputs`.',
+          "REUSE computed keys: if a table and a chart show the SAME rows (e.g. the top-N most X), point BOTH at ONE /computed/<key>. Do NOT declare a second, separate key for the table or map — that second key ends up unproduced and empty.",
+          'DataTable inside the DataController: bind `rows` to {"$state": "/computed/<key>"} where <key> is produced by a DataController output that yields a RECORDS array (e.g. a sort+limit for a top-N table). Its `columns` MUST be {key, label} objects whose "key" EXACTLY matches the record field names — e.g. rows of {short_id, nn_distance_m} → columns [{"key":"short_id","label":"Building"},{"key":"nn_distance_m","label":"NN Distance (m)"}]. Plain-string column headers do NOT match record fields and every cell renders blank.',
         ]
       : [
           'Reference chart data using "$chartData:<key>" placeholders in data props. Do NOT inline data arrays. Example: "data": "$chartData:bar_data". For nested fields like heatmap data, use "$chartData:heatmap.z", "$chartData:heatmap.x_labels", "$chartData:heatmap.y_labels".',
+          'For DataTable columns, use plain strings like ["Name", "Age"], NOT objects.',
+          'For DataTable rows, use INLINED arrays of strings like [["Alice", "30"]] — NOT objects, and NOT a "$state" reference.',
         ]),
-    'For DataTable columns, use plain strings like ["Name", "Age"], NOT objects.',
-    'For DataTable rows, use arrays of strings like [["Alice", "30"]], NOT objects.',
     "When data supports further segmentation or breakdown, add on.click bindings with the drillDown action on chart components. Set appropriate params: segment_label (human-readable label for the segment), segment_value (the data value), chart_title (title of the chart), x_key/y_key (the data keys), filter_column (column to filter on), filter_value (value to filter by). Only add drill-down when further breakdown makes sense.",
     "Prefer named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) in color_map and colors props for consistent theming.",
     schema.has_geojson &&

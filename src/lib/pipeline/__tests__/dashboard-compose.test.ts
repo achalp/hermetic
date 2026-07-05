@@ -66,6 +66,21 @@ describe("buildDashboardComposeRequest", () => {
     expect(analysis.mainDataset).toHaveLength(3);
     expect(userPrompt).toContain("Dataset Available for Client-Side Filtering");
     expect(customRules.some((r) => r.includes("Use exactly ONE DataController"))).toBe(true);
+    // Every computed key a component reads must be produced by an output —
+    // guards the empty-table/empty-map bug (component bound to an unproduced key).
+    expect(customRules.some((r) => r.includes("MUST be produced by a DataController output"))).toBe(
+      true
+    );
+    // DataTable-in-DataController: bind rows to a produced /computed key with
+    // {key,label} columns matching record fields (not plain-string headers).
+    expect(customRules.some((r) => r.includes("DataTable inside the DataController"))).toBe(true);
+  });
+
+  it("uses inlined-array DataTable guidance only when there is no DataController", () => {
+    const { customRules, analysis } = buildDashboardComposeRequest(makeExec(), baseOpts);
+    expect(analysis.useDataController).toBe(false);
+    expect(customRules.some((r) => r.includes("INLINED arrays of strings"))).toBe(true);
+    expect(customRules.some((r) => r.includes("DataTable inside the DataController"))).toBe(false);
   });
 
   it("appends the drill-down block with an AND-joined filter clause", () => {
