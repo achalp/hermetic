@@ -40,7 +40,7 @@ import { randomUUID } from "crypto";
 import { extractSchema } from "@/lib/csv/schema";
 import { parseCSV } from "@/lib/csv/parser";
 
-export const maxDuration = 300; // 5 min — large Parquet datasets need more time
+export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
 
 export async function POST(request: Request) {
   try {

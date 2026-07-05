@@ -91,7 +91,7 @@ import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { logger } from "@/lib/logger";
 
-export const maxDuration = 600; // 10 minutes — investigations can run longer than Ask
+export const maxDuration = 1260; // 21 min — investigations over large/remote datasets can run long
 
 interface InvestigateContext {
   csv_id?: string;

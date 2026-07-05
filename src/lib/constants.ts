@@ -27,6 +27,10 @@ export const PARQUET_MATERIALIZE_THRESHOLD = 100_000;
 export const MAX_CSV_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
 export const MAX_CSV_SIZE_LABEL = "100MB";
 export const SANDBOX_TIMEOUT_MS = 30_000; // 30 seconds
+// Large local Parquet and remote cloud datasets (e.g. Overture buildings, 2.5B
+// rows read over S3) legitimately need minutes to scan — not a bug, just big.
+// Give those executions a generous budget rather than sampling the data.
+export const LARGE_DATA_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 export const CSV_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const DOCKER_SANDBOX_IMAGE = "hermetic-sandbox";
 export const MAX_SAMPLE_ROWS = 5;

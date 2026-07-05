@@ -165,6 +165,10 @@ export async function runPipeline(
     let retryError: string;
     if (!result.success) {
       retryError = result.error;
+      // A timeout means the query was too slow for the (already generous)
+      // budget, not that the code is buggy — regenerating similar code just
+      // times out again and multiplies the wait. Fail fast instead of retrying.
+      if (/timed out/i.test(retryError)) break;
     } else if (semanticVerdict && !semanticVerdict.ok) {
       // Already gave the empty result its one fix attempt → accept it as
       // degraded ("no signal") instead of retrying further.

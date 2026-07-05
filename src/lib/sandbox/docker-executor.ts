@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
-import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
+import {
+  DOCKER_SANDBOX_IMAGE,
+  SANDBOX_TIMEOUT_MS,
+  LARGE_DATA_TIMEOUT_MS,
+  LOCAL_MOUNT_PATH,
+} from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
 import { logger } from "@/lib/logger";
 
@@ -20,7 +25,7 @@ export async function executeSandbox(
   // https:// via httpfs) both need the extended timeout. Computed up front so the
   // container is kept alive at least as long AND the value can surface on timeout.
   const isLargeData = !!localMountPath || !!inputParquetPath || codeDoesRemoteIo(code);
-  const execTimeout = isLargeData ? SANDBOX_TIMEOUT_MS * 10 : SANDBOX_TIMEOUT_MS;
+  const execTimeout = isLargeData ? LARGE_DATA_TIMEOUT_MS : SANDBOX_TIMEOUT_MS;
 
   try {
     // 1. Create container (with optional bind-mount for browsed local files).
