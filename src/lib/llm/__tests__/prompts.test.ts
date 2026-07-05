@@ -74,7 +74,9 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("Geospatial analysis");
     expect(prompt).toContain("NEVER cast `::GEOGRAPHY`");
     expect(prompt).toContain("ST_Distance_Sphere");
-    expect(prompt).toContain("ST_GeomFromWKB");
+    // GeoParquet geometry is already a GEOMETRY — use it directly, do NOT wrap.
+    expect(prompt).toContain("ALREADY a GEOMETRY");
+    expect(prompt).toContain("Do NOT wrap it in ST_GeomFromWKB");
     // Steers away from the O(n^2) self-join that timed out.
     expect(prompt).toContain("O(n^2)");
   });
