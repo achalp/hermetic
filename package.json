@@ -21,9 +21,9 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_OPTIONS='--import ./scripts/server-timeouts.mjs' next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_OPTIONS='--import ./scripts/server-timeouts.mjs' next start",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "format": "prettier --write .",
