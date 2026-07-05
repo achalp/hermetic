@@ -25,11 +25,32 @@ export interface DataControllerProps {
   filters: FilterDef[];
   pipeline: Record<string, unknown>[];
   outputs: OutputDef[];
+  /**
+   * Set when the underlying dataset is a SAMPLE of a larger result (the full
+   * data couldn't be shipped to the client). Filtered / per-group figures the
+   * client recomputes are then approximate — this renders a visible caveat so
+   * the user isn't misled. Injected deterministically by the compose layer.
+   */
+  sample_note?: string | null;
 }
 
 interface DataControllerComponentProps {
   props: DataControllerProps;
   children?: ReactNode;
+}
+
+/** A small amber banner warning that filtered figures are based on a sample. */
+function SampleCaveat({ note }: { note: string }) {
+  return (
+    <div
+      role="note"
+      className="flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      style={{ borderRadius: "var(--radius-input)" }}
+    >
+      <span aria-hidden="true">⚠</span>
+      <span>{note}</span>
+    </div>
+  );
 }
 
 /**
@@ -223,13 +244,22 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
     setFilterValues((prev) => ({ ...prev, [def.key]: value }));
   }, []);
 
-  // fromState mode or no filters: skip filter dropdowns
+  const sampleNote = props.sample_note?.trim() || null;
+
+  // fromState mode or no filters: skip filter dropdowns (still surface the
+  // sample caveat if one was set).
   if (isFromState || filters.length === 0) {
-    return <>{children}</>;
+    return (
+      <>
+        {sampleNote && <SampleCaveat note={sampleNote} />}
+        {children}
+      </>
+    );
   }
 
   return (
     <div className="space-y-4">
+      {sampleNote && <SampleCaveat note={sampleNote} />}
       {/* Filter dropdowns */}
       <div className="flex flex-wrap gap-3">
         {filters.map((def) => {

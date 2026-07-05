@@ -54,10 +54,23 @@ export interface DashboardComposeOpts {
   workbookContext?: string | null;
 }
 
+/**
+ * Max rows shipped to the client for interactive filtering. A dataset AT this
+ * size is assumed to be a `head(cap)` truncation (a sample), not the complete
+ * result — so client-side re-aggregation of it is treated as approximate.
+ */
+export const INTERACTIVE_ROW_CAP = 5000;
+
 export interface DashboardAnalysis {
   useDataController: boolean;
   mainDataset: Record<string, unknown>[] | undefined;
   imagePlaceholders: Record<string, string>;
+  /**
+   * Non-null when /datasets/main is (or may be) a SAMPLE of a larger result, so
+   * client-side filtered aggregations are approximate. Rendered as a caveat on
+   * the DataController and used to steer headline stats to exact $result values.
+   */
+  sampleNote: string | null;
 }
 
 export interface DashboardComposeRequest {
@@ -80,7 +93,8 @@ export function buildDashboardComposeRequest(
   const imageKeys = Object.keys(executionResult.images);
   const datasets = executionResult.datasets;
   const mainDataset = datasets?.main;
-  const hasDataset = !!mainDataset && mainDataset.length > 0 && mainDataset.length <= 5000;
+  const hasDataset =
+    !!mainDataset && mainDataset.length > 0 && mainDataset.length <= INTERACTIVE_ROW_CAP;
 
   // Detect filterable columns (categorical with <15 distinct values)
   let datasetColumns: { name: string; distinct: number; sample: string[] }[] = [];
@@ -93,6 +107,24 @@ export function buildDashboardComposeRequest(
   }
   const filterableColumns = datasetColumns.filter((c) => c.distinct >= 2 && c.distinct <= 15);
   const useDataController = hasDataset && filterableColumns.length > 0;
+
+  // Is /datasets/main a SAMPLE of a larger result? We can't always be sure, so
+  // flag it when (a) the analysis explicitly says so, or (b) it sits exactly at
+  // the interactive cap — the tell-tale of a head(cap) truncation. When flagged,
+  // client-side filtered aggregations are approximate and get a visible caveat.
+  const resultsObj = executionResult.results as Record<string, unknown>;
+  const explicitSampleNote =
+    typeof resultsObj?._sample_note === "string" ? resultsObj._sample_note : null;
+  const mainTotal = typeof resultsObj?._main_total === "number" ? resultsObj._main_total : null;
+  const flaggedSample =
+    resultsObj?._main_sampled === true || explicitSampleNote !== null || mainTotal !== null;
+  const mainMaybeSampled =
+    useDataController && (mainDataset!.length >= INTERACTIVE_ROW_CAP || flaggedSample);
+  const ofTotal = mainTotal ? ` of ${mainTotal.toLocaleString()}` : "";
+  const sampleNote: string | null = mainMaybeSampled
+    ? (explicitSampleNote ??
+      `Interactive filters and per-group figures below are computed on a sample of ${mainDataset!.length.toLocaleString()}${ofTotal} rows. Unfiltered headline figures reflect the complete dataset.`)
+    : null;
 
   // Build image placeholder map: LLM uses placeholder keys, we replace with real base64
   const imagePlaceholders: Record<string, string> = {};
@@ -408,6 +440,11 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
           'For DataTable columns, use plain strings like ["Name", "Age"], NOT objects.',
           'For DataTable rows, use INLINED arrays of strings like [["Alice", "30"]] — NOT objects, and NOT a "$state" reference.',
         ]),
+    ...(sampleNote
+      ? [
+          "CORRECTNESS — the interactive dataset (/datasets/main) is a SAMPLE of a larger result. Client-side re-aggregation of it is APPROXIMATE. Therefore: headline StatCards and the summary annotation MUST use exact $result:<key> values computed in Python over the FULL data — do NOT bind them to /computed/stats (which recomputes over the sample). Use /computed outputs only for charts that need to react to the filters. (A sample caveat is added to the dashboard automatically.)",
+        ]
+      : []),
     "When data supports further segmentation or breakdown, add on.click bindings with the drillDown action on chart components. Set appropriate params: segment_label (human-readable label for the segment), segment_value (the data value), chart_title (title of the chart), x_key/y_key (the data keys), filter_column (column to filter on), filter_value (value to filter by). Only add drill-down when further breakdown makes sense.",
     "Prefer named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) in color_map and colors props for consistent theming.",
     schema.has_geojson &&
@@ -431,7 +468,7 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
   return {
     userPrompt,
     customRules,
-    analysis: { useDataController, mainDataset, imagePlaceholders },
+    analysis: { useDataController, mainDataset, imagePlaceholders, sampleNote },
   };
 }
 
@@ -451,7 +488,7 @@ export async function composeAndStreamDashboard(args: {
 }): Promise<void> {
   const { executionResult, opts, uiComposeModel, emit, isClosed, onComposing } = args;
   const { userPrompt, customRules, analysis } = buildDashboardComposeRequest(executionResult, opts);
-  const { useDataController, mainDataset, imagePlaceholders } = analysis;
+  const { useDataController, mainDataset, imagePlaceholders, sampleNote } = analysis;
 
   onComposing?.();
 
@@ -514,6 +551,25 @@ export async function composeAndStreamDashboard(args: {
         }
         stateInjected = true;
         return true;
+      }
+      // Deterministically stamp the sample caveat onto the DataController element,
+      // regardless of what the LLM emitted, so the user is always warned when the
+      // interactive data is a sample.
+      if (
+        sampleNote &&
+        patch.op === "add" &&
+        typeof patch.path === "string" &&
+        patch.path.startsWith("/elements/") &&
+        patch.value &&
+        typeof patch.value === "object" &&
+        (patch.value as { type?: unknown }).type === "DataController"
+      ) {
+        const el = patch.value as { props?: Record<string, unknown> };
+        el.props = el.props ?? {};
+        if (!el.props.sample_note) {
+          el.props.sample_note = sampleNote;
+          return true;
+        }
       }
       return false;
     },

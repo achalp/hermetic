@@ -79,6 +79,40 @@ describe("buildDashboardComposeRequest", () => {
     expect(customRules.some((r) => r.includes("do NOT re-rank /datasets/main"))).toBe(true);
   });
 
+  it("flags a sampled main (truncated to the cap) with a caveat + exact-stats guidance", () => {
+    // _main_total (set by write_output when it head(5000)-caps) marks main as a
+    // sample even though the shipped rows are few in the test.
+    const exec = makeExec({
+      results: { total: 1234, _main_total: 47000 },
+      datasets: {
+        main: [
+          { region: "West", v: 1 },
+          { region: "East", v: 2 },
+          { region: "West", v: 3 },
+        ],
+      },
+    });
+    const { customRules, analysis } = buildDashboardComposeRequest(exec, baseOpts);
+    expect(analysis.useDataController).toBe(true);
+    expect(analysis.sampleNote).toContain("sample of 3 of 47,000 rows");
+    // Headline stats must stay exact ($result), not client-recomputed /computed/stats.
+    expect(customRules.some((r) => r.includes("MUST use exact $result:<key> values"))).toBe(true);
+  });
+
+  it("does not flag a complete (below-cap, unflagged) main", () => {
+    const exec = makeExec({
+      datasets: {
+        main: [
+          { region: "West", v: 1 },
+          { region: "East", v: 2 },
+        ],
+      },
+    });
+    const { analysis } = buildDashboardComposeRequest(exec, baseOpts);
+    expect(analysis.useDataController).toBe(true);
+    expect(analysis.sampleNote).toBeNull();
+  });
+
   it("uses inlined-array DataTable guidance only when there is no DataController", () => {
     const { customRules, analysis } = buildDashboardComposeRequest(makeExec(), baseOpts);
     expect(analysis.useDataController).toBe(false);

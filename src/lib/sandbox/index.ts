@@ -122,10 +122,17 @@ def write_output(results=None, chart_data=None, datasets=None, images=None):
     except Exception:
         _pd = None
     for _k, _v in (datasets or {}).items():
+        _total = None
         if _pd is not None and isinstance(_v, _pd.DataFrame):
+            _total = int(len(_v))
             _v = _v.head(5000).to_dict(orient='records')
         elif isinstance(_v, list):
+            _total = len(_v)
             _v = _v[:5000]
+        # When 'main' was truncated to the 5000-row cap, record the true total so
+        # the dashboard can tell the user its interactive figures are a sample of N.
+        if str(_k) == 'main' and _total is not None and _total > 5000:
+            out['results']['_main_total'] = _total
         out['datasets'][str(_k)] = _to_native(_v)
     import json as _json2
     with open('/data/output.json', 'w') as _f:
