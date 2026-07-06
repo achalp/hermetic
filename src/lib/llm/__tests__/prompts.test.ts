@@ -84,6 +84,9 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("pull ONLY the numeric coordinate columns");
     expect(prompt).toContain("GRID self-join");
     expect(prompt).toContain('results["analysis_scope"]');
+    // KD-tree must rank in meters, not distorted lon/lat degrees.
+    expect(prompt).toContain("PROJECT TO METERS FIRST");
+    expect(prompt).toContain("NEVER build the tree on unscaled lon/lat");
   });
 
   it("adds bbox-pushdown guidance when a bbox struct column is present", () => {
