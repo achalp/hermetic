@@ -45,4 +45,16 @@ if (typeof window !== "undefined") {
       event.preventDefault();
     }
   });
+
+  // Next.js's dev error overlay surfaces errors via console.error, not just
+  // window.onerror — so drop this benign race there too, or it pops the overlay
+  // even though the map recovers on the next frame.
+  const origConsoleError = console.error;
+  console.error = function (...args: unknown[]) {
+    const hit = args.some((a) =>
+      String((a as { message?: string })?.message ?? a).includes("maxTextureDimension2D")
+    );
+    if (hit) return;
+    origConsoleError.apply(this, args as []);
+  };
 }

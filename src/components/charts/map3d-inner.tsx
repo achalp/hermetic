@@ -64,13 +64,23 @@ export function Map3DInner(props: Map3DInnerProps) {
   const [hoverInfo, setHoverInfo] = useState<PickedFeature | null>(null);
   const [clickInfo, setClickInfo] = useState<PickedFeature | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const chartColors = useChartColors();
 
-  // Delay mount to let the container get a stable size before DeckGL creates its canvas.
-  // This avoids the luma.gl ResizeObserver race where device.limits is undefined.
+  // Only mount DeckGL once the container actually has a non-zero size. Creating
+  // the WebGL device on a 0x0 canvas triggers the luma.gl race where
+  // device.limits is undefined ("maxTextureDimension2D"). A ResizeObserver waits
+  // for real dimensions (e.g. a collapsed flex cell that lays out a frame later).
   useEffect(() => {
-    const id = requestAnimationFrame(() => setReady(true));
-    return () => cancelAnimationFrame(id);
+    const el = containerRef.current;
+    if (!el) return;
+    const check = () => {
+      if (el.clientWidth > 0 && el.clientHeight > 0) setReady(true);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const handleError = useCallback((error: Error) => {
@@ -319,21 +329,19 @@ export function Map3DInner(props: Map3DInnerProps) {
     [extractProperties]
   );
 
-  if (!ready) {
-    return <div style={{ width: "100%", height: height ?? 500 }} />;
-  }
-
   return (
-    <div style={{ position: "relative", width: "100%", height: height ?? 500 }}>
-      <DeckGL
-        initialViewState={viewState}
-        controller
-        layers={[tileLayer, dataLayer]}
-        onError={handleError}
-        onHover={onHover}
-        onClick={onDeckClick}
-        getCursor={({ isHovering }: { isHovering: boolean }) => (isHovering ? "pointer" : "grab")}
-      />
+    <div ref={containerRef} style={{ position: "relative", width: "100%", height: height ?? 500 }}>
+      {ready && (
+        <DeckGL
+          initialViewState={viewState}
+          controller
+          layers={[tileLayer, dataLayer]}
+          onError={handleError}
+          onHover={onHover}
+          onClick={onDeckClick}
+          getCursor={({ isHovering }: { isHovering: boolean }) => (isHovering ? "pointer" : "grab")}
+        />
+      )}
       {/* Hover tooltip */}
       {hoverInfo && !clickInfo && (
         <div
