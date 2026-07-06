@@ -6,6 +6,8 @@
  * before the WebGL device's `limits` property is initialized,
  * causing "Cannot read maxTextureDimension2D" errors.
  */
+// MUST be first: patches ResizeObserver before luma.gl constructs one.
+import "@/lib/patch-resize-observer";
 import { luma } from "@luma.gl/core";
 import { webgl2Adapter } from "@luma.gl/webgl";
 
@@ -17,6 +19,9 @@ luma.registerAdapters([webgl2Adapter]);
 // error boundaries or DeckGL's onError. It's harmless — the next
 // resize event succeeds once the device is fully initialized.
 if (typeof window !== "undefined") {
+  // ResizeObserver is patched in "@/lib/patch-resize-observer" (imported first)
+  // to swallow the benign luma.gl race at its source. The listeners below are a
+  // belt-and-suspenders backup for any path that still surfaces it.
   const origOnError = window.onerror;
   window.onerror = function (message, source, lineno, colno, error) {
     if (typeof message === "string" && message.includes("maxTextureDimension2D")) {
@@ -28,23 +33,33 @@ if (typeof window !== "undefined") {
     return false;
   };
 
-  // Also catch unhandled promise rejections and error events from ResizeObserver
-  window.addEventListener("error", (event) => {
-    if (event.message?.includes("maxTextureDimension2D")) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  });
+  const isBenign = (v: unknown): boolean =>
+    String((v as { message?: string })?.message ?? v ?? "").includes("maxTextureDimension2D");
 
-  window.addEventListener("unhandledrejection", (event) => {
-    if (
-      event.reason &&
-      typeof event.reason === "object" &&
-      String(event.reason.message ?? event.reason).includes("maxTextureDimension2D")
-    ) {
-      event.preventDefault();
-    }
-  });
+  // CAPTURE phase so we run BEFORE Next.js's dev-overlay listener (registered in
+  // bubble phase, and earlier than this lazily-imported module). stopImmediate-
+  // Propagation prevents the overlay listener from ever seeing this benign race.
+  window.addEventListener(
+    "error",
+    (event) => {
+      if (isBenign(event.error) || isBenign(event.message)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    },
+    true
+  );
+
+  window.addEventListener(
+    "unhandledrejection",
+    (event) => {
+      if (isBenign(event.reason)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    },
+    true
+  );
 
   // Next.js's dev error overlay surfaces errors via console.error, not just
   // window.onerror — so drop this benign race there too, or it pops the overlay
