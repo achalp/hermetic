@@ -8,21 +8,21 @@ describe("map color ramp", () => {
     expect(BASEMAP_TILES.dark).not.toMatch(/token|apikey|key=/i);
   });
 
-  it("maps t=0 to the dark-violet low end and t=1 to the yellow high end", () => {
-    expect(rampColor(0)).toEqual([13, 8, 135]);
-    expect(rampColor(1)).toEqual([240, 249, 33]);
+  it("maps t=0 to the dark-blue low end and t=1 to the dark-red high end", () => {
+    expect(rampColor(0)).toEqual([48, 18, 59]);
+    expect(rampColor(1)).toEqual([122, 4, 3]);
   });
 
   it("clamps out-of-range and non-finite t", () => {
-    expect(rampColor(-5)).toEqual([13, 8, 135]);
-    expect(rampColor(2)).toEqual([240, 249, 33]);
-    expect(rampColor(NaN)).toEqual([13, 8, 135]);
+    expect(rampColor(-5)).toEqual([48, 18, 59]);
+    expect(rampColor(2)).toEqual([122, 4, 3]);
+    expect(rampColor(NaN)).toEqual([48, 18, 59]);
   });
 
   it("interpolates a mid value to a blend (not an endpoint)", () => {
     const mid = rampColor(0.5);
-    expect(mid).not.toEqual([13, 8, 135]);
-    expect(mid).not.toEqual([240, 249, 33]);
+    expect(mid).not.toEqual([48, 18, 59]);
+    expect(mid).not.toEqual([122, 4, 3]);
     mid.forEach((c) => expect(c).toBeGreaterThanOrEqual(0));
     mid.forEach((c) => expect(c).toBeLessThanOrEqual(255));
   });

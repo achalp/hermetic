@@ -10,24 +10,27 @@ export const BASEMAP_TILES: Record<"dark" | "light", string> = {
 };
 
 /**
- * Plasma color ramp (dark violet → magenta → orange → yellow) — vivid on a dark
- * basemap. Used to shade map points by a numeric value.
+ * Turbo color ramp (dark blue → cyan → green → orange → dark red). Every stop is
+ * saturated and mid-to-dark, so points stay legible on a LIGHT basemap (unlike a
+ * plasma ramp whose pale-yellow high end washes out on white). Used to shade map
+ * points by a numeric value.
  */
-const PLASMA: [number, number, number][] = [
-  [13, 8, 135],
-  [126, 3, 168],
-  [204, 71, 120],
-  [248, 149, 64],
-  [240, 249, 33],
+const TURBO: [number, number, number][] = [
+  [48, 18, 59],
+  [33, 144, 241],
+  [30, 222, 184],
+  [166, 249, 68],
+  [253, 152, 39],
+  [122, 4, 3],
 ];
 
-/** Interpolated plasma color for t in [0,1] (clamped). */
+/** Interpolated Turbo color for t in [0,1] (clamped). */
 export function rampColor(t: number): [number, number, number] {
-  const x = Math.max(0, Math.min(1, isFinite(t) ? t : 0)) * (PLASMA.length - 1);
+  const x = Math.max(0, Math.min(1, isFinite(t) ? t : 0)) * (TURBO.length - 1);
   const i = Math.floor(x);
   const f = x - i;
-  const a = PLASMA[i];
-  const b = PLASMA[Math.min(i + 1, PLASMA.length - 1)];
+  const a = TURBO[i];
+  const b = TURBO[Math.min(i + 1, TURBO.length - 1)];
   return [
     Math.round(a[0] + (b[0] - a[0]) * f),
     Math.round(a[1] + (b[1] - a[1]) * f),

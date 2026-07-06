@@ -28,7 +28,7 @@ interface Map3DInnerProps {
   pitch?: number | null;
   bearing?: number | null;
   height?: number | null;
-  /** Basemap theme. Defaults to "dark" for a high-contrast, vibrant look. */
+  /** Basemap theme. Defaults to "light" (clean light-grey; points carry the color). */
   basemap?: "dark" | "light" | null;
 }
 
@@ -94,7 +94,7 @@ export function Map3DInner(props: Map3DInnerProps) {
     pitch = 45,
     bearing = 0,
     height = 500,
-    basemap = "dark",
+    basemap = "light",
   } = props;
 
   // Numeric range of value_key, for the color ramp (points shaded by metric).
@@ -126,7 +126,7 @@ export function Map3DInner(props: Map3DInnerProps) {
   // Base map tile layer — dark (default) or light Carto basemap.
   const tileLayer = new TileLayer({
     id: "basemap-tiles",
-    data: BASEMAP_TILES[basemap ?? "dark"],
+    data: BASEMAP_TILES[basemap ?? "light"],
     minZoom: 0,
     maxZoom: 19,
     tileSize: 256,
@@ -230,9 +230,9 @@ export function Map3DInner(props: Map3DInnerProps) {
           radiusScale: 1,
           radiusMinPixels: 3,
           radiusMaxPixels: 40,
-          // Thin light stroke so bright dots pop against the dark basemap.
+          // Thin dark outline so the colored dots stay crisp on a light basemap.
           stroked: true,
-          getLineColor: [255, 255, 255, 60],
+          getLineColor: [40, 40, 40, 90],
           lineWidthMinPixels: 0.5,
           opacity: opacity ?? 0.9,
         });
