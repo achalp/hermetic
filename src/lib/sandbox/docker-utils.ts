@@ -72,10 +72,26 @@ export async function parseExecutionOutput(
       "cat",
       "/data/stderr.txt",
     ]).catch(() => ({ stdout: "Unknown execution error", stderr: "", exitCode: 1 }));
+    const stderr = stderrResult.stdout || "";
+
+    // Exit 137 = SIGKILL, and a bare "Killed" is the classic out-of-memory
+    // signature (the kernel OOM-killer reaps the process). Surface it as OOM with
+    // actionable guidance so the retry writes a leaner script instead of guessing.
+    if (exitCode === 137 || /\bKilled\b/.test(stderr)) {
+      return {
+        success: false,
+        error:
+          "Out of memory — the analysis process was killed (OOM). Do NOT load millions of rows into pandas. " +
+          "For a large spatial region: pull ONLY the coordinate columns (lon, lat) into the KD-tree (not all attributes), " +
+          "compute nearest-neighbor distances, then fetch full attributes for ONLY the top-N results via a follow-up query. " +
+          "Keep datasets['main'] to a bounded subset (e.g. the top-N), never the full multi-million-row frame.",
+        execution_ms: executionMs,
+      };
+    }
 
     return {
       success: false,
-      error: stderrResult.stdout || "Unknown execution error",
+      error: stderr || "Unknown execution error",
       execution_ms: executionMs,
     };
   }

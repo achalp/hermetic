@@ -43,6 +43,20 @@ export function cleanGeneratedCode(raw: string): string {
   // Remove any trailing markdown fences that remain after extraction
   code = code.replace(/\n```\s*$/g, "");
 
+  // Strip leaked reasoning prose that precedes the script. On a retry the model
+  // sometimes emits a plan ("Looking at the failures:", "3. Use DuckDB ...")
+  // before the code, which is not valid Python. Analysis scripts start with
+  // imports, so drop everything before the first import line WHEN what precedes
+  // it has a non-comment, non-blank line (i.e. prose, not a leading #comment).
+  const lines = code.split("\n");
+  const firstImport = lines.findIndex((l) => /^(import\s|from\s+\S+\s+import\b)/.test(l.trim()));
+  if (firstImport > 0) {
+    const hasProse = lines
+      .slice(0, firstImport)
+      .some((l) => l.trim() !== "" && !l.trim().startsWith("#"));
+    if (hasProse) code = lines.slice(firstImport).join("\n");
+  }
+
   return code.trim();
 }
 

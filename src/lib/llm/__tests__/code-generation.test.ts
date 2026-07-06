@@ -56,6 +56,17 @@ describe("cleanGeneratedCode", () => {
     expect(cleanGeneratedCode("x = 1\ny = 2")).toBe("x = 1\ny = 2");
   });
 
+  it("strips leaked reasoning prose that precedes the imports (unfenced retry output)", () => {
+    const raw =
+      "Looking at the failures:\n3. Use a smarter approach\n\nimport duckdb\nimport pandas as pd\nx = 1";
+    expect(cleanGeneratedCode(raw)).toBe("import duckdb\nimport pandas as pd\nx = 1");
+  });
+
+  it("keeps a legitimate leading comment before imports (not treated as prose)", () => {
+    const raw = "# Load and analyze\nimport duckdb\nx = 1";
+    expect(cleanGeneratedCode(raw)).toBe("# Load and analyze\nimport duckdb\nx = 1");
+  });
+
   it("returns empty string for empty input", () => {
     expect(cleanGeneratedCode("")).toBe("");
   });

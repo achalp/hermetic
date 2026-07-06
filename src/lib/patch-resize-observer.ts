@@ -29,3 +29,5 @@ if (typeof globalThis !== "undefined" && typeof ResizeObserver !== "undefined") 
   const g = globalThis as unknown as { ResizeObserver: typeof ResizeObserver };
   g.ResizeObserver = PatchedResizeObserver;
 }
+
+export {};
