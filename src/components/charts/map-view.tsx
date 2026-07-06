@@ -22,6 +22,27 @@ interface MarkerItem {
   color?: string | null;
 }
 
+/**
+ * Coerce raw marker rows into {lat, lng} markers, tolerating common coordinate
+ * field aliases (lon / longitude, latitude). Data emitted with `lon` (e.g. DuckDB
+ * ST_X(geom) AS lon) would otherwise have `lng === undefined` and be filtered
+ * out, leaving a blank map. Keeps only rows with finite coordinates.
+ */
+export function normalizeMarkers(markers: unknown): MarkerItem[] {
+  if (!Array.isArray(markers)) return [];
+  const out: MarkerItem[] = [];
+  for (const raw of markers) {
+    if (!raw || typeof raw !== "object") continue;
+    const m = raw as Record<string, unknown>;
+    const lat = (m.lat ?? m.latitude) as number;
+    const lng = (m.lng ?? m.lon ?? m.longitude) as number;
+    if (isFinite(lat) && isFinite(lng)) {
+      out.push({ ...(m as object), lat, lng } as MarkerItem);
+    }
+  }
+  return out;
+}
+
 interface GeoJsonStyle {
   fill?: string | null;
   stroke?: string | null;
@@ -209,13 +230,7 @@ export function MapViewComponent({
     anchor: [number, number]; // [lat, lng]
   } | null>(null);
 
-  const currentMarkers = useMemo(
-    () =>
-      Array.isArray(props.markers)
-        ? props.markers.filter((m) => isFinite(m.lat) && isFinite(m.lng))
-        : [],
-    [props.markers]
-  );
+  const currentMarkers = useMemo(() => normalizeMarkers(props.markers), [props.markers]);
   const height = props.height ?? 400;
 
   // Cache last-known-good data so the map never unmounts on transient null props.
