@@ -79,6 +79,11 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("Do NOT wrap it in ST_GeomFromWKB");
     // Steers away from the O(n^2) self-join that timed out.
     expect(prompt).toContain("O(n^2)");
+    // Scale/memory: engine-first, coords-only KD-tree, grid fallback, disclosure.
+    expect(prompt).toContain("ENGINE-FIRST");
+    expect(prompt).toContain("pull ONLY the numeric coordinate columns");
+    expect(prompt).toContain("GRID self-join");
+    expect(prompt).toContain('results["analysis_scope"]');
   });
 
   it("adds bbox-pushdown guidance when a bbox struct column is present", () => {
