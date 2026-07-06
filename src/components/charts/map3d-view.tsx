@@ -30,6 +30,7 @@ interface Map3DProps {
   pitch?: number | null;
   bearing?: number | null;
   height?: number | null;
+  basemap?: "dark" | "light" | null;
 }
 
 class Map3DErrorBoundary extends Component<

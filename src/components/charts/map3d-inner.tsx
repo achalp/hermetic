@@ -10,6 +10,7 @@ import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
+import { BASEMAP_TILES, rampColor, numericRange } from "@/components/charts/map-color-ramp";
 
 interface Map3DInnerProps {
   data: Record<string, unknown>[];
@@ -27,6 +28,8 @@ interface Map3DInnerProps {
   pitch?: number | null;
   bearing?: number | null;
   height?: number | null;
+  /** Basemap theme. Defaults to "dark" for a high-contrast, vibrant look. */
+  basemap?: "dark" | "light" | null;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -91,7 +94,11 @@ export function Map3DInner(props: Map3DInnerProps) {
     pitch = 45,
     bearing = 0,
     height = 500,
+    basemap = "dark",
   } = props;
+
+  // Numeric range of value_key, for the color ramp (points shaded by metric).
+  const valueRange = useMemo(() => numericRange(data, value_key), [data, value_key]);
 
   // Compute center from data
   const viewState = useMemo(() => {
@@ -116,10 +123,10 @@ export function Map3DInner(props: Map3DInnerProps) {
     };
   }, [data, lat_key, lng_key, pitch, bearing]);
 
-  // Base map tile layer (OSM)
+  // Base map tile layer — dark (default) or light Carto basemap.
   const tileLayer = new TileLayer({
-    id: "osm-tiles",
-    data: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    id: "basemap-tiles",
+    data: BASEMAP_TILES[basemap ?? "dark"],
     minZoom: 0,
     maxZoom: 19,
     tileSize: 256,
@@ -143,6 +150,12 @@ export function Map3DInner(props: Map3DInnerProps) {
     ];
 
     const getColor = (d: Record<string, unknown>): [number, number, number] => {
+      // Shade by the numeric value_key via the plasma ramp when available — a
+      // metric heat gradient reads far better than a flat single color.
+      if (valueRange && value_key) {
+        const n = Number(d[value_key]);
+        if (isFinite(n)) return rampColor((n - valueRange.min) / (valueRange.max - valueRange.min));
+      }
       if (color_key && color_map && d[color_key]) {
         const name = String(d[color_key]);
         const resolved = color_map[name] ? resolveColor(color_map[name]) : chartColors[0];
@@ -211,13 +224,17 @@ export function Map3DInner(props: Map3DInnerProps) {
           getPosition,
           pickable: true,
           getFillColor: (d: Record<string, unknown>) =>
-            [...getColor(d), 200] as [number, number, number, number],
+            [...getColor(d), 230] as [number, number, number, number],
           getRadius: (d: Record<string, unknown>) =>
             value_key ? Math.max(50, Number(d[value_key]) || 100) : (radius ?? 100),
           radiusScale: 1,
-          radiusMinPixels: 2,
-          radiusMaxPixels: 50,
-          opacity: opacity ?? 0.8,
+          radiusMinPixels: 3,
+          radiusMaxPixels: 40,
+          // Thin light stroke so bright dots pop against the dark basemap.
+          stroked: true,
+          getLineColor: [255, 255, 255, 60],
+          lineWidthMinPixels: 0.5,
+          opacity: opacity ?? 0.9,
         });
 
       case "heatmap":
@@ -248,6 +265,7 @@ export function Map3DInner(props: Map3DInnerProps) {
     radius,
     opacity,
     chartColors,
+    valueRange,
   ]);
 
   const extractProperties = useCallback(
