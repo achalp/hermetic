@@ -228,6 +228,12 @@ export function ResponsePanel({
   // is enough — no remount required.
   const apiUrl = mode === "investigate" ? "/api/query/investigate" : "/api/query";
 
+  // Diagnostics for the mid-stream abort: useUIStream aborts its fetch when this
+  // panel unmounts, so a long query dies if anything tears the panel down. Track
+  // when a stream is live so onError + the unmount cleanup can report it.
+  const streamStartedAtRef = useRef<number | null>(null);
+  const streamingRef = useRef(false);
+
   const { spec, isStreaming, error, send, clear } = useUIStream({
     api: apiUrl,
     onComplete: (completedSpec) => {
@@ -245,7 +251,16 @@ export function ResponsePanel({
         });
       }
     },
-    onError: () => {
+    onError: (err) => {
+      // Diagnostic: a mid-stream error is almost always an abort from this panel
+      // unmounting (useUIStream aborts its fetch on unmount). Log it with elapsed
+      // time so we can correlate with what re-rendered/unmounted the panel.
+      const elapsed = streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null;
+      console.warn("[ResponsePanel] stream error", {
+        elapsedMs: elapsed,
+        name: (err as { name?: string })?.name,
+        message: (err as { message?: string })?.message,
+      });
       setPreviousSpec(null);
       onStreamEnd?.();
     },
@@ -431,6 +446,26 @@ export function ResponsePanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveCsvId, warehouseId, send]);
+
+  // Track live-stream state for the abort diagnostics above.
+  useEffect(() => {
+    streamingRef.current = isStreaming;
+    if (isStreaming && streamStartedAtRef.current === null) streamStartedAtRef.current = Date.now();
+    if (!isStreaming) streamStartedAtRef.current = null;
+  }, [isStreaming]);
+
+  // If this panel unmounts WHILE a stream is live, that unmount is what aborts the
+  // query ("network error"). Log it loudly so the trigger can be pinned down.
+  useEffect(() => {
+    return () => {
+      if (streamingRef.current) {
+        console.warn(
+          "[ResponsePanel] UNMOUNTED WHILE STREAMING — this aborts the in-flight query",
+          { elapsedMs: streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null }
+        );
+      }
+    };
+  }, []);
 
   const handleClear = useCallback(() => {
     clear();
