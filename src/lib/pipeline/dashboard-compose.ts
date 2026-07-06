@@ -584,8 +584,11 @@ export async function composeAndStreamDashboard(args: {
   };
 
   try {
+    // NOTE: we do NOT stop on isClosed() — the compose runs to completion even if
+    // the client disconnected, so the FULL patch stream is produced. emit() no-ops
+    // to the dead socket, but the route accumulates the patches to assemble + save
+    // the spec (a mid-run disconnect must not waste the analysis).
     for await (const chunk of textStream) {
-      if (isClosed()) break;
       buffer += chunk;
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
@@ -594,7 +597,7 @@ export async function composeAndStreamDashboard(args: {
         if (result !== null) emitPatch(result);
       }
     }
-    if (!isClosed() && buffer.trim()) {
+    if (buffer.trim()) {
       const result = processLine(buffer.trim());
       if (result !== null) emitPatch(result);
     }
@@ -639,8 +642,9 @@ export async function composeAndStreamDashboard(args: {
   }
 
   // If the LLM streamed state as individual field patches (not a single /state
-  // add), we still need to inject the dataset.
-  if (!isClosed() && useDataController && !stateInjected && mainDataset) {
+  // add), we still need to inject the dataset (also when closed, so the assembled
+  // spec is complete for history).
+  if (useDataController && !stateInjected && mainDataset) {
     const datasetsPayload: Record<string, unknown> = { main: mainDataset };
     for (const [key, value] of Object.entries(executionResult.chart_data)) {
       if (typeof value === "object" && value !== null) datasetsPayload[key] = value;

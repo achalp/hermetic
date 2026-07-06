@@ -39,6 +39,8 @@ import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { randomUUID } from "crypto";
 import { extractSchema } from "@/lib/csv/schema";
 import { parseCSV } from "@/lib/csv/parser";
+import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
+import { persistHistoryEntry } from "@/lib/history/persist";
 
 export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
 
@@ -161,7 +163,13 @@ export async function POST(request: Request) {
       async start(controller) {
         let closed = false;
 
+        // Accumulate every emitted line so the server can assemble the final spec
+        // and persist history itself at the concluding stage — surviving a client
+        // that disconnected mid-analysis. Accumulated even after `closed`.
+        const emittedLines: string[] = [];
+
         const emit = (data: string) => {
+          emittedLines.push(data);
           if (closed) return;
           try {
             controller.enqueue(encoder.encode(data));
@@ -567,6 +575,39 @@ export async function POST(request: Request) {
         );
 
         clearInterval(keepalive);
+
+        // If the client disconnected mid-run it can't POST the result to history,
+        // so save it server-side from the assembled spec. (When still connected,
+        // the client saves after render; guarding on `closed` avoids a double
+        // save.) The analysis already ran — this stops it being wasted.
+        if (closed && csvId) {
+          try {
+            const patches = [];
+            for (const line of emittedLines) {
+              const t = line.trim();
+              if (!t || t.startsWith(":")) continue; // keepalive comment
+              try {
+                patches.push(JSON.parse(t));
+              } catch {
+                // non-JSON line (progress noise) — skip
+              }
+            }
+            const spec = assembleSpecFromPatches(patches);
+            if (spec) {
+              await persistHistoryEntry(
+                csvId,
+                spec as unknown as Record<string, unknown>,
+                question
+              );
+              logger.info("History saved server-side after client disconnect", { csvId });
+            }
+          } catch (persistErr) {
+            logger.warn("Server-side history save failed", {
+              error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+            });
+          }
+        }
+
         if (!closed) {
           try {
             controller.close();
