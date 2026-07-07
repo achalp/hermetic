@@ -16,6 +16,37 @@
 const AGG_FN =
   /\b(count|sum|avg|min|max|stddev|stddev_pop|stddev_samp|variance|var|var_pop|var_samp|median|quantile|quantiles|quantileexact|percentile_cont|percentile_disc|approx_count_distinct|approx_quantiles|corr|covar_pop|covar_samp|group_concat|string_agg|array_agg|grouparray|groupuniqarray|argmin|argmax)\s*\(/i;
 
+/**
+ * Read-only gate: every warehouse SQL string (LLM-generated OR user-edited)
+ * runs with the connection's full privileges — nothing previously forced
+ * SELECT-only, so a hallucinated or user-supplied DROP/DELETE/UPDATE would
+ * have executed. Enforced once at the connector factory (createConnector
+ * wraps executeSQL), covering all call sites: generated SQL, Edit-and-Rerun
+ * SQL, refreshes, samples, and per-step investigate queries.
+ *
+ * Rules: exactly ONE statement (no `;` followed by more SQL, judged after
+ * blanking strings/comments) whose first keyword is read-only
+ * (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN / VALUES). Throws with an
+ * actionable message — which feeds the SQL repair loop for generated queries.
+ */
+const READ_ONLY_FIRST_KEYWORD = /^\s*(select|with|show|describe|desc|explain|values)\b/i;
+
+export function assertReadOnlySql(sql: string): void {
+  const clean = stripNoise(sql).trim();
+  if (!READ_ONLY_FIRST_KEYWORD.test(clean)) {
+    const keyword = clean.split(/\s+/, 1)[0] ?? "";
+    throw new Error(
+      `Refusing to execute non-read-only SQL (starts with "${keyword}"). ` +
+        `Only a single SELECT/WITH query is allowed against the warehouse.`
+    );
+  }
+  // A semicolon is only legal as a trailing terminator.
+  const semi = clean.indexOf(";");
+  if (semi !== -1 && clean.slice(semi + 1).trim().length > 0) {
+    throw new Error("Refusing to execute multi-statement SQL. Send exactly one SELECT/WITH query.");
+  }
+}
+
 /** Blank out string literals and comments so keywords inside them don't match. */
 function stripNoise(sql: string): string {
   return sql

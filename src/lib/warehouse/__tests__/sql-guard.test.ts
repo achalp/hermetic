@@ -1,5 +1,43 @@
 import { describe, it, expect } from "vitest";
-import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
+import {
+  checkAggregateInputLimit,
+  checkUnboundedLargeJoin,
+  assertReadOnlySql,
+} from "@/lib/warehouse/sql-guard";
+
+describe("assertReadOnlySql", () => {
+  it("allows a single SELECT / WITH / EXPLAIN, incl. leading comments and a trailing semicolon", () => {
+    expect(() => assertReadOnlySql("SELECT * FROM t LIMIT 5")).not.toThrow();
+    expect(() => assertReadOnlySql("WITH x AS (SELECT 1) SELECT * FROM x;")).not.toThrow();
+    expect(() => assertReadOnlySql("-- top customers\nSELECT id FROM c")).not.toThrow();
+    expect(() => assertReadOnlySql("/* scan */ SELECT 1")).not.toThrow();
+    expect(() => assertReadOnlySql("EXPLAIN SELECT 1")).not.toThrow();
+  });
+
+  it("rejects mutations (DROP/DELETE/UPDATE/INSERT/TRUNCATE/CREATE/GRANT)", () => {
+    for (const sql of [
+      "DROP TABLE users",
+      "DELETE FROM orders WHERE 1=1",
+      "UPDATE t SET x = 1",
+      "INSERT INTO t VALUES (1)",
+      "TRUNCATE TABLE t",
+      "CREATE TABLE evil (x int)",
+      "GRANT ALL ON db.* TO 'x'",
+    ]) {
+      expect(() => assertReadOnlySql(sql), sql).toThrow(/read-only/i);
+    }
+  });
+
+  it("rejects multi-statement SQL (the classic '; DROP TABLE' tail)", () => {
+    expect(() => assertReadOnlySql("SELECT 1; DROP TABLE users")).toThrow(/multi-statement/i);
+  });
+
+  it("is not fooled by keywords inside string literals", () => {
+    expect(() =>
+      assertReadOnlySql("SELECT * FROM t WHERE note = 'please DROP by; thanks'")
+    ).not.toThrow();
+  });
+});
 
 const TABLES = [
   { name: "building", row_count_estimate: 2_500_000_000 },

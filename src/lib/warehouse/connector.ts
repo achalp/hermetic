@@ -10,6 +10,7 @@ import { createTrinoConnector } from "./trino";
 import { createHiveConnector } from "./hive";
 import { createSnowflakeConnector } from "./snowflake";
 import { createDatabricksConnector } from "./databricks";
+import { assertReadOnlySql } from "./sql-guard";
 
 /** A time window (inclusive start, inclusive end) sized to fit a row budget. */
 export interface ScanWindow {
@@ -46,20 +47,36 @@ export interface WarehouseConnector {
 }
 
 export function createConnector(config: WarehouseConnectionConfig): WarehouseConnector {
-  switch (config.type) {
-    case "postgresql":
-      return createPostgresConnector(config);
-    case "bigquery":
-      return createBigQueryConnector(config);
-    case "clickhouse":
-      return createClickHouseConnector(config);
-    case "trino":
-      return createTrinoConnector(config);
-    case "hive":
-      return createHiveConnector(config);
-    case "snowflake":
-      return createSnowflakeConnector(config);
-    case "databricks":
-      return createDatabricksConnector(config);
-  }
+  const connector = ((): WarehouseConnector => {
+    switch (config.type) {
+      case "postgresql":
+        return createPostgresConnector(config);
+      case "bigquery":
+        return createBigQueryConnector(config);
+      case "clickhouse":
+        return createClickHouseConnector(config);
+      case "trino":
+        return createTrinoConnector(config);
+      case "hive":
+        return createHiveConnector(config);
+      case "snowflake":
+        return createSnowflakeConnector(config);
+      case "databricks":
+        return createDatabricksConnector(config);
+    }
+  })();
+
+  // An unknown type falls out of the exhaustive switch as undefined at
+  // runtime (routes 400 on it before ever calling this) — pinned contract.
+  if (!connector) return connector;
+
+  // Read-only gate at the single chokepoint every connector flows through:
+  // whatever SQL reaches executeSQL (generated, edited, refresh, sample,
+  // per-step) must be one SELECT/WITH statement. See assertReadOnlySql.
+  const rawExecuteSQL = connector.executeSQL.bind(connector);
+  connector.executeSQL = (sql: string) => {
+    assertReadOnlySql(sql);
+    return rawExecuteSQL(sql);
+  };
+  return connector;
 }
