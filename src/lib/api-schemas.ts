@@ -11,6 +11,35 @@
  * in lib/types.ts — valid input behaves exactly as before.
  */
 import { z } from "zod";
+import { logger } from "@/lib/logger";
+
+/**
+ * Read a request's JSON body, mapping failure to a 400 — NOT a 500. When a
+ * client aborts a duplicate/in-flight request the body stream truncates and
+ * request.json() throws "Unexpected end of JSON input"; the routes' catch-alls
+ * used to log that at ERROR and return 500, misreporting a client abort as a
+ * server fault (recurring noise in the streaming investigations). Logged at
+ * debug: it's client behavior, not a server problem.
+ */
+export async function readJsonBody(
+  request: Request
+): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {
+  try {
+    return { ok: true, body: await request.json() };
+  } catch (err) {
+    logger.debug("Request body unreadable (likely client abort)", {
+      aborted: request.signal?.aborted ?? false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: "Invalid or incomplete JSON body" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+}
 
 /** safeParse a body against a schema; on failure build the 400 response. */
 export function parseBody<T>(

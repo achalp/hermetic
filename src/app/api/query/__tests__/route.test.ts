@@ -108,13 +108,13 @@ describe("POST /api/query — validation contract", () => {
     expect(json.error).toBe("Warehouse connector not found");
   });
 
-  it("returns 500 on malformed JSON body", async () => {
+  it("returns 400 on malformed JSON body (client fault, not a server error)", async () => {
     const req = new Request("http://localhost/api/query", {
       method: "POST",
       body: "{not json",
     });
     const res = await POST(req);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
     const json = await res.json();
     expect(typeof json.error).toBe("string");
   });

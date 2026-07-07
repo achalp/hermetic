@@ -26,7 +26,12 @@ import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { logger, serializeError } from "@/lib/logger";
 import { getActiveProvider } from "@/lib/llm/client";
-import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
+import {
+  validateQueryIds,
+  resolveQuerySources,
+  type QueryRequestContext,
+} from "@/lib/pipeline/validate-request";
+import { readJsonBody } from "@/lib/api-schemas";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
@@ -34,8 +39,20 @@ import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect"
 export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
 
 export async function POST(request: Request) {
+  // Aborted duplicate requests truncate the body — a 400, not a logged 500.
+  const read = await readJsonBody(request);
+  if (!read.ok) return read.response;
   try {
-    const body = await request.json();
+    const body = read.body as {
+      prompt?: string;
+      context?: QueryRequestContext & {
+        drill_down_context?: DrillDownContext;
+        schema_mode?: string;
+        purpose?: string;
+        code?: string;
+        sql?: string;
+      };
+    };
     const { prompt, context } = body;
 
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;

@@ -67,6 +67,7 @@ import {
 } from "@/lib/csv/storage";
 import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
+import { readJsonBody } from "@/lib/api-schemas";
 import { getActiveProvider } from "@/lib/llm/client";
 import { logger, serializeError } from "@/lib/logger";
 
@@ -103,8 +104,11 @@ interface InvestigateBody {
 }
 
 export async function POST(request: Request) {
+  // Aborted duplicate requests truncate the body — a 400, not a logged 500.
+  const read = await readJsonBody(request);
+  if (!read.ok) return read.response;
   try {
-    const body = (await request.json()) as InvestigateBody;
+    const body = read.body as InvestigateBody;
     const context = body.context ?? {};
 
     // ── Shared preamble step 1: ids/question 400s (lib/pipeline/
