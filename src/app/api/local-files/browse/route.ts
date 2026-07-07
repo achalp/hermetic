@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { resolve } from "node:path";
 import { listDirectory, getHomePath } from "@/lib/local-files/browser";
-import { validateLocalOrigin } from "@/lib/local-files/security";
+import {
+  validateLocalOrigin,
+  isPathAllowed,
+  PATH_NOT_ALLOWED_ERROR,
+} from "@/lib/local-files/security";
 
 export async function GET(request: NextRequest) {
   if (!validateLocalOrigin(request)) {
@@ -14,6 +18,12 @@ export async function GET(request: NextRequest) {
 
   // Resolve to absolute path (handles .. segments)
   const dirPath = resolve(rawPath);
+
+  // Root-jail: resolve() normalizes but does not confine — without this any
+  // absolute path (/etc, another user's home) was listable.
+  if (!isPathAllowed(dirPath)) {
+    return NextResponse.json({ error: PATH_NOT_ALLOWED_ERROR }, { status: 403 });
+  }
 
   try {
     const entries = await listDirectory(dirPath);

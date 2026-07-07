@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { resolve } from "node:path";
 import { getFileInfo } from "@/lib/local-files/browser";
-import { validateLocalOrigin, isAllowedExtension } from "@/lib/local-files/security";
+import {
+  validateLocalOrigin,
+  isAllowedExtension,
+  isPathAllowed,
+  PATH_NOT_ALLOWED_ERROR,
+} from "@/lib/local-files/security";
 import { parseBody, LocalFileSelectSchema } from "@/lib/api-schemas";
 
 export async function POST(request: Request) {
@@ -14,6 +19,11 @@ export async function POST(request: Request) {
   const { path: rawPath, type } = parsed.data;
 
   const filePath = resolve(rawPath);
+
+  // Root-jail — see lib/local-files/security.ts isPathAllowed.
+  if (!isPathAllowed(filePath)) {
+    return NextResponse.json({ error: PATH_NOT_ALLOWED_ERROR }, { status: 403 });
+  }
 
   try {
     const info = await getFileInfo(filePath);

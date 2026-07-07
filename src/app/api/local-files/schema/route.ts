@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { stat, readFile } from "node:fs/promises";
 import { resolve, basename, extname } from "node:path";
-import { validateLocalOrigin, isAllowedExtension } from "@/lib/local-files/security";
+import {
+  validateLocalOrigin,
+  isAllowedExtension,
+  isPathAllowed,
+  PATH_NOT_ALLOWED_ERROR,
+} from "@/lib/local-files/security";
 import { parseBody, LocalFileSelectSchema } from "@/lib/api-schemas";
 import { getFileInfo } from "@/lib/local-files/browser";
 import { extractParquetSchema } from "@/lib/parquet/schema-extractor";
@@ -27,6 +32,11 @@ export async function POST(request: Request) {
     const { path: rawPath, type } = parsed.data;
 
     const filePath = resolve(rawPath);
+
+    // Root-jail — see lib/local-files/security.ts isPathAllowed.
+    if (!isPathAllowed(filePath)) {
+      return NextResponse.json({ error: PATH_NOT_ALLOWED_ERROR }, { status: 403 });
+    }
     const fileInfo = await stat(filePath);
     const filename = basename(filePath);
     const ext = extname(filePath).toLowerCase();
