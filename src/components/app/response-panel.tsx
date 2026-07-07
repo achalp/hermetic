@@ -11,6 +11,7 @@ import type { Spec } from "@json-render/react";
 import { registry, registryActionHandlers } from "@/components/registry";
 import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-context";
+import { logClient } from "@/lib/client-log";
 import { resolveDrillValues, formatFilterValue } from "@/lib/drill-resolve";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, SchemaMode, FilterValue } from "@/lib/types";
@@ -256,7 +257,7 @@ export function ResponsePanel({
       // unmounting (useUIStream aborts its fetch on unmount). Log it with elapsed
       // time so we can correlate with what re-rendered/unmounted the panel.
       const elapsed = streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null;
-      console.warn("[ResponsePanel] stream error", {
+      logClient("warn", "[ResponsePanel] stream error", {
         elapsedMs: elapsed,
         name: (err as { name?: string })?.name,
         message: (err as { message?: string })?.message,
@@ -459,9 +460,15 @@ export function ResponsePanel({
   useEffect(() => {
     return () => {
       if (streamingRef.current) {
-        console.warn(
-          "[ResponsePanel] UNMOUNTED WHILE STREAMING — this aborts the in-flight query",
-          { elapsedMs: streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null }
+        // logClient (keepalive fetch) so this reaches the SERVER log even as
+        // the page tears down — the browser console alone was lost unless
+        // devtools were open at the moment of failure.
+        logClient(
+          "warn",
+          "[ResponsePanel] UNMOUNTED WHILE STREAMING — aborts the in-flight query",
+          {
+            elapsedMs: streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null,
+          }
         );
       }
     };
