@@ -1,6 +1,7 @@
 import { executeSandbox as e2bExecutor } from "./executor";
 import { executeSandbox as dockerExecutor } from "./docker-executor";
 import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
+import { codeNeedsNetwork } from "./docker-utils";
 import { getWarmManager } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -223,6 +224,13 @@ export function executeSandbox(
       localMountPath,
       inputParquetPath
     );
+  }
+
+  // The warm Docker container runs with --network none (shared, created
+  // before any code is known). Code that reads remote data gets a fresh
+  // ephemeral container with network instead of the warm path.
+  if (rt === "docker" && codeNeedsNetwork(code)) {
+    return dockerExecutor(csvContent, code, geojsonContent, additionalFiles);
   }
 
   // Route through warm manager when available (not for E2B)

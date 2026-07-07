@@ -7,7 +7,7 @@ import {
   LARGE_DATA_TIMEOUT_MS,
   LOCAL_MOUNT_PATH,
 } from "@/lib/constants";
-import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
+import { run, parseExecutionOutput, codeDoesRemoteIo, codeNeedsNetwork } from "./docker-utils";
 import { logger } from "@/lib/logger";
 
 export async function executeSandbox(
@@ -32,6 +32,14 @@ export async function executeSandbox(
     //    Keep it alive past the exec budget so a long run can't outlive its host.
     const containerLifetime = Math.ceil(execTimeout / 1000) + 60;
     const runArgs = ["run", "-d", "--name", id];
+    // No network unless the code actually reads remote data — this is what
+    // makes the sandbox isolation claim true for local-data analyses. The
+    // image pre-bundles the DuckDB httpfs/spatial extensions, so offline
+    // INSTALL/LOAD still works under --network none.
+    const withNetwork = codeNeedsNetwork(code);
+    if (!withNetwork) {
+      runArgs.push("--network", "none");
+    }
     if (localMountPath) {
       runArgs.push("-v", `${localMountPath}:${LOCAL_MOUNT_PATH}:ro`);
     }
@@ -42,6 +50,7 @@ export async function executeSandbox(
       hasParquet: !!inputParquetPath,
       execTimeout,
       largeData: isLargeData,
+      network: withNetwork,
     });
     await run("docker", runArgs, { timeoutMs: 15_000 });
     logger.debug("Docker: container created");

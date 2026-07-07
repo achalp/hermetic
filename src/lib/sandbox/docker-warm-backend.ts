@@ -13,7 +13,10 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     // Remove stale container first (ignore errors if it doesn't exist)
     await run("docker", ["rm", "-f", CONTAINER_NAME], { timeoutMs: 10_000 }).catch(() => {});
 
-    // Create persistent container
+    // Create persistent container. Always --network none: the warm container
+    // is shared across queries and created before any code is known, so it
+    // gets the hardened default; code that needs network is routed to a fresh
+    // ephemeral container by the dispatch in sandbox/index.ts instead.
     await run(
       "docker",
       [
@@ -21,6 +24,8 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         "-d",
         "--name",
         CONTAINER_NAME,
+        "--network",
+        "none",
         DOCKER_SANDBOX_IMAGE,
         "sleep",
         String(CONTAINER_LIFETIME),

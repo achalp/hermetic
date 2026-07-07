@@ -54,6 +54,28 @@ export function codeDoesRemoteIo(code: string): boolean {
 }
 
 /**
+ * Whether generated code needs NETWORK at all — a deliberate superset of
+ * codeDoesRemoteIo. That predicate answers "is this a slow cloud read that
+ * needs the extended timeout"; this one answers "may the container have a
+ * network namespace". Anything without a URL or a network library runs under
+ * `--network none`, which is what makes the sandbox's isolation claim true
+ * for the common local-data case. Kept permissive on purpose: a missed
+ * network need is a hard failure, while a false positive only loses the
+ * no-network hardening for that one run. (DuckDB INSTALL of httpfs/spatial
+ * is pre-bundled in the image and verified to work offline, so a bare
+ * `INSTALL spatial` does NOT need network.)
+ */
+export function codeNeedsNetwork(code: string): boolean {
+  return (
+    codeDoesRemoteIo(code) ||
+    /\bhttps?:\/\//i.test(code) ||
+    /\b(?:import\s+(?:requests|urllib|aiohttp|httpx|socket)|from\s+(?:requests|urllib|aiohttp|httpx|socket)[\s.])/.test(
+      code
+    )
+  );
+}
+
+/**
  * Parse execution output from a container that ran a Python script.
  * Reads output.json or stdout.txt, parses JSON, returns ExecutionResult.
  */
