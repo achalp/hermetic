@@ -24,7 +24,7 @@ import {
 } from "@/lib/pipeline/conversation-cache";
 import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline/dashboard-compose";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
-import { logger } from "@/lib/logger";
+import { logger, serializeError } from "@/lib/logger";
 import { getActiveProvider } from "@/lib/llm/client";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
@@ -407,7 +407,7 @@ export async function POST(request: Request) {
               if (!closed()) {
                 const errMsg =
                   pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
-                logger.error("Pipeline error", { error: errMsg });
+                logger.error("Pipeline error", serializeError(pipelineErr));
                 emit(
                   JSON.stringify({
                     op: "add",
@@ -449,7 +449,7 @@ export async function POST(request: Request) {
       (stream) => persistHistoryOnDisconnect(stream, csvId, question)
     );
   } catch (err) {
-    logger.error("Query error", { error: err instanceof Error ? err.message : String(err) });
+    logger.error("Query error", serializeError(err));
     const message = err instanceof Error ? err.message : String(err);
     return new Response(JSON.stringify({ error: message }), {
       status: 500,

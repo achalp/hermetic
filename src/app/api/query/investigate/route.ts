@@ -68,7 +68,7 @@ import {
 import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { getActiveProvider } from "@/lib/llm/client";
-import { logger } from "@/lib/logger";
+import { logger, serializeError } from "@/lib/logger";
 
 export const maxDuration = 1260; // 21 min — investigations over large/remote datasets can run long
 
@@ -931,7 +931,10 @@ export async function POST(request: Request) {
               }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
-              logger.error("Investigate: failed", { error: msg.slice(0, 500) });
+              logger.error("Investigate: failed", {
+                ...serializeError(err),
+                error: msg.slice(0, 500),
+              });
               emit(
                 JSON.stringify({
                   op: "add",

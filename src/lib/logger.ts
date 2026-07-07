@@ -51,6 +51,30 @@ function formatMessage(level: LogLevel, message: string, meta?: Record<string, u
   return `${prefix} ${message}${metaStr}`;
 }
 
+/**
+ * Serialize an error for terminal logger.error sites: name + message + the
+ * top stack frames + the cause chain. The pervasive
+ * `err instanceof Error ? err.message : String(err)` pattern drops both the
+ * stack and the cause, so a novel failure deep in the pipeline (e.g. an
+ * AI-SDK APICallError wrapping a fetch error) couldn't be localized from the
+ * log. Use for unexpected errors; classified/expected errors can stay
+ * message-only.
+ */
+export function serializeError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { error: String(err) };
+  const out: Record<string, unknown> = { error: err.message, errorName: err.name };
+  const frames = err.stack
+    ?.split("\n")
+    .slice(1, 6)
+    .map((s) => s.trim());
+  if (frames?.length) out.stack = frames;
+  if (err.cause !== undefined) {
+    out.cause =
+      err.cause instanceof Error ? `${err.cause.name}: ${err.cause.message}` : String(err.cause);
+  }
+  return out;
+}
+
 export const logger = {
   debug(message: string, meta?: Record<string, unknown>) {
     if (shouldLog("debug")) console.debug(formatMessage("debug", message, meta));
