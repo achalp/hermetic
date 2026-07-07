@@ -31,6 +31,7 @@ import {
   buildTurnFromArtifacts,
 } from "@/lib/pipeline/conversation-cache";
 import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline/dashboard-compose";
+import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { logger } from "@/lib/logger";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
@@ -45,21 +46,6 @@ import { persistHistoryEntry } from "@/lib/history/persist";
 export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
 
 export async function POST(request: Request) {
-  // Diagnostic: log exactly when the client connection drops, so a long remote
-  // query that ends in a "network error" tells us WHICH wall was hit (e.g. a
-  // ~300s cap = a hard HTTP timeout still in force, vs later = a different one).
-  const __reqStart = Date.now();
-  try {
-    request.signal.addEventListener("abort", () => {
-      logger.warn("Client disconnected mid-request", {
-        elapsedMs: Date.now() - __reqStart,
-        route: "/api/query",
-      });
-    });
-  } catch {
-    // signal may be unavailable in some runtimes — non-fatal.
-  }
-
   try {
     const body = await request.json();
     const { prompt, context } = body;
@@ -154,55 +140,24 @@ export async function POST(request: Request) {
       warehouseState = { warehouse, connector };
     }
 
-    // Stream immediately — emit progress patches as the pipeline runs, then stream LLM output
-    const encoder = new TextEncoder();
+    // Stream immediately — emit progress patches as the pipeline runs, then
+    // stream LLM output. The scaffold (emit/keepalive/progress semantics/
+    // headers/abort diagnostics) is shared with Investigate — see
+    // lib/pipeline/patch-stream.ts.
     const isWarehouse = !!warehouseState;
     const totalSteps = isWarehouse ? 5 : 3;
 
-    const readable = new ReadableStream({
-      async start(controller) {
-        let closed = false;
+    let warehouseSQL: string | undefined;
+    let datasetLabel = csvId ?? warehouseId ?? "dataset";
 
-        // Accumulate every emitted line so the server can assemble the final spec
-        // and persist history itself at the concluding stage — surviving a client
-        // that disconnected mid-analysis. Accumulated even after `closed`.
-        const emittedLines: string[] = [];
-
-        const emit = (data: string) => {
-          emittedLines.push(data);
-          if (closed) return;
-          try {
-            controller.enqueue(encoder.encode(data));
-          } catch {
-            closed = true;
-          }
-        };
-
-        const emitProgress = (stage: string, step: number) => {
-          const patch =
-            step === 1
-              ? {
-                  op: "add",
-                  path: "/state",
-                  value: { __progress: { stage, step, total: totalSteps } },
-                }
-              : {
-                  op: "replace",
-                  path: "/state/__progress",
-                  value: { stage, step, total: totalSteps },
-                };
-          emit(JSON.stringify(patch) + "\n");
-        };
-
-        // Keepalive: send a no-op comment every 15 seconds to prevent
-        // browsers/proxies from closing the connection during slow LLM
-        // calls (llama.cpp code generation can take 2-3+ minutes).
-        const keepalive = setInterval(() => {
-          emit(": keepalive\n");
-        }, 15_000);
-
-        let warehouseSQL: string | undefined;
-        let datasetLabel = csvId ?? warehouseId ?? "dataset";
+    return patchStreamResponse(
+      "/api/query",
+      request,
+      async (stream) => {
+        const emit = stream.emit;
+        const closed = () => stream.isClosed();
+        const emitProgress = (stage: string, step: number) =>
+          stream.emitProgress(stage, step, totalSteps);
 
         await runWithCostTracking(() =>
           runWithDiagnostics(async () => {
@@ -223,7 +178,7 @@ export async function POST(request: Request) {
                     warehouseType: warehouse.config.type,
                     chars: editedSql.length,
                   });
-                  if (closed) return;
+                  if (closed()) return;
                   emitProgress("querying_warehouse", 2);
                   try {
                     warehouseCsvContent = await connector.executeSQL(warehouseSQL);
@@ -260,7 +215,7 @@ export async function POST(request: Request) {
                       model: codeGenModel,
                       scanRowBudget: WAREHOUSE_SCAN_ROW_BUDGET,
                       onAttempt: (attempt, phase) => {
-                        if (closed) return;
+                        if (closed()) return;
                         if (phase === "repairing") {
                           logger.info("Warehouse query: repairing SQL", { attempt });
                           emitProgress("generating_sql", 1);
@@ -284,7 +239,7 @@ export async function POST(request: Request) {
                   }
                 }
 
-                if (closed) return;
+                if (closed()) return;
                 const rowCount = warehouseCsvContent.split("\n").length - 2; // minus header + trailing newline
                 logger.info("Warehouse query: SQL executed", { rows: rowCount });
 
@@ -453,7 +408,7 @@ export async function POST(request: Request) {
                 );
               }
 
-              if (closed) return;
+              if (closed()) return;
 
               // Cache the generated code for save functionality
               cacheGeneratedCode(csvId!, pipelineResult.generatedCode, question);
@@ -499,12 +454,12 @@ export async function POST(request: Request) {
                 },
                 uiComposeModel,
                 emit,
-                isClosed: () => closed,
+                isClosed: stream.isClosed,
                 onComposing: () => emitProgress("composing", stepOffset + 3),
               });
             } catch (pipelineErr) {
               // Pipeline or LLM setup error — emit error annotation into the stream
-              if (!closed) {
+              if (!closed()) {
                 const errMsg =
                   pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
                 logger.error("Pipeline error", { error: errMsg });
@@ -573,64 +528,36 @@ export async function POST(request: Request) {
             }
           })
         );
-
-        clearInterval(keepalive);
-
-        // If the client disconnected mid-run it can't POST the result to history,
-        // so save it server-side from the assembled spec. (When still connected,
-        // the client saves after render; guarding on `closed` avoids a double
-        // save.) The analysis already ran — this stops it being wasted.
-        if (closed && csvId) {
-          try {
-            const patches = [];
-            for (const line of emittedLines) {
-              const t = line.trim();
-              if (!t || t.startsWith(":")) continue; // keepalive comment
-              try {
-                patches.push(JSON.parse(t));
-              } catch {
-                // non-JSON line (progress noise) — skip
-              }
-            }
-            const spec = assembleSpecFromPatches(patches);
-            if (spec) {
-              await persistHistoryEntry(
-                csvId,
-                spec as unknown as Record<string, unknown>,
-                question
-              );
-              logger.info("History saved server-side after client disconnect", { csvId });
-            }
-          } catch (persistErr) {
-            logger.warn("Server-side history save failed", {
-              error: persistErr instanceof Error ? persistErr.message : String(persistErr),
-            });
-          }
-        }
-
-        if (!closed) {
-          try {
-            controller.close();
-          } catch {
-            // Already closed
-          }
-        }
       },
-    });
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        // Keep a buffering reverse proxy (nginx and friends) from holding the
-        // streamed patches + 15s keepalives until the run finishes. Without
-        // this, a long remote scan sends nothing to the browser for minutes,
-        // the socket idles, and the proxy drops it (~130s) — surfacing as a
-        // "network error" mid-analysis. The Investigate route already sets
-        // these; Ask must too (shared streaming contract).
-        "Cache-Control": "no-cache, no-transform",
-        "X-Accel-Buffering": "no",
-      },
-    });
+      // If the client disconnected mid-run it can't POST the result to history,
+      // so save it server-side from the assembled spec. (When still connected,
+      // the client saves after render; guarding on isClosed avoids a double
+      // save.) The analysis already ran — this stops it being wasted.
+      async (stream) => {
+        if (!stream.isClosed() || !csvId) return;
+        try {
+          const patches = [];
+          for (const line of stream.emittedLines) {
+            const t = line.trim();
+            if (!t || t.startsWith(":")) continue; // keepalive comment
+            try {
+              patches.push(JSON.parse(t));
+            } catch {
+              // non-JSON line (progress noise) — skip
+            }
+          }
+          const spec = assembleSpecFromPatches(patches);
+          if (spec) {
+            await persistHistoryEntry(csvId, spec as unknown as Record<string, unknown>, question);
+            logger.info("History saved server-side after client disconnect", { csvId });
+          }
+        } catch (persistErr) {
+          logger.warn("Server-side history save failed", {
+            error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+          });
+        }
+      }
+    );
   } catch (err) {
     logger.error("Query error", { error: err instanceof Error ? err.message : String(err) });
     const message = err instanceof Error ? err.message : String(err);
