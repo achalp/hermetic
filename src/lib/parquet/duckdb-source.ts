@@ -119,13 +119,23 @@ export function resolveRemoteSource(
  */
 function remoteNetworkNote(readExpr: string): string {
   return (
-    `\nNETWORK COST — this data is read over the network; each pass over the remote files is slow. ` +
-    `Do ALL remote reading in ONE pass: create a local DuckDB temp table with ONLY the columns the ` +
-    `question needs (NEVER geometry / struct / list / map columns unless explicitly required — they are ` +
-    `large and slow), then run EVERY subsequent aggregation against that LOCAL temp table, not the remote read:\n` +
-    `  duckdb.sql("CREATE TEMP TABLE t AS SELECT <only needed columns> FROM ${readExpr}")\n` +
-    `  # then query t, e.g. duckdb.sql("SELECT col, COUNT(*) FROM t GROUP BY col ORDER BY 2 DESC LIMIT 20").df()\n` +
-    `Keep remote reads to that single materialization; do not read the remote files more than once.`
+    `\nNETWORK COST — reading over the network is the dominant cost, and it scales with COLUMNS × ROWS, not rows alone. ` +
+    `One WIDE column (a 32-char id, a name, a WKB geometry) read for millions of rows dwarfs the numeric filtering. ` +
+    `Measured on a California-buildings scan: reading only the bbox/coordinate columns took ~3 min; adding the id ` +
+    `column pushed it to 8+ min; adding all the display columns (id/class/subtype/height) blew past a 20-min timeout. So:\n` +
+    `(1) ONE big remote pass, and it materializes ONLY the columns needed to FILTER and RANK — numeric/coordinate ` +
+    `columns and a compact row_number() key — and NOTHING purely for display. NEVER geometry/struct/list/map, and ` +
+    `NOT id/name/class/etc. for all rows:\n` +
+    `  duckdb.sql("CREATE TEMP TABLE t AS SELECT row_number() OVER () AS idx, <only columns needed to compute the answer> FROM ${readExpr} WHERE <filters>")\n` +
+    `(2) Run every aggregation/ranking against the LOCAL table t, never the remote read again for the full set.\n` +
+    `(3) HYDRATE display columns (id, name, class, height, ...) for ONLY the final top-N rows with a SECOND remote ` +
+    `read that is cheaply PRUNED — filter it by a SMALL bbox around each top-N point (bbox predicate-pushdown skips ` +
+    `every other file), NOT by an unindexed \`id IN (...)\` over the whole dataset (that re-scans everything). Then ` +
+    `match the handful of returned rows back to your top-N by nearest coordinate. Example for spatial top-N:\n` +
+    `  # top_pts = [(lon,lat), ...] for the N winners; e ~= 0.02 deg\n` +
+    `  boxes = " OR ".join(f"(bbox.xmin BETWEEN {lo-0.02} AND {lo+0.02} AND bbox.ymin BETWEEN {la-0.02} AND {la+0.02})" for lo,la in top_pts)\n` +
+    `  duckdb.sql(f"SELECT id, class, height, (bbox.xmin+bbox.xmax)/2 lon, (bbox.ymin+bbox.ymax)/2 lat FROM ${readExpr} WHERE {boxes}").df()\n` +
+    `The expensive full pass stays numeric-only; the only wide-column read is over a handful of rows.`
   );
 }
 

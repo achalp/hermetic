@@ -177,12 +177,16 @@ describe("resolveRemoteSource", () => {
     expect(localFileContext).toContain("large dataset");
   });
 
-  it("steers code-gen to materialize one local pass and skip geometry columns", () => {
+  it("steers code-gen to a numeric-only big pass and hydrate display columns for the top-N only", () => {
     const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
     expect(localFileContext).toContain("NETWORK COST");
     expect(localFileContext).toContain("CREATE TEMP TABLE t AS SELECT");
     expect(localFileContext).toContain("NEVER geometry");
-    expect(localFileContext).toContain("single materialization");
+    // Cost scales with columns × rows: the big pass is numeric-only, display
+    // columns are hydrated for the final top-N via a second bbox-pruned read.
+    expect(localFileContext).toContain("COLUMNS × ROWS");
+    expect(localFileContext).toContain("NOT id/name/class/etc. for all rows");
+    expect(localFileContext).toContain("HYDRATE display columns");
   });
 
   it("adds the hive_partitioning flag and partition-column note for a Hive dataset", () => {
