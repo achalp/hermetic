@@ -3,9 +3,24 @@ import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
+import { parseSandboxOutput } from "./parse-output";
 import { logger } from "@/lib/logger";
 
 const SANDBOX_NAME = "hermetic";
+
+/**
+ * Read a file from the sandbox via `cat`; null when unreadable/absent.
+ * The readFile adapter for the shared output parser (see parse-output.ts) —
+ * exported for reuse by the warm backend.
+ */
+export async function readSandboxFile(
+  sandbox: PythonSandbox,
+  path: string
+): Promise<string | null> {
+  const result = await sandbox.command.run("cat", [path], 5).catch(() => null);
+  if (!result || !result.success) return null;
+  return await result.output();
+}
 
 const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-learn", "duckdb"];
 
@@ -351,85 +366,16 @@ export async function executeSandbox(
 
     const executionMs = Date.now() - start;
     const rawOutput = await execResult.output();
-    const exitCode = parseInt(rawOutput.trim(), 10);
 
-    if (exitCode !== 0) {
-      const stderrResult = await sandbox.command
-        .run("cat", [`${workDir}/stderr.txt`], 5)
-        .catch(() => null);
-      const stderr = stderrResult ? await stderrResult.output() : "Unknown execution error";
-      return {
-        success: false,
-        error: stderr || "Unknown execution error",
-        execution_ms: executionMs,
-      };
-    }
-
-    // Read output
-    let outputJson: string;
-    let outputSource: string;
-
-    const jsonResult = await sandbox.command
-      .run("cat", [`${workDir}/output.json`], 5)
-      .catch(() => null);
-
-    if (jsonResult && jsonResult.success && (await jsonResult.output()).trim()) {
-      outputJson = await jsonResult.output();
-      outputSource = `file:${workDir}/output.json`;
-    } else {
-      const stdoutResult = await sandbox.command
-        .run("cat", [`${workDir}/stdout.txt`], 5)
-        .catch(() => null);
-      if (stdoutResult && stdoutResult.success && (await stdoutResult.output()).trim()) {
-        outputJson = await stdoutResult.output();
-        outputSource = `file:${workDir}/stdout.txt`;
-      } else {
-        return {
-          success: false,
-          error:
-            "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
-          execution_ms: executionMs,
-        };
-      }
-    }
-
-    logger.debug("Microsandbox executor output", { source: outputSource, len: outputJson.length });
-
-    if (!outputJson.trim()) {
-      return {
-        success: false,
-        error:
-          "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
-        execution_ms: executionMs,
-      };
-    }
-
-    outputJson = outputJson
-      .replace(/\bNaN\b/g, "null")
-      .replace(/\b-Infinity\b/g, "null")
-      .replace(/\bInfinity\b/g, "null");
-
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(outputJson);
-    } catch {
-      return {
-        success: false,
-        error: `Failed to parse output as JSON. Output was: ${outputJson.slice(0, 500)}`,
-        execution_ms: executionMs,
-      };
-    }
-
-    const images: Record<string, string> = (parsed.images as Record<string, string>) ?? {};
-
-    return {
-      success: true,
-      results: (parsed.results as Record<string, unknown>) ?? {},
-      chart_data: (parsed.chart_data as Record<string, unknown>) ?? {},
-      images,
-      datasets: (parsed.datasets as Record<string, Record<string, unknown>[]>) ?? undefined,
-      execution_ms: executionMs,
-    };
+    // Shared runtime-agnostic parsing (incl. the OOM heuristic that used to
+    // exist only on the Docker path) — see parse-output.ts.
+    return await parseSandboxOutput({
+      runtime: "microsandbox",
+      exitCode: parseInt(rawOutput.trim(), 10),
+      executionMs,
+      workDir,
+      readFile: (path) => readSandboxFile(sandbox, path),
+    });
   } catch (err) {
     // If the sandbox itself is broken, reset it so next query creates a fresh one
     if (warmSandbox) {
