@@ -81,7 +81,7 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("O(n^2)");
     // Scale/memory: engine-first, coords-only KD-tree, grid fallback, disclosure.
     expect(prompt).toContain("ENGINE-FIRST");
-    expect(prompt).toContain("pull ONLY the numeric coordinate columns");
+    expect(prompt).toContain("must contain ONLY numeric columns");
     expect(prompt).toContain("GRID self-join");
     expect(prompt).toContain('results["analysis_scope"]');
     // KD-tree must rank in meters, not distorted lon/lat degrees.
@@ -97,7 +97,10 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     ]);
     const prompt = buildCodeGenUserPrompt(s, "buildings in a region");
     expect(prompt).toContain("bbox STRUCT column");
-    expect(prompt).toContain("filter on bbox FIRST");
+    expect(prompt).toContain("FILTER on the bbox struct");
+    // Named-region + perf guidance that rode along with the bbox tip.
+    expect(prompt).toContain("NAMED REGION = POLYGON, NOT A BOX");
+    expect(prompt).toContain("NEVER reads the geometry column");
   });
 
   it("omits bbox guidance when there is no bbox column", () => {
