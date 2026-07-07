@@ -10,6 +10,7 @@
  * best-effort by design: a cost-logging failure must never break the stream.
  */
 import { getCostAccumulator, computeCost, formatPhaseBreakdown } from "@/lib/cost/accumulator";
+import { getRunId } from "@/lib/run-context";
 import { appendCostRow } from "@/lib/cost/storage";
 import { writeRunDiagnostics } from "@/lib/diagnostics/run-diagnostics";
 import { logger } from "@/lib/logger";
@@ -38,6 +39,7 @@ export async function emitCostEpilogue(opts: {
     await appendCostRow({
       timestamp: now.toISOString(),
       date: now.toISOString().slice(0, 10),
+      run_id: getRunId(),
       dataset: opts.datasetLabel,
       question: opts.question,
       mode: opts.mode,

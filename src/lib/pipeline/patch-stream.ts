@@ -15,6 +15,7 @@
  * so the streaming contract exists exactly once.
  */
 import { logger } from "@/lib/logger";
+import { runWithRunId, getRunId } from "@/lib/run-context";
 
 /**
  * Canonical headers for the patch stream. `no-cache, no-transform` +
@@ -124,28 +125,33 @@ export function patchStreamResponse(
 
       const keepalive = setInterval(() => emit(": keepalive\n"), KEEPALIVE_INTERVAL_MS);
 
-      try {
-        await handler(stream);
-      } finally {
-        clearInterval(keepalive);
-        if (onSettled) {
-          try {
-            await onSettled(stream);
-          } catch (err) {
-            logger.warn("Patch-stream onSettled hook failed", {
-              route,
-              error: err instanceof Error ? err.message : String(err),
-            });
+      // Run correlation: every logger line, diagnostics record, and cost row
+      // inside the handler carries this run's id (see lib/run-context.ts).
+      await runWithRunId(async () => {
+        logger.info("Run started", { route });
+        try {
+          await handler(stream);
+        } finally {
+          clearInterval(keepalive);
+          if (onSettled) {
+            try {
+              await onSettled(stream);
+            } catch (err) {
+              logger.warn("Patch-stream onSettled hook failed", {
+                route,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+          if (!closed) {
+            try {
+              controller.close();
+            } catch {
+              // already closed
+            }
           }
         }
-        if (!closed) {
-          try {
-            controller.close();
-          } catch {
-            // already closed
-          }
-        }
-      }
+      });
     },
     cancel() {
       // Client aborted — best-effort: subsequent emits become no-ops.

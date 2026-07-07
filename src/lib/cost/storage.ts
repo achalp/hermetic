@@ -16,6 +16,7 @@ const COST_DIR = join(process.cwd(), "data", "cost");
 export const COST_HEADERS = [
   "timestamp",
   "date",
+  "run_id",
   "dataset",
   "question",
   "mode",
@@ -32,6 +33,8 @@ export const COST_HEADERS = [
 export interface CostRow {
   timestamp: string;
   date: string; // YYYY-MM-DD
+  /** Correlation id joining this row to log lines and the diagnostics record. */
+  run_id?: string;
   dataset: string;
   question: string;
   mode: string;
@@ -50,6 +53,7 @@ function toStringRow(row: CostRow): Record<string, string> {
   return {
     timestamp: row.timestamp,
     date: row.date,
+    run_id: row.run_id ?? "",
     dataset: row.dataset,
     question: row.question,
     mode: row.mode,

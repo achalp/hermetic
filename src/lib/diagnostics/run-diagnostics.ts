@@ -20,6 +20,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, appendFile } from "fs/promises";
 import { join } from "path";
+import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 
 const DIAG_DIR = join(process.cwd(), "data", "diagnostics");
@@ -76,6 +77,8 @@ export interface StepDiag {
 export interface RunDiagnostics {
   timestamp: string;
   date: string;
+  /** Correlation id joining this record to log lines and the cost row. */
+  runId?: string;
   mode?: string;
   purpose?: string;
   question?: string;
@@ -102,6 +105,7 @@ export function buildRunDiagnostics(
   events: DiagEvent[],
   meta: {
     timestamp: string;
+    runId?: string;
     mode?: string;
     purpose?: string;
     question?: string;
@@ -164,6 +168,7 @@ export function buildRunDiagnostics(
   return {
     timestamp: meta.timestamp,
     date: meta.timestamp.slice(0, 10),
+    runId: meta.runId,
     mode: meta.mode,
     purpose: meta.purpose,
     question: meta.question,
@@ -195,7 +200,7 @@ export async function writeRunDiagnostics(meta: {
   const events = getDiagEvents();
   if (!events) return;
   try {
-    const record = buildRunDiagnostics(events, meta);
+    const record = buildRunDiagnostics(events, { ...meta, runId: getRunId() });
     await mkdir(DIAG_DIR, { recursive: true });
     await appendFile(
       join(DIAG_DIR, `${record.date}.jsonl`),
