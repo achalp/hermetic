@@ -10,8 +10,27 @@
  * stderr dump. It lives here now; each executor supplies a tiny `readFile`
  * adapter.
  */
+import { z } from "zod";
 import type { ExecutionResult } from "@/lib/types";
 import { logger } from "@/lib/logger";
+
+/**
+ * The write_output envelope contract. Previously the parsed JSON was
+ * cast-and-plucked (`(parsed.results as Record<string, unknown>) ?? {}`), so
+ * a script emitting e.g. `results: "none"` or `datasets: [...]` flowed
+ * typed-as-object into downstream code and errored far from the cause. A
+ * shape violation now fails HERE with a precise message — which feeds the
+ * existing code-retry loop, so the model fixes its write_output call.
+ * Missing keys stay lenient (default {}); only wrong TYPES reject.
+ */
+const SandboxEnvelopeSchema = z.object({
+  results: z.record(z.string(), z.unknown()).optional(),
+  chart_data: z.record(z.string(), z.unknown()).optional(),
+  // Base64 PNGs — a non-string value would render a broken <img>.
+  images: z.record(z.string(), z.string()).optional(),
+  // Named datasets, each a list of row objects.
+  datasets: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))).optional(),
+});
 
 const NO_OUTPUT_ERROR =
   "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.";
@@ -104,11 +123,11 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     len: outputJson.length,
   });
 
-  let parsed: Record<string, unknown>;
+  let parsed: unknown;
   try {
     // Parse first; only regex-sanitize Python NaN/Infinity when the strict
     // parse fails — see parseJsonWithPythonNonFinite for why.
-    parsed = parseJsonWithPythonNonFinite(outputJson) as Record<string, unknown>;
+    parsed = parseJsonWithPythonNonFinite(outputJson);
   } catch {
     return {
       success: false,
@@ -117,12 +136,27 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     };
   }
 
+  const envelope = SandboxEnvelopeSchema.safeParse(parsed);
+  if (!envelope.success) {
+    const issues = envelope.error.issues
+      .slice(0, 3)
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("; ");
+    return {
+      success: false,
+      error:
+        `Output JSON has the wrong shape for write_output — ${issues}. ` +
+        `Expected: results (object), chart_data (object), datasets (object of row-object arrays), images (object of base64 strings).`,
+      execution_ms: executionMs,
+    };
+  }
+
   return {
     success: true,
-    results: (parsed.results as Record<string, unknown>) ?? {},
-    chart_data: (parsed.chart_data as Record<string, unknown>) ?? {},
-    images: (parsed.images as Record<string, string>) ?? {},
-    datasets: (parsed.datasets as Record<string, Record<string, unknown>[]>) ?? undefined,
+    results: envelope.data.results ?? {},
+    chart_data: envelope.data.chart_data ?? {},
+    images: envelope.data.images ?? {},
+    datasets: envelope.data.datasets as Record<string, Record<string, unknown>[]> | undefined,
     execution_ms: executionMs,
   };
 }

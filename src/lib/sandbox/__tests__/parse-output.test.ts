@@ -133,6 +133,50 @@ describe("parseSandboxOutput", () => {
   });
 });
 
+describe("envelope shape validation (write_output contract)", () => {
+  it("rejects a non-object results with a precise, retry-feedable message", async () => {
+    const result = await parseSandboxOutput({
+      ...base,
+      readFile: io({
+        "/data/output.json": JSON.stringify({ results: "none", chart_data: {} }),
+      }),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("wrong shape for write_output");
+      expect(result.error).toContain("results");
+    }
+  });
+
+  it("rejects datasets that are not arrays of row objects", async () => {
+    const result = await parseSandboxOutput({
+      ...base,
+      readFile: io({
+        "/data/output.json": JSON.stringify({
+          results: {},
+          chart_data: {},
+          datasets: { main: "oops" },
+        }),
+      }),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toContain("datasets");
+  });
+
+  it("tolerates missing keys (lenient on absence, strict on wrong types)", async () => {
+    const result = await parseSandboxOutput({
+      ...base,
+      readFile: io({ "/data/output.json": JSON.stringify({ results: { n: 1 } }) }),
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.chart_data).toEqual({});
+      expect(result.images).toEqual({});
+      expect(result.datasets).toBeUndefined();
+    }
+  });
+});
+
 describe("parseJsonWithPythonNonFinite", () => {
   it("returns valid JSON untouched (strings with NaN/Infinity survive)", () => {
     const obj = { name: "NaN Zhu", studio: "Infinity Ward", v: 1 };
