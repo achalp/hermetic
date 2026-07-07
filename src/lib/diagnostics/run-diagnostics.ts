@@ -72,6 +72,8 @@ export interface StepDiag {
   retryClasses: string[];
   status?: string; // ok | degraded | failed
   statusReason?: string;
+  /** Wall time of the step in ms (start → finish, incl. retries). */
+  wallMs?: number;
 }
 
 export interface RunDiagnostics {
@@ -153,6 +155,7 @@ export function buildRunDiagnostics(
       if (typeof e.status === "string") s.status = e.status;
       if (typeof e.statusReason === "string") s.statusReason = e.statusReason;
       if (typeof e.path === "string" && !s.escalated) s.path = e.path;
+      if (typeof e.wallMs === "number") s.wallMs = e.wallMs;
     }
   }
 

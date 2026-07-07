@@ -55,6 +55,7 @@ export async function emitCostEpilogue(opts: {
       cache_write_tokens: cost.cacheWriteTokens,
       output_tokens: cost.outputTokens,
       cost_usd: cost.costUsd,
+      duration_ms: cost.wallMs,
       phase_breakdown: phaseBreakdown,
     });
     await writeRunDiagnostics({
@@ -109,6 +110,7 @@ export async function trackRouteCost<T>(
             cache_write_tokens: cost.cacheWriteTokens,
             output_tokens: cost.outputTokens,
             cost_usd: cost.costUsd,
+            duration_ms: cost.wallMs,
             phase_breakdown: formatPhaseBreakdown(cost.byPhase),
           });
         }

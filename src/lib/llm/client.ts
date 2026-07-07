@@ -919,7 +919,12 @@ interface V3Usage {
   outputTokens?: { total?: number };
 }
 
-function reportUsage(costKey: string, usage: V3Usage | undefined, phase?: string): void {
+function reportUsage(
+  costKey: string,
+  usage: V3Usage | undefined,
+  phase?: string,
+  durationMs?: number
+): void {
   const inp = usage?.inputTokens;
   recordCall(
     costKey,
@@ -928,6 +933,7 @@ function reportUsage(costKey: string, usage: V3Usage | undefined, phase?: string
       cacheReadTokens: inp?.cacheRead ?? 0,
       cacheWriteTokens: inp?.cacheWrite ?? 0,
       outputTokens: usage?.outputTokens?.total ?? 0,
+      durationMs,
     },
     phase
   );
@@ -940,8 +946,9 @@ function usageMiddleware(costKey: string): LanguageModelMiddleware {
       // Capture the phase NOW (within the caller's withPhase scope), not after
       // the await — belt-and-suspenders so attribution can't drift.
       const phase = currentPhase();
+      const start = Date.now();
       const result = await doGenerate();
-      reportUsage(costKey, result.usage as V3Usage, phase);
+      reportUsage(costKey, result.usage as V3Usage, phase, Date.now() - start);
       return result;
     },
     wrapStream: async ({ doStream }) => {
@@ -949,13 +956,20 @@ function usageMiddleware(costKey: string): LanguageModelMiddleware {
       // outside the withPhase scope — so we MUST bind the phase here, at stream
       // initiation, which still runs inside the scope (streamText is eager).
       const phase = currentPhase();
+      const start = Date.now();
       const { stream, ...rest } = await doStream();
       return {
         stream: stream.pipeThrough(
           new TransformStream({
             transform(chunk, controller) {
               if (chunk.type === "finish") {
-                reportUsage(costKey, (chunk as { usage?: V3Usage }).usage, phase);
+                // Duration = request start → finish chunk (full stream time).
+                reportUsage(
+                  costKey,
+                  (chunk as { usage?: V3Usage }).usage,
+                  phase,
+                  Date.now() - start
+                );
               }
               controller.enqueue(chunk);
             },

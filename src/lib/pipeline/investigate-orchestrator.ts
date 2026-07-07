@@ -601,6 +601,7 @@ async function runOneSubQuestion(
         step: sq.question,
         status: "degraded",
         statusReason: result.degradedReason,
+        wallMs: slot.finishedAt - slot.startedAt,
       });
       options.onProgress?.({
         kind: "sub_degraded",
@@ -611,7 +612,11 @@ async function runOneSubQuestion(
         stepResult: slot,
       });
     } else {
-      diagEvent("step_done", { step: sq.question, status: "ok" });
+      diagEvent("step_done", {
+        step: sq.question,
+        status: "ok",
+        wallMs: slot.finishedAt - slot.startedAt,
+      });
       options.onProgress?.({
         kind: "sub_finished",
         index: i,
@@ -628,6 +633,7 @@ async function runOneSubQuestion(
       step: sq.question,
       status: "failed",
       statusReason: msg.slice(0, 200),
+      wallMs: slot.finishedAt - slot.startedAt,
     });
     logger.warn("Investigate: sub-question failed", {
       index: i,

@@ -21,10 +21,14 @@ interface CallRecord {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   outputTokens: number;
+  /** Wall time of this LLM call in ms (request → usage report). */
+  durationMs?: number;
 }
 
 export interface CostAccumulator {
   calls: CallRecord[];
+  /** Scope entry time — computeCost derives the run's wall clock from it. */
+  startedAt: number;
 }
 
 /** Per-phase token + cost rollup, so we can see WHERE a run spends. */
@@ -34,6 +38,8 @@ export interface PhaseBreakdown {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  /** Summed LLM call time in this phase, ms (parallel calls sum past wall). */
+  durationMs: number;
 }
 
 export interface CostSummary {
@@ -47,6 +53,10 @@ export interface CostSummary {
   models: string[];
   /** Cost + tokens attributed by pipeline phase, descending by cost. */
   byPhase: PhaseBreakdown[];
+  /** Wall clock of the whole tracked run, ms. */
+  wallMs: number;
+  /** Summed LLM call time across all phases, ms. */
+  llmMs: number;
 }
 
 /** Phase label for calls outside an explicit withPhase() scope. */
@@ -58,6 +68,8 @@ export interface CallUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   outputTokens: number;
+  /** Wall time of the call in ms (request → usage report). */
+  durationMs?: number;
 }
 
 const costStore = new AsyncLocalStorage<CostAccumulator>();
@@ -65,7 +77,7 @@ const phaseStore = new AsyncLocalStorage<string>();
 
 /** Run `fn` within a cost-tracking scope; LLM calls inside accumulate. */
 export function runWithCostTracking<T>(fn: () => Promise<T>): Promise<T> {
-  return costStore.run({ calls: [] }, fn);
+  return costStore.run({ calls: [], startedAt: Date.now() }, fn);
 }
 
 /**
@@ -116,7 +128,10 @@ export function recordCall(modelId: string, usage: CallUsage, phase?: string): v
 /** Compact one-line phase breakdown for logs and the cost CSV. */
 export function formatPhaseBreakdown(byPhase: PhaseBreakdown[]): string {
   return byPhase
-    .map((p) => `${p.phase}=$${p.costUsd.toFixed(4)}(out:${p.outputTokens},calls:${p.llmCalls})`)
+    .map(
+      (p) =>
+        `${p.phase}=$${p.costUsd.toFixed(4)}(out:${p.outputTokens},calls:${p.llmCalls},ms:${p.durationMs})`
+    )
     .join("; ");
 }
 
@@ -139,6 +154,7 @@ export function computeCost(acc: CostAccumulator): CostSummary {
   let cacheRead = 0;
   let cacheWrite = 0;
   let output = 0;
+  let llmMs = 0;
   const models = new Set<string>();
   const phases = new Map<string, PhaseBreakdown>();
   for (const c of acc.calls) {
@@ -147,18 +163,27 @@ export function computeCost(acc: CostAccumulator): CostSummary {
     cacheRead += c.cacheReadTokens;
     cacheWrite += c.cacheWriteTokens;
     output += c.outputTokens;
+    llmMs += c.durationMs ?? 0;
     const callCost = priceCall(c);
     costUsd += callCost;
 
     let ph = phases.get(c.phase);
     if (!ph) {
-      ph = { phase: c.phase, llmCalls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+      ph = {
+        phase: c.phase,
+        llmCalls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        durationMs: 0,
+      };
       phases.set(c.phase, ph);
     }
     ph.llmCalls += 1;
     ph.inputTokens += c.uncachedInputTokens + c.cacheReadTokens + c.cacheWriteTokens;
     ph.outputTokens += c.outputTokens;
     ph.costUsd += callCost;
+    ph.durationMs += c.durationMs ?? 0;
   }
   return {
     costUsd,
@@ -169,5 +194,7 @@ export function computeCost(acc: CostAccumulator): CostSummary {
     llmCalls: acc.calls.length,
     models: [...models].sort(),
     byPhase: [...phases.values()].sort((a, b) => b.costUsd - a.costUsd),
+    wallMs: Date.now() - acc.startedAt,
+    llmMs,
   };
 }
