@@ -4,27 +4,19 @@ import { storeWarehouse } from "@/lib/warehouse/storage";
 import { saveConnection } from "@/lib/warehouse/persist-env";
 import { inferRelationships } from "@/lib/warehouse/infer-relationships";
 import type { WarehouseConnectionConfig } from "@/lib/types";
+import { parseBody, WarehouseConnectionConfigSchema } from "@/lib/api-schemas";
 
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
-    const config: WarehouseConnectionConfig = await request.json();
-
-    if (
-      !config?.type ||
-      ![
-        "postgresql",
-        "bigquery",
-        "clickhouse",
-        "trino",
-        "hive",
-        "snowflake",
-        "databricks",
-      ].includes(config.type)
-    ) {
-      return Response.json({ error: "Invalid warehouse type" }, { status: 400 });
-    }
+    // Full shape validation (zod discriminated union) — previously the body
+    // was cast to WarehouseConnectionConfig with only `type` checked, so a
+    // config with e.g. a numeric host or missing credentials flowed into the
+    // connector and failed opaquely.
+    const parsed = parseBody(WarehouseConnectionConfigSchema, await request.json());
+    if (!parsed.ok) return parsed.response;
+    const config: WarehouseConnectionConfig = parsed.data;
 
     const connector = createConnector(config);
 

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { validateLocalOrigin } from "@/lib/local-files/security";
 import { extractRemoteParquetSchema } from "@/lib/parquet/schema-extractor";
 import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
+import { parseBody, RemoteParquetSchemaBody } from "@/lib/api-schemas";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
@@ -28,8 +29,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as { url?: string; creds?: RemoteCreds };
-    const url = typeof body.url === "string" ? body.url.trim() : "";
+    const parsedBody = parseBody(RemoteParquetSchemaBody, await request.json());
+    if (!parsedBody.ok) return parsedBody.response;
+    const url = parsedBody.data.url.trim();
 
     if (!isSafeParquetUrl(url)) {
       return NextResponse.json(
@@ -38,15 +40,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Only forward the recognized credential fields (drop anything else).
-    const creds: RemoteCreds | undefined = body.creds
-      ? {
-          s3Region: body.creds.s3Region,
-          s3AccessKeyId: body.creds.s3AccessKeyId,
-          s3SecretAccessKey: body.creds.s3SecretAccessKey,
-          s3Endpoint: body.creds.s3Endpoint,
-        }
-      : undefined;
+    // zod already whitelists the recognized credential fields (extras are
+    // stripped) and guarantees they're strings.
+    const creds: RemoteCreds | undefined = parsedBody.data.creds;
 
     // Apply layout conventions: a bare folder/prefix (e.g. an Overture
     // theme=…/type=… path) becomes a recursive Parquet glob; Hive partitioning

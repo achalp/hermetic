@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { stat, readFile } from "node:fs/promises";
 import { resolve, basename, extname } from "node:path";
 import { validateLocalOrigin, isAllowedExtension } from "@/lib/local-files/security";
+import { parseBody, LocalFileSelectSchema } from "@/lib/api-schemas";
 import { getFileInfo } from "@/lib/local-files/browser";
 import { extractParquetSchema } from "@/lib/parquet/schema-extractor";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
@@ -21,15 +22,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = await request.json();
-    const { path: rawPath, type } = body as {
-      path: string;
-      type: "file" | "folder";
-    };
-
-    if (!rawPath || !type) {
-      return NextResponse.json({ error: "path and type are required" }, { status: 400 });
-    }
+    const parsed = parseBody(LocalFileSelectSchema, await request.json());
+    if (!parsed.ok) return parsed.response;
+    const { path: rawPath, type } = parsed.data;
 
     const filePath = resolve(rawPath);
     const fileInfo = await stat(filePath);
