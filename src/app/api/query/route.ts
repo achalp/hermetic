@@ -9,9 +9,9 @@ import {
 } from "@/lib/csv/storage";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
-import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
-import { appendCostRow } from "@/lib/cost/storage";
-import { runWithDiagnostics, writeRunDiagnostics } from "@/lib/diagnostics/run-diagnostics";
+import { runWithCostTracking } from "@/lib/cost/accumulator";
+import { emitCostEpilogue } from "@/lib/cost/epilogue";
+import { runWithDiagnostics } from "@/lib/diagnostics/run-diagnostics";
 import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
@@ -488,42 +488,12 @@ export async function POST(request: Request) {
                   }) + "\n"
                 );
               }
-            }
-
-            // ── Cost tracking: sum all LLM calls, surface live + persist a row ──
-            try {
-              const acc = getCostAccumulator();
-              if (acc) {
-                const cost = computeCost(acc);
-                emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
-                const now = new Date();
-                await appendCostRow({
-                  timestamp: now.toISOString(),
-                  date: now.toISOString().slice(0, 10),
-                  dataset: datasetLabel,
-                  question,
-                  mode: "ask",
-                  models: cost.models.join(", "),
-                  llm_calls: cost.llmCalls,
-                  input_tokens: cost.inputTokens,
-                  cache_read_tokens: cost.cacheReadTokens,
-                  cache_write_tokens: cost.cacheWriteTokens,
-                  output_tokens: cost.outputTokens,
-                  cost_usd: cost.costUsd,
-                });
-                await writeRunDiagnostics({
-                  timestamp: now.toISOString(),
-                  mode: "ask",
-                  purpose,
-                  question,
-                  costUsd: cost.costUsd,
-                  llmCalls: cost.llmCalls,
-                });
-              }
-            } catch (costErr) {
-              logger.warn("Cost logging failed", {
-                error: costErr instanceof Error ? costErr.message : String(costErr),
-              });
+            } finally {
+              // ── Cost/diagnostics epilogue: shared with Investigate
+              // (lib/cost/epilogue.ts) — surfaces __cost live, persists the
+              // cost row (now with the per-phase breakdown), writes run
+              // diagnostics. In a finally so every exit path is accounted.
+              await emitCostEpilogue({ emit, datasetLabel, question, mode: "ask", purpose });
             }
           })
         );

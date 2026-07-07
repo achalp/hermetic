@@ -23,18 +23,9 @@ import {
 } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { prewarmCodeGenCache } from "@/lib/llm/code-generation";
-import {
-  runWithCostTracking,
-  getCostAccumulator,
-  computeCost,
-  formatPhaseBreakdown,
-} from "@/lib/cost/accumulator";
-import { appendCostRow } from "@/lib/cost/storage";
-import {
-  runWithDiagnostics,
-  writeRunDiagnostics,
-  diagEvent,
-} from "@/lib/diagnostics/run-diagnostics";
+import { runWithCostTracking } from "@/lib/cost/accumulator";
+import { emitCostEpilogue } from "@/lib/cost/epilogue";
+import { runWithDiagnostics, diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
@@ -1085,49 +1076,16 @@ export async function POST(request: Request) {
                 }) + "\n"
               );
             } finally {
-              // ── Cost tracking: runs for every exit path (cheap fast-path,
-              // main investigation, or error) before the stream closes. ──
-              try {
-                const acc = getCostAccumulator();
-                if (acc) {
-                  const cost = computeCost(acc);
-                  emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
-                  const phaseBreakdown = formatPhaseBreakdown(cost.byPhase);
-                  logger.info("Investigate: cost by phase", {
-                    total: Number(cost.costUsd.toFixed(4)),
-                    output: cost.outputTokens,
-                    breakdown: phaseBreakdown,
-                  });
-                  const now = new Date();
-                  await appendCostRow({
-                    timestamp: now.toISOString(),
-                    date: now.toISOString().slice(0, 10),
-                    dataset: datasetLabel,
-                    question,
-                    mode: analysisMode,
-                    models: cost.models.join(", "),
-                    llm_calls: cost.llmCalls,
-                    input_tokens: cost.inputTokens,
-                    cache_read_tokens: cost.cacheReadTokens,
-                    cache_write_tokens: cost.cacheWriteTokens,
-                    output_tokens: cost.outputTokens,
-                    cost_usd: cost.costUsd,
-                    phase_breakdown: phaseBreakdown,
-                  });
-                  await writeRunDiagnostics({
-                    timestamp: now.toISOString(),
-                    mode: analysisMode,
-                    purpose: context.purpose,
-                    question,
-                    costUsd: cost.costUsd,
-                    llmCalls: cost.llmCalls,
-                  });
-                }
-              } catch (costErr) {
-                logger.warn("Cost logging failed", {
-                  error: costErr instanceof Error ? costErr.message : String(costErr),
-                });
-              }
+              // ── Cost/diagnostics epilogue: runs for every exit path (cheap
+              // fast-path, main investigation, or error) before the stream
+              // closes. Shared with Ask — lib/cost/epilogue.ts. ──
+              await emitCostEpilogue({
+                emit,
+                datasetLabel,
+                question,
+                mode: analysisMode,
+                purpose: context.purpose,
+              });
             }
           })
         );
