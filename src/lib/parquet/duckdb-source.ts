@@ -38,16 +38,55 @@ export function parquetReadExpr(pathOrUrl: string, hivePartitioned = false): str
 }
 
 /**
+ * SSRF guard for http(s) Parquet URLs, which the server fetches on the user's
+ * behalf (schema extraction + the sandbox read). Rejects hosts that are
+ * internal by construction: loopback, link-local (incl. the 169.254.169.254
+ * cloud metadata endpoint), RFC-1918 / CGNAT ranges, all-numeric IP encodings,
+ * IPv6 literals, and *.internal names. Object-store schemes (s3://, gs://, …)
+ * name a bucket, not a network host, so they pass through — the fetch goes to
+ * the provider. Scope note: this rejects literal/known-internal addresses; it
+ * does not pin DNS (a hostname that RESOLVES to an internal address at fetch
+ * time is out of reach here since DuckDB httpfs does its own resolution).
+ */
+function isBlockedHttpHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h === "metadata.google.internal" || h.endsWith(".internal")) return true;
+  // IPv6 literal (URL keeps brackets) — loopback/link-local/ULA all rejected.
+  if (h.startsWith("[")) return true;
+  // All-digit single-label host = decimal/octal IP encoding (http://2130706433/).
+  if (/^\d+$/.test(h)) return true;
+  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 127 || a === 10 || a === 0) return true; // loopback, RFC-1918, "this net"
+    if (a === 169 && b === 254) return true; // link-local / metadata
+    if (a === 172 && b >= 16 && b <= 31) return true; // RFC-1918
+    if (a === 192 && b === 168) return true; // RFC-1918
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  }
+  return false;
+}
+
+/**
  * Whether a user-supplied cloud-Parquet URL is safe to interpolate into DuckDB
  * SQL. The URL lands inside a single-quoted `read_parquet('...')` literal, so we
  * hard-reject any character that could break out of it or inject (quotes,
  * backslash, backtick, semicolon, control chars) and require a known object-store
- * / http(s) scheme. A glob (`*`) and query string are allowed. Reject-by-default.
+ * / http(s) scheme. http(s) hosts additionally pass the SSRF guard above.
+ * A glob (`*`) and query string are allowed. Reject-by-default.
  */
 export function isSafeParquetUrl(url: unknown): url is string {
   if (typeof url !== "string" || url.length === 0 || url.length > 2048) return false;
   if (!/^(s3|s3a|gs|gcs|az|azure|abfss?|https?):\/\//i.test(url)) return false;
   if (/['"`\\;\n\r\t\0]/.test(url)) return false;
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      if (isBlockedHttpHost(new URL(url).hostname)) return false;
+    } catch {
+      return false;
+    }
+  }
   return true;
 }
 

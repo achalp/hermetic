@@ -123,6 +123,27 @@ describe("isSafeParquetUrl", () => {
     expect(isSafeParquetUrl(null)).toBe(false);
     expect(isSafeParquetUrl("https://h/" + "a".repeat(3000))).toBe(false);
   });
+
+  it("rejects SSRF targets: metadata endpoint, loopback, private ranges", () => {
+    expect(isSafeParquetUrl("https://169.254.169.254/latest/meta-data/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://metadata.google.internal/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("https://localhost:3000/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("https://127.0.0.1/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://10.0.0.5/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://172.16.0.1/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://192.168.1.1/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://100.64.0.1/x.parquet")).toBe(false); // CGNAT
+    expect(isSafeParquetUrl("http://[::1]/x.parquet")).toBe(false); // IPv6 literal
+    expect(isSafeParquetUrl("http://2130706433/x.parquet")).toBe(false); // decimal 127.0.0.1
+    expect(isSafeParquetUrl("http://svc.cluster.internal/x.parquet")).toBe(false);
+  });
+
+  it("still accepts public https hosts and object-store bucket schemes", () => {
+    expect(isSafeParquetUrl("https://data.example.com/x.parquet")).toBe(true);
+    expect(isSafeParquetUrl("https://172.200.1.1/x.parquet")).toBe(true); // public IP (172 outside 16-31)
+    // s3:// names a bucket, not a network host — always resolves at AWS.
+    expect(isSafeParquetUrl("s3://10.0.0.5/x.parquet")).toBe(true);
+  });
 });
 
 describe("duckdbRemoteAuthSql", () => {
