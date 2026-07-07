@@ -36,11 +36,10 @@ import {
   PLANNER_MODEL,
   WAREHOUSE_MAX_ROWS,
   WAREHOUSE_SCAN_ROW_BUDGET,
-  PARQUET_MATERIALIZE_THRESHOLD,
 } from "@/lib/constants";
-import { materializeCsvToParquet } from "@/lib/parquet/materialize";
 import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
+import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
@@ -65,13 +64,9 @@ import {
   getGeoJSONContent,
   isLocalFile,
   isRemoteFile,
-  storeCSV,
 } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
 import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
-import { parseCSV } from "@/lib/csv/parser";
-import { extractSchema } from "@/lib/csv/schema";
-import { randomUUID } from "crypto";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -79,7 +74,6 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import type { CSVSchema } from "@/lib/types";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { logger } from "@/lib/logger";
@@ -114,22 +108,6 @@ interface InvestigateContext {
 interface InvestigateBody {
   prompt?: string;
   context?: InvestigateContext;
-}
-
-/**
- * Cheap row estimate for a CSV string — counts newlines without a full parse, so
- * it stays fast even on a multi-hundred-MB pull. Used only to choose the Parquet
- * vs CSV path; exact accuracy isn't needed (off-by-one on a trailing newline is
- * fine).
- */
-function countCsvRows(csv: string): number {
-  let rows = 0;
-  let i = csv.indexOf("\n");
-  while (i !== -1) {
-    rows++;
-    i = csv.indexOf("\n", i + 1);
-  }
-  return Math.max(0, rows - 1); // minus the header line
 }
 
 export async function POST(request: Request) {
@@ -297,84 +275,19 @@ export async function POST(request: Request) {
                   );
                 }
                 logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
-                const newCsvId = randomUUID();
-                // Cheap row estimate (count newlines; no full parse) to decide the path.
-                const approxRows = countCsvRows(warehouseCsvContent);
-                let schema: CSVSchema | undefined;
-
-                // Large pull → Parquet + DuckDB (no Node parse, scales to millions).
-                // Best-effort: any failure falls back to the proven CSV path below.
-                if (approxRows >= PARQUET_MATERIALIZE_THRESHOLD && sandboxRuntime === "docker") {
-                  try {
-                    const mat = await materializeCsvToParquet(
-                      warehouseCsvContent,
-                      newCsvId,
-                      "warehouse_query_result",
-                      sandboxRuntime
-                    );
-                    schema = mat.schema;
-                    schema.source_type = "warehouse";
-                    schema.warehouse_type = warehouse.config.type;
-                    warehouseParquetFile = mat.parquetPath;
-                    const cappedSample = schema.row_count >= WAREHOUSE_MAX_ROWS;
-                    warehouseParquetContext =
-                      `The materialized dataset is a Parquet file at /data/input.parquet (${schema.row_count.toLocaleString()} rows).\n` +
-                      `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')").df().\n` +
-                      `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.` +
-                      (cappedSample
-                        ? `\nIMPORTANT — this is a CAPPED SAMPLE of ${schema.row_count.toLocaleString()} rows; the source has MORE. Do NOT present absolute totals or counts as findings (a "total" here just equals the sample size, ${schema.row_count.toLocaleString()}, and is misleading). Express results as RATES, proportions, percentages, or per-entity averages instead.`
-                        : "");
-                    logger.info("Investigate: materialized warehouse data to Parquet", {
-                      csvId: newCsvId,
-                      rows: schema.row_count,
-                    });
-                  } catch (err) {
-                    logger.warn(
-                      "Investigate: Parquet materialization failed, falling back to CSV",
-                      {
-                        error: err instanceof Error ? err.message : String(err),
-                        approxRows,
-                      }
-                    );
-                  }
-                }
-
-                // CSV path (default for small pulls, and the fallback if Parquet failed).
-                if (!schema) {
-                  const parsed = parseCSV(warehouseCsvContent);
-                  schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
-                  schema.source_type = "warehouse";
-                  schema.warehouse_type = warehouse.config.type;
-                }
-
-                await storeCSV(newCsvId, warehouseCsvContent, schema);
-                csvId = newCsvId;
-                // Hitting the cap means the source had more rows than we pulled —
-                // the analysis is over a sample, not the full data.
-                materializationSampled = schema.row_count >= WAREHOUSE_MAX_ROWS;
-                diagEvent("materialization", {
-                  rows: schema.row_count,
-                  columns: schema.columns.length,
-                  sampled: materializationSampled,
-                  parquet: !!warehouseParquetFile,
+                // Store the pull (Parquet for large results, CSV otherwise) via
+                // the SHARED module — lib/warehouse/materialize-result.ts.
+                const storedResult = await storeWarehouseResult({
+                  csvContent: warehouseCsvContent,
+                  warehouseType: warehouse.config.type,
+                  sandboxRuntime,
+                  emit,
                   sqlRepairs: materializationRepairs,
                 });
-                logger.info("Investigate: warehouse data materialized", {
-                  csvId: newCsvId,
-                  columns: schema.columns.length,
-                  rows: schema.row_count,
-                  parquet: !!warehouseParquetFile,
-                  sampled: materializationSampled,
-                });
-                // Emit the generated csvId so the client can use it for
-                // artifacts, notebook cell re-runs, and follow-ups.
-                emit(
-                  JSON.stringify({
-                    op: "add",
-                    path: "/state/__warehouse_csv_id",
-                    value: newCsvId,
-                  }) + "\n"
-                );
+                csvId = storedResult.csvId;
+                materializationSampled = storedResult.sampled;
+                warehouseParquetFile = storedResult.parquetFile;
+                warehouseParquetContext = storedResult.parquetContext;
               }
 
               // ── Resolve the source (file upload, local mount, or the CSV

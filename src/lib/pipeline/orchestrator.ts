@@ -325,11 +325,14 @@ export async function runPipelineWithCode(
     additionalFiles?: AdditionalFile[];
     csvId?: string;
     localMountPath?: string;
+    /** Host Parquet file to docker-cp into the sandbox (/data/input.parquet). */
+    inputParquetPath?: string;
   } = {}
 ): Promise<PipelineResult> {
   logger.debug("Re-executing edited code", {
     chars: code.length,
     localMount: !!options.localMountPath,
+    parquet: !!options.inputParquetPath,
   });
 
   const result = await executeSandbox(
@@ -339,7 +342,8 @@ export async function runPipelineWithCode(
     options.geojsonContent,
     options.additionalFiles,
     options.csvId,
-    options.localMountPath
+    options.localMountPath,
+    options.inputParquetPath
   );
 
   if (!result.success) {

@@ -45,6 +45,7 @@ describe("runPipelineWithCode", () => {
       undefined,
       undefined,
       "csv-123",
+      undefined,
       undefined
     );
     expect(result.executionResult.success).toBe(true);
@@ -65,7 +66,7 @@ describe("runPipelineWithCode", () => {
     expect(executeSandboxMock).toHaveBeenCalledTimes(1); // no retry
   });
 
-  it("forwards runtime, geojsonContent, additionalFiles, localMountPath", async () => {
+  it("forwards runtime, geojsonContent, additionalFiles, localMountPath, inputParquetPath", async () => {
     executeSandboxMock.mockResolvedValue({
       success: true,
       results: {},
@@ -82,6 +83,7 @@ describe("runPipelineWithCode", () => {
       additionalFiles,
       csvId: "id",
       localMountPath: "/data/local/foo.parquet",
+      inputParquetPath: "/tmp/materialized.parquet",
     });
 
     expect(executeSandboxMock).toHaveBeenCalledWith(
@@ -91,7 +93,8 @@ describe("runPipelineWithCode", () => {
       '{"type":"FeatureCollection"}',
       additionalFiles,
       "id",
-      "/data/local/foo.parquet"
+      "/data/local/foo.parquet",
+      "/tmp/materialized.parquet"
     );
   });
 

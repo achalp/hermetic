@@ -3,7 +3,6 @@ import {
   getCSVContent,
   getGeoJSONContent,
   getWorkbookManifest,
-  storeCSV,
   isLocalFile,
   isRemoteFile,
 } from "@/lib/csv/storage";
@@ -37,9 +36,7 @@ import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
-import { randomUUID } from "crypto";
-import { extractSchema } from "@/lib/csv/schema";
-import { parseCSV } from "@/lib/csv/parser";
+import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
 
 export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
@@ -147,6 +144,10 @@ export async function POST(request: Request) {
     const totalSteps = isWarehouse ? 5 : 3;
 
     let warehouseSQL: string | undefined;
+    // Set when a large warehouse pull was materialized to Parquet: the host
+    // file to copy into the sandbox and the DuckDB read instructions.
+    let warehouseParquetFile: string | undefined;
+    let warehouseParquetContext: string | undefined;
     let datasetLabel = csvId ?? warehouseId ?? "dataset";
 
     return patchStreamResponse(
@@ -239,31 +240,20 @@ export async function POST(request: Request) {
                 }
 
                 if (closed()) return;
-                const rowCount = warehouseCsvContent.split("\n").length - 2; // minus header + trailing newline
-                logger.info("Warehouse query: SQL executed", { rows: rowCount });
 
-                // Parse CSV → extract schema → store as regular CSV
-                const parsed = parseCSV(warehouseCsvContent);
-                const newCsvId = randomUUID();
-                const schema = extractSchema(parsed, newCsvId, `warehouse_query_result`);
-                schema.source_type = "warehouse";
-                schema.warehouse_type = warehouse.config.type;
-                await storeCSV(newCsvId, warehouseCsvContent, schema);
-                csvId = newCsvId;
-
-                logger.info("Warehouse query: data stored as CSV", {
-                  csvId: newCsvId,
-                  columns: schema.columns.length,
+                // Store the result (Parquet for large pulls, CSV otherwise) via
+                // the SHARED module — lib/warehouse/materialize-result.ts. Ask
+                // previously always parsed through Node; it now gets the same
+                // Parquet path Investigate uses for million-row results.
+                const storedResult = await storeWarehouseResult({
+                  csvContent: warehouseCsvContent,
+                  warehouseType: warehouse.config.type,
+                  sandboxRuntime,
+                  emit,
                 });
-
-                // Emit the generated csvId so the client can use it for artifacts
-                emit(
-                  JSON.stringify({
-                    op: "add",
-                    path: "/state/__warehouse_csv_id",
-                    value: newCsvId,
-                  }) + "\n"
-                );
+                csvId = storedResult.csvId;
+                warehouseParquetFile = storedResult.parquetFile;
+                warehouseParquetContext = storedResult.parquetContext;
               }
 
               // ── Load CSV (file upload or warehouse result) ──────────
@@ -312,8 +302,12 @@ export async function POST(request: Request) {
                 ({ localMountPath } = resolveLocalSource(stored));
               }
 
-              const csvContent = isLocal || isRemote ? "" : await getCSVContent(csvId!);
-              if (!isLocal && !isRemote && !csvContent) {
+              // In Parquet mode (local mount, materialized warehouse, or remote
+              // URL) the analysis reads Parquet directly — never load the
+              // (large) CSV into memory.
+              const csvContent =
+                isLocal || isRemote || warehouseParquetFile ? "" : await getCSVContent(csvId!);
+              if (!isLocal && !isRemote && !warehouseParquetFile && !csvContent) {
                 if (stored.schema.source_type === "warehouse") {
                   throw new Error(
                     "This analysis was from a warehouse query. Please connect to the warehouse first, then ask your question."
@@ -359,17 +353,21 @@ export async function POST(request: Request) {
                 else if (stage === "retrying") emitProgress("retrying", stepOffset + 2);
               };
 
-              // Build local file context for LLM prompt (tells it where to read data)
-              const { localFileContext } = isLocal
-                ? resolveLocalSource(stored)
-                : isRemote
-                  ? resolveRemoteSource(
-                      stored.remoteParquetUrl!,
-                      stored.schema.row_count,
-                      stored.isHivePartitioned,
-                      stored.remoteCreds
-                    )
-                  : {};
+              // Build local file context for LLM prompt (tells it where to read
+              // data). A materialized warehouse pull was docker-cp'd to
+              // /data/input.parquet (no mount) — same resolvers as Investigate.
+              const { localFileContext } = warehouseParquetFile
+                ? { localFileContext: warehouseParquetContext }
+                : isLocal
+                  ? resolveLocalSource(stored)
+                  : isRemote
+                    ? resolveRemoteSource(
+                        stored.remoteParquetUrl!,
+                        stored.schema.row_count,
+                        stored.isHivePartitioned,
+                        stored.remoteCreds
+                      )
+                    : {};
 
               // Load prior conversation turns for follow-up context
               const priorTurns = csvId ? getConversationTurns(csvId) : [];
@@ -386,6 +384,7 @@ export async function POST(request: Request) {
                   additionalFiles,
                   csvId,
                   localMountPath,
+                  inputParquetPath: warehouseParquetFile,
                 });
               } else {
                 pipelineResult = await runPipeline(
@@ -402,7 +401,7 @@ export async function POST(request: Request) {
                   localMountPath,
                   localFileContext,
                   priorTurns.length > 0 ? priorTurns : undefined,
-                  undefined,
+                  warehouseParquetFile,
                   purpose
                 );
               }
