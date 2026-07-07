@@ -19,6 +19,19 @@ export async function GET(request: Request) {
     return Response.json({ error: "Warehouse connector not found" }, { status: 404 });
   }
 
+  // Membership check: `table` is user input interpolated into SQL. Requiring
+  // it to be one of the connection's introspected tables kills injection at
+  // the source (the identifier then comes from our own introspection, not the
+  // request) — the Snowflake branch below has no escaping at all, and the
+  // backtick-escaping on the other branches is dialect-questionable.
+  const wanted = tableName.toLowerCase();
+  const known = warehouse.tables.some(
+    (t) => t.name.toLowerCase() === wanted || `${t.schema}.${t.name}`.toLowerCase() === wanted
+  );
+  if (!known) {
+    return Response.json({ error: "Unknown table for this connection" }, { status: 400 });
+  }
+
   try {
     const csv = await connector.executeSQL(buildSampleQuery(tableName, warehouse.config.type));
 
