@@ -42,11 +42,18 @@ import { isValidRuntimeId, isValidModelId, LOCAL_MOUNT_PATH } from "@/lib/consta
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
+import { trackRouteCost } from "@/lib/cost/epilogue";
 import path from "node:path";
 
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
+  // Cost tracking: a step re-run recomposes a notebook cell (LLM call) that
+  // previously escaped the cost log (see lib/cost/epilogue.ts trackRouteCost).
+  return trackRouteCost({ mode: "rerun-step" }, () => handleRerunStep(request));
+}
+
+async function handleRerunStep(request: Request) {
   try {
     const body = (await request.json()) as {
       csv_id?: string;

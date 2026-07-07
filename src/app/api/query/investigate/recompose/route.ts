@@ -16,6 +16,7 @@ import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getStoredCSV } from "@/lib/csv/storage";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
+import { trackRouteCost } from "@/lib/cost/epilogue";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import { isValidModelId, UI_COMPOSE_MODEL } from "@/lib/constants";
@@ -55,6 +56,12 @@ function subResultFromStep(step: TraceStep): SubQuestionResult {
 }
 
 export async function POST(request: Request) {
+  // Cost tracking: a recompose is a full composer LLM call that previously
+  // escaped the cost log (see lib/cost/epilogue.ts trackRouteCost).
+  return trackRouteCost({ mode: "recompose" }, () => handleRecompose(request));
+}
+
+async function handleRecompose(request: Request) {
   try {
     const body = (await request.json()) as { csv_id?: string; ui_compose_model?: string };
     const csvId = body.csv_id;
