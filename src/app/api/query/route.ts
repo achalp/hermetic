@@ -621,7 +621,14 @@ export async function POST(request: Request) {
     return new Response(readable, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
+        // Keep a buffering reverse proxy (nginx and friends) from holding the
+        // streamed patches + 15s keepalives until the run finishes. Without
+        // this, a long remote scan sends nothing to the browser for minutes,
+        // the socket idles, and the proxy drops it (~130s) — surfacing as a
+        // "network error" mid-analysis. The Investigate route already sets
+        // these; Ask must too (shared streaming contract).
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
       },
     });
   } catch (err) {
