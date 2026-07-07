@@ -124,9 +124,12 @@ function remoteNetworkNote(readExpr: string): string {
     `Measured on a California-buildings scan: reading only the bbox/coordinate columns took ~3 min; adding the id ` +
     `column pushed it to 8+ min; adding all the display columns (id/class/subtype/height) blew past a 20-min timeout. So:\n` +
     `(1) ONE big remote pass, and it materializes ONLY the columns needed to FILTER and RANK — numeric/coordinate ` +
-    `columns and a compact row_number() key — and NOTHING purely for display. NEVER geometry/struct/list/map, and ` +
-    `NOT id/name/class/etc. for all rows:\n` +
-    `  duckdb.sql("CREATE TEMP TABLE t AS SELECT row_number() OVER () AS idx, <only columns needed to compute the answer> FROM ${readExpr} WHERE <filters>")\n` +
+    `columns — and NOTHING purely for display. NEVER geometry/struct/list/map, and NOT id/name/class/etc. for all rows:\n` +
+    `  duckdb.sql("CREATE TEMP TABLE t AS SELECT <only the numeric columns needed to compute the answer> FROM ${readExpr} WHERE <filters>")\n` +
+    `Do NOT add \`row_number() OVER ()\` or any un-partitioned/global window to this pass — it is a single-threaded ` +
+    `PIPELINE BREAKER that funnels the entire scan through one thread and throttles the remote read (measured: it ` +
+    `turned a ~4-min California materialize into an 18-min+ timeout). You do not need a key: pull the coordinates ` +
+    `to pandas and use the DataFrame's positional index; the top-N are row positions and you hydrate by coordinate (3).\n` +
     `(2) Run every aggregation/ranking against the LOCAL table t, never the remote read again for the full set.\n` +
     `(3) HYDRATE display columns (id, name, class, height, ...) for ONLY the final top-N rows with a SECOND remote ` +
     `read that is cheaply PRUNED — filter it by a SMALL bbox around each top-N point (bbox predicate-pushdown skips ` +
