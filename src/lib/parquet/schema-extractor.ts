@@ -4,6 +4,7 @@ import type { CSVSchema } from "@/lib/types";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import { run } from "@/lib/sandbox/docker-utils";
+import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
 import { buildSchemaScript, buildRemoteParquetSchemaScript } from "./schema-script";
 import { duckdbRemoteAuthSql, type RemoteCreds } from "./duckdb-source";
@@ -65,12 +66,9 @@ async function runSchemaExtraction(args: {
       throw new Error("Parquet schema extraction produced no output");
     }
 
-    const rawJson = outputResult.stdout
-      .replace(/\bNaN\b/g, "null")
-      .replace(/\b-Infinity\b/g, "null")
-      .replace(/\bInfinity\b/g, "null");
-
-    const data = JSON.parse(rawJson) as {
+    // Parse first; regex-sanitize Python NaN/Infinity only on parse failure —
+    // the unconditional regex corrupted legitimate strings ("NaN Zhu").
+    const data = parseJsonWithPythonNonFinite(outputResult.stdout) as {
       row_count: number;
       columns: CSVSchema["columns"];
       sample_rows: CSVSchema["sample_rows"];

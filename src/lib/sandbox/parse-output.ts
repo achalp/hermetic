@@ -28,6 +28,31 @@ const OOM_ERROR =
   "compute nearest-neighbor distances, then fetch full attributes for ONLY the top-N results via a follow-up query. " +
   "Keep datasets['main'] to a bounded subset (e.g. the top-N), never the full multi-million-row frame.";
 
+/**
+ * Parse JSON that may contain Python's non-finite float tokens (NaN,
+ * Infinity, -Infinity), which are invalid JSON.
+ *
+ * Parse FIRST, and only fall back to the token→null regex when JSON.parse
+ * throws. Bare NaN/Infinity always makes JSON.parse fail, so the fallback is
+ * reliably reached when needed — while valid JSON containing strings like
+ * "NaN Zhu" or "Infinity Ward" is returned untouched. (The old
+ * regex-unconditionally approach corrupted those to "null Zhu"/"null Ward"
+ * in user-visible results.) The fallback regex can still touch string
+ * contents, but only on output that was not valid JSON to begin with.
+ *
+ * Throws like JSON.parse when the fallback can't parse either.
+ */
+export function parseJsonWithPythonNonFinite(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // NOTE: the sign must be folded into the Infinity pattern — the old
+    // `\b-Infinity\b` NEVER matched (no word boundary between a space and
+    // `-`), so `-Infinity` became `-null` and still failed to parse.
+    return JSON.parse(text.replace(/\bNaN\b/g, "null").replace(/-?\bInfinity\b/g, "null"));
+  }
+}
+
 export interface ParseSandboxOutputOpts {
   /** Read a file from the sandbox work dir; null when unreadable/absent. */
   readFile: (path: string) => Promise<string | null>;
@@ -79,15 +104,11 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     len: outputJson.length,
   });
 
-  // Replace Python NaN/Infinity with null for valid JSON
-  outputJson = outputJson
-    .replace(/\bNaN\b/g, "null")
-    .replace(/\b-Infinity\b/g, "null")
-    .replace(/\bInfinity\b/g, "null");
-
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(outputJson);
+    // Parse first; only regex-sanitize Python NaN/Infinity when the strict
+    // parse fails — see parseJsonWithPythonNonFinite for why.
+    parsed = parseJsonWithPythonNonFinite(outputJson) as Record<string, unknown>;
   } catch {
     return {
       success: false,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSandboxOutput } from "@/lib/sandbox/parse-output";
+import { parseSandboxOutput, parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 
 /** In-memory readFile adapter: a map of path → content (missing = null). */
 function io(files: Record<string, string>) {
@@ -111,5 +111,43 @@ describe("parseSandboxOutput", () => {
     });
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain("Failed to parse output as JSON");
+  });
+
+  it("does NOT corrupt legitimate strings containing NaN/Infinity tokens", async () => {
+    // Regression: the unconditional \bNaN\b→null regex over the raw JSON
+    // turned "NaN Zhu" into "null Zhu" and "Infinity Ward" into "null Ward"
+    // in user-visible results.
+    const result = await parseSandboxOutput({
+      ...base,
+      readFile: io({
+        "/data/output.json": JSON.stringify({
+          results: { top_author: "NaN Zhu", studio: "Infinity Ward" },
+          chart_data: {},
+        }),
+      }),
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.results).toEqual({ top_author: "NaN Zhu", studio: "Infinity Ward" });
+    }
+  });
+});
+
+describe("parseJsonWithPythonNonFinite", () => {
+  it("returns valid JSON untouched (strings with NaN/Infinity survive)", () => {
+    const obj = { name: "NaN Zhu", studio: "Infinity Ward", v: 1 };
+    expect(parseJsonWithPythonNonFinite(JSON.stringify(obj))).toEqual(obj);
+  });
+
+  it("sanitizes bare Python non-finite tokens only when strict parsing fails", () => {
+    expect(parseJsonWithPythonNonFinite('{"a": NaN, "b": Infinity, "c": -Infinity}')).toEqual({
+      a: null,
+      b: null,
+      c: null,
+    });
+  });
+
+  it("still throws on unparseable text", () => {
+    expect(() => parseJsonWithPythonNonFinite("not json at all")).toThrow();
   });
 });
