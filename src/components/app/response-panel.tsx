@@ -19,7 +19,6 @@ import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import type { InvestigateScope } from "@/lib/llm/investigate-planner";
-import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
@@ -128,7 +127,6 @@ interface ResponsePanelProps {
   onStreamEnd?: () => void;
   loadedSpec?: Spec | null;
   loadedArtifacts?: CachedArtifacts | null;
-  onSaved?: () => void;
   schemaMode?: SchemaMode;
   codeGenModel?: ModelId;
   uiComposeModel?: ModelId;
@@ -167,7 +165,6 @@ export function ResponsePanel({
   onStreamEnd,
   loadedSpec,
   loadedArtifacts,
-  onSaved,
   schemaMode = "metadata",
   codeGenModel,
   uiComposeModel,
@@ -272,30 +269,14 @@ export function ResponsePanel({
     ?.__warehouse_csv_id as string | undefined;
   const effectiveCsvId = csvId ?? warehouseCsvId ?? null;
 
-  const {
-    showArtifacts,
-    setShowArtifacts,
-    artifacts,
-    setArtifacts,
-    artifactsLoading,
-    artifactsError,
-    handleToggleArtifacts,
-  } = useArtifacts({ csvId: effectiveCsvId });
-
-  const {
-    saving,
-    saveMessage,
-    exporting,
-    handleSave,
-    handleExportPdf,
-    handleExportDocx,
-    handleExportPptx,
-  } = useSaveExport({
+  // Save/Export moved to the top bar — page.tsx owns the live useSaveExport
+  // instance. A second instance here was fully dead (none of its 7 values
+  // were consumed) yet kept its own state/effects per render and, worse,
+  // diverged from the page's on csvId (page uses csvId, this used
+  // effectiveCsvId) — a drift trap for whichever instance was "authoritative".
+  // Only the artifacts-panel state survives here.
+  const { showArtifacts, setShowArtifacts, artifacts, setArtifacts } = useArtifacts({
     csvId: effectiveCsvId,
-    currentSpecRef,
-    currentQuestionRef,
-    dashboardRef,
-    onSaved,
   });
 
   // Keep current question in sync

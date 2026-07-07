@@ -1436,7 +1436,6 @@ export default function Home() {
                   onStreamEnd={handleStreamEnd}
                   loadedSpec={loadedSpec}
                   loadedArtifacts={loadedArtifacts}
-                  onSaved={handleSaved}
                   schemaMode={schemaMode}
                   codeGenModel={codeGenModel}
                   uiComposeModel={uiComposeModel}
