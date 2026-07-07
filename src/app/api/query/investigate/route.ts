@@ -65,16 +65,8 @@ import {
   isLocalFile,
   isRemoteFile,
 } from "@/lib/csv/storage";
-import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
 import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
-import {
-  CODE_GEN_MODEL,
-  UI_COMPOSE_MODEL,
-  isValidModelId,
-  isValidRuntimeId,
-} from "@/lib/constants";
-import type { SandboxRuntimeId } from "@/lib/constants";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { getActiveProvider } from "@/lib/llm/client";
 import { logger } from "@/lib/logger";
 
@@ -114,22 +106,15 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as InvestigateBody;
     const context = body.context ?? {};
-    let csvId = context.csv_id;
-    const warehouseId = context.warehouse_id;
-    const question = (context.question ?? body.prompt ?? "").trim();
 
-    if (!csvId && !warehouseId) {
-      return new Response(
-        JSON.stringify({ error: "csv_id or warehouse_id is required in context" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-    if (!question) {
-      return new Response(JSON.stringify({ error: "question is required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    // ── Shared preamble step 1: ids/question 400s (lib/pipeline/
+    // validate-request.ts — same module Ask uses, so the two routes can't
+    // drift again). The provider gate below sits between the syntactic 400s
+    // and the resource 404s, preserving the route's check order. ──
+    const ids = validateQueryIds(context, body.prompt);
+    if (!ids.ok) return ids.response;
+    const { warehouseId, question } = ids;
+    let csvId = ids.csvId;
 
     // Investigate is a heavyweight cloud-LLM operation. Local backends are
     // gated at the UI level; refuse here as a safety net.
@@ -152,54 +137,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate model IDs (only for cloud providers)
-    const codeGenModel: string =
-      context.code_gen_model && isValidModelId(context.code_gen_model)
-        ? context.code_gen_model
-        : CODE_GEN_MODEL;
-    const uiComposeModel: string =
-      context.ui_compose_model && isValidModelId(context.ui_compose_model)
-        ? context.ui_compose_model
-        : UI_COMPOSE_MODEL;
-    const sandboxRuntime: SandboxRuntimeId =
-      context.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
-        ? context.sandbox_runtime
-        : getActiveSandboxRuntime();
+    // ── Shared preamble step 2: warehouse/CSV 404s + model/runtime
+    // resolution. Investigate skips the warehouse lookup when a csv_id
+    // exists (follow-up over an already-materialized pull) and 404s a
+    // missing CSV before streaming. ──
+    const sources = resolveQuerySources(ids, context, {
+      preferCsvOverWarehouse: true,
+      requireStoredCsv: true,
+    });
+    if (!sources.ok) return sources.response;
+    const { warehouseState, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
+
     // Compose notebook cells eagerly only when the client is in Notebook view;
     // otherwise they're composed lazily on Notebook-open (cost optimization).
     const composeCells = context.compose_cells !== false;
-
-    // Warehouse investigations: materialize the data with ONE broad SQL
-    // pull, then run the standard file-source investigation over the
-    // resulting CSV. Per-step SQL (each sub-question generating its own
-    // query) remains the deeper fast-follow — see specs/notebook-mode.
-    // Validate the connection before streaming so failures are clean 404s.
-    let warehouseState: {
-      warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
-      connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
-    } | null = null;
-    if (warehouseId && !csvId) {
-      const warehouse = getStoredWarehouse(warehouseId);
-      if (!warehouse) {
-        return new Response(
-          JSON.stringify({ error: "Warehouse not found or expired. Please reconnect." }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      const connector = getWarehouseConnector(warehouseId);
-      if (!connector) {
-        return new Response(JSON.stringify({ error: "Warehouse connector not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      warehouseState = { warehouse, connector };
-    } else if (!getStoredCSV(csvId!)) {
-      return new Response(JSON.stringify({ error: "CSV not found or expired" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
 
     // ── Stream begins ── (scaffold shared with Ask — lib/pipeline/patch-stream.ts)
     let datasetLabel = csvId ?? warehouseId ?? "dataset";

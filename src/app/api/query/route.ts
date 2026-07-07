@@ -15,14 +15,7 @@ import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
-import {
-  UI_COMPOSE_MODEL,
-  CODE_GEN_MODEL,
-  WAREHOUSE_SCAN_ROW_BUDGET,
-  isValidModelId,
-  isValidRuntimeId,
-} from "@/lib/constants";
-import type { SandboxRuntimeId } from "@/lib/constants";
+import { WAREHOUSE_SCAN_ROW_BUDGET } from "@/lib/constants";
 import type { ConversationTurn, SchemaMode } from "@/lib/types";
 import {
   getConversationTurns,
@@ -32,9 +25,8 @@ import {
 import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline/dashboard-compose";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { logger } from "@/lib/logger";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
-import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
+import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
@@ -46,9 +38,6 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { prompt, context } = body;
 
-    let csvId: string | undefined = context?.csv_id;
-    const warehouseId: string | undefined = context?.warehouse_id;
-    const question: string = context?.question ?? prompt ?? "";
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";
     const purpose: string = context?.purpose ?? "dashboard";
@@ -82,59 +71,17 @@ export async function POST(request: Request) {
       // No provider configured — will fail later in getModel()
     }
 
-    const codeGenModel: string =
-      !skipModelValidation && context?.code_gen_model && isValidModelId(context.code_gen_model)
-        ? context.code_gen_model
-        : CODE_GEN_MODEL;
-    const uiComposeModel: string =
-      !skipModelValidation && context?.ui_compose_model && isValidModelId(context.ui_compose_model)
-        ? context.ui_compose_model
-        : UI_COMPOSE_MODEL;
-    const sandboxRuntime: SandboxRuntimeId =
-      context?.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
-        ? context.sandbox_runtime
-        : getActiveSandboxRuntime();
+    // ── Shared preamble: ids/question 400s, warehouse 404s, model/runtime
+    // resolution (lib/pipeline/validate-request.ts — same module Investigate
+    // uses, so the two routes can't drift again). ──
+    const ids = validateQueryIds(context ?? {}, prompt);
+    if (!ids.ok) return ids.response;
+    const { warehouseId, question } = ids;
+    let csvId = ids.csvId;
 
-    if (!csvId && !warehouseId) {
-      return new Response(
-        JSON.stringify({ error: "csv_id or warehouse_id is required in context" }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    if (!question) {
-      return new Response(JSON.stringify({ error: "question is required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    // ── Warehouse: validate early (before streaming) ──────
-    let warehouseState: {
-      warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
-      connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
-    } | null = null;
-
-    if (warehouseId) {
-      const warehouse = getStoredWarehouse(warehouseId);
-      if (!warehouse) {
-        return new Response(
-          JSON.stringify({ error: "Warehouse not found or expired. Please reconnect." }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      const connector = getWarehouseConnector(warehouseId);
-      if (!connector) {
-        return new Response(JSON.stringify({ error: "Warehouse connector not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      warehouseState = { warehouse, connector };
-    }
+    const sources = resolveQuerySources(ids, context ?? {}, { skipModelValidation });
+    if (!sources.ok) return sources.response;
+    const { warehouseState, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
 
     // Stream immediately — emit progress patches as the pipeline runs, then
     // stream LLM output. The scaffold (emit/keepalive/progress semantics/
