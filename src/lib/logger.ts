@@ -30,7 +30,11 @@ function formatMessage(level: LogLevel, message: string, meta?: Record<string, u
       ...meta,
     });
   }
-  const prefix = `[${level.toUpperCase()}]`;
+  // Dev format carries a timestamp too: this app is debugged from dev logs
+  // of multi-minute pipelines, and without times you can't reconstruct
+  // stage latency or gaps.
+  const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
+  const prefix = `${ts} [${level.toUpperCase()}]`;
   const metaStr = meta ? ` ${JSON.stringify(meta)}` : "";
   return `${prefix} ${message}${metaStr}`;
 }
