@@ -40,8 +40,7 @@ import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { randomUUID } from "crypto";
 import { extractSchema } from "@/lib/csv/schema";
 import { parseCSV } from "@/lib/csv/parser";
-import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
-import { persistHistoryEntry } from "@/lib/history/persist";
+import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
 
 export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
 
@@ -529,34 +528,9 @@ export async function POST(request: Request) {
           })
         );
       },
-      // If the client disconnected mid-run it can't POST the result to history,
-      // so save it server-side from the assembled spec. (When still connected,
-      // the client saves after render; guarding on isClosed avoids a double
-      // save.) The analysis already ran — this stops it being wasted.
-      async (stream) => {
-        if (!stream.isClosed() || !csvId) return;
-        try {
-          const patches = [];
-          for (const line of stream.emittedLines) {
-            const t = line.trim();
-            if (!t || t.startsWith(":")) continue; // keepalive comment
-            try {
-              patches.push(JSON.parse(t));
-            } catch {
-              // non-JSON line (progress noise) — skip
-            }
-          }
-          const spec = assembleSpecFromPatches(patches);
-          if (spec) {
-            await persistHistoryEntry(csvId, spec as unknown as Record<string, unknown>, question);
-            logger.info("History saved server-side after client disconnect", { csvId });
-          }
-        } catch (persistErr) {
-          logger.warn("Server-side history save failed", {
-            error: persistErr instanceof Error ? persistErr.message : String(persistErr),
-          });
-        }
-      }
+      // Client disconnected mid-run → persist history server-side (shared with
+      // Investigate — see lib/history/persist-on-disconnect.ts).
+      (stream) => persistHistoryOnDisconnect(stream, csvId, question)
     );
   } catch (err) {
     logger.error("Query error", { error: err instanceof Error ? err.message : String(err) });
