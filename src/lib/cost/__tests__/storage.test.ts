@@ -7,6 +7,9 @@ vi.mock("fs/promises", () => ({
   writeFile: async (p: string, c: string) => {
     files.set(p, c);
   },
+  appendFile: async (p: string, c: string) => {
+    files.set(p, (files.get(p) ?? "") + c);
+  },
   readFile: async (p: string) => {
     if (!files.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     return files.get(p)!;
@@ -75,5 +78,42 @@ describe("cost storage round-trip", () => {
 
   it("returns [] when the cost dir is empty/missing", async () => {
     expect(await listCostRows()).toEqual([]);
+  });
+
+  it("does not drop rows on concurrent appends (the old read-modify-rewrite loss)", async () => {
+    // Regression: concurrent finishes (Ask + Investigate + compose-cell)
+    // raced on read→rewrite and silently lost rows.
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) => appendCostRow(row({ question: `q${i}` })))
+    );
+    const rows = await listCostRows();
+    expect(rows.map((r) => r.question).sort()).toEqual(
+      Array.from({ length: 8 }, (_, i) => `q${i}`).sort()
+    );
+  });
+
+  it("migrates a day file with a stale header (pre-run_id) once, then appends", async () => {
+    // Simulate an old-format file: no run_id column.
+    files.set(
+      "/dev/null-cost/2026-06-19.csv", // path shape doesn't matter to the mock…
+      ""
+    );
+    files.clear();
+    const oldCsv =
+      "timestamp,date,dataset,question,mode,models,llm_calls,input_tokens,cache_read_tokens,cache_write_tokens,output_tokens,cost_usd,phase_breakdown\r\n" +
+      "2026-06-19T08:00:00.000Z,2026-06-19,old.csv,legacy question,ask,m,1,10,0,0,5,0.000100,\r\n";
+    const dayPath = [...files.keys()][0];
+    void dayPath;
+    // Seed under the real path the module will use.
+    await appendCostRow(row({ question: "seed" })); // creates the file, learn its path
+    const realPath = [...files.keys()][0];
+    files.set(realPath, oldCsv);
+
+    await appendCostRow(row({ question: "post-migration" }));
+    const rows = await listCostRows();
+    const questions = rows.map((r) => r.question).sort();
+    expect(questions).toEqual(["legacy question", "post-migration"]);
+    // Both rows readable under the new header set (run_id column present).
+    expect(files.get(realPath)!.split("\n")[0]).toContain("run_id");
   });
 });

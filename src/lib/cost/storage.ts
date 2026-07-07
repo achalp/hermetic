@@ -7,7 +7,7 @@
  * question/dataset are quoted correctly. Single-user local tool, so the small
  * race on concurrent appends to the same day file is acceptable.
  */
-import { mkdir, readFile, writeFile, readdir } from "fs/promises";
+import { mkdir, readFile, writeFile, readdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 
@@ -68,20 +68,58 @@ function toStringRow(row: CostRow): Record<string, string> {
   };
 }
 
+/**
+ * In-process append serialization. The previous read-modify-rewrite raced on
+ * concurrent finishes (Ask + Investigate + compose-cell landing together) and
+ * silently dropped rows — the exact loss mode the diagnostics module's
+ * predecessor had (see run-diagnostics.ts header). Appends now go through a
+ * promise chain (single-process app, so an in-module mutex is sufficient) and
+ * each row is one appendFile — no rewrite, no loss, no interleaving.
+ */
+let appendChain: Promise<void> = Promise.resolve();
+
 /** Append one analysis's cost to data/cost/<date>.csv (creates header if new). */
-export async function appendCostRow(row: CostRow): Promise<void> {
+export function appendCostRow(row: CostRow): Promise<void> {
+  const next = appendChain.then(() => appendCostRowUnlocked(row));
+  // The chain must survive a failed append; the caller still sees the rejection.
+  appendChain = next.catch(() => {});
+  return next;
+}
+
+async function appendCostRowUnlocked(row: CostRow): Promise<void> {
   await mkdir(COST_DIR, { recursive: true });
   const file = join(COST_DIR, `${row.date}.csv`);
 
-  let existing: Record<string, string>[] = [];
-  try {
-    existing = parseCSV(await readFile(file, "utf-8")).data;
-  } catch {
-    // New day file.
+  // Serialize exactly one data row (strip the header papaparse prepends) and
+  // guarantee a trailing newline — toCSVText omits it, and two appended rows
+  // without a separator would merge into one unparseable line.
+  const single = toCSVText({ headers: [...COST_HEADERS], data: [toStringRow(row)], rowCount: 1 });
+  const newline = single.includes("\r\n") ? "\r\n" : "\n";
+  const rawLine = single.slice(single.indexOf("\n") + 1);
+  const line = rawLine.endsWith("\n") ? rawLine : rawLine + newline;
+  const headerLine = single.slice(0, single.indexOf("\n") + 1);
+
+  const existingHeader = await readFile(file, "utf-8").then(
+    (t) => t.slice(0, t.indexOf("\n") + 1),
+    () => null // new day file
+  );
+
+  if (existingHeader !== null && existingHeader !== headerLine) {
+    // One-time migration: the file predates a header change (e.g. the run_id
+    // column). Re-serialize the old rows under the current headers once —
+    // positional appends against a stale header would misalign every column.
+    const existing = parseCSV(await readFile(file, "utf-8")).data.map((r) => ({
+      ...Object.fromEntries(COST_HEADERS.map((h) => [h, r[h] ?? ""])),
+    }));
+    const migrated = toCSVText({
+      headers: [...COST_HEADERS],
+      data: existing,
+      rowCount: existing.length,
+    });
+    await writeFile(file, migrated.endsWith("\n") ? migrated : migrated + newline, "utf-8");
   }
-  const data = [...existing, toStringRow(row)];
-  const csv = toCSVText({ headers: [...COST_HEADERS], data, rowCount: data.length });
-  await writeFile(file, csv, "utf-8");
+
+  await appendFile(file, existingHeader === null ? headerLine + line : line, "utf-8");
 }
 
 /** All cost rows across all day files, newest analysis first. */
