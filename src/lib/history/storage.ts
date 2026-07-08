@@ -7,6 +7,20 @@ import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 
 const HISTORY_DIR = join(process.cwd(), "data", "history");
 
+/**
+ * Cap on persisted history entries (API-9). Every run writes
+ * meta/spec/code/schema/artifacts (+ source.csv for uploads) — unbounded,
+ * that's unbounded disk growth. History only grows via saves, so
+ * prune-on-save (oldest beyond the cap) fully bounds data/history/ without
+ * a background job. Override with HERMETIC_MAX_HISTORY_ENTRIES.
+ */
+const DEFAULT_MAX_HISTORY_ENTRIES = 200;
+
+function maxHistoryEntries(): number {
+  const raw = Number(process.env.HERMETIC_MAX_HISTORY_ENTRIES);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_HISTORY_ENTRIES;
+}
+
 let dirCreated = false;
 async function ensureDir(subdir?: string) {
   const dir = subdir ? join(HISTORY_DIR, subdir) : HISTORY_DIR;
@@ -118,7 +132,36 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
   }
 
   await Promise.all(writes);
+
+  // Cap enforcement — best-effort: a prune failure must not fail the save
+  // that triggered it (the new entry is already on disk at this point).
+  try {
+    await pruneHistory();
+  } catch {
+    // ignore
+  }
+
   return meta;
+}
+
+/**
+ * Delete the oldest entries beyond `max`, newest kept. Returns the number
+ * pruned. Per-entry deletion is best-effort — one stuck directory must not
+ * strand the rest.
+ */
+export async function pruneHistory(max = maxHistoryEntries()): Promise<number> {
+  if (!Number.isFinite(max) || max <= 0) return 0;
+  const metas = await listHistory(); // newest-first
+  let pruned = 0;
+  for (const victim of metas.slice(max)) {
+    try {
+      await deleteHistoryEntry(victim.id);
+      pruned++;
+    } catch {
+      // best-effort
+    }
+  }
+  return pruned;
 }
 
 export async function listHistory(): Promise<HistoryMeta[]> {

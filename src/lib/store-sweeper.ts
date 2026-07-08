@@ -9,9 +9,9 @@
  *
  * Single-process model (one Next.js server = one set of globalThis stores);
  * that constraint is why in-memory maps + this sweeper are sufficient.
- * NOTE: data/history/ is deliberately NOT auto-pruned here — deleting user
- * history is a product decision, not a leak fix (review finding API-9 tracks
- * it separately).
+ * NOTE: data/history/ is not swept here — it only grows via saves, so its
+ * cap is enforced at the write site instead (prune-on-save in
+ * lib/history/storage.ts, HERMETIC_MAX_HISTORY_ENTRIES; API-9).
  */
 import { logger } from "@/lib/logger";
 
