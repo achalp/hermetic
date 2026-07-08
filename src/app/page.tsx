@@ -192,6 +192,7 @@ export default function Home() {
 
   const {
     saving,
+    saveMessage,
     exporting,
     handleSave: doSave,
     handleExportPdf,
@@ -791,6 +792,17 @@ export default function Home() {
                 >
                   {saving ? "✓" : "Save"}
                 </button>
+                {/* Save/export status — failures were previously silent from
+                    the toolbar (the only consumer of saveMessage was a dead
+                    hook instance in ResponsePanel). */}
+                {saveMessage && (
+                  <span
+                    role="status"
+                    className={`text-xs ${saveMessage.includes("fail") ? "text-error-text" : "text-t-tertiary"}`}
+                  >
+                    {saveMessage}
+                  </span>
+                )}
                 <button
                   onClick={handleScheduleClick}
                   disabled={scheduleState.kind === "auto-saving" || saving || !!exporting}
