@@ -14,7 +14,6 @@ import { getConversationTurns } from "@/lib/pipeline/conversation-cache";
 import { saveHistoryEntry } from "@/lib/history/storage";
 import { summarizeSpec } from "@/lib/spec-summary";
 import type { HistoryMeta } from "@/lib/types";
-import type { Spec } from "@json-render/react";
 import { logger } from "@/lib/logger";
 
 export type PersistResult = { saved: true; meta: HistoryMeta } | { saved: false; reason: string };
@@ -65,7 +64,7 @@ export async function persistHistoryEntry(
   const turns = getConversationTurns(csvId);
   const lastTurn = turns[turns.length - 1];
   if (lastTurn && !lastTurn.specSummary) {
-    lastTurn.specSummary = summarizeSpec(spec as unknown as Spec);
+    lastTurn.specSummary = summarizeSpec(spec);
   }
 
   logger.info("History entry saved", { id: meta.id, question: meta.question.slice(0, 50) });

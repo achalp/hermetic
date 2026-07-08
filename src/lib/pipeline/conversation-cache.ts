@@ -1,7 +1,6 @@
 import type { ConversationTurn } from "@/lib/types";
 import type { CachedArtifacts } from "./artifacts-cache";
 import { summarizeSpec } from "@/lib/spec-summary";
-import type { Spec } from "@json-render/react";
 
 const TTL_MS = 30 * 60 * 1000; // 30 minutes — longer than artifact cache since conversations span multiple queries
 const MAX_TURNS = 5;
@@ -78,6 +77,6 @@ export function buildTurnFromArtifacts(
   return {
     question,
     analysisSummary: { resultKeys, chartDataShapes },
-    specSummary: summarizeSpec(spec as unknown as Spec),
+    specSummary: summarizeSpec(spec),
   };
 }

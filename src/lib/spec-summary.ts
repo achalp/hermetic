@@ -7,12 +7,24 @@ interface UIElementLike {
 }
 
 /**
+ * The summarizers only WALK a generic element tree — they never rely on the
+ * full json-render Spec type. Accepting the loose shape (what history/
+ * conversation storage actually hold) removes the `as unknown as Spec`
+ * assertion that three call sites repeated identically: a Spec shape change
+ * would have broken all three silently.
+ */
+export type SpecLike = Pick<Spec, never> & {
+  root?: unknown;
+  elements?: unknown;
+};
+
+/**
  * Produce a compact text summary of a spec for conversation context.
  * Much smaller than sending the full JSON to the LLM.
  */
-export function summarizeSpec(spec: Spec): string {
+export function summarizeSpec(spec: SpecLike): string {
   const elements = spec.elements as Record<string, UIElementLike> | undefined;
-  if (!elements || !spec.root) return "";
+  if (!elements || typeof spec.root !== "string" || !spec.root) return "";
   const lines: string[] = [];
   walkElement(spec.root, elements, lines, 0);
   return lines.join("\n");
@@ -84,9 +96,9 @@ function truncate(s: string, max: number): string {
  * (e.g. ["StatCard", "StatCard", "BarChart", "DataTable"]). Used by the
  * follow-up suggestion endpoint to tell the LLM what the user just saw.
  */
-export function extractSpecComponentTypes(spec: Spec): string[] {
+export function extractSpecComponentTypes(spec: SpecLike): string[] {
   const elements = spec.elements as Record<string, UIElementLike> | undefined;
-  if (!elements || !spec.root) return [];
+  if (!elements || typeof spec.root !== "string" || !spec.root) return [];
   const types: string[] = [];
   const walk = (key: string) => {
     const el = elements[key];
@@ -104,9 +116,9 @@ export function extractSpecComponentTypes(spec: Spec): string[] {
  * instructed to end with a plain-English methodology paragraph).
  * Falls back to concatenating all body-variant TextBlocks if only one exists.
  */
-export function extractDescription(spec: Spec): string {
+export function extractDescription(spec: SpecLike): string {
   const elements = spec.elements as Record<string, UIElementLike>;
-  if (!elements) return "";
+  if (!elements || typeof spec.root !== "string") return "";
 
   // Collect body-variant TextBlocks in document order by walking the tree
   const bodyTexts: string[] = [];
