@@ -59,9 +59,13 @@ export function ChartShell({
           )}
         </h3>
       )}
+      {/* One labeled graphic for assistive tech — the SVG internals a chart
+          library emits are noise to a screen reader (FE-8). */}
       <div
         className={`${isExpanded ? "flex-1" : ""}${bodyClassName ? ` ${bodyClassName}` : ""}`}
         style={{ height: isExpanded ? undefined : height }}
+        role="img"
+        aria-label={title || "Chart"}
       >
         {children}
       </div>

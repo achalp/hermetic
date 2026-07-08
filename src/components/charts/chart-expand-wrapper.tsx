@@ -133,19 +133,34 @@ function ExpandIcon() {
 }
 
 const btnBase =
-  "p-1.5 text-t-secondary shadow-sm backdrop-blur transition-opacity hover:text-t-primary bg-surface-btn/80 hover:bg-surface-btn";
+  "p-1.5 text-t-secondary shadow-sm backdrop-blur transition-opacity hover:text-t-primary bg-surface-btn/80 hover:bg-surface-btn focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent";
 
-const hoverVisible = "opacity-0 group-hover:opacity-100";
+// Also revealed by keyboard focus (FE-8) — hover-only made the copy/download/
+// expand controls invisible (and thus unusable) to keyboard users: they were
+// tabbable but stayed at opacity 0.
+const hoverVisible = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
 
 export function ChartExpandWrapper({ title, children }: ChartExpandWrapperProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  // The element that opened the dialog, so closing returns focus there
+  // instead of dropping keyboard users back to the top of the page.
+  const openerRef = useRef<HTMLElement | null>(null);
 
-  const close = useCallback(() => setExpanded(false), []);
+  const open = useCallback(() => {
+    openerRef.current = document.activeElement as HTMLElement | null;
+    setExpanded(true);
+  }, []);
+  const close = useCallback(() => {
+    setExpanded(false);
+    openerRef.current?.focus?.();
+  }, []);
 
   useEffect(() => {
     if (!expanded) return;
+    closeBtnRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
@@ -206,7 +221,7 @@ export function ChartExpandWrapper({ title, children }: ChartExpandWrapperProps)
         </button>
         <button
           type="button"
-          onClick={() => setExpanded(true)}
+          onClick={open}
           className={btnBase}
           style={{ borderRadius: "var(--radius-badge)" }}
           aria-label="Expand chart"
@@ -221,6 +236,9 @@ export function ChartExpandWrapper({ title, children }: ChartExpandWrapperProps)
           <div
             className="fixed inset-0 flex flex-col bg-black/50 backdrop-blur-sm"
             style={{ zIndex: 999 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title || "Chart"}
             onClick={(e) => {
               if (e.target === e.currentTarget) close();
             }}
@@ -270,6 +288,7 @@ export function ChartExpandWrapper({ title, children }: ChartExpandWrapperProps)
                     <DownloadIcon />
                   </button>
                   <button
+                    ref={closeBtnRef}
                     type="button"
                     onClick={close}
                     className="p-1.5 text-t-tertiary transition-colors hover:bg-surface-btn hover:text-t-primary"
