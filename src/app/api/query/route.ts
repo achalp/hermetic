@@ -25,7 +25,7 @@ import {
 import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline/dashboard-compose";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { logger, serializeError } from "@/lib/logger";
-import { getActiveProvider } from "@/lib/llm/client";
+import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
 import {
   validateQueryIds,
   resolveQuerySources,
@@ -78,12 +78,13 @@ export async function POST(request: Request) {
     const editedSql: string | undefined =
       typeof context?.sql === "string" && context.sql.trim().length > 0 ? context.sql : undefined;
 
-    // When Ollama or openai-compatible is active, skip Claude model ID validation
-    // since getModel() will use the Ollama/custom model directly
+    // Local providers use their own model ids — skip Claude model-ID
+    // validation. The capability lives in ONE place (providerCapabilities);
+    // the hand-maintained list here had drifted to omit mlx/llama-cpp, whose
+    // Ask requests silently fell back to Claude model ids.
     let skipModelValidation = false;
     try {
-      const provider = getActiveProvider();
-      skipModelValidation = provider === "ollama" || provider === "openai-compatible";
+      skipModelValidation = providerCapabilities(getActiveProvider()).skipModelValidation;
     } catch {
       // No provider configured — will fail later in getModel()
     }

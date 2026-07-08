@@ -56,7 +56,15 @@ vi.mock("@/lib/warehouse/storage", () => ({
 
 // getActiveProvider gates Investigate (refuses local providers, 400 on throw).
 const getActiveProvider = vi.fn(() => "anthropic");
-vi.mock("@/lib/llm/client", () => ({ getActiveProvider: () => getActiveProvider() }));
+vi.mock("@/lib/llm/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm/client")>();
+  return {
+    ...actual,
+    getActiveProvider: () => getActiveProvider(),
+    // providerCapabilities is pure — keep the real one so the capability
+    // contract (not a mock of it) is what these route tests exercise.
+  };
+});
 
 import { POST } from "../route";
 

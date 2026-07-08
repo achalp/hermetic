@@ -67,7 +67,7 @@ import {
 import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { readJsonBody } from "@/lib/api-schemas";
-import { getActiveProvider } from "@/lib/llm/client";
+import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
 import { logger, serializeError } from "@/lib/logger";
 
 export const maxDuration = 1260; // 21 min — investigations over large/remote datasets can run long
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
 
     // Investigate is a heavyweight cloud-LLM operation. Local backends are
     // gated at the UI level; refuse here as a safety net.
-    let activeProvider: string;
+    let activeProvider: ReturnType<typeof getActiveProvider>;
     try {
       activeProvider = getActiveProvider();
     } catch (err) {
@@ -130,7 +130,9 @@ export async function POST(request: Request) {
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
-    if (activeProvider === "ollama" || activeProvider === "mlx" || activeProvider === "llama-cpp") {
+    // Capability lives in ONE place (providerCapabilities) — this route's
+    // hand-maintained refusal list had drifted from Ask's validation list.
+    if (!providerCapabilities(activeProvider).supportsInvestigate) {
       return new Response(
         JSON.stringify({
           error:

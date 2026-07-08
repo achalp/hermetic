@@ -43,7 +43,15 @@ vi.mock("@/lib/llm/prompts", () => ({
 // getActiveProvider is called (in a try/catch) before validation. Default to
 // a benign cloud provider so it doesn't throw.
 const getActiveProvider = vi.fn(() => "anthropic");
-vi.mock("@/lib/llm/client", () => ({ getActiveProvider: () => getActiveProvider() }));
+vi.mock("@/lib/llm/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm/client")>();
+  return {
+    ...actual,
+    getActiveProvider: () => getActiveProvider(),
+    // providerCapabilities is pure — keep the real one so the capability
+    // contract (not a mock of it) is what these route tests exercise.
+  };
+});
 
 // Warehouse storage — the 404 branches read these. Default: not found.
 const getStoredWarehouse = vi.fn();

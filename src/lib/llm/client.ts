@@ -1026,6 +1026,36 @@ function track(model: ProviderModel, costKey: string, stripSampling = false): Pr
   });
 }
 
+/**
+ * Per-provider capabilities the routes need — previously each route
+ * hand-maintained its own provider list and they drifted: Ask skipped
+ * Claude model-ID validation for ollama/openai-compatible but NOT mlx/
+ * llama-cpp (whose Ask requests silently fell back to Claude IDs), while
+ * Investigate's local-provider refusal listed mlx/llama-cpp but not
+ * openai-compatible. Adding a provider now means adding one entry here.
+ */
+export function providerCapabilities(provider: LLMProviderId): {
+  /** Model ids are provider-native, not Claude ids — skip Claude validation. */
+  skipModelValidation: boolean;
+  /** Local backends plan/synthesize multi-step investigations poorly. */
+  supportsInvestigate: boolean;
+} {
+  switch (provider) {
+    case "anthropic":
+    case "bedrock":
+    case "vertex":
+      return { skipModelValidation: false, supportsInvestigate: true };
+    case "openai-compatible":
+      // A user-configured endpoint may front a capable cloud model —
+      // Investigate stays allowed (the pre-existing behavior).
+      return { skipModelValidation: true, supportsInvestigate: true };
+    case "mlx":
+    case "llama-cpp":
+    case "ollama":
+      return { skipModelValidation: true, supportsInvestigate: false };
+  }
+}
+
 export function getModel(internalModelId: string) {
   const provider = getActiveProvider();
   const client = createProviderClient(provider);
