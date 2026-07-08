@@ -10,11 +10,25 @@ import { csvValue } from "./csv-util";
 
 const { TCLIService_types } = thrift;
 
+/**
+ * Minimal structural view of the hive-driver session surface this connector
+ * uses — the previous `any` left every session/operation call unchecked.
+ */
+interface HiveOperation {
+  getSchema(): Promise<{ columns?: { columnName: string }[] } | null>;
+  fetchChunk(opts: { maxRows: number }): Promise<unknown[]>;
+  hasMoreRows(): Promise<boolean>;
+  close(): Promise<unknown>;
+}
+interface HiveSession {
+  executeStatement(sql: string, opts: { runAsync: boolean }): Promise<HiveOperation>;
+  close(): Promise<unknown>;
+}
+
 /** Convert a value to a CSV-safe string */
 export function createHiveConnector(config: HiveConnectionConfig): WarehouseConnector {
   const client = new HiveClient(TCLIService_types, TCLIService_types);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let session: any = null;
+  let session: HiveSession | null = null;
   let connected = false;
 
   const dbName = config.database || "default";
@@ -48,9 +62,12 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
     await client.connect({ host: config.host, port: config.port }, connection, authProvider);
     connected = true;
 
-    session = await client.openSession({
+    // Structural cast: hive-driver's own IOperation typings lag its runtime
+    // shape (fetchChunk exists at runtime but not in the .d.ts) — the
+    // interface above pins the surface this connector actually calls.
+    session = (await client.openSession({
       client_protocol: TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10,
-    });
+    })) as unknown as HiveSession;
 
     // Switch to the target database
     if (dbName !== "default") {
@@ -61,6 +78,7 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
   /** Execute a query on the current session and return rows */
   async function runSessionQuery(sql: string): Promise<{ columns: string[]; rows: unknown[][] }> {
     await ensureSession();
+    if (!session) throw new Error("Hive session failed to open");
 
     const operation = await session.executeStatement(sql, {
       runAsync: false,
