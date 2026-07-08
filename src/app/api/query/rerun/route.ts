@@ -21,6 +21,7 @@ import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cac
 import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 
 export const maxDuration = 300;
@@ -68,9 +69,11 @@ export async function POST(request: Request) {
         csvId: csv_id,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn("Rerun execution failed", { csv_id, error: msg });
-      return Response.json({ error: msg }, { status: 422 });
+      logger.warn("Rerun execution failed", {
+        csv_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return apiError("/api/query/rerun", err, String(err), 422);
     }
 
     const { executionResult } = pipelineResult;
@@ -93,8 +96,6 @@ export async function POST(request: Request) {
       artifacts: cachedArtifactData,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Rerun failed";
-    logger.error("Rerun endpoint failed", { error: msg });
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/query/rerun", err, "Rerun failed");
   }
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { apiError } from "@/lib/api-error";
 import { listSavedVisualizations } from "@/lib/saved/storage";
 
 export async function GET() {
@@ -6,7 +7,6 @@ export async function GET() {
     const vizs = await listSavedVisualizations();
     return NextResponse.json({ vizs });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list visualizations";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/vizs", err, "Failed to list visualizations");
   }
 }

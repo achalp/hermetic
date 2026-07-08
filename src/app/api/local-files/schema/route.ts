@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { stat, readFile } from "node:fs/promises";
 import { resolve, basename, extname } from "node:path";
 import {
@@ -180,7 +181,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: `Unsupported file type: ${ext}` }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to extract schema";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/local-files/schema", err, "Failed to extract schema");
   }
 }

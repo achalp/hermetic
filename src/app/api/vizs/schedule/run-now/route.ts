@@ -8,7 +8,7 @@
 
 import { getSchedule } from "@/lib/saved/schedule-storage";
 import { runScheduleNow } from "@/lib/saved/scheduler";
-import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 
 export const maxDuration = 300;
 
@@ -25,8 +25,6 @@ export async function POST(request: Request) {
     const result = await runScheduleNow(entry);
     return Response.json(result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Run-now failed";
-    logger.error("run-now failed", { error: msg });
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/vizs/schedule/run-now", err, "Run-now failed");
   }
 }

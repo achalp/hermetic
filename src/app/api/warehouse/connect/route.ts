@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { apiError } from "@/lib/api-error";
 import { createConnector } from "@/lib/warehouse/connector";
 import { storeWarehouse } from "@/lib/warehouse/storage";
 import { saveConnection } from "@/lib/warehouse/persist-env";
@@ -77,7 +78,6 @@ export async function POST(request: Request) {
       total_columns: tableSchemas.reduce((sum, t) => sum + t.columns.length, 0),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/warehouse/connect", err, "Unknown error");
   }
 }

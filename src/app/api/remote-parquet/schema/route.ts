@@ -8,7 +8,7 @@ import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { RemoteCreds } from "@/lib/types";
-import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 
 export const maxDuration = 300; // remote reads over the network can be slow
 
@@ -65,8 +65,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ csv_id: csvId, schema });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to read remote Parquet";
-    logger.warn("Remote Parquet schema failed", { error: message.slice(0, 300) });
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/remote-parquet/schema", err, "Failed to read remote Parquet");
   }
 }

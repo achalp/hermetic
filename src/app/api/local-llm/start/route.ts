@@ -1,3 +1,4 @@
+import { apiError } from "@/lib/api-error";
 import { startServer } from "@/lib/llm/process-manager";
 
 export async function POST(request: Request) {
@@ -24,7 +25,6 @@ export async function POST(request: Request) {
     // Client should poll /api/local-llm/status?backend=... until healthy.
     return Response.json({ success: true, status: "starting", ...result });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to start server";
-    return Response.json({ error: message }, { status: 500 });
+    return apiError("/api/local-llm/start", err, "Failed to start server");
   }
 }

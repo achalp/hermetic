@@ -1,5 +1,6 @@
 import { spawn, execSync } from "child_process";
 import type { ChildProcess } from "child_process";
+import { apiError } from "@/lib/api-error";
 import { logger } from "@/lib/logger";
 
 // ── Active download tracker ─────────────────────────────────────
@@ -229,8 +230,7 @@ export async function POST(request: Request) {
         headers: { "Content-Type": "application/x-ndjson", "Transfer-Encoding": "chunked" },
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to pull model";
-      return Response.json({ error: msg }, { status: 502 });
+      return apiError("/api/local-llm/download", err, "Failed to pull model", 502);
     }
   }
 

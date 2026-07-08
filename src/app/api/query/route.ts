@@ -25,6 +25,7 @@ import {
 import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline/dashboard-compose";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { logger, serializeError } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
 import {
   validateQueryIds,
@@ -464,11 +465,6 @@ export async function POST(request: Request) {
       (stream) => persistHistoryOnDisconnect(stream, csvId, question)
     );
   } catch (err) {
-    logger.error("Query error", serializeError(err));
-    const message = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return apiError("/api/query", err, String(err));
   }
 }

@@ -1,4 +1,5 @@
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
+import { apiError } from "@/lib/api-error";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -46,8 +47,7 @@ export async function GET(request: Request) {
 
     return Response.json({ headers, rows });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to fetch sample";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/warehouse/sample", err, "Failed to fetch sample");
   }
 }
 

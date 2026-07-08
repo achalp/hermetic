@@ -42,6 +42,7 @@ import { isValidRuntimeId, isValidModelId, LOCAL_MOUNT_PATH } from "@/lib/consta
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 import { trackRouteCost } from "@/lib/cost/epilogue";
 import path from "node:path";
 
@@ -157,9 +158,12 @@ async function handleRerunStep(request: Request) {
         additionalFiles: depFiles.length > 0 ? depFiles : undefined,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn("Step rerun execution failed", { csv_id, step_index, error: msg });
-      return Response.json({ error: msg }, { status: 422 });
+      logger.warn("Step rerun execution failed", {
+        csv_id,
+        step_index,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return apiError("/api/query/investigate/rerun-step", err, String(err), 422);
     }
 
     const exec = pipelineResult.executionResult;
@@ -231,8 +235,6 @@ async function handleRerunStep(request: Request) {
       dependents,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Step rerun failed";
-    logger.error("Step rerun endpoint failed", { error: msg });
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/query/investigate/rerun-step", err, "Step rerun failed");
   }
 }

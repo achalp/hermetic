@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolve } from "node:path";
+import { apiError } from "@/lib/api-error";
 import { getFileInfo } from "@/lib/local-files/browser";
 import {
   validateLocalOrigin,
@@ -69,7 +70,6 @@ export async function POST(request: Request) {
       info: infoMessage,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to access file";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiError("/api/local-files/select", err, "Failed to access file", 400);
   }
 }

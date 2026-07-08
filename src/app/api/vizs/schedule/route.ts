@@ -14,7 +14,7 @@ import {
   type ScheduleCadence,
 } from "@/lib/saved/schedule-storage";
 import { ensureSchedulerStarted } from "@/lib/saved/scheduler";
-import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 
 const VALID_CADENCES: ScheduleCadence[] = [
   "hourly",
@@ -62,9 +62,7 @@ export async function POST(request: Request) {
     await ensureSchedulerStarted();
     return Response.json({ ok: true, schedule: entry });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to set schedule";
-    logger.error("setSchedule failed", { error: msg });
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/vizs/schedule", err, "Failed to set schedule");
   }
 }
 
@@ -75,7 +73,6 @@ export async function DELETE(request: Request) {
     const removed = await deleteSchedule(body.vizId);
     return Response.json({ ok: true, removed });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to delete schedule";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/vizs/schedule", err, "Failed to delete schedule");
   }
 }

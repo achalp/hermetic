@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeGeoJSON, storeLocalFileRef } from "@/lib/csv/storage";
@@ -193,7 +194,6 @@ export async function POST(request: Request) {
       relationships,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Upload failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/upload", err, "Upload failed");
   }
 }

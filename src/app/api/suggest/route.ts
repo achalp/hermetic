@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { apiError } from "@/lib/api-error";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { SUGGEST_MODEL } from "@/lib/constants";
 import { trackRouteCost } from "@/lib/cost/epilogue";
@@ -227,7 +228,6 @@ async function handleSuggest(request: Request) {
 
     return Response.json({ questions });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to generate suggestions";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/suggest", err, "Failed to generate suggestions");
   }
 }

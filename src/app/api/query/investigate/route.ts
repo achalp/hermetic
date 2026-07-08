@@ -15,6 +15,7 @@
  */
 
 import type { Spec } from "@json-render/core";
+import { apiError } from "@/lib/api-error";
 import { generatePlan, type InvestigateScope } from "@/lib/llm/investigate-planner";
 import {
   runInvestigation,
@@ -125,10 +126,7 @@ export async function POST(request: Request) {
     try {
       activeProvider = getActiveProvider();
     } catch (err) {
-      return new Response(
-        JSON.stringify({ error: err instanceof Error ? err.message : "No LLM configured" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return apiError("/api/query/investigate", err, "No LLM configured", 400);
     }
     // Capability lives in ONE place (providerCapabilities) — this route's
     // hand-maintained refusal list had drifted from Ask's validation list.
@@ -939,10 +937,6 @@ export async function POST(request: Request) {
       (stream) => persistHistoryOnDisconnect(stream, csvId, question)
     );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Investigate failed";
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return apiError("/api/query/investigate", err, "Investigate failed");
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeGeoJSON, storeWorkbookManifest } from "@/lib/csv/storage";
@@ -145,8 +146,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       schema: newSchema,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Rerun failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/vizs/[id]/rerun", err, "Rerun failed");
   }
 }
 

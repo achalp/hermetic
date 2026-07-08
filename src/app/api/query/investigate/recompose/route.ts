@@ -21,6 +21,7 @@ import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator"
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import { isValidModelId, UI_COMPOSE_MODEL } from "@/lib/constants";
 import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 
 export const maxDuration = 300;
 
@@ -179,8 +180,6 @@ async function handleRecompose(request: Request) {
     });
     return Response.json({ ok: true, spec });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Recompose failed";
-    logger.error("Recompose endpoint failed", { error: msg });
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/query/investigate/recompose", err, "Recompose failed");
   }
 }

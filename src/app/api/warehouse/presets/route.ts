@@ -1,4 +1,5 @@
 import { loadConnections, removeConnection, renameConnection } from "@/lib/warehouse/persist-env";
+import { apiError } from "@/lib/api-error";
 
 export async function GET() {
   const connections = await loadConnections();
@@ -14,8 +15,7 @@ export async function PATCH(request: Request) {
     await renameConnection(id, name);
     return Response.json({ ok: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to rename connection";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/warehouse/presets", err, "Failed to rename connection");
   }
 }
 
@@ -28,7 +28,6 @@ export async function DELETE(request: Request) {
     await removeConnection(id);
     return Response.json({ ok: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to delete connection";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/warehouse/presets", err, "Failed to delete connection");
   }
 }
