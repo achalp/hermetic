@@ -46,6 +46,13 @@ export interface WarehouseConnector {
   close(): Promise<void>;
 }
 
+/**
+ * Driver factory. Everything about an engine EXCEPT its driver (dialect
+ * notes, prompt table naming, sample-query quoting, labels, display
+ * name/color) lives in engine-descriptor.ts — this switch stays separate
+ * only because the drivers are node-only imports and the descriptor must
+ * stay client-safe. New-engine checklist: see engine-descriptor.ts header.
+ */
 export function createConnector(config: WarehouseConnectionConfig): WarehouseConnector {
   const connector = ((): WarehouseConnector => {
     switch (config.type) {

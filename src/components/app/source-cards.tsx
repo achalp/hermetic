@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 
 interface SavedConn {
   id: string;
@@ -21,15 +22,10 @@ interface SourceCardsProps {
   onSavedConnect?: (id: string) => void;
 }
 
-const dotColors: Record<string, string> = {
-  postgresql: "#3b82f6",
-  bigquery: "#f59e0b",
-  clickhouse: "#10b981",
-  trino: "#8b5cf6",
-  hive: "#d97706",
-  snowflake: "#29b5e8",
-  databricks: "#ff3621",
-};
+// Brand colors live in the per-engine descriptor (ARCH-12).
+const dotColors: Record<string, string> = Object.fromEntries(
+  Object.entries(ENGINES).map(([type, engine]) => [type, engine.brandColor])
+);
 
 const cardBase =
   "source-card-hover flex flex-col items-center gap-3 cursor-pointer text-center transition-all duration-200";

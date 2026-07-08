@@ -2,6 +2,8 @@ import { readFile, writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import type { WarehouseConnectionConfig } from "@/lib/types";
+// Per-engine label lives in the engine descriptor (ARCH-12).
+import { connectionLabel } from "@/lib/warehouse/engine-descriptor";
 
 const CONNECTIONS_PATH = join(process.cwd(), ".warehouse-connections.json");
 
@@ -27,7 +29,7 @@ export async function loadConnections(): Promise<SavedConnection[]> {
       const migrated: SavedConnection[] = [
         {
           id: randomUUID(),
-          label: buildLabel(legacy),
+          label: connectionLabel(legacy),
           config: legacy,
           createdAt: new Date().toISOString(),
         },
@@ -45,10 +47,10 @@ export async function saveConnection(
   name?: string
 ): Promise<SavedConnection> {
   const connections = await loadConnections();
-  const label = buildLabel(config);
+  const label = connectionLabel(config);
 
   // Check for duplicate — same type + same target
-  const existingIdx = connections.findIndex((c) => buildLabel(c.config) === label);
+  const existingIdx = connections.findIndex((c) => connectionLabel(c.config) === label);
   if (existingIdx >= 0) {
     // Update existing config; preserve the user's friendly name unless a new
     // one was explicitly supplied (so reconnecting never wipes a rename).
@@ -89,25 +91,6 @@ export async function removeConnection(id: string): Promise<void> {
     await unlink(CONNECTIONS_PATH).catch(() => {});
   } else {
     await writeFile(CONNECTIONS_PATH, JSON.stringify(filtered, null, 2), "utf-8");
-  }
-}
-
-function buildLabel(config: WarehouseConnectionConfig): string {
-  switch (config.type) {
-    case "postgresql":
-      return `PostgreSQL: ${config.host}/${config.database}`;
-    case "bigquery":
-      return `BigQuery: ${config.projectId}.${config.dataset}`;
-    case "clickhouse":
-      return `ClickHouse: ${config.host}/${config.database}`;
-    case "trino":
-      return `Trino: ${config.host}/${config.catalog}.${config.schema}`;
-    case "hive":
-      return `Hive: ${config.host}/${config.database}`;
-    case "snowflake":
-      return `Snowflake: ${config.account}/${config.database}`;
-    case "databricks":
-      return `Databricks: ${config.serverHostname}/${config.catalog}`;
   }
 }
 

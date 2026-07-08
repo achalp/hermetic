@@ -8,6 +8,7 @@ import type {
   WarehouseTableSchema,
 } from "@/lib/types";
 import { getWarehouseSample, type SavedConnectionInfo } from "@/lib/api";
+import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 
 interface WarehouseConnectPanelProps {
   isConnected: boolean;
@@ -27,15 +28,10 @@ interface WarehouseConnectPanelProps {
 
 type Tab = "postgresql" | "bigquery" | "clickhouse" | "trino" | "hive" | "snowflake" | "databricks";
 
-const TAB_LABELS: Record<Tab, string> = {
-  postgresql: "PostgreSQL",
-  bigquery: "BigQuery",
-  clickhouse: "ClickHouse",
-  trino: "Trino",
-  hive: "Hive",
-  snowflake: "Snowflake",
-  databricks: "Databricks",
-};
+// Display names live in the per-engine descriptor (ARCH-12).
+const TAB_LABELS: Record<Tab, string> = Object.fromEntries(
+  Object.entries(ENGINES).map(([type, engine]) => [type, engine.displayName])
+) as Record<Tab, string>;
 
 export function WarehouseConnectPanel({
   isConnected,

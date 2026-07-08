@@ -5,11 +5,13 @@ import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from
 import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
 import { logger } from "@/lib/logger";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
+import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 
 /**
  * Build a description of all warehouse tables for the SQL generation prompt.
  */
 function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: WarehouseType): string {
+  const engine = ENGINES[warehouseType];
   return tables
     .map((t) => {
       const cols = t.columns
@@ -30,10 +32,9 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
       const fks = t.foreign_keys?.length
         ? t.foreign_keys
             .map((fk) => {
-              const refTable =
-                warehouseType === "bigquery"
-                  ? `\`${t.schema}.${fk.references_table}\``
-                  : fk.references_table;
+              const refTable = engine.qualifyFkRefs
+                ? engine.promptTableName(t.schema, fk.references_table)
+                : fk.references_table;
               return `  FOREIGN KEY (${fk.column}) REFERENCES ${refTable}(${fk.references_column})`;
             })
             .join("\n")
@@ -43,23 +44,8 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
       const rowNote =
         t.row_count_estimate > 0 ? ` -- ~${t.row_count_estimate.toLocaleString()} rows` : "";
 
-      // Use fully qualified names with proper quoting per dialect
-      let tableName: string;
-      if (warehouseType === "bigquery") {
-        tableName = `\`${t.schema}.${t.name}\``;
-      } else if (warehouseType === "trino") {
-        // Trino uses "catalog"."schema"."table" — schema field contains "catalog.schema"
-        tableName = `"${t.schema}"."${t.name}"`;
-      } else if (warehouseType === "hive" || warehouseType === "databricks") {
-        // Databricks uses three-part names; schema field is "catalog.schema"
-        tableName = `\`${t.schema}\`.\`${t.name}\``;
-      } else if (warehouseType === "snowflake") {
-        // Snowflake identifiers are case-sensitive when quoted; we render unquoted
-        // (uppercase) so the LLM produces SQL that matches whatever the model server returns.
-        tableName = `${t.schema}.${t.name}`;
-      } else {
-        tableName = `${t.schema}.${t.name}`;
-      }
+      // Fully qualified name with the engine's quoting (see engine-descriptor)
+      const tableName = engine.promptTableName(t.schema, t.name);
 
       // Render table-level dbt description as a SQL comment block above the CREATE
       const tableComment = t.description
@@ -71,22 +57,12 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
     .join("\n\n");
 }
 
-const DIALECT_NOTES: Record<WarehouseType, string> = {
-  postgresql: `Use PostgreSQL syntax. Use double quotes for identifiers if needed. Use :: for type casts. Use LIMIT for row limits.`,
-  bigquery: `Use Google BigQuery Standard SQL. Use backtick-quoted identifiers (\`project.dataset.table\`). Use LIMIT for row limits. Use APPROX_COUNT_DISTINCT for approximate counts. Date functions: DATE(), TIMESTAMP(), EXTRACT(). IMPORTANT: BigQuery does NOT support backslash escape sequences in strings or LIKE patterns. Do NOT use \\_  to escape underscores in LIKE — underscores are literal wildcard characters in LIKE. To match a literal underscore, use the LIKE ... ESCAPE clause (e.g., LIKE '%x_vendor' ESCAPE 'x') or use REGEXP_CONTAINS instead. To bound a scan, use a real DATE/TIMESTAMP column from the schema — do NOT filter on \`_PARTITIONTIME\`/\`_PARTITIONDATE\` unless the table is genuinely ingestion-time partitioned; on most tables those pseudo-columns are NULL for every row, so any comparison on them returns ZERO rows. GEOGRAPHY: a \`geometry\` column is often a POLYGON, not a point. ST_X / ST_Y require a single POINT and error on a polygon ("Argument to ST_X must be a single point geography") — wrap with ST_CENTROID(geom) first: ST_X(ST_CENTROID(geom)). ST_DISTANCE works on any geographies (polygons included), so use it directly; only point-EXTRACTION (ST_X/ST_Y) needs ST_CENTROID.`,
-  clickhouse: `Use ClickHouse SQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. Aggregation functions: countDistinct(), avg(), quantile(). Date functions: toDate(), toDateTime(), toYear(). IMPORTANT: When doing arithmetic (division, multiplication, percentage) on Decimal columns, ALWAYS cast operands to Float64 first using toFloat64() to avoid Decimal overflow errors. Example: toFloat64(price - open) / toFloat64(open) instead of (price - open) / open. ClickHouse does NOT support LATERAL joins or correlated subqueries in FROM/JOIN — a subquery in the FROM/JOIN list cannot reference columns from another table in the same query (errors "Lateral joins are not supported" / "Correlated column ... is found in the FROM clause"). To derive a value (e.g. a complexity bucket) from already-joined columns, compute it with multiIf()/CASE directly in the SELECT (or wrap the join in a subquery and compute it in the outer SELECT) — never via a CROSS JOIN to a subquery that references the other table's columns. Pre-aggregate each side in its OWN independent subquery, then JOIN them on key columns. Use HAVING (not a correlated subquery) to filter on aggregates. MEMORY (critical): a ClickHouse JOIN builds a hash table from the RIGHT table IN MEMORY, so joining two large row-level tables before aggregating hits "Query memory limit exceeded" (code 241). ALWAYS shrink each side in a subquery BEFORE the join: apply the WHERE filters AND aggregate to the join grain (e.g. collapse checks to one row per pull_request_number with anyIf/maxIf/countIf flags like "had a failed check") so you join compact per-key aggregates, not raw rows. Put the smaller / more-selectively-filtered table on the RIGHT of the JOIN. Never join raw fact tables and aggregate afterwards — aggregate first, then join. CO-OCCURRENCE / PAIRWISE ("which X occur together per group", "pairs that fail together"): do NOT self-join the fact table — that's a many-to-many explosion that times out. Instead collapse each group to a DISTINCT array first (\`SELECT group_key, groupUniqArray(item) AS items FROM ... GROUP BY group_key\`), then form pairs WITHIN each small array by ARRAY JOINing it twice with a \`<\` guard (\`... ARRAY JOIN items AS a ARRAY JOIN items AS b ... WHERE a < b GROUP BY a, b\`). This reads the table once and pairs only within each group, so it scales.`,
-  trino: `Use Trino (Presto) SQL syntax. Use double quotes for identifiers. Use catalog.schema.table fully qualified names. Use LIMIT for row limits. Use APPROX_DISTINCT for approximate counts. Cast with CAST(x AS type). Date functions: date(), current_date, date_trunc(). String: concat(), substr(). Arrays: ARRAY[], UNNEST().`,
-  hive: `Use HiveQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. String concat: concat(). Date functions: to_date(), date_format(), datediff(). No INTERSECT or EXCEPT. For exploding arrays use LATERAL VIEW EXPLODE. Use CAST to avoid integer division. Subqueries in WHERE are supported but correlated subqueries are limited.`,
-  snowflake: `Use Snowflake SQL. Identifiers default to UPPERCASE unless double-quoted. Use LIMIT for row limits. Use QUALIFY for window-function filtering. Use IFF(a, b, c) instead of IF. Date functions: TO_DATE(), DATEADD(unit, n, date), DATE_TRUNC(part, expr). String: ||, CONCAT(), SUBSTR(). Use APPROX_COUNT_DISTINCT for approximate counts. Variant/object functions: GET_PATH(), FLATTEN(). For percentile: PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col).`,
-  databricks: `Use Databricks SQL (Spark SQL flavor with Unity Catalog). Use three-part names \`catalog\`.\`schema\`.\`table\` for cross-schema queries. Identifiers in backticks. Use LIMIT for row limits. Date functions: date_trunc('unit', col), date_format(col, 'pattern'), date_add(col, n). Array functions: explode(), array_contains(). Use APPROX_COUNT_DISTINCT for approximate counts. PERCENTILE/PERCENTILE_APPROX for percentiles. No QUALIFY — use a subquery with ROW_NUMBER instead. String concat: concat() or ||.`,
-};
-
 function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
   return `You are a SQL expert. Given a natural language question and a database schema, generate a single SQL query that answers the question.
 
 ## Rules
 - Output ONLY the SQL query. No explanation, no markdown fencing, no comments.
-- ${DIALECT_NOTES[warehouseType]}
+- ${ENGINES[warehouseType].dialectNotes}
 - The query MUST return a result set (SELECT statement). Never write DDL/DML.
 - Include appropriate JOINs when the question requires data from multiple tables. Use the foreign key relationships provided.
 - Use aggregations (GROUP BY, COUNT, SUM, AVG) when the question asks for summaries.
