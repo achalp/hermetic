@@ -1,3 +1,4 @@
+import "server-only";
 import { readFile, writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";

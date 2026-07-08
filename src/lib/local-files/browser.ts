@@ -1,3 +1,4 @@
+import "server-only";
 import { readdir, stat } from "node:fs/promises";
 import { join, extname, basename } from "node:path";
 import { homedir } from "node:os";

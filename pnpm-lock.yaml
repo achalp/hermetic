@@ -179,6 +179,9 @@ importers:
       react-plotly.js:
         specifier: ^2.6.0
         version: 2.6.0(plotly.js@3.6.0(mapbox-gl@1.13.3))(react@19.2.3)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
       snowflake-sdk:
         specifier: ^2.4.0
         version: 2.4.3(asn1.js@5.4.1)
@@ -653,6 +656,7 @@ packages:
 
   '@clickhouse/client-common@1.21.0':
     resolution: {integrity: sha512-UjvA32aaLKbQ5U735qAGdzohrOrfU8zFoOWIOWorWQk+7UzHZxq6pf4Uh/wQ08zAMb9cmkd9h9N1FV8zP8UCOg==}
+    deprecated: 'Deprecated: import from @clickhouse/client or @clickhouse/client-web instead.'
 
   '@clickhouse/client@1.21.0':
     resolution: {integrity: sha512-HJLHX60clPFV4ZYjhd9Radgfqkl0MX6T4GDaS6CK4K2cpMWW4uIDPzXjueIVJh+LRVt1pi7kJKn8BWjmbGAlEA==}
@@ -6338,6 +6342,9 @@ packages:
     resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
     engines: {node: '>=10'}
     hasBin: true
+
+  server-only@0.0.1:
+    resolution: {integrity: sha512-qepMx2JxAa5jjfzxG79yPPq+8BuFToHd1hm7kI+Z4zAq1ftQiP7HcxMhDDItrbtwVeLg/cY2JnKnrcFkmiswNA==}
 
   set-function-length@1.2.2:
     resolution: {integrity: sha512-pgRc4hJ4/sNjWCSS9AmnS40x3bNMDTknHgL5UaMBTMyJnU90EgWh1Rz+MC9eFu4BuN/UwZjKQuY/1v3rM7HMfg==}
@@ -14597,6 +14604,8 @@ snapshots:
   semver@6.3.1: {}
 
   semver@7.8.4: {}
+
+  server-only@0.0.1: {}
 
   set-function-length@1.2.2:
     dependencies:

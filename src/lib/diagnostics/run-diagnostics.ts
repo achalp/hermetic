@@ -17,6 +17,7 @@
  * appendFile — no read-modify-write, so no races, no loss. Output:
  * data/diagnostics/<date>.jsonl (one run per line). Strictly best-effort.
  */
+import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, appendFile } from "fs/promises";
 import { join } from "path";

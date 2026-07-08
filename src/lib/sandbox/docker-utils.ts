@@ -1,3 +1,4 @@
+import "server-only";
 import { execFile } from "node:child_process";
 import type { ExecutionResult } from "@/lib/types";
 import { parseSandboxOutput } from "./parse-output";

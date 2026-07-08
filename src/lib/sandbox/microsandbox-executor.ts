@@ -1,3 +1,4 @@
+import "server-only";
 import { PythonSandbox } from "microsandbox";
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";

@@ -1,3 +1,4 @@
+import "server-only";
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";

@@ -16,6 +16,7 @@
  * exports are deferred to v2 (need headless browser).
  */
 
+import "server-only";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";

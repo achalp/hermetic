@@ -1,3 +1,4 @@
+import "server-only";
 import type { WarmSandboxBackend } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";

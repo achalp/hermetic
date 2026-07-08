@@ -46,6 +46,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // `server-only` throws under vitest's default resolve condition (its
+      // job is to fail CLIENT bundles at next-build time; vitest is neither
+      // graph). Stub it so node-only lib modules stay importable in tests.
+      "server-only": path.resolve(__dirname, "./src/test-stubs/server-only.ts"),
     },
   },
 });
