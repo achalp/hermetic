@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   sanitizeSheetName,
   buildWorkbookContext,
-  buildRetryPrompt,
   buildRetryPromptMulti,
   buildCodeGenSystemPrompt,
   buildCodeGenUserPrompt,
@@ -229,11 +228,11 @@ describe("buildWorkbookContext", () => {
   });
 });
 
-// ── buildRetryPrompt / buildRetryPromptMulti ──────────────────────
+// ── buildRetryPromptMulti (the ONLY retry-prompt builder production uses) ──
 
-describe("buildRetryPrompt", () => {
+describe("buildRetryPromptMulti — single attempt", () => {
   it("embeds the original code and error, labelled as the previous code", () => {
-    const out = buildRetryPrompt("print(broken)", "NameError: broken");
+    const out = buildRetryPromptMulti([{ code: "print(broken)", error: "NameError: broken" }]);
     expect(out).toContain("Your previous code failed. Fix it.");
     expect(out).toContain("### Your previous code");
     expect(out).toContain("print(broken)");
@@ -244,7 +243,7 @@ describe("buildRetryPrompt", () => {
 
   it("includes a schema context block when a schema is provided", () => {
     const s = schema("data.csv", [catColumn("region")], 42);
-    const out = buildRetryPrompt("code", "err", s);
+    const out = buildRetryPromptMulti([{ code: "code", error: "err" }], s);
     expect(out).toContain("## Available Columns");
     expect(out).toContain("Filename: data.csv (42 rows)");
     expect(out).toContain("- region (string)");

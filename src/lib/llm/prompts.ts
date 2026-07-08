@@ -570,19 +570,6 @@ function formatConversationTurns(turns: ConversationTurn[]): string {
     .join("\n\n");
 }
 
-export function buildCodeGenChatPrompt(
-  schema: CSVSchema,
-  question: string,
-  turns: ConversationTurn[],
-  mode: SchemaMode = "metadata",
-  workbookContext?: string,
-  localFileContext?: string
-): string {
-  return `${buildConversationHistorySection(turns)}${buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)}
-## Question
-${question}`;
-}
-
 /** The "Prior Analysis Context" block for chat follow-ups (empty when none). */
 export function buildConversationHistorySection(turns: ConversationTurn[]): string {
   if (turns.length === 0) return "";
@@ -669,10 +656,6 @@ export function buildWorkbookContext(
 }
 
 // ── Retry prompt ──────────────────────────────────────────────────
-
-export function buildRetryPrompt(originalCode: string, error: string, schema?: CSVSchema): string {
-  return buildRetryPromptMulti([{ code: originalCode, error }], schema);
-}
 
 /**
  * Build a retry prompt that includes ALL prior failed attempts, not just the

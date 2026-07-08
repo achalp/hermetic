@@ -195,14 +195,6 @@ export async function getOrCreateSandbox(): Promise<PythonSandbox> {
   return sandbox;
 }
 
-/**
- * Pre-warm the sandbox: create it and install packages.
- * Called from /api/runtimes/warmup during startup.
- */
-export async function warmupSandbox(): Promise<void> {
-  await getOrCreateSandbox();
-}
-
 export async function executeSandbox(
   csvContent: string,
   code: string,
