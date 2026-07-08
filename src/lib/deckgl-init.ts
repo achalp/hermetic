@@ -18,7 +18,13 @@ luma.registerAdapters([webgl2Adapter]);
 // inside luma.gl's CanvasContext, so it can't be caught by React
 // error boundaries or DeckGL's onError. It's harmless — the next
 // resize event succeeds once the device is fully initialized.
-if (typeof window !== "undefined") {
+// The window.onerror / capture-listener / console.error layers below exist
+// ONLY to keep Next's DEV error overlay from popping on the benign luma.gl
+// race — the tested source-level fix is patch-resize-observer. In production
+// there is no overlay, and a session-wide console.error filter is the
+// riskiest of the layers (it drops ANY error mentioning the string, from any
+// code), so all three layers are dev-gated.
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
   // ResizeObserver is patched in "@/lib/patch-resize-observer" (imported first)
   // to swallow the benign luma.gl race at its source. The listeners below are a
   // belt-and-suspenders backup for any path that still surfaces it.
