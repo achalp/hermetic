@@ -426,8 +426,23 @@ export function ResponsePanel({
     return () => {
       drillDownCallbackRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveCsvId, warehouseId, send]);
+    // The effect is a cheap ref reassignment, so the full dep list is fine.
+    // It previously listed only [effectiveCsvId, warehouseId, send] behind an
+    // exhaustive-deps disable while the callback SENT schemaMode / models /
+    // runtime / purpose / viewMode — so changing a setting after mount made
+    // subsequent drill-downs silently use the stale values until the csvId
+    // happened to change.
+  }, [
+    effectiveCsvId,
+    warehouseId,
+    send,
+    schemaMode,
+    codeGenModel,
+    uiComposeModel,
+    sandboxRuntime,
+    purpose,
+    viewMode,
+  ]);
 
   // Track live-stream state for the abort diagnostics above.
   useEffect(() => {
