@@ -69,4 +69,48 @@ describe("buildRunDiagnostics", () => {
     expect(rec.steps).toHaveLength(0);
     expect(rec.summary.totalRetries).toBe(0);
   });
+
+  it("persists stage transitions — numeric step means the step-grouping can't carry them", () => {
+    // Regression (OBS-9 follow-through): emitProgress emits {stage, step: number,
+    // total}; the string-keyed grouping silently dropped these from the record.
+    const rec = buildRunDiagnostics(
+      [
+        { type: "stage", stage: "planning", step: 1, total: 5 },
+        { type: "stage", stage: "investigating", step: 2, total: 5 },
+      ],
+      META
+    );
+    expect(rec.stages).toEqual([
+      { stage: "planning", step: 1, total: 5 },
+      { stage: "investigating", step: 2, total: 5 },
+    ]);
+    expect(rec.steps).toHaveLength(0); // not misfiled as sub-question steps
+  });
+
+  it("persists failure evidence verbatim (sandbox_failure, investigation_failed)", () => {
+    // OBS-8/OBS-10: these run-scoped events have no step key and were dropped —
+    // exactly the runs that most need a post-mortem trail left none.
+    const failedTrail = {
+      type: "investigation_failed",
+      error: "compose blew up",
+      partialSteps: [{ stepNo: 1, question: "Q0", status: "success", code: "print(0)" }],
+      decisions: [],
+    };
+    const rec = buildRunDiagnostics(
+      [
+        { type: "sandbox_failure", runtime: "docker", exitCode: 137, stderrHead: "Killed" },
+        failedTrail,
+      ],
+      META
+    );
+    expect(rec.failures).toHaveLength(2);
+    expect(rec.failures![0]).toMatchObject({ type: "sandbox_failure", exitCode: 137 });
+    expect(rec.failures![1]).toMatchObject(failedTrail);
+  });
+
+  it("omits stages/failures keys entirely on a clean run", () => {
+    const rec = buildRunDiagnostics([{ type: "step_done", step: "Q1", status: "ok" }], META);
+    expect(rec.stages).toBeUndefined();
+    expect(rec.failures).toBeUndefined();
+  });
 });

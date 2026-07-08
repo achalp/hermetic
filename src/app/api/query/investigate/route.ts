@@ -171,6 +171,9 @@ export async function POST(request: Request) {
 
         await runWithCostTracking(() =>
           runWithDiagnostics(async () => {
+            // Hoisted above the try so the catch can persist the partial
+            // per-step trail when the run dies mid-investigation (OBS-8).
+            let trailRecorder: TraceRecorder | null = null;
             try {
               // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
               // The pull is intentionally row-level (not pre-aggregated): the
@@ -432,6 +435,7 @@ export async function POST(request: Request) {
               // lives in lib — see TraceRecorder in investigation-trace.ts. The
               // onProgress handler below keeps only the stream-emit wiring.
               const recorder = new TraceRecorder();
+              trailRecorder = recorder;
 
               // Warm the code-gen prompt cache before the first wave fans out in
               // parallel, so concurrent sub-questions read it instead of each
@@ -895,6 +899,16 @@ export async function POST(request: Request) {
               logger.error("Investigate: failed", {
                 ...serializeError(err),
                 error: msg.slice(0, 500),
+              });
+              // Persist the partial trail (per-step question/status/error/
+              // code) into the run's diagnostics record — the epilogue in
+              // `finally` writes it. Failed runs are the ones that most need
+              // a post-mortem trail, and the in-memory artifacts cache only
+              // gets a trace when the run completes (OBS-8).
+              diagEvent("investigation_failed", {
+                error: msg.slice(0, 500),
+                partialSteps: trailRecorder?.partialTrail() ?? [],
+                decisions: trailRecorder?.decisions ?? [],
               });
               emit(
                 JSON.stringify({

@@ -88,6 +88,19 @@ export interface RunDiagnostics {
   llmCalls?: number;
   materialization?: MaterializationDiag;
   steps: StepDiag[];
+  /**
+   * Progress-stage transitions in order ("stage" events from emitProgress).
+   * These carry a NUMERIC step counter, so the string-keyed step grouping
+   * above silently dropped them — the OBS-9 events never reached disk.
+   */
+  stages?: { stage: string; step?: number; total?: number }[];
+  /**
+   * Run-scoped failure evidence, persisted verbatim: sandbox_failure
+   * (stderr/stdout tails, exit code) and investigation_failed (the partial
+   * per-step trail — question/status/error/code — of a run that died
+   * mid-investigation). These have no step key, so they too were dropped.
+   */
+  failures?: DiagEvent[];
   summary: {
     subQuestions: number;
     escalated: number;
@@ -159,6 +172,18 @@ export function buildRunDiagnostics(
     }
   }
 
+  // Run-scoped event families (no string `step` key — the grouping above
+  // can't carry them, and dropping them loses the failure post-mortem trail).
+  const stages = events
+    .filter((e) => e.type === "stage")
+    .map((e) => ({
+      stage: String(e.stage ?? ""),
+      step: typeof e.step === "number" ? e.step : undefined,
+      total: typeof e.total === "number" ? e.total : undefined,
+    }));
+  const FAILURE_EVENT_TYPES = new Set(["sandbox_failure", "investigation_failed"]);
+  const failures = events.filter((e) => FAILURE_EVENT_TYPES.has(e.type));
+
   const steps = order.map((k) => stepMap.get(k)!);
   const retryClassCounts: Record<string, number> = {};
   let totalRetries = 0;
@@ -179,6 +204,8 @@ export function buildRunDiagnostics(
     llmCalls: meta.llmCalls,
     materialization,
     steps,
+    stages: stages.length ? stages : undefined,
+    failures: failures.length ? failures : undefined,
     summary: {
       subQuestions: steps.length,
       escalated: steps.filter((s) => s.escalated).length,

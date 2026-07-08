@@ -103,4 +103,65 @@ describe("TraceRecorder", () => {
     expect(r.decisions).toHaveLength(0);
     expect(r.sourceByIndex.size).toBe(0);
   });
+
+  it("accumulates the partial trail mid-run — what a failed run persists (OBS-8)", () => {
+    const r = new TraceRecorder();
+    r.record({ kind: "sub_started", index: 0, question: "Q0" });
+    r.record({
+      kind: "sub_finished",
+      index: 0,
+      stepResult: {
+        index: 0,
+        question: "Q0",
+        rationale: "",
+        result: { generatedCode: "print(0)", sql: "SELECT 0" },
+      } as never,
+    });
+    r.record({ kind: "sub_started", index: 1, question: "Q1" });
+    r.record({ kind: "sub_failed", index: 1, error: "NameError: x" });
+    r.record({ kind: "sub_started", index: 2, question: "Q2" });
+    // Run dies here — step 2 still running, nothing returned by the orchestrator.
+
+    const trail = r.partialTrail();
+    expect(trail.map((s) => [s.stepNo, s.status])).toEqual([
+      [1, "success"],
+      [2, "failed"],
+      [3, "running"],
+    ]);
+    expect(trail[0].code).toBe("print(0)");
+    expect(trail[0].sql).toBe("SELECT 0");
+    expect(trail[1].error).toBe("NameError: x");
+    expect(trail[2].question).toBe("Q2");
+  });
+
+  it("partial trail: degraded carries its reason; amended steps appear; removed marked", () => {
+    const r = new TraceRecorder();
+    r.record({ kind: "sub_started", index: 0, question: "Q0" });
+    r.record({
+      kind: "sub_degraded",
+      index: 0,
+      degradedReason: "all zeros",
+      stepResult: {
+        index: 0,
+        question: "Q0",
+        rationale: "",
+        result: { generatedCode: "print(1)" },
+      } as never,
+    });
+    r.record({
+      kind: "subs_amended",
+      amendmentSource: "replanner",
+      addedSteps: [{ index: 2, question: "Q2-added" }],
+      removedIndices: [1],
+    });
+
+    const trail = r.partialTrail();
+    expect(trail.map((s) => [s.index, s.status])).toEqual([
+      [0, "degraded"],
+      [1, "removed"],
+      [2, "pending"],
+    ]);
+    expect(trail[0].degradedReason).toBe("all zeros");
+    expect(trail[2].question).toBe("Q2-added");
+  });
 });
