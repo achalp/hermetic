@@ -17,25 +17,11 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/types";
 import type { WarehouseConnector } from "./connector";
+import { csvValue, rowsToCsv } from "./csv-util";
 
 type Row = Record<string, unknown>;
 
 /** Convert a value to a CSV-safe string, handling nulls properly. */
-function csvValue(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  let s: string;
-  if (v instanceof Date) {
-    s = v.toISOString();
-  } else if (typeof v === "object") {
-    s = JSON.stringify(v);
-  } else {
-    s = String(v);
-  }
-  return s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
 export function createDatabricksConnector(config: DatabricksConnectionConfig): WarehouseConnector {
   const catalog = config.catalog;
   const schemaName = config.schema ?? "default";
@@ -157,11 +143,7 @@ export function createDatabricksConnector(config: DatabricksConnectionConfig): W
       // Databricks returns nested objects/arrays as JS values; use the first
       // row's keys for the header (matches existing connector behavior).
       const headers = Object.keys(rows[0]);
-      const lines = [headers.map(csvValue).join(",")];
-      for (const row of rows) {
-        lines.push(headers.map((h) => csvValue(row[h])).join(","));
-      }
-      return lines.join("\n") + "\n";
+      return rowsToCsv(headers, rows);
     },
 
     async close() {

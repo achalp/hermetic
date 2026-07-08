@@ -6,20 +6,13 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/types";
 import type { WarehouseConnector } from "./connector";
+import { csvValue, rowsToCsv } from "./csv-util";
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
 /** Convert a value to a CSV-safe string, handling nulls properly */
-function csvValue(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  return s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
 export function createPostgresConnector(config: PostgresConnectionConfig): WarehouseConnector {
   // Use Pool instead of Client for automatic connection management,
   // reconnection on failure, and proper connection lifecycle handling.
@@ -177,11 +170,7 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
       if (!res.rows.length) return "";
 
       const headers = res.fields.map((f) => f.name);
-      const lines = [headers.map(csvValue).join(",")];
-      for (const row of res.rows) {
-        lines.push(headers.map((h) => csvValue(row[h])).join(","));
-      }
-      return lines.join("\n") + "\n";
+      return rowsToCsv(headers, res.rows);
     },
 
     async close() {

@@ -6,16 +6,9 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/types";
 import type { WarehouseConnector } from "./connector";
+import { csvValue } from "./csv-util";
 
 /** Convert a value to a CSV-safe string */
-function csvValue(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  return s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
 /** Escape a SQL string literal value (prevents injection via config values) */
 function escapeSqlString(s: string): string {
   return s.replace(/'/g, "''");

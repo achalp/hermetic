@@ -6,18 +6,11 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/types";
 import type { WarehouseConnector } from "./connector";
+import { csvValue } from "./csv-util";
 
 const { TCLIService_types } = thrift;
 
 /** Convert a value to a CSV-safe string */
-function csvValue(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  return s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
 export function createHiveConnector(config: HiveConnectionConfig): WarehouseConnector {
   const client = new HiveClient(TCLIService_types, TCLIService_types);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

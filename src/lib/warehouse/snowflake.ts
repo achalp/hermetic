@@ -17,27 +17,13 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/types";
 import type { WarehouseConnector } from "./connector";
+import { csvValue, rowsToCsv } from "./csv-util";
 
 interface SnowflakeRow {
   [key: string]: unknown;
 }
 
 /** Convert a value to a CSV-safe string, handling nulls properly. */
-function csvValue(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  let s: string;
-  if (v instanceof Date) {
-    s = v.toISOString();
-  } else if (typeof v === "object") {
-    s = JSON.stringify(v);
-  } else {
-    s = String(v);
-  }
-  return s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
 export function createSnowflakeConnector(config: SnowflakeConnectionConfig): WarehouseConnector {
   const databaseName = config.database.toUpperCase();
   const schemaName = (config.schema ?? "PUBLIC").toUpperCase();
@@ -225,11 +211,7 @@ export function createSnowflakeConnector(config: SnowflakeConnectionConfig): War
       if (rows.length === 0) return "";
 
       const headers = Object.keys(rows[0]);
-      const lines = [headers.map(csvValue).join(",")];
-      for (const row of rows) {
-        lines.push(headers.map((h) => csvValue(row[h])).join(","));
-      }
-      return lines.join("\n") + "\n";
+      return rowsToCsv(headers, rows);
     },
 
     async close() {
