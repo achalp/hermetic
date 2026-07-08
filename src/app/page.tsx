@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
-import Image from "next/image";
 import type { Spec } from "@json-render/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { QueryInput, type QueryMode } from "@/components/app/query-input";
@@ -23,6 +22,11 @@ import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { StyleSelector } from "@/components/app/style-selector";
 import { StyleDropdown } from "@/components/app/style-dropdown";
 import { useSaveExport } from "@/hooks/use-save-export";
+import { useVizActions } from "@/hooks/use-viz-actions";
+import { useSourceSelect } from "@/hooks/use-source-select";
+import { useHistoryRestore } from "@/hooks/use-history-restore";
+import { PreviewStrip } from "@/components/app/preview-strip";
+import { RefreshProgress } from "@/components/app/refresh-progress";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 import { CostFooter, type CostInfo } from "@/components/app/cost-footer";
 import { useArtifacts } from "@/hooks/use-artifacts";
@@ -43,21 +47,7 @@ import { useWarehouse } from "@/hooks/use-warehouse";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
-import {
-  checkLlmReady,
-  getLocalBackendConfig,
-  loadViz,
-  refreshViz,
-  rerunViz,
-  saveViz,
-  uploadFile,
-  extractLocalSchema,
-  extractRemoteParquetSchema,
-  type RemoteParquetCreds,
-  saveHistoryEntry,
-  loadHistoryEntry,
-  refreshHistoryEntry,
-} from "@/lib/api";
+import { checkLlmReady, getLocalBackendConfig, saveHistoryEntry } from "@/lib/api";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -125,11 +115,7 @@ export default function Home() {
   // Lifted here from QueryInput so suggestion pills and history replays
   // inherit whichever mode the user toggled the input to.
   const [queryMode, setQueryMode] = useState<QueryMode>("ask");
-  const [showLocalBrowser, setShowLocalBrowser] = useState(false);
-  const [isExtractingLocalSchema, setIsExtractingLocalSchema] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const rerunVizIdRef = useRef<string | null>(null);
 
   const dashboardRef = useRef<HTMLDivElement>(null);
   const currentSpecRef = useRef<Spec | null>(loadedSpec ?? null);
@@ -245,91 +231,14 @@ export default function Home() {
     currentSpecRef.current = loadedSpec ?? null;
   }, [loadedSpec]);
 
-  // ── Restore from history (?restore=id) ────────────────────
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const restoreId = params.get("restore");
-    if (!restoreId) return;
-
-    // Clean up URL
-    window.history.replaceState({}, "", "/");
-
-    // Load the history entry (same pattern as handleLoadViz)
-    dispatch({ type: "LOAD_VIZ_START" });
-    loadHistoryEntry(restoreId)
-      .then((data) => {
-        if (data.csvId) {
-          handleUpload(data.csvId, data.schema as unknown as import("@/lib/types").CSVSchema);
-        }
-        dispatch({
-          type: "LOAD_VIZ_SUCCESS",
-          question: data.meta.question,
-          spec: data.spec as unknown as import("@json-render/react").Spec,
-          artifacts:
-            (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
-            null,
-        });
-      })
-      .catch((err) => {
-        console.error("Failed to restore history entry:", err);
-        dispatch({ type: "LOAD_VIZ_ERROR" });
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Re-run from history (?rerun_history=id) ────────────────
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const rerunId = params.get("rerun_history");
-    if (!rerunId) return;
-
-    window.history.replaceState({}, "", "/");
-
-    // First load the entry to check source type before attempting refresh
-    loadHistoryEntry(rerunId)
-      .then(async (data) => {
-        const isWarehouse = data.meta.sourceType === "warehouse";
-        const canRefresh = !isWarehouse || !!warehouse.warehouseId;
-
-        if (canRefresh) {
-          dispatch({ type: "RERUN_START" });
-          dispatch({ type: "REFRESH_STAGE", stage: "loading" });
-          await new Promise((r) => setTimeout(r, 100));
-          dispatch({ type: "REFRESH_STAGE", stage: "executing" });
-          const result = await refreshHistoryEntry(rerunId, warehouse.warehouseId, sandboxRuntime);
-          dispatch({ type: "REFRESH_STAGE", stage: "composing" });
-          handleUpload(result.csvId, result.schema as unknown as import("@/lib/types").CSVSchema);
-          // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
-          dispatch({
-            type: "RERUN_FAST_SUCCESS",
-            spec: result.spec as unknown as import("@json-render/react").Spec,
-            artifacts:
-              (result.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
-              null,
-          });
-        } else {
-          // Warehouse without active connection — just restore
-          if (data.csvId) {
-            handleUpload(data.csvId, data.schema as unknown as import("@/lib/types").CSVSchema);
-          }
-          dispatch({
-            type: "LOAD_VIZ_SUCCESS",
-            question: data.meta.question,
-            spec: data.spec as unknown as import("@json-render/react").Spec,
-            artifacts:
-              (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
-              null,
-          });
-        }
-      })
-      .catch(() => {
-        // RERUN_ERROR clears refreshStage in the reducer.
-        dispatch({ type: "RERUN_ERROR" });
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // URL-driven history restore / re-run (?restore= / ?rerun_history=) —
+  // see use-history-restore.ts.
+  useHistoryRestore({
+    dispatch,
+    handleUpload,
+    warehouseId: warehouse.warehouseId,
+    sandboxRuntime,
+  });
 
   // Close export dropdown on outside click
   useEffect(() => {
@@ -408,214 +317,49 @@ export default function Home() {
     }).catch(() => {});
   }, []);
 
+  // Local/remote/upload/sample source selection — see use-source-select.ts.
+  const {
+    showLocalBrowser,
+    setShowLocalBrowser,
+    isExtractingLocalSchema,
+    handleLocalFileSelect,
+    handleRemoteFileSelect,
+    processUploadFile,
+    handleSampleData,
+    resetSourceSelect,
+  } = useSourceSelect({ handleUpload, handleExcelSheets });
+
   const handleReset = useCallback(() => {
     reset();
     warehouse.reset();
     resetPage(); // RESET returns to initialState → loadedVizId/refreshStage null
     setShowWarehouseForm(false);
-    setShowLocalBrowser(false);
-    setIsExtractingLocalSchema(false);
-  }, [reset, warehouse, resetPage]);
+    resetSourceSelect();
+  }, [reset, warehouse, resetPage, resetSourceSelect]);
 
-  const handleLocalFileSelect = useCallback(
-    async (path: string, type: "file" | "folder") => {
-      setIsExtractingLocalSchema(true);
-      try {
-        const data = await extractLocalSchema(path, type);
-        if (data.csv_id && data.schema) {
-          handleUpload(data.csv_id, data.schema);
-          setShowLocalBrowser(false);
-        } else if (data.excel_id && data.sheets) {
-          handleExcelSheets(
-            data.excel_id,
-            data.filename ?? "local.xlsx",
-            data.sheets!,
-            data.relationships ?? []
-          );
-          setShowLocalBrowser(false);
-        }
-      } catch (err) {
-        console.error("Local file schema extraction failed:", err);
-      } finally {
-        setIsExtractingLocalSchema(false);
-      }
-    },
-    [handleUpload, handleExcelSheets]
-  );
-
-  const handleRemoteFileSelect = useCallback(
-    async (url: string, creds?: RemoteParquetCreds) => {
-      setIsExtractingLocalSchema(true);
-      try {
-        const data = await extractRemoteParquetSchema(url, creds);
-        handleUpload(data.csv_id, data.schema);
-        setShowLocalBrowser(false);
-      } finally {
-        setIsExtractingLocalSchema(false);
-      }
-    },
-    [handleUpload]
-  );
-
-  // Shared upload path: used by both the hidden <input> and files dropped
-  // directly onto the upload card. Routes Excel workbooks to the sheet picker.
-  const processUploadFile = useCallback(
-    async (file: File) => {
-      try {
-        const formData = new FormData();
-        formData.append("csv", file);
-        const data = await uploadFile(formData);
-        if (data.excel_id && data.sheets) {
-          handleExcelSheets(
-            data.excel_id,
-            data.filename ?? file.name,
-            data.sheets,
-            data.relationships ?? []
-          );
-        } else if (data.csv_id && data.schema) {
-          handleUpload(data.csv_id, data.schema);
-        }
-      } catch (err) {
-        console.error("Upload failed:", err);
-      }
-    },
-    [handleExcelSheets, handleUpload]
-  );
-
-  const handleSampleData = useCallback(async () => {
-    try {
-      const response = await fetch("/sample-data/sales-data.csv");
-      const blob = await response.blob();
-      const file = new File([blob], "sales-data.csv", { type: "text/csv" });
-      const formData = new FormData();
-      formData.append("csv", file);
-      const data = await uploadFile(formData);
-      if (data.csv_id && data.schema) {
-        handleUpload(data.csv_id, data.schema);
-      }
-    } catch (err) {
-      console.error("Sample data load failed:", err);
-    }
-  }, [handleUpload]);
-
-  const handleLoadViz = useCallback(
-    async (vizId: string) => {
-      dispatch({ type: "LOAD_VIZ_START" });
-      try {
-        const data = await loadViz(vizId);
-        if (data.workbook) {
-          loadWorkbookUpload(
-            data.csvId,
-            data.schema,
-            data.workbook.filename,
-            data.workbook.sheetInfo,
-            data.workbook.relationships
-          );
-        } else {
-          handleUpload(data.csvId, data.schema);
-        }
-        dispatch({
-          type: "LOAD_VIZ_SUCCESS",
-          question: data.meta.question,
-          spec: data.spec as unknown as Spec,
-          artifacts: data.artifacts ?? null,
-          vizId,
-        });
-      } catch (err) {
-        console.error("Load viz failed:", err);
-        dispatch({ type: "LOAD_VIZ_ERROR" });
-      }
-    },
-    [handleUpload, loadWorkbookUpload, dispatch]
-  );
-
-  const handleRerunViz = useCallback((vizId: string) => {
-    rerunVizIdRef.current = vizId;
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleRerunFileSelected = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      const vizId = rerunVizIdRef.current;
-      if (!file || !vizId) return;
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      dispatch({ type: "RERUN_START" });
-      try {
-        const result = await rerunViz(vizId, file, sandboxRuntime);
-        if (result.schemaMatch) {
-          handleUpload(result.csvId, result.schema);
-          dispatch({
-            type: "RERUN_FAST_SUCCESS",
-            spec: result.spec as unknown as Spec,
-            artifacts: result.artifacts ?? null,
-            vizId,
-          });
-        } else {
-          handleUpload(result.csvId, result.schema);
-          // RERUN_STREAM_START sets loadedVizId from its vizId in the reducer.
-          dispatch({ type: "RERUN_STREAM_START", question: result.question!, vizId });
-        }
-      } catch (err) {
-        console.error("Rerun failed:", err);
-        dispatch({ type: "RERUN_ERROR" });
-      }
-    },
-    [dispatch, handleUpload, sandboxRuntime]
-  );
-
-  const handleRerunFromToolbar = useCallback(() => {
-    if (loadedVizId) handleRerunViz(loadedVizId);
-  }, [loadedVizId, handleRerunViz]);
-
-  const handleRefreshViz = useCallback(
-    async (vizId: string) => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      dispatch({ type: "RERUN_START" });
-      dispatch({ type: "REFRESH_STAGE", stage: "loading" });
-      try {
-        // Brief delay so "loading" stage is visible before the fetch begins
-        await new Promise((r) => setTimeout(r, 100));
-        dispatch({ type: "REFRESH_STAGE", stage: "executing" });
-        const result = await refreshViz(vizId, warehouse.warehouseId, sandboxRuntime);
-        dispatch({ type: "REFRESH_STAGE", stage: "composing" });
-        handleUpload(result.csvId, result.schema);
-        // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
-        dispatch({
-          type: "RERUN_FAST_SUCCESS",
-          spec: result.spec as unknown as Spec,
-          artifacts: result.artifacts ?? null,
-          vizId,
-        });
-      } catch (err) {
-        console.error("Refresh failed:", err);
-        // RERUN_ERROR clears refreshStage — the stuck-spinner invariant now
-        // lives in the reducer, not in per-callsite finally blocks.
-        dispatch({ type: "RERUN_ERROR" });
-      }
-    },
-    [dispatch, handleUpload, warehouse.warehouseId, sandboxRuntime]
-  );
-
-  const handleRefreshFromToolbar = useCallback(() => {
-    if (loadedVizId) handleRefreshViz(loadedVizId);
-  }, [loadedVizId, handleRefreshViz]);
-
-  // Auto-save after incompatible rerun
-  useEffect(() => {
-    if (!isAnalyzing && pendingRerunVizId && csvId && loadedSpec) {
-      saveViz(csvId, loadedSpec, currentQuestion ?? "Analysis", pendingRerunVizId)
-        .then(() => {
-          dispatch({ type: "CLEAR_PENDING_RERUN" });
-          dispatch({ type: "VIZ_SAVED" });
-        })
-        .catch((err) => {
-          console.error("Auto-save after rerun failed:", err);
-          dispatch({ type: "CLEAR_PENDING_RERUN" });
-        });
-    }
-  }, [isAnalyzing, pendingRerunVizId, csvId, loadedSpec, currentQuestion, dispatch]);
+  // Saved-viz load / re-run / refresh + auto-save-after-rerun — see
+  // use-viz-actions.ts. Owns the hidden rerun file input's ref.
+  const {
+    fileInputRef,
+    handleLoadViz,
+    handleRerunViz,
+    handleRerunFileSelected,
+    handleRerunFromToolbar,
+    handleRefreshViz,
+    handleRefreshFromToolbar,
+  } = useVizActions({
+    dispatch,
+    handleUpload,
+    loadWorkbookUpload,
+    warehouseId: warehouse.warehouseId,
+    sandboxRuntime,
+    loadedVizId,
+    isAnalyzing,
+    pendingRerunVizId,
+    csvId,
+    loadedSpec,
+    currentQuestion,
+  });
 
   // ── Question suggestions (initial + follow-up) — see use-suggestions.ts ──
   // Drives off `lastCompleteSpec` (captured from ResponsePanel.onAnalysisComplete),
@@ -1342,154 +1086,5 @@ export default function Home() {
         />
       )}
     </>
-  );
-}
-
-// ── Payoff preview strip ──────────────────────────────────────
-// Two real Hermetic-generated dashboards (light + dark) shown as framed
-// thumbnails so a first-time visitor sees the output before committing data.
-
-const PREVIEWS = [
-  {
-    src: "/previews/dashboard-light.png",
-    alt: "Generated dashboard: scatter, radar, and a statistical test",
-    w: 1100,
-    h: 557,
-  },
-  {
-    src: "/previews/dashboard-dark.png",
-    alt: "Generated sales dashboard with KPIs, filters, and charts",
-    w: 900,
-    h: 620,
-  },
-] as const;
-
-function PreviewStrip() {
-  return (
-    <div className="flex w-full flex-col items-center gap-2" style={{ maxWidth: 700 }}>
-      <div
-        className="source-cards-grid grid w-full"
-        style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}
-      >
-        {PREVIEWS.map((p) => (
-          <div
-            key={p.src}
-            style={{
-              overflow: "hidden",
-              borderRadius: "var(--radius-card)",
-              border: "1px solid var(--color-border-default)",
-              boxShadow: "var(--shadow-card)",
-            }}
-          >
-            <Image
-              src={p.src}
-              alt={p.alt}
-              width={p.w}
-              height={p.h}
-              unoptimized
-              sizes="(max-width: 767px) 100vw, 342px"
-              style={{
-                display: "block",
-                width: "100%",
-                height: 200,
-                objectFit: "cover",
-                objectPosition: "center",
-              }}
-            />
-          </div>
-        ))}
-      </div>
-      <span className="text-t-tertiary" style={{ fontSize: 12 }}>
-        Real dashboards generated from one question — charts, stats, and narrative.
-      </span>
-    </div>
-  );
-}
-
-// ── Refresh progress stepper ──────────────────────────────────
-
-const REFRESH_STEPS = [
-  { key: "loading", label: "Loaded saved analysis", activeLabel: "Loading saved analysis..." },
-  { key: "executing", label: "Ran computations", activeLabel: "Running computations..." },
-  { key: "composing", label: "Composed dashboard", activeLabel: "Composing dashboard..." },
-] as const;
-
-function RefreshProgress({
-  stage,
-}: {
-  stage: "loading" | "querying" | "executing" | "composing" | null;
-}) {
-  const stageIndex =
-    stage === "loading"
-      ? 0
-      : stage === "querying"
-        ? 0
-        : stage === "executing"
-          ? 1
-          : stage === "composing"
-            ? 2
-            : -1;
-
-  return (
-    <div className="flex justify-center py-16" role="status" aria-live="polite">
-      <div
-        className="grid gap-x-8 gap-y-1.5 text-sm"
-        style={{ gridTemplateColumns: "repeat(2, auto)" }}
-      >
-        {REFRESH_STEPS.map((step, i) => {
-          const isCompleted = i < stageIndex;
-          const isActive = i === stageIndex;
-
-          if (isCompleted) {
-            return (
-              <div key={step.key} className="flex items-center gap-2 text-t-secondary">
-                <svg
-                  className="h-4 w-4 text-success-text"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {step.label}
-              </div>
-            );
-          }
-
-          if (isActive) {
-            return (
-              <div key={step.key} className="flex items-center gap-2 font-medium text-accent">
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                {step.activeLabel}
-              </div>
-            );
-          }
-
-          return (
-            <div key={step.key} className="flex items-center gap-2 text-t-tertiary">
-              <span className="inline-block h-4 w-4" />
-              {step.label}
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }

@@ -45,7 +45,7 @@ interface PageState {
   refreshStage: "loading" | "querying" | "executing" | "composing" | null;
 }
 
-type PageAction =
+export type PageAction =
   | { type: "QUERY"; question: string; mode?: QueryMode }
   | { type: "STREAM_END" }
   | { type: "RESET" }
@@ -180,6 +180,9 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
       return { ...state, pendingRerunVizId: null };
   }
 }
+
+/** The page reducer's dispatch — what the extracted action hooks accept. */
+export type PageDispatch = (action: PageAction) => void;
 
 export function usePageState() {
   const [state, dispatch] = useReducer(pageReducer, initialState);
