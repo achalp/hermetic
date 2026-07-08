@@ -28,6 +28,46 @@ async function ensureDir() {
   }
 }
 
+/**
+ * Active sweep for the store-sweeper (see lib/store-sweeper.ts). Expiry was
+ * previously lazy-only (checked inside getStoredCSV), so entries never read
+ * again lived forever, and a server restart emptied the index while the
+ * on-disk files under tmpdir/hermetic accumulated as orphans.
+ */
+export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans: number }> {
+  const now = Date.now();
+  let expired = 0;
+  for (const [csvId, entry] of store) {
+    const isLocal = !!(entry.localPath || entry.localFolderPath);
+    if (!isLocal && now - entry.createdAt > CSV_TTL_MS) {
+      store.delete(csvId);
+      manifestStore.delete(csvId);
+      unlink(entry.filePath).catch(() => {});
+      unlink(join(CSV_DIR, `${csvId}.geojson`)).catch(() => {});
+      expired++;
+    }
+  }
+  // Orphaned files: on disk but not in the index (e.g. written before a
+  // restart). Age-gated by mtime so an in-flight write is never touched.
+  let orphans = 0;
+  try {
+    const { readdir, stat } = await import("fs/promises");
+    for (const name of await readdir(CSV_DIR)) {
+      const id = name.replace(/\.(csv|geojson)$/, "");
+      if (store.has(id)) continue;
+      const full = join(CSV_DIR, name);
+      const info = await stat(full).catch(() => null);
+      if (info && now - info.mtimeMs > CSV_TTL_MS) {
+        await unlink(full).catch(() => {});
+        orphans++;
+      }
+    }
+  } catch {
+    // dir may not exist yet
+  }
+  return { expired, orphans };
+}
+
 export async function storeCSV(csvId: string, csvText: string, schema: CSVSchema): Promise<void> {
   await ensureDir();
   const filePath = join(CSV_DIR, `${csvId}.csv`);

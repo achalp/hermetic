@@ -27,3 +27,16 @@ export function getCachedCode(csvId: string): { code: string; question: string }
   }
   return { code: entry.code, question: entry.question };
 }
+
+/** Active sweep (see lib/store-sweeper.ts) — expiry was lazy-read-only. */
+export function sweepExpiredCodeCache(): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [k, v] of cache) {
+    if (now - v.cachedAt > CODE_CACHE_TTL_MS) {
+      cache.delete(k);
+      swept++;
+    }
+  }
+  return swept;
+}

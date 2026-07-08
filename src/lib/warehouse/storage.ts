@@ -36,6 +36,24 @@ export function getWarehouseConnector(warehouseId: string): WarehouseConnector |
   return connectors.get(warehouseId);
 }
 
+/**
+ * Active sweep (see lib/store-sweeper.ts): expired entries previously lived
+ * until the next lazy read — including their LIVE connector pools (open
+ * sockets, credentialed sessions), which never closed if the warehouse id
+ * was never accessed again after its TTL.
+ */
+export function sweepExpiredWarehouses(): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [id, entry] of store) {
+    if (now - entry.createdAt > CSV_TTL_MS) {
+      removeWarehouse(id); // closes the connector too
+      swept++;
+    }
+  }
+  return swept;
+}
+
 export function removeWarehouse(warehouseId: string): void {
   const connector = connectors.get(warehouseId);
   if (connector) {

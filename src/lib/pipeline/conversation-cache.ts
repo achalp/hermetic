@@ -80,3 +80,16 @@ export function buildTurnFromArtifacts(
     specSummary: summarizeSpec(spec),
   };
 }
+
+/** Active sweep (see lib/store-sweeper.ts) — expiry was lazy-read-only. */
+export function sweepExpiredConversations(): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [k, v] of cache) {
+    if (now - v.updatedAt > TTL_MS) {
+      cache.delete(k);
+      swept++;
+    }
+  }
+  return swept;
+}

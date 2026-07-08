@@ -54,3 +54,16 @@ export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
     investigation: entry.investigation,
   };
 }
+
+/** Active sweep (see lib/store-sweeper.ts) — expiry was lazy-read-only. */
+export function sweepExpiredArtifacts(): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [k, v] of cache) {
+    if (now - v.cachedAt > ARTIFACTS_CACHE_TTL_MS) {
+      cache.delete(k);
+      swept++;
+    }
+  }
+  return swept;
+}

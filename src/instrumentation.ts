@@ -9,4 +9,9 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { raiseServerTimeouts } = await import("./instrumentation-node");
   await raiseServerTimeouts();
+  // Periodic expiry for the in-memory stores + tmpdir orphan cleanup —
+  // previously all lazy-read-only, so never-touched entries (including live
+  // warehouse connector pools) leaked. See lib/store-sweeper.ts.
+  const { startStoreSweeper } = await import("./lib/store-sweeper");
+  startStoreSweeper();
 }
