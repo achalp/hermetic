@@ -211,8 +211,44 @@ export async function writeRunDiagnostics(meta: {
       "utf-8"
     );
   } catch (err) {
-    logger.debug("writeRunDiagnostics failed (best-effort)", {
+    // warn, not debug: if the diagnostics writes silently break, the record
+    // that explains escalations/retries/degradations disappears and nobody
+    // notices until the next post-mortem needs it.
+    logger.warn("writeRunDiagnostics failed (best-effort)", {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+/**
+ * Read persisted run records, newest first — the in-app reader for the JSONL
+ * this module writes. It previously had no consumer at all (cost has
+ * /api/cost + listCostRows; diagnostics required shell jq archaeology).
+ */
+export async function listRunDiagnostics(limit = 100): Promise<RunDiagnostics[]> {
+  const { readdir, readFile } = await import("fs/promises");
+  let files: string[];
+  try {
+    files = (await readdir(DIAG_DIR)).filter((f) => f.endsWith(".jsonl")).sort();
+  } catch {
+    return []; // dir doesn't exist yet
+  }
+  const records: RunDiagnostics[] = [];
+  // Newest day files first; within a file, later lines are later runs.
+  for (const f of files.reverse()) {
+    try {
+      const lines = (await readFile(join(DIAG_DIR, f), "utf-8")).trim().split("\n").reverse();
+      for (const line of lines) {
+        try {
+          records.push(JSON.parse(line) as RunDiagnostics);
+        } catch {
+          // skip a corrupt line rather than failing the whole list
+        }
+        if (records.length >= limit) return records;
+      }
+    } catch {
+      // skip an unreadable file
+    }
+  }
+  return records;
 }
