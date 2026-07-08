@@ -12,6 +12,7 @@
  */
 import { z } from "zod";
 import type { ExecutionResult } from "@/lib/types";
+import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { logger } from "@/lib/logger";
 
 /**
@@ -94,6 +95,18 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
       (await opts.readFile(`${workDir}/stderr.txt`)) ??
       opts.stderrFallback ??
       "Unknown execution error";
+    // Preserve the evidence: stdout (partial progress prints) was previously
+    // never read on failure, and after a successful retry the failed
+    // attempt's output was gone entirely. The diagnostics JSONL keeps a
+    // bounded head/tail per failure for post-mortems.
+    const stdout = (await opts.readFile(`${workDir}/stdout.txt`)) ?? "";
+    diagEvent("sandbox_failure", {
+      runtime: opts.runtime,
+      exitCode: opts.exitCode,
+      stderrHead: stderr.slice(0, 500),
+      stderrTail: stderr.length > 1000 ? stderr.slice(-500) : undefined,
+      stdoutTail: stdout ? stdout.slice(-500) : undefined,
+    });
 
     if (opts.exitCode === 137 || /\bKilled\b/.test(stderr)) {
       return { success: false, error: OOM_ERROR, execution_ms: executionMs };
