@@ -4,6 +4,7 @@ import { ResponsiveChord } from "@nivo/chord";
 import { useNivoTheme, useChartColors, resolveColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ChordChartProps {
   title: string | null;
@@ -27,7 +28,7 @@ export function ChordChartComponent({ props }: { props: ChordChartProps }) {
     !Array.isArray(props.keys) ||
     props.keys.length === 0
   ) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

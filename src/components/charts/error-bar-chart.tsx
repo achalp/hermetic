@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors, useColorMap, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ErrorBarChartProps {
   title?: string | null;
@@ -40,7 +41,7 @@ export function ErrorBarChartComponent({ props }: { props: ErrorBarChartProps })
     : ["__all__"];
   const colors = useColorMap(groups, props.color_map);
 
-  if (rows.length === 0) return <div style={{ height: chart.height }} />;
+  if (rows.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const errPlus = (r: Record<string, unknown>) =>
     props.error_key != null ? Math.abs(Number(r[props.error_key]) || 0) : 0;

@@ -13,6 +13,7 @@ import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { drillClickValueRef } from "@/lib/drill-down-context";
 import { lineClickRecord } from "@/lib/drill-resolve";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface AreaChartProps {
   title?: string | null;
@@ -65,7 +66,7 @@ export function AreaChartComponent({
   };
 
   if (data.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

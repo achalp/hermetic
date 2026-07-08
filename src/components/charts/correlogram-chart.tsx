@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface CorrelogramProps {
   title?: string | null;
@@ -30,7 +31,7 @@ export function CorrelogramComponent({ props }: { props: CorrelogramProps }) {
     .map((r) => ({ lag: Number(r.lag), value: Number(r.value) }))
     .sort((a, b) => a.lag - b.lag);
 
-  if (items.length === 0) return <div style={{ height: chart.height }} />;
+  if (items.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const color = props.color ?? palette[0];
 

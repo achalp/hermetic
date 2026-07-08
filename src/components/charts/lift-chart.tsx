@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, useChartColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface LiftCurve {
   label: string;
@@ -32,7 +33,7 @@ export function LiftChartComponent({ props }: { props: LiftChartProps }) {
   const colors = useColorMap(labels, props.color_map);
   const isGain = (props.kind ?? "lift") === "gain";
 
-  if (curves.length === 0) return <div style={{ height: chart.height }} />;
+  if (curves.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const traces: Data[] = curves.map((curve, i) => ({
     type: "scatter" as const,

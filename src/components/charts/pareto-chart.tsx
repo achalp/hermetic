@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ParetoChartProps {
   title?: string | null;
@@ -27,7 +28,7 @@ export function ParetoChartComponent({ props }: { props: ParetoChartProps }) {
     .map((r) => ({ label: String(r.label), value: Math.max(0, Number(r.value) || 0) }))
     .sort((a, b) => b.value - a.value);
 
-  if (items.length === 0) return <div style={{ height: chart.height }} />;
+  if (items.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const total = items.reduce((s, r) => s + r.value, 0) || 1;
   let running = 0;

@@ -6,6 +6,7 @@ import { useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { invNormalCDF, mean, stddev } from "@/lib/chart-stats";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface QQChartProps {
   title?: string | null;
@@ -59,7 +60,7 @@ export function QQChartComponent({ props }: { props: QQChartProps }) {
     });
   }
 
-  if (samp.length === 0) return <div style={{ height: chart.height }} />;
+  if (samp.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const lo = Math.min(...theo, ...samp);
   const hi = Math.max(...theo, ...samp);

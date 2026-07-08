@@ -5,6 +5,7 @@ import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
 import { useChartColors, resolveColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface FunnelChartProps {
   title?: string | null;
@@ -26,7 +27,7 @@ export function FunnelChartComponent({ props }: { props: FunnelChartProps }) {
         .filter((r) => r && r.label != null)
         .map((r) => ({ label: String(r.label), value: Number(r.value) || 0 }))
     : [];
-  if (stages.length === 0) return <div style={{ height: chart.height }} />;
+  if (stages.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const colors = props.colors ? resolveColors(props.colors) : palette;
   const horizontal = (props.orientation ?? "horizontal") === "horizontal";

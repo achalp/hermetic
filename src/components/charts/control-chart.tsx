@@ -6,6 +6,7 @@ import { useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { mean, stddev } from "@/lib/chart-stats";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ControlChartProps {
   title?: string | null;
@@ -33,7 +34,7 @@ export function ControlChartComponent({ props }: { props: ControlChartProps }) {
 
   const values = rows.map((r) => Number(r[props.value_key]));
   const valid = values.filter((v) => Number.isFinite(v));
-  if (valid.length === 0) return <div style={{ height: chart.height }} />;
+  if (valid.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const x = props.x_key
     ? rows.map((r) => r[props.x_key!] as string | number)

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ParallelCoordinatesChartProps {
   title: string | null;
@@ -55,7 +56,7 @@ export function ParallelCoordinatesComponent({ props }: { props: ParallelCoordin
   }, [rows, dims]);
 
   if (rows.length === 0 || dims.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   const height = chart.height;

@@ -12,6 +12,7 @@ import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { drillClickValueRef } from "@/lib/drill-down-context";
 import { CLICK_PRIMARY } from "@/lib/drill-resolve";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ScatterChartProps {
   title?: string | null;
@@ -71,7 +72,7 @@ export function ScatterChartComponent({
 
   const rawData = unwrapChartData(props.data);
   if (rawData.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   const xKey = props.x_key ?? "x";
@@ -88,7 +89,7 @@ export function ScatterChartComponent({
     .filter((p) => !isNaN(p.x) && !isNaN(p.y));
 
   if (points.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   // Group data into nivo series format

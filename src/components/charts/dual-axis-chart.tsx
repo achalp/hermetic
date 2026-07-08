@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors, unwrapChartData, resolveColor } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface SeriesSpec {
   key: string;
@@ -37,7 +38,7 @@ export function DualAxisChartComponent({ props }: { props: DualAxisChartProps })
   const left = Array.isArray(props.left_series) ? props.left_series : [];
   const right = Array.isArray(props.right_series) ? props.right_series : [];
   if (rows.length === 0 || (left.length === 0 && right.length === 0))
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
 
   const x = rows.map((r) => r[props.x_key] as string | number);
   let colorIdx = 0;

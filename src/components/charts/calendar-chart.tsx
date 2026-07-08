@@ -5,6 +5,7 @@ import { ResponsiveCalendar } from "@nivo/calendar";
 import { useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface CalendarChartProps {
   title: string | null;
@@ -36,7 +37,7 @@ export function CalendarChartComponent({ props }: { props: CalendarChartProps })
   }, [props.from, props.to, data]);
 
   if (data.length === 0 || !from || !to) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   // Compute height based on year span — each year row needs ~160px

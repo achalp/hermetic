@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ConfusionMatrixProps {
   title: string | null;
@@ -23,7 +24,7 @@ export function ConfusionMatrixComponent({ props }: { props: ConfusionMatrixProp
     !Array.isArray(props.labels) ||
     props.labels.length === 0
   ) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   let z = props.matrix;

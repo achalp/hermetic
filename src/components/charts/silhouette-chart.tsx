@@ -6,6 +6,7 @@ import { useColorMap, useChartColors, unwrapChartData } from "@/lib/chart-theme"
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { mean } from "@/lib/chart-stats";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface SilhouetteProps {
   title?: string | null;
@@ -28,7 +29,7 @@ export function SilhouetteComponent({ props }: { props: SilhouetteProps }) {
   const clusters = Array.from(new Set(rows.map((r) => String(r[props.cluster_key] ?? "—")))).sort();
   const colors = useColorMap(clusters, props.color_map);
 
-  if (rows.length === 0) return <div style={{ height: chart.height }} />;
+  if (rows.length === 0) return <ChartEmptyState height={chart.height} />;
 
   // Lay samples out bottom-to-top, grouped by cluster, sorted ascending within
   // each so each cluster forms a smooth widening wedge.

@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { Plotly3DChart } from "./plotly-3d-wrapper";
 import { useColorMap, useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface Scatter3DProps {
   title?: string | null;
@@ -36,7 +37,7 @@ export function Scatter3DChartComponent({ props }: { props: Scatter3DProps }) {
   const colors = useColorMap(groupNames, props.color_map);
 
   if (data.length === 0) {
-    return <div style={{ height: 500 }} />;
+    return <ChartEmptyState height={500} />;
   }
 
   const traceMode = props.mode ?? "markers";

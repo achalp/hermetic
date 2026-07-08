@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ViolinChartProps {
   title?: string | null;
@@ -34,7 +35,7 @@ export function ViolinChartComponent({ props }: { props: ViolinChartProps }) {
   const groupNames = [...groups.keys()];
   const colors = useColorMap(groupNames, props.color_map);
 
-  if (rows.length === 0) return <div style={{ height: chart.height }} />;
+  if (rows.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const traces: Data[] = groupNames.map((name, i) => ({
     type: "violin" as const,

@@ -3,6 +3,7 @@
 import { Component, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { unwrapChartData } from "@/lib/chart-theme";
+import { ChartEmptyState } from "./chart-empty-state";
 
 const DeckGLMap = dynamic(() => import("./map3d-inner").then((m) => m.Map3DInner), {
   ssr: false,
@@ -62,7 +63,7 @@ class Map3DErrorBoundary extends Component<
 export function Map3DComponent({ props }: { props: Map3DProps }) {
   const data = unwrapChartData(props.data);
   if (data.length === 0) {
-    return <div style={{ height: props.height ?? 500 }} />;
+    return <ChartEmptyState height={props.height ?? 500} />;
   }
 
   const h = props.height ?? 500;

@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ECDFChartProps {
   title?: string | null;
@@ -44,7 +45,7 @@ export function ECDFChartComponent({ props }: { props: ECDFChartProps }) {
     : ["__all__"];
   const colors = useColorMap(groups, props.color_map);
 
-  if (rows.length === 0) return <div style={{ height: chart.height }} />;
+  if (rows.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const traces: Data[] = groups.map((g, i) => {
     const gr = props.group_key

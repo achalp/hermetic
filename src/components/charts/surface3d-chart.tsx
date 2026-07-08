@@ -3,6 +3,7 @@
 import type { Data, Layout } from "plotly.js";
 import { Plotly3DChart } from "./plotly-3d-wrapper";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface Surface3DProps {
   title?: string | null;
@@ -21,7 +22,7 @@ export function Surface3DChartComponent({ props }: { props: Surface3DProps }) {
   const isExpanded = useChartExpanded();
 
   if (!Array.isArray(props.z) || props.z.length === 0) {
-    return <div style={{ height: 500 }} />;
+    return <ChartEmptyState height={500} />;
   }
 
   // Wireframe uses a semi-transparent overlay that adapts to theme via CSS

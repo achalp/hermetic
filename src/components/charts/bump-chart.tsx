@@ -4,6 +4,7 @@ import { ResponsiveBump } from "@nivo/bump";
 import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface BumpChartProps {
   title: string | null;
@@ -22,7 +23,7 @@ export function BumpChartComponent({ props }: { props: BumpChartProps }) {
   const colors = useColorMap(ids, props.color_map);
 
   if (data.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

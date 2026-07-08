@@ -12,6 +12,7 @@ import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { drillClickValueRef } from "@/lib/drill-down-context";
 import { CLICK_PRIMARY } from "@/lib/drill-resolve";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface BarChartProps {
   title?: string | null;
@@ -127,7 +128,7 @@ export function BarChartComponent({
   const legendItemWidth = Math.max(100, Math.min(200, maxKeyLen * 8 + 24));
 
   if (data.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

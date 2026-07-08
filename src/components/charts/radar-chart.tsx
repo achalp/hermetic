@@ -4,6 +4,7 @@ import { ResponsiveRadar } from "@nivo/radar";
 import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface RadarChartProps {
   title: string | null;
@@ -24,7 +25,7 @@ export function RadarChartComponent({ props }: { props: RadarChartProps }) {
   const colors = useColorMap(props.keys, props.color_map);
 
   if (data.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

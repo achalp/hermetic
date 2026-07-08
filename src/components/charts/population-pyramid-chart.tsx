@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors, resolveColor, unwrapChartData, formatAxisNumber } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface PopulationPyramidProps {
   title?: string | null;
@@ -29,7 +30,7 @@ export function PopulationPyramidComponent({ props }: { props: PopulationPyramid
   const palette = useChartColors();
   const rows = unwrapChartData(props.data);
 
-  if (rows.length === 0) return <div style={{ height: chart.height }} />;
+  if (rows.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const categories = rows.map((r) => String(r[props.category_key] ?? ""));
   const leftVals = rows.map((r) => Math.abs(Number(r[props.left_key]) || 0));

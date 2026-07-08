@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface SlopeChartProps {
   title: string | null;
@@ -21,7 +22,7 @@ export function SlopeChartComponent({ props }: { props: SlopeChartProps }) {
   const labels = data.map((d) => d.label);
   const colors = useColorMap(labels, props.color_map);
 
-  if (data.length === 0) return <div style={{ height: chart.height }} />;
+  if (data.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const startLabel = props.start_label ?? "Start";
   const endLabel = props.end_label ?? "End";
