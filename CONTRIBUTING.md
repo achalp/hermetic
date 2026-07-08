@@ -8,6 +8,10 @@ Thank you for your interest in contributing! This guide will help you get starte
 2. Run `./start.sh` to set up dependencies and start the dev server
 3. See the [README](README.md) for full setup details
 
+This project uses **pnpm 10** (the committed lockfile is `pnpm-lock.yaml`;
+CI installs with `pnpm install --frozen-lockfile`). Don't use npm — it
+ignores the pnpm lockfile and can produce a divergent dependency tree.
+
 ## Making Changes
 
 1. Create a branch from `main`:
@@ -17,10 +21,11 @@ Thank you for your interest in contributing! This guide will help you get starte
 2. Make your changes
 3. Ensure code quality passes:
    ```bash
-   npm run lint
-   npm run type-check
-   npm test
+   pnpm lint
+   pnpm type-check
+   pnpm test
    ```
+   (A pre-push hook runs `pnpm type-check && pnpm test` automatically.)
 4. Commit with a descriptive message:
    ```
    feat: add support for parquet files

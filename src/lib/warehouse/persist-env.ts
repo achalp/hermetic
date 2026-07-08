@@ -138,6 +138,16 @@ function loadLegacyFromEnv(): WarehouseConnectionConfig | null {
         password: process.env.WAREHOUSE_CH_PASSWORD ?? "",
         ssl: process.env.WAREHOUSE_CH_SSL === "true",
       };
+    case "bigquery":
+      // .env.example documented these vars for years while this switch
+      // silently ignored them — a user following the example set four vars
+      // that did nothing and concluded the feature was broken.
+      return {
+        type: "bigquery",
+        projectId: process.env.WAREHOUSE_BQ_PROJECT ?? "",
+        dataset: process.env.WAREHOUSE_BQ_DATASET ?? "",
+        credentialsJson: process.env.WAREHOUSE_BQ_CREDENTIALS_JSON ?? "",
+      };
     default:
       return null;
   }
