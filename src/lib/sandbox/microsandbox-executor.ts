@@ -89,11 +89,26 @@ async function createHealthySandbox(
   return PythonSandbox.create({ ...opts, name: freshName });
 }
 
-export async function getOrCreateSandbox(): Promise<PythonSandbox> {
-  if (warmSandbox && sandboxReady) {
-    return warmSandbox;
-  }
+/**
+ * Creation memo — the check-then-act on the boolean pair raced: two
+ * concurrent first-queries (an Investigate wave) both passed the null check
+ * and both ran createHealthySandbox against the SAME sandbox name, one
+ * force-stopping the other's live sandbox into spurious "REPL broken"
+ * recreations. Concurrent callers now share one in-flight creation promise
+ * (same pattern as warm-sandbox.ts warmupPromise).
+ */
+let creationPromise: Promise<PythonSandbox> | null = null;
 
+export function getOrCreateSandbox(): Promise<PythonSandbox> {
+  if (warmSandbox && sandboxReady) return Promise.resolve(warmSandbox);
+  if (creationPromise) return creationPromise;
+  creationPromise = createSandboxOnce().finally(() => {
+    creationPromise = null;
+  });
+  return creationPromise;
+}
+
+async function createSandboxOnce(): Promise<PythonSandbox> {
   // If a previous sandbox exists but isn't ready (failed setup), stop it
   if (warmSandbox) {
     await warmSandbox.stop().catch(() => {});
@@ -277,11 +292,20 @@ export async function executeSandbox(
       readFile: (path) => readSandboxFile(sandbox, path),
     });
   } catch (err) {
-    // If the sandbox itself is broken, reset it so next query creates a fresh one
+    // Reset the SHARED sandbox only when it is actually broken — a health
+    // probe decides. Unconditionally stopping it here killed the warm sandbox
+    // out from under concurrent queries for per-query failures (a bad script,
+    // a transient write error) that the sandbox itself survived fine.
     if (warmSandbox) {
-      await warmSandbox.stop().catch(() => {});
-      warmSandbox = null;
-      sandboxReady = false;
+      const probe = await warmSandbox.run("print('ok')", { timeout: 5 }).catch(() => null);
+      if (!probe || probe.hasError()) {
+        logger.warn("Microsandbox health probe failed after error — resetting", {
+          error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+        });
+        await warmSandbox.stop().catch(() => {});
+        warmSandbox = null;
+        sandboxReady = false;
+      }
     }
     return {
       success: false,
