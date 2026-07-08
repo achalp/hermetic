@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vitest run *)",
+      "Bash(npx vitest run)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm run lint)",
+      "Bash(npm test)",
+      "Bash(pnpm type-check)",
+      "Bash(docker stats --no-stream *)",
+      "Bash(pnpm lint)",
+      "Bash(npm run format:check)",
+      "Bash(pnpm --version)",
+      "Bash(pnpm test)",
+      "Bash(npx prettier --check *)"
+    ]
+  }
+}
