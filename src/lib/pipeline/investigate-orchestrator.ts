@@ -256,23 +256,18 @@ function runCsvSubQuestion(
   priorTurns: ConversationTurn[],
   depFrames: { files: SandboxFile[]; context: string }
 ): Promise<PipelineResult> {
-  return runPipeline(
-    options.schema,
-    options.csvContent,
-    sq.question,
-    undefined,
-    "metadata",
-    options.model,
-    options.runtime,
-    options.geojsonContent ?? undefined,
-    [...(options.additionalFiles ?? []), ...depFrames.files],
-    options.workbookContext,
-    options.localMountPath,
-    joinContext(options.localFileContext, depFrames.context),
-    priorTurns.length > 0 ? priorTurns : undefined,
-    options.inputParquetPath,
-    options.purpose
-  );
+  return runPipeline(options.schema, options.csvContent, sq.question, {
+    model: options.model,
+    runtime: options.runtime,
+    geojsonContent: options.geojsonContent ?? undefined,
+    additionalFiles: [...(options.additionalFiles ?? []), ...depFrames.files],
+    workbookContext: options.workbookContext,
+    localMountPath: options.localMountPath,
+    localFileContext: joinContext(options.localFileContext, depFrames.context),
+    priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
+    inputParquetPath: options.inputParquetPath,
+    purpose: options.purpose,
+  });
 }
 
 /**
@@ -327,23 +322,15 @@ async function runPerStepSQL(
   stepSchema.detected_domain = options.schema.detected_domain;
   await storeCSV(stepCsvId, normalized, stepSchema);
 
-  const result = await runPipeline(
-    stepSchema,
-    normalized,
-    sq.question,
-    undefined,
-    "metadata",
-    options.model,
-    options.runtime,
-    undefined,
-    depFrames.files.length > 0 ? depFrames.files : undefined,
-    options.workbookContext,
-    undefined,
-    joinContext(depFrames.context),
-    priorTurns.length > 0 ? priorTurns : undefined,
-    undefined,
-    options.purpose
-  );
+  const result = await runPipeline(stepSchema, normalized, sq.question, {
+    model: options.model,
+    runtime: options.runtime,
+    additionalFiles: depFrames.files.length > 0 ? depFrames.files : undefined,
+    workbookContext: options.workbookContext,
+    localFileContext: joinContext(depFrames.context),
+    priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
+    purpose: options.purpose,
+  });
   result.sql = outcome.sql;
   result.stepCsvId = stepCsvId;
   return result;
@@ -572,23 +559,7 @@ async function runOneSubQuestion(
       !!options.warehouseExecutor && !!options.warehouse && !!options.warehouseType;
     const result = usePerStepSQL
       ? await runWarehouseSubQuestion(sq, options, priorTurns, depFrames)
-      : await runPipeline(
-          options.schema,
-          options.csvContent,
-          sq.question,
-          undefined,
-          "metadata",
-          options.model,
-          options.runtime,
-          options.geojsonContent ?? undefined,
-          [...(options.additionalFiles ?? []), ...depFrames.files],
-          options.workbookContext,
-          options.localMountPath,
-          joinContext(options.localFileContext, depFrames.context),
-          priorTurns.length > 0 ? priorTurns : undefined,
-          options.inputParquetPath,
-          options.purpose
-        );
+      : await runCsvSubQuestion(sq, options, priorTurns, depFrames);
     slot.result = result;
     slot.finishedAt = Date.now();
     // Persist the full output so dependents can re-run against it at full

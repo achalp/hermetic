@@ -314,24 +314,17 @@ export async function POST(request: Request) {
                         additional_filters: scope.filters.slice(1),
                       }
                     : null;
-                  const cheap = await runPipeline(
-                    stored.schema,
-                    csvContent || "",
-                    question,
-                    (stage) => {
+                  const cheap = await runPipeline(stored.schema, csvContent || "", question, {
+                    onStage: (stage) => {
                       if (stage === "generating_code") emitProgress("analyzing", 1, 3);
                       else if (stage === "executing") emitProgress("computing", 2, 3);
                     },
-                    "metadata",
-                    codeGenModel,
-                    sandboxRuntime,
+                    model: codeGenModel,
+                    runtime: sandboxRuntime,
                     geojsonContent,
-                    undefined,
-                    undefined,
                     localMountPath,
                     localFileContext,
-                    undefined
-                  );
+                  });
                   await composeAndStreamDashboard({
                     executionResult: cheap.executionResult,
                     opts: {

@@ -56,23 +56,49 @@ export interface PipelineResult {
   degradedReason?: string;
 }
 
+export interface PipelineOptions {
+  onStage?: (stage: string) => void;
+  mode?: SchemaMode;
+  model?: string;
+  runtime?: SandboxRuntimeId;
+  geojsonContent?: string | null;
+  additionalFiles?: AdditionalFile[];
+  workbookContext?: string;
+  localMountPath?: string;
+  localFileContext?: string;
+  priorTurns?: ConversationTurn[];
+  /** Host Parquet file to docker-cp into the sandbox (/data/input.parquet). */
+  inputParquetPath?: string;
+  purpose?: string;
+}
+
+/**
+ * Code-gen → sandbox-execute → retry loop. Options object instead of the old
+ * 15 positional parameters — with 12 trailing optionals, three of which were
+ * `string | undefined` neighbors (workbookContext / localMountPath /
+ * localFileContext), a swapped pair type-checked fine and failed at runtime;
+ * call sites were padding with bare `undefined`s to reach the one they meant.
+ */
 export async function runPipeline(
   schema: CSVSchema,
   csvContent: string,
   question: string,
-  onStage?: (stage: string) => void,
-  mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL,
-  runtime?: SandboxRuntimeId,
-  geojsonContent?: string | null,
-  additionalFiles?: AdditionalFile[],
-  workbookContext?: string,
-  localMountPath?: string,
-  localFileContext?: string,
-  priorTurns?: ConversationTurn[],
-  inputParquetPath?: string,
-  purpose?: string
+  options: PipelineOptions = {}
 ): Promise<PipelineResult> {
+  const {
+    onStage,
+    mode = "metadata",
+    model = CODE_GEN_MODEL,
+    runtime,
+    geojsonContent,
+    additionalFiles,
+    workbookContext,
+    localMountPath,
+    localFileContext,
+    priorTurns,
+    inputParquetPath,
+    purpose,
+  } = options;
   // Step 1: Generate analysis code
   onStage?.("generating_code");
   let code: string;

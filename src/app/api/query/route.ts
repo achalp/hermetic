@@ -351,23 +351,20 @@ export async function POST(request: Request) {
                   inputParquetPath: warehouseParquetFile,
                 });
               } else {
-                pipelineResult = await runPipeline(
-                  stored.schema,
-                  csvContent || "",
-                  question,
+                pipelineResult = await runPipeline(stored.schema, csvContent || "", question, {
                   onStage,
-                  schemaMode,
-                  codeGenModel,
-                  sandboxRuntime,
+                  mode: schemaMode,
+                  model: codeGenModel,
+                  runtime: sandboxRuntime,
                   geojsonContent,
                   additionalFiles,
                   workbookContext,
                   localMountPath,
                   localFileContext,
-                  priorTurns.length > 0 ? priorTurns : undefined,
-                  warehouseParquetFile,
-                  purpose
-                );
+                  priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
+                  inputParquetPath: warehouseParquetFile,
+                  purpose,
+                });
               }
 
               if (closed()) return;
