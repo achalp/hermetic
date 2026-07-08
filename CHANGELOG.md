@@ -1,26 +1,18 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+Release history lives in [`release-notes/`](release-notes/) — dated write-ups
+of each feature wave (March, May, June: interactive dashboards, warehouse
+connectors, Investigate mode, notebook view, remote Parquet, …). Day-to-day
+history is the git log.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This file previously claimed Keep-a-Changelog/SemVer adherence with a single
+entry that was ~1.5 years stale while hundreds of commits went unrecorded — a
+false-fresh changelog is worse than none, so it now points at the sources
+that are actually maintained.
 
 ## [0.1.0] - 2025-01-01
 
-### Added
-
-- CSV and Excel file upload with automatic schema detection
-- Natural language querying powered by Claude (Sonnet, Opus, Haiku)
-- Python code generation and sandboxed execution (Docker, E2B, microsandbox)
-- Interactive dashboard generation with charts, tables, and insights
-- Chart types: bar, line, area, pie, scatter, histogram, box plot, violin, heatmap, candlestick
-- 3D visualizations: scatter3D, surface3D, globe, deck.gl maps
-- Geographic visualizations: MapLibre GL, deck.gl layers
-- Drill-down navigation between dashboard levels
-- Export to PDF, DOCX, PPTX, PNG, SVG
-- Save and reload visualizations
-- Selectable themes: Vanilla, Stamen, Info is Beautiful, Pentagram
-- Light and dark mode support (system preference)
-- Configurable LLM model selection (code gen + UI composition)
-- 100MB file upload limit
-- Excel multi-sheet picker
+Initial release: CSV/Excel upload with schema detection, natural-language
+querying via Claude, sandboxed Python execution (Docker/E2B/microsandbox),
+interactive dashboards (20+ chart types incl. 3D and geographic), drill-down,
+exports (PDF/DOCX/PPTX/PNG/SVG), saved visualizations, themes.
