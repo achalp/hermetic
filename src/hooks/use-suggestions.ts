@@ -18,7 +18,7 @@
  * that re-render would tear the effect down and AbortController.abort() would
  * cancel the in-flight fetch. The artifacts fetch happens INSIDE the effect.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Spec } from "@json-render/react";
 import type { CSVSchema, WarehouseTableSchema } from "@/lib/types";
 import {
@@ -73,30 +73,42 @@ export function useSuggestions(args: {
     }
   }
 
+  // The /api/suggest request body, memoized on the ACTUAL inputs the two
+  // effects read (FE-13: they previously read schema/tableSchemas under a
+  // [schemaKey]-only dep list behind an exhaustive-deps disable — a schema
+  // refresh under the same key silently kept serving stale suggestions).
+  // schema and tableSchemas come from page state, so identity is stable
+  // across unrelated re-renders and the effects don't churn.
+  const suggestBody = useMemo(() => {
+    if (schema) {
+      return {
+        schema: {
+          row_count: schema.row_count,
+          columns: schema.columns,
+          detected_domain: schema.detected_domain,
+          correlations: schema.correlations,
+        },
+      };
+    }
+    if (warehouse.isConnected && warehouse.tableSchemas.length > 0) {
+      return { warehouseSchema: warehouse.tableSchemas };
+    }
+    return null;
+  }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
+
   // Fetch LLM-powered suggestions; fall back to heuristics on failure or 8s timeout
   useEffect(() => {
-    if (!schemaKey) return;
+    if (!schemaKey || !suggestBody) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort();
       setLlmFailed(true);
     }, 8000);
 
-    const body = schema
-      ? {
-          schema: {
-            row_count: schema.row_count,
-            columns: schema.columns,
-            detected_domain: schema.detected_domain,
-            correlations: schema.correlations,
-          },
-        }
-      : { warehouseSchema: warehouse.tableSchemas };
-
     fetch("/api/suggest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(suggestBody),
       signal: controller.signal,
     })
       .then((res) => res.json())
@@ -116,39 +128,31 @@ export function useSuggestions(args: {
       clearTimeout(timeout);
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemaKey]);
+  }, [schemaKey, suggestBody]);
 
   // ── Follow-up suggestions: fire after each successful analysis ──
   // Keyed on (source + question) so the same analysis doesn't re-fetch on
   // rerenders, and a fresh question/source clears the prior follow-ups.
   const [followUpSuggestions, setFollowUpSuggestions] = useState<string[]>([]);
-  const [followUpKey, setFollowUpKey] = useState<string | null>(null);
+  // "Already fired for this analysis" latch. A ref, not state: it is never
+  // rendered, and as a state dep it would re-run the effect right after
+  // being set — the re-run's cleanup of the previous instance would abort
+  // the fetch it just started.
+  const followUpKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (isAnalyzing) return;
     if (!lastCompleteSpec || !currentQuestion) return;
-    if (!schema && !warehouse.tableSchemas.length) return;
+    if (!suggestBody) return;
 
     const key = `${args.effectiveCsvId ?? args.csvId ?? warehouse.warehouseId ?? ""}|${currentQuestion}`;
-    if (key === followUpKey) return; // already fetched for this analysis
+    if (key === followUpKeyRef.current) return; // already fetched for this analysis
 
-    setFollowUpKey(key);
+    followUpKeyRef.current = key;
     setFollowUpSuggestions([]); // clear previous while loading
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
-
-    const body = schema
-      ? {
-          schema: {
-            row_count: schema.row_count,
-            columns: schema.columns,
-            detected_domain: schema.detected_domain,
-            correlations: schema.correlations,
-          },
-        }
-      : { warehouseSchema: warehouse.tableSchemas };
 
     const cid = args.effectiveCsvId ?? args.csvId;
     const specSummary = extractSpecComponentTypes(lastCompleteSpec);
@@ -167,7 +171,7 @@ export function useSuggestions(args: {
 
       try {
         const questions = await getFollowUpSuggestions(
-          { ...body, question: currentQuestion, resultsSummary, specSummary },
+          { ...suggestBody, question: currentQuestion, resultsSummary, specSummary },
           controller.signal
         );
         clearTimeout(timeout);
@@ -183,7 +187,6 @@ export function useSuggestions(args: {
       clearTimeout(timeout);
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isAnalyzing,
     lastCompleteSpec,
@@ -191,6 +194,7 @@ export function useSuggestions(args: {
     args.effectiveCsvId,
     args.csvId,
     warehouse.warehouseId,
+    suggestBody,
   ]);
 
   // Clear stale follow-ups while the next analysis streams.
