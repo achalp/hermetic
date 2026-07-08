@@ -31,7 +31,35 @@ export function setRunIdProvider(fn: () => string | undefined): void {
   runIdProvider = fn;
 }
 
-function formatMessage(level: LogLevel, message: string, meta?: Record<string, unknown>): string {
+/**
+ * Meta hygiene: cap unbounded payloads (fullCode / sql values can embed data
+ * rows and were logged whole) and redact anything under a secret-shaped key.
+ * No credential logging exists today — the denylist is the guard rail for
+ * whatever meta object gets passed tomorrow.
+ */
+const MAX_META_STRING = 2000;
+const SECRET_KEY_RE = /pass(word)?|secret|token|api[_-]?key|credential/i;
+
+function sanitizeMeta(meta: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (SECRET_KEY_RE.test(k)) {
+      out[k] = "[redacted]";
+    } else if (typeof v === "string" && v.length > MAX_META_STRING) {
+      out[k] = v.slice(0, MAX_META_STRING) + `… [+${v.length - MAX_META_STRING} chars]`;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function formatMessage(
+  level: LogLevel,
+  message: string,
+  rawMeta?: Record<string, unknown>
+): string {
+  const meta = rawMeta ? sanitizeMeta(rawMeta) : undefined;
   const runId = runIdProvider?.();
   if (isProd) {
     return JSON.stringify({
