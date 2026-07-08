@@ -68,25 +68,28 @@ describe("sanitizeSheetName", () => {
 // ── geospatial guidance in the codegen prompt ─────────────────────
 
 describe("buildCodeGenUserPrompt — geospatial guidance", () => {
+  // TEST-9 pinning policy: assert STRUCTURAL sentinels (section labels like
+  // "ENGINE-FIRST" / "NAMED REGION = POLYGON, NOT A BOX") and CODE TOKENS the
+  // guidance names (ST_Distance_Sphere, results["analysis_scope"]) — never
+  // prose sentence fragments. Prose gets reworded on every prompt-tuning pass
+  // and has broken this suite before; labels and tokens are the contract.
   it("adds spatial guidance when a geometry column is present", () => {
     const s = schema("buildings.parquet", [catColumn("id"), catColumn("geometry")]);
     const prompt = buildCodeGenUserPrompt(s, "which building is most isolated?");
     expect(prompt).toContain("Geospatial analysis");
-    expect(prompt).toContain("NEVER cast `::GEOGRAPHY`");
+    // Code tokens the guidance is about (stable across rewording):
+    expect(prompt).toContain("::GEOGRAPHY");
     expect(prompt).toContain("ST_Distance_Sphere");
-    // GeoParquet geometry is already a GEOMETRY — use it directly, do NOT wrap.
-    expect(prompt).toContain("ALREADY a GEOMETRY");
-    expect(prompt).toContain("Do NOT wrap it in ST_GeomFromWKB");
-    // Steers away from the O(n^2) self-join that timed out.
-    expect(prompt).toContain("O(n^2)");
-    // Scale/memory: engine-first, coords-only KD-tree, grid fallback, disclosure.
-    expect(prompt).toContain("ENGINE-FIRST");
-    expect(prompt).toContain("must contain ONLY numeric columns");
-    expect(prompt).toContain("GRID self-join");
+    expect(prompt).toContain("ST_GeomFromWKB");
+    expect(prompt).toContain("cKDTree");
     expect(prompt).toContain('results["analysis_scope"]');
-    // KD-tree must rank in meters, not distorted lon/lat degrees.
+    // Section sentinels:
+    expect(prompt).toContain("O(n^2)");
+    expect(prompt).toContain("ENGINE-FIRST");
+    expect(prompt).toContain("MEMORY-SAFE KD-tree");
+    expect(prompt).toContain("GRID self-join");
     expect(prompt).toContain("PROJECT TO METERS FIRST");
-    expect(prompt).toContain("NEVER build the tree on unscaled lon/lat");
+    expect(prompt).toContain("SCOPE DISCLOSURE");
   });
 
   it("adds bbox-pushdown guidance when a bbox struct column is present", () => {
@@ -97,10 +100,11 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     ]);
     const prompt = buildCodeGenUserPrompt(s, "buildings in a region");
     expect(prompt).toContain("bbox STRUCT column");
-    expect(prompt).toContain("FILTER on the bbox struct");
-    // Named-region + perf guidance that rode along with the bbox tip.
+    // Section sentinel + the code expression the tip prescribes:
     expect(prompt).toContain("NAMED REGION = POLYGON, NOT A BOX");
-    expect(prompt).toContain("NEVER reads the geometry column");
+    expect(prompt).toContain("(bbox.xmin+bbox.xmax)/2");
+    expect(prompt).toContain("division_area");
+    expect(prompt).toContain("ST_Union_Agg");
   });
 
   it("omits bbox guidance when there is no bbox column", () => {
