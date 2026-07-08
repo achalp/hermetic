@@ -8,6 +8,12 @@ import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { recordCall, currentPhase } from "@/lib/cost/accumulator";
+import {
+  responsesJSON,
+  responsesSSE,
+  ollamaDelta,
+  openAISSEDelta,
+} from "@/lib/llm/local-transport";
 import { logger } from "@/lib/logger";
 
 /**
@@ -112,185 +118,23 @@ function ollamaFetch(baseUrl: string) {
       return ollamaRes;
     }
 
-    // --- Responses API format ---
+    // --- Responses API format (shared translation — see local-transport.ts) ---
     if (isResponses) {
       if (!isStreaming) {
         const data = await ollamaRes.json();
-        const ts = Math.floor(Date.now() / 1000);
-        return new Response(
-          JSON.stringify({
-            id: `resp_${ts}`,
-            object: "response",
-            created_at: ts,
-            completed_at: ts,
-            status: "completed",
-            model: body.model,
-            output: [
-              {
-                id: `msg_${ts}`,
-                type: "message",
-                status: "completed",
-                role: "assistant",
-                content: [
-                  {
-                    type: "output_text",
-                    text: data.message?.content ?? "",
-                    annotations: [],
-                  },
-                ],
-              },
-            ],
-            usage: {
-              input_tokens: data.prompt_eval_count ?? 0,
-              output_tokens: data.eval_count ?? 0,
-              total_tokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
+        return responsesJSON(body.model, data.message?.content ?? "", {
+          inputTokens: data.prompt_eval_count ?? 0,
+          outputTokens: data.eval_count ?? 0,
+        });
       }
-
-      // Streaming Responses API: Ollama NDJSON → SSE events
-      const reader = ollamaRes.body.getReader();
-      const decoder = new TextDecoder();
-      const encoder = new TextEncoder();
-      const ts = Math.floor(Date.now() / 1000);
-      const respId = `resp_${ts}`;
-      const msgId = `msg_${ts}`;
-
-      const readable = new ReadableStream({
-        async start(controller) {
-          let seq = 0;
-          const emit = (event: string, data: unknown) => {
-            controller.enqueue(
-              encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-            );
-          };
-
-          const baseResponse = {
-            id: respId,
-            object: "response",
-            status: "in_progress",
-            model: body.model,
-            output: [],
-          };
-
-          emit("response.created", {
-            type: "response.created",
-            sequence_number: seq++,
-            response: baseResponse,
-          });
-          emit("response.in_progress", {
-            type: "response.in_progress",
-            sequence_number: seq++,
-            response: baseResponse,
-          });
-          emit("response.output_item.added", {
-            type: "response.output_item.added",
-            sequence_number: seq++,
-            output_index: 0,
-            item: {
-              id: msgId,
-              type: "message",
-              status: "in_progress",
-              role: "assistant",
-              content: [],
-            },
-          });
-          emit("response.content_part.added", {
-            type: "response.content_part.added",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            part: { type: "output_text", text: "", annotations: [], logprobs: [] },
-          });
-
-          let buffer = "";
-          let fullText = "";
-
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() ?? "";
-
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                try {
-                  const chunk = JSON.parse(line);
-                  const content = chunk.message?.content ?? "";
-                  if (content) {
-                    fullText += content;
-                    emit("response.output_text.delta", {
-                      type: "response.output_text.delta",
-                      sequence_number: seq++,
-                      output_index: 0,
-                      content_index: 0,
-                      item_id: msgId,
-                      delta: content,
-                      logprobs: [],
-                    });
-                  }
-                } catch {
-                  /* skip */
-                }
-              }
-            }
-          } catch {
-            /* stream ended */
-          }
-
-          const doneItem = {
-            id: msgId,
-            type: "message",
-            status: "completed",
-            role: "assistant",
-            content: [{ type: "output_text", text: fullText, annotations: [], logprobs: [] }],
-          };
-
-          emit("response.output_text.done", {
-            type: "response.output_text.done",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            text: fullText,
-          });
-          emit("response.content_part.done", {
-            type: "response.content_part.done",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            part: { type: "output_text", text: fullText, annotations: [], logprobs: [] },
-          });
-          emit("response.output_item.done", {
-            type: "response.output_item.done",
-            sequence_number: seq++,
-            output_index: 0,
-            item: doneItem,
-          });
-          emit("response.completed", {
-            type: "response.completed",
-            sequence_number: seq++,
-            response: {
-              ...baseResponse,
-              status: "completed",
-              output: [doneItem],
-            },
-          });
-
-          controller.close();
-        },
-      });
-
-      return new Response(readable, {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+      // Ollama NDJSON → Responses SSE. Via the shared synthesizer, this path
+      // now ALSO gets the stall-timeout + error-as-text hardening it lacked
+      // (its old copy silently swallowed stream errors).
+      return responsesSSE({
+        upstream: ollamaRes.body,
+        model: body.model,
+        deltaFromLine: ollamaDelta,
+        backend: "ollama",
       });
     }
 
@@ -372,10 +216,10 @@ function ollamaFetch(baseUrl: string) {
 }
 
 /** Timeout for initial connection + response headers from local LLM server.
- *  Large models (e.g. 30B on CPU) can take 5+ minutes for first response. */
+ *  Large models (e.g. 30B on CPU) can take 5+ minutes for first response.
+ *  (The per-chunk stall budget lives in local-transport.ts with the shared
+ *  stream synthesizer.) */
 const LOCAL_REQUEST_TIMEOUT_MS = 10 * 60_000; // 10 minutes
-/** Timeout for individual stream chunk reads — if no data for this long, server is hung */
-const LOCAL_STREAM_STALL_TIMEOUT_MS = 5 * 60_000; // 5 minutes between chunks
 
 /**
  * Custom fetch for local OpenAI-compatible servers (MLX, llama.cpp):
@@ -536,232 +380,25 @@ function localOpenAIFetch(baseUrl: string) {
           { status: 502, headers: { "Content-Type": "application/json" } }
         );
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = data as any;
-      const choice = d.choices?.[0];
-      const text = choice?.message?.content ?? "";
+      const d = data as {
+        choices?: { message?: { content?: string } }[];
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      };
+      const text = d.choices?.[0]?.message?.content ?? "";
       logger.debug("localOpenAIFetch response text", { chars: text.length });
-      const ts = Math.floor(Date.now() / 1000);
-      return new Response(
-        JSON.stringify({
-          id: `resp_${ts}`,
-          object: "response",
-          created_at: ts,
-          completed_at: ts,
-          status: "completed",
-          model: body.model,
-          output: [
-            {
-              id: `msg_${ts}`,
-              type: "message",
-              status: "completed",
-              role: "assistant",
-              content: [{ type: "output_text", text, annotations: [] }],
-            },
-          ],
-          usage: {
-            input_tokens: d.usage?.prompt_tokens ?? 0,
-            output_tokens: d.usage?.completion_tokens ?? 0,
-            total_tokens: d.usage?.total_tokens ?? 0,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
+      return responsesJSON(body.model, text, {
+        inputTokens: d.usage?.prompt_tokens ?? 0,
+        outputTokens: d.usage?.completion_tokens ?? 0,
+        totalTokens: d.usage?.total_tokens ?? 0,
+      });
     }
 
-    // --- Streaming: OpenAI SSE → Responses API SSE ---
-    const reader = ccRes.body.getReader();
-    const decoder = new TextDecoder();
-    const encoder = new TextEncoder();
-    const ts = Math.floor(Date.now() / 1000);
-    const respId = `resp_${ts}`;
-    const msgId = `msg_${ts}`;
-
-    const readable = new ReadableStream({
-      async start(controller) {
-        let seq = 0;
-        const emit = (event: string, data: unknown) => {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        };
-
-        const baseResponse = {
-          id: respId,
-          object: "response",
-          status: "in_progress",
-          model: body.model,
-          output: [],
-        };
-
-        emit("response.created", {
-          type: "response.created",
-          sequence_number: seq++,
-          response: baseResponse,
-        });
-        emit("response.in_progress", {
-          type: "response.in_progress",
-          sequence_number: seq++,
-          response: baseResponse,
-        });
-        emit("response.output_item.added", {
-          type: "response.output_item.added",
-          sequence_number: seq++,
-          output_index: 0,
-          item: {
-            id: msgId,
-            type: "message",
-            status: "in_progress",
-            role: "assistant",
-            content: [],
-          },
-        });
-        emit("response.content_part.added", {
-          type: "response.content_part.added",
-          sequence_number: seq++,
-          output_index: 0,
-          content_index: 0,
-          item_id: msgId,
-          part: { type: "output_text", text: "", annotations: [], logprobs: [] },
-        });
-
-        let buffer = "";
-        let fullText = "";
-
-        let streamError: string | null = null;
-        try {
-          while (true) {
-            // Read with a stall timeout — if no data arrives for the budget,
-            // the server is hung (common MLX failure mode with large prompts
-            // or OOM). The message interpolates the constant: it previously
-            // hardcoded "60 seconds" while the budget was 5 minutes, actively
-            // misinforming anyone debugging a local-LLM hang.
-            const readResult = await Promise.race([
-              reader.read(),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(
-                      new Error(
-                        `Stream stalled — no data received for ${LOCAL_STREAM_STALL_TIMEOUT_MS / 1000}s`
-                      )
-                    ),
-                  LOCAL_STREAM_STALL_TIMEOUT_MS
-                )
-              ),
-            ]);
-            const { done, value } = readResult;
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed === "data: [DONE]") continue;
-              const jsonStr = trimmed.startsWith("data: ") ? trimmed.slice(6) : trimmed;
-              try {
-                const chunk = JSON.parse(jsonStr);
-                const content = chunk.choices?.[0]?.delta?.content ?? "";
-                if (content) {
-                  fullText += content;
-                  emit("response.output_text.delta", {
-                    type: "response.output_text.delta",
-                    sequence_number: seq++,
-                    output_index: 0,
-                    content_index: 0,
-                    item_id: msgId,
-                    delta: content,
-                    logprobs: [],
-                  });
-                }
-              } catch {
-                /* skip malformed SSE lines */
-              }
-            }
-          }
-        } catch (err) {
-          // Stream interrupted — server crashed, stalled, or OOM'd
-          const errMsg = err instanceof Error ? err.message : String(err);
-          logger.error("localOpenAIFetch stream error", {
-            error: errMsg,
-            textSoFar: fullText.length,
-          });
-
-          if (errMsg.includes("Stream stalled")) {
-            streamError =
-              "\n\n[Server stopped responding. It may be overloaded or out of memory. Try a smaller model or shorter prompt.]";
-          } else if (errMsg.includes("ECONNRESET") || errMsg.includes("terminated")) {
-            streamError =
-              "\n\n[Server crashed during inference — the model may be too large for available memory. Try a smaller model.]";
-          } else {
-            streamError = `\n\n[Stream interrupted: ${errMsg}]`;
-          }
-
-          // Cancel the reader to release resources
-          reader.cancel().catch(() => {});
-        }
-
-        if (streamError && !fullText) {
-          // No output generated — emit the error as text so the user sees it
-          fullText = streamError.trim();
-          emit("response.output_text.delta", {
-            type: "response.output_text.delta",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            delta: fullText,
-            logprobs: [],
-          });
-        }
-
-        const doneItem = {
-          id: msgId,
-          type: "message",
-          status: "completed",
-          role: "assistant",
-          content: [{ type: "output_text", text: fullText, annotations: [], logprobs: [] }],
-        };
-
-        emit("response.output_text.done", {
-          type: "response.output_text.done",
-          sequence_number: seq++,
-          output_index: 0,
-          content_index: 0,
-          item_id: msgId,
-          text: fullText,
-        });
-        emit("response.content_part.done", {
-          type: "response.content_part.done",
-          sequence_number: seq++,
-          output_index: 0,
-          content_index: 0,
-          item_id: msgId,
-          part: { type: "output_text", text: fullText, annotations: [], logprobs: [] },
-        });
-        emit("response.output_item.done", {
-          type: "response.output_item.done",
-          sequence_number: seq++,
-          output_index: 0,
-          item: doneItem,
-        });
-        emit("response.completed", {
-          type: "response.completed",
-          sequence_number: seq++,
-          response: {
-            ...baseResponse,
-            status: "completed",
-            output: [doneItem],
-          },
-        });
-
-        controller.close();
-      },
-    });
-
-    return new Response(readable, {
-      status: 200,
-      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+    // --- Streaming: OpenAI SSE → Responses SSE (shared — local-transport.ts) ---
+    return responsesSSE({
+      upstream: ccRes.body,
+      model: body.model,
+      deltaFromLine: openAISSEDelta,
+      backend: "local-openai",
     });
   };
 }
