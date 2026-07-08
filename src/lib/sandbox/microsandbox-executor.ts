@@ -215,78 +215,26 @@ export async function executeSandbox(
       { timeout: 5 }
     );
 
-    // Write CSV in chunks to avoid exceeding the JSON-RPC body size limit.
-    const CHUNK_SIZE = 512 * 1024;
-    const csvBuf = Buffer.from(csvContent);
-    const firstChunk = csvBuf.subarray(0, CHUNK_SIZE).toString("base64");
-    const initExec = await sandbox.run(
-      `import base64, pathlib\n` +
-        `pathlib.Path("${workDir}/input.csv").write_bytes(base64.b64decode(${JSON.stringify(firstChunk)}))`,
-      { timeout: 15 }
-    );
+    // All file writes go through the ONE chunked writer this file exports —
+    // previously this function hand-rolled the same base64 chunk loop four
+    // times (with four distinct error strings) while writeChunkedFile sat
+    // unused right below it.
+    const fail = (what: string, err: string): ExecutionResult => ({
+      success: false,
+      error: `Failed to write ${what}: ${err}`,
+      execution_ms: Date.now() - start,
+    });
 
-    if (initExec.hasError()) {
-      return {
-        success: false,
-        error: `Failed to write files: ${await initExec.error()}`,
-        execution_ms: Date.now() - start,
-      };
-    }
+    const csvErr = await writeChunkedFile(sandbox, `${workDir}/input.csv`, csvContent);
+    if (csvErr) return fail("CSV", csvErr);
 
-    for (let offset = CHUNK_SIZE; offset < csvBuf.length; offset += CHUNK_SIZE) {
-      const chunk = csvBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
-      const appendExec = await sandbox.run(
-        `import base64\n` +
-          `with open("${workDir}/input.csv", "ab") as f:\n` +
-          `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
-        { timeout: 15 }
-      );
-      if (appendExec.hasError()) {
-        return {
-          success: false,
-          error: `Failed to write CSV chunk: ${await appendExec.error()}`,
-          execution_ms: Date.now() - start,
-        };
-      }
-    }
-
-    // Write GeoJSON file (if provided)
     if (geojsonContent) {
-      const geoBuf = Buffer.from(geojsonContent);
-      const geoFirstChunk = geoBuf.subarray(0, CHUNK_SIZE).toString("base64");
-      const geoInitExec = await sandbox.run(
-        `import base64, pathlib\n` +
-          `pathlib.Path("${workDir}/input.geojson").write_bytes(base64.b64decode(${JSON.stringify(geoFirstChunk)}))`,
-        { timeout: 15 }
-      );
-      if (geoInitExec.hasError()) {
-        return {
-          success: false,
-          error: `Failed to write GeoJSON: ${await geoInitExec.error()}`,
-          execution_ms: Date.now() - start,
-        };
-      }
-      for (let offset = CHUNK_SIZE; offset < geoBuf.length; offset += CHUNK_SIZE) {
-        const chunk = geoBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
-        const appendExec = await sandbox.run(
-          `import base64\n` +
-            `with open("${workDir}/input.geojson", "ab") as f:\n` +
-            `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
-          { timeout: 15 }
-        );
-        if (appendExec.hasError()) {
-          return {
-            success: false,
-            error: `Failed to write GeoJSON chunk: ${await appendExec.error()}`,
-            execution_ms: Date.now() - start,
-          };
-        }
-      }
+      const geoErr = await writeChunkedFile(sandbox, `${workDir}/input.geojson`, geojsonContent);
+      if (geoErr) return fail("GeoJSON", geoErr);
     }
 
-    // Write additional files (workbook sheets)
+    // Additional files (workbook sheets)
     if (additionalFiles && additionalFiles.length > 0) {
-      // Create sheets directory
       await sandbox.run(
         `import pathlib; pathlib.Path("${workDir}/sheets").mkdir(parents=True, exist_ok=True)`,
         { timeout: 5 }
@@ -294,56 +242,16 @@ export async function executeSandbox(
       for (const file of additionalFiles) {
         // Rewrite /data/sheets/X.csv → workDir/sheets/X.csv
         const localPath = file.path.replace(/^\/data\//, `${workDir}/`);
-        const fileBuf = Buffer.from(file.content);
-        const fileFirstChunk = fileBuf.subarray(0, CHUNK_SIZE).toString("base64");
-        const fileInitExec = await sandbox.run(
-          `import base64, pathlib\n` +
-            `pathlib.Path("${localPath}").write_bytes(base64.b64decode(${JSON.stringify(fileFirstChunk)}))`,
-          { timeout: 15 }
-        );
-        if (fileInitExec.hasError()) {
-          return {
-            success: false,
-            error: `Failed to write additional file: ${await fileInitExec.error()}`,
-            execution_ms: Date.now() - start,
-          };
-        }
-        for (let offset = CHUNK_SIZE; offset < fileBuf.length; offset += CHUNK_SIZE) {
-          const chunk = fileBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
-          const appendExec = await sandbox.run(
-            `import base64\n` +
-              `with open("${localPath}", "ab") as f:\n` +
-              `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
-            { timeout: 15 }
-          );
-          if (appendExec.hasError()) {
-            return {
-              success: false,
-              error: `Failed to write additional file chunk: ${await appendExec.error()}`,
-              execution_ms: Date.now() - start,
-            };
-          }
-        }
+        const fileErr = await writeChunkedFile(sandbox, localPath, file.content);
+        if (fileErr) return fail(`additional file ${file.path}`, fileErr);
       }
     }
 
-    // Write the script — rewrite /data paths to per-query paths. The rewrite now
+    // Write the script — rewrite /data paths to per-query paths. The rewrite
     // includes the prelude, so write_output()'s /data/output.json maps correctly.
     const patchedCode = (PYTHON_NAN_PRELUDE + code).replace(/\/data\//g, `${workDir}/`);
-    const patchedB64 = Buffer.from(patchedCode).toString("base64");
-    const writeExec = await sandbox.run(
-      `import base64, pathlib\n` +
-        `pathlib.Path("${workDir}/script.py").write_bytes(base64.b64decode(${JSON.stringify(patchedB64)}))`,
-      { timeout: 15 }
-    );
-
-    if (writeExec.hasError()) {
-      return {
-        success: false,
-        error: `Failed to write script: ${await writeExec.error()}`,
-        execution_ms: Date.now() - start,
-      };
-    }
+    const scriptErr = await writeChunkedFile(sandbox, `${workDir}/script.py`, patchedCode);
+    if (scriptErr) return fail("script", scriptErr);
 
     // Execute the script
     const timeoutSecs = Math.ceil(SANDBOX_TIMEOUT_MS / 1000);
