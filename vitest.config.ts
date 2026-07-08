@@ -11,6 +11,10 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text-summary", "json-summary", "html"],
       reportsDirectory: "./coverage",
+      // Keep the report even when the run is red — v8 defaults to false, so a
+      // failing `test:coverage` used to CLEAR coverage/ and write nothing,
+      // leaving only a stale (or no) summary to mislead readers.
+      reportOnFailure: true,
       include: ["src/**/*.{ts,tsx}"],
       // Exclude tests, type-only files, and Next entry points (page/layout are
       // thin server wrappers exercised by e2e/build, not unit tests).

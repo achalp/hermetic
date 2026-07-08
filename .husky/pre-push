@@ -1,0 +1,5 @@
+# Type-check + full test suite before anything leaves the machine. The suite
+# runs in ~18s; pre-commit stays fast (lint-staged only), so day-to-day commit
+# flow is unchanged — but a broken-suite push (how a prompts.ts edit once
+# landed with its pinned tests red) gets caught here instead of in CI.
+pnpm type-check && pnpm test
