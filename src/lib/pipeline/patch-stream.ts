@@ -16,6 +16,7 @@
  */
 import { logger } from "@/lib/logger";
 import { runWithRunId, getRunId } from "@/lib/run-context";
+import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 
 /**
  * Canonical headers for the patch stream. `no-cache, no-transform` +
@@ -109,6 +110,11 @@ export function patchStreamResponse(
 
       let stateInitialized = false;
       const emitProgress = (stage: string, step: number, total: number) => {
+        // Also record the transition in the run's diagnostics JSONL — the
+        // stream patches vanish with the client, so after a disconnect or
+        // crash the server otherwise had no record of which stage a run
+        // reached (the disconnect log gives elapsedMs but not stage).
+        diagEvent("stage", { stage, step, total });
         const patch = stateInitialized
           ? { op: "replace", path: "/state/__progress", value: { stage, step, total } }
           : { op: "add", path: "/state", value: { __progress: { stage, step, total } } };
