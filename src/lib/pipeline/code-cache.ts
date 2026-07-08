@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 const CODE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 interface CachedCode {
@@ -22,6 +23,9 @@ export function getCachedCode(csvId: string): { code: string; question: string }
   const entry = cache.get(csvId);
   if (!entry) return undefined;
   if (Date.now() - entry.cachedAt > CODE_CACHE_TTL_MS) {
+    // Logged: a silent eviction here forces a full code re-generation and was
+    // previously indistinguishable from a cache miss.
+    logger.debug("Code cache entry expired", { csvId });
     cache.delete(csvId);
     return undefined;
   }

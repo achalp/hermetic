@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import type { ConversationTurn } from "@/lib/types";
 import type { CachedArtifacts } from "./artifacts-cache";
 import { summarizeSpec } from "@/lib/spec-summary";
@@ -23,6 +24,8 @@ export function getConversationTurns(csvId: string): ConversationTurn[] {
   const entry = cache.get(csvId);
   if (!entry) return [];
   if (Date.now() - entry.updatedAt > TTL_MS) {
+    // Logged: an expired conversation silently drops the follow-up context.
+    logger.debug("Conversation cache entry expired", { csvId });
     cache.delete(csvId);
     return [];
   }

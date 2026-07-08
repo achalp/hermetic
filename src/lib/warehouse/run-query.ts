@@ -106,9 +106,20 @@ export async function runWarehouseQuery(args: {
     warehouseType: args.warehouseType,
     model: args.model,
     execute: async (sql) => {
-      const csv = await args.connector.executeSQL(sql);
-      if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
-      return csv;
+      try {
+        const csv = await args.connector.executeSQL(sql);
+        if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
+        return csv;
+      } catch (err) {
+        // Driver-level context at the shared chokepoint — the connectors
+        // themselves log nothing, so engine quirks (auth failures, dialect
+        // errors) previously surfaced only as generic repair-loop errors.
+        logger.warn("Warehouse SQL execution failed", {
+          warehouseType: args.warehouseType,
+          error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+        });
+        throw err;
+      }
     },
     onAttempt: args.onAttempt,
   });
