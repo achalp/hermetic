@@ -949,7 +949,11 @@ export function NotebookView({
       const node = containerRef.current.querySelector(`[data-cell-output="${step.stepNo}"]`);
       if (!(node instanceof HTMLElement)) continue;
       try {
-        images.set(step.stepNo, await toPng(node, { backgroundColor: "#ffffff", pixelRatio: 2 }));
+        images.set(
+          step.stepNo,
+          /* fixed white bg for the exported snapshot (export data, not UI chrome) */
+          await toPng(node, { backgroundColor: "#ffffff", pixelRatio: 2 })
+        );
       } catch {
         // Skip a cell whose output can't be snapshotted; the rest still export.
       }

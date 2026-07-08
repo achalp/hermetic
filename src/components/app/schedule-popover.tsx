@@ -238,12 +238,12 @@ export function SchedulePopover({ vizId, anchorRect, onClose, onChanged }: Sched
           {existing && (
             <div className="text-xs text-t-tertiary mb-3" style={{ lineHeight: 1.5 }}>
               {existing.lastStatus === "success" && (
-                <span style={{ color: "#10b981" }}>
+                <span style={{ color: "var(--color-success-text)" }}>
                   ✓ Last run {formatRelative(existing.lastRunAt)}
                 </span>
               )}
               {existing.lastStatus === "error" && (
-                <span style={{ color: "#f87171" }}>
+                <span style={{ color: "var(--color-error-text)" }}>
                   ⚠ Last run failed: {existing.lastError ?? "unknown"}
                 </span>
               )}
@@ -258,7 +258,7 @@ export function SchedulePopover({ vizId, anchorRect, onClose, onChanged }: Sched
           )}
 
           {error && (
-            <p className="text-xs mb-3" style={{ color: "#f87171" }}>
+            <p className="text-xs mb-3" style={{ color: "var(--color-error-text)" }}>
               {error}
             </p>
           )}
@@ -324,8 +324,8 @@ export function SchedulePill({
         lineHeight: 1.4,
         padding: "2px 8px",
         borderRadius: 99,
-        background: failing ? "rgba(248, 113, 113, 0.15)" : "rgba(16, 185, 129, 0.15)",
-        color: failing ? "#f87171" : "#10b981",
+        background: failing ? "var(--color-error-bg)" : "var(--color-success-bg)",
+        color: failing ? "var(--color-error-text)" : "var(--color-success-text)",
         border: "none",
         cursor: "pointer",
       }}

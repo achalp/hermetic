@@ -1097,9 +1097,9 @@ function InvestigationCaveats({ spec }: { spec: Spec | null }) {
           className="border px-3 py-2 text-sm"
           style={{
             borderRadius: "var(--radius-card)",
-            borderColor: "#d97706",
-            background: "rgba(217, 119, 6, 0.08)",
-            color: "#b45309",
+            borderColor: "var(--color-warning-border)",
+            background: "var(--color-warning-bg)",
+            color: "var(--color-warning-text)",
           }}
         >
           <span className="font-medium">▲ Verify these figures.</span> {g!.ungrounded!.length}{" "}
@@ -1117,12 +1117,14 @@ function InvestigationCaveats({ spec }: { spec: Spec | null }) {
           <ul className="mt-1 flex flex-col gap-0.5 text-xs text-t-secondary">
             {dq!.failed?.map((s) => (
               <li key={`f${s.stepNo}`}>
-                <span style={{ color: "#ef4444" }}>Step {s.stepNo} failed</span> — {s.question}
+                <span style={{ color: "var(--color-error-text)" }}>Step {s.stepNo} failed</span> —{" "}
+                {s.question}
               </li>
             ))}
             {dq!.degraded?.map((s) => (
               <li key={`d${s.stepNo}`}>
-                <span style={{ color: "#d97706" }}>Step {s.stepNo} degraded</span> — {s.question}
+                <span style={{ color: "var(--color-warning-text)" }}>Step {s.stepNo} degraded</span>{" "}
+                — {s.question}
                 {s.reason ? ` (${s.reason})` : ""}
               </li>
             ))}

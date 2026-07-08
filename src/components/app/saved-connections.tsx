@@ -39,7 +39,11 @@ export function SavedConnections({ connections, onConnect }: SavedConnectionsPro
           >
             <span
               className="shrink-0 rounded-full"
-              style={{ width: 8, height: 8, background: dotColors[conn.type] ?? "#6b7280" }}
+              style={{
+                width: 8,
+                height: 8,
+                background: dotColors[conn.type] ?? "var(--color-t-tertiary)",
+              }}
             />
             <span style={{ fontWeight: 500, fontSize: 13 }}>{conn.name}</span>
             <span style={{ fontSize: 12, color: "var(--color-t-secondary)" }}>{conn.host}</span>

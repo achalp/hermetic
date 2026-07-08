@@ -20,6 +20,7 @@ function formatSize(bytes: number): string {
   return `${value.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
+/* File-type badge palette (categorical data colors, like chart palettes — not themed) */
 const extensionColors: Record<string, string> = {
   ".parquet": "#8b5cf6",
   ".csv": "#3b82f6",
