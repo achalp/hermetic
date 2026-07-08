@@ -629,13 +629,21 @@ function localOpenAIFetch(baseUrl: string) {
         let streamError: string | null = null;
         try {
           while (true) {
-            // Read with stall timeout — if no data arrives for 60s, the server
-            // is hung (common MLX failure mode with large prompts or OOM)
+            // Read with a stall timeout — if no data arrives for the budget,
+            // the server is hung (common MLX failure mode with large prompts
+            // or OOM). The message interpolates the constant: it previously
+            // hardcoded "60 seconds" while the budget was 5 minutes, actively
+            // misinforming anyone debugging a local-LLM hang.
             const readResult = await Promise.race([
               reader.read(),
               new Promise<never>((_, reject) =>
                 setTimeout(
-                  () => reject(new Error("Stream stalled — no data received for 60 seconds")),
+                  () =>
+                    reject(
+                      new Error(
+                        `Stream stalled — no data received for ${LOCAL_STREAM_STALL_TIMEOUT_MS / 1000}s`
+                      )
+                    ),
                   LOCAL_STREAM_STALL_TIMEOUT_MS
                 )
               ),
