@@ -42,3 +42,65 @@ describe("transitiveDependents", () => {
     expect(transitiveDependents(steps, 0)).not.toContain(0);
   });
 });
+
+// ── TraceRecorder — decision/provenance accumulation from progress events ──
+import { TraceRecorder } from "@/lib/pipeline/investigation-trace";
+
+describe("TraceRecorder", () => {
+  it("fills a replan decision's added/removed from the matching subs_amended", () => {
+    const r = new TraceRecorder();
+    r.record({ kind: "replan_decision", replanAction: "amend", replanRationale: "need depth" });
+    r.record({
+      kind: "subs_amended",
+      amendmentSource: "replanner",
+      addedSteps: [{ index: 3 }, { index: 4 }],
+      removedIndices: [2],
+    });
+    expect(r.decisions).toEqual([
+      {
+        kind: "replan",
+        action: "amend",
+        rationale: "need depth",
+        addedIndices: [3, 4],
+        removedIndices: [2],
+      },
+    ]);
+    expect(r.sourceByIndex.get(3)).toBe("replanner");
+    expect(r.sourceByIndex.get(4)).toBe("replanner");
+  });
+
+  it("parks composer-added steps until the composer_dispatched event", () => {
+    const r = new TraceRecorder();
+    r.record({ kind: "subs_amended", amendmentSource: "composer", addedSteps: [{ index: 5 }] });
+    expect(r.sourceByIndex.get(5)).toBe("composer");
+    expect(r.decisions).toHaveLength(0); // not attributed yet
+    r.record({ kind: "composer_dispatched", composerRationale: "gap: seasonality" });
+    expect(r.decisions).toEqual([
+      {
+        kind: "composer_dispatch",
+        rationale: "gap: seasonality",
+        addedIndices: [5],
+        removedIndices: [],
+      },
+    ]);
+  });
+
+  it("a composer amendment does not consume a pending replan decision", () => {
+    const r = new TraceRecorder();
+    r.record({ kind: "replan_decision", replanAction: "amend", replanRationale: "r" });
+    // Composer amendment arrives before the replanner's own subs_amended.
+    r.record({ kind: "subs_amended", amendmentSource: "composer", addedSteps: [{ index: 9 }] });
+    r.record({ kind: "subs_amended", amendmentSource: "replanner", addedSteps: [{ index: 6 }] });
+    expect(r.decisions[0].addedIndices).toEqual([6]); // replan got its own steps
+    expect(r.sourceByIndex.get(9)).toBe("composer");
+    expect(r.sourceByIndex.get(6)).toBe("replanner");
+  });
+
+  it("ignores unrelated event kinds", () => {
+    const r = new TraceRecorder();
+    r.record({ kind: "sub_started" });
+    r.record({ kind: "sub_finished" });
+    expect(r.decisions).toHaveLength(0);
+    expect(r.sourceByIndex.size).toBe(0);
+  });
+});

@@ -48,8 +48,7 @@ import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cac
 import {
   buildInvestigationTrace,
   successfulStepNos,
-  type TraceDecision,
-  type StepSource,
+  TraceRecorder,
 } from "@/lib/pipeline/investigation-trace";
 import {
   collectGroundedValues,
@@ -427,18 +426,10 @@ export async function POST(request: Request) {
                 );
               };
 
-              // Accumulate the audit trail's decision log and per-step provenance
-              // from the orchestrator's progress events. The events are the only
-              // place the re-planner's and composer's rationales surface, so we
-              // capture them here for the trace the artifacts panel renders.
-              const decisions: TraceDecision[] = [];
-              const sourceByIndex = new Map<number, StepSource>();
-              // subs_amended events carry their provenance (amendmentSource), so
-              // attribution never depends on event ordering. currentReplan only
-              // tracks the most recent replan decision so a re-planner amendment
-              // can fill in its added/removed indices.
-              let currentReplan: TraceDecision | null = null;
-              let pendingComposerAdded: number[] = [];
+              // Audit-trail accumulation (decision log + per-step provenance)
+              // lives in lib — see TraceRecorder in investigation-trace.ts. The
+              // onProgress handler below keeps only the stream-emit wiring.
+              const recorder = new TraceRecorder();
 
               // Warm the code-gen prompt cache before the first wave fans out in
               // parallel, so concurrent sub-questions read it instead of each
@@ -512,6 +503,7 @@ export async function POST(request: Request) {
                   ? (sql: string) => warehouseState!.connector.executeSQL(sql)
                   : undefined,
                 onProgress: (event) => {
+                  recorder.record(event);
                   if (event.kind === "sub_started" && event.index !== undefined) {
                     stepCount++;
                     emitProgress("investigating", stepCount, totalSteps);
@@ -569,16 +561,6 @@ export async function POST(request: Request) {
                       );
                     }
                   } else if (event.kind === "replan_decision") {
-                    // Record for the audit trail. The matching subs_amended (if the
-                    // action was "amend") fills in added/removed indices below.
-                    currentReplan = {
-                      kind: "replan",
-                      action: event.replanAction,
-                      rationale: event.replanRationale ?? "",
-                      addedIndices: [],
-                      removedIndices: [],
-                    };
-                    decisions.push(currentReplan);
                     // Surface the re-planner's decision as a sibling entry on the plan.
                     // The UI can render this inline as a "Planner re-evaluated" step.
                     emit(
@@ -593,17 +575,6 @@ export async function POST(request: Request) {
                       }) + "\n"
                     );
                   } else if (event.kind === "subs_amended") {
-                    // Audit-trail provenance, read directly off the event.
-                    const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
-                    if (event.amendmentSource === "composer") {
-                      pendingComposerAdded = addedIndices;
-                      for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
-                    } else if (currentReplan) {
-                      currentReplan.addedIndices = addedIndices;
-                      currentReplan.removedIndices = event.removedIndices ?? [];
-                      for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
-                      currentReplan = null;
-                    }
                     // Append new steps to the visible plan and mark removed ones.
                     if (event.addedSteps) {
                       for (const step of event.addedSteps) {
@@ -636,15 +607,6 @@ export async function POST(request: Request) {
                       }
                     }
                   } else if (event.kind === "composer_dispatched") {
-                    // Record the composer's gap-check dispatch in the audit trail,
-                    // attributing the steps added by the preceding subs_amended.
-                    decisions.push({
-                      kind: "composer_dispatch",
-                      rationale: event.composerRationale ?? "",
-                      addedIndices: pendingComposerAdded,
-                      removedIndices: [],
-                    });
-                    pendingComposerAdded = [];
                     // Surface the composer's gap-check decision. Newly added steps
                     // arrive via a sibling subs_amended event with addedByReplanner.
                     // Override the flag on those steps to indicate composer-source.
@@ -673,8 +635,8 @@ export async function POST(request: Request) {
                 approach: plan.approach,
                 originalQuestion: question,
                 subResults,
-                sourceByIndex,
-                decisions,
+                sourceByIndex: recorder.sourceByIndex,
+                decisions: recorder.decisions,
               });
 
               // Cache artifacts under the csvId. The top-level code/results mirror

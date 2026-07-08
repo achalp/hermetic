@@ -89,6 +89,72 @@ export interface TraceDecision {
 }
 
 /**
+ * Accumulates the audit trail's decision log and per-step provenance from the
+ * orchestrator's progress events. The events are the only place the
+ * re-planner's and composer's rationales surface. This is pure trail logic —
+ * it used to live inline in the investigate route's 150-line onProgress
+ * switch, which made it untestable except through the HTTP endpoint and
+ * pinned the trail format to that one route; the route now keeps only the
+ * emit wiring and forwards each event here.
+ *
+ * Attribution notes (preserved from the inline version): subs_amended events
+ * carry their provenance (amendmentSource), so attribution never depends on
+ * event ordering. `currentReplan` only tracks the most recent replan decision
+ * so a re-planner amendment can fill in its added/removed indices; a composer
+ * amendment parks its indices until the matching composer_dispatched event.
+ */
+export class TraceRecorder {
+  readonly decisions: TraceDecision[] = [];
+  readonly sourceByIndex = new Map<number, StepSource>();
+  private currentReplan: TraceDecision | null = null;
+  private pendingComposerAdded: number[] = [];
+
+  /** Feed one orchestrator progress event. Only trail-relevant kinds matter. */
+  record(event: {
+    kind: string;
+    replanAction?: "continue" | "amend" | "stop";
+    replanRationale?: string;
+    composerRationale?: string;
+    amendmentSource?: string;
+    addedSteps?: { index: number }[];
+    removedIndices?: number[];
+  }): void {
+    if (event.kind === "replan_decision") {
+      // The matching subs_amended (if the action was "amend") fills in
+      // added/removed indices below.
+      this.currentReplan = {
+        kind: "replan",
+        action: event.replanAction,
+        rationale: event.replanRationale ?? "",
+        addedIndices: [],
+        removedIndices: [],
+      };
+      this.decisions.push(this.currentReplan);
+    } else if (event.kind === "subs_amended") {
+      const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
+      if (event.amendmentSource === "composer") {
+        this.pendingComposerAdded = addedIndices;
+        for (const idx of addedIndices) this.sourceByIndex.set(idx, "composer");
+      } else if (this.currentReplan) {
+        this.currentReplan.addedIndices = addedIndices;
+        this.currentReplan.removedIndices = event.removedIndices ?? [];
+        for (const idx of addedIndices) this.sourceByIndex.set(idx, "replanner");
+        this.currentReplan = null;
+      }
+    } else if (event.kind === "composer_dispatched") {
+      // Attribute the steps added by the preceding subs_amended.
+      this.decisions.push({
+        kind: "composer_dispatch",
+        rationale: event.composerRationale ?? "",
+        addedIndices: this.pendingComposerAdded,
+        removedIndices: [],
+      });
+      this.pendingComposerAdded = [];
+    }
+  }
+}
+
+/**
  * A user-authored notebook layout overlaid on the step trail: lets the user
  * insert markdown cells and reorder cells. Absent → the notebook renders the
  * steps in their natural order. Persists with the trace (and thus history).
