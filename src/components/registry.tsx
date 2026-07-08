@@ -32,7 +32,8 @@ import { DataTableComponent } from "./data-table";
 import { DefinitionListComponent } from "./definition-list";
 import { PivotTableComponent } from "./pivot-table";
 import { RendererErrorBoundary } from "./app/renderer-error-boundary";
-import type { ReactNode } from "react";
+import { memo } from "react";
+import type { ReactNode, ComponentType } from "react";
 
 /**
  * Compact inline fallback for a single failed component. The top-level
@@ -73,244 +74,219 @@ function wrapAll(components: Components<typeof catalog>): Components<typeof cata
 
 // Lazy-load all chart components to avoid compiling heavy deps (nivo, plotly, deck.gl, three.js)
 // on initial page load. Each chart is only compiled when first rendered.
-const BarChartComponent = dynamic(
-  () => import("./charts/bar-chart").then((m) => m.BarChartComponent),
-  { ssr: false }
+//
+// lazyChart = dynamic() + React.memo with a value comparator. During
+// streaming, useUIStream replaces the spec on EVERY patch and the Renderer
+// re-renders the whole tree — without memo, every mounted chart re-ran its
+// O(rows) transforms and rebuilt its nivo/plotly tree per patch (the main
+// client-side jank on multi-chart dashboards).
+//
+// Comparator rules:
+// - `props` (plain spec JSON) compares by VALUE — the right skip condition.
+// - Function props (the Renderer's emit/on handles, selection callbacks) are
+//   recreated every render, so identity comparison would defeat the memo;
+//   they compare by presence. Their behavior is keyed off data that IS
+//   compared (e.g. selectedValues accompanies onSelect), so this is safe.
+// - Everything else (selectedValues arrays etc.) compares by reference.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function lazyChart(loader: () => Promise<ComponentType<any>>): ComponentType<any> {
+  const Dynamic = dynamic(loader, { ssr: false });
+  return memo(Dynamic, (prev: any, next: any) => {
+    for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+      const a = prev[key];
+      const b = next[key];
+      if (key === "props") {
+        if (JSON.stringify(a) !== JSON.stringify(b)) return false;
+      } else if (typeof a === "function" && typeof b === "function") {
+        continue;
+      } else if (a !== b) {
+        return false;
+      }
+    }
+    return true;
+  }) as unknown as ComponentType<any>;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const BarChartComponent = lazyChart(() =>
+  import("./charts/bar-chart").then((m) => m.BarChartComponent)
 );
-const LineChartComponent = dynamic(
-  () => import("./charts/line-chart").then((m) => m.LineChartComponent),
-  { ssr: false }
+const LineChartComponent = lazyChart(() =>
+  import("./charts/line-chart").then((m) => m.LineChartComponent)
 );
-const AreaChartComponent = dynamic(
-  () => import("./charts/area-chart").then((m) => m.AreaChartComponent),
-  { ssr: false }
+const AreaChartComponent = lazyChart(() =>
+  import("./charts/area-chart").then((m) => m.AreaChartComponent)
 );
-const PieChartComponent = dynamic(
-  () => import("./charts/pie-chart").then((m) => m.PieChartComponent),
-  { ssr: false }
+const PieChartComponent = lazyChart(() =>
+  import("./charts/pie-chart").then((m) => m.PieChartComponent)
 );
-const ScatterChartComponent = dynamic(
-  () => import("./charts/scatter-chart").then((m) => m.ScatterChartComponent),
-  { ssr: false }
+const ScatterChartComponent = lazyChart(() =>
+  import("./charts/scatter-chart").then((m) => m.ScatterChartComponent)
 );
-const MapViewComponent = dynamic(
-  () => import("./charts/map-view").then((m) => m.MapViewComponent),
-  { ssr: false }
+const MapViewComponent = lazyChart(() =>
+  import("./charts/map-view").then((m) => m.MapViewComponent)
 );
-const HistogramChartComponent = dynamic(
-  () => import("./charts/histogram-chart").then((m) => m.HistogramChartComponent),
-  { ssr: false }
+const HistogramChartComponent = lazyChart(() =>
+  import("./charts/histogram-chart").then((m) => m.HistogramChartComponent)
 );
-const BoxPlotChartComponent = dynamic(
-  () => import("./charts/box-plot-chart").then((m) => m.BoxPlotChartComponent),
-  { ssr: false }
+const BoxPlotChartComponent = lazyChart(() =>
+  import("./charts/box-plot-chart").then((m) => m.BoxPlotChartComponent)
 );
-const HeatMapChartComponent = dynamic(
-  () => import("./charts/heatmap-chart").then((m) => m.HeatMapChartComponent),
-  { ssr: false }
+const HeatMapChartComponent = lazyChart(() =>
+  import("./charts/heatmap-chart").then((m) => m.HeatMapChartComponent)
 );
-const ViolinChartComponent = dynamic(
-  () => import("./charts/violin-chart").then((m) => m.ViolinChartComponent),
-  { ssr: false }
+const ViolinChartComponent = lazyChart(() =>
+  import("./charts/violin-chart").then((m) => m.ViolinChartComponent)
 );
-const Scatter3DChartComponent = dynamic(
-  () => import("./charts/scatter3d-chart").then((m) => m.Scatter3DChartComponent),
-  { ssr: false }
+const Scatter3DChartComponent = lazyChart(() =>
+  import("./charts/scatter3d-chart").then((m) => m.Scatter3DChartComponent)
 );
-const Surface3DChartComponent = dynamic(
-  () => import("./charts/surface3d-chart").then((m) => m.Surface3DChartComponent),
-  { ssr: false }
+const Surface3DChartComponent = lazyChart(() =>
+  import("./charts/surface3d-chart").then((m) => m.Surface3DChartComponent)
 );
-const Globe3DComponent = dynamic(
-  () => import("./charts/globe-view").then((m) => m.Globe3DComponent),
-  { ssr: false }
+const Globe3DComponent = lazyChart(() =>
+  import("./charts/globe-view").then((m) => m.Globe3DComponent)
 );
 const Map3DComponent = dynamic(() => import("./charts/map3d-view").then((m) => m.Map3DComponent), {
   ssr: false,
 });
-const CandlestickChartComponent = dynamic(
-  () => import("./charts/candlestick-chart").then((m) => m.CandlestickChartComponent),
-  { ssr: false }
+const CandlestickChartComponent = lazyChart(() =>
+  import("./charts/candlestick-chart").then((m) => m.CandlestickChartComponent)
 );
-const SankeyChartComponent = dynamic(
-  () => import("./charts/sankey-chart").then((m) => m.SankeyChartComponent),
-  { ssr: false }
+const SankeyChartComponent = lazyChart(() =>
+  import("./charts/sankey-chart").then((m) => m.SankeyChartComponent)
 );
-const TreemapChartComponent = dynamic(
-  () => import("./charts/treemap-chart").then((m) => m.TreemapChartComponent),
-  { ssr: false }
+const TreemapChartComponent = lazyChart(() =>
+  import("./charts/treemap-chart").then((m) => m.TreemapChartComponent)
 );
-const RadarChartComponent = dynamic(
-  () => import("./charts/radar-chart").then((m) => m.RadarChartComponent),
-  { ssr: false }
+const RadarChartComponent = lazyChart(() =>
+  import("./charts/radar-chart").then((m) => m.RadarChartComponent)
 );
-const BumpChartComponent = dynamic(
-  () => import("./charts/bump-chart").then((m) => m.BumpChartComponent),
-  { ssr: false }
+const BumpChartComponent = lazyChart(() =>
+  import("./charts/bump-chart").then((m) => m.BumpChartComponent)
 );
-const ChordChartComponent = dynamic(
-  () => import("./charts/chord-chart").then((m) => m.ChordChartComponent),
-  { ssr: false }
+const ChordChartComponent = lazyChart(() =>
+  import("./charts/chord-chart").then((m) => m.ChordChartComponent)
 );
-const SunburstChartComponent = dynamic(
-  () => import("./charts/sunburst-chart").then((m) => m.SunburstChartComponent),
-  { ssr: false }
+const SunburstChartComponent = lazyChart(() =>
+  import("./charts/sunburst-chart").then((m) => m.SunburstChartComponent)
 );
-const MarimekkoChartComponent = dynamic(
-  () => import("./charts/marimekko-chart").then((m) => m.MarimekkoChartComponent),
-  { ssr: false }
+const MarimekkoChartComponent = lazyChart(() =>
+  import("./charts/marimekko-chart").then((m) => m.MarimekkoChartComponent)
 );
-const CalendarChartComponent = dynamic(
-  () => import("./charts/calendar-chart").then((m) => m.CalendarChartComponent),
-  { ssr: false }
+const CalendarChartComponent = lazyChart(() =>
+  import("./charts/calendar-chart").then((m) => m.CalendarChartComponent)
 );
-const StreamChartComponent = dynamic(
-  () => import("./charts/stream-chart").then((m) => m.StreamChartComponent),
-  { ssr: false }
+const StreamChartComponent = lazyChart(() =>
+  import("./charts/stream-chart").then((m) => m.StreamChartComponent)
 );
-const WaterfallChartComponent = dynamic(
-  () => import("./charts/waterfall-chart").then((m) => m.WaterfallChartComponent),
-  { ssr: false }
+const WaterfallChartComponent = lazyChart(() =>
+  import("./charts/waterfall-chart").then((m) => m.WaterfallChartComponent)
 );
-const RidgelineChartComponent = dynamic(
-  () => import("./charts/ridgeline-chart").then((m) => m.RidgelineChartComponent),
-  { ssr: false }
+const RidgelineChartComponent = lazyChart(() =>
+  import("./charts/ridgeline-chart").then((m) => m.RidgelineChartComponent)
 );
-const DumbbellChartComponent = dynamic(
-  () => import("./charts/dumbbell-chart").then((m) => m.DumbbellChartComponent),
-  { ssr: false }
+const DumbbellChartComponent = lazyChart(() =>
+  import("./charts/dumbbell-chart").then((m) => m.DumbbellChartComponent)
 );
-const SlopeChartComponent = dynamic(
-  () => import("./charts/slope-chart").then((m) => m.SlopeChartComponent),
-  { ssr: false }
+const SlopeChartComponent = lazyChart(() =>
+  import("./charts/slope-chart").then((m) => m.SlopeChartComponent)
 );
-const BeeswarmChartComponent = dynamic(
-  () => import("./charts/beeswarm-chart").then((m) => m.BeeswarmChartComponent),
-  { ssr: false }
+const BeeswarmChartComponent = lazyChart(() =>
+  import("./charts/beeswarm-chart").then((m) => m.BeeswarmChartComponent)
 );
-const ShapBeeswarmComponent = dynamic(
-  () => import("./charts/shap-beeswarm-chart").then((m) => m.ShapBeeswarmComponent),
-  { ssr: false }
+const ShapBeeswarmComponent = lazyChart(() =>
+  import("./charts/shap-beeswarm-chart").then((m) => m.ShapBeeswarmComponent)
 );
-const ConfusionMatrixComponent = dynamic(
-  () => import("./charts/confusion-matrix-chart").then((m) => m.ConfusionMatrixComponent),
-  { ssr: false }
+const ConfusionMatrixComponent = lazyChart(() =>
+  import("./charts/confusion-matrix-chart").then((m) => m.ConfusionMatrixComponent)
 );
-const RocCurveComponent = dynamic(
-  () => import("./charts/roc-curve-chart").then((m) => m.RocCurveComponent),
-  { ssr: false }
+const RocCurveComponent = lazyChart(() =>
+  import("./charts/roc-curve-chart").then((m) => m.RocCurveComponent)
 );
-const ParallelCoordinatesComponent = dynamic(
-  () => import("./charts/parallel-coordinates-chart").then((m) => m.ParallelCoordinatesComponent),
-  { ssr: false }
+const ParallelCoordinatesComponent = lazyChart(() =>
+  import("./charts/parallel-coordinates-chart").then((m) => m.ParallelCoordinatesComponent)
 );
-const BulletChartComponent = dynamic(
-  () => import("./charts/bullet-chart").then((m) => m.BulletChartComponent),
-  { ssr: false }
+const BulletChartComponent = lazyChart(() =>
+  import("./charts/bullet-chart").then((m) => m.BulletChartComponent)
 );
-const DecisionTreeComponent = dynamic(
-  () => import("./charts/decision-tree-chart").then((m) => m.DecisionTreeComponent),
-  { ssr: false }
+const DecisionTreeComponent = lazyChart(() =>
+  import("./charts/decision-tree-chart").then((m) => m.DecisionTreeComponent)
 );
-const ErrorBarChartComponent = dynamic(
-  () => import("./charts/error-bar-chart").then((m) => m.ErrorBarChartComponent),
-  { ssr: false }
+const ErrorBarChartComponent = lazyChart(() =>
+  import("./charts/error-bar-chart").then((m) => m.ErrorBarChartComponent)
 );
-const DualAxisChartComponent = dynamic(
-  () => import("./charts/dual-axis-chart").then((m) => m.DualAxisChartComponent),
-  { ssr: false }
+const DualAxisChartComponent = lazyChart(() =>
+  import("./charts/dual-axis-chart").then((m) => m.DualAxisChartComponent)
 );
-const FunnelChartComponent = dynamic(
-  () => import("./charts/funnel-chart").then((m) => m.FunnelChartComponent),
-  { ssr: false }
+const FunnelChartComponent = lazyChart(() =>
+  import("./charts/funnel-chart").then((m) => m.FunnelChartComponent)
 );
-const GaugeChartComponent = dynamic(
-  () => import("./charts/gauge-chart").then((m) => m.GaugeChartComponent),
-  { ssr: false }
+const GaugeChartComponent = lazyChart(() =>
+  import("./charts/gauge-chart").then((m) => m.GaugeChartComponent)
 );
-const SparklineComponent = dynamic(
-  () => import("./charts/sparkline-chart").then((m) => m.SparklineComponent),
-  { ssr: false }
+const SparklineComponent = lazyChart(() =>
+  import("./charts/sparkline-chart").then((m) => m.SparklineComponent)
 );
-const ParetoChartComponent = dynamic(
-  () => import("./charts/pareto-chart").then((m) => m.ParetoChartComponent),
-  { ssr: false }
+const ParetoChartComponent = lazyChart(() =>
+  import("./charts/pareto-chart").then((m) => m.ParetoChartComponent)
 );
-const QQChartComponent = dynamic(
-  () => import("./charts/qq-chart").then((m) => m.QQChartComponent),
-  { ssr: false }
+const QQChartComponent = lazyChart(() =>
+  import("./charts/qq-chart").then((m) => m.QQChartComponent)
 );
-const ECDFChartComponent = dynamic(
-  () => import("./charts/ecdf-chart").then((m) => m.ECDFChartComponent),
-  { ssr: false }
+const ECDFChartComponent = lazyChart(() =>
+  import("./charts/ecdf-chart").then((m) => m.ECDFChartComponent)
 );
-const SurvivalChartComponent = dynamic(
-  () => import("./charts/survival-chart").then((m) => m.SurvivalChartComponent),
-  { ssr: false }
+const SurvivalChartComponent = lazyChart(() =>
+  import("./charts/survival-chart").then((m) => m.SurvivalChartComponent)
 );
-const ForestPlotComponent = dynamic(
-  () => import("./charts/forest-plot-chart").then((m) => m.ForestPlotComponent),
-  { ssr: false }
+const ForestPlotComponent = lazyChart(() =>
+  import("./charts/forest-plot-chart").then((m) => m.ForestPlotComponent)
 );
-const ControlChartComponent = dynamic(
-  () => import("./charts/control-chart").then((m) => m.ControlChartComponent),
-  { ssr: false }
+const ControlChartComponent = lazyChart(() =>
+  import("./charts/control-chart").then((m) => m.ControlChartComponent)
 );
-const CorrelogramComponent = dynamic(
-  () => import("./charts/correlogram-chart").then((m) => m.CorrelogramComponent),
-  { ssr: false }
+const CorrelogramComponent = lazyChart(() =>
+  import("./charts/correlogram-chart").then((m) => m.CorrelogramComponent)
 );
-const CalibrationCurveComponent = dynamic(
-  () => import("./charts/calibration-curve-chart").then((m) => m.CalibrationCurveComponent),
-  { ssr: false }
+const CalibrationCurveComponent = lazyChart(() =>
+  import("./charts/calibration-curve-chart").then((m) => m.CalibrationCurveComponent)
 );
-const LiftChartComponent = dynamic(
-  () => import("./charts/lift-chart").then((m) => m.LiftChartComponent),
-  { ssr: false }
+const LiftChartComponent = lazyChart(() =>
+  import("./charts/lift-chart").then((m) => m.LiftChartComponent)
 );
-const PartialDependenceComponent = dynamic(
-  () => import("./charts/partial-dependence-chart").then((m) => m.PartialDependenceComponent),
-  { ssr: false }
+const PartialDependenceComponent = lazyChart(() =>
+  import("./charts/partial-dependence-chart").then((m) => m.PartialDependenceComponent)
 );
-const DendrogramComponent = dynamic(
-  () => import("./charts/dendrogram-chart").then((m) => m.DendrogramComponent),
-  { ssr: false }
+const DendrogramComponent = lazyChart(() =>
+  import("./charts/dendrogram-chart").then((m) => m.DendrogramComponent)
 );
-const SilhouetteComponent = dynamic(
-  () => import("./charts/silhouette-chart").then((m) => m.SilhouetteComponent),
-  { ssr: false }
+const SilhouetteComponent = lazyChart(() =>
+  import("./charts/silhouette-chart").then((m) => m.SilhouetteComponent)
 );
-const NetworkGraphComponent = dynamic(
-  () => import("./charts/network-graph-chart").then((m) => m.NetworkGraphComponent),
-  { ssr: false }
+const NetworkGraphComponent = lazyChart(() =>
+  import("./charts/network-graph-chart").then((m) => m.NetworkGraphComponent)
 );
-const ContourChartComponent = dynamic(
-  () => import("./charts/contour-chart").then((m) => m.ContourChartComponent),
-  { ssr: false }
+const ContourChartComponent = lazyChart(() =>
+  import("./charts/contour-chart").then((m) => m.ContourChartComponent)
 );
-const TernaryChartComponent = dynamic(
-  () => import("./charts/ternary-chart").then((m) => m.TernaryChartComponent),
-  { ssr: false }
+const TernaryChartComponent = lazyChart(() =>
+  import("./charts/ternary-chart").then((m) => m.TernaryChartComponent)
 );
-const PopulationPyramidComponent = dynamic(
-  () => import("./charts/population-pyramid-chart").then((m) => m.PopulationPyramidComponent),
-  { ssr: false }
+const PopulationPyramidComponent = lazyChart(() =>
+  import("./charts/population-pyramid-chart").then((m) => m.PopulationPyramidComponent)
 );
-const GanttChartComponent = dynamic(
-  () => import("./charts/gantt-chart").then((m) => m.GanttChartComponent),
-  { ssr: false }
+const GanttChartComponent = lazyChart(() =>
+  import("./charts/gantt-chart").then((m) => m.GanttChartComponent)
 );
-const CohortGridComponent = dynamic(
-  () => import("./charts/cohort-grid-chart").then((m) => m.CohortGridComponent),
-  { ssr: false }
+const CohortGridComponent = lazyChart(() =>
+  import("./charts/cohort-grid-chart").then((m) => m.CohortGridComponent)
 );
-const QuiverChartComponent = dynamic(
-  () => import("./charts/quiver-chart").then((m) => m.QuiverChartComponent),
-  { ssr: false }
+const QuiverChartComponent = lazyChart(() =>
+  import("./charts/quiver-chart").then((m) => m.QuiverChartComponent)
 );
-const WindRoseComponent = dynamic(
-  () => import("./charts/wind-rose-chart").then((m) => m.WindRoseComponent),
-  { ssr: false }
+const WindRoseComponent = lazyChart(() =>
+  import("./charts/wind-rose-chart").then((m) => m.WindRoseComponent)
 );
 
 const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
