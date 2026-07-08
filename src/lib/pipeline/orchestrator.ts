@@ -193,8 +193,12 @@ export async function runPipeline(
       retryError = result.error;
       // A timeout means the query was too slow for the (already generous)
       // budget, not that the code is buggy — regenerating similar code just
-      // times out again and multiplies the wait. Fail fast instead of retrying.
-      if (/timed out/i.test(retryError)) break;
+      // times out again and multiplies the wait. Fail fast instead of
+      // retrying. Keys on the STRUCTURED errorKind the executors set
+      // (CORE-7 — the old message-substring coupling would silently
+      // re-enable futile retries on a reword); the regex stays only as a
+      // fallback for foreign SDK timeout strings we don't control.
+      if (result.errorKind === "timeout" || /timed out/i.test(retryError)) break;
     } else if (semanticVerdict && !semanticVerdict.ok) {
       // Already gave the empty result its one fix attempt → accept it as
       // degraded ("no signal") instead of retrying further.

@@ -143,6 +143,9 @@ export async function executeSandbox(
     return {
       success: false,
       error: detail,
+      // Structured kind: the orchestrator's fail-fast decision keys on this,
+      // not on the message wording (CORE-7).
+      errorKind: isTimeout ? "timeout" : undefined,
       execution_ms: Date.now() - start,
     };
   } finally {

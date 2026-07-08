@@ -102,6 +102,20 @@ describe("runPipeline retry loop", () => {
     expect(mockedExec).toHaveBeenCalledTimes(1);
   });
 
+  it("fail-fast keys on errorKind:'timeout' — survives a reworded message (CORE-7)", async () => {
+    // The structured kind, NOT the message text, drives the decision: a
+    // future reword of docker's timeout message must not re-enable retries.
+    mockedExec.mockResolvedValue({
+      success: false as const,
+      error: "Execution exceeded the budget", // no "timed out" substring
+      errorKind: "timeout" as const,
+      execution_ms: 5,
+    });
+    await expect(runPipeline(schema, "csv", "q")).rejects.toThrow(/exceeded the budget/i);
+    expect(mockedRetryLlm).not.toHaveBeenCalled();
+    expect(mockedExec).toHaveBeenCalledTimes(1);
+  });
+
   it("gives a semantically-empty result ONE fix attempt, then returns degraded", async () => {
     // Empty results + empty chart_data + empty datasets = degenerate verdict.
     const empty = {

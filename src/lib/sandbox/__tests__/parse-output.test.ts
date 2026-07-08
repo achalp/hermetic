@@ -71,7 +71,10 @@ describe("parseSandboxOutput", () => {
     // failure on microsandbox/E2B returned a raw stderr dump.
     const by137 = await parseSandboxOutput({ ...base, exitCode: 137, readFile: io({}) });
     expect(by137.success).toBe(false);
-    if (!by137.success) expect(by137.error).toContain("Out of memory");
+    if (!by137.success) {
+      expect(by137.error).toContain("Out of memory");
+      expect(by137.errorKind).toBe("oom");
+    }
 
     const byKilled = await parseSandboxOutput({
       ...base,
@@ -79,7 +82,10 @@ describe("parseSandboxOutput", () => {
       readFile: io({ "/data/stderr.txt": "Killed" }),
     });
     expect(byKilled.success).toBe(false);
-    if (!byKilled.success) expect(byKilled.error).toContain("Out of memory");
+    if (!byKilled.success) {
+      expect(byKilled.error).toContain("Out of memory");
+      expect(byKilled.errorKind).toBe("oom");
+    }
   });
 
   it("uses the stderr fallback when the stderr file is unreadable", async () => {

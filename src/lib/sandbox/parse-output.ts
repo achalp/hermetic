@@ -109,7 +109,7 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     });
 
     if (opts.exitCode === 137 || /\bKilled\b/.test(stderr)) {
-      return { success: false, error: OOM_ERROR, execution_ms: executionMs };
+      return { success: false, error: OOM_ERROR, errorKind: "oom", execution_ms: executionMs };
     }
     return {
       success: false,

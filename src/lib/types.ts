@@ -116,6 +116,15 @@ export interface SandboxExecutionResult {
 export interface SandboxExecutionError {
   success: false;
   error: string;
+  /**
+   * Structured failure class for the errors that drive CONTROL FLOW —
+   * previously the orchestrator's no-retry decision string-matched
+   * /timed out/ against docker-utils' message, with nothing tying the two
+   * together (a reworded message would silently re-enable futile retries).
+   * "timeout" → fail fast, don't retry; "oom" → retry with lean-script
+   * guidance. Absent for ordinary execution errors.
+   */
+  errorKind?: "timeout" | "oom";
   execution_ms: number;
 }
 
