@@ -51,40 +51,34 @@ function walkElement(
   }
 }
 
+/**
+ * Label extraction is PRESENCE-driven, not type-driven: after the handful of
+ * genuinely component-specific shapes, any element with a string `title`
+ * (every chart in the catalog declares one) or `label` (the input controls)
+ * is summarized from it. The old version enumerated chart types in a switch
+ * that nothing kept in sync with the catalog — of ~60 catalog charts it
+ * listed 10, so a new chart rendered fine but silently vanished from history
+ * summaries and follow-up context (ARCH-11). A catalog-driven test now pins
+ * that every component declaring `title` gets summarized.
+ */
 function extractLabel(component: string, props: Record<string, unknown>): string {
   switch (component) {
     case "TextBlock":
       return truncate(String(props.content ?? ""), 60);
     case "StatCard":
       return `${props.label}: ${props.value}`;
-    case "BarChart":
-    case "LineChart":
-    case "AreaChart":
-    case "PieChart":
-    case "ScatterChart":
-    case "MapView":
-    case "Histogram":
-    case "BoxPlot":
-    case "HeatMap":
-    case "ViolinChart":
-      return String(props.title ?? "");
-    case "Annotation":
-      return String(props.title ?? "");
     case "DataTable":
       return props.caption ? String(props.caption) : "";
-    case "SelectControl":
-    case "NumberInput":
-    case "ToggleSwitch":
-    case "TextInput":
-    case "TextArea":
-      return String(props.label ?? "");
     case "DataController":
       return `${(props.filters as unknown[])?.length ?? 0} filters, ${(props.outputs as unknown[])?.length ?? 0} outputs`;
     case "FormController":
       return `${(props.fields as unknown[])?.length ?? 0} fields`;
-    default:
-      return "";
   }
+  // Generic: title (charts/annotations), then label (input controls). Only
+  // strings — a {"$state": ...} binding must not stringify to noise.
+  if (typeof props.title === "string" && props.title) return props.title;
+  if (typeof props.label === "string" && props.label) return props.label;
+  return "";
 }
 
 function truncate(s: string, max: number): string {
