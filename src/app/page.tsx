@@ -26,7 +26,7 @@ import { useSaveExport } from "@/hooks/use-save-export";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 import { CostFooter, type CostInfo } from "@/components/app/cost-footer";
 import { useArtifacts } from "@/hooks/use-artifacts";
-import { generateSuggestions, generateWarehouseSuggestions } from "@/lib/suggest-questions";
+import { useSuggestions } from "@/hooks/use-suggestions";
 import { AnalysisHistory, type HistoryEntry } from "@/components/app/analysis-history";
 import { SuggestionPills } from "@/components/app/suggestion-pills";
 import { SchedulePopover } from "@/components/app/schedule-popover";
@@ -45,8 +45,6 @@ import type { SchemaMode } from "@/lib/types";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
 import {
   checkLlmReady,
-  getArtifacts,
-  getFollowUpSuggestions,
   getLocalBackendConfig,
   loadViz,
   refreshViz,
@@ -60,8 +58,6 @@ import {
   loadHistoryEntry,
   refreshHistoryEntry,
 } from "@/lib/api";
-import { extractSpecComponentTypes } from "@/lib/spec-summary";
-import { summarizeAnalysisResults } from "@/lib/suggest-questions";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -164,8 +160,6 @@ export default function Home() {
   >({ kind: "closed" });
   const [effectiveCsvId, setEffectiveCsvId] = useState<string | null>(null);
   const [analysisHistory, setAnalysisHistory] = useState<HistoryEntry[]>([]);
-  const [followUpSuggestions, setFollowUpSuggestions] = useState<string[]>([]);
-  const [followUpKey, setFollowUpKey] = useState<string | null>(null);
   /**
    * The spec from the most recently completed analysis. Captured via
    * ResponsePanel's `onAnalysisComplete` callback because the streamed
@@ -622,143 +616,26 @@ export default function Home() {
     }
   }, [isAnalyzing, pendingRerunVizId, csvId, loadedSpec, currentQuestion, dispatch]);
 
-  // ── Follow-up suggestions: fire after each successful analysis ────
-  // Keyed on (csvId + question) so the same analysis doesn't re-fetch on rerenders,
-  // and so a fresh question or a fresh source clears the prior follow-ups.
+  // ── Question suggestions (initial + follow-up) — see use-suggestions.ts ──
   // Drives off `lastCompleteSpec` (captured from ResponsePanel.onAnalysisComplete),
   // not pageState.loadedSpec — the latter is only set when LOADING a saved viz,
   // not after a fresh stream.
-  //
-  // IMPORTANT: do NOT include any value that's set asynchronously inside this
-  // effect (e.g. fetched artifacts) in the deps. Otherwise the artifacts-set
-  // re-render would tear down this effect and AbortController.abort() would
-  // cancel the in-flight follow-up fetch. The artifacts fetch happens INSIDE
-  // the effect below for that reason.
-  useEffect(() => {
-    // TEMPORARY DIAGNOSTIC LOGGING — prefixed [follow-up] so it's easy to
-    // grep in the browser console. Remove once the issue is confirmed fixed.
-    console.log("[follow-up] effect tick", {
-      isAnalyzing,
-      hasLastCompleteSpec: !!lastCompleteSpec,
-      hasSpecRoot: !!lastCompleteSpec?.root,
-      currentQuestion,
-      hasSchema: !!schema,
-      warehouseTables: warehouse.tableSchemas.length,
-      effectiveCsvId,
-      csvId,
-      warehouseId: warehouse.warehouseId,
-      followUpKey,
-    });
-
-    if (isAnalyzing) {
-      console.log("[follow-up] gate: isAnalyzing → bail");
-      return;
-    }
-    if (!lastCompleteSpec || !currentQuestion) {
-      console.log("[follow-up] gate: missing spec or question → bail", {
-        hasSpec: !!lastCompleteSpec,
-        hasQuestion: !!currentQuestion,
-      });
-      return;
-    }
-    if (!schema && !warehouse.tableSchemas.length) {
-      console.log("[follow-up] gate: no schema or warehouse → bail");
-      return;
-    }
-
-    const key = `${effectiveCsvId ?? csvId ?? warehouse.warehouseId ?? ""}|${currentQuestion}`;
-    if (key === followUpKey) {
-      console.log("[follow-up] gate: key matches prior → already fetched", { key });
-      return;
-    }
-    console.log("[follow-up] all gates passed; firing fetch", { key });
-
-    setFollowUpKey(key);
-    setFollowUpSuggestions([]); // clear previous while loading
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-
-    const body = schema
-      ? {
-          schema: {
-            row_count: schema.row_count,
-            columns: schema.columns,
-            detected_domain: schema.detected_domain,
-            correlations: schema.correlations,
-          },
-        }
-      : { warehouseSchema: warehouse.tableSchemas };
-
-    const cid = effectiveCsvId ?? csvId;
-    const specSummary = extractSpecComponentTypes(lastCompleteSpec);
-
-    (async () => {
-      let resultsSummary: Record<string, string> | undefined;
-      if (cid) {
-        try {
-          const artifacts = await getArtifacts(cid);
-          if (controller.signal.aborted) {
-            console.log("[follow-up] aborted after artifacts fetch");
-            return;
-          }
-          resultsSummary = summarizeAnalysisResults(artifacts.results);
-          console.log("[follow-up] artifacts fetched", {
-            keys: Object.keys(resultsSummary).length,
-          });
-        } catch (err) {
-          console.warn("[follow-up] artifacts fetch failed (continuing)", err);
-        }
-      }
-
-      try {
-        console.log("[follow-up] calling /api/suggest follow-up...");
-        const questions = await getFollowUpSuggestions(
-          {
-            ...body,
-            question: currentQuestion,
-            resultsSummary,
-            specSummary,
-          },
-          controller.signal
-        );
-        clearTimeout(timeout);
-        if (controller.signal.aborted) {
-          console.log("[follow-up] aborted before setState");
-          return;
-        }
-        console.log(`[follow-up] received ${questions.length} questions:`, questions);
-        setFollowUpSuggestions(questions);
-      } catch (err) {
-        clearTimeout(timeout);
-        console.warn("[follow-up] suggestion fetch failed", err);
-      }
-    })();
-
-    return () => {
-      console.log("[follow-up] cleanup running (controller.abort + clearTimeout)");
-      clearTimeout(timeout);
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
+  const { suggestions, followUpSuggestions } = useSuggestions({
+    schema,
+    warehouse,
     isAnalyzing,
-    lastCompleteSpec,
     currentQuestion,
+    lastCompleteSpec,
     effectiveCsvId,
     csvId,
-    warehouse.warehouseId,
-  ]);
+    // Switching sources resets source-scoped page state.
+    onSourceChange: () => setAnalysisHistory([]),
+  });
 
-  // Clear the captured spec (and follow-ups) when a new analysis starts so
-  // stale follow-ups don't linger from the previous question while the new
-  // dashboard is composing.
+  // Clear the captured spec when a new analysis starts so stale follow-ups
+  // don't linger from the previous question while the new dashboard composes.
   useEffect(() => {
-    console.log("[follow-up] isAnalyzing changed →", isAnalyzing);
-    if (isAnalyzing) {
-      setLastCompleteSpec(null);
-      setFollowUpSuggestions([]);
-    }
+    if (isAnalyzing) setLastCompleteSpec(null);
   }, [isAnalyzing]);
 
   // Status now driven by ResponsePanel's PipelineProgress (real pipeline stages)
@@ -786,81 +663,6 @@ export default function Home() {
     profileItems.push(`${warehouse.tableCount} tables`);
     profileItems.push(`${warehouse.totalColumns} columns`);
   }
-
-  // Data-specific question suggestions: heuristic (instant) + LLM (async upgrade)
-  const heuristicSuggestions = useMemo(() => {
-    if (schema) return generateSuggestions(schema);
-    if (warehouse.isConnected && warehouse.tableSchemas.length > 0) {
-      return generateWarehouseSuggestions(warehouse.tableSchemas);
-    }
-    return [];
-  }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
-
-  const [llmSuggestions, setLlmSuggestions] = useState<string[] | null>(null);
-  const [llmFailed, setLlmFailed] = useState(false);
-  const [prevSchemaKey, setPrevSchemaKey] = useState<string | null>(null);
-  const schemaKey = schema
-    ? `csv:${schema.csv_id}`
-    : warehouse.isConnected
-      ? `wh:${warehouse.warehouseId}`
-      : null;
-  if (schemaKey !== prevSchemaKey) {
-    setPrevSchemaKey(schemaKey);
-    if (schemaKey) {
-      setLlmSuggestions(null);
-      setLlmFailed(false);
-      setAnalysisHistory([]);
-    }
-  }
-
-  // Fetch LLM-powered suggestions; fall back to heuristics on failure or 8s timeout
-  useEffect(() => {
-    if (!schemaKey) return;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-      setLlmFailed(true);
-    }, 8000);
-
-    const body = schema
-      ? {
-          schema: {
-            row_count: schema.row_count,
-            columns: schema.columns,
-            detected_domain: schema.detected_domain,
-            correlations: schema.correlations,
-          },
-        }
-      : { warehouseSchema: warehouse.tableSchemas };
-
-    fetch("/api/suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        clearTimeout(timeout);
-        if (!controller.signal.aborted && data.questions?.length) {
-          setLlmSuggestions(data.questions);
-        } else {
-          setLlmFailed(true);
-        }
-      })
-      .catch(() => {
-        clearTimeout(timeout);
-        if (!controller.signal.aborted) setLlmFailed(true);
-      });
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemaKey]);
-
-  // LLM first; heuristics only if LLM failed or timed out
-  const suggestions = llmSuggestions ?? (llmFailed ? heuristicSuggestions : []);
 
   // Source label for top bar pill
   const sourceLabel = schema
