@@ -1,7 +1,7 @@
 import { executeSandbox as e2bExecutor } from "./executor";
 import { executeSandbox as dockerExecutor } from "./docker-executor";
 import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
-import { codeNeedsNetwork } from "./docker-utils";
+import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
 import { getWarmManager } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -224,6 +224,21 @@ export function executeSandbox(
       localMountPath,
       inputParquetPath
     );
+  }
+
+  // Remote cloud reads (s3://, httpfs) need the extended large-data timeout,
+  // which only the Docker path budgets — on microsandbox/E2B the same code
+  // just died at the 30s default and burned the retry budget with a spurious
+  // "timed out" that never named the real cause. Reject with the cause.
+  if (rt !== "docker" && codeDoesRemoteIo(code)) {
+    return Promise.resolve({
+      success: false,
+      error:
+        "Remote cloud data reads (s3://, https:// Parquet over httpfs) are only supported with " +
+        "the Docker sandbox runtime — other runtimes cap execution at the default timeout, which " +
+        "remote scans exceed. Switch to Docker in Settings → Sandbox Runtime.",
+      execution_ms: 0,
+    });
   }
 
   // The warm Docker container runs with --network none (shared, created
