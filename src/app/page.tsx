@@ -110,6 +110,8 @@ export default function Home() {
     pendingRerunVizId,
     rerunCode,
     rerunSql,
+    loadedVizId,
+    refreshStage,
   } = pageState;
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
   const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
@@ -123,10 +125,6 @@ export default function Home() {
     return DEFAULT_SANDBOX_RUNTIME;
   });
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
-  const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
-  const [refreshStage, setRefreshStage] = useState<
-    "loading" | "querying" | "executing" | "composing" | null
-  >(null);
   const [llmWarning, setLlmWarning] = useState<string | null>(null);
   // Lifted here from QueryInput so suggestion pills and history replays
   // inherit whichever mode the user toggled the input to.
@@ -302,12 +300,13 @@ export default function Home() {
 
         if (canRefresh) {
           dispatch({ type: "RERUN_START" });
-          setRefreshStage("loading");
+          dispatch({ type: "REFRESH_STAGE", stage: "loading" });
           await new Promise((r) => setTimeout(r, 100));
-          setRefreshStage("executing");
+          dispatch({ type: "REFRESH_STAGE", stage: "executing" });
           const result = await refreshHistoryEntry(rerunId, warehouse.warehouseId, sandboxRuntime);
-          setRefreshStage("composing");
+          dispatch({ type: "REFRESH_STAGE", stage: "composing" });
           handleUpload(result.csvId, result.schema as unknown as import("@/lib/types").CSVSchema);
+          // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
           dispatch({
             type: "RERUN_FAST_SUCCESS",
             spec: result.spec as unknown as import("@json-render/react").Spec,
@@ -315,7 +314,6 @@ export default function Home() {
               (result.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
               null,
           });
-          setRefreshStage(null);
         } else {
           // Warehouse without active connection — just restore
           if (data.csvId) {
@@ -332,7 +330,7 @@ export default function Home() {
         }
       })
       .catch(() => {
-        setRefreshStage(null);
+        // RERUN_ERROR clears refreshStage in the reducer.
         dispatch({ type: "RERUN_ERROR" });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -418,8 +416,7 @@ export default function Home() {
   const handleReset = useCallback(() => {
     reset();
     warehouse.reset();
-    resetPage();
-    setLoadedVizId(null);
+    resetPage(); // RESET returns to initialState → loadedVizId/refreshStage null
     setShowWarehouseForm(false);
     setShowLocalBrowser(false);
     setIsExtractingLocalSchema(false);
@@ -527,8 +524,8 @@ export default function Home() {
           question: data.meta.question,
           spec: data.spec as unknown as Spec,
           artifacts: data.artifacts ?? null,
+          vizId,
         });
-        setLoadedVizId(vizId);
       } catch (err) {
         console.error("Load viz failed:", err);
         dispatch({ type: "LOAD_VIZ_ERROR" });
@@ -558,12 +555,12 @@ export default function Home() {
             type: "RERUN_FAST_SUCCESS",
             spec: result.spec as unknown as Spec,
             artifacts: result.artifacts ?? null,
+            vizId,
           });
-          setLoadedVizId(vizId);
         } else {
           handleUpload(result.csvId, result.schema);
+          // RERUN_STREAM_START sets loadedVizId from its vizId in the reducer.
           dispatch({ type: "RERUN_STREAM_START", question: result.question!, vizId });
-          setLoadedVizId(vizId);
         }
       } catch (err) {
         console.error("Rerun failed:", err);
@@ -581,25 +578,26 @@ export default function Home() {
     async (vizId: string) => {
       window.scrollTo({ top: 0, behavior: "smooth" });
       dispatch({ type: "RERUN_START" });
-      setRefreshStage("loading");
+      dispatch({ type: "REFRESH_STAGE", stage: "loading" });
       try {
         // Brief delay so "loading" stage is visible before the fetch begins
         await new Promise((r) => setTimeout(r, 100));
-        setRefreshStage("executing");
+        dispatch({ type: "REFRESH_STAGE", stage: "executing" });
         const result = await refreshViz(vizId, warehouse.warehouseId, sandboxRuntime);
-        setRefreshStage("composing");
+        dispatch({ type: "REFRESH_STAGE", stage: "composing" });
         handleUpload(result.csvId, result.schema);
+        // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
         dispatch({
           type: "RERUN_FAST_SUCCESS",
           spec: result.spec as unknown as Spec,
           artifacts: result.artifacts ?? null,
+          vizId,
         });
-        setLoadedVizId(vizId);
       } catch (err) {
         console.error("Refresh failed:", err);
+        // RERUN_ERROR clears refreshStage — the stuck-spinner invariant now
+        // lives in the reducer, not in per-callsite finally blocks.
         dispatch({ type: "RERUN_ERROR" });
-      } finally {
-        setRefreshStage(null);
       }
     },
     [dispatch, handleUpload, warehouse.warehouseId, sandboxRuntime]
