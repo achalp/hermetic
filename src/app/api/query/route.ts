@@ -369,7 +369,16 @@ export async function POST(request: Request) {
                 });
               }
 
-              if (closed()) return;
+              // NOTE: deliberately NO `if (closed()) return` here. The
+              // execution is the expensive, already-paid part — a client
+              // disconnect during it (the longest phase) must not discard the
+              // result. Compose runs to completion into the dead socket
+              // (emit() no-ops), the patches accumulate in emittedLines, and
+              // persistHistoryOnDisconnect saves the assembled spec so the
+              // user finds the answer in History after reconnecting. An early
+              // return here was exactly how a 13-min remote scan finished
+              // successfully 2 minutes after a "network error" and left
+              // nothing behind (run 16ac725e, 2026-07-09).
 
               // Cache the generated code for save functionality
               cacheGeneratedCode(csvId!, pipelineResult.generatedCode, question);

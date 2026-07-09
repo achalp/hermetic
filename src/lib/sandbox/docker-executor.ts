@@ -116,11 +116,25 @@ export async function executeSandbox(
       { timeoutMs: execTimeout }
     );
 
-    // 5. Parse output
-    return await parseExecutionOutput(id, start, execResult.stdout);
+    // 5. Parse output. Log the OUTCOME symmetrically with the start line —
+    // execution previously ended silently, so a mid-run failure left no
+    // server-side record of when the sandbox finished or how (the exact gap
+    // that made the July-8 long-query failures undiagnosable from logs).
+    const result = await parseExecutionOutput(id, start, execResult.stdout);
+    logger.info("Docker: execution finished", {
+      ms: Date.now() - start,
+      success: result.success,
+      ...(result.success ? {} : { errorHead: result.error.slice(0, 200) }),
+    });
+    return result;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     const isTimeout = errorMsg.includes("timed out");
+    logger.warn("Docker: execution threw", {
+      ms: Date.now() - start,
+      isTimeout,
+      errorHead: errorMsg.slice(0, 200),
+    });
 
     // On timeout, try to grab stderr for context on what was running. Include the
     // budget actually applied — the fast way to see whether the extended

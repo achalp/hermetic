@@ -628,7 +628,13 @@ export async function POST(request: Request) {
                 },
               });
 
-              if (closed()) return;
+              // NOTE: deliberately NO `if (closed()) return` here — the same
+              // fix as the Ask route. A multi-step investigation is the most
+              // expensive thing this app runs; a client disconnect during it
+              // must not discard the completed sub-analyses. The trace is
+              // cached, compose streams into the dead socket (emit no-ops),
+              // and persistHistoryOnDisconnect saves the assembled spec for
+              // the History panel.
 
               // Build the full audit trail: every sub-question's code + result,
               // the re-planner / composer decisions, and (added after compose) the
