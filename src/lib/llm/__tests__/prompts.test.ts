@@ -104,6 +104,11 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("(bbox.xmin+bbox.xmax)/2");
     expect(prompt).toContain("division_area");
     expect(prompt).toContain("ST_Union_Agg");
+    // The divisions-side cost rule: the boundary polygon must be fetched via
+    // the cheap bbox-extent pass first — a one-shot name-filtered
+    // ST_Union_Agg reads the global geometry column and blows the budget.
+    expect(prompt).toContain("BOUNDARY LOOKUP IS TWO-PHASE");
+    expect(prompt).toContain("MIN(bbox.xmin)");
   });
 
   it("omits bbox guidance when there is no bbox column", () => {
