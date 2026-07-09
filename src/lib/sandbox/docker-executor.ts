@@ -9,6 +9,7 @@ import {
   LOCAL_MOUNT_PATH,
 } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo, codeNeedsNetwork } from "./docker-utils";
+import { withWakeLock } from "./wake-lock";
 import { logger } from "@/lib/logger";
 
 export async function executeSandbox(
@@ -102,18 +103,22 @@ export async function executeSandbox(
     });
     logger.debug("Docker: script written");
 
-    // 4. Run script.
+    // 4. Run script. Held under a macOS wake lock (see wake-lock.ts): idle
+    //    sleep mid-scan drops the container's S3 connections AND freezes the
+    //    timeout timer, the signature behind every mid-run "network error".
     logger.info("Docker: executing script", { execTimeout, largeData: isLargeData });
-    const execResult = await run(
-      "docker",
-      [
-        "exec",
-        id,
-        "sh",
-        "-c",
-        "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
-      ],
-      { timeoutMs: execTimeout }
+    const execResult = await withWakeLock(`sandbox:${id}`, () =>
+      run(
+        "docker",
+        [
+          "exec",
+          id,
+          "sh",
+          "-c",
+          "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
+        ],
+        { timeoutMs: execTimeout }
+      )
     );
 
     // 5. Parse output. Log the OUTCOME symmetrically with the start line —
@@ -130,9 +135,19 @@ export async function executeSandbox(
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     const isTimeout = errorMsg.includes("timed out");
+    const wallMs = Date.now() - start;
+    // The timeout is a Node setTimeout, which only advances while awake. So on
+    // a genuine timeout wall-time ≈ execTimeout; a wall-time far BEYOND the
+    // budget means the timer was frozen — i.e. the machine slept mid-run — and
+    // `wallMs - execTimeout` is roughly how long it was suspended. Report that
+    // honestly instead of blaming a slow query (the July-8/9 failures were all
+    // this: e.g. a 20-min budget "timing out" after 40.6 min of wall clock).
+    const suspendedMs = isTimeout ? Math.max(0, wallMs - execTimeout) : 0;
+    const likelySuspended = suspendedMs > 60_000;
     logger.warn("Docker: execution threw", {
-      ms: Date.now() - start,
+      ms: wallMs,
       isTimeout,
+      ...(likelySuspended ? { likelySuspended, approxSuspendedMs: suspendedMs } : {}),
       errorHead: errorMsg.slice(0, 200),
     });
 
@@ -141,7 +156,9 @@ export async function executeSandbox(
     // (remote/large) timeout kicked in.
     let detail = errorMsg;
     if (isTimeout) {
-      detail = `Sandbox execution timed out after ${execTimeout}ms (largeData=${isLargeData}).`;
+      detail = likelySuspended
+        ? `Execution was interrupted: the machine appears to have slept for ~${Math.round(suspendedMs / 60_000)} min during this run (${wallMs}ms wall vs a ${execTimeout}ms budget), which drops the sandbox's network and stalls the scan. Keep the machine awake and re-run — the app now holds a wake lock during execution, but it cannot override a closed lid.`
+        : `Sandbox execution timed out after ${execTimeout}ms (largeData=${isLargeData}).`;
       try {
         const stderr = await run("docker", ["exec", id, "cat", "/data/stderr.txt"], {
           timeoutMs: 5_000,

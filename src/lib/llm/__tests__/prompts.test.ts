@@ -109,6 +109,10 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     // ST_Union_Agg reads the global geometry column and blows the budget.
     expect(prompt).toContain("BOUNDARY LOOKUP IS TWO-PHASE");
     expect(prompt).toContain("MIN(bbox.xmin)");
+    // The per-point containment cost lever: simplify the (materialized)
+    // boundary — mandatory for a detailed state/country polygon.
+    expect(prompt).toContain("ST_Simplify");
+    expect(prompt).toContain("CREATE TEMP TABLE region");
   });
 
   it("omits bbox guidance when there is no bbox column", () => {
