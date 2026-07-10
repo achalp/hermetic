@@ -89,8 +89,9 @@ describe("runPipeline retry loop", () => {
 
   it("throws after exhausting MAX_RETRIES (3) on persistent execution failure", async () => {
     mockedExec.mockResolvedValue(fail("boom"));
-    await expect(runPipeline(schema, "csv", "q")).rejects.toThrow(/failed after 3 retries/i);
-    // 1 initial + 3 retries executed
+    // 1 initial + 3 retries = 4 attempts (the message reports the real count,
+    // not the constant MAX_RETRIES — a timeout fail-fast runs only 1).
+    await expect(runPipeline(schema, "csv", "q")).rejects.toThrow(/failed after 4 attempts/i);
     expect(mockedExec).toHaveBeenCalledTimes(4);
     expect(mockedRetryLlm).toHaveBeenCalledTimes(3);
   });
@@ -111,7 +112,12 @@ describe("runPipeline retry loop", () => {
       errorKind: "timeout" as const,
       execution_ms: 5,
     });
-    await expect(runPipeline(schema, "csv", "q")).rejects.toThrow(/exceeded the budget/i);
+    const err = (await runPipeline(schema, "csv", "q").catch((e) => e)) as Error;
+    expect(err.message).toMatch(/exceeded the budget/i);
+    // The headline must name it a timeout-not-retried, NOT "failed after N
+    // attempts" — the message that misled a real post-mortem.
+    expect(err.message).toMatch(/timed out and was not retried/i);
+    expect(err.message).not.toMatch(/failed after/i);
     expect(mockedRetryLlm).not.toHaveBeenCalled();
     expect(mockedExec).toHaveBeenCalledTimes(1);
   });

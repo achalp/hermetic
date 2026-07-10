@@ -297,9 +297,16 @@ export async function runPipeline(
       .map((a, i) => `Attempt ${i + 1}: ${a.error.slice(0, 200).replace(/\n/g, " ")}`)
       .concat(`Attempt ${attempt + 1}: ${result.error.slice(0, 200).replace(/\n/g, " ")}`)
       .join("\n");
-    throw new Error(
-      `Analysis failed after ${MAX_RETRIES} retries.\n\n${summary}\n\nFinal error:\n${result.error}`
-    );
+    // Report the ACTUAL attempt count, not MAX_RETRIES — a timeout fail-fast
+    // (errorKind === "timeout") breaks after ONE attempt, so "failed after 3
+    // retries" was a lie that sent every reader hunting for retries that
+    // never ran. A timeout says "too slow", not "buggy"; name that.
+    const attemptsRun = attempt + 1;
+    const headline =
+      result.errorKind === "timeout"
+        ? `Analysis timed out and was not retried (a timeout means the query is too slow for the budget, not that the code is wrong).`
+        : `Analysis failed after ${attemptsRun} attempt${attemptsRun === 1 ? "" : "s"}.`;
+    throw new Error(`${headline}\n\n${summary}\n\nFinal error:\n${result.error}`);
   }
 
   if (attempt > 0) {
