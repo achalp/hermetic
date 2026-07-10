@@ -263,6 +263,23 @@ export function isResourceLimitError(message: string): boolean {
   );
 }
 
+/**
+ * Errors signalling the LOCAL machine lost its network connection to the
+ * warehouse API — not a SQL mistake, so regenerating the query cannot help and
+ * re-running just fails the same way. Matches the driver/SDK fetch-failure
+ * shapes: gaxios "Cannot connect to API" / "Failed after N attempts", a bare
+ * "request to <url> failed, reason:" (empty reason = socket died), and the
+ * usual node network codes. The dominant cause is the laptop idle-sleeping
+ * mid-query (the outbound poll's socket drops), which the sandbox wake lock
+ * covers for Docker runs but not for warehouse queries — hence bailing with a
+ * clear message beats burning the repair budget on a dead network.
+ */
+export function isConnectivityError(message: string): boolean {
+  return /Cannot connect to API|Failed after \d+ attempts|request to .+ failed, reason:|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network (?:error|is unreachable)/i.test(
+    message
+  );
+}
+
 export async function generateSQLWithRepair<T>(args: {
   tables: WarehouseTableSchema[];
   question: string;
@@ -312,6 +329,20 @@ export async function generateSQLWithRepair<T>(args: {
         error: message.slice(0, 200),
         sql,
       });
+      // A lost network connection is never a SQL bug — repairing/re-running
+      // just fails the same way (and the repair's own LLM call needs the same
+      // dead network). Bail immediately with a message that names the real
+      // cause instead of a cryptic driver string. Not gated on any flag:
+      // regenerating SQL can NEVER fix connectivity.
+      if (isConnectivityError(message)) {
+        logger.warn("Warehouse query lost network connectivity; not repairing", {
+          warehouseType: args.warehouseType,
+          error: message.slice(0, 160),
+        });
+        throw new Error(
+          `Lost the network connection to the ${args.warehouseType} API mid-query — the query was not completed. This usually means the machine slept or the network dropped. Reconnect and re-run. (${message.slice(0, 120)})`
+        );
+      }
       if (args.bailOnResourceError && isResourceLimitError(message)) {
         logger.warn("Warehouse SQL hit a resource limit; not repairing (query too expensive)", {
           question: args.question.slice(0, 120),

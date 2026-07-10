@@ -9,7 +9,7 @@ import {
   LOCAL_MOUNT_PATH,
 } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo, codeNeedsNetwork } from "./docker-utils";
-import { withWakeLock } from "./wake-lock";
+import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 
 export async function executeSandbox(

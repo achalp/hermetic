@@ -17,6 +17,7 @@ import type { WarehouseConnector } from "./connector";
 import { generateSQLWithRepair } from "./sql-generation";
 import { pickMaterializationScope } from "./materialization-scope";
 import { PLANNER_MODEL } from "@/lib/constants";
+import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 
 export type SqlAttemptPhase = "generating" | "executing" | "repairing";
@@ -107,7 +108,12 @@ export async function runWarehouseQuery(args: {
     model: args.model,
     execute: async (sql) => {
       try {
-        const csv = await args.connector.executeSQL(sql);
+        // A warehouse query can run for minutes while the driver polls the API
+        // over the network; idle sleep drops that connection (surfacing as
+        // "Cannot connect to API"). Hold the wake lock for the execution, same
+        // as the Docker sandbox — this path was the one gap the sandbox-only
+        // wake lock left open.
+        const csv = await withWakeLock("warehouse-query", () => args.connector.executeSQL(sql));
         if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
         return csv;
       } catch (err) {
