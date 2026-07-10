@@ -5,6 +5,40 @@ re-reading before touching the same area again. Newest first.
 
 ---
 
+## 2026-07-09 — Same failure on the BigQuery warehouse path (network loss mid-query)
+
+**Commit:** `801f187`
+
+The California NN question run against **BigQuery** (not the DuckDB sandbox)
+failed the same way: client stream died at 13 min ("network error") and the
+server's outbound BigQuery poll failed together —
+`request to https://bigquery.googleapis.com/.../job_… failed, reason:` (empty
+reason = socket died) and the BQ SDK's own retries gave up with `Failed after
+3 attempts. Cannot connect to API`. Both directions dropping at once = local
+network loss (idle sleep most likely; the BQ job may have finished server-side,
+we just lost the connection to fetch it). This is NOT a SQL error, query error,
+or resource limit.
+
+Two gaps this exposed, both fixed:
+
+1. **The wake lock only covered the Docker sandbox, not warehouse queries.** A
+   warehouse query polls the API over the network for minutes and is equally
+   vulnerable to idle sleep. `runWarehouseQuery` now wraps `executeSQL` in
+   `withWakeLock`. `wake-lock.ts` moved `src/lib/sandbox/` → `src/lib/` (shared,
+   not a sandbox concept).
+
+2. **The repair loop treated connectivity loss as a repairable SQL error.** New
+   `isConnectivityError()` (sql-generation.ts) matches the driver/SDK
+   fetch-failure shapes ("Cannot connect to API", "Failed after N attempts",
+   `request to … failed, reason:`, ECONNRESET/ETIMEDOUT/ENOTFOUND, socket hang
+   up). The loop now bails on these UNCONDITIONALLY (regenerating SQL can never
+   fix a dead network, and the repair's own LLM call needs that same network)
+   and rethrows "Lost the network connection to the &lt;engine&gt; API mid-query
+   … reconnect and re-run" instead of the cryptic driver string after wasted
+   attempts.
+
+---
+
 ## 2026-07-09 — Long remote-scan queries fail mid-run with "network error" (idle sleep)
 
 **Commits:** `1d40d6f`, `3c5b8bf`, `49d4630` (branch `remote-cloud-parquet-source`, PR #93)
