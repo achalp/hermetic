@@ -5,6 +5,42 @@ re-reading before touching the same area again. Newest first.
 
 ---
 
+## 2026-07-10 — BigQuery query ran 6 hours then failed (no job timeout + doomed NN self-join)
+
+**Commit:** _(this change)_
+
+The California NN question on BigQuery ran for **6 hours** and failed with
+`Operation timed out after 6.0 hours` — BigQuery's hard job-execution ceiling.
+Not network, not sleep: a genuine BQ-side resource timeout
+(`POST /api/query 200 in 360.9min`). Two independent problems:
+
+1. **No BigQuery job timeout.** `bq.query({query})` set no `jobTimeoutMs`, so a
+   runaway query runs to BQ's 6-hour limit before failing — hanging the request
+   and burning slots for hours. Fixed: `executeSQL` now passes
+   `jobTimeoutMs: WAREHOUSE_QUERY_TIMEOUT_MS` (20 min), so a too-expensive query
+   surfaces its engine error in minutes and flows into the normal repair/fail
+   path. (Gap: the other engines — Snowflake `STATEMENT_TIMEOUT_IN_SECONDS`,
+   ClickHouse `max_execution_time`, Postgres `statement_timeout`, Trino
+   `query_max_execution_time` — should get equivalent caps; BQ was the one that
+   actually bit.)
+
+2. **The generated SQL is doubly wrong for the question.** It was a grid-bucketed
+   spatial self-join with a FIXED 0.05° (~5km) cell. A within-cell self-join is
+   still O(n²) INSIDE each cell, and a dense-urban cell (downtown LA/SF) holds
+   hundreds of thousands of buildings → hundreds of billions of `ST_DISTANCE`
+   pairs in that one cell = the 6-hour blow-up. AND the INNER join + GROUP BY
+   silently DROPS buildings with no neighbor in range — i.e. the most-isolated
+   buildings, which are exactly the answer (the query's own `analysis_scope`
+   admitted "buildings >5km away may not be resolved"). SQL-gen guidance
+   strengthened: a grid self-join is only O(n·k) if per-cell count is BOUNDED (a
+   fixed geographic cell size is a trap); for "most isolated" restrict the
+   pairwise work to LOW-COUNT (sparse) cells and use an expanding search radius;
+   and an honest note that whole-region nearest-neighbor is a poor fit for
+   warehouse SQL (the DuckDB-sandbox KD-tree path is the right tool — O(n log n),
+   handles the isolated-building case correctly).
+
+---
+
 ## 2026-07-09 — Same failure on the BigQuery warehouse path (network loss mid-query)
 
 **Commit:** `801f187`

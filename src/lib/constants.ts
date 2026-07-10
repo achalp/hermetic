@@ -31,6 +31,13 @@ export const SANDBOX_TIMEOUT_MS = 30_000; // 30 seconds
 // rows read over S3) legitimately need minutes to scan — not a bug, just big.
 // Give those executions a generous budget rather than sampling the data.
 export const LARGE_DATA_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+// Hard cap on a single warehouse query's execution. Warehouses default to
+// enormous limits (BigQuery kills a job only at 6 HOURS) — so a runaway
+// query (e.g. an O(n²) spatial self-join whose grid cells explode in dense
+// urban areas) ties up the user's request and burns warehouse slots for
+// hours before failing. Cancel it at our own budget instead; the engine
+// error then flows into the normal repair/fail path in minutes, not hours.
+export const WAREHOUSE_QUERY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 export const CSV_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const DOCKER_SANDBOX_IMAGE = "hermetic-sandbox";
 export const MAX_SAMPLE_ROWS = 5;

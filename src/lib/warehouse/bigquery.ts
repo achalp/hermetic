@@ -7,6 +7,7 @@ import type {
 } from "@/lib/types";
 import type { WarehouseConnector, ScanWindow } from "./connector";
 import { extractDateEpoch, parsePartitionId, sizeScanWindow } from "./scan-window";
+import { WAREHOUSE_QUERY_TIMEOUT_MS } from "@/lib/constants";
 
 export function createBigQueryConnector(config: BigQueryConnectionConfig): WarehouseConnector {
   let credentials: Record<string, unknown>;
@@ -214,7 +215,11 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
     },
 
     async executeSQL(sql: string): Promise<string> {
-      const [rows] = await bq.query({ query: sql });
+      // jobTimeoutMs cancels the JOB (not just the client wait) — without it
+      // BigQuery runs a runaway query to its 6-hour ceiling before failing,
+      // hanging the request and burning slots. Cap it at our own budget so a
+      // too-expensive query surfaces its engine error in minutes.
+      const [rows] = await bq.query({ query: sql, jobTimeoutMs: WAREHOUSE_QUERY_TIMEOUT_MS });
 
       if (!rows || rows.length === 0) return "";
 
