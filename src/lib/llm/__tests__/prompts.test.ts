@@ -113,6 +113,10 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     // boundary — mandatory for a detailed state/country polygon.
     expect(prompt).toContain("ST_Simplify");
     expect(prompt).toContain("CREATE TEMP TABLE region");
+    // Planet-scale unbounded superlative: metadata-first coarse-to-fine, so a
+    // global "loneliest building" doesn't attempt a doomed 2.5B-row full scan.
+    expect(prompt).toContain("PLANET-SCALE");
+    expect(prompt).toContain("parquet_metadata");
   });
 
   it("omits bbox guidance when there is no bbox column", () => {
