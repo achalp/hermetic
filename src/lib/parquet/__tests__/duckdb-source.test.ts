@@ -44,16 +44,26 @@ describe("cloud extension prelude", () => {
 });
 
 describe("parquet context builders", () => {
-  it("folder context creates a view and includes the large-data warning past 1M rows", () => {
-    const ctx = parquetFolderContext("read_parquet('X')", 5_000_000, false);
-    expect(ctx).toContain("CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('X')");
+  it("folder context creates a view and includes the large-data warning + scan strategy past 1M rows", () => {
+    const ctx = parquetFolderContext("read_parquet('s3://bkt/**/*.parquet')", 5_000_000, false);
+    expect(ctx).toContain(
+      "CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('s3://bkt/**/*.parquet')"
+    );
     expect(ctx).toContain("large dataset");
     expect(ctx).not.toContain("Hive-partitioned");
+    // Classify-first scan strategy (geo + non-geo), with the metadata path
+    // pulled from the read expression.
+    expect(ctx).toContain("SCAN STRATEGY");
+    expect(ctx).toContain("EXTREME / SELECTIVE");
+    expect(ctx).toContain("METADATA-ONLY AGGREGATE");
+    expect(ctx).toContain("HOLISTIC AGGREGATE");
+    expect(ctx).toContain("parquet_metadata('s3://bkt/**/*.parquet')");
   });
 
-  it("folder context omits the large-data warning under 1M rows and notes hive columns", () => {
+  it("folder context omits the large-data warning AND scan strategy under 1M rows", () => {
     const ctx = parquetFolderContext("read_parquet('X', hive_partitioning=true)", 1000, true);
     expect(ctx).not.toContain("large dataset");
+    expect(ctx).not.toContain("SCAN STRATEGY");
     expect(ctx).toContain("Hive-partitioned");
     expect(ctx).toContain("Partition columns");
   });

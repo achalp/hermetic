@@ -126,13 +126,60 @@ tight).
 - The thresholds (density cutoff, K) are heuristics; Phase 3 + the widen rule
   keep them honest.
 
+## The general pattern (any granularity, geo AND non-geo)
+
+The loneliest-building technique is one instance of a broader principle that
+applies at **any** granularity (Seattle, California, the planet) and to **any**
+column, spatial or not. The right question for any "compute X over a big
+dataset" request is: **how much of the data does the answer actually depend
+on?** Three classes:
+
+- **(A) Extreme / selective** — the answer is a FEW rows with an extreme
+  property (tallest, largest, oldest, rarest, most-isolated, top-N). You never
+  need every row: eliminate the majority that provably can't win with cheap
+  per-row-group stats, then scan only the survivors.
+  - _Stored column_ (height, amount, timestamp): Parquet **zone maps** —
+    `parquet_metadata` gives per-row-group `stats_min`/`stats_max`; for a MAX
+    query skip every row group whose `stats_max < best-so-far`. Exact, near-free,
+    universal (any orderable column). This is branch-and-bound / zone-map
+    pruning.
+  - _Derived property_ (spatial isolation, largest gap between consecutive
+    events): a cheap proxy from the same metadata — spatial isolation → density
+    from bbox extent + count (the recipe above).
+- **(B) Metadata-only aggregate** — `COUNT(*)`, `MIN`, `MAX`, value range/extent:
+  read straight from the footers (`COUNT(*)` = `SUM(row_group_num_rows)`;
+  `MIN/MAX` = min/max of the stats). No data scan at all.
+- **(C) Holistic aggregate** — `AVG`, `MEDIAN`, `SUM`, `COUNT(DISTINCT)`, a full
+  distribution or per-group rollup: every row contributes, footer stats can't
+  give these, so scan them all — or, if that exceeds budget, a bounded/disclosed
+  scope or a uniform sample (never a partial passed off as the whole).
+
+The through-line across all of it — and across the app's existing two-phase
+geometry read and numeric-first-then-hydrate pass — is **read the cheap thing to
+eliminate, read the expensive thing only for what survives**; metadata is just
+the cheapest possible "eliminate" step.
+
+**Granularity crossover:** the principle holds at every scale, but the machinery
+only earns its keep once the full numeric scan of the region no longer fits the
+budget comfortably. Seattle (~1M) — just scan. California (13.7M, ~3–4 min) —
+metadata-first is an optional ~30 s speedup. The planet (2.5B) — necessary.
+Below the crossover, scan directly; above it, prune-first.
+
 ## Implementation
 
-Encoded as code-gen guidance in `src/lib/llm/prompts.ts` (the geospatial
-section) so the model generates the metadata-first pattern for an unbounded
-global superlative instead of a doomed full scan. The guidance is gated on the
-same `bbox`-column presence as the rest of the geo guidance. Validated
-empirically against release 2026-05-20.0 (numbers above) with the DuckDB CLI.
+- **General classify-first guidance** — `scanStrategyNote()` in
+  `src/lib/parquet/duckdb-source.ts`, injected into the Data-Location context for
+  any large Parquet source (`rowCount > LARGE_ROWS`, geo or non-geo), alongside
+  the existing `remoteNetworkNote`. Teaches the model to pick class A/B/C and the
+  matching approach, with the `parquet_metadata` path interpolated from the read
+  expression.
+- **Spatial recipe** — the density/sparse-tail/verify detail stays in the
+  geospatial section of `src/lib/llm/prompts.ts` (gated on `bbox` presence),
+  framed as the spatial case of class A and pointing back to the scan-strategy
+  note.
+
+Validated empirically against release 2026-05-20.0 (numbers above) with the
+DuckDB CLI.
 
 ## Follow-ups
 

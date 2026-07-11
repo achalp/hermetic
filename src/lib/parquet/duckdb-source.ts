@@ -182,6 +182,27 @@ function remoteNetworkNote(readExpr: string): string {
   );
 }
 
+/**
+ * Classify-first scan strategy for a LARGE Parquet dataset (geo AND non-geo).
+ * On a big/remote source the READ is the dominant cost, so the amount of data
+ * the answer actually depends on dictates the approach. Teaches the model to
+ * pick a category before scanning — the general form of the two-phase geometry
+ * read and the numeric-first-then-hydrate pass: read the CHEAP thing to
+ * ELIMINATE, read the EXPENSIVE thing only for what survives. `readExpr` is the
+ * read_parquet(...) expression; the parquet_metadata path is pulled from it.
+ */
+function scanStrategyNote(readExpr: string): string {
+  const path = readExpr.match(/read_parquet\('([^']+)'/)?.[1] ?? "<the same path/glob>";
+  return (
+    `\nSCAN STRATEGY — classify the question BEFORE you scan, because how much of the data the answer needs decides the approach (this applies to ANY column, geo or not):\n` +
+    `(A) EXTREME / SELECTIVE — the answer is a FEW rows with an extreme property (tallest, largest, oldest, rarest, most-isolated, top-N by some measure). Do NOT read every row: eliminate the majority that provably cannot win using CHEAP per-row-group statistics, then scan only the survivors.\n` +
+    `   • Ranking on a STORED numeric/date column (height, amount, timestamp): use Parquet ZONE MAPS — parquet_metadata('${path}') returns per-row-group stats_min/stats_max for every column straight from the file FOOTERS (no data scan; seconds even over billions of rows). For a MAX query, skip every row group whose stats_max(col) is below the best candidate so far; scan only the row groups that could hold the winner. Exact and near-free.\n` +
+    `   • Ranking on a DERIVED property not stored as a column (spatial isolation, largest gap between consecutive events): use a cheap PROXY from the same metadata — e.g. for a most-isolated point, density = row_group_num_rows / bbox-extent-area, so the winner must be in a LOW-density row group; scan only that sparse tail (full spatial recipe in the geospatial section).\n` +
+    `(B) METADATA-ONLY AGGREGATE — COUNT(*), MIN(col), MAX(col), the value range/extent: answer straight from parquet_metadata footers (COUNT(*) = SUM(row_group_num_rows); MIN/MAX = min/max of the per-row-group stats). NO data scan at all.\n` +
+    `(C) HOLISTIC AGGREGATE — AVG, MEDIAN, SUM, COUNT(DISTINCT), a full distribution or per-group rollup: every row contributes, footer stats cannot give these, so you must scan them all. If that fits the budget, one SQL pass over ONLY the needed numeric columns. If it does NOT (e.g. a global average over billions of remote rows), compute over a bounded/disclosed scope or a uniform sample and say so in results["analysis_scope"] — never pass a partial off as the whole.\n`
+  );
+}
+
 /** The "reduce in SQL, never SELECT * unaggregated" guidance appended for a large
  *  dataset — shared so the wording is identical everywhere. */
 function largeDataNote(rowCount: number): string {
@@ -207,7 +228,7 @@ export function parquetFolderContext(readExpr: string, rowCount: number, hive: b
     (hive
       ? `Partition columns (e.g. year, month) are automatically available as columns via Hive partitioning. USE them in WHERE clauses to filter efficiently.\n`
       : "") +
-    (rowCount > LARGE_ROWS ? largeDataNote(rowCount) : "") +
+    (rowCount > LARGE_ROWS ? largeDataNote(rowCount) + scanStrategyNote(readExpr) : "") +
     `Do NOT read from /data/input.csv — the data is in Parquet format.\n` +
     `Do NOT use pd.read_parquet() — use duckdb.sql() for this dataset.`
   );
@@ -218,7 +239,7 @@ export function parquetFileContext(readExpr: string, where: string, rowCount: nu
   return (
     `This is a Parquet file at ${where} (${rowCount.toLocaleString()} rows).\n` +
     `Read with: duckdb.sql("SELECT * FROM ${readExpr}").df()\n` +
-    (rowCount > LARGE_ROWS ? largeDataNote(rowCount) : "") +
+    (rowCount > LARGE_ROWS ? largeDataNote(rowCount) + scanStrategyNote(readExpr) : "") +
     `Do NOT read from /data/input.csv — the data is in Parquet at ${where}.`
   );
 }
