@@ -117,6 +117,12 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     // global "loneliest building" doesn't attempt a doomed 2.5B-row full scan.
     expect(prompt).toContain("PLANET-SCALE");
     expect(prompt).toContain("parquet_metadata");
+    // Overture `names` is a STRUCT — must project names.primary, never the raw
+    // struct (materializing/loading it OOM-killed a California run), and the
+    // KD-tree frame stays numeric while display cols hydrate the winners only.
+    expect(prompt).toContain("names.primary AS name");
+    expect(prompt).toContain("nested STRUCT");
+    expect(prompt).toContain("SELECT rowid, lon, lat");
   });
 
   it("omits bbox guidance when there is no bbox column", () => {
