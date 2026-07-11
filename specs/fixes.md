@@ -5,6 +5,43 @@ re-reading before touching the same area again. Newest first.
 
 ---
 
+## 2026-07-11 — Regional NN run stalls in the WINNER HYDRATION (wide-span row groups)
+
+**Commit:** _(this change)_
+
+The California "farthest from nearest neighbor" run picked the correct exact
+regional approach (two-phase boundary → `ST_Simplify` polygon → bbox+`ST_Contains`
+filter → exact meter-projected KD-tree over all ~13.7M buildings) but stalled at
+14+ min heading for the timeout. Diagnosed live: I/O-bound (34% CPU, memory flat
+at 1.9 GB = the built KD-tree), i.e. stuck in a remote read — **STEP 4, hydrating
+the top-20 winners' display columns**:
+
+```python
+boxes = " OR ".join(20 small bbox boxes around the winners)
+duckdb.sql("SELECT id, subtype, class, height, ... FROM data WHERE {boxes}")  # data = GLOBAL view
+```
+
+Two compounding faults: it read the WIDE columns (`id`/`subtype`/`class`) from the
+**global** view, and — the real trap — the top-20 _most-isolated_ buildings sit in
+**wide-span row groups** (Overture lumps scattered remote points into row groups
+whose bbox extent spans a huge area). A "small bbox per winner" filter therefore
+can't prune to them: it re-reads those big row groups' wide columns. This is the
+same wide-span-row-group wall that broke the planet-scale Phase 2, now biting the
+hydration tail of even a bounded regional query.
+
+**Fix** (`remoteNetworkNote` in duckdb-source.ts + the memory-safe KD-tree note in
+prompts.ts): for a BOUNDED region (the usual case), the working set is already in
+the local temp table `t`, so **materialize the display columns into `t` in the one
+pass** (bounded rows → affordable) and **hydrate the winners LOCALLY by DuckDB's
+free implicit `rowid`** — `SELECT * FROM t WHERE rowid IN (...)` — with NO second
+remote read. The KD-tree frame stays numeric-only via `SELECT rowid, lon, lat FROM t`
+(rowid is a cheap int, not the pipeline-breaking `row_number()`). The second remote
+bbox read is now reserved for a genuinely UNBOUNDED scan where `t` can't hold wide
+columns for billions of rows — and even there it's flagged as the slow tail.
+Verified `rowid` local-hydration works in the DuckDB CLI.
+
+---
+
 ## 2026-07-10 — BigQuery query ran 6 hours then failed (no job timeout + doomed NN self-join)
 
 **Commit:** _(this change)_

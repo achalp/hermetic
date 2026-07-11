@@ -208,16 +208,19 @@ describe("resolveRemoteSource", () => {
     expect(localFileContext).toContain("large dataset");
   });
 
-  it("steers code-gen to a numeric-only big pass and hydrate display columns for the top-N only", () => {
+  it("steers a numeric-only KD-tree frame and LOCAL rowid hydration for a bounded region", () => {
     const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
     expect(localFileContext).toContain("NETWORK COST");
     expect(localFileContext).toContain("CREATE TEMP TABLE t AS SELECT");
-    expect(localFileContext).toContain("NEVER geometry");
-    // Cost scales with columns × rows: the big pass is numeric-only, display
-    // columns are hydrated for the final top-N via a second bbox-pruned read.
+    // Cost scales with columns × rows; the KD-tree frame is numeric-only.
     expect(localFileContext).toContain("COLUMNS × ROWS");
-    expect(localFileContext).toContain("NOT id/name/class/etc. for all rows");
-    expect(localFileContext).toContain("HYDRATE display columns");
+    expect(localFileContext).toContain("SELECT rowid, lon, lat FROM t");
+    // The fix: a bounded region hydrates the winners LOCALLY by rowid — a
+    // second remote bbox read to hydrate a most-isolated top-N is the trap
+    // that timed out California (winners sit in wide-span row groups).
+    expect(localFileContext).toContain("hydrate the winners");
+    expect(localFileContext).toContain("WHERE rowid IN");
+    expect(localFileContext).toContain("WIDE-SPAN row groups");
   });
 
   it("adds the hive_partitioning flag and partition-column note for a Hive dataset", () => {

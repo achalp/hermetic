@@ -162,23 +162,25 @@ function remoteNetworkNote(readExpr: string): string {
     `\nNETWORK COST — reading over the network is the dominant cost, and it scales with COLUMNS × ROWS, not rows alone. ` +
     `One WIDE column (a 32-char id, a name, a WKB geometry) read for millions of rows dwarfs the numeric filtering. ` +
     `Measured on a California-buildings scan: reading only the bbox/coordinate columns took ~3 min; adding the id ` +
-    `column pushed it to 8+ min; adding all the display columns (id/class/subtype/height) blew past a 20-min timeout. So:\n` +
-    `(1) ONE big remote pass, and it materializes ONLY the columns needed to FILTER and RANK — numeric/coordinate ` +
-    `columns — and NOTHING purely for display. NEVER geometry/struct/list/map, and NOT id/name/class/etc. for all rows:\n` +
-    `  duckdb.sql("CREATE TEMP TABLE t AS SELECT <only the numeric columns needed to compute the answer> FROM ${readExpr} WHERE <filters>")\n` +
+    `column pushed it to ~8 min. So:\n` +
+    `(1) ONE big pass into a LOCAL temp table t, filtered to the analysis SCOPE (a named region / bbox subset). Run ` +
+    `every aggregation/ranking against t afterwards — never the remote read again for the full set:\n` +
+    `  duckdb.sql("CREATE TEMP TABLE t AS SELECT <cols> FROM ${readExpr} WHERE <region filters>")\n` +
     `Do NOT add \`row_number() OVER ()\` or any un-partitioned/global window to this pass — it is a single-threaded ` +
-    `PIPELINE BREAKER that funnels the entire scan through one thread and throttles the remote read (measured: it ` +
-    `turned a ~4-min California materialize into an 18-min+ timeout). You do not need a key: pull the coordinates ` +
-    `to pandas and use the DataFrame's positional index; the top-N are row positions and you hydrate by coordinate (3).\n` +
-    `(2) Run every aggregation/ranking against the LOCAL table t, never the remote read again for the full set.\n` +
-    `(3) HYDRATE display columns (id, name, class, height, ...) for ONLY the final top-N rows with a SECOND remote ` +
-    `read that is cheaply PRUNED — filter it by a SMALL bbox around each top-N point (bbox predicate-pushdown skips ` +
-    `every other file), NOT by an unindexed \`id IN (...)\` over the whole dataset (that re-scans everything). Then ` +
-    `match the handful of returned rows back to your top-N by nearest coordinate. Example for spatial top-N:\n` +
-    `  # top_pts = [(lon,lat), ...] for the N winners; e ~= 0.02 deg\n` +
-    `  boxes = " OR ".join(f"(bbox.xmin BETWEEN {lo-0.02} AND {lo+0.02} AND bbox.ymin BETWEEN {la-0.02} AND {la+0.02})" for lo,la in top_pts)\n` +
-    `  duckdb.sql(f"SELECT id, class, height, (bbox.xmin+bbox.xmax)/2 lon, (bbox.ymin+bbox.ymax)/2 lat FROM ${readExpr} WHERE {boxes}").df()\n` +
-    `The expensive full pass stays numeric-only; the only wide-column read is over a handful of rows.`
+    `PIPELINE BREAKER that throttles the remote read (measured: it turned a ~4-min California materialize into an ` +
+    `18-min+ timeout). Use DuckDB's FREE implicit \`rowid\` as the key, never a manufactured one.\n` +
+    `(2) For the KD-tree (or ANY pandas frame) pull ONLY numeric columns — \`duckdb.sql("SELECT rowid, lon, lat FROM t").df()\` — ` +
+    `NEVER id/name/strings into pandas (that is the OOM). The DataFrame's positions carry rowid, so the top-N positions give you their rowids.\n` +
+    `(3) HYDRATE the top-N winners' display columns (id, name, class, height, ...). The split that matters:\n` +
+    `  • BOUNDED region (t already holds every candidate row — the USUAL case, e.g. a named region): include the display ` +
+    `columns IN t in step (1) — t is a bounded subset, so wide-cols × bounded-rows is affordable — and hydrate the winners ` +
+    `LOCALLY by rowid, NO second remote read: \`duckdb.sql(f"SELECT * FROM t WHERE rowid IN ({top_ids})").df()\`.\n` +
+    `  • DO NOT hydrate a most-isolated / sparse-tail top-N via a second REMOTE bbox read: the winners of an ISOLATION query ` +
+    `sit in WIDE-SPAN row groups whose huge extent defeats bbox predicate-pushdown, so a "small bbox per winner" remote read ` +
+    `re-reads those big row groups and TIMES OUT (measured: California hydration blew the 20-min budget exactly this way). ` +
+    `For a bounded region always hydrate locally from t by rowid (above).\n` +
+    `  • ONLY when the scan is genuinely UNBOUNDED (no region — t cannot hold wide columns for billions of rows) fall back to ` +
+    `a second bbox-pruned remote read for the top-N (\`... WHERE {small per-winner boxes}\`), accepting it is the slow tail.`
   );
 }
 
