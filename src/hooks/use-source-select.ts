@@ -7,7 +7,7 @@
  * picker), and the sample-data shortcut. Owns the browser-visibility and
  * extraction-in-progress state those flows share.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
 import {
   extractLocalSchema,
@@ -29,6 +29,9 @@ export function useSourceSelect(args: {
 
   const [showLocalBrowser, setShowLocalBrowser] = useState(false);
   const [isExtractingLocalSchema, setIsExtractingLocalSchema] = useState(false);
+  // True once a remote Parquet source is loaded — gates the sidebar refresh
+  // control (an uploaded CSV has no source to re-read).
+  const [hasRemoteSource, setHasRemoteSource] = useState(false);
 
   const handleLocalFileSelect = useCallback(
     async (path: string, type: "file" | "folder") => {
@@ -56,11 +59,17 @@ export function useSourceSelect(args: {
     [handleUpload, handleExcelSheets]
   );
 
+  // Last remote Parquet source loaded — lets the schema sidebar's "refresh"
+  // re-read it (with force) without re-typing the URL.
+  const lastRemoteRef = useRef<{ url: string; creds?: RemoteParquetCreds } | null>(null);
+
   const handleRemoteFileSelect = useCallback(
-    async (url: string, creds?: RemoteParquetCreds) => {
+    async (url: string, creds?: RemoteParquetCreds, force?: boolean) => {
+      lastRemoteRef.current = { url, creds };
+      setHasRemoteSource(true);
       setIsExtractingLocalSchema(true);
       try {
-        const data = await extractRemoteParquetSchema(url, creds);
+        const data = await extractRemoteParquetSchema(url, creds, force);
         handleUpload(data.csv_id, data.schema);
         setShowLocalBrowser(false);
       } finally {
@@ -69,6 +78,12 @@ export function useSourceSelect(args: {
     },
     [handleUpload]
   );
+
+  /** Re-read the last remote Parquet source, bypassing the schema cache. */
+  const refreshRemote = useCallback(async () => {
+    const last = lastRemoteRef.current;
+    if (last) await handleRemoteFileSelect(last.url, last.creds, true);
+  }, [handleRemoteFileSelect]);
 
   // Shared upload path: used by both the hidden <input> and files dropped
   // directly onto the upload card. Routes Excel workbooks to the sheet picker.
@@ -115,6 +130,8 @@ export function useSourceSelect(args: {
   const resetSourceSelect = useCallback(() => {
     setShowLocalBrowser(false);
     setIsExtractingLocalSchema(false);
+    setHasRemoteSource(false);
+    lastRemoteRef.current = null;
   }, []);
 
   return {
@@ -123,6 +140,8 @@ export function useSourceSelect(args: {
     isExtractingLocalSchema,
     handleLocalFileSelect,
     handleRemoteFileSelect,
+    refreshRemote,
+    hasRemoteSource,
     processUploadFile,
     handleSampleData,
     resetSourceSelect,

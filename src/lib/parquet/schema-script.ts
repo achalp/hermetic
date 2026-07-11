@@ -481,3 +481,33 @@ export function buildRemoteParquetSchemaScript(
 ): string {
   return remoteSetup(readUrl, authSql, isHivePartitioned) + SHARED_STATS_TAIL;
 }
+
+/**
+ * A CHEAP freshness fingerprint for a remote Parquet source: the digest of its
+ * sorted file listing. Reads only the object-store LISTING (glob), never file
+ * data or footers — sub-second even for a many-file dataset, versus the ~27s
+ * full schema extraction. Source-agnostic: it detects change (files added /
+ * removed / rewritten-with-new-names, which is how Spark/Delta/Iceberg/Hive
+ * writers emit data) without knowing anything about the dataset. An immutable
+ * source yields a stable digest and therefore free caching — detected, not
+ * assumed. (Blind spot: a same-filename in-place byte overwrite; the manual
+ * refresh / ignore-cache controls cover it.)
+ */
+export function buildParquetFingerprintScript(readUrl: string, authSql = ""): string {
+  const auth = authSql ? `con.sql("${authSql}")\n` : "";
+  return `
+import duckdb
+import json
+
+con = duckdb.connect()
+con.sql("${DUCKDB_CLOUD_PRELUDE}")
+${auth}
+row = con.sql(
+    "SELECT coalesce(md5(string_agg(file, chr(10) ORDER BY file)), 'empty') AS fp, "
+    "count(*) AS n FROM glob('${readUrl}')"
+).fetchone()
+
+with open('/data/output.json', 'w') as f:
+    json.dump({"fp": row[0], "n": int(row[1])}, f)
+`;
+}

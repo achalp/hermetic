@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { validateLocalOrigin } from "@/lib/local-files/security";
-import { extractRemoteParquetSchema } from "@/lib/parquet/schema-extractor";
+import {
+  extractRemoteParquetSchema,
+  computeRemoteParquetFingerprint,
+} from "@/lib/parquet/schema-extractor";
 import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
+import { resolveWithCache } from "@/lib/schema-cache";
 import { parseBody, RemoteParquetSchemaBody } from "@/lib/api-schemas";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
@@ -53,17 +57,23 @@ export async function POST(request: Request) {
     const csvId = uuidv4();
     const filename = filenameFromUrl(url);
 
-    const schema = await extractRemoteParquetSchema(
-      readUrl,
-      csvId,
-      filename,
-      runtime,
-      isHivePartitioned,
-      creds
-    );
+    // Cache the (expensive, ~27s) extraction keyed by the source URL+creds, gated
+    // on a cheap file-listing fingerprint (see schema-cache.ts). `force` is the
+    // "ignore cache / re-read" control. The csvId/source_type differ per call, so
+    // cache only the intrinsic schema and re-stamp csv_id on the returned copy.
+    const sourceKey = `parquet:${readUrl}:${JSON.stringify(creds ?? {})}`;
+    const { artifact: cachedSchema, status } = await resolveWithCache({
+      sourceKey,
+      force: parsedBody.data.force,
+      fingerprint: () => computeRemoteParquetFingerprint(readUrl, runtime, creds),
+      extract: () =>
+        extractRemoteParquetSchema(readUrl, csvId, filename, runtime, isHivePartitioned, creds),
+    });
+    // Re-stamp per-request identity onto the (possibly cached) schema.
+    const schema = { ...cachedSchema, csv_id: csvId, filename };
     storeRemoteParquetRef(csvId, schema, readUrl, creds, isHivePartitioned);
 
-    return NextResponse.json({ csv_id: csvId, schema });
+    return NextResponse.json({ csv_id: csvId, schema, cache_status: status });
   } catch (err) {
     return apiError("/api/remote-parquet/schema", err, "Failed to read remote Parquet");
   }

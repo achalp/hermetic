@@ -324,10 +324,22 @@ export default function Home() {
     isExtractingLocalSchema,
     handleLocalFileSelect,
     handleRemoteFileSelect,
+    refreshRemote,
+    hasRemoteSource,
     processUploadFile,
     handleSampleData,
     resetSourceSelect,
   } = useSourceSelect({ handleUpload, handleExcelSheets });
+
+  // Schema-sidebar "refresh" — re-read the current source's schema, ignoring the
+  // cache. Only cache-backed sources (warehouse / remote Parquet) offer it; an
+  // uploaded CSV has no source to re-read. A remote-Parquet source shows as a
+  // CSV sourceType but has a retained remote ref (refreshRemote no-ops otherwise).
+  const onRefreshSchema = warehouse.isConnected
+    ? warehouse.refresh
+    : hasRemoteSource
+      ? refreshRemote
+      : undefined;
 
   const handleReset = useCallback(() => {
     reset();
@@ -680,8 +692,8 @@ export default function Home() {
             : null
         }
         savedConnections={warehouse.savedConnections}
-        onConnect={(config) =>
-          warehouse.connect(config as unknown as Parameters<typeof warehouse.connect>[0])
+        onConnect={(config, force) =>
+          warehouse.connect(config as unknown as Parameters<typeof warehouse.connect>[0], force)
         }
         onDisconnect={warehouse.disconnect}
         onDeleteSaved={warehouse.deleteSaved}
@@ -724,6 +736,8 @@ export default function Home() {
           warehouseSchemas={warehouse.tableSchemas}
           warehouseId={warehouse.warehouseId}
           fullscreen={railFullscreen}
+          onRefreshSchema={onRefreshSchema}
+          isRefreshing={isExtractingLocalSchema || warehouse.isConnecting}
         />
       </DataRail>
 
@@ -866,8 +880,8 @@ export default function Home() {
 
               <InlineConnectionForm
                 visible={showWarehouseForm}
-                onConnect={(config) =>
-                  warehouse.connect(config as Parameters<typeof warehouse.connect>[0])
+                onConnect={(config, force) =>
+                  warehouse.connect(config as Parameters<typeof warehouse.connect>[0], force)
                 }
               />
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type {
   WarehouseConnectionConfig,
   WarehouseTableInfo,
@@ -56,11 +56,16 @@ export function useWarehouse() {
     return () => controller.abort();
   }, []);
 
+  // The last config connected with — lets the schema sidebar's "refresh"
+  // re-introspect the active warehouse (with force) without re-entering it.
+  const lastConfigRef = useRef<WarehouseConnectionConfig | null>(null);
+
   const connect = useCallback(
-    async (config: WarehouseConnectionConfig) => {
+    async (config: WarehouseConnectionConfig, force?: boolean) => {
+      lastConfigRef.current = config;
       setState((prev) => ({ ...prev, isConnecting: true, error: null }));
       try {
-        const result = await apiConnect(config);
+        const result = await apiConnect(config, force);
         // Refresh saved connections (the connect route auto-saves)
         const connections = await getSavedConnections().catch(() => state.savedConnections);
         setState((prev) => ({
@@ -151,5 +156,10 @@ export function useWarehouse() {
     }
   }, []);
 
-  return { ...state, connect, disconnect, reset, deleteSaved, renameSaved };
+  /** Re-introspect the active warehouse, bypassing the schema cache. */
+  const refresh = useCallback(async () => {
+    if (lastConfigRef.current) await connect(lastConfigRef.current, true);
+  }, [connect]);
+
+  return { ...state, connect, disconnect, reset, deleteSaved, renameSaved, refresh };
 }

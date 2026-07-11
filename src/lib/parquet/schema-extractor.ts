@@ -7,7 +7,11 @@ import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/li
 import { run } from "@/lib/sandbox/docker-utils";
 import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
-import { buildSchemaScript, buildRemoteParquetSchemaScript } from "./schema-script";
+import {
+  buildSchemaScript,
+  buildRemoteParquetSchemaScript,
+  buildParquetFingerprintScript,
+} from "./schema-script";
 import { duckdbRemoteAuthSql, type RemoteCreds } from "./duckdb-source";
 import { logger } from "@/lib/logger";
 
@@ -172,4 +176,57 @@ export async function extractRemoteParquetSchema(
     isHivePartitioned: !!isHivePartitioned,
   });
   return schema;
+}
+
+/**
+ * Cheap freshness fingerprint for a remote Parquet source — its sorted
+ * file-listing digest (see buildParquetFingerprintScript). Runs a tiny glob in
+ * an ephemeral container and returns the digest; the schema cache compares it
+ * to decide whether the (expensive) extraction can be skipped.
+ */
+export async function computeRemoteParquetFingerprint(
+  readUrl: string,
+  runtime: SandboxRuntimeId,
+  creds?: RemoteCreds
+): Promise<string> {
+  if (runtime !== "docker") {
+    throw new Error("Remote Parquet fingerprint requires the Docker sandbox runtime.");
+  }
+  const containerId = `hermetic-parquet-fp-${randomUUID()}`;
+  try {
+    await run("docker", ["run", "-d", "--name", containerId, DOCKER_SANDBOX_IMAGE, "sleep", "60"], {
+      timeoutMs: 15_000,
+    });
+    await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
+      input:
+        PYTHON_NAN_PRELUDE +
+        "\n" +
+        buildParquetFingerprintScript(readUrl, duckdbRemoteAuthSql(creds)),
+      timeoutMs: 15_000,
+    });
+    const execResult = await run(
+      "docker",
+      [
+        "exec",
+        containerId,
+        "sh",
+        "-c",
+        "python3 /data/script.py >/dev/null 2>/data/stderr.txt; echo $?",
+      ],
+      { timeoutMs: SANDBOX_TIMEOUT_MS * 2 } // 60s — a listing, not a data read
+    );
+    if (parseInt(execResult.stdout.trim(), 10) !== 0) {
+      const err = await run("docker", ["exec", containerId, "cat", "/data/stderr.txt"]).catch(
+        () => ({ stdout: "unknown", stderr: "", exitCode: 1 })
+      );
+      throw new Error(`Parquet fingerprint failed: ${err.stdout.slice(0, 200)}`);
+    }
+    const out = await run("docker", ["exec", containerId, "cat", "/data/output.json"]);
+    const parsed = JSON.parse(out.stdout) as { fp: string; n: number };
+    // Include the file count so a fingerprint collision on the md5 is even less
+    // likely, and the value is human-legible in the cache.
+    return `files:${parsed.n}:${parsed.fp}`;
+  } finally {
+    await run("docker", ["rm", "-f", containerId], { timeoutMs: 10_000 }).catch(() => {});
+  }
 }

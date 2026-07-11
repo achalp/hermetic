@@ -4,7 +4,9 @@ import { createConnector } from "@/lib/warehouse/connector";
 import { storeWarehouse } from "@/lib/warehouse/storage";
 import { saveConnection } from "@/lib/warehouse/persist-env";
 import { inferRelationships } from "@/lib/warehouse/infer-relationships";
-import type { WarehouseConnectionConfig } from "@/lib/types";
+import { warehouseSourceKey, warehouseTablesFingerprint } from "@/lib/warehouse/schema-fingerprint";
+import { resolveWithCache } from "@/lib/schema-cache";
+import type { WarehouseConnectionConfig, WarehouseTableSchema } from "@/lib/types";
 import { parseBody, WarehouseConnectionConfigSchema } from "@/lib/api-schemas";
 
 export const maxDuration = 120;
@@ -15,7 +17,11 @@ export async function POST(request: Request) {
     // was cast to WarehouseConnectionConfig with only `type` checked, so a
     // config with e.g. a numeric host or missing credentials flowed into the
     // connector and failed opaquely.
-    const parsed = parseBody(WarehouseConnectionConfigSchema, await request.json());
+    // Read the raw body once: the config schema (a discriminated union) strips
+    // unknown keys, so pull the "ignore cache / re-read" flag out first.
+    const rawBody = await request.json();
+    const force = (rawBody as { force?: unknown })?.force === true;
+    const parsed = parseBody(WarehouseConnectionConfigSchema, rawBody);
     if (!parsed.ok) return parsed.response;
     const config: WarehouseConnectionConfig = parsed.data;
 
@@ -38,19 +44,26 @@ export async function POST(request: Request) {
       return Response.json({ error: `Failed to list tables: ${msg}` }, { status: 500 });
     }
 
-    // Introspect all table schemas (columns, PKs, FKs)
-    let tableSchemas;
+    // Introspect all table schemas (columns, PKs, FKs) — the expensive step.
+    // Cached by source identity, gated on a cheap fingerprint over the table
+    // listing we just fetched (structural: table set + column counts). `force`
+    // is the "ignore cache / re-read" control. inferRelationships runs inside
+    // the extract so the cached artifact is the finished, relationship-enriched
+    // schema.
+    let tableSchemas: WarehouseTableSchema[];
     try {
-      tableSchemas = await connector.introspectAllTables();
+      const resolved = await resolveWithCache<WarehouseTableSchema[]>({
+        sourceKey: warehouseSourceKey(config),
+        force,
+        fingerprint: async () => warehouseTablesFingerprint(tables),
+        extract: async () => inferRelationships(await connector.introspectAllTables()),
+      });
+      tableSchemas = resolved.artifact;
     } catch (err) {
       await connector.close();
       const msg = err instanceof Error ? err.message : "Failed to introspect tables";
       return Response.json({ error: `Failed to introspect tables: ${msg}` }, { status: 500 });
     }
-
-    // Infer FK relationships from column naming conventions
-    // (supplements native FKs from PostgreSQL; primary source for ClickHouse/BigQuery)
-    tableSchemas = inferRelationships(tableSchemas);
 
     const warehouseId = randomUUID();
     storeWarehouse(

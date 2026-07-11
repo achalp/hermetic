@@ -490,12 +490,14 @@ export interface RemoteParquetResult {
  */
 export async function extractRemoteParquetSchema(
   url: string,
-  creds?: RemoteParquetCreds
+  creds?: RemoteParquetCreds,
+  /** "Ignore cache / re-read schema" — bypass the schema cache and overwrite it. */
+  force?: boolean
 ): Promise<RemoteParquetResult> {
   const res = await fetch("/api/remote-parquet/schema", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, creds }),
+    body: JSON.stringify({ url, creds, force }),
   });
   return json<RemoteParquetResult>(res);
 }
@@ -512,12 +514,14 @@ export interface ConnectWarehouseResult {
 }
 
 export async function connectWarehouse(
-  config: WarehouseConnectionConfig
+  config: WarehouseConnectionConfig,
+  /** "Ignore cache / re-read schema" — bypass the schema cache and overwrite it. */
+  force?: boolean
 ): Promise<ConnectWarehouseResult> {
   const res = await fetch("/api/warehouse/connect", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
+    body: JSON.stringify(force ? { ...config, force: true } : config),
   });
   return json<ConnectWarehouseResult>(res);
 }

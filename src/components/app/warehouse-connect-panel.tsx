@@ -21,7 +21,7 @@ interface WarehouseConnectPanelProps {
   warehouseType: WarehouseType | null;
   error: string | null;
   savedConnections: SavedConnectionInfo[];
-  onConnect: (config: WarehouseConnectionConfig) => void;
+  onConnect: (config: WarehouseConnectionConfig, force?: boolean) => void;
   onDisconnect: () => void;
   onDeleteSaved: (id: string) => void;
 }

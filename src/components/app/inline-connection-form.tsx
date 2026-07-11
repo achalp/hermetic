@@ -5,7 +5,7 @@ import type { WarehouseConnectionConfig } from "@/lib/types";
 
 interface InlineConnectionFormProps {
   visible: boolean;
-  onConnect: (config: WarehouseConnectionConfig) => void;
+  onConnect: (config: WarehouseConnectionConfig, force?: boolean) => void;
 }
 
 const dbTypes = [
@@ -73,6 +73,8 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
   const [serverHostname, setServerHostname] = useState("");
   const [httpPath, setHttpPath] = useState("");
   const [token, setToken] = useState("");
+  // "Ignore cache / re-read schema" — bypass the cached introspection.
+  const [ignoreCache, setIgnoreCache] = useState(false);
 
   if (!visible) return null;
 
@@ -104,11 +106,14 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
 
   const orUndef = (v: string) => v.trim() || undefined;
 
+  // "Ignore cache / re-read schema" — re-introspect instead of using the cache.
+  const doConnect = (config: WarehouseConnectionConfig) => onConnect(config, ignoreCache);
+
   const handleConnect = () => {
     if (!selectedType) return;
     switch (selectedType) {
       case "postgresql":
-        return onConnect({
+        return doConnect({
           type: "postgresql",
           host,
           port: Number(port) || 5432,
@@ -119,9 +124,9 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
           schema: orUndef(schema) as string | undefined,
         });
       case "bigquery":
-        return onConnect({ type: "bigquery", projectId, dataset, credentialsJson });
+        return doConnect({ type: "bigquery", projectId, dataset, credentialsJson });
       case "clickhouse":
-        return onConnect({
+        return doConnect({
           type: "clickhouse",
           host,
           port: Number(port) || 8123,
@@ -131,7 +136,7 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
           ssl,
         });
       case "trino":
-        return onConnect({
+        return doConnect({
           type: "trino",
           host,
           port: Number(port) || 8080,
@@ -142,7 +147,7 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
           ssl,
         });
       case "hive":
-        return onConnect({
+        return doConnect({
           type: "hive",
           host,
           port: Number(port) || 10000,
@@ -152,7 +157,7 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
           auth: auth as "NONE" | "NOSASL" | "LDAP" | "KERBEROS",
         });
       case "snowflake":
-        return onConnect({
+        return doConnect({
           type: "snowflake",
           account,
           user,
@@ -163,7 +168,7 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
           role: orUndef(role),
         });
       case "databricks":
-        return onConnect({
+        return doConnect({
           type: "databricks",
           serverHostname,
           httpPath,
@@ -347,6 +352,7 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
       {selectedType && (
         <div className="flex flex-col" style={{ gap: 8, marginTop: 12 }}>
           {renderFields()}
+          {check("Ignore cached schema — re-introspect the warehouse", ignoreCache, setIgnoreCache)}
           <button onClick={handleConnect} style={connectBtnStyle}>
             Connect
           </button>

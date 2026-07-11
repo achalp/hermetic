@@ -14,8 +14,23 @@ vi.mock("@/lib/local-files/security", () => ({
 }));
 
 const extractRemoteParquetSchema = vi.fn();
+const computeRemoteParquetFingerprint = vi.fn(async (..._args: unknown[]) => "fp-1");
 vi.mock("@/lib/parquet/schema-extractor", () => ({
   extractRemoteParquetSchema: (...args: unknown[]) => extractRemoteParquetSchema(...args),
+  computeRemoteParquetFingerprint: (...args: unknown[]) => computeRemoteParquetFingerprint(...args),
+}));
+
+// Mock the cache so no test touches disk: by default it just runs the
+// extraction (a "miss"), but records the opts so we can assert force passthrough.
+const resolveWithCache = vi.fn(
+  async (opts: { extract: () => Promise<unknown>; force?: boolean }) => ({
+    artifact: await opts.extract(),
+    status: opts.force ? "forced" : "miss",
+  })
+);
+vi.mock("@/lib/schema-cache", () => ({
+  resolveWithCache: (opts: { extract: () => Promise<unknown>; force?: boolean }) =>
+    resolveWithCache(opts),
 }));
 
 const storeRemoteParquetRef = vi.fn();
@@ -68,9 +83,23 @@ describe("POST /api/remote-parquet/schema", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(typeof json.csv_id).toBe("string");
-    expect(json.schema).toEqual({ row_count: 42, columns: [] });
+    // The route re-stamps per-request identity (csv_id/filename) onto the schema.
+    expect(json.schema).toMatchObject({ row_count: 42, columns: [] });
+    expect(json.schema.csv_id).toBe(json.csv_id);
+    expect(json.cache_status).toBe("miss");
     expect(extractRemoteParquetSchema).toHaveBeenCalledOnce();
     expect(storeRemoteParquetRef).toHaveBeenCalledOnce();
+  });
+
+  it("passes force:true (ignore cache) through to the cache resolver", async () => {
+    await POST(makeRequest({ url: "s3://bucket/data/*.parquet", force: true }));
+    expect(resolveWithCache).toHaveBeenCalledOnce();
+    expect(resolveWithCache.mock.calls[0]![0].force).toBe(true);
+  });
+
+  it("omits force by default (uses the cache)", async () => {
+    await POST(makeRequest({ url: "s3://bucket/data/*.parquet" }));
+    expect(resolveWithCache.mock.calls[0]![0].force).toBeUndefined();
   });
 
   it("normalizes a bare Overture prefix into a recursive glob with hive on", async () => {

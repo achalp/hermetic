@@ -82,6 +82,8 @@ export const RemoteCredsSchema = z
 export const RemoteParquetSchemaBody = z.object({
   url: z.string().min(1).max(2048),
   creds: RemoteCredsSchema,
+  /** "Ignore cache / re-read schema" — skip the cache and overwrite it. */
+  force: z.boolean().optional(),
 });
 
 // ── warehouse connect (credentials → live connector) ─────────────────────

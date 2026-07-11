@@ -8,7 +8,7 @@ interface LocalFileBrowserProps {
   onClose: () => void;
   onSelect: (path: string, type: "file" | "folder") => void;
   /** Load a remote cloud Parquet URL (s3:// or https://). Anon unless creds given. */
-  onSelectRemote: (url: string, creds?: RemoteParquetCreds) => Promise<void>;
+  onSelectRemote: (url: string, creds?: RemoteParquetCreds, force?: boolean) => Promise<void>;
   isExtracting?: boolean;
 }
 
@@ -46,6 +46,8 @@ export function LocalFileBrowser({
   // Cloud (remote Parquet URL) state — anonymous by default.
   const [cloudUrl, setCloudUrl] = useState("");
   const [showCreds, setShowCreds] = useState(false);
+  // "Ignore cache / re-read schema" — bypass the cached schema for this URL.
+  const [ignoreCache, setIgnoreCache] = useState(false);
   const [creds, setCreds] = useState<RemoteParquetCreds>({});
   const [cloudError, setCloudError] = useState<string | null>(null);
 
@@ -106,7 +108,7 @@ export function LocalFileBrowser({
     };
     const hasCreds = Object.values(trimmed).some(Boolean);
     try {
-      await onSelectRemote(url, hasCreds ? trimmed : undefined);
+      await onSelectRemote(url, hasCreds ? trimmed : undefined, ignoreCache);
     } catch (err) {
       setCloudError(err instanceof Error ? err.message : "Failed to load cloud file");
     }
@@ -245,6 +247,25 @@ export function LocalFileBrowser({
               folder of shards, or a Hive-partitioned dataset (e.g. Overture Maps). Anonymous by
               default.
             </span>
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "var(--color-t-secondary)",
+                cursor: isExtracting ? "default" : "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={ignoreCache}
+                disabled={isExtracting}
+                onChange={(e) => setIgnoreCache(e.target.checked)}
+              />
+              Ignore cached schema — re-read from the source
+            </label>
 
             <button
               onClick={() => setShowCreds((s) => !s)}
