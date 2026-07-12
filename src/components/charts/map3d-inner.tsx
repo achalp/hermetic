@@ -5,6 +5,7 @@ import "@/lib/deckgl-init";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import DeckGL from "@deck.gl/react";
+import { WebMercatorViewport } from "@deck.gl/core";
 import { ScatterplotLayer, ArcLayer, ColumnLayer } from "@deck.gl/layers";
 import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
 import { TileLayer } from "@deck.gl/geo-layers";
@@ -61,6 +62,7 @@ interface PickedFeature {
 
 export function Map3DInner(props: Map3DInnerProps) {
   const [ready, setReady] = useState(false);
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [hoverInfo, setHoverInfo] = useState<PickedFeature | null>(null);
   const [clickInfo, setClickInfo] = useState<PickedFeature | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -75,7 +77,15 @@ export function Map3DInner(props: Map3DInnerProps) {
     const el = containerRef.current;
     if (!el) return;
     const check = () => {
-      if (el.clientWidth > 0 && el.clientHeight > 0) setReady(true);
+      if (el.clientWidth > 0 && el.clientHeight > 0) {
+        setReady(true);
+        // Feed real dimensions to fitBounds so the initial view frames all points.
+        setSize((prev) =>
+          prev && prev.width === el.clientWidth && prev.height === el.clientHeight
+            ? prev
+            : { width: el.clientWidth, height: el.clientHeight }
+        );
+      }
     };
     check();
     const ro = new ResizeObserver(check);
@@ -110,8 +120,15 @@ export function Map3DInner(props: Map3DInnerProps) {
   // Numeric range of value_key, for the color ramp (points shaded by metric).
   const valueRange = useMemo(() => numericRange(data, value_key), [data, value_key]);
 
-  // Compute center from data
+  // Frame the data on first render: fit ALL points into the viewport (with the
+  // most-isolated/highest-ranked ones therefore always visible) rather than
+  // centering on the raw centroid at a fixed zoom — the old approach drifted
+  // off-target and cropped points whenever they spanned a wide area.
   const viewState = useMemo(() => {
+    let minLat = Infinity;
+    let minLng = Infinity;
+    let maxLat = -Infinity;
+    let maxLng = -Infinity;
     let sumLat = 0;
     let sumLng = 0;
     let count = 0;
@@ -119,19 +136,48 @@ export function Map3DInner(props: Map3DInnerProps) {
       const lat = Number(row[lat_key]);
       const lng = Number(row[lng_key]);
       if (!isNaN(lat) && !isNaN(lng)) {
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+        minLng = Math.min(minLng, lng);
+        maxLng = Math.max(maxLng, lng);
         sumLat += lat;
         sumLng += lng;
         count++;
       }
     }
-    return {
-      latitude: count > 0 ? sumLat / count : 0,
-      longitude: count > 0 ? sumLng / count : 0,
-      zoom: 10,
-      pitch: pitch ?? 45,
-      bearing: bearing ?? 0,
-    };
-  }, [data, lat_key, lng_key, pitch, bearing]);
+    const base = { pitch: pitch ?? 45, bearing: bearing ?? 0 };
+    if (count === 0) return { latitude: 0, longitude: 0, zoom: 1, ...base };
+
+    const centerLng = sumLng / count;
+    const centerLat = sumLat / count;
+    // A single point (or all-coincident points) has no extent to fit — center
+    // on it at a sensible neighborhood zoom.
+    const negligibleSpan = maxLat - minLat < 1e-6 && maxLng - minLng < 1e-6;
+    if (!size || negligibleSpan) {
+      return { latitude: centerLat, longitude: centerLng, zoom: negligibleSpan ? 12 : 10, ...base };
+    }
+    try {
+      const fitted = new WebMercatorViewport({
+        width: size.width,
+        height: size.height,
+      }).fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: 48 }
+      );
+      // Cap zoom so a tight cluster doesn't slam to street level.
+      return {
+        latitude: fitted.latitude,
+        longitude: fitted.longitude,
+        zoom: Math.min(fitted.zoom, 14),
+        ...base,
+      };
+    } catch {
+      return { latitude: centerLat, longitude: centerLng, zoom: 10, ...base };
+    }
+  }, [data, lat_key, lng_key, pitch, bearing, size]);
 
   // Base map tile layer — dark (default) or light Carto basemap.
   const tileLayer = new TileLayer({
@@ -227,7 +273,14 @@ export function Map3DInner(props: Map3DInnerProps) {
           opacity: opacity ?? 0.8,
         });
 
-      case "scatterplot":
+      case "scatterplot": {
+        // Size dots by the metric so rank/isolation reads at a glance: normalize
+        // value_key across the dataset to a PIXEL radius. (The old code used the
+        // raw value as a radius in METERS, so km-scale values like 15 became
+        // ~15m — far below radiusMinPixels — and every dot collapsed to the same
+        // 3px floor, losing all rank information.)
+        const R_MIN_PX = 6;
+        const R_MAX_PX = 22;
         return new ScatterplotLayer({
           id: "scatterplot-layer",
           data,
@@ -235,8 +288,17 @@ export function Map3DInner(props: Map3DInnerProps) {
           pickable: true,
           getFillColor: (d: Record<string, unknown>) =>
             [...getColor(d), 230] as [number, number, number, number],
-          getRadius: (d: Record<string, unknown>) =>
-            value_key ? Math.max(50, Number(d[value_key]) || 100) : (radius ?? 100),
+          getRadius: (d: Record<string, unknown>) => {
+            if (valueRange && value_key && valueRange.max > valueRange.min) {
+              const n = Number(d[value_key]);
+              if (isFinite(n)) {
+                const t = (n - valueRange.min) / (valueRange.max - valueRange.min);
+                return R_MIN_PX + t * (R_MAX_PX - R_MIN_PX);
+              }
+            }
+            return radius ?? R_MIN_PX;
+          },
+          radiusUnits: "pixels",
           radiusScale: 1,
           radiusMinPixels: 3,
           radiusMaxPixels: 40,
@@ -246,6 +308,7 @@ export function Map3DInner(props: Map3DInnerProps) {
           lineWidthMinPixels: 0.5,
           opacity: opacity ?? 0.9,
         });
+      }
 
       case "heatmap":
         return new HeatmapLayer({
