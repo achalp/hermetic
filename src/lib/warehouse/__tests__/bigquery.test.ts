@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { WAREHOUSE_QUERY_TIMEOUT_MS } from "@/lib/constants";
 
 // Capture the options every bq.query() call receives.
 const queryMock = vi.fn();
@@ -22,7 +21,7 @@ const config: BigQueryConnectionConfig = {
 beforeEach(() => queryMock.mockReset());
 
 describe("bigquery executeSQL", () => {
-  it("caps every query with jobTimeoutMs so a runaway query can't run to BigQuery's 6-hour limit", async () => {
+  it("does NOT impose a job timeout — a long analysis is never self-killed (Stop is the ceiling)", async () => {
     queryMock.mockResolvedValueOnce([[{ n: 1 }]]);
     const connector = createBigQueryConnector(config);
     await connector.executeSQL("SELECT 1 AS n");
@@ -30,8 +29,8 @@ describe("bigquery executeSQL", () => {
     expect(queryMock).toHaveBeenCalledTimes(1);
     const opts = queryMock.mock.calls[0][0] as { query: string; jobTimeoutMs?: number };
     expect(opts.query).toBe("SELECT 1 AS n");
-    // The cap that turns a 6-hour hang into a minutes-long failure.
-    expect(opts.jobTimeoutMs).toBe(WAREHOUSE_QUERY_TIMEOUT_MS);
+    // No self-kill timer: superseded by stop-on-demand + BigQuery's own 6h limit.
+    expect(opts.jobTimeoutMs).toBeUndefined();
   });
 
   it("serializes rows to CSV; empty result → empty string", async () => {

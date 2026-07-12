@@ -24,6 +24,7 @@ import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
+import { ExecProgress } from "@/components/app/exec-progress";
 import type { CostInfo } from "@/components/app/cost-footer";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
@@ -942,6 +943,8 @@ function PipelineProgress({
           );
         })}
       </div>
+      {/* Live execution progress (estimate / phase / elapsed / bar) + Stop. */}
+      <ExecProgress state={spec?.state as Record<string, unknown> | undefined} />
     </div>
   );
 }
@@ -1004,6 +1007,9 @@ function InvestigateProgress({ spec }: { spec: Spec | null }) {
         <SpinnerIcon />
         <span className="text-sm font-medium text-accent">{stageLabel}</span>
       </div>
+
+      {/* Live execution progress (estimate / phase / elapsed / bar) + Stop. */}
+      <ExecProgress state={state} />
 
       {plan?.approach && (
         <div className="mx-auto max-w-[700px] text-center text-sm text-t-secondary">

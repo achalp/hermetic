@@ -133,13 +133,15 @@ export function patchStreamResponse(
       // elapsed) — distinct from the coarse stage above. Fired via the
       // run-control registry so the sandbox runner needs no param threading.
       const emitExecProgress = (p: SandboxProgress) => {
-        // __exec lives under /state, which the first emitProgress creates
-        // before execution begins; guard anyway.
+        // The one-time up-front estimate lives under __estimate so it persists
+        // as a banner; live heartbeats update __exec. Both under /state, which
+        // the first emitProgress creates before execution — guard anyway.
+        const key = p.phase === "estimate" ? "__estimate" : "__exec";
         if (!stateInitialized) {
           stateInitialized = true;
-          emit(JSON.stringify({ op: "add", path: "/state", value: { __exec: p } }) + "\n");
+          emit(JSON.stringify({ op: "add", path: "/state", value: { [key]: p } }) + "\n");
         } else {
-          emit(JSON.stringify({ op: "add", path: "/state/__exec", value: p }) + "\n");
+          emit(JSON.stringify({ op: "add", path: `/state/${key}`, value: p }) + "\n");
         }
       };
 

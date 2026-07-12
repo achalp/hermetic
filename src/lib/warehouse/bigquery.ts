@@ -7,7 +7,6 @@ import type {
 } from "@/lib/types";
 import type { WarehouseConnector, ScanWindow } from "./connector";
 import { extractDateEpoch, parsePartitionId, sizeScanWindow } from "./scan-window";
-import { WAREHOUSE_QUERY_TIMEOUT_MS } from "@/lib/constants";
 
 export function createBigQueryConnector(config: BigQueryConnectionConfig): WarehouseConnector {
   let credentials: Record<string, unknown>;
@@ -215,11 +214,14 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
     },
 
     async executeSQL(sql: string): Promise<string> {
-      // jobTimeoutMs cancels the JOB (not just the client wait) — without it
-      // BigQuery runs a runaway query to its 6-hour ceiling before failing,
-      // hanging the request and burning slots. Cap it at our own budget so a
-      // too-expensive query surfaces its engine error in minutes.
-      const [rows] = await bq.query({ query: sql, jobTimeoutMs: WAREHOUSE_QUERY_TIMEOUT_MS });
+      // No jobTimeoutMs: we never self-kill a running analysis (a legitimately
+      // long query is allowed to take long) — the user's Stop button and
+      // BigQuery's own 6-hour hard limit are the ceilings. (A prior 20-min cap
+      // was itself a self-kill; it's superseded by stop-on-demand.)
+      // FOLLOW-ON: on Stop we currently abort the request but the submitted BQ
+      // job keeps running server-side until BQ finishes — true job cancellation
+      // (createQueryJob + job.cancel wired to the run's abort signal) is TODO.
+      const [rows] = await bq.query({ query: sql });
 
       if (!rows || rows.length === 0) return "";
 

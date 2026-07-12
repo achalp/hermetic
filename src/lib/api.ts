@@ -513,6 +513,19 @@ export interface ConnectWarehouseResult {
   total_columns: number;
 }
 
+/**
+ * Stop an in-flight analysis on demand (the cancel button). Best-effort — a
+ * finished run is a no-op. Fire-and-forget: the streaming request unwinds on
+ * its own once the server aborts it.
+ */
+export async function stopAnalysis(runId: string): Promise<void> {
+  await fetch("/api/query/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runId }),
+  }).catch(() => {});
+}
+
 export async function connectWarehouse(
   config: WarehouseConnectionConfig,
   /** "Ignore cache / re-read schema" — bypass the schema cache and overwrite it. */
