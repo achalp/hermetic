@@ -199,7 +199,14 @@ export async function runPipeline(
       // (CORE-7 — the old message-substring coupling would silently
       // re-enable futile retries on a reword); the regex stays only as a
       // fallback for foreign SDK timeout strings we don't control.
-      if (result.errorKind === "timeout" || /timed out/i.test(retryError)) break;
+      // A user Stop (errorKind "stopped") must also fail fast — never
+      // regenerate and re-run something the user just cancelled.
+      if (
+        result.errorKind === "timeout" ||
+        result.errorKind === "stopped" ||
+        /timed out/i.test(retryError)
+      )
+        break;
     } else if (semanticVerdict && !semanticVerdict.ok) {
       // Already gave the empty result its one fix attempt → accept it as
       // degraded ("no signal") instead of retrying further.

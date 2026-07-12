@@ -2,14 +2,11 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
-import {
-  DOCKER_SANDBOX_IMAGE,
-  SANDBOX_TIMEOUT_MS,
-  LARGE_DATA_TIMEOUT_MS,
-  LOCAL_MOUNT_PATH,
-} from "@/lib/constants";
+import { DOCKER_SANDBOX_IMAGE, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo, codeNeedsNetwork } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
+import { streamExec } from "./stream-exec";
+import { registerContainer, unregisterContainer, getRunSignal } from "@/lib/pipeline/run-control";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 
@@ -24,16 +21,17 @@ export async function executeSandbox(
   const start = Date.now();
   const id = `hermetic-sandbox-${randomUUID()}`;
 
-  // Large local Parquet (mount / copied-in) and slow remote cloud reads (s3://,
-  // https:// via httpfs) both need the extended timeout. Computed up front so the
-  // container is kept alive at least as long AND the value can surface on timeout.
+  // Whether the run touches large local Parquet or slow remote cloud data — kept
+  // for logging/telemetry only. It NO LONGER bounds execution: we never impose a
+  // timeout (a genuinely long analysis is allowed to take as long as it needs);
+  // the run ends on completion or an explicit user Stop. See stream-exec.ts.
   const isLargeData = !!localMountPath || !!inputParquetPath || codeDoesRemoteIo(code);
-  const execTimeout = isLargeData ? LARGE_DATA_TIMEOUT_MS : SANDBOX_TIMEOUT_MS;
 
   try {
     // 1. Create container (with optional bind-mount for browsed local files).
-    //    Keep it alive past the exec budget so a long run can't outlive its host.
-    const containerLifetime = Math.ceil(execTimeout / 1000) + 60;
+    //    `sleep infinity` — the container's own lifetime must not be a hidden
+    //    self-kill either; it's torn down in the finally (or by the store
+    //    sweeper if the process died).
     const runArgs = ["run", "-d", "--name", id, ...(await sandboxMemoryRunArgs())];
     // No network unless the code actually reads remote data — this is what
     // makes the sandbox isolation claim true for local-data analyses. The
@@ -46,16 +44,18 @@ export async function executeSandbox(
     if (localMountPath) {
       runArgs.push("-v", `${localMountPath}:${LOCAL_MOUNT_PATH}:ro`);
     }
-    runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", String(containerLifetime));
+    runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", "infinity");
     logger.debug("Docker: creating container", {
       id,
       hasMount: !!localMountPath,
       hasParquet: !!inputParquetPath,
-      execTimeout,
       largeData: isLargeData,
       network: withNetwork,
     });
     await run("docker", runArgs, { timeoutMs: 15_000 });
+    // Register with run-control so a user Stop can force-remove this container
+    // (and the sweeper knows it's a live run, not an orphan).
+    registerContainer(id);
     logger.debug("Docker: container created");
 
     // A materialized Parquet is copied IN with `docker cp` (binary-safe, and —
@@ -104,29 +104,25 @@ export async function executeSandbox(
     });
     logger.debug("Docker: script written");
 
-    // 4. Run script. Held under a macOS wake lock (see wake-lock.ts): idle
-    //    sleep mid-scan drops the container's S3 connections AND freezes the
-    //    timeout timer, the signature behind every mid-run "network error".
-    logger.info("Docker: executing script", { execTimeout, largeData: isLargeData });
-    const execResult = await withWakeLock(`sandbox:${id}`, () =>
-      run(
-        "docker",
-        [
-          "exec",
-          id,
-          "sh",
-          "-c",
-          "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
-        ],
-        { timeoutMs: execTimeout }
-      )
-    );
+    // 4. Run script — STREAMED (no timeout), under a macOS wake lock so idle
+    //    sleep doesn't drop the container's S3 connections mid-scan. Progress
+    //    heartbeats on stdout surface live via run-control; a user Stop aborts
+    //    the run's signal, which force-removes the container.
+    logger.info("Docker: executing script", { largeData: isLargeData });
+    const execResult = await withWakeLock(`sandbox:${id}`, () => streamExec(id, getRunSignal()));
 
-    // 5. Parse output. Log the OUTCOME symmetrically with the start line —
-    // execution previously ended silently, so a mid-run failure left no
-    // server-side record of when the sandbox finished or how (the exact gap
-    // that made the July-8 long-query failures undiagnosable from logs).
-    const result = await parseExecutionOutput(id, start, execResult.stdout);
+    if (execResult.aborted) {
+      logger.info("Docker: execution stopped by user", { ms: Date.now() - start });
+      return {
+        success: false,
+        error: "Analysis stopped.",
+        errorKind: "stopped",
+        execution_ms: Date.now() - start,
+      };
+    }
+
+    // 5. Parse output. Log the OUTCOME symmetrically with the start line.
+    const result = await parseExecutionOutput(id, start, String(execResult.exitCode));
     logger.info("Docker: execution finished", {
       ms: Date.now() - start,
       success: result.success,
@@ -135,54 +131,18 @@ export async function executeSandbox(
     return result;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    const isTimeout = errorMsg.includes("timed out");
-    const wallMs = Date.now() - start;
-    // The timeout is a Node setTimeout, which only advances while awake. So on
-    // a genuine timeout wall-time ≈ execTimeout; a wall-time far BEYOND the
-    // budget means the timer was frozen — i.e. the machine slept mid-run — and
-    // `wallMs - execTimeout` is roughly how long it was suspended. Report that
-    // honestly instead of blaming a slow query (the July-8/9 failures were all
-    // this: e.g. a 20-min budget "timing out" after 40.6 min of wall clock).
-    const suspendedMs = isTimeout ? Math.max(0, wallMs - execTimeout) : 0;
-    const likelySuspended = suspendedMs > 60_000;
     logger.warn("Docker: execution threw", {
-      ms: wallMs,
-      isTimeout,
-      ...(likelySuspended ? { likelySuspended, approxSuspendedMs: suspendedMs } : {}),
+      ms: Date.now() - start,
       errorHead: errorMsg.slice(0, 200),
     });
-
-    // On timeout, try to grab stderr for context on what was running. Include the
-    // budget actually applied — the fast way to see whether the extended
-    // (remote/large) timeout kicked in.
-    let detail = errorMsg;
-    if (isTimeout) {
-      detail = likelySuspended
-        ? `Execution was interrupted: the machine appears to have slept for ~${Math.round(suspendedMs / 60_000)} min during this run (${wallMs}ms wall vs a ${execTimeout}ms budget), which drops the sandbox's network and stalls the scan. Keep the machine awake and re-run — the app now holds a wake lock during execution, but it cannot override a closed lid.`
-        : `Sandbox execution timed out after ${execTimeout}ms (largeData=${isLargeData}).`;
-      try {
-        const stderr = await run("docker", ["exec", id, "cat", "/data/stderr.txt"], {
-          timeoutMs: 5_000,
-        });
-        if (stderr.stdout.trim()) {
-          const lastLines = stderr.stdout.trim().split("\n").slice(-10).join("\n");
-          detail += ` Last stderr:\n${lastLines}`;
-        }
-      } catch {
-        // Container may already be gone
-      }
-    }
-
     return {
       success: false,
-      error: detail,
-      // Structured kind: the orchestrator's fail-fast decision keys on this,
-      // not on the message wording (CORE-7).
-      errorKind: isTimeout ? "timeout" : undefined,
+      error: errorMsg,
       execution_ms: Date.now() - start,
     };
   } finally {
-    // 6. Cleanup — always remove container
+    // 6. Cleanup — always remove container + drop it from the live registry.
+    unregisterContainer(id);
     run("docker", ["rm", "-f", id]).catch(() => {});
   }
 }

@@ -17,6 +17,7 @@
 import { logger } from "@/lib/logger";
 import { runWithRunId, getRunId } from "@/lib/run-context";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
+import { registerRun, endRun, type SandboxProgress } from "@/lib/pipeline/run-control";
 
 /**
  * Canonical headers for the patch stream. `no-cache, no-transform` +
@@ -117,9 +118,29 @@ export function patchStreamResponse(
         diagEvent("stage", { stage, step, total });
         const patch = stateInitialized
           ? { op: "replace", path: "/state/__progress", value: { stage, step, total } }
-          : { op: "add", path: "/state", value: { __progress: { stage, step, total } } };
+          : // The FIRST state patch also carries __runId so the client knows
+            // which run to POST to /api/query/stop (the cancel button).
+            {
+              op: "add",
+              path: "/state",
+              value: { __progress: { stage, step, total }, __runId: getRunId() },
+            };
         stateInitialized = true;
         emit(JSON.stringify(patch) + "\n");
+      };
+
+      // Detailed execution progress from the sandbox (phase/fraction/rows/
+      // elapsed) — distinct from the coarse stage above. Fired via the
+      // run-control registry so the sandbox runner needs no param threading.
+      const emitExecProgress = (p: SandboxProgress) => {
+        // __exec lives under /state, which the first emitProgress creates
+        // before execution begins; guard anyway.
+        if (!stateInitialized) {
+          stateInitialized = true;
+          emit(JSON.stringify({ op: "add", path: "/state", value: { __exec: p } }) + "\n");
+        } else {
+          emit(JSON.stringify({ op: "add", path: "/state/__exec", value: p }) + "\n");
+        }
       };
 
       const stream: PatchStream = {
@@ -134,10 +155,15 @@ export function patchStreamResponse(
       // Run correlation: every logger line, diagnostics record, and cost row
       // inside the handler carries this run's id (see lib/run-context.ts).
       await runWithRunId(async () => {
+        const runId = getRunId()!;
+        // Register the run so the stop endpoint can abort it and the sandbox
+        // runner can subscribe to its signal + stream execution progress.
+        registerRun(runId, emitExecProgress);
         logger.info("Run started", { route });
         try {
           await handler(stream);
         } finally {
+          endRun(runId);
           clearInterval(keepalive);
           if (onSettled) {
             try {

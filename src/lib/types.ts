@@ -122,9 +122,10 @@ export interface SandboxExecutionError {
    * /timed out/ against docker-utils' message, with nothing tying the two
    * together (a reworded message would silently re-enable futile retries).
    * "timeout" → fail fast, don't retry; "oom" → retry with lean-script
-   * guidance. Absent for ordinary execution errors.
+   * guidance; "stopped" → the user cancelled — fail fast, don't retry.
+   * Absent for ordinary execution errors.
    */
-  errorKind?: "timeout" | "oom";
+  errorKind?: "timeout" | "oom" | "stopped";
   execution_ms: number;
 }
 

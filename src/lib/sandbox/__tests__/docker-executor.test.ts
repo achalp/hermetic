@@ -15,6 +15,12 @@ vi.mock("@/lib/sandbox/docker-utils", async (importOriginal) => {
   };
 });
 
+// The exec is now STREAMED (spawn) — mock it so no real docker is spawned.
+const streamExec = vi.fn(async () => ({ exitCode: 0, aborted: false }));
+vi.mock("@/lib/sandbox/stream-exec", () => ({
+  streamExec: (...a: unknown[]) => streamExec(...(a as [])),
+}));
+
 import { executeSandbox } from "@/lib/sandbox/docker-executor";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
 import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
@@ -31,6 +37,7 @@ beforeEach(() => {
   // Default `docker info` → "0" → memory probe yields null → uncapped run, so
   // the arg-sequence tests below see the same shape they always did.
   resetDaemonMemoryCacheForTests();
+  streamExec.mockResolvedValue({ exitCode: 0, aborted: false });
   mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
   mockedParse.mockResolvedValue({
     success: true,
@@ -79,7 +86,8 @@ describe("docker executeSandbox", () => {
     const joined = calls().map((a) => a.join(" "));
     expect(joined.some((c) => c.includes("cat > /data/input.csv"))).toBe(true);
     expect(joined.some((c) => c.includes("cat > /data/script.py"))).toBe(true);
-    expect(joined.some((c) => c.includes("python3 /data/script.py"))).toBe(true);
+    // Execution is now streamed (spawn), not a blocking run() call.
+    expect(streamExec).toHaveBeenCalledOnce();
     // Script content includes the prelude before the generated code.
     const scriptWrite = mockedRun.mock.calls.find(([, args]) =>
       args.join(" ").includes("cat > /data/script.py")
@@ -116,16 +124,23 @@ describe("docker executeSandbox", () => {
     expect(create[mIdx + 1]).toBe(`${Math.floor(4 * 1024 * 0.8)}m`);
   });
 
-  it("reports a timeout with the applied budget in the error", async () => {
-    // create + writes fine, exec times out
-    mockedRun.mockImplementation(async (_cmd, args) => {
-      if (args.join(" ").includes("python3 /data/script.py")) {
-        throw new Error("Sandbox execution timed out");
-      }
-      return { stdout: "0", stderr: "", exitCode: 0 };
-    });
+  it("returns a stopped result (no retry) when the user aborts mid-execution", async () => {
+    // The streaming runner resolves with aborted:true when the run's signal fires.
+    streamExec.mockResolvedValue({ exitCode: -1, aborted: true });
     const result = await executeSandbox("csv", "code");
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error).toMatch(/timed out after \d+ms/);
+    if (!result.success) {
+      expect(result.errorKind).toBe("stopped");
+      expect(result.error).toMatch(/stopped/i);
+    }
+    // Container is still torn down.
+    expect(calls().find((a) => a[0] === "rm")).toBeDefined();
+  });
+
+  it("creates the container with sleep infinity (no lifetime self-kill)", async () => {
+    await executeSandbox("a,b\n1,2\n", "print('hi')");
+    const create = createCall();
+    const sleepIdx = create.indexOf("sleep");
+    expect(create[sleepIdx + 1]).toBe("infinity");
   });
 });
