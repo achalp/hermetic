@@ -13,6 +13,7 @@ import { recordFailure } from "@/lib/diagnostics/failure-log";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
+import { estimateRun, reportEstimate } from "@/lib/pipeline/estimate";
 import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
@@ -143,6 +144,16 @@ export async function runPipeline(
   } else if (codeDoesRemoteIo(code)) {
     logger.info("Remote cloud execution", { fullCode: code });
   }
+  // Up-front duration estimate (a bucketed range, not an ETA) so the user knows
+  // a long run is expected — streamed as a progress event before execution.
+  const remote = codeDoesRemoteIo(code);
+  reportEstimate(
+    estimateRun({
+      rowCount: schema.row_count,
+      isRemote: remote,
+      isLargeData: !!localMountPath || !!inputParquetPath || remote,
+    })
+  );
   onStage?.("executing");
   let result = await executeSandbox(
     csvContent,

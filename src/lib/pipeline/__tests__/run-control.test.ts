@@ -6,11 +6,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { rmCalls } = vi.hoisted(() => ({ rmCalls: [] as string[][] }));
+const { rmCalls, psOutput } = vi.hoisted(() => ({
+  rmCalls: [] as string[][],
+  psOutput: { value: "" },
+}));
 vi.mock("node:child_process", () => ({
-  execFile: (_cmd: string, args: string[], cb?: (e: unknown) => void) => {
+  execFile: (_cmd: string, args: string[], cb?: (e: unknown, stdout?: string) => void) => {
+    if (args[0] === "ps") {
+      if (typeof cb === "function") cb(null, psOutput.value);
+      return {};
+    }
     rmCalls.push(args);
-    if (typeof cb === "function") cb(null);
+    if (typeof cb === "function") cb(null, "");
     return {};
   },
 }));
@@ -29,6 +36,7 @@ import {
   stopRun,
   isSandboxContainerActive,
   isRunStopped,
+  reapOrphanSandboxContainers,
   endRun,
 } from "@/lib/pipeline/run-control";
 
@@ -108,5 +116,22 @@ describe("run-control", () => {
       endRun(runId);
       expect(isSandboxContainerActive("c-end")).toBe(false);
     });
+  });
+
+  it("reapOrphanSandboxContainers removes running containers NOT registered to a live run", async () => {
+    // docker ps reports two sandbox containers; only one belongs to a live run.
+    psOutput.value = "hermetic-sandbox-live\nhermetic-sandbox-orphan\n";
+    await inRun(async (runId) => {
+      registerRun(runId);
+      registerContainer("hermetic-sandbox-live");
+
+      const reaped = await reapOrphanSandboxContainers();
+      expect(reaped).toBe(1);
+      const removed = rmCalls.map((a) => a.join(" "));
+      expect(removed).toContain("rm -f hermetic-sandbox-orphan");
+      expect(removed).not.toContain("rm -f hermetic-sandbox-live"); // live run untouched
+      endRun(runId);
+    });
+    psOutput.value = "";
   });
 });

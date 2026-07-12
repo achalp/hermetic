@@ -160,6 +160,36 @@ export function activeSandboxContainerIds(): Set<string> {
   return new Set(containerOwner.keys());
 }
 
+/**
+ * Reap orphaned analysis containers — the ONLY cleanup path for a
+ * `sleep infinity` container whose run died without its finally (a crash, or a
+ * server restart that emptied this registry). Removes any running
+ * `hermetic-sandbox-*` container NOT registered to a live run. Scoped to that
+ * prefix so the short-lived schema/fingerprint containers (which self-clean and
+ * are never registered) are never touched. Safe against the create→register
+ * window: registerContainer runs synchronously right after `docker run`
+ * resolves, with no await between, so a container that exists is either
+ * registered or a true orphan. Called by the store sweeper.
+ */
+export async function reapOrphanSandboxContainers(): Promise<number> {
+  const names = await new Promise<string[]>((resolve) => {
+    execFile(
+      "docker",
+      ["ps", "--filter", "name=hermetic-sandbox-", "--format", "{{.Names}}"],
+      (err: unknown, stdout: string) => {
+        resolve(err ? [] : String(stdout).trim().split("\n").filter(Boolean));
+      }
+    );
+  });
+  const active = activeSandboxContainerIds();
+  const orphans = names.filter((n) => !active.has(n));
+  await Promise.all(
+    orphans.map((n) => new Promise<void>((res) => execFile("docker", ["rm", "-f", n], () => res())))
+  );
+  if (orphans.length) logger.info("Reaped orphan sandbox containers", { count: orphans.length });
+  return orphans.length;
+}
+
 /** Tear down a run's registry entry once its stream concludes. */
 export function endRun(runId: string): void {
   const rc = runs.get(runId);

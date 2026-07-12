@@ -27,13 +27,14 @@ export function startStoreSweeper(): void {
   const sweep = async () => {
     try {
       // Dynamic imports keep this module import-cycle-free and lazy.
-      const [csv, warehouse, code, conversation, artifacts, excel] = await Promise.all([
+      const [csv, warehouse, code, conversation, artifacts, excel, runControl] = await Promise.all([
         import("@/lib/csv/storage"),
         import("@/lib/warehouse/storage"),
         import("@/lib/pipeline/code-cache"),
         import("@/lib/pipeline/conversation-cache"),
         import("@/lib/pipeline/artifacts-cache"),
         import("@/lib/excel/storage"),
+        import("@/lib/pipeline/run-control"),
       ]);
       const csvResult = await csv.sweepExpiredCSVStore();
       const counts = {
@@ -44,6 +45,9 @@ export function startStoreSweeper(): void {
         conversations: conversation.sweepExpiredConversations(),
         artifacts: artifacts.sweepExpiredArtifacts(),
         excel: excel.sweepExpiredExcel(),
+        // Orphaned `sleep infinity` analysis containers from a crashed/restarted
+        // run — the only cleanup path now that we never self-kill on a timer.
+        sandboxOrphans: await runControl.reapOrphanSandboxContainers(),
       };
       if (Object.values(counts).some((n) => n > 0)) {
         logger.debug("Store sweep", counts);
