@@ -7,7 +7,8 @@ import {
   fixColumnNameCase,
   stripValueAssertions,
 } from "@/lib/llm/code-generation";
-import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
+import { buildRetryPromptMulti, RETRY_GUIDANCE, buildGeospatialGuidance } from "@/lib/llm/prompts";
+import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
@@ -226,8 +227,15 @@ export async function runPipeline(
       errorText: retryError,
     });
 
+    // Re-inject the geospatial recipe (KD-tree / polygon / memory-safe rowid) on
+    // retry. Without this, a retry rebuilt from scratch drops the schema block's
+    // spatial guidance and "repairs" a superlative by downsampling — the exact
+    // regression that produced a grid-cell approximation. buildGeospatialGuidance
+    // returns "" for non-geo data, so this is a no-op there.
+    const retryGeoGuidance = buildGeospatialGuidance(schema, await getSandboxMemoryLimitGbLabel());
     const retrySystemExtra =
       (localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "") +
+      (retryGeoGuidance ? `\n${retryGeoGuidance}` : "") +
       (purpose ? `\n\n${getPurposeCodegenScope(purpose)}` : "");
     let retryCode: string;
     try {

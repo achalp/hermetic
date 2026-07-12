@@ -7,6 +7,7 @@ import {
   buildConversationHistorySection,
 } from "./prompts";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import type { CSVSchema, ConversationTurn, SchemaMode } from "@/lib/types";
 
 /**
@@ -165,7 +166,17 @@ export async function generateAnalysisCode(
   // code-gen retries, the schema is identical → cache hits. Non-chat content is
   // byte-identical to buildCodeGenUserPrompt; chat moves history after the
   // (cached) schema.
-  const schemaBlock = buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext);
+  // Derived at runtime from the Docker daemon's own allocation (memoized), so the
+  // model plans against the SAME hard cap the container enforces — not a stale
+  // hardcoded figure. Null (docker absent) → the prompt omits a specific number.
+  const sandboxMemoryGb = await getSandboxMemoryLimitGbLabel();
+  const schemaBlock = buildCodeGenSchemaBlock(
+    schema,
+    mode,
+    workbookContext,
+    localFileContext,
+    sandboxMemoryGb
+  );
   const tail = hasTurns
     ? `\n${buildConversationHistorySection(priorTurns)}## Question\n${question}`
     : `\n## Question\n${question}`;
@@ -223,10 +234,22 @@ export async function prewarmCodeGenCache(
 ): Promise<void> {
   if (getActiveProvider() !== "anthropic") return;
   try {
+    // Must match generateAnalysisCode's value exactly or the cached prefix this
+    // warms won't be read back. getSandboxMemoryLimitGbLabel is memoized, so it
+    // returns the same figure for both.
+    const sandboxMemoryGb = await getSandboxMemoryLimitGbLabel();
     const content = systemOnly
       ? [{ type: "text" as const, text: "\n## Question\nwarmup" }]
       : [
-          cachedText(buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)),
+          cachedText(
+            buildCodeGenSchemaBlock(
+              schema,
+              mode,
+              workbookContext,
+              localFileContext,
+              sandboxMemoryGb
+            )
+          ),
           { type: "text" as const, text: "\n## Question\nwarmup" },
         ];
     await withPhase("prewarm", () =>
