@@ -25,9 +25,13 @@ import { logger } from "@/lib/logger";
  * stores.
  */
 
-/** Source-agnostic progress event streamed to the client. */
+/**
+ * Source-agnostic progress event streamed to the client. Field names match the
+ * on-the-wire shape the sandbox prelude's progress() emits (snake_case), so it
+ * passes through untransformed.
+ */
 export interface SandboxProgress {
-  /** Coarse phase: generating | materializing | scanning | analyzing | retrying | composing | … */
+  /** Coarse phase: starting | scanning | analyzing | hydrating | composing | … */
   phase: string;
   /** Human-readable detail ("scanning California buildings"). */
   detail?: string;
@@ -35,9 +39,11 @@ export interface SandboxProgress {
   fraction?: number;
   /** Rows processed so far / expected, when known. */
   rows?: number;
-  totalRows?: number;
-  /** Milliseconds since the phase (or run) started. */
-  elapsedMs?: number;
+  total_rows?: number;
+  /** Milliseconds since the run started. */
+  elapsed_ms?: number;
+  /** Extra fields the analysis code passes to progress(**fields). */
+  [k: string]: unknown;
 }
 
 interface RunControl {

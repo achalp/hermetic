@@ -212,7 +212,12 @@ function largeDataNote(rowCount: number): string {
     `CRITICAL: This is a large dataset (${rowCount.toLocaleString()} rows). You MUST use DuckDB SQL ` +
     `with WHERE, GROUP BY, or LIMIT to reduce data BEFORE calling .df(). NEVER SELECT * without a LIMIT ` +
     `or aggregation. Aggregate in SQL, convert only the small result to pandas. Keep total queries to 3 ` +
-    `or fewer — combine aggregations into a single query when possible.\n`
+    `or fewer — combine aggregations into a single query when possible.\n` +
+    `PROGRESS: a long run streams live progress to the user. Call progress("<what you are doing>") ` +
+    `(auto-injected, no import) at each PHASE boundary — e.g. progress("scanning buildings"), ` +
+    `progress("building KD-tree"), progress("hydrating winners") — and pass rows=/total_rows= or ` +
+    `fraction=0..1 when you know them. An elapsed heartbeat is emitted automatically; these labels make ` +
+    `it MEANINGFUL. This is progress reporting only — it never changes results.\n`
   );
 }
 

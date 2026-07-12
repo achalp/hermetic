@@ -30,6 +30,33 @@ def _safe_dumps(*a, **kw):
     return _orig_dumps(*a, **kw)
 _json_mod.dump = _safe_dump
 _json_mod.dumps = _safe_dumps
+
+# ── Live progress (auto-injected) ────────────────────────────────────────────
+# progress(phase, detail, **fields) prints a {"__progress": {...}} JSONL line to
+# stdout; the server streams it to the UI. A daemon thread re-emits the current
+# phase + elapsed every few seconds, so even a long SILENT scan shows "still
+# running, 12m" — progress is guaranteed regardless of what the analysis code
+# prints. Call progress("scanning California buildings") at phase boundaries;
+# pass fraction=0..1 or rows=/total_rows= when you can (e.g. a DuckDB scan).
+import sys as _sys, time as _time, threading as _threading
+_hb = {"phase": "starting", "detail": None, "started": _time.time()}
+def progress(phase=None, detail=None, **fields):
+    if phase is not None: _hb["phase"] = phase
+    if detail is not None: _hb["detail"] = detail
+    p = {"phase": _hb["phase"], "elapsed_ms": int((_time.time() - _hb["started"]) * 1000)}
+    if _hb["detail"] is not None: p["detail"] = _hb["detail"]
+    for _k, _v in fields.items(): p[_k] = _v
+    try:
+        _sys.stdout.write(_json_mod.dumps({"__progress": p}) + "\\n"); _sys.stdout.flush()
+    except Exception:
+        pass
+def _hb_loop():
+    while True:
+        _time.sleep(5)
+        try: progress()
+        except Exception: pass
+_threading.Thread(target=_hb_loop, daemon=True).start()
+progress("starting")
 try:
     import pandas as _pd
     _orig_corr = _pd.DataFrame.corr
