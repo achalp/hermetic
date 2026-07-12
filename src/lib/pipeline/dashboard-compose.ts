@@ -451,7 +451,7 @@ function buildComposeRules(args: {
     "Use StatCard for key metrics. Group them in a LayoutGrid (columns: 2-4).",
     "Use the appropriate chart type for the data shape.",
     "Add Annotation components for outliers, notable patterns, or caveats.",
-    "If results includes an `analysis_scope` value, the analysis was bounded to less than the question asked (to fit cost limits). Surface it near the TOP as a TextBlock (variant: warning) or Annotation (severity: info) stating what the result actually covers — do NOT present the answer as global/complete when this is set.",
+    "If results includes an `analysis_scope` value, it is the analyst's OWN provenance note describing exactly what was covered and how — it may state FULL coverage (e.g. 'Analyzed all 13,679,957 buildings ... via an exact KD-tree') OR a bounded/sampled subset. Surface it near the TOP as an Annotation (severity: info) titled 'Analysis Scope', using its text VERBATIM. Do NOT paraphrase it, and do NOT assume it means the data was sampled or bounded — quote what it actually says. Only frame it as a caveat (warning severity) when the text itself describes a bound, sample, or approximation.",
     "Use TrendIndicator when comparing two time periods.",
     "Use ChartImage ONLY when images were generated in the sandbox (truly custom matplotlib visualizations).",
     "For distribution analysis, use Histogram (pass raw data rows + value_key, optional group_key for overlaid groups).",
