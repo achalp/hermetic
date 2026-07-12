@@ -3,6 +3,7 @@ import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LARGE_DATA_TIMEOUT_MS } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
+import { sandboxMemoryRunArgs } from "./memory-budget";
 import { logger } from "@/lib/logger";
 
 const CONTAINER_NAME = "hermetic-warm";
@@ -26,6 +27,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         CONTAINER_NAME,
         "--network",
         "none",
+        ...(await sandboxMemoryRunArgs()),
         DOCKER_SANDBOX_IMAGE,
         "sleep",
         String(CONTAINER_LIFETIME),

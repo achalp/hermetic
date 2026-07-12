@@ -40,6 +40,14 @@ export const LARGE_DATA_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 export const WAREHOUSE_QUERY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 export const CSV_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const DOCKER_SANDBOX_IMAGE = "hermetic-sandbox";
+// Fraction of the Docker/colima DAEMON's total memory that a single sandbox
+// container may use (`docker run --memory`). The remainder is headroom for the
+// daemon/VM's own OS and reclaimable page cache. This is a RATIO, not a byte
+// count — it is derived against whatever `docker info` reports on the host
+// (the colima/Docker-Desktop VM allocation on macOS, host RAM on native
+// Linux), so it scales to any machine with no hardcoded limit. Override with
+// SANDBOX_MEMORY_FRACTION (0 < f <= 1) for unusually memory-tight or -rich hosts.
+export const DEFAULT_SANDBOX_MEMORY_FRACTION = 0.8;
 export const MAX_SAMPLE_ROWS = 5;
 export const MAX_PREVIEW_ROWS = 10;
 export const MAX_COMPONENT_COUNT = 20;

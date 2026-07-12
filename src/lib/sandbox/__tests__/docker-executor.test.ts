@@ -17,6 +17,7 @@ vi.mock("@/lib/sandbox/docker-utils", async (importOriginal) => {
 
 import { executeSandbox } from "@/lib/sandbox/docker-executor";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
+import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
 
 const mockedRun = vi.mocked(run);
 const mockedParse = vi.mocked(parseExecutionOutput);
@@ -27,6 +28,9 @@ const createCall = () => calls().find((a) => a[0] === "run")!;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default `docker info` → "0" → memory probe yields null → uncapped run, so
+  // the arg-sequence tests below see the same shape they always did.
+  resetDaemonMemoryCacheForTests();
   mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
   mockedParse.mockResolvedValue({
     success: true,
@@ -86,12 +90,30 @@ describe("docker executeSandbox", () => {
   });
 
   it("always removes the container, even when execution throws", async () => {
-    mockedRun.mockRejectedValueOnce(new Error("docker daemon down"));
+    // Reject container CREATION specifically — the `docker info` memory probe
+    // may run first and is allowed to no-op (it fails soft to an uncapped run).
+    mockedRun.mockImplementation(async (_cmd, args) => {
+      if (args[0] === "run") throw new Error("docker daemon down");
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
     const result = await executeSandbox("csv", "code");
     expect(result.success).toBe(false);
     const rm = calls().find((a) => a[0] === "rm");
     expect(rm).toBeDefined();
     expect(rm).toContain("-f");
+  });
+
+  it("caps container memory with --memory when the daemon allocation is known", async () => {
+    const GiB = 1024 * 1024 * 1024;
+    mockedRun.mockImplementation(async (_cmd, args) => {
+      if (args[0] === "info") return { stdout: `${4 * GiB}\n`, stderr: "", exitCode: 0 };
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
+    await executeSandbox("a,b\n1,2\n", "import pandas as pd");
+    const create = createCall();
+    const mIdx = create.indexOf("--memory");
+    expect(mIdx).toBeGreaterThan(-1);
+    expect(create[mIdx + 1]).toBe(`${Math.floor(4 * 1024 * 0.8)}m`);
   });
 
   it("reports a timeout with the applied budget in the error", async () => {

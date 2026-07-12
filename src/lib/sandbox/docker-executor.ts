@@ -9,6 +9,7 @@ import {
   LOCAL_MOUNT_PATH,
 } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo, codeNeedsNetwork } from "./docker-utils";
+import { sandboxMemoryRunArgs } from "./memory-budget";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 
@@ -33,7 +34,7 @@ export async function executeSandbox(
     // 1. Create container (with optional bind-mount for browsed local files).
     //    Keep it alive past the exec budget so a long run can't outlive its host.
     const containerLifetime = Math.ceil(execTimeout / 1000) + 60;
-    const runArgs = ["run", "-d", "--name", id];
+    const runArgs = ["run", "-d", "--name", id, ...(await sandboxMemoryRunArgs())];
     // No network unless the code actually reads remote data — this is what
     // makes the sandbox isolation claim true for local-data analyses. The
     // image pre-bundles the DuckDB httpfs/spatial extensions, so offline
