@@ -38,7 +38,12 @@ export const LARGE_DATA_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 // hours before failing. Cancel it at our own budget instead; the engine
 // error then flows into the normal repair/fail path in minutes, not hours.
 export const WAREHOUSE_QUERY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
-export const CSV_TTL_MS = 60 * 60 * 1000; // 1 hour
+// SLIDING idle TTL for an uploaded/warehouse-result CSV: time since it was last
+// READ, not since upload. Every access slides it forward, and an in-flight run
+// pins its own CSV regardless of age (see csv/storage.ts isExpired), so this only
+// governs how long a truly-idle dataset lingers between questions. Generous so a
+// user returning to follow up isn't told to re-upload.
+export const CSV_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours idle
 export const DOCKER_SANDBOX_IMAGE = "hermetic-sandbox";
 // Fraction of the Docker/colima DAEMON's total memory that a single sandbox
 // container may use (`docker run --memory`). The remainder is headroom for the

@@ -4,6 +4,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 import type { CSVSchema, StoredCSV, WorkbookManifest, RemoteCreds } from "@/lib/types";
 import { CSV_TTL_MS } from "@/lib/constants";
+import { getRunId } from "@/lib/run-context";
+import { isRunActive } from "@/lib/pipeline/run-control";
 
 // Use globalThis to persist across module reloads in dev mode
 const globalStore = globalThis as unknown as {
@@ -29,6 +31,25 @@ async function ensureDir() {
   }
 }
 
+/** Local files live on disk and are bind-mounted — they never expire. */
+function isLocalEntry(entry: StoredCSV): boolean {
+  return !!(entry.localPath || entry.localFolderPath);
+}
+
+/**
+ * Whether `entry` should be evicted at `now`. Expiry is a SLIDING idle window
+ * (measured from the last read, not from upload) AND is suspended while the
+ * run that owns the entry is still in-flight — so neither an actively-used
+ * session nor a legitimately long analysis ever loses its data. Local files
+ * never expire.
+ */
+function isExpired(entry: StoredCSV, now: number): boolean {
+  if (isLocalEntry(entry)) return false;
+  if (entry.ownerRunId && isRunActive(entry.ownerRunId)) return false;
+  const since = entry.lastAccessedAt ?? entry.createdAt;
+  return now - since > CSV_TTL_MS;
+}
+
 /**
  * Active sweep for the store-sweeper (see lib/store-sweeper.ts). Expiry was
  * previously lazy-only (checked inside getStoredCSV), so entries never read
@@ -39,8 +60,7 @@ export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans
   const now = Date.now();
   let expired = 0;
   for (const [csvId, entry] of store) {
-    const isLocal = !!(entry.localPath || entry.localFolderPath);
-    if (!isLocal && now - entry.createdAt > CSV_TTL_MS) {
+    if (isExpired(entry, now)) {
       store.delete(csvId);
       manifestStore.delete(csvId);
       unlink(entry.filePath).catch(() => {});
@@ -79,15 +99,19 @@ export async function storeCSV(csvId: string, csvText: string, schema: CSVSchema
 export function getStoredCSV(csvId: string): StoredCSV | undefined {
   const entry = store.get(csvId);
   if (!entry) return undefined;
-  // Local files don't expire — the data is still on disk
-  const isLocal = !!(entry.localPath || entry.localFolderPath);
-  if (!isLocal && Date.now() - entry.createdAt > CSV_TTL_MS) {
+  const now = Date.now();
+  if (isExpired(entry, now)) {
     store.delete(csvId);
     unlink(entry.filePath).catch(() => {});
     // Also clean up sidecar GeoJSON file if present
     unlink(join(CSV_DIR, `${csvId}.geojson`)).catch(() => {});
     return undefined;
   }
+  // Touch: slide the idle window forward, and pin the entry to the reading run
+  // (if any) so it survives that run however long it takes.
+  entry.lastAccessedAt = now;
+  const runId = getRunId();
+  if (runId) entry.ownerRunId = runId;
   return entry;
 }
 

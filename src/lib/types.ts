@@ -144,6 +144,14 @@ export interface StoredCSV {
   schema: CSVSchema;
   filePath: string;
   createdAt: number;
+  /** Last time this entry was read. Expiry is a SLIDING idle window measured
+   *  from here (not from createdAt), so an actively-used dataset never expires
+   *  mid-session. Defaults to createdAt. */
+  lastAccessedAt?: number;
+  /** The runId that last read this entry. While that run is still in-flight the
+   *  entry is pinned (never swept), so a legitimately long analysis can't lose
+   *  its own data — the sandbox exec touches the store only at its start. */
+  ownerRunId?: string;
   /** For local files: host filesystem path (not copied into temp) */
   localPath?: string;
   /** For local Parquet folders: host directory path */

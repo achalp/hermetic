@@ -100,6 +100,15 @@ export function isRunStopped(): boolean {
   return runId ? (runs.get(runId)?.stopped ?? false) : false;
 }
 
+/**
+ * True while `runId` is still registered (between registerRun and endRun) — i.e.
+ * an analysis is in-flight. Used to pin resources (e.g. a run's uploaded CSV) so
+ * they are never swept out from under a legitimately long run.
+ */
+export function isRunActive(runId: string): boolean {
+  return runs.has(runId);
+}
+
 /** Register a sandbox container against the CURRENT run (so a stop can kill it). */
 export function registerContainer(containerId: string): void {
   const runId = getRunId();
