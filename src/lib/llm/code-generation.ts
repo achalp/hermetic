@@ -110,6 +110,32 @@ export function fixReadCsvDelimiter(code: string): string {
 }
 
 /**
+ * Add a missing `f` prefix to a duckdb.sql() string that interpolates a computed
+ * Python value. Common first-shot bug: writing duckdb.sql("""… {xmin} …""") as a
+ * PLAIN string instead of an f-string, so `{xmin}` reaches DuckDB literally and it
+ * errors "Parser Error: syntax error at or near }" — which killed a USA run on its
+ * very first SQL line. Deterministic and conservative: we prefix ONLY when the
+ * braces clearly hold an INTERPOLATION (a bare identifier / attribute / index /
+ * arithmetic on identifiers) and NEVER a DuckDB struct/map literal ({'a': 1} /
+ * {k: v}) — those start with a quote or contain a colon — nor an already-escaped
+ * {{ }}. So a legitimate literal brace is left untouched.
+ */
+export function fixMissingSqlFString(code: string): string {
+  return code.replace(
+    /(\bduckdb\.sql\(\s*)(f?)("""|'''|"|')([\s\S]*?)\3/g,
+    (match, head, fPrefix, quote, body) => {
+      if (fPrefix) return match; // already an f-string
+      const interpolation = /\{\s*[A-Za-z_]\w*(?:\.\w+|\[\s*\d+\s*\])*(?:\s*[-+*/]\s*[\w.]+)*\s*\}/;
+      const structOrMapLiteral = /\{\s*['":]/;
+      if (interpolation.test(body) && !structOrMapLiteral.test(body) && !body.includes("{{")) {
+        return `${head}f${quote}${body}${quote}`;
+      }
+      return match;
+    }
+  );
+}
+
+/**
  * Remove hard-coded value assertions like `assert corr == 0.785` that LLMs
  * (especially weaker local models) emit as self-tests. They crash on perfectly
  * valid data — a computed correlation is 0.7849…, never exactly 0.785. Only
@@ -197,8 +223,10 @@ export async function generateAnalysisCode(
 
   return fixColumnNameCase(
     stripValueAssertions(
-      fixReadCsvDelimiter(
-        fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+      fixMissingSqlFString(
+        fixReadCsvDelimiter(
+          fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+        )
       )
     ),
     schema.columns.map((c) => c.name)

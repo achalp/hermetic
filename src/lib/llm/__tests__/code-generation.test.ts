@@ -6,6 +6,7 @@ import {
   fixReadCsvDelimiter,
   fixColumnNameCase,
   stripValueAssertions,
+  fixMissingSqlFString,
 } from "@/lib/llm/code-generation";
 
 describe("stripValueAssertions", () => {
@@ -196,5 +197,50 @@ describe("fixReadCsvDelimiter", () => {
   it("leaves a read_csv call that already has a sep= argument alone", () => {
     const code = "read_csv('/data/input.csv', sep='\\t')";
     expect(fixReadCsvDelimiter(code)).toBe(code);
+  });
+});
+
+describe("fixMissingSqlFString", () => {
+  it("adds f to a plain triple-quoted duckdb.sql that interpolates a bbox bound (the USA bug)", () => {
+    const code = [
+      'rg = duckdb.sql("""',
+      "SELECT * FROM data",
+      "WHERE bbox.xmin >= {xmin} AND bbox.xmax <= {xmax}",
+      '""").df()',
+    ].join("\n");
+    const fixed = fixMissingSqlFString(code);
+    expect(fixed).toContain('duckdb.sql(f"""');
+    expect(fixed).toContain("{xmin}"); // interpolation preserved
+  });
+
+  it("handles arithmetic in the interpolation ({xmin - 0.01})", () => {
+    const code = 'duckdb.sql("""WHERE bbox.xmin >= {xmin - 0.01}""")';
+    expect(fixMissingSqlFString(code)).toBe('duckdb.sql(f"""WHERE bbox.xmin >= {xmin - 0.01}""")');
+  });
+
+  it("leaves an already-f-string untouched", () => {
+    const code = 'duckdb.sql(f"""WHERE bbox.xmin >= {xmin}""")';
+    expect(fixMissingSqlFString(code)).toBe(code);
+  });
+
+  it("does NOT touch a duckdb.sql with no interpolation", () => {
+    const code = 'duckdb.sql("""SELECT * FROM data WHERE country = \'US\'""")';
+    expect(fixMissingSqlFString(code)).toBe(code);
+  });
+
+  it("does NOT touch a DuckDB struct/map literal (quoted or colon key)", () => {
+    const structLit = "duckdb.sql(\"SELECT {'a': 1} AS s\")";
+    expect(fixMissingSqlFString(structLit)).toBe(structLit);
+  });
+
+  it("does NOT touch an already-escaped literal brace {{ }}", () => {
+    const code = 'duckdb.sql("""SELECT {{literal}} FROM t""")';
+    expect(fixMissingSqlFString(code)).toBe(code);
+  });
+
+  it("fixes single-quoted and double-quoted forms too", () => {
+    expect(fixMissingSqlFString("duckdb.sql('WHERE id IN ({ids})')")).toBe(
+      "duckdb.sql(f'WHERE id IN ({ids})')"
+    );
   });
 });

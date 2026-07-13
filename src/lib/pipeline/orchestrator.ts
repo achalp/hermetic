@@ -6,6 +6,7 @@ import {
   fixReadCsvDelimiter,
   fixColumnNameCase,
   stripValueAssertions,
+  fixMissingSqlFString,
 } from "@/lib/llm/code-generation";
 import { buildRetryPromptMulti, RETRY_GUIDANCE, buildGeospatialGuidance } from "@/lib/llm/prompts";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
@@ -308,8 +309,12 @@ export async function runPipeline(
 
       retryCode = fixColumnNameCase(
         stripValueAssertions(
-          fixReadCsvDelimiter(
-            fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename))
+          fixMissingSqlFString(
+            fixReadCsvDelimiter(
+              fixExcelReadOnCsv(
+                fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
+              )
+            )
           )
         ),
         schema.columns.map((c) => c.name)
