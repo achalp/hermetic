@@ -10,6 +10,13 @@ import {
 import { buildRetryPromptMulti, RETRY_GUIDANCE, buildGeospatialGuidance } from "@/lib/llm/prompts";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
+import {
+  recordRunStart,
+  recordRunArtifact,
+  recordRunEvent,
+  recordAttemptCode,
+  recordAttemptOutcome,
+} from "@/lib/diagnostics/run-recorder";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
@@ -101,6 +108,21 @@ export async function runPipeline(
     inputParquetPath,
     purpose,
   } = options;
+  // Open the forensic record for this run: every attempt's code + outcome is
+  // persisted to data/runs/<runId>/ as it happens, so a crash or exhausted-retry
+  // failure (which saves only a near-empty history stub) still leaves the exact
+  // code and errors to debug from.
+  recordRunStart({
+    question,
+    filename: schema.filename,
+    rowCount: schema.row_count,
+    mode,
+    model,
+    localMount: !!localMountPath,
+    remoteParquet: !!inputParquetPath,
+  });
+  let attemptIndex = 1;
+
   // Step 1: Generate analysis code
   onStage?.("generating_code");
   let code: string;
@@ -117,6 +139,7 @@ export async function runPipeline(
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    recordRunEvent({ type: "codegen_failed", attempt: attemptIndex, error: msg });
     // Log the full error including any nested cause/errors for debugging
     const details: Record<string, unknown> = {
       error: msg,
@@ -136,6 +159,9 @@ export async function runPipeline(
       msg || "LLM failed to generate code — check that the model server is running and responsive."
     );
   }
+
+  // Persist the code BEFORE executing — an OOM/crash during the run must not lose it.
+  recordAttemptCode(attemptIndex, code);
 
   // Step 2: Execute in sandbox
   logger.debug("Generated code", { chars: code.length, localMount: !!localMountPath });
@@ -165,6 +191,13 @@ export async function runPipeline(
     localMountPath,
     inputParquetPath
   );
+  recordAttemptOutcome(attemptIndex, {
+    success: result.success,
+    error: result.success ? undefined : result.error,
+    errorKind: result.success ? undefined : result.errorKind,
+    executionMs: result.execution_ms,
+    hasResults: result.success && !!result.results,
+  });
 
   // Step 3: Self-correction loop. Up to MAX_RETRIES attempts. Each retry
   // shows the LLM the FULL history of prior failed attempts (code + error),
@@ -293,6 +326,9 @@ export async function runPipeline(
       );
     }
 
+    attemptIndex++;
+    recordAttemptCode(attemptIndex, retryCode);
+
     onStage?.("executing");
     result = await executeSandbox(
       csvContent,
@@ -304,9 +340,27 @@ export async function runPipeline(
       localMountPath,
       inputParquetPath
     );
+    recordAttemptOutcome(attemptIndex, {
+      success: result.success,
+      error: result.success ? undefined : result.error,
+      errorKind: result.success ? undefined : result.errorKind,
+      executionMs: result.execution_ms,
+      hasResults: result.success && !!result.results,
+    });
 
     code = retryCode;
     semanticVerdict = result.success ? validateExecutionResult(result) : null;
+  }
+
+  // Persist the final code + outcome regardless of success/degraded/failure, so
+  // the run's record is complete even when history saves only a stub.
+  recordRunArtifact("code.py", code);
+  recordRunEvent({ type: "final", success: result.success, attempts: attemptIndex });
+  if (result.success) {
+    recordRunArtifact(
+      "output.json",
+      JSON.stringify({ results: result.results, chart_data: result.chart_data }, null, 2)
+    );
   }
 
   // Execution-level failure after exhausting retries → throw, same as
