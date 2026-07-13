@@ -2,13 +2,19 @@ import { logger } from "@/lib/logger";
 import type { ConversationTurn } from "@/lib/types";
 import type { CachedArtifacts } from "./artifacts-cache";
 import { summarizeSpec } from "@/lib/spec-summary";
+import { isIdleExpired, touch } from "@/lib/store-ttl";
 
-const TTL_MS = 30 * 60 * 1000; // 30 minutes — longer than artifact cache since conversations span multiple queries
+// SLIDING idle window (see lib/store-ttl.ts): refreshed on every read AND every
+// appended turn, and pinned during an in-flight run — so a follow-up after a
+// long analysis doesn't silently lose the prior-turn context.
+const TTL_MS = 60 * 60 * 1000; // 1 hour idle
 const MAX_TURNS = 5;
 
 interface SessionEntry {
   turns: ConversationTurn[];
   updatedAt: number;
+  lastAccessedAt?: number;
+  ownerRunId?: string;
 }
 
 const globalCache = globalThis as unknown as {
@@ -23,12 +29,14 @@ const cache = globalCache.__conversationCache;
 export function getConversationTurns(csvId: string): ConversationTurn[] {
   const entry = cache.get(csvId);
   if (!entry) return [];
-  if (Date.now() - entry.updatedAt > TTL_MS) {
+  const now = Date.now();
+  if (isIdleExpired(entry, entry.updatedAt, TTL_MS, now)) {
     // Logged: an expired conversation silently drops the follow-up context.
     logger.debug("Conversation cache entry expired", { csvId });
     cache.delete(csvId);
     return [];
   }
+  touch(entry, now);
   return entry.turns;
 }
 
@@ -89,7 +97,7 @@ export function sweepExpiredConversations(): number {
   const now = Date.now();
   let swept = 0;
   for (const [k, v] of cache) {
-    if (now - v.updatedAt > TTL_MS) {
+    if (isIdleExpired(v, v.updatedAt, TTL_MS, now)) {
       cache.delete(k);
       swept++;
     }

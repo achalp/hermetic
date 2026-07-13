@@ -437,6 +437,10 @@ export interface StoredWarehouse {
   /** Full column-level schemas for all tables — used for SQL generation */
   tableSchemas: WarehouseTableSchema[];
   createdAt: number;
+  /** Sliding-idle-TTL bookkeeping (see lib/store-ttl.ts): last read + the run
+   *  that pins this connection while it's in-flight. */
+  lastAccessedAt?: number;
+  ownerRunId?: string;
   /** Path to a dbt `manifest.json` whose docs enrich the LLM context */
   dbtManifestPath?: string;
 }

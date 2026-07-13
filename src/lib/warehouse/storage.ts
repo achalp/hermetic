@@ -1,5 +1,6 @@
 import type { StoredWarehouse } from "@/lib/types";
 import { CSV_TTL_MS } from "@/lib/constants";
+import { isIdleExpired, touch } from "@/lib/store-ttl";
 import type { WarehouseConnector } from "./connector";
 
 const globalStore = globalThis as unknown as {
@@ -23,10 +24,14 @@ export function storeWarehouse(warehouse: StoredWarehouse, connector: WarehouseC
 export function getStoredWarehouse(warehouseId: string): StoredWarehouse | undefined {
   const entry = store.get(warehouseId);
   if (!entry) return undefined;
-  if (Date.now() - entry.createdAt > CSV_TTL_MS) {
+  const now = Date.now();
+  // Sliding idle window + active-run pin (see lib/store-ttl.ts): a connection is
+  // never dropped mid-session or during a long query it's servicing.
+  if (isIdleExpired(entry, entry.createdAt, CSV_TTL_MS, now)) {
     removeWarehouse(warehouseId);
     return undefined;
   }
+  touch(entry, now);
   return entry;
 }
 
@@ -46,7 +51,7 @@ export function sweepExpiredWarehouses(): number {
   const now = Date.now();
   let swept = 0;
   for (const [id, entry] of store) {
-    if (now - entry.createdAt > CSV_TTL_MS) {
+    if (isIdleExpired(entry, entry.createdAt, CSV_TTL_MS, now)) {
       removeWarehouse(id); // closes the connector too
       swept++;
     }

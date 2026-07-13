@@ -4,8 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import type { CSVSchema, StoredCSV, WorkbookManifest, RemoteCreds } from "@/lib/types";
 import { CSV_TTL_MS } from "@/lib/constants";
-import { getRunId } from "@/lib/run-context";
-import { isRunActive } from "@/lib/pipeline/run-control";
+import { isIdleExpired, touch } from "@/lib/store-ttl";
 
 // Use globalThis to persist across module reloads in dev mode
 const globalStore = globalThis as unknown as {
@@ -37,17 +36,13 @@ function isLocalEntry(entry: StoredCSV): boolean {
 }
 
 /**
- * Whether `entry` should be evicted at `now`. Expiry is a SLIDING idle window
- * (measured from the last read, not from upload) AND is suspended while the
- * run that owns the entry is still in-flight — so neither an actively-used
- * session nor a legitimately long analysis ever loses its data. Local files
- * never expire.
+ * Whether `entry` should be evicted at `now`. Local (bind-mounted) files never
+ * expire; everything else follows the shared sliding-idle + active-run-pin
+ * policy (see lib/store-ttl.ts).
  */
 function isExpired(entry: StoredCSV, now: number): boolean {
   if (isLocalEntry(entry)) return false;
-  if (entry.ownerRunId && isRunActive(entry.ownerRunId)) return false;
-  const since = entry.lastAccessedAt ?? entry.createdAt;
-  return now - since > CSV_TTL_MS;
+  return isIdleExpired(entry, entry.createdAt, CSV_TTL_MS, now);
 }
 
 /**
@@ -107,11 +102,8 @@ export function getStoredCSV(csvId: string): StoredCSV | undefined {
     unlink(join(CSV_DIR, `${csvId}.geojson`)).catch(() => {});
     return undefined;
   }
-  // Touch: slide the idle window forward, and pin the entry to the reading run
-  // (if any) so it survives that run however long it takes.
-  entry.lastAccessedAt = now;
-  const runId = getRunId();
-  if (runId) entry.ownerRunId = runId;
+  // Slide the idle window forward and pin to the reading run (if any).
+  touch(entry, now);
   return entry;
 }
 
