@@ -21,6 +21,7 @@ import { detectRelationships } from "@/lib/excel/relationships";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { prepareWarmSandbox } from "@/lib/sandbox";
+import { recordRecentSource } from "@/lib/sources/recent-sources";
 
 export async function POST(request: Request) {
   if (!validateLocalOrigin(request)) {
@@ -44,6 +45,17 @@ export async function POST(request: Request) {
     const runtime = getActiveSandboxRuntime();
     const csvId = uuidv4();
 
+    // Remember this local file/folder so it re-opens without re-browsing.
+    const recordLocal = (rows?: number, hive?: boolean) =>
+      recordRecentSource({
+        kind: type === "folder" ? "local-folder" : "local-file",
+        name: filename,
+        subtitle: filePath,
+        path: filePath,
+        rows,
+        isHivePartitioned: hive,
+      }).catch(() => {});
+
     // ── Parquet folder ─────────────────────────────────────────
     if (type === "folder") {
       if (!fileInfo.isDirectory()) {
@@ -58,6 +70,7 @@ export async function POST(request: Request) {
 
       storeLocalFileRef(csvId, schema, filePath, fileInfo.mtimeMs, true, isHive);
 
+      recordLocal(schema.row_count, isHive);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -76,6 +89,7 @@ export async function POST(request: Request) {
 
       storeLocalFileRef(csvId, schema, filePath, fileInfo.mtimeMs, false);
 
+      recordLocal(schema.row_count);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -103,6 +117,7 @@ export async function POST(request: Request) {
       }
 
       prepareWarmSandbox(csvId, csvText, runtime);
+      recordLocal(schema.row_count);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -138,6 +153,7 @@ export async function POST(request: Request) {
       await storeGeoJSON(csvId, text);
 
       prepareWarmSandbox(csvId, csvText, runtime, text);
+      recordLocal(schema.row_count);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -163,6 +179,7 @@ export async function POST(request: Request) {
         const csvText2 = toCSVText(parsed);
         await storeCSV(csvId, csvText2, schema);
         prepareWarmSandbox(csvId, csvText2, runtime);
+        recordLocal(schema.row_count);
         return NextResponse.json({ csv_id: csvId, schema });
       }
 

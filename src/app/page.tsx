@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import type { Spec } from "@json-render/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
@@ -15,6 +15,8 @@ import { SettingsDrawer } from "@/components/app/settings-drawer";
 import { DataRail } from "@/components/app/data-rail";
 import { DataRailContent } from "@/components/app/data-rail-content";
 import { SourceCards } from "@/components/app/source-cards";
+import { RecentSources, type RecentItem } from "@/components/app/recent-sources";
+import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 import { LocalFileBrowser } from "@/components/app/local-file-browser";
 
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
@@ -47,7 +49,16 @@ import { useWarehouse } from "@/hooks/use-warehouse";
 import { usePageState } from "@/hooks/use-page-state";
 import type { SchemaMode } from "@/lib/types";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
-import { checkLlmReady, getLocalBackendConfig, saveHistoryEntry } from "@/lib/api";
+import {
+  checkLlmReady,
+  getLocalBackendConfig,
+  saveHistoryEntry,
+  getRecentSources,
+  removeRecentSource as apiRemoveRecent,
+  renameRecentSource as apiRenameRecent,
+  clearRecentSources as apiClearRecent,
+  type RecentSourceInfo,
+} from "@/lib/api";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -55,6 +66,27 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
+
+/** Compact row count for a recent-source subtitle: 2547927232 → "2.5B". */
+function fmtRowCount(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)}K`;
+  return String(n);
+}
+
+/** Relative "used …" label for a recent source. */
+function relTimeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!then) return "";
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 172800) return "yesterday";
+  if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default function Home() {
   // ── Existing hooks & state (unchanged) ──────────────────────
@@ -330,6 +362,95 @@ export default function Home() {
     handleSampleData,
     resetSourceSelect,
   } = useSourceSelect({ handleUpload, handleExcelSheets });
+
+  // ── Recent sources (uploads / local / cloud) — the file/cloud analogue of
+  // saved warehouse connections. Loaded on mount; recorded server-side on every
+  // connect, so we just refetch after each open/remove. Warehouses are merged in
+  // from the warehouse hook for one unified "Recent" list.
+  const [recents, setRecents] = useState<RecentSourceInfo[]>([]);
+  const [busyRecentId, setBusyRecentId] = useState<string | null>(null);
+  const refetchRecents = useCallback(() => {
+    void getRecentSources().then(setRecents);
+  }, []);
+  useEffect(() => refetchRecents(), [refetchRecents]);
+
+  const recentItems = useMemo<RecentItem[]>(() => {
+    const files = recents.map((r) => ({
+      ts: r.lastUsedAt,
+      item: {
+        id: r.id,
+        kind: r.kind,
+        name: r.name,
+        subtitle: r.subtitle,
+        meta: [r.rows != null ? `${fmtRowCount(r.rows)} rows` : null, relTimeAgo(r.lastUsedAt)]
+          .filter(Boolean)
+          .join(" · "),
+      } as RecentItem,
+    }));
+    const whs = warehouse.savedConnections.map((c) => ({
+      ts: c.createdAt,
+      item: {
+        id: c.id,
+        kind: "warehouse" as const,
+        name: c.name ?? c.label,
+        subtitle: "host" in c.config ? c.config.host : c.config.type,
+        meta: relTimeAgo(c.createdAt),
+        brandColor: ENGINES[c.config.type]?.brandColor,
+      } as RecentItem,
+    }));
+    return [...files, ...whs].sort((a, b) => b.ts.localeCompare(a.ts)).map((x) => x.item);
+  }, [recents, warehouse.savedConnections]);
+
+  // Re-open (or refresh) a remembered source. Uploads re-open from their managed
+  // byte copy (a file under ~/.hermetic), so they route through the same local-
+  // file path as an on-disk file.
+  const reopenRecent = useCallback(
+    async (item: RecentItem, force = false) => {
+      setBusyRecentId(item.id);
+      try {
+        if (item.kind === "warehouse") {
+          const saved = warehouse.savedConnections.find((c) => c.id === item.id);
+          if (saved) await warehouse.connect(saved.config, force);
+          return;
+        }
+        const src = recents.find((r) => r.id === item.id);
+        if (!src) return;
+        if (src.kind === "remote-parquet" && src.url) {
+          await handleRemoteFileSelect(src.url, src.creds, force);
+        } else if (src.kind === "local-folder" && src.path) {
+          await handleLocalFileSelect(src.path, "folder");
+        } else if (src.path) {
+          await handleLocalFileSelect(src.path, "file");
+        }
+      } finally {
+        setBusyRecentId(null);
+        refetchRecents();
+      }
+    },
+    [recents, warehouse, handleRemoteFileSelect, handleLocalFileSelect, refetchRecents]
+  );
+
+  const removeRecent = useCallback(
+    async (item: RecentItem) => {
+      if (item.kind === "warehouse") await warehouse.deleteSaved(item.id);
+      else await apiRemoveRecent(item.id).then(refetchRecents);
+    },
+    [warehouse, refetchRecents]
+  );
+
+  const renameRecent = useCallback(
+    (item: RecentItem, name: string) => {
+      if (item.kind === "warehouse") warehouse.renameSaved(item.id, name);
+      else void apiRenameRecent(item.id, name).then(refetchRecents);
+    },
+    [warehouse, refetchRecents]
+  );
+
+  const clearRecents = useCallback(() => {
+    // Clears the file/cloud history; saved warehouse connections persist (remove
+    // those individually).
+    void apiClearRecent().then(refetchRecents);
+  }, [refetchRecents]);
 
   // Schema-sidebar "refresh" — re-read the current source's schema, ignoring the
   // cache. Only cache-backed sources (warehouse / remote Parquet) offer it; an
@@ -843,6 +964,19 @@ export default function Home() {
                 </p>
               </div>
 
+              {/* Unified "Recent" history — uploads, local/cloud files, and saved
+                  warehouses. One click to re-open; no re-pasting URLs or
+                  re-browsing. Subsumes the warehouse-only tray. */}
+              <RecentSources
+                items={recentItems}
+                busyId={busyRecentId}
+                onOpen={(item) => reopenRecent(item)}
+                onRefresh={(item) => reopenRecent(item, true)}
+                onRemove={removeRecent}
+                onRename={renameRecent}
+                onClearAll={clearRecents}
+              />
+
               <SourceCards
                 onFileDrop={() => {
                   if (uploadInputRef.current) uploadInputRef.current.value = "";
@@ -866,16 +1000,6 @@ export default function Home() {
                   setShowLocalBrowser(true);
                 }}
                 onSampleData={handleSampleData}
-                savedConnections={warehouse.savedConnections.map((c) => ({
-                  id: c.id,
-                  type: c.config.type,
-                  name: c.label,
-                  host: "host" in c.config ? c.config.host : c.config.type,
-                }))}
-                onSavedConnect={(id) => {
-                  const saved = warehouse.savedConnections.find((c) => c.id === id);
-                  if (saved) warehouse.connect(saved.config);
-                }}
               />
 
               <InlineConnectionForm

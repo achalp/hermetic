@@ -13,6 +13,8 @@ vi.mock("@/lib/csv/storage", () => ({
   storeLocalFileRef: vi.fn(),
 }));
 vi.mock("@/lib/excel/storage", () => ({ storeExcel: vi.fn(async () => {}) }));
+// Keep the ingestion test hermetic — don't let recording write to ~/.hermetic.
+vi.mock("@/lib/sources/recent-sources", () => ({ recordRecentSource: vi.fn(async () => {}) }));
 vi.mock("@/lib/sandbox", () => ({ prepareWarmSandbox: vi.fn() }));
 vi.mock("@/lib/runtime-config", () => ({ getActiveSandboxRuntime: vi.fn(() => "docker") }));
 vi.mock("@/lib/parquet/materialize", () => ({ materializeCsvToParquet: vi.fn() }));

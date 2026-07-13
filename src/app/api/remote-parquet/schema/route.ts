@@ -11,6 +11,7 @@ import { parseBody, RemoteParquetSchemaBody } from "@/lib/api-schemas";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { recordRecentSource } from "@/lib/sources/recent-sources";
 import type { RemoteCreds } from "@/lib/types";
 import { apiError } from "@/lib/api-error";
 
@@ -72,6 +73,17 @@ export async function POST(request: Request) {
     // Re-stamp per-request identity onto the (possibly cached) schema.
     const schema = { ...cachedSchema, csv_id: csvId, filename };
     storeRemoteParquetRef(csvId, schema, readUrl, creds, isHivePartitioned);
+
+    // Remember it so the user never re-pastes this URL (see recent-sources.ts).
+    recordRecentSource({
+      kind: "remote-parquet",
+      name: filename,
+      subtitle: url,
+      rows: schema.row_count,
+      url,
+      creds,
+      isHivePartitioned,
+    }).catch(() => {});
 
     return NextResponse.json({ csv_id: csvId, schema, cache_status: status });
   } catch (err) {

@@ -13,6 +13,9 @@ vi.mock("@/lib/local-files/security", () => ({
   validateLocalOrigin: () => validateLocalOrigin(),
 }));
 
+// Keep the test hermetic — don't let recording write to ~/.hermetic.
+vi.mock("@/lib/sources/recent-sources", () => ({ recordRecentSource: vi.fn(async () => {}) }));
+
 const extractRemoteParquetSchema = vi.fn();
 const computeRemoteParquetFingerprint = vi.fn(async (..._args: unknown[]) => "fp-1");
 vi.mock("@/lib/parquet/schema-extractor", () => ({

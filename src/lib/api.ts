@@ -502,6 +502,56 @@ export async function extractRemoteParquetSchema(
   return json<RemoteParquetResult>(res);
 }
 
+// ── Recent sources (uploads / local / cloud) ─────────────────
+
+export interface RecentSourceInfo {
+  id: string;
+  kind: "upload" | "local-file" | "local-folder" | "remote-parquet";
+  name: string;
+  subtitle: string;
+  rows?: number;
+  url?: string;
+  creds?: RemoteParquetCreds;
+  path?: string;
+  isHivePartitioned?: boolean;
+  lastUsedAt: string;
+  useCount: number;
+}
+
+export async function getRecentSources(): Promise<RecentSourceInfo[]> {
+  try {
+    const res = await fetch("/api/sources/recent");
+    const data = await json<{ sources: RecentSourceInfo[] }>(res);
+    return data.sources ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function renameRecentSource(id: string, name: string): Promise<void> {
+  await fetch("/api/sources/recent", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, name }),
+  });
+}
+
+export async function removeRecentSource(id: string): Promise<void> {
+  await fetch("/api/sources/recent", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+}
+
+export async function clearRecentSources(): Promise<void> {
+  await fetch("/api/sources/recent", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ all: true }),
+  });
+}
+
 // ── Warehouse ────────────────────────────────────────────────
 
 export interface ConnectWarehouseResult {
