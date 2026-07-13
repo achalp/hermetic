@@ -24,7 +24,7 @@ import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
-import { ExecProgress } from "@/components/app/exec-progress";
+import { ProgressCard, type ProgressStep } from "@/components/app/progress-card";
 import type { CostInfo } from "@/components/app/cost-footer";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
@@ -891,60 +891,24 @@ function PipelineProgress({
   const stageToStep = isWarehousePipeline ? WAREHOUSE_STAGE_TO_STEP : FILE_STAGE_TO_STEP;
   const currentStep = stageToStep[progress.stage] ?? progress.step;
   const isRetrying = progress.stage === "retrying";
+  const retryStep = isWarehousePipeline ? 4 : 2;
+
+  const steps: ProgressStep[] = pipelineSteps.map((step, i) => {
+    const stepNum = i + 1;
+    const status: ProgressStep["status"] =
+      stepNum < currentStep ? "done" : stepNum > currentStep ? "upcoming" : "active";
+    const label =
+      status === "active"
+        ? isRetrying && stepNum === retryStep
+          ? RETRYING_LABEL
+          : step.activeLabel
+        : step.label;
+    return { label, status };
+  });
 
   return (
-    <div className="flex justify-center py-16" role="status" aria-live="polite">
-      <div
-        className="grid gap-x-8 gap-y-1.5 text-sm"
-        style={{ gridTemplateColumns: "repeat(2, auto)" }}
-      >
-        {pipelineSteps.map((step, i) => {
-          const stepNum = i + 1;
-          const isCompleted = stepNum < currentStep;
-          const isUpcoming = stepNum > currentStep;
-
-          if (isUpcoming) {
-            return (
-              <div key={step.stage} className="flex items-center gap-2 text-t-tertiary">
-                <span className="inline-block h-4 w-4" />
-                {step.label}
-              </div>
-            );
-          }
-
-          if (isCompleted) {
-            return (
-              <div key={step.stage} className="flex items-center gap-2 text-t-secondary">
-                <svg
-                  className="h-4 w-4 text-success-text"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {step.label}
-              </div>
-            );
-          }
-
-          // Active
-          const retryStep = isWarehousePipeline ? 4 : 2;
-          const label = isRetrying && stepNum === retryStep ? RETRYING_LABEL : step.activeLabel;
-          return (
-            <div key={step.stage} className="flex items-center gap-2 text-accent font-medium">
-              <SpinnerIcon />
-              {label}
-            </div>
-          );
-        })}
-      </div>
-      {/* Live execution progress (estimate / phase / elapsed / bar) + Stop. */}
-      <ExecProgress state={spec?.state as Record<string, unknown> | undefined} />
+    <div className="flex justify-center py-16">
+      <ProgressCard steps={steps} state={spec?.state as Record<string, unknown> | undefined} />
     </div>
   );
 }
@@ -1001,66 +965,60 @@ function InvestigateProgress({ spec }: { spec: Spec | null }) {
               ? "Composing the unified dashboard..."
               : "Working...";
 
+  const steps: ProgressStep[] = [{ label: stageLabel, status: "active" }];
+
   return (
-    <div className="flex flex-col gap-4 py-10" role="status" aria-live="polite">
-      <div className="flex items-center justify-center gap-3">
-        <SpinnerIcon />
-        <span className="text-sm font-medium text-accent">{stageLabel}</span>
-      </div>
+    <div className="flex justify-center py-16">
+      <ProgressCard steps={steps} state={state}>
+        {plan?.approach && (
+          <p className="mt-3 text-sm leading-relaxed text-t-secondary">{plan.approach}</p>
+        )}
 
-      {/* Live execution progress (estimate / phase / elapsed / bar) + Stop. */}
-      <ExecProgress state={state} />
-
-      {plan?.approach && (
-        <div className="mx-auto max-w-[700px] text-center text-sm text-t-secondary">
-          {plan.approach}
-        </div>
-      )}
-
-      {plan?.steps && plan.steps.length > 0 && (
-        <ol className="mx-auto flex w-full max-w-[700px] flex-col gap-2 text-sm">
-          {plan.steps.map((step) => (
-            <li
-              key={step.index}
-              className="flex items-start gap-3 border border-border-default px-3 py-2"
-              style={{
-                borderRadius: "var(--radius-card)",
-                background:
-                  step.status === "running" ? "var(--color-accent-subtle)" : "transparent",
-              }}
-            >
-              <span className="mt-0.5 shrink-0">
-                <StepIcon status={step.status} />
-              </span>
-              <div className="flex-1">
-                <div
-                  className={
-                    step.status === "failed"
-                      ? "text-error-text"
-                      : step.status === "done"
-                        ? "text-t-secondary"
-                        : "text-t-primary"
-                  }
-                >
-                  <span className="font-medium">Step {step.index + 1}.</span> {step.question}
+        {plan?.steps && plan.steps.length > 0 && (
+          <ol className="mt-3 flex flex-col gap-2 text-sm">
+            {plan.steps.map((step) => (
+              <li
+                key={step.index}
+                className="flex items-start gap-2.5 border border-border-default px-3 py-2"
+                style={{
+                  borderRadius: "var(--radius-card)",
+                  background:
+                    step.status === "running" ? "var(--color-accent-subtle)" : "transparent",
+                }}
+              >
+                <span className="mt-0.5 shrink-0">
+                  <StepIcon status={step.status} />
+                </span>
+                <div className="flex-1">
+                  <div
+                    className={
+                      step.status === "failed"
+                        ? "text-error-text"
+                        : step.status === "done"
+                          ? "text-t-secondary"
+                          : "text-t-primary"
+                    }
+                  >
+                    <span className="font-medium">Step {step.index + 1}.</span> {step.question}
+                  </div>
+                  {step.rationale && (
+                    <div className="mt-0.5 text-xs text-t-tertiary">{step.rationale}</div>
+                  )}
                 </div>
-                {step.rationale && (
-                  <div className="mt-0.5 text-xs text-t-tertiary">{step.rationale}</div>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
+              </li>
+            ))}
+          </ol>
+        )}
 
-      {errorMsg && (
-        <div
-          className="mx-auto max-w-[700px] border border-error-border bg-error-bg p-3 text-sm text-error-text"
-          style={{ borderRadius: "var(--radius-card)" }}
-        >
-          {errorMsg}
-        </div>
-      )}
+        {errorMsg && (
+          <div
+            className="mt-3 border border-error-border bg-error-bg p-3 text-sm text-error-text"
+            style={{ borderRadius: "var(--radius-card)" }}
+          >
+            {errorMsg}
+          </div>
+        )}
+      </ProgressCard>
     </div>
   );
 }
