@@ -96,6 +96,8 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("EXACT CELL COUNTS via GROUP BY");
     expect(prompt).toContain("GROUP BY cx, cy");
     expect(prompt).toContain("BRANCH-AND-BOUND");
+    // Leaf must be point-anchored (not ring-materialization) — the second OOM.
+    expect(prompt).toContain("POINT-ANCHORED");
   });
 
   it("adds bbox-pushdown guidance when a bbox struct column is present", () => {

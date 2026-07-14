@@ -76,8 +76,21 @@ Pruning power rests on TWO source properties, not on Overture:
 3. **Refine** surviving cells (halve `s`, recount only within) — this ADAPTS `s` to the unknown
    local scale (a single fixed `s` fails; a quadtree is the point). Dense cells stop refining
    once they prune; sparse/ambiguous cells refine until small enough to read.
-4. **Leaf:** read raw rows for survivors + a neighbor ring; compute the exact answer. Small
-   frame by construction → never OOMs.
+4. **Leaf (POINT-ANCHORED, not region-materialization):** the exact step is a per-candidate
+   nearest-neighbor QUERY, not "read the ring." Reading the full `ceil(UB/s)` ring OOMs — an
+   isolated `q`'s nearest occupied neighbor can BE a dense metro edge, so its ring overlaps
+   millions (OBSERVED: the leaf OOM'd the USA run at ~28 min _after_ the counts succeeded).
+   Instead, per candidate `q`: read `q`'s own (sparse) cell; use the CELL COUNTS already
+   computed (no data read) to find the nearest OTHER occupied cell by increasing Chebyshev
+   radius; read ONLY that cell — and if it is DENSE, sub-grid THAT ONE cell and read only the
+   sub-cell on `q`'s facing side (you need the nearest POINT, not the metro). NN = min distance
+   from the single point `q` to the points read = **O(cell), linear — never an all-pairs cKDTree
+   over the ring** (that materialization/`O(n²)` is the trap). Skip any survivor with `UB < B`
+   unread. Only `q`'s cell + one nearest (sub-)cell per survivor reach pandas → never OOMs.
+   This is the whole method recursing: coarse-to-fine + count-pruning, now anchored at a point.
+   Blindly adding a finer grid or pushing the ring into DuckDB just SHIFTS the read (DuckDB still
+   scans the metro); the optimization is using counts to avoid issuing a query that overlaps the
+   dense mass at all.
 
 ## WORKED EXAMPLE A — derived-spatial extremal (loneliest building)
 
