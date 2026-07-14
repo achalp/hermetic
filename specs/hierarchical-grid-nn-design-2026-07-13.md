@@ -98,9 +98,11 @@ Rule uses count-based bounds. Cell C side `s`, `occ`=count, `k`=Chebyshev cells 
 occupied cell. `B`=best CONFIRMED NN so far.
 
 - `occ≥2` → `UB = s·√2`; `occ=1` → `UB = (k+1)·s·√2`, `LB = (k−1)·s`.
-- Prune C iff `UB(C) < B` (true upper bound → winner never pruned). Exact NN needs a ring of
-  radius ≥ `UB/s` (NN crosses cell edges). Ring read against ALL rows (unfiltered by region)
-  also FIXES the nearest-neighbor-across-border overstatement of a polygon-only KD-tree.
+- Prune C iff `UB(C) < B` (true upper bound → winner never pruned). Exact NN is the
+  point-anchored search of step 4 (read `q`'s cell + the nearest occupied (sub-)cell only, NOT
+  the whole `UB/s` ring). Read the neighbour cell unfiltered by region so a nearest neighbour
+  just across a border still counts (fixes the nearest-neighbor-across-border overstatement of a
+  polygon-only KD-tree).
 - **s selection:** floor = ≫ typical spacing (so dense cells collapse to few cells); ceiling =
   < the answer (so the winner stays a singleton). Err FINE. Don't pick one `s` at all when the
   scale is unknown — refine the quadtree.
