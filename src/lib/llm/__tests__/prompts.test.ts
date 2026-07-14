@@ -89,6 +89,13 @@ describe("buildCodeGenUserPrompt — geospatial guidance", () => {
     expect(prompt).toContain("GRID self-join");
     expect(prompt).toContain("PROJECT TO METERS FIRST");
     expect(prompt).toContain("SCOPE DISCLOSURE");
+    // Planet-scale coarse-to-fine: route by size, then COUNT (GROUP BY) — never
+    // materialize the tail. These are the hard-won anti-OOM rules; keep them.
+    expect(prompt).toContain("ROUTE BY SIZE FIRST");
+    expect(prompt).toContain("PLANET-SCALE / DOESN'T-FIT");
+    expect(prompt).toContain("EXACT CELL COUNTS via GROUP BY");
+    expect(prompt).toContain("GROUP BY cx, cy");
+    expect(prompt).toContain("BRANCH-AND-BOUND");
   });
 
   it("adds bbox-pushdown guidance when a bbox struct column is present", () => {
