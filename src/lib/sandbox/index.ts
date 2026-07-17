@@ -57,6 +57,97 @@ def _hb_loop():
         except Exception: pass
 _threading.Thread(target=_hb_loop, daemon=True).start()
 progress("starting")
+
+# ── Memory guard (auto-injected) ─────────────────────────────────────────────
+# The container has a HARD memory cap (cgroup). The kernel OOM-killer only fires
+# at 100%, AFTER the process has spent minutes ballooning — so a doomed approach
+# (e.g. pulling 100M+ coordinates into a KD-tree) burns 20-30 min before dying
+# with no useful signal, and the retry then repeats it. Two guards fix that:
+#   • assert_fits(n_rows, ...) — an a-priori gate you call BEFORE a large .df().
+#   • a background watchdog that fast-fails at ~90% of the cap.
+# Both raise/exit with the SAME message: at this scale, stop retrying the direct
+# in-memory approach and switch to the DOESN'T-FIT counting strategy.
+import os as _os
+def _mem_limit_bytes():
+    for _p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(_p) as _f:
+                _v = _f.read().strip()
+            if _v and _v != "max":
+                _b = int(_v)
+                if 0 < _b < (1 << 62):  # v1 "unlimited" is a huge sentinel
+                    return _b
+        except Exception:
+            pass
+    try:
+        _mb = float(_os.environ.get("HERMETIC_MEM_LIMIT_MB", ""))
+        if _mb > 0:
+            return int(_mb * 1024 * 1024)
+    except Exception:
+        pass
+    return None
+
+def _mem_usage_bytes():
+    for _p in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+        try:
+            with open(_p) as _f:
+                return int(_f.read().strip())
+        except Exception:
+            pass
+    try:
+        with open("/proc/self/statm") as _f:
+            return int(_f.read().split()[1]) * _os.sysconf("SC_PAGE_SIZE")
+    except Exception:
+        return 0
+
+_MEM_LIMIT = _mem_limit_bytes()
+_INFEASIBLE_MSG = (
+    "This approach does not fit the container memory cap ({limit}). You are pulling too "
+    "many rows into pandas. Do NOT retry the direct in-memory approach with fewer columns "
+    "— at this scale even coordinates-only does NOT fit (cKDTree.query also allocates two "
+    "more N-sized arrays). SWITCH STRATEGY: COUNT in DuckDB and go coarse-to-fine — bucket "
+    "rows into grid cells with GROUP BY (nothing lands in pandas), branch-and-bound on the "
+    "small cells table, then pull ONLY the tiny survivor set. Follow the PLANET-SCALE / "
+    "DOESN'T-FIT recipe; do not materialize the tail."
+)
+
+def assert_fits(n_rows, cols=3, dtype_bytes=8, factor=3.0, what="this DataFrame"):
+    # Call BEFORE a large .df() (after a cheap COUNT(*)). Raises if the frame
+    # cannot fit the cap. factor covers pandas overhead + downstream arrays.
+    if not _MEM_LIMIT or not n_rows:
+        return
+    need = int(n_rows) * int(cols) * int(dtype_bytes) * float(factor)
+    if need > _MEM_LIMIT * 0.80:
+        _lim = "%.1f GB" % (_MEM_LIMIT / 1e9)
+        raise MemoryError(
+            "%s would need ~%.1f GB for %d rows, over the %s cap. "
+            % (what, need / 1e9, int(n_rows), _lim) + _INFEASIBLE_MSG.format(limit=_lim)
+        )
+
+def _mem_watchdog():
+    if not _MEM_LIMIT:
+        return
+    _hot = 0
+    while True:
+        _time.sleep(1.5)
+        try:
+            _frac = _mem_usage_bytes() / _MEM_LIMIT
+        except Exception:
+            continue
+        if _frac >= 0.90:
+            _hot += 1
+            if _hot >= 2:  # sustained — not a transient spike
+                _lim = "%.1f GB" % (_MEM_LIMIT / 1e9)
+                _sys.stderr.write(
+                    "HERMETIC_OOM_PREDICTED: memory reached %d%% of the %s cap — aborting "
+                    "before the OOM-kill. " % (int(_frac * 100), _lim)
+                    + _INFEASIBLE_MSG.format(limit=_lim) + "\\n")
+                _sys.stderr.flush()
+                _os._exit(137)
+        else:
+            _hot = 0
+_threading.Thread(target=_mem_watchdog, daemon=True).start()
+
 try:
     import pandas as _pd
     _orig_corr = _pd.DataFrame.corr
@@ -87,8 +178,9 @@ try:
 except ImportError:
     pass
 
-# Hermetic runtime helpers (auto-injected). Prefer these over hand-rolling the
-# output dict, numeric coercion, or qcut — they are the recurring crash sites.
+# Hermetic runtime helpers (auto-injected): write_output(), safe_float(),
+# safe_int(), assert_fits(), progress(). Prefer these over hand-rolling the output
+# dict, numeric coercion, or qcut — they are the recurring crash sites.
 import math as _math
 def _to_native(o):
     try:
@@ -134,6 +226,33 @@ def _to_native(o):
         return str(o)
     except Exception:
         return None
+
+def safe_float(x, default=None):
+    # Never-raises float coercion for DISPLAY fields (a winner row's attributes:
+    # height, num_floors, …). Returns default for None/NaN/Inf/blank/non-numeric
+    # instead of throwing. Use this instead of hand-rolling
+    # 'float(row[c]) if row[c] and not np.isnan(...)' — that pattern crashes on
+    # None, strings, and numpy types, and has killed otherwise-successful runs.
+    if x is None:
+        return default
+    try:
+        import numpy as _np3
+        if isinstance(x, _np3.generic):
+            x = x.item()
+        if x is None:
+            return default
+    except Exception:
+        pass
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return default
+    return default if (_math.isnan(f) or _math.isinf(f)) else f
+
+def safe_int(x, default=None):
+    # Never-raises int coercion (via safe_float), for counts/floors/year fields.
+    f = safe_float(x, None)
+    return default if f is None else int(f)
 
 def write_output(results=None, chart_data=None, datasets=None, images=None):
     # Write /data/output.json in the required structure. Coerces NaN/Inf/numpy/

@@ -44,9 +44,17 @@ const NO_OUTPUT_ERROR =
  */
 const OOM_ERROR =
   "Out of memory — the analysis process was killed (OOM). Do NOT load millions of rows into pandas. " +
-  "For a large spatial region: pull ONLY the coordinate columns (lon, lat) into the KD-tree (not all attributes), " +
-  "compute nearest-neighbor distances, then fetch full attributes for ONLY the top-N results via a follow-up query. " +
-  "Keep datasets['main'] to a bounded subset (e.g. the top-N), never the full multi-million-row frame.";
+  "TWO CASES: (1) If you pulled ATTRIBUTE/string columns (id, names, class, height) into the frame, " +
+  "that is the OOM — pull ONLY numeric coordinates (SELECT rowid, lon, lat) into the KD-tree and hydrate " +
+  "the top-N winners afterward by rowid. (2) If you were ALREADY coordinates-only and still OOM'd, N is too " +
+  "large for an in-memory KD-tree (coordinates-only does not fit past ~30M because cKDTree.query allocates " +
+  "two more N-sized arrays) — do NOT retry the direct approach with fewer columns. SWITCH to the DOESN'T-FIT " +
+  "counting strategy: COUNT per grid cell in DuckDB (GROUP BY, nothing lands in pandas), branch-and-bound, " +
+  "then pull only the sparse survivor set. Call assert_fits(N) after your COUNT to choose the path up front.";
+
+/** The watchdog / assert_fits fast-fail marker — its stderr line already carries
+ *  the precise, strategy-switching guidance, so surface that verbatim. */
+const OOM_PREDICTED_MARKER = "HERMETIC_OOM_PREDICTED:";
 
 /**
  * Parse JSON that may contain Python's non-finite float tokens (NaN,
@@ -109,7 +117,17 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     });
 
     if (opts.exitCode === 137 || /\bKilled\b/.test(stderr)) {
-      return { success: false, error: OOM_ERROR, errorKind: "oom", execution_ms: executionMs };
+      // The watchdog / assert_fits fast-fail (predicted OOM before the kill) emits
+      // a marker line with the exact strategy-switch guidance — prefer it verbatim
+      // so the retry escalates the approach instead of trimming columns.
+      const predicted = stderr
+        .split("\n")
+        .find((l) => l.includes(OOM_PREDICTED_MARKER))
+        ?.trim();
+      const error = predicted
+        ? predicted.slice(predicted.indexOf(OOM_PREDICTED_MARKER))
+        : OOM_ERROR;
+      return { success: false, error, errorKind: "oom", execution_ms: executionMs };
     }
     return {
       success: false,

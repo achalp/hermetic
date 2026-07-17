@@ -88,6 +88,29 @@ describe("parseSandboxOutput", () => {
     }
   });
 
+  it("surfaces the watchdog's predicted-OOM message verbatim (escalation over generic OOM)", async () => {
+    // The memory guard (assert_fits / watchdog) fast-fails with a marker line
+    // carrying the exact "switch to DOESN'T-FIT" guidance — the retry must see
+    // THAT, not the generic 'pull fewer columns' text that diverges.
+    const stderr =
+      "some earlier log\n" +
+      "HERMETIC_OOM_PREDICTED: memory reached 91% of the 4.3 GB cap — aborting before the OOM-kill. " +
+      "SWITCH STRATEGY: COUNT in DuckDB and go coarse-to-fine.\n";
+    const predicted = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({ "/data/stderr.txt": stderr }),
+    });
+    expect(predicted.success).toBe(false);
+    if (!predicted.success) {
+      expect(predicted.errorKind).toBe("oom");
+      expect(predicted.error).toContain("HERMETIC_OOM_PREDICTED");
+      expect(predicted.error).toContain("SWITCH STRATEGY");
+      // The generic message is NOT used when a prediction marker is present.
+      expect(predicted.error).not.toContain("Do NOT load millions of rows");
+    }
+  });
+
   it("uses the stderr fallback when the stderr file is unreadable", async () => {
     const result = await parseSandboxOutput({
       ...base,
