@@ -57,8 +57,12 @@ import {
   removeRecentSource as apiRemoveRecent,
   renameRecentSource as apiRenameRecent,
   clearRecentSources as apiClearRecent,
+  getSchemaByCsvId,
   type RecentSourceInfo,
+  type ActiveRun,
 } from "@/lib/api";
+import { useActiveRuns } from "@/hooks/use-active-runs";
+import { ActiveRunsBanner } from "@/components/app/active-runs-banner";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -527,6 +531,36 @@ export default function Home() {
   const isState3 = isAnalyzing;
   const isState4 = hasData && !isAnalyzing && hasResults;
 
+  // ── Reconnect to a run that survived a client drop (reload / HMR) ──
+  // When the page had no source loaded (fresh tab), offer to resume an analysis
+  // still executing server-side; resuming restores the source and reattaches
+  // ResponsePanel to the live stream (see run-stream-hub / useActiveRuns).
+  const [reattachRunId, setReattachRunId] = useState<string | null>(null);
+  const activeRuns = useActiveRuns({ enabled: isState1 });
+  const resumeActiveRun = useCallback(
+    async (run: ActiveRun) => {
+      if (!run.csvId) return;
+      const restored = await getSchemaByCsvId(run.csvId);
+      if (!restored) {
+        activeRuns.dismiss(run.runId); // source expired — nothing to reattach to
+        return;
+      }
+      handleUpload(restored.csv_id, restored.schema); // hasData → true, mounts ResponsePanel
+      setReattachRunId(run.runId);
+      handleQuery(
+        run.question || "Analysis",
+        run.route.includes("investigate") ? "investigate" : "ask"
+      );
+    },
+    [handleUpload, handleQuery, activeRuns]
+  );
+  // Clear the reattach marker whenever a stream ends, so the next follow-up runs
+  // through the normal pipeline rather than the attach endpoint.
+  const handleStreamEndReattachAware = useCallback(() => {
+    handleStreamEnd();
+    setReattachRunId(null);
+  }, [handleStreamEnd]);
+
   // Build profile strip items from schema or warehouse
   const profileItems: string[] = [];
   if (schema) {
@@ -964,6 +998,14 @@ export default function Home() {
                 </p>
               </div>
 
+              {/* Analyses still running server-side after this tab lost their
+                  live view (reload / HMR) — one click to reattach to the stream. */}
+              <ActiveRunsBanner
+                runs={activeRuns.runs}
+                onResume={resumeActiveRun}
+                onDismiss={activeRuns.dismiss}
+              />
+
               {/* Unified "Recent" history — uploads, local/cloud files, and saved
                   warehouses. One click to re-open; no re-pasting URLs or
                   re-browsing. Subsumes the warehouse-only tray. */}
@@ -1127,7 +1169,8 @@ export default function Home() {
                   question={currentQuestion}
                   questionSeq={questionSeq}
                   mode={currentMode}
-                  onStreamEnd={handleStreamEnd}
+                  reattachRunId={reattachRunId}
+                  onStreamEnd={handleStreamEndReattachAware}
                   loadedSpec={loadedSpec}
                   loadedArtifacts={loadedArtifacts}
                   schemaMode={schemaMode}

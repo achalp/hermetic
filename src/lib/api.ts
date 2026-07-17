@@ -502,6 +502,40 @@ export async function extractRemoteParquetSchema(
   return json<RemoteParquetResult>(res);
 }
 
+// ── Active runs (reconnect to an analysis that survived a client drop) ──
+
+export interface ActiveRun {
+  runId: string;
+  csvId?: string;
+  question?: string;
+  route: string;
+  startedAt: number;
+}
+
+/** Analyses still running server-side (survive reload/HMR — see run-stream-hub). */
+export async function getActiveRuns(): Promise<ActiveRun[]> {
+  try {
+    const res = await fetch("/api/query/active");
+    const data = await json<{ runs: ActiveRun[] }>(res);
+    return data.runs ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch the stored schema for a csvId (to restore a source on reattach). */
+export async function getSchemaByCsvId(
+  csvId: string
+): Promise<{ csv_id: string; schema: CSVSchema } | null> {
+  try {
+    const res = await fetch(`/api/sources/schema?csvId=${encodeURIComponent(csvId)}`);
+    if (!res.ok) return null;
+    return await json<{ csv_id: string; schema: CSVSchema }>(res);
+  } catch {
+    return null;
+  }
+}
+
 // ── Recent sources (uploads / local / cloud) ─────────────────
 
 export interface RecentSourceInfo {

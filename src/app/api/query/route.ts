@@ -124,6 +124,10 @@ export async function POST(request: Request) {
         const closed = () => stream.isClosed();
         const emitProgress = (stage: string, step: number) =>
           stream.emitProgress(stage, step, totalSteps);
+        // Make this run discoverable by a reconnecting client (run-stream-hub).
+        // csvId may still be null here for a warehouse run — updated once its
+        // result is materialized (below).
+        stream.setMeta({ csvId: csvId ?? undefined, question });
 
         await runWithCostTracking(() =>
           runWithDiagnostics(async () => {
@@ -220,6 +224,8 @@ export async function POST(request: Request) {
                 csvId = storedResult.csvId;
                 warehouseParquetFile = storedResult.parquetFile;
                 warehouseParquetContext = storedResult.parquetContext;
+                // Warehouse csvId now known — make the run discoverable by it.
+                stream.setMeta({ csvId });
               }
 
               // ── Load CSV (file upload or warehouse result) ──────────

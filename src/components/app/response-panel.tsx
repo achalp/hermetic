@@ -155,6 +155,14 @@ interface ResponsePanelProps {
    * generation (warehouse sources only). Used by SQL Edit-and-Rerun.
    */
   rerunSql?: string | null;
+  /**
+   * When set alongside a fresh `questionSeq`, ResponsePanel REATTACHES to an
+   * already-running server-side analysis (POST /api/query/attach with this
+   * runId) instead of starting a new one — replaying its progress so far, then
+   * streaming to completion. Used to recover a run whose live view was lost to
+   * a reload / HMR (see run-stream-hub, useActiveRuns).
+   */
+  reattachRunId?: string | null;
 }
 
 export function ResponsePanel({
@@ -180,6 +188,7 @@ export function ResponsePanel({
   onNotebookExportApiChange,
   rerunCode,
   rerunSql,
+  reattachRunId,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   // Dashboard | Notebook view for Investigate results. Initialized from
@@ -225,7 +234,13 @@ export function ResponsePanel({
   // Route the next stream to the right pipeline. The hook reads `api` per
   // call inside its useCallback, so toggling here before a new questionSeq
   // is enough — no remount required.
-  const apiUrl = mode === "investigate" ? "/api/query/investigate" : "/api/query";
+  // Reattaching to a live run streams from the attach endpoint (replay + live);
+  // otherwise a fresh question hits the normal pipeline.
+  const apiUrl = reattachRunId
+    ? "/api/query/attach"
+    : mode === "investigate"
+      ? "/api/query/investigate"
+      : "/api/query";
 
   // Diagnostics for the mid-stream abort: useUIStream aborts its fetch when this
   // panel unmounts, so a long query dies if anything tears the panel down. Track
@@ -313,6 +328,13 @@ export function ResponsePanel({
     setDashboardStale(false);
     setRecomposeError(null);
     setCitationTarget(null);
+
+    // Reattach: don't start a new analysis — subscribe to the run that's still
+    // executing server-side (replay so far, then live to completion).
+    if (reattachRunId) {
+      send("", { runId: reattachRunId });
+      return;
+    }
 
     // Conversation history is managed server-side (keyed by csvId)
     send("", {

@@ -27,15 +27,17 @@ export function startStoreSweeper(): void {
   const sweep = async () => {
     try {
       // Dynamic imports keep this module import-cycle-free and lazy.
-      const [csv, warehouse, code, conversation, artifacts, excel, runControl] = await Promise.all([
-        import("@/lib/csv/storage"),
-        import("@/lib/warehouse/storage"),
-        import("@/lib/pipeline/code-cache"),
-        import("@/lib/pipeline/conversation-cache"),
-        import("@/lib/pipeline/artifacts-cache"),
-        import("@/lib/excel/storage"),
-        import("@/lib/pipeline/run-control"),
-      ]);
+      const [csv, warehouse, code, conversation, artifacts, excel, runControl, streamHub] =
+        await Promise.all([
+          import("@/lib/csv/storage"),
+          import("@/lib/warehouse/storage"),
+          import("@/lib/pipeline/code-cache"),
+          import("@/lib/pipeline/conversation-cache"),
+          import("@/lib/pipeline/artifacts-cache"),
+          import("@/lib/excel/storage"),
+          import("@/lib/pipeline/run-control"),
+          import("@/lib/pipeline/run-stream-hub"),
+        ]);
       const csvResult = await csv.sweepExpiredCSVStore();
       const counts = {
         csvExpired: csvResult.expired,
@@ -48,6 +50,8 @@ export function startStoreSweeper(): void {
         // Orphaned `sleep infinity` analysis containers from a crashed/restarted
         // run — the only cleanup path now that we never self-kill on a timer.
         sandboxOrphans: await runControl.reapOrphanSandboxContainers(),
+        // Finished run channels retained for late reconnects, past their grace.
+        runChannels: streamHub.reapStaleRunChannels(),
       };
       if (Object.values(counts).some((n) => n > 0)) {
         logger.debug("Store sweep", counts);

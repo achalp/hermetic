@@ -166,6 +166,8 @@ export async function POST(request: Request) {
         const emit = stream.emit;
         const closed = () => stream.isClosed();
         const emitProgress = stream.emitProgress;
+        // Make this run discoverable by a reconnecting client (run-stream-hub).
+        stream.setMeta({ csvId: csvId ?? undefined, question });
 
         await runWithCostTracking(() =>
           runWithDiagnostics(async () => {
@@ -242,6 +244,7 @@ export async function POST(request: Request) {
                   sqlRepairs: materializationRepairs,
                 });
                 csvId = storedResult.csvId;
+                stream.setMeta({ csvId }); // warehouse csvId now known
                 materializationSampled = storedResult.sampled;
                 warehouseParquetFile = storedResult.parquetFile;
                 warehouseParquetContext = storedResult.parquetContext;
