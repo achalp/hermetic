@@ -125,18 +125,24 @@ def assert_fits(n_rows, cols=3, dtype_bytes=8, factor=3.0, what="this DataFrame"
         )
 
 def _mem_watchdog():
+    # Poll FAST (4x/sec): a .df() that materializes a multi-GB frame allocates in
+    # a burst over a couple of seconds, and a coarse (1.5s) poll misses it — the
+    # kernel OOM-kills between samples (observed: a 17-min run flat at ~1GB while
+    # DuckDB spilled the scan, then the terminal .df() spiked past the cap in
+    # seconds). At 0.25s we catch the climb through the threshold and abort with a
+    # useful message before the kill.
     if not _MEM_LIMIT:
         return
     _hot = 0
     while True:
-        _time.sleep(1.5)
+        _time.sleep(0.25)
         try:
             _frac = _mem_usage_bytes() / _MEM_LIMIT
         except Exception:
             continue
-        if _frac >= 0.90:
+        if _frac >= 0.85:
             _hot += 1
-            if _hot >= 2:  # sustained — not a transient spike
+            if _hot >= 2:  # ~0.5s sustained — not a one-sample blip
                 _lim = "%.1f GB" % (_MEM_LIMIT / 1e9)
                 _sys.stderr.write(
                     "HERMETIC_OOM_PREDICTED: memory reached %d%% of the %s cap — aborting "
@@ -175,6 +181,20 @@ try:
             query = _rc_pat.sub(_fix_read_csv, query)
         return _orig_duckdb_sql(query, *a, **kw)
     _duckdb_mod.sql = _safe_duckdb_sql
+    # Bound DuckDB to the CONTAINER cap so a huge scan / GROUP BY / ST_Contains
+    # SPILLS to disk instead of ballooning past the cgroup limit and OS-OOM-killing
+    # the whole process. DuckDB's default limit is 80% of DETECTED memory — inside
+    # a container that can be the HOST total (far above the cgroup cap), so it would
+    # not spill until too late. Cap it BELOW _MEM_LIMIT, leaving headroom for the
+    # pandas/numpy side (a .df() materialization, which DuckDB's limit does NOT
+    # cover — the memory watchdog backstops that).
+    try:
+        if _MEM_LIMIT:
+            _ddb_mb = max(256, int(_MEM_LIMIT * 0.6 / (1024 * 1024)))
+            _orig_duckdb_sql("SET memory_limit='%dMB'" % _ddb_mb)
+            _orig_duckdb_sql("SET temp_directory='/tmp/duckdb_spill'")
+    except Exception:
+        pass
 except ImportError:
     pass
 
