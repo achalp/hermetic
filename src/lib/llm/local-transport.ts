@@ -26,6 +26,41 @@ export interface ResponsesUsage {
   totalTokens?: number;
 }
 
+/**
+ * Extract plain-text content from an OpenAI Responses/Chat message `content`
+ * field, which the AI SDK sends as either a bare string or an array of typed
+ * blocks (`input_text` / `text`). Shared by every non-HTTP backend shim
+ * (ollama, local-openai, claude-cli) that has to flatten SDK messages before
+ * handing them to a different transport.
+ */
+export function extractMessageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        const b = block as Record<string, unknown>;
+        if (b.type === "input_text" || b.type === "text") return (b.text as string) ?? "";
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+/** Shape the completed-event `usage` field mirrors (Responses-API token buckets). */
+function usageBlock(usage: ResponsesUsage): {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+} {
+  return {
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    total_tokens: usage.totalTokens ?? usage.inputTokens + usage.outputTokens,
+  };
+}
+
 /** Non-streaming Responses-API envelope around a completed text. */
 export function responsesJSON(model: unknown, text: string, usage: ResponsesUsage): Response {
   const ts = Math.floor(Date.now() / 1000);
@@ -46,11 +81,7 @@ export function responsesJSON(model: unknown, text: string, usage: ResponsesUsag
           content: [{ type: "output_text", text, annotations: [] }],
         },
       ],
-      usage: {
-        input_tokens: usage.inputTokens,
-        output_tokens: usage.outputTokens,
-        total_tokens: usage.totalTokens ?? usage.inputTokens + usage.outputTokens,
-      },
+      usage: usageBlock(usage),
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }
   );
@@ -72,11 +103,20 @@ export function responsesSSE(opts: {
   upstream: ReadableStream<Uint8Array>;
   model: unknown;
   deltaFromLine: (trimmedLine: string) => string | null | undefined;
-  /** Label for the stream-error log ("ollama" | "local-openai"). */
+  /** Label for the stream-error log ("ollama" | "local-openai" | "claude-cli"). */
   backend: string;
   stallTimeoutMs?: number;
+  /**
+   * Optional per-line usage extractor. Backends whose stream carries a terminal
+   * usage record (e.g. claude-cli's `result` event) return it here; the last
+   * non-null value is attached to `response.completed.response.usage` so the AI
+   * SDK — and our usage middleware — can track token spend on streamed calls.
+   * Streams without a usage line (ollama/local-openai) simply omit it. Throwing
+   * is treated as a skippable line, same contract as `deltaFromLine`.
+   */
+  usageFromLine?: (trimmedLine: string) => ResponsesUsage | null | undefined;
 }): Response {
-  const { upstream, model, deltaFromLine, backend } = opts;
+  const { upstream, model, deltaFromLine, usageFromLine, backend } = opts;
   const stallTimeoutMs = opts.stallTimeoutMs ?? LOCAL_STREAM_STALL_TIMEOUT_MS;
 
   const reader = upstream.getReader();
@@ -141,6 +181,7 @@ export function responsesSSE(opts: {
       let buffer = "";
       let fullText = "";
       let streamError: string | null = null;
+      let capturedUsage: ResponsesUsage | null = null;
 
       try {
         while (true) {
@@ -178,6 +219,14 @@ export function responsesSSE(opts: {
             if (delta) {
               fullText += delta;
               emitDelta(delta);
+            }
+            if (usageFromLine) {
+              try {
+                const u = usageFromLine(trimmed);
+                if (u) capturedUsage = u;
+              } catch {
+                // malformed line for usage purposes — already handled for deltas
+              }
             }
           }
         }
@@ -241,7 +290,12 @@ export function responsesSSE(opts: {
       emit("response.completed", {
         type: "response.completed",
         sequence_number: seq++,
-        response: { ...baseResponse, status: "completed", output: [doneItem] },
+        response: {
+          ...baseResponse,
+          status: "completed",
+          output: [doneItem],
+          ...(capturedUsage ? { usage: usageBlock(capturedUsage) } : {}),
+        },
       });
 
       controller.close();

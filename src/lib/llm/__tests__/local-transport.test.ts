@@ -9,6 +9,7 @@ import {
   responsesSSE,
   ollamaDelta,
   openAISSEDelta,
+  extractMessageText,
 } from "@/lib/llm/local-transport";
 
 function upstreamOf(
@@ -124,6 +125,61 @@ describe("responsesSSE — event choreography", () => {
     const events = await readSSE(res);
     expect(fullTextOf(events)).toContain("Server stopped responding");
     expect(events.at(-1)?.event).toBe("response.completed");
+  });
+});
+
+describe("extractMessageText", () => {
+  it("returns a bare string content unchanged", () => {
+    expect(extractMessageText("hello")).toBe("hello");
+  });
+
+  it("joins input_text / text blocks and drops the rest", () => {
+    expect(
+      extractMessageText([
+        { type: "input_text", text: "a" },
+        { type: "text", text: "b" },
+        { type: "image", url: "x" },
+      ])
+    ).toBe("a\nb");
+  });
+
+  it("returns empty string for unknown content shapes", () => {
+    expect(extractMessageText(undefined)).toBe("");
+    expect(extractMessageText({ role: "user" })).toBe("");
+  });
+});
+
+describe("responsesSSE — usageFromLine", () => {
+  it("attaches captured usage to the completed event", async () => {
+    const upstream = upstreamOf([
+      '{"message":{"content":"hi"}}\n',
+      '{"done":true,"usage":{"in":5,"out":2}}\n',
+    ]);
+    const res = responsesSSE({
+      upstream,
+      model: "m",
+      deltaFromLine: ollamaDelta,
+      usageFromLine: (line) => {
+        const o = JSON.parse(line);
+        return o.usage ? { inputTokens: o.usage.in, outputTokens: o.usage.out } : null;
+      },
+      backend: "test",
+    });
+    const events = await readSSE(res);
+    const completed = events.find((e) => e.event === "response.completed");
+    expect((completed?.data.response as { usage?: unknown }).usage).toEqual({
+      input_tokens: 5,
+      output_tokens: 2,
+      total_tokens: 7,
+    });
+  });
+
+  it("omits usage on the completed event when no usageFromLine is provided", async () => {
+    const upstream = upstreamOf(['{"message":{"content":"hi"}}\n']);
+    const res = responsesSSE({ upstream, model: "m", deltaFromLine: ollamaDelta, backend: "test" });
+    const events = await readSSE(res);
+    const completed = events.find((e) => e.event === "response.completed");
+    expect((completed?.data.response as { usage?: unknown }).usage).toBeUndefined();
   });
 });
 

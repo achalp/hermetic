@@ -6,9 +6,18 @@ vi.mock("@/lib/runtime-config", () => ({
   clearRuntimeConfigCache: () => {},
 }));
 
+// Control CLI availability via a hoisted holder so the factory survives
+// vi.resetModules(). Default false so credential-detection tests are stable on
+// machines that have `claude` installed.
+const mockCli = vi.hoisted(() => ({ available: false }));
+vi.mock("@/lib/llm/claude-cli-transport", () => ({
+  isClaudeCliAvailable: () => mockCli.available,
+}));
+
 // Must reset module between tests since config caches
 beforeEach(() => {
   vi.resetModules();
+  mockCli.available = false;
 });
 
 describe("validateEnv", () => {
@@ -228,6 +237,52 @@ describe("validateEnv", () => {
 
     const { validateEnv } = await import("../config");
     expect(() => validateEnv()).toThrow("OPENAI_MODEL is required");
+
+    vi.unstubAllEnvs();
+  });
+
+  it("auto-detects claude-cli when installed and no API creds are set", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("AWS_ACCESS_KEY_ID", "");
+    vi.stubEnv("AWS_PROFILE", "");
+    vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
+    vi.stubEnv("OPENAI_BASE_URL", "");
+    vi.stubEnv("LLM_PROVIDER", "");
+    vi.stubEnv("SANDBOX_RUNTIME", "docker");
+    mockCli.available = true;
+
+    const { validateEnv } = await import("../config");
+    expect(validateEnv().LLM_PROVIDER).toBe("claude-cli");
+
+    vi.unstubAllEnvs();
+  });
+
+  it("respects explicit LLM_PROVIDER=claude-cli when the binary is present", async () => {
+    vi.stubEnv("LLM_PROVIDER", "claude-cli");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("AWS_ACCESS_KEY_ID", "");
+    vi.stubEnv("AWS_PROFILE", "");
+    vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
+    vi.stubEnv("SANDBOX_RUNTIME", "docker");
+    mockCli.available = true;
+
+    const { validateEnv } = await import("../config");
+    expect(validateEnv().LLM_PROVIDER).toBe("claude-cli");
+
+    vi.unstubAllEnvs();
+  });
+
+  it("throws when claude-cli is selected but the binary is missing", async () => {
+    vi.stubEnv("LLM_PROVIDER", "claude-cli");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("AWS_ACCESS_KEY_ID", "");
+    vi.stubEnv("AWS_PROFILE", "");
+    vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
+    vi.stubEnv("SANDBOX_RUNTIME", "docker");
+    mockCli.available = false;
+
+    const { validateEnv } = await import("../config");
+    expect(() => validateEnv()).toThrow(/'claude' binary was not found/);
 
     vi.unstubAllEnvs();
   });

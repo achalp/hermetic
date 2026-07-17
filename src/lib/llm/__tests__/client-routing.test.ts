@@ -25,12 +25,26 @@ vi.mock("ai", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/runtime-config", () => ({ getRuntimeConfig: vi.fn(() => ({})) }));
+vi.mock("@/lib/cost/accumulator", () => ({
+  recordCall: vi.fn(),
+  currentPhase: vi.fn(() => undefined),
+}));
+// Default the CLI to "not installed" so credential/detection tests are stable
+// on machines that happen to have `claude` on PATH; individual tests opt in.
+vi.mock("@/lib/llm/claude-cli-transport", () => ({
+  isClaudeCliAvailable: vi.fn(() => false),
+  claudeCliFetch: vi.fn(() => vi.fn()),
+}));
 
-import { getActiveProvider, getModel, cachedSystem } from "@/lib/llm/client";
+import { getActiveProvider, getModel, cachedSystem, providerCapabilities } from "@/lib/llm/client";
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
+import { recordCall } from "@/lib/cost/accumulator";
 import { createOpenAI } from "@ai-sdk/openai";
 
 const mockedRc = vi.mocked(getRuntimeConfig);
+const mockedCliAvailable = vi.mocked(isClaudeCliAvailable);
+const mockedRecordCall = vi.mocked(recordCall);
 
 const PROVIDER_ENVS = [
   "LLM_PROVIDER",
@@ -98,6 +112,22 @@ describe("getActiveProvider precedence", () => {
     process.env.LLM_PROVIDER = "gpt5";
     expect(() => getActiveProvider()).toThrow(/Invalid LLM_PROVIDER/);
   });
+
+  it("falls back to claude-cli when no creds are set but the CLI is installed", () => {
+    mockedCliAvailable.mockReturnValue(true);
+    expect(getActiveProvider()).toBe("claude-cli");
+  });
+
+  it("prefers API credentials over the claude-cli fallback", () => {
+    mockedCliAvailable.mockReturnValue(true);
+    process.env.ANTHROPIC_API_KEY = "sk-ant";
+    expect(getActiveProvider()).toBe("anthropic");
+  });
+
+  it("honors an explicit LLM_PROVIDER=claude-cli", () => {
+    process.env.LLM_PROVIDER = "claude-cli";
+    expect(getActiveProvider()).toBe("claude-cli");
+  });
 });
 
 describe("getModel routing", () => {
@@ -139,6 +169,55 @@ describe("getModel routing", () => {
   it("local backend without an active model throws an actionable error", () => {
     mockedRc.mockReturnValue({ activeProvider: "mlx", mlx: { enabled: true } } as never);
     expect(() => getModel("claude-sonnet-4-6")).toThrow(/No MLX model selected/);
+  });
+
+  it("claude-cli: maps the internal id to the real Claude model and does not strip sampling", () => {
+    process.env.LLM_PROVIDER = "claude-cli";
+    // Adaptive-only model would strip sampling on cloud Anthropic; via the CLI
+    // our fetch ignores sampling, so it stays a single-middleware (usage) wrap.
+    const wrapped = getModel("claude-opus-4-8") as unknown as { middleware: unknown };
+    expect(openaiClient).toHaveBeenCalledWith("claude-opus-4-8");
+    expect(Array.isArray(wrapped.middleware)).toBe(false);
+    // The client was built pointing at the claude-cli dummy base URL.
+    const cfg = vi.mocked(createOpenAI).mock.calls.at(-1)![0] as { baseURL?: string };
+    expect(cfg.baseURL).toBe("http://claude-cli.local/v1");
+  });
+
+  it("claude-cli prices usage at the equivalent API rate (internal model id cost key)", async () => {
+    process.env.LLM_PROVIDER = "claude-cli";
+    const wrapped = getModel("claude-opus-4-8") as unknown as {
+      middleware: {
+        wrapGenerate: (o: { doGenerate: () => Promise<{ usage: unknown }> }) => Promise<unknown>;
+      };
+    };
+    await wrapped.middleware.wrapGenerate({
+      doGenerate: async () => ({
+        usage: { inputTokens: { total: 100 }, outputTokens: { total: 20 } },
+      }),
+    });
+    // Keyed on "claude-opus-4-8" (a MODEL_PRICING entry) → equivalent API cost,
+    // NOT a $0 "claude-cli:"-prefixed key.
+    expect(mockedRecordCall).toHaveBeenCalledWith(
+      "claude-opus-4-8",
+      expect.objectContaining({ uncachedInputTokens: 100, outputTokens: 20 }),
+      undefined
+    );
+  });
+});
+
+describe("providerCapabilities", () => {
+  it("treats claude-cli as a real Claude provider (validate ids, Investigate on)", () => {
+    expect(providerCapabilities("claude-cli")).toEqual({
+      skipModelValidation: false,
+      supportsInvestigate: true,
+    });
+  });
+
+  it("keeps local backends restricted", () => {
+    expect(providerCapabilities("ollama")).toEqual({
+      skipModelValidation: true,
+      supportsInvestigate: false,
+    });
   });
 });
 

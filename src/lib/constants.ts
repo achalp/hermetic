@@ -150,6 +150,7 @@ export function isValidRuntimeId(id: string): id is SandboxRuntimeId {
 
 export const AVAILABLE_PROVIDERS = [
   { id: "anthropic", label: "Anthropic" },
+  { id: "claude-cli", label: "Claude CLI" },
   { id: "bedrock", label: "Amazon Bedrock" },
   { id: "vertex", label: "Google Vertex AI" },
   { id: "openai-compatible", label: "OpenAI-Compatible" },

@@ -13,26 +13,10 @@ import {
   responsesSSE,
   ollamaDelta,
   openAISSEDelta,
+  extractMessageText,
 } from "@/lib/llm/local-transport";
+import { claudeCliFetch, isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { logger } from "@/lib/logger";
-
-/**
- * Extract plain-text content from an OpenAI Responses API message.
- * Handles both string content and array-of-blocks content.
- */
-function extractContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((block: Record<string, unknown>) => {
-        if (block.type === "input_text" || block.type === "text") return block.text;
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n");
-  }
-  return "";
-}
 
 /**
  * Custom fetch for Ollama: intercepts SDK requests (Responses API or
@@ -64,7 +48,7 @@ function ollamaFetch(baseUrl: string) {
     const rawMessages = (body.input ?? body.messages ?? []) as Array<Record<string, unknown>>;
     const messages = rawMessages.map((m) => ({
       role: m.role as string,
-      content: extractContent(m.content),
+      content: extractMessageText(m.content),
     }));
 
     const ollamaBody = {
@@ -249,7 +233,7 @@ function localOpenAIFetch(baseUrl: string) {
     const rawMessages = (body.input ?? []) as Array<Record<string, unknown>>;
     const messages = rawMessages.map((m) => ({
       role: m.role as string,
-      content: extractContent(m.content),
+      content: extractMessageText(m.content),
     }));
 
     // Add system instructions if present
@@ -414,6 +398,15 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
     "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
   },
+  // The `claude` CLI accepts the same full model IDs (passed via --model), so
+  // it honors the app's per-task model choices (haiku for planning, sonnet for
+  // code-gen, …) exactly like the direct Anthropic provider.
+  "claude-cli": {
+    "claude-opus-4-8": "claude-opus-4-8",
+    "claude-opus-4-6": "claude-opus-4-6",
+    "claude-sonnet-4-6": "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
+  },
   // NOTE: Bedrock cross-region inference-profile IDs follow the `us.anthropic.…`
   // convention; confirm the exact 4.8 profile string against the AWS Bedrock
   // model catalog for your region before deploying there.
@@ -446,6 +439,7 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
 export function getActiveProvider(): LLMProviderId {
   const validProviders = [
     "anthropic",
+    "claude-cli",
     "bedrock",
     "vertex",
     "openai-compatible",
@@ -486,13 +480,19 @@ export function getActiveProvider(): LLMProviderId {
   if (process.env.GOOGLE_VERTEX_PROJECT) return "vertex";
   if (process.env.OPENAI_BASE_URL) return "openai-compatible";
 
+  // Last-resort fallback: no API credentials, but the `claude` CLI is installed
+  // and authenticated with the user's own login. Checked last so a configured
+  // API key always wins over shelling out.
+  if (isClaudeCliAvailable(rc.claudeCli?.binaryPath)) return "claude-cli";
+
   throw new Error(
     "No LLM provider configured. Set one of:\n" +
       "  - ANTHROPIC_API_KEY (for Anthropic direct)\n" +
       "  - AWS_ACCESS_KEY_ID (for Amazon Bedrock)\n" +
       "  - GOOGLE_VERTEX_PROJECT (for Google Vertex AI)\n" +
       "  - OPENAI_BASE_URL (for OpenAI-compatible endpoint)\n" +
-      "Or set LLM_PROVIDER explicitly, or enable a local backend in Settings."
+      "Or install the Claude CLI (npm i -g @anthropic-ai/claude-code), " +
+      "set LLM_PROVIDER explicitly, or enable a local backend in Settings."
   );
 }
 
@@ -500,6 +500,17 @@ function createProviderClient(provider: LLMProviderId) {
   switch (provider) {
     case "anthropic":
       return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    case "claude-cli": {
+      const rc = getRuntimeConfig();
+      // Dummy base URL — every request is intercepted by claudeCliFetch, which
+      // spawns the `claude` binary instead of making an HTTP call. The apiKey is
+      // never sent (the CLI uses its own auth) but the SDK requires a non-empty one.
+      return createOpenAI({
+        baseURL: "http://claude-cli.local/v1",
+        apiKey: "claude-cli",
+        fetch: claudeCliFetch({ binaryPath: rc.claudeCli?.binaryPath }),
+      });
+    }
     case "bedrock":
       return createAmazonBedrock({
         region: process.env.AWS_REGION ?? "us-east-1",
@@ -679,8 +690,11 @@ export function providerCapabilities(provider: LLMProviderId): {
 } {
   switch (provider) {
     case "anthropic":
+    case "claude-cli":
     case "bedrock":
     case "vertex":
+      // claude-cli fronts the same frontier Claude models via real Claude IDs,
+      // so Claude model-ID validation applies and Investigate is fully supported.
       return { skipModelValidation: false, supportsInvestigate: true };
     case "openai-compatible":
       // A user-configured endpoint may front a capable cloud model —
@@ -726,6 +740,23 @@ export function getModel(internalModelId: string) {
     const model = rc.ollama?.activeModel;
     if (!model) throw new Error("No Ollama model selected. Choose a model in Settings.");
     return track(client(model), model);
+  }
+
+  // Claude CLI: real Claude models (honor per-task model choice via MODEL_MAP).
+  // Price token usage at the EQUIVALENT API rate by keying cost on the internal
+  // model id (a MODEL_PRICING key), exactly like the direct Anthropic provider.
+  // The CLI is not necessarily flat-rate: an org may run it on API / consumption
+  // billing where these tokens are metered, so the equivalent-API-cost figure is
+  // the honest one to surface — not $0. No sampling strip (our fetch ignores
+  // sampling params and the CLI manages thinking itself).
+  //
+  // Caveat: this prices all input tokens at the list input rate and does not
+  // separately model Anthropic's cache read/write premium, because the CLI is
+  // fronted through the OpenAI-Responses transport, whose usage shape can't
+  // carry a cache-write bucket. It is an equivalent-cost estimate, not a bill.
+  if (provider === "claude-cli") {
+    const mapped = MODEL_MAP["claude-cli"][internalModelId] ?? internalModelId;
+    return track(client(mapped), internalModelId);
   }
 
   const mappedId = MODEL_MAP[provider][internalModelId] ?? internalModelId;

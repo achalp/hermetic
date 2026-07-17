@@ -24,10 +24,17 @@ export interface LlamaCppConfig {
   binaryPath?: string;
 }
 
+/** Optional overrides for the Claude CLI provider. The binary is normally found
+ *  on PATH; `binaryPath` lets a user point at a non-standard install. */
+export interface ClaudeCliConfig {
+  binaryPath?: string;
+}
+
 export interface RuntimeConfig {
   ollama?: OllamaConfig;
   mlx?: MlxConfig;
   llamaCpp?: LlamaCppConfig;
+  claudeCli?: ClaudeCliConfig;
   sandboxRuntime?: "docker" | "e2b" | "microsandbox";
   /** User-selected LLM provider override (takes priority over auto-detection) */
   activeProvider?: string;
@@ -71,6 +78,10 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
   if (partial.llamaCpp !== undefined) {
     merged.llamaCpp =
       partial.llamaCpp === null ? undefined : { ...current.llamaCpp, ...partial.llamaCpp };
+  }
+  if (partial.claudeCli !== undefined) {
+    merged.claudeCli =
+      partial.claudeCli === null ? undefined : { ...current.claudeCli, ...partial.claudeCli };
   }
   if (partial.sandboxRuntime !== undefined) {
     merged.sandboxRuntime = partial.sandboxRuntime;
