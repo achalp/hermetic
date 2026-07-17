@@ -59,6 +59,19 @@ describe("responsesJSON", () => {
     expect(body.status).toBe("completed");
     expect(body.output[0].content[0]).toMatchObject({ type: "output_text", text: "hello" });
     expect(body.usage).toEqual({ input_tokens: 10, output_tokens: 5, total_tokens: 15 });
+    // No cache reads → no input_tokens_details (envelope unchanged for local backends).
+    expect(body.usage.input_tokens_details).toBeUndefined();
+  });
+
+  it("emits input_tokens_details.cached_tokens when cache reads are present", async () => {
+    const res = responsesJSON("claude", "hi", {
+      inputTokens: 1000,
+      cachedInputTokens: 900,
+      outputTokens: 5,
+    });
+    const body = await res.json();
+    expect(body.usage.input_tokens).toBe(1000);
+    expect(body.usage.input_tokens_details).toEqual({ cached_tokens: 900 });
   });
 });
 

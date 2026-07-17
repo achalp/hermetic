@@ -21,9 +21,17 @@ import { logger } from "@/lib/logger";
 export const LOCAL_STREAM_STALL_TIMEOUT_MS = 5 * 60_000; // 5 minutes
 
 export interface ResponsesUsage {
+  /** TOTAL prompt tokens, including any served from cache. */
   inputTokens: number;
   outputTokens: number;
   totalTokens?: number;
+  /**
+   * Portion of `inputTokens` read from cache. Emitted as
+   * `input_tokens_details.cached_tokens`, which the OpenAI-Responses provider
+   * maps to the `cacheRead` bucket (`noCache = input − cached`) so the cost
+   * accumulator prices it at the cheap cache-read rate instead of full input.
+   */
+  cachedInputTokens?: number;
 }
 
 /**
@@ -49,16 +57,25 @@ export function extractMessageText(content: unknown): string {
 }
 
 /** Shape the completed-event `usage` field mirrors (Responses-API token buckets). */
-function usageBlock(usage: ResponsesUsage): {
+interface ResponsesUsageBlock {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
-} {
-  return {
+  input_tokens_details?: { cached_tokens: number };
+}
+
+function usageBlock(usage: ResponsesUsage): ResponsesUsageBlock {
+  const block: ResponsesUsageBlock = {
     input_tokens: usage.inputTokens,
     output_tokens: usage.outputTokens,
     total_tokens: usage.totalTokens ?? usage.inputTokens + usage.outputTokens,
   };
+  // Only emit the detail when there are cached reads — keeps the envelope of
+  // cache-less backends (ollama/local-openai) byte-identical to before.
+  if (usage.cachedInputTokens && usage.cachedInputTokens > 0) {
+    block.input_tokens_details = { cached_tokens: usage.cachedInputTokens };
+  }
+  return block;
 }
 
 /** Non-streaming Responses-API envelope around a completed text. */

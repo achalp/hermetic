@@ -750,10 +750,11 @@ export function getModel(internalModelId: string) {
   // the honest one to surface — not $0. No sampling strip (our fetch ignores
   // sampling params and the CLI manages thinking itself).
   //
-  // Caveat: this prices all input tokens at the list input rate and does not
-  // separately model Anthropic's cache read/write premium, because the CLI is
-  // fronted through the OpenAI-Responses transport, whose usage shape can't
-  // carry a cache-write bucket. It is an equivalent-cost estimate, not a bill.
+  // Cache reads are priced at the cheap cache-read rate (the transport surfaces
+  // them via input_tokens_details.cached_tokens). Cache-CREATION tokens fold
+  // into the input bucket and price at the input rate — the OpenAI-Responses
+  // usage shape has no cache-write bucket — so the figure slightly under-counts
+  // the write premium. It's a close equivalent-cost estimate, not a bill.
   if (provider === "claude-cli") {
     const mapped = MODEL_MAP["claude-cli"][internalModelId] ?? internalModelId;
     return track(client(mapped), internalModelId);

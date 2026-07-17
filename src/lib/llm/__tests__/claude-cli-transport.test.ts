@@ -111,6 +111,8 @@ describe("buildClaudeInvocation", () => {
       "-p",
       "--output-format",
       "json",
+      "--tools",
+      "none",
       "--model",
       "claude-sonnet-4-6",
       "--system-prompt",
@@ -120,6 +122,18 @@ describe("buildClaudeInvocation", () => {
     expect(systemFolded).toBe(false);
   });
 
+  it("disables built-in tools on every call (cost/scaffolding control)", () => {
+    const { args } = buildClaudeInvocation({
+      model: "m",
+      system: "",
+      prompt: "x",
+      streaming: false,
+    });
+    const i = args.indexOf("--tools");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe("none");
+  });
+
   it("adds the streaming flags for stream-json", () => {
     const { args } = buildClaudeInvocation({
       model: "claude-opus-4-8",
@@ -127,12 +141,16 @@ describe("buildClaudeInvocation", () => {
       prompt: "hi",
       streaming: true,
     });
-    expect(args.slice(0, 5)).toEqual([
+    expect(args).toEqual([
       "-p",
       "--output-format",
       "stream-json",
+      "--tools",
+      "none",
       "--verbose",
       "--include-partial-messages",
+      "--model",
+      "claude-opus-4-8",
     ]);
   });
 
@@ -143,7 +161,7 @@ describe("buildClaudeInvocation", () => {
       prompt: "x",
       streaming: false,
     });
-    expect(args).toEqual(["-p", "--output-format", "json"]);
+    expect(args).toEqual(["-p", "--output-format", "json", "--tools", "none"]);
   });
 
   it("folds an oversized system prompt into stdin instead of argv", () => {
@@ -162,7 +180,9 @@ describe("buildClaudeInvocation", () => {
 
 // ── parseCliResultUsage ────────────────────────────────────────────
 describe("parseCliResultUsage", () => {
-  it("sums input + cache tokens and reads output tokens", () => {
+  it("totals the prompt buckets and surfaces cache reads separately", () => {
+    // Total = 100 + 20 + 5; cache reads (20) are broken out so they price at
+    // the cache-read rate, not full input.
     expect(
       parseCliResultUsage({
         usage: {
@@ -172,11 +192,15 @@ describe("parseCliResultUsage", () => {
           output_tokens: 40,
         },
       })
-    ).toEqual({ inputTokens: 125, outputTokens: 40 });
+    ).toEqual({ inputTokens: 125, cachedInputTokens: 20, outputTokens: 40 });
   });
 
   it("defaults to zeros when usage is absent", () => {
-    expect(parseCliResultUsage({})).toEqual({ inputTokens: 0, outputTokens: 0 });
+    expect(parseCliResultUsage({})).toEqual({
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+    });
   });
 });
 
@@ -196,7 +220,7 @@ describe("stream-json line extractors", () => {
   it("claudeCliUsageFromLine returns usage only for the result line", () => {
     expect(
       claudeCliUsageFromLine('{"type":"result","usage":{"input_tokens":7,"output_tokens":3}}')
-    ).toEqual({ inputTokens: 7, outputTokens: 3 });
+    ).toEqual({ inputTokens: 7, cachedInputTokens: 0, outputTokens: 3 });
     expect(claudeCliUsageFromLine('{"type":"assistant"}')).toBeNull();
   });
 });
@@ -302,6 +326,32 @@ describe("claudeCliFetch", () => {
     // The flattened prompt was written to stdin.
     const child = mockedSpawn.mock.results[0].value;
     expect(child.stdin.write).toHaveBeenCalledWith("What is 6*7?");
+  });
+
+  it("surfaces cache-read tokens as input_tokens_details so they price cheaply", async () => {
+    mockedSpawn.mockReturnValue(
+      makeChild({
+        stdout: JSON.stringify({
+          type: "result",
+          result: "hi",
+          usage: {
+            input_tokens: 10,
+            cache_read_input_tokens: 15000,
+            cache_creation_input_tokens: 200,
+            output_tokens: 5,
+          },
+        }),
+      }) as never
+    );
+    const res = await claudeCliFetch()(
+      "http://claude-cli.local/v1/responses",
+      requestInit({ model: "m", input: [{ role: "user", content: "x" }], stream: false })
+    );
+    const body = await res.json();
+    // Total prompt = 10 + 15000 + 200; the 15000 cache reads are broken out as
+    // cached_tokens → the SDK prices them at the cache-read rate, not full input.
+    expect(body.usage.input_tokens).toBe(15210);
+    expect(body.usage.input_tokens_details).toEqual({ cached_tokens: 15000 });
   });
 
   it("streams stream-json deltas into Responses SSE, including terminal usage", async () => {

@@ -100,6 +100,11 @@ export function isClaudeCliAvailable(configuredPath?: string): boolean {
  * - `--output-format json` returns one result object; `stream-json` (which
  *   requires `--verbose`) emits JSONL, and `--include-partial-messages` adds
  *   token-level `content_block_delta` events for real streaming.
+ * - `--tools none` disables Claude Code's built-in tools. The app consumes the
+ *   CLI's TEXT output and runs code in its own sandbox, so it never uses those
+ *   tools — and their schemas otherwise inject ~18K tokens of scaffolding that
+ *   is cold-cache-WRITTEN on every distinct call and dominates CLI cost.
+ *   Measured: ~18K → ~150 prompt tokens per call.
  * - `--model` selects the model; `--system-prompt` REPLACES Claude Code's
  *   default agent system prompt so the CLI behaves as a plain generator.
  * - A system prompt too large for argv is folded into the stdin prompt instead
@@ -114,6 +119,7 @@ export function buildClaudeInvocation(input: {
   const { model, system, prompt, streaming } = input;
 
   const args: string[] = ["-p", "--output-format", streaming ? "stream-json" : "json"];
+  args.push("--tools", "none");
   if (streaming) args.push("--verbose", "--include-partial-messages");
   if (model) args.push("--model", model);
 
@@ -135,14 +141,26 @@ export function buildClaudeInvocation(input: {
 }
 
 /**
- * Token usage from a CLI `result` object. Cache tokens are folded into the
- * input total (the downstream V3 usage mapping only reads input/output totals).
+ * Token usage from a CLI `result` object. Anthropic reports three disjoint
+ * prompt buckets: `input_tokens` (uncached), `cache_read_input_tokens`, and
+ * `cache_creation_input_tokens`. We surface the total plus the cache-read
+ * subset so the cost path prices cache reads at the cheap cache-read rate.
+ *
+ * Cache-creation (write) tokens fold into the uncached remainder and are priced
+ * at the input rate — the OpenAI-Responses usage shape has no cache-write
+ * bucket to carry them, so this slightly UNDER-counts the write premium (errs
+ * low). It's a close estimate of the CLI's own `total_cost_usd`, not a bill.
  */
 export function parseCliResultUsage(result: Record<string, unknown>): ResponsesUsage {
   const u = (result.usage ?? {}) as Record<string, number>;
-  const inputTokens =
-    (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-  return { inputTokens, outputTokens: u.output_tokens ?? 0 };
+  const uncached = u.input_tokens ?? 0;
+  const cacheRead = u.cache_read_input_tokens ?? 0;
+  const cacheCreate = u.cache_creation_input_tokens ?? 0;
+  return {
+    inputTokens: uncached + cacheRead + cacheCreate,
+    cachedInputTokens: cacheRead,
+    outputTokens: u.output_tokens ?? 0,
+  };
 }
 
 /**
