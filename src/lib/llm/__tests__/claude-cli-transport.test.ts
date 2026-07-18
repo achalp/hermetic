@@ -27,6 +27,7 @@ import {
   claudeCliDelta,
   claudeCliUsageFromLine,
   claudeCliFetch,
+  claudeCliChildEnv,
   SYSTEM_ARG_MAX_BYTES,
 } from "@/lib/llm/claude-cli-transport";
 
@@ -175,6 +176,41 @@ describe("buildClaudeInvocation", () => {
     expect(args).not.toContain("--system-prompt");
     expect(stdin).toBe(`${bigSystem}\n\nquestion`);
     expect(systemFolded).toBe(true);
+  });
+});
+
+// ── claudeCliChildEnv (use the claude.ai login, keep the app's key) ──
+describe("claudeCliChildEnv", () => {
+  it("strips ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN from the child env", () => {
+    const { env, stripped } = claudeCliChildEnv({
+      PATH: "/usr/bin",
+      ANTHROPIC_API_KEY: "sk-ant-live",
+      ANTHROPIC_AUTH_TOKEN: "tok",
+      HOME: "/home/x",
+    });
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(stripped.sort()).toEqual(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]);
+    // Everything else the CLI needs (PATH, HOME, …) is preserved.
+    expect(env.PATH).toBe("/usr/bin");
+    expect(env.HOME).toBe("/home/x");
+  });
+
+  it("is a no-op when no key is set, and reports nothing stripped", () => {
+    const { env, stripped } = claudeCliChildEnv({ PATH: "/usr/bin" });
+    expect(stripped).toEqual([]);
+    expect(env.PATH).toBe("/usr/bin");
+  });
+
+  it("does NOT mutate the caller's env (parent keeps the key for the API provider)", () => {
+    const base = { ANTHROPIC_API_KEY: "sk-ant-live", PATH: "/usr/bin" };
+    claudeCliChildEnv(base);
+    expect(base.ANTHROPIC_API_KEY).toBe("sk-ant-live"); // parent untouched → no reload needed
+  });
+
+  it("ignores an empty-string key (treats it as unset)", () => {
+    const { stripped } = claudeCliChildEnv({ ANTHROPIC_API_KEY: "" });
+    expect(stripped).toEqual([]);
   });
 });
 

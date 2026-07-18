@@ -209,6 +209,39 @@ async function readableToString(stream: Readable): Promise<string> {
 }
 
 /**
+ * Anthropic key/token auth vars that make the `claude` CLI prefer API-key auth
+ * over the claude.ai subscription login it's meant to use here (and disable its
+ * connectors). The CLI's own warning names exactly this: "ANTHROPIC_API_KEY or
+ * another auth source is set and takes precedence over your claude.ai login".
+ */
+const CLI_STRIPPED_AUTH_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
+
+/**
+ * The env for the spawned `claude` CLI. The app sets ANTHROPIC_API_KEY for the
+ * DIRECT Anthropic provider — but when we run VIA the CLI, that key silently
+ * overrides the claude.ai login. So we strip the auth vars from the CHILD's env
+ * ONLY: the parent process keeps them, so switching to the Anthropic-API
+ * provider still works with NO reload and no global mutation (which would race
+ * concurrent requests and leak across the whole process). Returns the pruned env
+ * plus which vars were actually removed (for a one-time debug log). Pure.
+ */
+type EnvRecord = Record<string, string | undefined>;
+export function claudeCliChildEnv(base: EnvRecord = process.env): {
+  env: EnvRecord;
+  stripped: string[];
+} {
+  const env: EnvRecord = { ...base };
+  const stripped: string[] = [];
+  for (const key of CLI_STRIPPED_AUTH_VARS) {
+    if (env[key]) {
+      delete env[key];
+      stripped.push(key);
+    }
+  }
+  return { env, stripped };
+}
+
+/**
  * Custom `fetch` for the claude-cli provider. Intercepts the AI SDK's
  * `/responses` request, spawns `claude`, and translates its stdout back into the
  * Responses-API shape (streaming SSE or a single JSON envelope). Non-`/responses`
@@ -271,7 +304,19 @@ export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number }
       promptChars: prompt.length,
     });
 
-    const child = spawn(binary, args, { stdio: ["pipe", "pipe", "pipe"] });
+    // Run under the claude.ai login: strip API-key/token auth from the CHILD env
+    // so it doesn't override the subscription login (the app keeps the key for
+    // the direct Anthropic provider). See claudeCliChildEnv.
+    const { env: childEnv, stripped } = claudeCliChildEnv();
+    if (stripped.length > 0) {
+      logger.debug("claudeCliFetch: using claude.ai login — stripped API-key auth from CLI env", {
+        stripped,
+      });
+    }
+    const child = spawn(binary, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: childEnv as NodeJS.ProcessEnv,
+    });
 
     // Distinguish a failed spawn (ENOENT) from a running process: `spawn` fires
     // on success, `error` (without `spawn`) on failure.
