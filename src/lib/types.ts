@@ -171,6 +171,8 @@ export interface StoredCSV {
 
 export type PipelineStage =
   | "generating_code"
+  | "reviewing_code"
+  | "revising_code"
   | "executing"
   | "retrying"
   | "composing_ui"

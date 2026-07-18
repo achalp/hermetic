@@ -59,6 +59,14 @@ export const MAX_COMPONENT_COUNT = 20;
 export const MAX_NESTING_DEPTH = 3;
 export const CODE_GEN_MODEL = "claude-sonnet-4-6" as const;
 export const UI_COMPOSE_MODEL = "claude-sonnet-4-6" as const;
+// Pre-execution code review (the "lint" critic). A stronger model reviews the
+// generated code for OOM / memory-cap / prefer-engine violations BEFORE the
+// sandbox runs it, and feeds severe findings back for a redo — cheaper than a
+// 15-min remote scan that OOMs. Opus is the critic even when codegen is Sonnet.
+export const CODE_REVIEW_MODEL = "claude-opus-4-8" as const;
+// Only redo once on severe findings — a second critic pass rarely changes the
+// verdict and just delays execution.
+export const MAX_REVIEW_REDOS = 1;
 export const LOCAL_CTX_SIZE = 32_768; // context window for local models (Ollama, llama.cpp, MLX prompt cache)
 export const LLM_MAX_OUTPUT_TOKENS = 16_384; // max output tokens — local models default to ~256 without this
 

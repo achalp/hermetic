@@ -26,7 +26,13 @@ import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { getModel, cachedSystem } from "@/lib/llm/client";
-import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
+import {
+  CODE_GEN_MODEL,
+  CODE_REVIEW_MODEL,
+  MAX_REVIEW_REDOS,
+  LLM_MAX_OUTPUT_TOKENS,
+} from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, ConversationTurn, SandboxExecutionResult, SchemaMode } from "@/lib/types";
 import { logger } from "@/lib/logger";
@@ -124,6 +130,98 @@ export async function runPipeline(
   });
   let attemptIndex = 1;
 
+  // The container's real memory ceiling (memoized) — shared by the codegen
+  // prompt, the geo guidance, and the review critic so all three reason against
+  // the SAME cap. Hoisted so the retry loop / review redo reuse it.
+  const memLabel = await getSandboxMemoryLimitGbLabel();
+  // Gate the pre-execution review to the geospatial/heavy path: that is where
+  // the OOM / memory-cap / prefer-engine failures live and where a 15-min remote
+  // scan makes a few-thousand-token critic obviously worth it. buildGeospatialGuidance
+  // returns "" for ordinary CSV data, so a plain question never pays for review.
+  const reviewEnabled = buildGeospatialGuidance(schema, memLabel) !== "";
+
+  // The system-prompt tail shared by every fix/retry generation (geo recipe +
+  // purpose scope + local-file note). Computed lazily so it always reflects the
+  // hoisted memLabel.
+  const retrySystemExtra = () =>
+    (localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "") +
+    (reviewEnabled ? `\n${buildGeospatialGuidance(schema, memLabel)}` : "") +
+    (purpose ? `\n\n${getPurposeCodegenScope(purpose)}` : "");
+
+  // Regenerate code from a history of prior (code, error) pairs — used by both
+  // the execution-retry loop and the review redo (a severe review is just
+  // another kind of "error" fed back to the model). Applies the same
+  // post-generation fixups as the initial codegen.
+  const generateFixedCode = async (
+    priorAttempts: { code: string; error: string }[]
+  ): Promise<string> => {
+    const retryResult = await withPhase("code_gen", () =>
+      generateText({
+        model: getModel(model),
+        system: cachedSystem(
+          "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
+            RETRY_GUIDANCE +
+            retrySystemExtra()
+        ),
+        prompt: buildRetryPromptMulti(priorAttempts, schema),
+        temperature: 0,
+        maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+      })
+    );
+    return fixColumnNameCase(
+      stripValueAssertions(
+        fixMissingSqlFString(
+          fixReadCsvDelimiter(
+            fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename))
+          )
+        )
+      ),
+      schema.columns.map((c) => c.name)
+    );
+  };
+
+  // Pre-execution "lint critic": review the code BEFORE running it and, on SEVERE
+  // findings (would OOM / blow the memory cap / answer the wrong region), feed the
+  // findings back for a redo. Bounded by MAX_REVIEW_REDOS. No-op off the geo path,
+  // and fail-open (a broken critic returns "none" and never blocks a run).
+  const reviewAndRevise = async (currentCode: string): Promise<string> => {
+    if (!reviewEnabled) return currentCode;
+    let code = currentCode;
+    for (let redo = 0; redo <= MAX_REVIEW_REDOS; redo++) {
+      onStage?.("reviewing_code");
+      const review = await reviewGeneratedCode(code, question, memLabel, CODE_REVIEW_MODEL);
+      recordRunEvent({
+        type: "review",
+        attempt: attemptIndex,
+        severity: review.severity,
+        findings: review.findings,
+      });
+      if (review.severity !== "severe" || redo === MAX_REVIEW_REDOS) {
+        if (review.severity === "severe")
+          logger.info("Code review still severe after redo budget — running anyway", {
+            attempt: attemptIndex,
+            findings: review.findings.map((f) => f.rule),
+          });
+        return code;
+      }
+      logger.info("Code review flagged severe issues — regenerating before execution", {
+        attempt: attemptIndex,
+        findings: review.findings.map((f) => `${f.rule}: ${f.message}`),
+      });
+      onStage?.("revising_code");
+      try {
+        code = await generateFixedCode([{ code, error: review.feedback }]);
+      } catch (err) {
+        // Redo generation failed — run the code we already have rather than abort.
+        logger.warn("Review redo generation failed — executing pre-review code", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return code;
+      }
+    }
+    return code;
+  };
+
   // Step 1: Generate analysis code
   onStage?.("generating_code");
   let code: string;
@@ -161,7 +259,12 @@ export async function runPipeline(
     );
   }
 
+  // Pre-execution review gate: catch OOM / memory-cap / wrong-region defects and
+  // redo BEFORE spending a 15-min remote scan on them. No-op off the geo path.
+  code = await reviewAndRevise(code);
+
   // Persist the code BEFORE executing — an OOM/crash during the run must not lose it.
+  // (Records the post-review code — the exact bytes that will run.)
   recordAttemptCode(attemptIndex, code);
 
   // Step 2: Execute in sandbox
@@ -279,46 +382,16 @@ export async function runPipeline(
       errorText: retryError,
     });
 
-    // Re-inject the geospatial recipe (KD-tree / polygon / memory-safe rowid) on
-    // retry. Without this, a retry rebuilt from scratch drops the schema block's
-    // spatial guidance and "repairs" a superlative by downsampling — the exact
-    // regression that produced a grid-cell approximation. buildGeospatialGuidance
-    // returns "" for non-geo data, so this is a no-op there.
-    const retryGeoGuidance = buildGeospatialGuidance(schema, await getSandboxMemoryLimitGbLabel());
-    const retrySystemExtra =
-      (localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "") +
-      (retryGeoGuidance ? `\n${retryGeoGuidance}` : "") +
-      (purpose ? `\n\n${getPurposeCodegenScope(purpose)}` : "");
+    // Regenerate from the full history of prior (code, error) pairs. The geo
+    // recipe / purpose scope is re-injected via retrySystemExtra() inside the
+    // shared helper — without it a retry rebuilt from scratch drops the spatial
+    // guidance and "repairs" a superlative by downsampling.
     let retryCode: string;
     try {
-      const retryResult = await withPhase("code_gen", () =>
-        generateText({
-          model: getModel(model),
-          // The static "Common fixes" guidance lives here (cached) rather than in
-          // the per-attempt user prompt, so it isn't re-billed on every retry.
-          system: cachedSystem(
-            "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
-              RETRY_GUIDANCE +
-              retrySystemExtra
-          ),
-          prompt: buildRetryPromptMulti(priorAttempts, schema),
-          temperature: 0,
-          maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-        })
-      );
-
-      retryCode = fixColumnNameCase(
-        stripValueAssertions(
-          fixMissingSqlFString(
-            fixReadCsvDelimiter(
-              fixExcelReadOnCsv(
-                fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
-              )
-            )
-          )
-        ),
-        schema.columns.map((c) => c.name)
-      );
+      retryCode = await generateFixedCode(priorAttempts);
+      // Gate the retry the same way as the initial code: review + redo before the
+      // (expensive) re-execution, so a retry doesn't reintroduce an OOM pattern.
+      retryCode = await reviewAndRevise(retryCode);
     } catch (err) {
       // LLM call itself failed — surface the underlying error since
       // that's what the user actually cares about diagnosing.
