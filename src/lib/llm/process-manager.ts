@@ -3,6 +3,7 @@
  * Manages subprocess lifecycle: start, stop, health check.
  * Persists PIDs to runtime config so processes survive Next.js hot reloads.
  */
+import "server-only";
 import { spawn, execSync, type ChildProcess } from "child_process";
 import { existsSync, readdirSync } from "fs";
 import { join, isAbsolute } from "path";

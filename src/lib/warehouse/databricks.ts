@@ -17,36 +17,40 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/types";
 import type { WarehouseConnector } from "./connector";
+import { csvValue, rowsToCsv } from "./csv-util";
 
 type Row = Record<string, unknown>;
 
-/** Convert a value to a CSV-safe string, handling nulls properly. */
-function csvValue(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  let s: string;
-  if (v instanceof Date) {
-    s = v.toISOString();
-  } else if (typeof v === "object") {
-    s = JSON.stringify(v);
-  } else {
-    s = String(v);
-  }
-  return s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
+/**
+ * Minimal structural view of the @databricks/sql driver surface this
+ * connector uses — the SDK's own types don't line up with its runtime
+ * shape, and the previous `as any` left every session call unchecked (a
+ * driver API change surfaced only at runtime).
+ */
+interface DbsqlOperation {
+  fetchAll(): Promise<unknown[]>;
+  close(): Promise<unknown>;
+}
+interface DbsqlSession {
+  executeStatement(sql: string, opts: { runAsync: boolean }): Promise<DbsqlOperation>;
+  close(): Promise<unknown>;
+}
+interface DbsqlClientLike {
+  connect(opts: { host: string; path: string; token: string }): Promise<unknown>;
+  openSession(opts: { initialCatalog: string; initialSchema: string }): Promise<DbsqlSession>;
+  close(): Promise<unknown>;
 }
 
+/** Convert a value to a CSV-safe string, handling nulls properly. */
 export function createDatabricksConnector(config: DatabricksConnectionConfig): WarehouseConnector {
   const catalog = config.catalog;
   const schemaName = config.schema ?? "default";
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = new DBSQLClient() as any;
+  const client = new DBSQLClient() as unknown as DbsqlClientLike;
 
   // Connect lazily on first use; keeps the constructor non-async.
   let connectPromise: Promise<unknown> | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let session: any | undefined;
+  let session: DbsqlSession | undefined;
 
   async function ensureSession() {
     if (!connectPromise) {
@@ -157,11 +161,7 @@ export function createDatabricksConnector(config: DatabricksConnectionConfig): W
       // Databricks returns nested objects/arrays as JS values; use the first
       // row's keys for the header (matches existing connector behavior).
       const headers = Object.keys(rows[0]);
-      const lines = [headers.map(csvValue).join(",")];
-      for (const row of rows) {
-        lines.push(headers.map((h) => csvValue(row[h])).join(","));
-      }
-      return lines.join("\n") + "\n";
+      return rowsToCsv(headers, rows);
     },
 
     async close() {

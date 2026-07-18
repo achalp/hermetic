@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface CohortGridProps {
   title?: string | null;
@@ -26,7 +27,7 @@ export function CohortGridComponent({ props }: { props: CohortGridProps }) {
   const isExpanded = useChartExpanded();
   const z = Array.isArray(props.z) ? props.z : [];
 
-  if (z.length === 0 || !Array.isArray(z[0])) return <div style={{ height: chart.height }} />;
+  if (z.length === 0 || !Array.isArray(z[0])) return <ChartEmptyState height={chart.height} />;
 
   const rowLabels = Array.isArray(props.row_labels)
     ? props.row_labels

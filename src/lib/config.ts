@@ -5,6 +5,7 @@
 
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 
 export interface EnvConfig {
   LLM_PROVIDER: LLMProviderId;
@@ -41,6 +42,7 @@ function detectProvider(): LLMProviderId | undefined {
     if (
       [
         "anthropic",
+        "claude-cli",
         "bedrock",
         "vertex",
         "openai-compatible",
@@ -65,6 +67,10 @@ function detectProvider(): LLMProviderId | undefined {
   if (process.env.GOOGLE_VERTEX_PROJECT) return "vertex";
   if (process.env.OPENAI_BASE_URL) return "openai-compatible";
 
+  // Last-resort fallback (mirrors client.ts getActiveProvider): the `claude` CLI
+  // is installed and authenticated with the user's own login.
+  if (isClaudeCliAvailable(rc.claudeCli?.binaryPath)) return "claude-cli";
+
   return undefined;
 }
 
@@ -75,12 +81,19 @@ export function validateEnv(): EnvConfig {
   const explicitProvider = process.env.LLM_PROVIDER;
   if (
     explicitProvider &&
-    !["anthropic", "bedrock", "vertex", "openai-compatible", "mlx", "llama-cpp", "ollama"].includes(
-      explicitProvider.toLowerCase()
-    )
+    ![
+      "anthropic",
+      "claude-cli",
+      "bedrock",
+      "vertex",
+      "openai-compatible",
+      "mlx",
+      "llama-cpp",
+      "ollama",
+    ].includes(explicitProvider.toLowerCase())
   ) {
     throw new EnvError(
-      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: anthropic, bedrock, vertex, openai-compatible, mlx, llama-cpp, ollama`
+      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: anthropic, claude-cli, bedrock, vertex, openai-compatible, mlx, llama-cpp, ollama`
     );
   }
 
@@ -101,6 +114,17 @@ export function validateEnv(): EnvConfig {
     throw new EnvError(
       "ANTHROPIC_API_KEY is required when using the Anthropic provider. " +
         "Get one at https://console.anthropic.com/settings/keys"
+    );
+  }
+
+  if (
+    provider === "claude-cli" &&
+    !isClaudeCliAvailable(getRuntimeConfig().claudeCli?.binaryPath)
+  ) {
+    throw new EnvError(
+      "Claude CLI provider selected but the 'claude' binary was not found. " +
+        "Install it (npm install -g @anthropic-ai/claude-code) and run 'claude' once to authenticate, " +
+        "or set claudeCli.binaryPath in Settings."
     );
   }
 

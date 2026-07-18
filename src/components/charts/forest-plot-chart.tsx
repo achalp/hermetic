@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ForestRow {
   label: string;
@@ -34,7 +35,7 @@ export function ForestPlotComponent({ props }: { props: ForestPlotProps }) {
   const items = (Array.isArray(rows) ? rows : []).filter(
     (r) => r && r.label != null && Number.isFinite(Number(r.estimate))
   );
-  if (items.length === 0) return <div style={{ height: chart.height }} />;
+  if (items.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const color = props.color ?? palette[0];
   // Reverse so the first row appears at the top.

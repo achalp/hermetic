@@ -298,15 +298,13 @@ describe("runInvestigation — step dataflow", () => {
 
     // The dependent (2nd runPipeline call) got additionalFiles with the
     // upstream frame, and a localFileContext describing it.
-    const depCall = mockedRunPipeline.mock.calls[1];
-    const additionalFiles = depCall[8] as { path: string; content: string }[] | undefined;
-    const localFileContext = depCall[11] as string | undefined;
-    expect(additionalFiles?.some((f) => f.path === "/data/step_1.csv")).toBe(true);
-    expect(localFileContext).toContain("/data/step_1.csv");
+    const depOptions = mockedRunPipeline.mock.calls[1][3];
+    expect(depOptions?.additionalFiles?.some((f) => f.path === "/data/step_1.csv")).toBe(true);
+    expect(depOptions?.localFileContext).toContain("/data/step_1.csv");
 
     // The independent step (1st call) got no upstream frames.
-    const indepFiles = mockedRunPipeline.mock.calls[0][8] as unknown[] | undefined;
-    expect(indepFiles ?? []).toHaveLength(0);
+    const indepOptions = mockedRunPipeline.mock.calls[0][3];
+    expect(indepOptions?.additionalFiles ?? []).toHaveLength(0);
   });
 
   it("persists each step's full output (outputCsvId) for full-fidelity re-run", async () => {

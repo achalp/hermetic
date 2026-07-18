@@ -1,5 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { isDotfile, isAllowedExtension, validateLocalOrigin } from "@/lib/local-files/security";
+import { describe, it, expect, afterEach } from "vitest";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import {
+  isDotfile,
+  isAllowedExtension,
+  validateLocalOrigin,
+  isPathAllowed,
+  allowedLocalRoots,
+} from "@/lib/local-files/security";
 import { ALLOWED_LOCAL_EXTENSIONS } from "@/lib/constants";
 
 describe("local-files/security", () => {
@@ -67,12 +75,49 @@ describe("local-files/security", () => {
     });
   });
 
+  describe("isPathAllowed (root-jail)", () => {
+    afterEach(() => {
+      delete process.env.HERMETIC_LOCAL_FILE_ROOTS;
+    });
+
+    it("allows the home dir and its descendants", () => {
+      expect(isPathAllowed(homedir())).toBe(true);
+      expect(isPathAllowed(join(homedir(), "data", "sales.csv"))).toBe(true);
+    });
+
+    it("rejects paths outside every root (/etc, another user's home)", () => {
+      expect(isPathAllowed("/etc")).toBe(false);
+      expect(isPathAllowed("/etc/passwd")).toBe(false);
+      expect(isPathAllowed("/")).toBe(false);
+    });
+
+    it("is not fooled by a prefix-escape sibling (e.g. /Users/xevil vs /Users/x)", () => {
+      expect(isPathAllowed(homedir() + "evil")).toBe(false);
+    });
+
+    it("HERMETIC_LOCAL_FILE_ROOTS extends the jail", () => {
+      expect(isPathAllowed("/Volumes/data/x.parquet")).toBe(false);
+      process.env.HERMETIC_LOCAL_FILE_ROOTS = "/Volumes/data";
+      expect(isPathAllowed("/Volumes/data/x.parquet")).toBe(true);
+      expect(allowedLocalRoots()).toContain("/Volumes/data");
+      // other outside paths remain rejected
+      expect(isPathAllowed("/Volumes/other/x.parquet")).toBe(false);
+    });
+  });
+
   describe("validateLocalOrigin", () => {
     const make = (headers: Record<string, string>) =>
       new Request("http://localhost:3000/api/local-files", { headers });
 
-    it("allows requests with no Origin header (same-origin GET / server-side fetch)", () => {
-      expect(validateLocalOrigin(make({}))).toBe(true);
+    it("with no Origin, falls back to the Host header (fail closed)", () => {
+      // Same-origin GETs and curl carry no Origin but always carry Host —
+      // requiring a loopback Host defeats DNS rebinding via a hostname the
+      // attacker controls, without breaking local tools.
+      expect(validateLocalOrigin(make({ host: "localhost:3000" }))).toBe(true);
+      expect(validateLocalOrigin(make({ host: "127.0.0.1:3000" }))).toBe(true);
+      expect(validateLocalOrigin(make({ host: "rebind.evil.com" }))).toBe(false);
+      // Neither header at all → reject (previously this was allowed).
+      expect(validateLocalOrigin(make({}))).toBe(false);
     });
 
     it("allows a localhost Origin", () => {

@@ -1,3 +1,4 @@
+import "server-only";
 import { mkdir, writeFile, readFile, readdir, rm, rename, stat } from "fs/promises";
 import { join } from "path";
 import { v4 as uuidv4 } from "uuid";

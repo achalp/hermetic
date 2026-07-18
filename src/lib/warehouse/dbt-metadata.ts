@@ -17,6 +17,7 @@
  * authentication is out of scope.
  */
 
+import "server-only";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { logger } from "@/lib/logger";

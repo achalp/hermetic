@@ -34,6 +34,14 @@ interface DataRailContentProps {
   fullscreen?: boolean;
   onSheetSelect?: (name: string) => void;
   activeItem?: string;
+  /**
+   * Re-read the current source's schema, bypassing the schema cache. Provided
+   * only for cache-backed sources (warehouse / remote Parquet); absent → the
+   * refresh control is hidden.
+   */
+  onRefreshSchema?: () => void;
+  /** True while a refresh (or initial extraction) is in flight. */
+  isRefreshing?: boolean;
 }
 
 const sourceIcons: Record<DataRailContentProps["sourceType"], string> = {
@@ -78,6 +86,8 @@ export function DataRailContent({
   fullscreen,
   onSheetSelect,
   activeItem,
+  onRefreshSchema,
+  isRefreshing,
 }: DataRailContentProps) {
   const [activeTable, setActiveTable] = useState<string>(tables?.[0]?.name ?? "");
   const [whSampleData, setWhSampleData] = useState<{ columns: string[]; rows: string[][] } | null>(
@@ -201,16 +211,43 @@ export function DataRailContent({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Source name */}
+      {/* Source name + optional schema refresh */}
       <div
         style={{
           padding: "12px 20px",
           fontSize: 13,
           color: "var(--color-surface-dark-text2)",
           flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
         }}
       >
-        {sourceIcons[sourceType]} {sourceName}
+        <span>
+          {sourceIcons[sourceType]} {sourceName}
+        </span>
+        {onRefreshSchema && (
+          <button
+            type="button"
+            onClick={onRefreshSchema}
+            disabled={isRefreshing}
+            title="Re-read the schema from the source (ignore the cache)"
+            aria-label="Refresh schema"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: isRefreshing ? "default" : "pointer",
+              color: "inherit",
+              opacity: isRefreshing ? 0.5 : 0.75,
+              fontSize: 13,
+              padding: 2,
+              lineHeight: 1,
+            }}
+          >
+            {isRefreshing ? "↻…" : "↻"}
+          </button>
+        )}
       </div>
 
       {sourceType === "excel" && sheets && onSheetSelect && (

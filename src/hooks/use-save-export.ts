@@ -74,10 +74,17 @@ export function useSaveExport({
     async (format: ExportFormat, fn: (el: HTMLElement, title: string) => Promise<void>) => {
       if (!dashboardRef.current) return;
       setExporting(format);
+      setSaveMessage(null);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       try {
         await fn(dashboardRef.current, currentQuestionRef.current ?? "dashboard");
       } catch (e) {
+        // Surface the failure through the same status channel as Save —
+        // previously this was console.error only, so a failed toolbar export
+        // gave the user no feedback at all (spinner stops, no file, silence).
         console.error(`${format.toUpperCase()} export failed:`, e);
+        setSaveMessage(`${format.toUpperCase()} export failed`);
+        saveTimerRef.current = setTimeout(() => setSaveMessage(null), 4000);
       } finally {
         setExporting(null);
       }

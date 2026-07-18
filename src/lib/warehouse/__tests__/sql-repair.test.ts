@@ -140,6 +140,26 @@ describe("generateSQLWithRepair", () => {
     expect(generateTextMock).toHaveBeenCalledTimes(1); // only the initial generate
   });
 
+  it("bails on a connectivity error WITHOUT the flag — regenerating SQL can't fix a dead network", async () => {
+    // The BigQuery-path failure: the driver's own retries give up, our loop
+    // must not then burn repair attempts re-running on a dropped connection.
+    queueSQL("SELECT * FROM t");
+    const execute = vi
+      .fn()
+      .mockRejectedValue(new Error("Failed after 3 attempts. Last error: Cannot connect to API: "));
+    await expect(
+      generateSQLWithRepair({
+        tables: TABLES,
+        question: "q",
+        warehouseType: "bigquery",
+        execute,
+        // deliberately NO bailOnResourceError — connectivity bails unconditionally
+      })
+    ).rejects.toThrow(/Lost the network connection to the bigquery API/i);
+    expect(execute).toHaveBeenCalledTimes(1); // no re-run
+    expect(generateTextMock).toHaveBeenCalledTimes(1); // no repair regenerate
+  });
+
   it("still repairs a LOGIC error even when bailOnResourceError is set", async () => {
     queueSQL("SELECT bad", "SELECT good");
     const execute = vi

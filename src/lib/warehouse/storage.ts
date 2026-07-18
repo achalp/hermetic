@@ -1,5 +1,6 @@
 import type { StoredWarehouse } from "@/lib/types";
 import { CSV_TTL_MS } from "@/lib/constants";
+import { isIdleExpired, touch } from "@/lib/store-ttl";
 import type { WarehouseConnector } from "./connector";
 
 const globalStore = globalThis as unknown as {
@@ -23,10 +24,14 @@ export function storeWarehouse(warehouse: StoredWarehouse, connector: WarehouseC
 export function getStoredWarehouse(warehouseId: string): StoredWarehouse | undefined {
   const entry = store.get(warehouseId);
   if (!entry) return undefined;
-  if (Date.now() - entry.createdAt > CSV_TTL_MS) {
+  const now = Date.now();
+  // Sliding idle window + active-run pin (see lib/store-ttl.ts): a connection is
+  // never dropped mid-session or during a long query it's servicing.
+  if (isIdleExpired(entry, entry.createdAt, CSV_TTL_MS, now)) {
     removeWarehouse(warehouseId);
     return undefined;
   }
+  touch(entry, now);
   return entry;
 }
 
@@ -34,6 +39,24 @@ export function getWarehouseConnector(warehouseId: string): WarehouseConnector |
   const wh = getStoredWarehouse(warehouseId);
   if (!wh) return undefined;
   return connectors.get(warehouseId);
+}
+
+/**
+ * Active sweep (see lib/store-sweeper.ts): expired entries previously lived
+ * until the next lazy read — including their LIVE connector pools (open
+ * sockets, credentialed sessions), which never closed if the warehouse id
+ * was never accessed again after its TTL.
+ */
+export function sweepExpiredWarehouses(): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [id, entry] of store) {
+    if (isIdleExpired(entry, entry.createdAt, CSV_TTL_MS, now)) {
+      removeWarehouse(id); // closes the connector too
+      swept++;
+    }
+  }
+  return swept;
 }
 
 export function removeWarehouse(warehouseId: string): void {

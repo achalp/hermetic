@@ -4,6 +4,7 @@ import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface HeatMapChartProps {
   title?: string | null;
@@ -29,7 +30,7 @@ export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
     !Array.isArray(props.y_labels) ||
     props.y_labels.length === 0
   )
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
 
   // Truncate long y-labels in inline mode to give more space to the heatmap
   const MAX_Y_LABEL_LEN = isExpanded ? 80 : 30;

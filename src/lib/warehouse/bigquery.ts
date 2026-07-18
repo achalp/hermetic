@@ -214,6 +214,13 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
     },
 
     async executeSQL(sql: string): Promise<string> {
+      // No jobTimeoutMs: we never self-kill a running analysis (a legitimately
+      // long query is allowed to take long) — the user's Stop button and
+      // BigQuery's own 6-hour hard limit are the ceilings. (A prior 20-min cap
+      // was itself a self-kill; it's superseded by stop-on-demand.)
+      // FOLLOW-ON: on Stop we currently abort the request but the submitted BQ
+      // job keeps running server-side until BQ finishes — true job cancellation
+      // (createQueryJob + job.cancel wired to the run's abort signal) is TODO.
       const [rows] = await bq.query({ query: sql });
 
       if (!rows || rows.length === 0) return "";

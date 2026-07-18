@@ -1,5 +1,5 @@
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
-import { DUCKDB_CLOUD_PRELUDE } from "@/lib/parquet/duckdb-source";
+import { DUCKDB_CLOUD_PRELUDE, parquetReadExpr } from "@/lib/parquet/duckdb-source";
 
 /**
  * The source-agnostic tail of the extraction script: given `describe`,
@@ -12,6 +12,12 @@ const SHARED_STATS_TAIL = `
 # Map DuckDB types to schema dtypes
 def map_dtype(duckdb_type):
     t = duckdb_type.upper()
+    # Complex / nested types (STRUCT, LIST/ARRAY, MAP, UNION) and geometry can't
+    # be profiled with scalar aggregates like AVG/MIN — and substring matching
+    # would otherwise misread e.g. STRUCT(... confidence DOUBLE ...)[] as a number.
+    # Treat them as strings; they're sampled via CAST(... AS VARCHAR).
+    if any(k in t for k in ['STRUCT', 'MAP', 'UNION', 'LIST', 'ARRAY', '[]', 'GEOMETRY']):
+        return 'complex'
     if any(k in t for k in ['INT', 'BIGINT', 'SMALLINT', 'TINYINT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC', 'REAL', 'HUGEINT']):
         return 'number'
     if any(k in t for k in ['DATE', 'TIMESTAMP', 'TIME']):
@@ -162,6 +168,25 @@ for ci in columns_info:
             'true_count': safe_int(row[0]),
             'false_count': safe_int(row[1]),
             'representation': 'true/false',
+        }
+
+    elif dtype == 'complex':
+        # Nested (STRUCT/LIST/MAP) or geometry columns can't be aggregated or
+        # grouped like scalars. Report them as string-shaped with only the cheap
+        # VARCHAR-cast sample values already gathered above; skip distinct/length
+        # stats that would fail or be meaningless. dtype is surfaced as 'string'
+        # so downstream consumers stay within the known dtype set.
+        dtype = 'string'
+        sample_len = max((len(v) for v in sample_values), default=0)
+        meta = {
+            'kind': 'categorical',
+            'distinct_count': 0,
+            'distinct_values': None,
+            'top_values': [],
+            'avg_length': float(sample_len),
+            'max_length': sample_len,
+            'min_length': 0,
+            'is_unique': False,
         }
 
     else:  # string / categorical
@@ -384,7 +409,9 @@ export function buildSchemaScript(
  *  Parquet FOOTERS (metadata only, no data scan — critical over the network), and
  *  profiles a bounded prefix of the data. `readUrl` MUST be a pre-validated URL
  *  (see isSafeParquetUrl) — it is interpolated into the DuckDB SQL. */
-function remoteSetup(readUrl: string): string {
+function remoteSetup(readUrl: string, authSql: string, isHivePartitioned = false): string {
+  const auth = authSql ? `con.sql("${authSql}")\n` : "";
+  const readExpr = parquetReadExpr(readUrl, isHivePartitioned);
   return `
 import duckdb
 import json
@@ -395,17 +422,41 @@ MAX_DISTINCT_VALUES = 20
 MAX_TOP_VALUES = 10
 MAX_CORRELATION_PAIRS = 10
 STATS_SAMPLE_SIZE = 500_000
+FOOTER_SAMPLE_FILES = 32
 
 con = duckdb.connect()
 con.sql("${DUCKDB_CLOUD_PRELUDE}")
+${auth}
+PATTERN = '${readUrl}'
+READ_FULL = "${readExpr}"
 
-READ_FULL = "read_parquet('${readUrl}')"
+# Schema from the dataset (opens one file; partition columns included via hive).
 describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
 
-# Row count from Parquet footers only (no data scan) — essential over S3/HTTPS.
+# Row count from Parquet footers (metadata only, no data scan). Over the network,
+# reading EVERY footer is too slow for a large dataset (hundreds/thousands of
+# shards — Overture buildings is 500+ files), so BOUND it: list the files, read a
+# spread-out sample of footers, and extrapolate by file count. A small dataset
+# (<= the sample size) is counted exactly.
 try:
-    row_count = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata('${readUrl}')").fetchone()[0]
-    row_count = int(row_count) if row_count is not None else 0
+    files = [r[0] for r in con.sql(f"SELECT file FROM glob('{PATTERN}')").fetchall()]
+except Exception:
+    files = []
+total_files = len(files)
+try:
+    if total_files == 0:
+        # DuckDB still resolves a single-file URL (or its own glob) via metadata.
+        row_count = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata('{PATTERN}')").fetchone()[0] or 0
+    else:
+        if total_files <= FOOTER_SAMPLE_FILES:
+            sample = files
+        else:
+            step = total_files // FOOTER_SAMPLE_FILES
+            sample = [files[i * step] for i in range(FOOTER_SAMPLE_FILES)]
+        quoted = ", ".join("'" + f.replace("'", "''") + "'" for f in sample)
+        sampled = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata([{quoted}])").fetchone()[0] or 0
+        row_count = int(sampled * total_files / len(sample))
+    row_count = int(row_count)
 except Exception:
     row_count = 0
 
@@ -421,7 +472,42 @@ STATS_TABLE = 'stats_data'
 /**
  * Build the extraction script for a REMOTE cloud Parquet URL (s3:// or https://).
  * Reuses the exact same source-agnostic stats/output tail as the local path.
+ * `authSql` (from duckdbRemoteAuthSql) is empty for anonymous/public access.
  */
-export function buildRemoteParquetSchemaScript(readUrl: string): string {
-  return remoteSetup(readUrl) + SHARED_STATS_TAIL;
+export function buildRemoteParquetSchemaScript(
+  readUrl: string,
+  authSql = "",
+  isHivePartitioned = false
+): string {
+  return remoteSetup(readUrl, authSql, isHivePartitioned) + SHARED_STATS_TAIL;
+}
+
+/**
+ * A CHEAP freshness fingerprint for a remote Parquet source: the digest of its
+ * sorted file listing. Reads only the object-store LISTING (glob), never file
+ * data or footers — sub-second even for a many-file dataset, versus the ~27s
+ * full schema extraction. Source-agnostic: it detects change (files added /
+ * removed / rewritten-with-new-names, which is how Spark/Delta/Iceberg/Hive
+ * writers emit data) without knowing anything about the dataset. An immutable
+ * source yields a stable digest and therefore free caching — detected, not
+ * assumed. (Blind spot: a same-filename in-place byte overwrite; the manual
+ * refresh / ignore-cache controls cover it.)
+ */
+export function buildParquetFingerprintScript(readUrl: string, authSql = ""): string {
+  const auth = authSql ? `con.sql("${authSql}")\n` : "";
+  return `
+import duckdb
+import json
+
+con = duckdb.connect()
+con.sql("${DUCKDB_CLOUD_PRELUDE}")
+${auth}
+row = con.sql(
+    "SELECT coalesce(md5(string_agg(file, chr(10) ORDER BY file)), 'empty') AS fp, "
+    "count(*) AS n FROM glob('${readUrl}')"
+).fetchone()
+
+with open('/data/output.json', 'w') as f:
+    json.dump({"fp": row[0], "n": int(row[1])}, f)
+`;
 }

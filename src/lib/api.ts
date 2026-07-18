@@ -470,6 +470,122 @@ export async function extractLocalSchema(
   return json<LocalSchemaResult>(res);
 }
 
+/** Optional S3 credentials for a private cloud Parquet source (anon by default). */
+export interface RemoteParquetCreds {
+  s3Region?: string;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
+  s3Endpoint?: string;
+}
+
+export interface RemoteParquetResult {
+  csv_id: string;
+  schema: CSVSchema;
+}
+
+/**
+ * Register a remote cloud Parquet URL (s3:// or https://) that DuckDB reads
+ * directly — no download. Returns the extracted schema. Anonymous unless `creds`
+ * are supplied.
+ */
+export async function extractRemoteParquetSchema(
+  url: string,
+  creds?: RemoteParquetCreds,
+  /** "Ignore cache / re-read schema" — bypass the schema cache and overwrite it. */
+  force?: boolean
+): Promise<RemoteParquetResult> {
+  const res = await fetch("/api/remote-parquet/schema", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, creds, force }),
+  });
+  return json<RemoteParquetResult>(res);
+}
+
+// ── Active runs (reconnect to an analysis that survived a client drop) ──
+
+export interface ActiveRun {
+  runId: string;
+  csvId?: string;
+  question?: string;
+  route: string;
+  startedAt: number;
+}
+
+/** Analyses still running server-side (survive reload/HMR — see run-stream-hub). */
+export async function getActiveRuns(): Promise<ActiveRun[]> {
+  try {
+    const res = await fetch("/api/query/active");
+    const data = await json<{ runs: ActiveRun[] }>(res);
+    return data.runs ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch the stored schema for a csvId (to restore a source on reattach). */
+export async function getSchemaByCsvId(
+  csvId: string
+): Promise<{ csv_id: string; schema: CSVSchema } | null> {
+  try {
+    const res = await fetch(`/api/sources/schema?csvId=${encodeURIComponent(csvId)}`);
+    if (!res.ok) return null;
+    return await json<{ csv_id: string; schema: CSVSchema }>(res);
+  } catch {
+    return null;
+  }
+}
+
+// ── Recent sources (uploads / local / cloud) ─────────────────
+
+export interface RecentSourceInfo {
+  id: string;
+  kind: "upload" | "local-file" | "local-folder" | "remote-parquet";
+  name: string;
+  subtitle: string;
+  rows?: number;
+  url?: string;
+  creds?: RemoteParquetCreds;
+  path?: string;
+  isHivePartitioned?: boolean;
+  lastUsedAt: string;
+  useCount: number;
+}
+
+export async function getRecentSources(): Promise<RecentSourceInfo[]> {
+  try {
+    const res = await fetch("/api/sources/recent");
+    const data = await json<{ sources: RecentSourceInfo[] }>(res);
+    return data.sources ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function renameRecentSource(id: string, name: string): Promise<void> {
+  await fetch("/api/sources/recent", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, name }),
+  });
+}
+
+export async function removeRecentSource(id: string): Promise<void> {
+  await fetch("/api/sources/recent", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+}
+
+export async function clearRecentSources(): Promise<void> {
+  await fetch("/api/sources/recent", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ all: true }),
+  });
+}
+
 // ── Warehouse ────────────────────────────────────────────────
 
 export interface ConnectWarehouseResult {
@@ -481,13 +597,28 @@ export interface ConnectWarehouseResult {
   total_columns: number;
 }
 
+/**
+ * Stop an in-flight analysis on demand (the cancel button). Best-effort — a
+ * finished run is a no-op. Fire-and-forget: the streaming request unwinds on
+ * its own once the server aborts it.
+ */
+export async function stopAnalysis(runId: string): Promise<void> {
+  await fetch("/api/query/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runId }),
+  }).catch(() => {});
+}
+
 export async function connectWarehouse(
-  config: WarehouseConnectionConfig
+  config: WarehouseConnectionConfig,
+  /** "Ignore cache / re-read schema" — bypass the schema cache and overwrite it. */
+  force?: boolean
 ): Promise<ConnectWarehouseResult> {
   const res = await fetch("/api/warehouse/connect", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
+    body: JSON.stringify(force ? { ...config, force: true } : config),
   });
   return json<ConnectWarehouseResult>(res);
 }

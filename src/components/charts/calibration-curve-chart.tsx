@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, useChartColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface CalibrationCurve {
   label: string;
@@ -28,7 +29,7 @@ export function CalibrationCurveComponent({ props }: { props: CalibrationCurvePr
   const labels = curves.map((c) => c.label);
   const colors = useColorMap(labels, props.color_map);
 
-  if (curves.length === 0) return <div style={{ height: chart.height }} />;
+  if (curves.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const traces: Data[] = curves.map((curve, i) => ({
     type: "scatter" as const,

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
-import Image from "next/image";
 import type { Spec } from "@json-render/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { QueryInput, type QueryMode } from "@/components/app/query-input";
@@ -16,6 +15,8 @@ import { SettingsDrawer } from "@/components/app/settings-drawer";
 import { DataRail } from "@/components/app/data-rail";
 import { DataRailContent } from "@/components/app/data-rail-content";
 import { SourceCards } from "@/components/app/source-cards";
+import { RecentSources, type RecentItem } from "@/components/app/recent-sources";
+import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 import { LocalFileBrowser } from "@/components/app/local-file-browser";
 
 import { InlineConnectionForm } from "@/components/app/inline-connection-form";
@@ -23,10 +24,15 @@ import { InlineConnectionForm } from "@/components/app/inline-connection-form";
 import { StyleSelector } from "@/components/app/style-selector";
 import { StyleDropdown } from "@/components/app/style-dropdown";
 import { useSaveExport } from "@/hooks/use-save-export";
+import { useVizActions } from "@/hooks/use-viz-actions";
+import { useSourceSelect } from "@/hooks/use-source-select";
+import { useHistoryRestore } from "@/hooks/use-history-restore";
+import { PreviewStrip } from "@/components/app/preview-strip";
+import { RefreshProgress } from "@/components/app/refresh-progress";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 import { CostFooter, type CostInfo } from "@/components/app/cost-footer";
 import { useArtifacts } from "@/hooks/use-artifacts";
-import { generateSuggestions, generateWarehouseSuggestions } from "@/lib/suggest-questions";
+import { useSuggestions } from "@/hooks/use-suggestions";
 import { AnalysisHistory, type HistoryEntry } from "@/components/app/analysis-history";
 import { SuggestionPills } from "@/components/app/suggestion-pills";
 import { SchedulePopover } from "@/components/app/schedule-popover";
@@ -45,21 +51,18 @@ import type { SchemaMode } from "@/lib/types";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
 import {
   checkLlmReady,
-  getArtifacts,
-  getFollowUpSuggestions,
   getLocalBackendConfig,
-  loadViz,
-  refreshViz,
-  rerunViz,
-  saveViz,
-  uploadFile,
-  extractLocalSchema,
   saveHistoryEntry,
-  loadHistoryEntry,
-  refreshHistoryEntry,
+  getRecentSources,
+  removeRecentSource as apiRemoveRecent,
+  renameRecentSource as apiRenameRecent,
+  clearRecentSources as apiClearRecent,
+  getSchemaByCsvId,
+  type RecentSourceInfo,
+  type ActiveRun,
 } from "@/lib/api";
-import { extractSpecComponentTypes } from "@/lib/spec-summary";
-import { summarizeAnalysisResults } from "@/lib/suggest-questions";
+import { useActiveRuns } from "@/hooks/use-active-runs";
+import { ActiveRunsBanner } from "@/components/app/active-runs-banner";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
@@ -67,6 +70,27 @@ import {
   isValidRuntimeId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
+
+/** Compact row count for a recent-source subtitle: 2547927232 → "2.5B". */
+function fmtRowCount(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)}K`;
+  return String(n);
+}
+
+/** Relative "used …" label for a recent source. */
+function relTimeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!then) return "";
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 172800) return "yesterday";
+  if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 export default function Home() {
   // ── Existing hooks & state (unchanged) ──────────────────────
@@ -108,6 +132,8 @@ export default function Home() {
     pendingRerunVizId,
     rerunCode,
     rerunSql,
+    loadedVizId,
+    refreshStage,
   } = pageState;
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
   const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
@@ -121,19 +147,11 @@ export default function Home() {
     return DEFAULT_SANDBOX_RUNTIME;
   });
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
-  const [loadedVizId, setLoadedVizId] = useState<string | null>(null);
-  const [refreshStage, setRefreshStage] = useState<
-    "loading" | "querying" | "executing" | "composing" | null
-  >(null);
   const [llmWarning, setLlmWarning] = useState<string | null>(null);
   // Lifted here from QueryInput so suggestion pills and history replays
   // inherit whichever mode the user toggled the input to.
   const [queryMode, setQueryMode] = useState<QueryMode>("ask");
-  const [showLocalBrowser, setShowLocalBrowser] = useState(false);
-  const [isExtractingLocalSchema, setIsExtractingLocalSchema] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const rerunVizIdRef = useRef<string | null>(null);
 
   const dashboardRef = useRef<HTMLDivElement>(null);
   const currentSpecRef = useRef<Spec | null>(loadedSpec ?? null);
@@ -164,8 +182,6 @@ export default function Home() {
   >({ kind: "closed" });
   const [effectiveCsvId, setEffectiveCsvId] = useState<string | null>(null);
   const [analysisHistory, setAnalysisHistory] = useState<HistoryEntry[]>([]);
-  const [followUpSuggestions, setFollowUpSuggestions] = useState<string[]>([]);
-  const [followUpKey, setFollowUpKey] = useState<string | null>(null);
   /**
    * The spec from the most recently completed analysis. Captured via
    * ResponsePanel's `onAnalysisComplete` callback because the streamed
@@ -198,6 +214,7 @@ export default function Home() {
 
   const {
     saving,
+    saveMessage,
     exporting,
     handleSave: doSave,
     handleExportPdf,
@@ -250,91 +267,14 @@ export default function Home() {
     currentSpecRef.current = loadedSpec ?? null;
   }, [loadedSpec]);
 
-  // ── Restore from history (?restore=id) ────────────────────
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const restoreId = params.get("restore");
-    if (!restoreId) return;
-
-    // Clean up URL
-    window.history.replaceState({}, "", "/");
-
-    // Load the history entry (same pattern as handleLoadViz)
-    dispatch({ type: "LOAD_VIZ_START" });
-    loadHistoryEntry(restoreId)
-      .then((data) => {
-        if (data.csvId) {
-          handleUpload(data.csvId, data.schema as unknown as import("@/lib/types").CSVSchema);
-        }
-        dispatch({
-          type: "LOAD_VIZ_SUCCESS",
-          question: data.meta.question,
-          spec: data.spec as unknown as import("@json-render/react").Spec,
-          artifacts:
-            (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
-            null,
-        });
-      })
-      .catch((err) => {
-        console.error("Failed to restore history entry:", err);
-        dispatch({ type: "LOAD_VIZ_ERROR" });
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Re-run from history (?rerun_history=id) ────────────────
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const rerunId = params.get("rerun_history");
-    if (!rerunId) return;
-
-    window.history.replaceState({}, "", "/");
-
-    // First load the entry to check source type before attempting refresh
-    loadHistoryEntry(rerunId)
-      .then(async (data) => {
-        const isWarehouse = data.meta.sourceType === "warehouse";
-        const canRefresh = !isWarehouse || !!warehouse.warehouseId;
-
-        if (canRefresh) {
-          dispatch({ type: "RERUN_START" });
-          setRefreshStage("loading");
-          await new Promise((r) => setTimeout(r, 100));
-          setRefreshStage("executing");
-          const result = await refreshHistoryEntry(rerunId, warehouse.warehouseId, sandboxRuntime);
-          setRefreshStage("composing");
-          handleUpload(result.csvId, result.schema as unknown as import("@/lib/types").CSVSchema);
-          dispatch({
-            type: "RERUN_FAST_SUCCESS",
-            spec: result.spec as unknown as import("@json-render/react").Spec,
-            artifacts:
-              (result.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
-              null,
-          });
-          setRefreshStage(null);
-        } else {
-          // Warehouse without active connection — just restore
-          if (data.csvId) {
-            handleUpload(data.csvId, data.schema as unknown as import("@/lib/types").CSVSchema);
-          }
-          dispatch({
-            type: "LOAD_VIZ_SUCCESS",
-            question: data.meta.question,
-            spec: data.spec as unknown as import("@json-render/react").Spec,
-            artifacts:
-              (data.artifacts as unknown as import("@/lib/pipeline/artifacts-cache").CachedArtifacts) ??
-              null,
-          });
-        }
-      })
-      .catch(() => {
-        setRefreshStage(null);
-        dispatch({ type: "RERUN_ERROR" });
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // URL-driven history restore / re-run (?restore= / ?rerun_history=) —
+  // see use-history-restore.ts.
+  useHistoryRestore({
+    dispatch,
+    handleUpload,
+    warehouseId: warehouse.warehouseId,
+    sandboxRuntime,
+  });
 
   // Close export dropdown on outside click
   useEffect(() => {
@@ -413,338 +353,171 @@ export default function Home() {
     }).catch(() => {});
   }, []);
 
+  // Local/remote/upload/sample source selection — see use-source-select.ts.
+  const {
+    showLocalBrowser,
+    setShowLocalBrowser,
+    isExtractingLocalSchema,
+    handleLocalFileSelect,
+    handleRemoteFileSelect,
+    refreshRemote,
+    hasRemoteSource,
+    processUploadFile,
+    handleSampleData,
+    resetSourceSelect,
+  } = useSourceSelect({ handleUpload, handleExcelSheets });
+
+  // ── Recent sources (uploads / local / cloud) — the file/cloud analogue of
+  // saved warehouse connections. Loaded on mount; recorded server-side on every
+  // connect, so we just refetch after each open/remove. Warehouses are merged in
+  // from the warehouse hook for one unified "Recent" list.
+  const [recents, setRecents] = useState<RecentSourceInfo[]>([]);
+  const [busyRecentId, setBusyRecentId] = useState<string | null>(null);
+  const refetchRecents = useCallback(() => {
+    void getRecentSources().then(setRecents);
+  }, []);
+  useEffect(() => refetchRecents(), [refetchRecents]);
+
+  const recentItems = useMemo<RecentItem[]>(() => {
+    const files = recents.map((r) => ({
+      ts: r.lastUsedAt,
+      item: {
+        id: r.id,
+        kind: r.kind,
+        name: r.name,
+        subtitle: r.subtitle,
+        meta: [r.rows != null ? `${fmtRowCount(r.rows)} rows` : null, relTimeAgo(r.lastUsedAt)]
+          .filter(Boolean)
+          .join(" · "),
+      } as RecentItem,
+    }));
+    const whs = warehouse.savedConnections.map((c) => ({
+      ts: c.createdAt,
+      item: {
+        id: c.id,
+        kind: "warehouse" as const,
+        name: c.name ?? c.label,
+        subtitle: "host" in c.config ? c.config.host : c.config.type,
+        meta: relTimeAgo(c.createdAt),
+        brandColor: ENGINES[c.config.type]?.brandColor,
+      } as RecentItem,
+    }));
+    return [...files, ...whs].sort((a, b) => b.ts.localeCompare(a.ts)).map((x) => x.item);
+  }, [recents, warehouse.savedConnections]);
+
+  // Re-open (or refresh) a remembered source. Uploads re-open from their managed
+  // byte copy (a file under ~/.hermetic), so they route through the same local-
+  // file path as an on-disk file.
+  const reopenRecent = useCallback(
+    async (item: RecentItem, force = false) => {
+      setBusyRecentId(item.id);
+      try {
+        if (item.kind === "warehouse") {
+          const saved = warehouse.savedConnections.find((c) => c.id === item.id);
+          if (saved) await warehouse.connect(saved.config, force);
+          return;
+        }
+        const src = recents.find((r) => r.id === item.id);
+        if (!src) return;
+        if (src.kind === "remote-parquet" && src.url) {
+          await handleRemoteFileSelect(src.url, src.creds, force);
+        } else if (src.kind === "local-folder" && src.path) {
+          await handleLocalFileSelect(src.path, "folder");
+        } else if (src.path) {
+          await handleLocalFileSelect(src.path, "file");
+        }
+      } finally {
+        setBusyRecentId(null);
+        refetchRecents();
+      }
+    },
+    [recents, warehouse, handleRemoteFileSelect, handleLocalFileSelect, refetchRecents]
+  );
+
+  const removeRecent = useCallback(
+    async (item: RecentItem) => {
+      if (item.kind === "warehouse") await warehouse.deleteSaved(item.id);
+      else await apiRemoveRecent(item.id).then(refetchRecents);
+    },
+    [warehouse, refetchRecents]
+  );
+
+  const renameRecent = useCallback(
+    (item: RecentItem, name: string) => {
+      if (item.kind === "warehouse") warehouse.renameSaved(item.id, name);
+      else void apiRenameRecent(item.id, name).then(refetchRecents);
+    },
+    [warehouse, refetchRecents]
+  );
+
+  const clearRecents = useCallback(() => {
+    // Clears the file/cloud history; saved warehouse connections persist (remove
+    // those individually).
+    void apiClearRecent().then(refetchRecents);
+  }, [refetchRecents]);
+
+  // Schema-sidebar "refresh" — re-read the current source's schema, ignoring the
+  // cache. Only cache-backed sources (warehouse / remote Parquet) offer it; an
+  // uploaded CSV has no source to re-read. A remote-Parquet source shows as a
+  // CSV sourceType but has a retained remote ref (refreshRemote no-ops otherwise).
+  const onRefreshSchema = warehouse.isConnected
+    ? warehouse.refresh
+    : hasRemoteSource
+      ? refreshRemote
+      : undefined;
+
   const handleReset = useCallback(() => {
     reset();
     warehouse.reset();
-    resetPage();
-    setLoadedVizId(null);
+    resetPage(); // RESET returns to initialState → loadedVizId/refreshStage null
     setShowWarehouseForm(false);
-    setShowLocalBrowser(false);
-    setIsExtractingLocalSchema(false);
-  }, [reset, warehouse, resetPage]);
+    resetSourceSelect();
+  }, [reset, warehouse, resetPage, resetSourceSelect]);
 
-  const handleLocalFileSelect = useCallback(
-    async (path: string, type: "file" | "folder") => {
-      setIsExtractingLocalSchema(true);
-      try {
-        const data = await extractLocalSchema(path, type);
-        if (data.csv_id && data.schema) {
-          handleUpload(data.csv_id, data.schema);
-          setShowLocalBrowser(false);
-        } else if (data.excel_id && data.sheets) {
-          handleExcelSheets(
-            data.excel_id,
-            data.filename ?? "local.xlsx",
-            data.sheets!,
-            data.relationships ?? []
-          );
-          setShowLocalBrowser(false);
-        }
-      } catch (err) {
-        console.error("Local file schema extraction failed:", err);
-      } finally {
-        setIsExtractingLocalSchema(false);
-      }
-    },
-    [handleUpload, handleExcelSheets]
-  );
+  // Saved-viz load / re-run / refresh + auto-save-after-rerun — see
+  // use-viz-actions.ts. Owns the hidden rerun file input's ref.
+  const {
+    fileInputRef,
+    handleLoadViz,
+    handleRerunViz,
+    handleRerunFileSelected,
+    handleRerunFromToolbar,
+    handleRefreshViz,
+    handleRefreshFromToolbar,
+  } = useVizActions({
+    dispatch,
+    handleUpload,
+    loadWorkbookUpload,
+    warehouseId: warehouse.warehouseId,
+    sandboxRuntime,
+    loadedVizId,
+    isAnalyzing,
+    pendingRerunVizId,
+    csvId,
+    loadedSpec,
+    currentQuestion,
+  });
 
-  // Shared upload path: used by both the hidden <input> and files dropped
-  // directly onto the upload card. Routes Excel workbooks to the sheet picker.
-  const processUploadFile = useCallback(
-    async (file: File) => {
-      try {
-        const formData = new FormData();
-        formData.append("csv", file);
-        const data = await uploadFile(formData);
-        if (data.excel_id && data.sheets) {
-          handleExcelSheets(
-            data.excel_id,
-            data.filename ?? file.name,
-            data.sheets,
-            data.relationships ?? []
-          );
-        } else if (data.csv_id && data.schema) {
-          handleUpload(data.csv_id, data.schema);
-        }
-      } catch (err) {
-        console.error("Upload failed:", err);
-      }
-    },
-    [handleExcelSheets, handleUpload]
-  );
-
-  const handleSampleData = useCallback(async () => {
-    try {
-      const response = await fetch("/sample-data/sales-data.csv");
-      const blob = await response.blob();
-      const file = new File([blob], "sales-data.csv", { type: "text/csv" });
-      const formData = new FormData();
-      formData.append("csv", file);
-      const data = await uploadFile(formData);
-      if (data.csv_id && data.schema) {
-        handleUpload(data.csv_id, data.schema);
-      }
-    } catch (err) {
-      console.error("Sample data load failed:", err);
-    }
-  }, [handleUpload]);
-
-  const handleLoadViz = useCallback(
-    async (vizId: string) => {
-      dispatch({ type: "LOAD_VIZ_START" });
-      try {
-        const data = await loadViz(vizId);
-        if (data.workbook) {
-          loadWorkbookUpload(
-            data.csvId,
-            data.schema,
-            data.workbook.filename,
-            data.workbook.sheetInfo,
-            data.workbook.relationships
-          );
-        } else {
-          handleUpload(data.csvId, data.schema);
-        }
-        dispatch({
-          type: "LOAD_VIZ_SUCCESS",
-          question: data.meta.question,
-          spec: data.spec as unknown as Spec,
-          artifacts: data.artifacts ?? null,
-        });
-        setLoadedVizId(vizId);
-      } catch (err) {
-        console.error("Load viz failed:", err);
-        dispatch({ type: "LOAD_VIZ_ERROR" });
-      }
-    },
-    [handleUpload, loadWorkbookUpload, dispatch]
-  );
-
-  const handleRerunViz = useCallback((vizId: string) => {
-    rerunVizIdRef.current = vizId;
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleRerunFileSelected = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      const vizId = rerunVizIdRef.current;
-      if (!file || !vizId) return;
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      dispatch({ type: "RERUN_START" });
-      try {
-        const result = await rerunViz(vizId, file, sandboxRuntime);
-        if (result.schemaMatch) {
-          handleUpload(result.csvId, result.schema);
-          dispatch({
-            type: "RERUN_FAST_SUCCESS",
-            spec: result.spec as unknown as Spec,
-            artifacts: result.artifacts ?? null,
-          });
-          setLoadedVizId(vizId);
-        } else {
-          handleUpload(result.csvId, result.schema);
-          dispatch({ type: "RERUN_STREAM_START", question: result.question!, vizId });
-          setLoadedVizId(vizId);
-        }
-      } catch (err) {
-        console.error("Rerun failed:", err);
-        dispatch({ type: "RERUN_ERROR" });
-      }
-    },
-    [dispatch, handleUpload, sandboxRuntime]
-  );
-
-  const handleRerunFromToolbar = useCallback(() => {
-    if (loadedVizId) handleRerunViz(loadedVizId);
-  }, [loadedVizId, handleRerunViz]);
-
-  const handleRefreshViz = useCallback(
-    async (vizId: string) => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      dispatch({ type: "RERUN_START" });
-      setRefreshStage("loading");
-      try {
-        // Brief delay so "loading" stage is visible before the fetch begins
-        await new Promise((r) => setTimeout(r, 100));
-        setRefreshStage("executing");
-        const result = await refreshViz(vizId, warehouse.warehouseId, sandboxRuntime);
-        setRefreshStage("composing");
-        handleUpload(result.csvId, result.schema);
-        dispatch({
-          type: "RERUN_FAST_SUCCESS",
-          spec: result.spec as unknown as Spec,
-          artifacts: result.artifacts ?? null,
-        });
-        setLoadedVizId(vizId);
-      } catch (err) {
-        console.error("Refresh failed:", err);
-        dispatch({ type: "RERUN_ERROR" });
-      } finally {
-        setRefreshStage(null);
-      }
-    },
-    [dispatch, handleUpload, warehouse.warehouseId, sandboxRuntime]
-  );
-
-  const handleRefreshFromToolbar = useCallback(() => {
-    if (loadedVizId) handleRefreshViz(loadedVizId);
-  }, [loadedVizId, handleRefreshViz]);
-
-  // Auto-save after incompatible rerun
-  useEffect(() => {
-    if (!isAnalyzing && pendingRerunVizId && csvId && loadedSpec) {
-      saveViz(csvId, loadedSpec, currentQuestion ?? "Analysis", pendingRerunVizId)
-        .then(() => {
-          dispatch({ type: "CLEAR_PENDING_RERUN" });
-          dispatch({ type: "VIZ_SAVED" });
-        })
-        .catch((err) => {
-          console.error("Auto-save after rerun failed:", err);
-          dispatch({ type: "CLEAR_PENDING_RERUN" });
-        });
-    }
-  }, [isAnalyzing, pendingRerunVizId, csvId, loadedSpec, currentQuestion, dispatch]);
-
-  // ── Follow-up suggestions: fire after each successful analysis ────
-  // Keyed on (csvId + question) so the same analysis doesn't re-fetch on rerenders,
-  // and so a fresh question or a fresh source clears the prior follow-ups.
+  // ── Question suggestions (initial + follow-up) — see use-suggestions.ts ──
   // Drives off `lastCompleteSpec` (captured from ResponsePanel.onAnalysisComplete),
   // not pageState.loadedSpec — the latter is only set when LOADING a saved viz,
   // not after a fresh stream.
-  //
-  // IMPORTANT: do NOT include any value that's set asynchronously inside this
-  // effect (e.g. fetched artifacts) in the deps. Otherwise the artifacts-set
-  // re-render would tear down this effect and AbortController.abort() would
-  // cancel the in-flight follow-up fetch. The artifacts fetch happens INSIDE
-  // the effect below for that reason.
-  useEffect(() => {
-    // TEMPORARY DIAGNOSTIC LOGGING — prefixed [follow-up] so it's easy to
-    // grep in the browser console. Remove once the issue is confirmed fixed.
-    console.log("[follow-up] effect tick", {
-      isAnalyzing,
-      hasLastCompleteSpec: !!lastCompleteSpec,
-      hasSpecRoot: !!lastCompleteSpec?.root,
-      currentQuestion,
-      hasSchema: !!schema,
-      warehouseTables: warehouse.tableSchemas.length,
-      effectiveCsvId,
-      csvId,
-      warehouseId: warehouse.warehouseId,
-      followUpKey,
-    });
-
-    if (isAnalyzing) {
-      console.log("[follow-up] gate: isAnalyzing → bail");
-      return;
-    }
-    if (!lastCompleteSpec || !currentQuestion) {
-      console.log("[follow-up] gate: missing spec or question → bail", {
-        hasSpec: !!lastCompleteSpec,
-        hasQuestion: !!currentQuestion,
-      });
-      return;
-    }
-    if (!schema && !warehouse.tableSchemas.length) {
-      console.log("[follow-up] gate: no schema or warehouse → bail");
-      return;
-    }
-
-    const key = `${effectiveCsvId ?? csvId ?? warehouse.warehouseId ?? ""}|${currentQuestion}`;
-    if (key === followUpKey) {
-      console.log("[follow-up] gate: key matches prior → already fetched", { key });
-      return;
-    }
-    console.log("[follow-up] all gates passed; firing fetch", { key });
-
-    setFollowUpKey(key);
-    setFollowUpSuggestions([]); // clear previous while loading
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-
-    const body = schema
-      ? {
-          schema: {
-            row_count: schema.row_count,
-            columns: schema.columns,
-            detected_domain: schema.detected_domain,
-            correlations: schema.correlations,
-          },
-        }
-      : { warehouseSchema: warehouse.tableSchemas };
-
-    const cid = effectiveCsvId ?? csvId;
-    const specSummary = extractSpecComponentTypes(lastCompleteSpec);
-
-    (async () => {
-      let resultsSummary: Record<string, string> | undefined;
-      if (cid) {
-        try {
-          const artifacts = await getArtifacts(cid);
-          if (controller.signal.aborted) {
-            console.log("[follow-up] aborted after artifacts fetch");
-            return;
-          }
-          resultsSummary = summarizeAnalysisResults(artifacts.results);
-          console.log("[follow-up] artifacts fetched", {
-            keys: Object.keys(resultsSummary).length,
-          });
-        } catch (err) {
-          console.warn("[follow-up] artifacts fetch failed (continuing)", err);
-        }
-      }
-
-      try {
-        console.log("[follow-up] calling /api/suggest follow-up...");
-        const questions = await getFollowUpSuggestions(
-          {
-            ...body,
-            question: currentQuestion,
-            resultsSummary,
-            specSummary,
-          },
-          controller.signal
-        );
-        clearTimeout(timeout);
-        if (controller.signal.aborted) {
-          console.log("[follow-up] aborted before setState");
-          return;
-        }
-        console.log(`[follow-up] received ${questions.length} questions:`, questions);
-        setFollowUpSuggestions(questions);
-      } catch (err) {
-        clearTimeout(timeout);
-        console.warn("[follow-up] suggestion fetch failed", err);
-      }
-    })();
-
-    return () => {
-      console.log("[follow-up] cleanup running (controller.abort + clearTimeout)");
-      clearTimeout(timeout);
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
+  const { suggestions, followUpSuggestions } = useSuggestions({
+    schema,
+    warehouse,
     isAnalyzing,
-    lastCompleteSpec,
     currentQuestion,
+    lastCompleteSpec,
     effectiveCsvId,
     csvId,
-    warehouse.warehouseId,
-  ]);
+    // Switching sources resets source-scoped page state.
+    onSourceChange: () => setAnalysisHistory([]),
+  });
 
-  // Clear the captured spec (and follow-ups) when a new analysis starts so
-  // stale follow-ups don't linger from the previous question while the new
-  // dashboard is composing.
+  // Clear the captured spec when a new analysis starts so stale follow-ups
+  // don't linger from the previous question while the new dashboard composes.
   useEffect(() => {
-    console.log("[follow-up] isAnalyzing changed →", isAnalyzing);
-    if (isAnalyzing) {
-      setLastCompleteSpec(null);
-      setFollowUpSuggestions([]);
-    }
+    if (isAnalyzing) setLastCompleteSpec(null);
   }, [isAnalyzing]);
 
   // Status now driven by ResponsePanel's PipelineProgress (real pipeline stages)
@@ -757,6 +530,36 @@ export default function Home() {
   const isState2 = hasData && !isAnalyzing && !hasResults;
   const isState3 = isAnalyzing;
   const isState4 = hasData && !isAnalyzing && hasResults;
+
+  // ── Reconnect to a run that survived a client drop (reload / HMR) ──
+  // When the page had no source loaded (fresh tab), offer to resume an analysis
+  // still executing server-side; resuming restores the source and reattaches
+  // ResponsePanel to the live stream (see run-stream-hub / useActiveRuns).
+  const [reattachRunId, setReattachRunId] = useState<string | null>(null);
+  const activeRuns = useActiveRuns({ enabled: isState1 });
+  const resumeActiveRun = useCallback(
+    async (run: ActiveRun) => {
+      if (!run.csvId) return;
+      const restored = await getSchemaByCsvId(run.csvId);
+      if (!restored) {
+        activeRuns.dismiss(run.runId); // source expired — nothing to reattach to
+        return;
+      }
+      handleUpload(restored.csv_id, restored.schema); // hasData → true, mounts ResponsePanel
+      setReattachRunId(run.runId);
+      handleQuery(
+        run.question || "Analysis",
+        run.route.includes("investigate") ? "investigate" : "ask"
+      );
+    },
+    [handleUpload, handleQuery, activeRuns]
+  );
+  // Clear the reattach marker whenever a stream ends, so the next follow-up runs
+  // through the normal pipeline rather than the attach endpoint.
+  const handleStreamEndReattachAware = useCallback(() => {
+    handleStreamEnd();
+    setReattachRunId(null);
+  }, [handleStreamEnd]);
 
   // Build profile strip items from schema or warehouse
   const profileItems: string[] = [];
@@ -772,81 +575,6 @@ export default function Home() {
     profileItems.push(`${warehouse.tableCount} tables`);
     profileItems.push(`${warehouse.totalColumns} columns`);
   }
-
-  // Data-specific question suggestions: heuristic (instant) + LLM (async upgrade)
-  const heuristicSuggestions = useMemo(() => {
-    if (schema) return generateSuggestions(schema);
-    if (warehouse.isConnected && warehouse.tableSchemas.length > 0) {
-      return generateWarehouseSuggestions(warehouse.tableSchemas);
-    }
-    return [];
-  }, [schema, warehouse.isConnected, warehouse.tableSchemas]);
-
-  const [llmSuggestions, setLlmSuggestions] = useState<string[] | null>(null);
-  const [llmFailed, setLlmFailed] = useState(false);
-  const [prevSchemaKey, setPrevSchemaKey] = useState<string | null>(null);
-  const schemaKey = schema
-    ? `csv:${schema.csv_id}`
-    : warehouse.isConnected
-      ? `wh:${warehouse.warehouseId}`
-      : null;
-  if (schemaKey !== prevSchemaKey) {
-    setPrevSchemaKey(schemaKey);
-    if (schemaKey) {
-      setLlmSuggestions(null);
-      setLlmFailed(false);
-      setAnalysisHistory([]);
-    }
-  }
-
-  // Fetch LLM-powered suggestions; fall back to heuristics on failure or 8s timeout
-  useEffect(() => {
-    if (!schemaKey) return;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-      setLlmFailed(true);
-    }, 8000);
-
-    const body = schema
-      ? {
-          schema: {
-            row_count: schema.row_count,
-            columns: schema.columns,
-            detected_domain: schema.detected_domain,
-            correlations: schema.correlations,
-          },
-        }
-      : { warehouseSchema: warehouse.tableSchemas };
-
-    fetch("/api/suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        clearTimeout(timeout);
-        if (!controller.signal.aborted && data.questions?.length) {
-          setLlmSuggestions(data.questions);
-        } else {
-          setLlmFailed(true);
-        }
-      })
-      .catch(() => {
-        clearTimeout(timeout);
-        if (!controller.signal.aborted) setLlmFailed(true);
-      });
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemaKey]);
-
-  // LLM first; heuristics only if LLM failed or timed out
-  const suggestions = llmSuggestions ?? (llmFailed ? heuristicSuggestions : []);
 
   // Source label for top bar pill
   const sourceLabel = schema
@@ -975,6 +703,17 @@ export default function Home() {
                 >
                   {saving ? "✓" : "Save"}
                 </button>
+                {/* Save/export status — failures were previously silent from
+                    the toolbar (the only consumer of saveMessage was a dead
+                    hook instance in ResponsePanel). */}
+                {saveMessage && (
+                  <span
+                    role="status"
+                    className={`text-xs ${saveMessage.includes("fail") ? "text-error-text" : "text-t-tertiary"}`}
+                  >
+                    {saveMessage}
+                  </span>
+                )}
                 <button
                   onClick={handleScheduleClick}
                   disabled={scheduleState.kind === "auto-saving" || saving || !!exporting}
@@ -1108,8 +847,8 @@ export default function Home() {
             : null
         }
         savedConnections={warehouse.savedConnections}
-        onConnect={(config) =>
-          warehouse.connect(config as unknown as Parameters<typeof warehouse.connect>[0])
+        onConnect={(config, force) =>
+          warehouse.connect(config as unknown as Parameters<typeof warehouse.connect>[0], force)
         }
         onDisconnect={warehouse.disconnect}
         onDeleteSaved={warehouse.deleteSaved}
@@ -1152,6 +891,8 @@ export default function Home() {
           warehouseSchemas={warehouse.tableSchemas}
           warehouseId={warehouse.warehouseId}
           fullscreen={railFullscreen}
+          onRefreshSchema={onRefreshSchema}
+          isRefreshing={isExtractingLocalSchema || warehouse.isConnecting}
         />
       </DataRail>
 
@@ -1196,6 +937,7 @@ export default function Home() {
             open={showLocalBrowser}
             onClose={() => setShowLocalBrowser(false)}
             onSelect={handleLocalFileSelect}
+            onSelectRemote={handleRemoteFileSelect}
             isExtracting={isExtractingLocalSchema}
           />
 
@@ -1256,6 +998,27 @@ export default function Home() {
                 </p>
               </div>
 
+              {/* Analyses still running server-side after this tab lost their
+                  live view (reload / HMR) — one click to reattach to the stream. */}
+              <ActiveRunsBanner
+                runs={activeRuns.runs}
+                onResume={resumeActiveRun}
+                onDismiss={activeRuns.dismiss}
+              />
+
+              {/* Unified "Recent" history — uploads, local/cloud files, and saved
+                  warehouses. One click to re-open; no re-pasting URLs or
+                  re-browsing. Subsumes the warehouse-only tray. */}
+              <RecentSources
+                items={recentItems}
+                busyId={busyRecentId}
+                onOpen={(item) => reopenRecent(item)}
+                onRefresh={(item) => reopenRecent(item, true)}
+                onRemove={removeRecent}
+                onRename={renameRecent}
+                onClearAll={clearRecents}
+              />
+
               <SourceCards
                 onFileDrop={() => {
                   if (uploadInputRef.current) uploadInputRef.current.value = "";
@@ -1279,22 +1042,12 @@ export default function Home() {
                   setShowLocalBrowser(true);
                 }}
                 onSampleData={handleSampleData}
-                savedConnections={warehouse.savedConnections.map((c) => ({
-                  id: c.id,
-                  type: c.config.type,
-                  name: c.label,
-                  host: "host" in c.config ? c.config.host : c.config.type,
-                }))}
-                onSavedConnect={(id) => {
-                  const saved = warehouse.savedConnections.find((c) => c.id === id);
-                  if (saved) warehouse.connect(saved.config);
-                }}
               />
 
               <InlineConnectionForm
                 visible={showWarehouseForm}
-                onConnect={(config) =>
-                  warehouse.connect(config as Parameters<typeof warehouse.connect>[0])
+                onConnect={(config, force) =>
+                  warehouse.connect(config as Parameters<typeof warehouse.connect>[0], force)
                 }
               />
 
@@ -1416,10 +1169,10 @@ export default function Home() {
                   question={currentQuestion}
                   questionSeq={questionSeq}
                   mode={currentMode}
-                  onStreamEnd={handleStreamEnd}
+                  reattachRunId={reattachRunId}
+                  onStreamEnd={handleStreamEndReattachAware}
                   loadedSpec={loadedSpec}
                   loadedArtifacts={loadedArtifacts}
-                  onSaved={handleSaved}
                   schemaMode={schemaMode}
                   codeGenModel={codeGenModel}
                   uiComposeModel={uiComposeModel}
@@ -1514,154 +1267,5 @@ export default function Home() {
         />
       )}
     </>
-  );
-}
-
-// ── Payoff preview strip ──────────────────────────────────────
-// Two real Hermetic-generated dashboards (light + dark) shown as framed
-// thumbnails so a first-time visitor sees the output before committing data.
-
-const PREVIEWS = [
-  {
-    src: "/previews/dashboard-light.png",
-    alt: "Generated dashboard: scatter, radar, and a statistical test",
-    w: 1100,
-    h: 557,
-  },
-  {
-    src: "/previews/dashboard-dark.png",
-    alt: "Generated sales dashboard with KPIs, filters, and charts",
-    w: 900,
-    h: 620,
-  },
-] as const;
-
-function PreviewStrip() {
-  return (
-    <div className="flex w-full flex-col items-center gap-2" style={{ maxWidth: 700 }}>
-      <div
-        className="source-cards-grid grid w-full"
-        style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}
-      >
-        {PREVIEWS.map((p) => (
-          <div
-            key={p.src}
-            style={{
-              overflow: "hidden",
-              borderRadius: "var(--radius-card)",
-              border: "1px solid var(--color-border-default)",
-              boxShadow: "var(--shadow-card)",
-            }}
-          >
-            <Image
-              src={p.src}
-              alt={p.alt}
-              width={p.w}
-              height={p.h}
-              unoptimized
-              sizes="(max-width: 767px) 100vw, 342px"
-              style={{
-                display: "block",
-                width: "100%",
-                height: 200,
-                objectFit: "cover",
-                objectPosition: "center",
-              }}
-            />
-          </div>
-        ))}
-      </div>
-      <span className="text-t-tertiary" style={{ fontSize: 12 }}>
-        Real dashboards generated from one question — charts, stats, and narrative.
-      </span>
-    </div>
-  );
-}
-
-// ── Refresh progress stepper ──────────────────────────────────
-
-const REFRESH_STEPS = [
-  { key: "loading", label: "Loaded saved analysis", activeLabel: "Loading saved analysis..." },
-  { key: "executing", label: "Ran computations", activeLabel: "Running computations..." },
-  { key: "composing", label: "Composed dashboard", activeLabel: "Composing dashboard..." },
-] as const;
-
-function RefreshProgress({
-  stage,
-}: {
-  stage: "loading" | "querying" | "executing" | "composing" | null;
-}) {
-  const stageIndex =
-    stage === "loading"
-      ? 0
-      : stage === "querying"
-        ? 0
-        : stage === "executing"
-          ? 1
-          : stage === "composing"
-            ? 2
-            : -1;
-
-  return (
-    <div className="flex justify-center py-16" role="status" aria-live="polite">
-      <div
-        className="grid gap-x-8 gap-y-1.5 text-sm"
-        style={{ gridTemplateColumns: "repeat(2, auto)" }}
-      >
-        {REFRESH_STEPS.map((step, i) => {
-          const isCompleted = i < stageIndex;
-          const isActive = i === stageIndex;
-
-          if (isCompleted) {
-            return (
-              <div key={step.key} className="flex items-center gap-2 text-t-secondary">
-                <svg
-                  className="h-4 w-4 text-success-text"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {step.label}
-              </div>
-            );
-          }
-
-          if (isActive) {
-            return (
-              <div key={step.key} className="flex items-center gap-2 font-medium text-accent">
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                {step.activeLabel}
-              </div>
-            );
-          }
-
-          return (
-            <div key={step.key} className="flex items-center gap-2 text-t-tertiary">
-              <span className="inline-block h-4 w-4" />
-              {step.label}
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }

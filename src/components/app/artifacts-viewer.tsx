@@ -557,7 +557,7 @@ export function ArtifactsViewer({
               </span>
             )}
             {rerunState.kind === "error" && tab === "sql" && (
-              <span style={{ fontSize: 11, color: "#f87171", marginLeft: 4 }}>
+              <span style={{ fontSize: 11, color: "var(--color-error-text)", marginLeft: 4 }}>
                 {rerunState.message}
               </span>
             )}
@@ -637,12 +637,12 @@ export function ArtifactsViewer({
               </span>
             )}
             {rerunState.kind === "success" && (
-              <span style={{ fontSize: 11, color: "#10b981", marginLeft: 4 }}>
+              <span style={{ fontSize: 11, color: "var(--color-success-text)", marginLeft: 4 }}>
                 ✓ executed — see Data tab
               </span>
             )}
             {rerunState.kind === "error" && (
-              <span style={{ fontSize: 11, color: "#f87171", marginLeft: 4 }}>
+              <span style={{ fontSize: 11, color: "var(--color-error-text)", marginLeft: 4 }}>
                 {rerunState.message}
               </span>
             )}
@@ -702,10 +702,10 @@ export function ArtifactsViewer({
 // ── Investigation trail ───────────────────────────────────────────────
 
 const STATUS_STYLE: Record<TraceStep["status"], { label: string; color: string }> = {
-  success: { label: "✓ success", color: "var(--color-success-text, #10b981)" },
-  degraded: { label: "▲ degraded", color: "#d97706" },
-  failed: { label: "✕ failed", color: "#ef4444" },
-  removed: { label: "— dropped", color: "var(--color-t-tertiary, #9ca3af)" },
+  success: { label: "✓ success", color: "var(--color-success-text)" },
+  degraded: { label: "▲ degraded", color: "var(--color-warning-text)" },
+  failed: { label: "✕ failed", color: "var(--color-error-text)" },
+  removed: { label: "— dropped", color: "var(--color-t-tertiary)" },
 };
 
 const SOURCE_LABEL: Record<TraceStep["source"], string> = {
@@ -756,12 +756,12 @@ function InvestigationTrail({
           {g.checkedCount === 0 ? (
             <p className="mt-1 text-t-secondary">No quantitative claims to verify.</p>
           ) : g.ok ? (
-            <p className="mt-1" style={{ color: "var(--color-success-text, #10b981)" }}>
+            <p className="mt-1" style={{ color: "var(--color-success-text)" }}>
               ✓ All {g.checkedCount} figure{g.checkedCount === 1 ? "" : "s"} in the narrative trace
               to a computed result.
             </p>
           ) : (
-            <p className="mt-1" style={{ color: "#d97706" }}>
+            <p className="mt-1" style={{ color: "var(--color-warning-text)" }}>
               ▲ {g.ungrounded.length} figure{g.ungrounded.length === 1 ? "" : "s"} could not be
               traced to a computed result — verify before relying on{" "}
               {g.ungrounded.length === 1 ? "it" : "them"}:{" "}
@@ -800,9 +800,7 @@ function InvestigationTrail({
                 className="border px-3 py-2"
                 style={{
                   borderRadius: "var(--radius-card)",
-                  borderColor: isActive
-                    ? "var(--color-accent, #059669)"
-                    : "var(--color-border-default, #e5e7eb)",
+                  borderColor: isActive ? "var(--color-accent)" : "var(--color-border-default)",
                   background: isActive ? "var(--color-accent-subtle, transparent)" : "transparent",
                   opacity: step.status === "removed" ? 0.6 : 1,
                 }}
@@ -831,12 +829,12 @@ function InvestigationTrail({
                   <div className="mt-0.5 text-xs text-t-tertiary">{step.rationale}</div>
                 )}
                 {step.degradedReason && (
-                  <div className="mt-1 text-xs" style={{ color: "#d97706" }}>
+                  <div className="mt-1 text-xs" style={{ color: "var(--color-warning-text)" }}>
                     Validator: {step.degradedReason}
                   </div>
                 )}
                 {step.error && (
-                  <div className="mt-1 text-xs" style={{ color: "#ef4444" }}>
+                  <div className="mt-1 text-xs" style={{ color: "var(--color-error-text)" }}>
                     Error: {step.error.slice(0, 200)}
                   </div>
                 )}

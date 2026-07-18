@@ -1,4 +1,5 @@
 import { removeWarehouse } from "@/lib/warehouse/storage";
+import { apiError } from "@/lib/api-error";
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +12,6 @@ export async function POST(request: Request) {
     removeWarehouse(warehouse_id);
     return Response.json({ ok: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/warehouse/disconnect", err, "Unknown error");
   }
 }

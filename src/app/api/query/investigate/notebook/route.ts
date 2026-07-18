@@ -7,6 +7,7 @@
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { NotebookLayout, NotebookLayoutCell } from "@/lib/pipeline/investigation-trace";
 import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 
 export const maxDuration = 30;
 
@@ -60,8 +61,6 @@ export async function POST(request: Request) {
     });
     return Response.json({ ok: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Save failed";
-    logger.error("Notebook layout save failed", { error: msg });
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/query/investigate/notebook", err, "Save failed");
   }
 }

@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   sanitizeSheetName,
   buildWorkbookContext,
-  buildRetryPrompt,
   buildRetryPromptMulti,
   buildCodeGenSystemPrompt,
   buildCodeGenUserPrompt,
@@ -62,6 +61,102 @@ describe("sanitizeSheetName", () => {
   it("does not truncate long names (no length cap is enforced)", () => {
     const long = "a".repeat(40);
     expect(sanitizeSheetName(long)).toBe(long);
+  });
+});
+
+// ── geospatial guidance in the codegen prompt ─────────────────────
+
+describe("buildCodeGenUserPrompt — geospatial guidance", () => {
+  // TEST-9 pinning policy: assert STRUCTURAL sentinels (section labels like
+  // "ENGINE-FIRST" / "NAMED REGION = POLYGON, NOT A BOX") and CODE TOKENS the
+  // guidance names (ST_Distance_Sphere, results["analysis_scope"]) — never
+  // prose sentence fragments. Prose gets reworded on every prompt-tuning pass
+  // and has broken this suite before; labels and tokens are the contract.
+  it("adds spatial guidance when a geometry column is present", () => {
+    const s = schema("buildings.parquet", [catColumn("id"), catColumn("geometry")]);
+    const prompt = buildCodeGenUserPrompt(s, "which building is most isolated?");
+    expect(prompt).toContain("Geospatial analysis");
+    // Code tokens the guidance is about (stable across rewording):
+    expect(prompt).toContain("::GEOGRAPHY");
+    expect(prompt).toContain("ST_Distance_Sphere");
+    expect(prompt).toContain("ST_GeomFromWKB");
+    expect(prompt).toContain("cKDTree");
+    expect(prompt).toContain('results["analysis_scope"]');
+    // Section sentinels:
+    expect(prompt).toContain("O(n^2)");
+    expect(prompt).toContain("ENGINE-FIRST");
+    expect(prompt).toContain("MEMORY-SAFE KD-tree");
+    expect(prompt).toContain("GRID self-join");
+    expect(prompt).toContain("PROJECT TO METERS FIRST");
+    expect(prompt).toContain("SCOPE DISCLOSURE");
+    // Planet-scale coarse-to-fine: route by size, then COUNT (GROUP BY) — never
+    // materialize the tail. These are the hard-won anti-OOM rules; keep them.
+    expect(prompt).toContain("ROUTE BY SIZE FIRST");
+    expect(prompt).toContain("PLANET-SCALE / DOESN'T-FIT");
+    expect(prompt).toContain("EXACT CELL COUNTS via GROUP BY");
+    expect(prompt).toContain("GROUP BY cx, cy");
+    expect(prompt).toContain("BRANCH-AND-BOUND");
+    // Leaf must be point-anchored (not ring-materialization) — the second OOM.
+    expect(prompt).toContain("POINT-ANCHORED");
+  });
+
+  it("adds bbox-pushdown guidance when a bbox struct column is present", () => {
+    const s = schema("buildings.parquet", [
+      catColumn("id"),
+      catColumn("geometry"),
+      catColumn("bbox"),
+    ]);
+    const prompt = buildCodeGenUserPrompt(s, "buildings in a region");
+    expect(prompt).toContain("bbox STRUCT column");
+    // Section sentinel + the code expression the tip prescribes:
+    expect(prompt).toContain("NAMED REGION = POLYGON, NOT A BOX");
+    expect(prompt).toContain("(bbox.xmin+bbox.xmax)/2");
+    expect(prompt).toContain("division_area");
+    expect(prompt).toContain("ST_Union_Agg");
+    // The divisions-side cost rule: the boundary polygon must be fetched via
+    // the cheap bbox-extent pass first — a one-shot name-filtered
+    // ST_Union_Agg reads the global geometry column and blows the budget.
+    expect(prompt).toContain("BOUNDARY LOOKUP IS TWO-PHASE");
+    expect(prompt).toContain("MIN(bbox.xmin)");
+    // The per-point containment cost lever: simplify the (materialized)
+    // boundary — mandatory for a detailed state/country polygon.
+    expect(prompt).toContain("ST_Simplify");
+    expect(prompt).toContain("CREATE TEMP TABLE region");
+    // Planet-scale unbounded superlative: metadata-first coarse-to-fine, so a
+    // global "loneliest building" doesn't attempt a doomed 2.5B-row full scan.
+    expect(prompt).toContain("PLANET-SCALE");
+    expect(prompt).toContain("parquet_metadata");
+    // Overture `names` is a STRUCT — must project names.primary, never the raw
+    // struct (materializing/loading it OOM-killed a California run), and the
+    // KD-tree frame stays numeric while display cols hydrate the winners only.
+    expect(prompt).toContain("names.primary AS name");
+    expect(prompt).toContain("nested STRUCT");
+    expect(prompt).toContain("SELECT rowid, lon, lat");
+  });
+
+  it("omits bbox guidance when there is no bbox column", () => {
+    const s = schema("pts.parquet", [catColumn("id"), catColumn("geometry")]);
+    const prompt = buildCodeGenUserPrompt(s, "isolated points");
+    expect(prompt).toContain("Geospatial analysis");
+    expect(prompt).not.toContain("bbox STRUCT column");
+  });
+
+  it("omits spatial guidance for non-geo data", () => {
+    const s = schema("sales.csv", [catColumn("region"), catColumn("product")]);
+    const prompt = buildCodeGenUserPrompt(s, "top products");
+    expect(prompt).not.toContain("Geospatial analysis");
+    expect(prompt).not.toContain("GEOGRAPHY");
+  });
+
+  it("does not duplicate spatial guidance for a GeoJSON upload (its own section handles geometry)", () => {
+    const s: CSVSchema = {
+      ...schema("map.geojson", [catColumn("name"), catColumn("geometry")]),
+      has_geojson: true,
+      geojson_geometry_type: "Polygon",
+    };
+    const prompt = buildCodeGenUserPrompt(s, "map it");
+    expect(prompt).not.toContain("Geospatial analysis (spatial extension is loaded)");
+    expect(prompt).toContain("GeoJSON Source");
   });
 });
 
@@ -161,11 +256,11 @@ describe("buildWorkbookContext", () => {
   });
 });
 
-// ── buildRetryPrompt / buildRetryPromptMulti ──────────────────────
+// ── buildRetryPromptMulti (the ONLY retry-prompt builder production uses) ──
 
-describe("buildRetryPrompt", () => {
+describe("buildRetryPromptMulti — single attempt", () => {
   it("embeds the original code and error, labelled as the previous code", () => {
-    const out = buildRetryPrompt("print(broken)", "NameError: broken");
+    const out = buildRetryPromptMulti([{ code: "print(broken)", error: "NameError: broken" }]);
     expect(out).toContain("Your previous code failed. Fix it.");
     expect(out).toContain("### Your previous code");
     expect(out).toContain("print(broken)");
@@ -176,7 +271,7 @@ describe("buildRetryPrompt", () => {
 
   it("includes a schema context block when a schema is provided", () => {
     const s = schema("data.csv", [catColumn("region")], 42);
-    const out = buildRetryPrompt("code", "err", s);
+    const out = buildRetryPromptMulti([{ code: "code", error: "err" }], s);
     expect(out).toContain("## Available Columns");
     expect(out).toContain("Filename: data.csv (42 rows)");
     expect(out).toContain("- region (string)");

@@ -1,6 +1,7 @@
 import { executeSandbox as e2bExecutor } from "./executor";
 import { executeSandbox as dockerExecutor } from "./docker-executor";
 import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
+import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
 import { getWarmManager } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -29,6 +30,130 @@ def _safe_dumps(*a, **kw):
     return _orig_dumps(*a, **kw)
 _json_mod.dump = _safe_dump
 _json_mod.dumps = _safe_dumps
+
+# ── Live progress (auto-injected) ────────────────────────────────────────────
+# progress(phase, detail, **fields) prints a {"__progress": {...}} JSONL line to
+# stdout; the server streams it to the UI. A daemon thread re-emits the current
+# phase + elapsed every few seconds, so even a long SILENT scan shows "still
+# running, 12m" — progress is guaranteed regardless of what the analysis code
+# prints. Call progress("scanning California buildings") at phase boundaries;
+# pass fraction=0..1 or rows=/total_rows= when you can (e.g. a DuckDB scan).
+import sys as _sys, time as _time, threading as _threading
+_hb = {"phase": "starting", "detail": None, "started": _time.time()}
+def progress(phase=None, detail=None, **fields):
+    if phase is not None: _hb["phase"] = phase
+    if detail is not None: _hb["detail"] = detail
+    p = {"phase": _hb["phase"], "elapsed_ms": int((_time.time() - _hb["started"]) * 1000)}
+    if _hb["detail"] is not None: p["detail"] = _hb["detail"]
+    for _k, _v in fields.items(): p[_k] = _v
+    try:
+        _sys.stdout.write(_json_mod.dumps({"__progress": p}) + "\\n"); _sys.stdout.flush()
+    except Exception:
+        pass
+def _hb_loop():
+    while True:
+        _time.sleep(5)
+        try: progress()
+        except Exception: pass
+_threading.Thread(target=_hb_loop, daemon=True).start()
+progress("starting")
+
+# ── Memory guard (auto-injected) ─────────────────────────────────────────────
+# The container has a HARD memory cap (cgroup). The kernel OOM-killer only fires
+# at 100%, AFTER the process has spent minutes ballooning — so a doomed approach
+# (e.g. pulling 100M+ coordinates into a KD-tree) burns 20-30 min before dying
+# with no useful signal, and the retry then repeats it. Two guards fix that:
+#   • assert_fits(n_rows, ...) — an a-priori gate you call BEFORE a large .df().
+#   • a background watchdog that fast-fails at ~90% of the cap.
+# Both raise/exit with the SAME message: at this scale, stop retrying the direct
+# in-memory approach and switch to the DOESN'T-FIT counting strategy.
+import os as _os
+def _mem_limit_bytes():
+    for _p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(_p) as _f:
+                _v = _f.read().strip()
+            if _v and _v != "max":
+                _b = int(_v)
+                if 0 < _b < (1 << 62):  # v1 "unlimited" is a huge sentinel
+                    return _b
+        except Exception:
+            pass
+    try:
+        _mb = float(_os.environ.get("HERMETIC_MEM_LIMIT_MB", ""))
+        if _mb > 0:
+            return int(_mb * 1024 * 1024)
+    except Exception:
+        pass
+    return None
+
+def _mem_usage_bytes():
+    for _p in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+        try:
+            with open(_p) as _f:
+                return int(_f.read().strip())
+        except Exception:
+            pass
+    try:
+        with open("/proc/self/statm") as _f:
+            return int(_f.read().split()[1]) * _os.sysconf("SC_PAGE_SIZE")
+    except Exception:
+        return 0
+
+_MEM_LIMIT = _mem_limit_bytes()
+_INFEASIBLE_MSG = (
+    "This approach does not fit the container memory cap ({limit}). You are pulling too "
+    "many rows into pandas. Do NOT retry the direct in-memory approach with fewer columns "
+    "— at this scale even coordinates-only does NOT fit (cKDTree.query also allocates two "
+    "more N-sized arrays). SWITCH STRATEGY: COUNT in DuckDB and go coarse-to-fine — bucket "
+    "rows into grid cells with GROUP BY (nothing lands in pandas), branch-and-bound on the "
+    "small cells table, then pull ONLY the tiny survivor set. Follow the PLANET-SCALE / "
+    "DOESN'T-FIT recipe; do not materialize the tail."
+)
+
+def assert_fits(n_rows, cols=3, dtype_bytes=8, factor=3.0, what="this DataFrame"):
+    # Call BEFORE a large .df() (after a cheap COUNT(*)). Raises if the frame
+    # cannot fit the cap. factor covers pandas overhead + downstream arrays.
+    if not _MEM_LIMIT or not n_rows:
+        return
+    need = int(n_rows) * int(cols) * int(dtype_bytes) * float(factor)
+    if need > _MEM_LIMIT * 0.80:
+        _lim = "%.1f GB" % (_MEM_LIMIT / 1e9)
+        raise MemoryError(
+            "%s would need ~%.1f GB for %d rows, over the %s cap. "
+            % (what, need / 1e9, int(n_rows), _lim) + _INFEASIBLE_MSG.format(limit=_lim)
+        )
+
+def _mem_watchdog():
+    # Poll FAST (4x/sec): a .df() that materializes a multi-GB frame allocates in
+    # a burst over a couple of seconds, and a coarse (1.5s) poll misses it — the
+    # kernel OOM-kills between samples (observed: a 17-min run flat at ~1GB while
+    # DuckDB spilled the scan, then the terminal .df() spiked past the cap in
+    # seconds). At 0.25s we catch the climb through the threshold and abort with a
+    # useful message before the kill.
+    if not _MEM_LIMIT:
+        return
+    _hot = 0
+    while True:
+        _time.sleep(0.25)
+        try:
+            _frac = _mem_usage_bytes() / _MEM_LIMIT
+        except Exception:
+            continue
+        if _frac >= 0.85:
+            _hot += 1
+            if _hot >= 2:  # ~0.5s sustained — not a one-sample blip
+                _lim = "%.1f GB" % (_MEM_LIMIT / 1e9)
+                _sys.stderr.write(
+                    "HERMETIC_OOM_PREDICTED: memory reached %d%% of the %s cap — aborting "
+                    "before the OOM-kill. " % (int(_frac * 100), _lim)
+                    + _INFEASIBLE_MSG.format(limit=_lim) + "\\n")
+                _sys.stderr.flush()
+                _os._exit(137)
+        else:
+            _hot = 0
+_threading.Thread(target=_mem_watchdog, daemon=True).start()
+
 try:
     import pandas as _pd
     _orig_corr = _pd.DataFrame.corr
@@ -56,11 +181,26 @@ try:
             query = _rc_pat.sub(_fix_read_csv, query)
         return _orig_duckdb_sql(query, *a, **kw)
     _duckdb_mod.sql = _safe_duckdb_sql
+    # Bound DuckDB to the CONTAINER cap so a huge scan / GROUP BY / ST_Contains
+    # SPILLS to disk instead of ballooning past the cgroup limit and OS-OOM-killing
+    # the whole process. DuckDB's default limit is 80% of DETECTED memory — inside
+    # a container that can be the HOST total (far above the cgroup cap), so it would
+    # not spill until too late. Cap it BELOW _MEM_LIMIT, leaving headroom for the
+    # pandas/numpy side (a .df() materialization, which DuckDB's limit does NOT
+    # cover — the memory watchdog backstops that).
+    try:
+        if _MEM_LIMIT:
+            _ddb_mb = max(256, int(_MEM_LIMIT * 0.6 / (1024 * 1024)))
+            _orig_duckdb_sql("SET memory_limit='%dMB'" % _ddb_mb)
+            _orig_duckdb_sql("SET temp_directory='/tmp/duckdb_spill'")
+    except Exception:
+        pass
 except ImportError:
     pass
 
-# Hermetic runtime helpers (auto-injected). Prefer these over hand-rolling the
-# output dict, numeric coercion, or qcut — they are the recurring crash sites.
+# Hermetic runtime helpers (auto-injected): write_output(), safe_float(),
+# safe_int(), assert_fits(), progress(). Prefer these over hand-rolling the output
+# dict, numeric coercion, or qcut — they are the recurring crash sites.
 import math as _math
 def _to_native(o):
     try:
@@ -107,6 +247,33 @@ def _to_native(o):
     except Exception:
         return None
 
+def safe_float(x, default=None):
+    # Never-raises float coercion for DISPLAY fields (a winner row's attributes:
+    # height, num_floors, …). Returns default for None/NaN/Inf/blank/non-numeric
+    # instead of throwing. Use this instead of hand-rolling
+    # 'float(row[c]) if row[c] and not np.isnan(...)' — that pattern crashes on
+    # None, strings, and numpy types, and has killed otherwise-successful runs.
+    if x is None:
+        return default
+    try:
+        import numpy as _np3
+        if isinstance(x, _np3.generic):
+            x = x.item()
+        if x is None:
+            return default
+    except Exception:
+        pass
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return default
+    return default if (_math.isnan(f) or _math.isinf(f)) else f
+
+def safe_int(x, default=None):
+    # Never-raises int coercion (via safe_float), for counts/floors/year fields.
+    f = safe_float(x, None)
+    return default if f is None else int(f)
+
 def write_output(results=None, chart_data=None, datasets=None, images=None):
     # Write /data/output.json in the required structure. Coerces NaN/Inf/numpy/
     # Timestamp/Decimal to JSON-safe values and caps each dataset at 5000 rows.
@@ -122,10 +289,17 @@ def write_output(results=None, chart_data=None, datasets=None, images=None):
     except Exception:
         _pd = None
     for _k, _v in (datasets or {}).items():
+        _total = None
         if _pd is not None and isinstance(_v, _pd.DataFrame):
+            _total = int(len(_v))
             _v = _v.head(5000).to_dict(orient='records')
         elif isinstance(_v, list):
+            _total = len(_v)
             _v = _v[:5000]
+        # When 'main' was truncated to the 5000-row cap, record the true total so
+        # the dashboard can tell the user its interactive figures are a sample of N.
+        if str(_k) == 'main' and _total is not None and _total > 5000:
+            out['results']['_main_total'] = _total
         out['datasets'][str(_k)] = _to_native(_v)
     import json as _json2
     with open('/data/output.json', 'w') as _f:
@@ -216,6 +390,28 @@ export function executeSandbox(
       localMountPath,
       inputParquetPath
     );
+  }
+
+  // Remote cloud reads (s3://, httpfs) need the extended large-data timeout,
+  // which only the Docker path budgets — on microsandbox/E2B the same code
+  // just died at the 30s default and burned the retry budget with a spurious
+  // "timed out" that never named the real cause. Reject with the cause.
+  if (rt !== "docker" && codeDoesRemoteIo(code)) {
+    return Promise.resolve({
+      success: false,
+      error:
+        "Remote cloud data reads (s3://, https:// Parquet over httpfs) are only supported with " +
+        "the Docker sandbox runtime — other runtimes cap execution at the default timeout, which " +
+        "remote scans exceed. Switch to Docker in Settings → Sandbox Runtime.",
+      execution_ms: 0,
+    });
+  }
+
+  // The warm Docker container runs with --network none (shared, created
+  // before any code is known). Code that reads remote data gets a fresh
+  // ephemeral container with network instead of the warm path.
+  if (rt === "docker" && codeNeedsNetwork(code)) {
+    return dockerExecutor(csvContent, code, geojsonContent, additionalFiles);
   }
 
   // Route through warm manager when available (not for E2B)

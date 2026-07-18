@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, useChartColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface NetworkNode {
   id: string;
@@ -40,7 +41,7 @@ export function NetworkGraphComponent({ props }: { props: NetworkGraphProps }) {
   const groups = Array.from(new Set(nodes.map((n) => String(n.group ?? "—"))));
   const colors = useColorMap(groups, props.color_map);
 
-  if (nodes.length === 0) return <div style={{ height: chart.height }} />;
+  if (nodes.length === 0) return <ChartEmptyState height={chart.height} />;
 
   // Resolve positions: use provided x/y, else lay nodes out on a circle.
   const hasPos = nodes.every((n) => n.x != null && n.y != null);

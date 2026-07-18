@@ -31,19 +31,39 @@ interface PageState {
    * Edit-and-Rerun. Cleared on STREAM_END.
    */
   rerunSql: string | null;
+  /**
+   * The saved viz currently loaded (drives the toolbar Rerun/Refresh/Schedule
+   * actions). Moves in lockstep with LOAD_VIZ_SUCCESS / RERUN_* — previously a
+   * separate useState maintained by hand at each dispatch site.
+   */
+  loadedVizId: string | null;
+  /**
+   * Refresh-progress stage for the RefreshProgress modal. Owned here so the
+   * "clear on error/success" invariant lives in the reducer — a catch that
+   * forgot setRefreshStage(null) used to strand the spinner.
+   */
+  refreshStage: "loading" | "querying" | "executing" | "composing" | null;
 }
 
-type PageAction =
+export type PageAction =
   | { type: "QUERY"; question: string; mode?: QueryMode }
   | { type: "STREAM_END" }
   | { type: "RESET" }
   | { type: "LOAD_VIZ_START" }
-  | { type: "LOAD_VIZ_SUCCESS"; question: string; spec: Spec; artifacts: CachedArtifacts | null }
+  | {
+      type: "LOAD_VIZ_SUCCESS";
+      question: string;
+      spec: Spec;
+      artifacts: CachedArtifacts | null;
+      /** When loading a saved viz; omitted for history restores (id unchanged). */
+      vizId?: string;
+    }
   | { type: "LOAD_VIZ_ERROR" }
   | { type: "TOGGLE_SAVED" }
   | { type: "VIZ_SAVED" }
   | { type: "RERUN_START" }
-  | { type: "RERUN_FAST_SUCCESS"; spec: Spec; artifacts: CachedArtifacts | null }
+  | { type: "REFRESH_STAGE"; stage: NonNullable<PageState["refreshStage"]> }
+  | { type: "RERUN_FAST_SUCCESS"; spec: Spec; artifacts: CachedArtifacts | null; vizId?: string }
   | { type: "RERUN_STREAM_START"; question: string; vizId: string }
   | { type: "RERUN_ERROR" }
   | { type: "CLEAR_PENDING_RERUN" }
@@ -69,6 +89,8 @@ const initialState: PageState = {
   pendingRerunVizId: null,
   rerunCode: null,
   rerunSql: null,
+  loadedVizId: null,
+  refreshStage: null,
 };
 
 export function pageReducer(state: PageState, action: PageAction): PageState {
@@ -114,6 +136,7 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
         loadedSpec: action.spec,
         loadedArtifacts: action.artifacts,
         showSaved: false,
+        loadedVizId: action.vizId ?? state.loadedVizId,
       };
     case "LOAD_VIZ_ERROR":
       return { ...state, loadingViz: false };
@@ -123,20 +146,26 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
       return { ...state, savedRefreshKey: state.savedRefreshKey + 1 };
     case "RERUN_START":
       return { ...state, rerunningViz: true };
+    case "REFRESH_STAGE":
+      return { ...state, refreshStage: action.stage };
     case "RERUN_FAST_SUCCESS":
       return {
         ...state,
         rerunningViz: false,
+        refreshStage: null,
         loadedSpec: action.spec,
         loadedArtifacts: action.artifacts,
         showSaved: false,
         savedRefreshKey: state.savedRefreshKey + 1,
+        loadedVizId: action.vizId ?? state.loadedVizId,
       };
     case "RERUN_STREAM_START":
       return {
         ...state,
         rerunningViz: false,
+        refreshStage: null,
         pendingRerunVizId: action.vizId,
+        loadedVizId: action.vizId,
         currentQuestion: action.question,
         questionSeq: state.questionSeq + 1,
         isAnalyzing: true,
@@ -144,11 +173,16 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
         loadedSpec: null,
       };
     case "RERUN_ERROR":
-      return { ...state, rerunningViz: false };
+      // Clearing refreshStage HERE is the stuck-spinner invariant: every
+      // rerun/refresh exit path resets the modal, no catch can forget it.
+      return { ...state, rerunningViz: false, refreshStage: null };
     case "CLEAR_PENDING_RERUN":
       return { ...state, pendingRerunVizId: null };
   }
 }
+
+/** The page reducer's dispatch — what the extracted action hooks accept. */
+export type PageDispatch = (action: PageAction) => void;
 
 export function usePageState() {
   const [state, dispatch] = useReducer(pageReducer, initialState);

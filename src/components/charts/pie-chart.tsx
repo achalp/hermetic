@@ -7,6 +7,7 @@ import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { drillClickValueRef } from "@/lib/drill-down-context";
 import { CLICK_PRIMARY } from "@/lib/drill-resolve";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface PieChartProps {
   title?: string | null;
@@ -99,7 +100,7 @@ export function PieChartComponent({
       : baseColors;
 
   if (nivoData.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

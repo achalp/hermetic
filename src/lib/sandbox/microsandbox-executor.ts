@@ -1,11 +1,27 @@
+import "server-only";
 import { PythonSandbox } from "microsandbox";
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
+import { parseSandboxOutput } from "./parse-output";
 import { logger } from "@/lib/logger";
 
 const SANDBOX_NAME = "hermetic";
+
+/**
+ * Read a file from the sandbox via `cat`; null when unreadable/absent.
+ * The readFile adapter for the shared output parser (see parse-output.ts) —
+ * exported for reuse by the warm backend.
+ */
+export async function readSandboxFile(
+  sandbox: PythonSandbox,
+  path: string
+): Promise<string | null> {
+  const result = await sandbox.command.run("cat", [path], 5).catch(() => null);
+  if (!result || !result.success) return null;
+  return await result.output();
+}
 
 const PACKAGES = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "scikit-learn", "duckdb"];
 
@@ -74,11 +90,26 @@ async function createHealthySandbox(
   return PythonSandbox.create({ ...opts, name: freshName });
 }
 
-export async function getOrCreateSandbox(): Promise<PythonSandbox> {
-  if (warmSandbox && sandboxReady) {
-    return warmSandbox;
-  }
+/**
+ * Creation memo — the check-then-act on the boolean pair raced: two
+ * concurrent first-queries (an Investigate wave) both passed the null check
+ * and both ran createHealthySandbox against the SAME sandbox name, one
+ * force-stopping the other's live sandbox into spurious "REPL broken"
+ * recreations. Concurrent callers now share one in-flight creation promise
+ * (same pattern as warm-sandbox.ts warmupPromise).
+ */
+let creationPromise: Promise<PythonSandbox> | null = null;
 
+export function getOrCreateSandbox(): Promise<PythonSandbox> {
+  if (warmSandbox && sandboxReady) return Promise.resolve(warmSandbox);
+  if (creationPromise) return creationPromise;
+  creationPromise = createSandboxOnce().finally(() => {
+    creationPromise = null;
+  });
+  return creationPromise;
+}
+
+async function createSandboxOnce(): Promise<PythonSandbox> {
   // If a previous sandbox exists but isn't ready (failed setup), stop it
   if (warmSandbox) {
     await warmSandbox.stop().catch(() => {});
@@ -180,14 +211,6 @@ export async function getOrCreateSandbox(): Promise<PythonSandbox> {
   return sandbox;
 }
 
-/**
- * Pre-warm the sandbox: create it and install packages.
- * Called from /api/runtimes/warmup during startup.
- */
-export async function warmupSandbox(): Promise<void> {
-  await getOrCreateSandbox();
-}
-
 export async function executeSandbox(
   csvContent: string,
   code: string,
@@ -208,78 +231,26 @@ export async function executeSandbox(
       { timeout: 5 }
     );
 
-    // Write CSV in chunks to avoid exceeding the JSON-RPC body size limit.
-    const CHUNK_SIZE = 512 * 1024;
-    const csvBuf = Buffer.from(csvContent);
-    const firstChunk = csvBuf.subarray(0, CHUNK_SIZE).toString("base64");
-    const initExec = await sandbox.run(
-      `import base64, pathlib\n` +
-        `pathlib.Path("${workDir}/input.csv").write_bytes(base64.b64decode(${JSON.stringify(firstChunk)}))`,
-      { timeout: 15 }
-    );
+    // All file writes go through the ONE chunked writer this file exports —
+    // previously this function hand-rolled the same base64 chunk loop four
+    // times (with four distinct error strings) while writeChunkedFile sat
+    // unused right below it.
+    const fail = (what: string, err: string): ExecutionResult => ({
+      success: false,
+      error: `Failed to write ${what}: ${err}`,
+      execution_ms: Date.now() - start,
+    });
 
-    if (initExec.hasError()) {
-      return {
-        success: false,
-        error: `Failed to write files: ${await initExec.error()}`,
-        execution_ms: Date.now() - start,
-      };
-    }
+    const csvErr = await writeChunkedFile(sandbox, `${workDir}/input.csv`, csvContent);
+    if (csvErr) return fail("CSV", csvErr);
 
-    for (let offset = CHUNK_SIZE; offset < csvBuf.length; offset += CHUNK_SIZE) {
-      const chunk = csvBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
-      const appendExec = await sandbox.run(
-        `import base64\n` +
-          `with open("${workDir}/input.csv", "ab") as f:\n` +
-          `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
-        { timeout: 15 }
-      );
-      if (appendExec.hasError()) {
-        return {
-          success: false,
-          error: `Failed to write CSV chunk: ${await appendExec.error()}`,
-          execution_ms: Date.now() - start,
-        };
-      }
-    }
-
-    // Write GeoJSON file (if provided)
     if (geojsonContent) {
-      const geoBuf = Buffer.from(geojsonContent);
-      const geoFirstChunk = geoBuf.subarray(0, CHUNK_SIZE).toString("base64");
-      const geoInitExec = await sandbox.run(
-        `import base64, pathlib\n` +
-          `pathlib.Path("${workDir}/input.geojson").write_bytes(base64.b64decode(${JSON.stringify(geoFirstChunk)}))`,
-        { timeout: 15 }
-      );
-      if (geoInitExec.hasError()) {
-        return {
-          success: false,
-          error: `Failed to write GeoJSON: ${await geoInitExec.error()}`,
-          execution_ms: Date.now() - start,
-        };
-      }
-      for (let offset = CHUNK_SIZE; offset < geoBuf.length; offset += CHUNK_SIZE) {
-        const chunk = geoBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
-        const appendExec = await sandbox.run(
-          `import base64\n` +
-            `with open("${workDir}/input.geojson", "ab") as f:\n` +
-            `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
-          { timeout: 15 }
-        );
-        if (appendExec.hasError()) {
-          return {
-            success: false,
-            error: `Failed to write GeoJSON chunk: ${await appendExec.error()}`,
-            execution_ms: Date.now() - start,
-          };
-        }
-      }
+      const geoErr = await writeChunkedFile(sandbox, `${workDir}/input.geojson`, geojsonContent);
+      if (geoErr) return fail("GeoJSON", geoErr);
     }
 
-    // Write additional files (workbook sheets)
+    // Additional files (workbook sheets)
     if (additionalFiles && additionalFiles.length > 0) {
-      // Create sheets directory
       await sandbox.run(
         `import pathlib; pathlib.Path("${workDir}/sheets").mkdir(parents=True, exist_ok=True)`,
         { timeout: 5 }
@@ -287,56 +258,16 @@ export async function executeSandbox(
       for (const file of additionalFiles) {
         // Rewrite /data/sheets/X.csv → workDir/sheets/X.csv
         const localPath = file.path.replace(/^\/data\//, `${workDir}/`);
-        const fileBuf = Buffer.from(file.content);
-        const fileFirstChunk = fileBuf.subarray(0, CHUNK_SIZE).toString("base64");
-        const fileInitExec = await sandbox.run(
-          `import base64, pathlib\n` +
-            `pathlib.Path("${localPath}").write_bytes(base64.b64decode(${JSON.stringify(fileFirstChunk)}))`,
-          { timeout: 15 }
-        );
-        if (fileInitExec.hasError()) {
-          return {
-            success: false,
-            error: `Failed to write additional file: ${await fileInitExec.error()}`,
-            execution_ms: Date.now() - start,
-          };
-        }
-        for (let offset = CHUNK_SIZE; offset < fileBuf.length; offset += CHUNK_SIZE) {
-          const chunk = fileBuf.subarray(offset, offset + CHUNK_SIZE).toString("base64");
-          const appendExec = await sandbox.run(
-            `import base64\n` +
-              `with open("${localPath}", "ab") as f:\n` +
-              `    f.write(base64.b64decode(${JSON.stringify(chunk)}))`,
-            { timeout: 15 }
-          );
-          if (appendExec.hasError()) {
-            return {
-              success: false,
-              error: `Failed to write additional file chunk: ${await appendExec.error()}`,
-              execution_ms: Date.now() - start,
-            };
-          }
-        }
+        const fileErr = await writeChunkedFile(sandbox, localPath, file.content);
+        if (fileErr) return fail(`additional file ${file.path}`, fileErr);
       }
     }
 
-    // Write the script — rewrite /data paths to per-query paths. The rewrite now
+    // Write the script — rewrite /data paths to per-query paths. The rewrite
     // includes the prelude, so write_output()'s /data/output.json maps correctly.
     const patchedCode = (PYTHON_NAN_PRELUDE + code).replace(/\/data\//g, `${workDir}/`);
-    const patchedB64 = Buffer.from(patchedCode).toString("base64");
-    const writeExec = await sandbox.run(
-      `import base64, pathlib\n` +
-        `pathlib.Path("${workDir}/script.py").write_bytes(base64.b64decode(${JSON.stringify(patchedB64)}))`,
-      { timeout: 15 }
-    );
-
-    if (writeExec.hasError()) {
-      return {
-        success: false,
-        error: `Failed to write script: ${await writeExec.error()}`,
-        execution_ms: Date.now() - start,
-      };
-    }
+    const scriptErr = await writeChunkedFile(sandbox, `${workDir}/script.py`, patchedCode);
+    if (scriptErr) return fail("script", scriptErr);
 
     // Execute the script
     const timeoutSecs = Math.ceil(SANDBOX_TIMEOUT_MS / 1000);
@@ -351,91 +282,31 @@ export async function executeSandbox(
 
     const executionMs = Date.now() - start;
     const rawOutput = await execResult.output();
-    const exitCode = parseInt(rawOutput.trim(), 10);
 
-    if (exitCode !== 0) {
-      const stderrResult = await sandbox.command
-        .run("cat", [`${workDir}/stderr.txt`], 5)
-        .catch(() => null);
-      const stderr = stderrResult ? await stderrResult.output() : "Unknown execution error";
-      return {
-        success: false,
-        error: stderr || "Unknown execution error",
-        execution_ms: executionMs,
-      };
-    }
-
-    // Read output
-    let outputJson: string;
-    let outputSource: string;
-
-    const jsonResult = await sandbox.command
-      .run("cat", [`${workDir}/output.json`], 5)
-      .catch(() => null);
-
-    if (jsonResult && jsonResult.success && (await jsonResult.output()).trim()) {
-      outputJson = await jsonResult.output();
-      outputSource = `file:${workDir}/output.json`;
-    } else {
-      const stdoutResult = await sandbox.command
-        .run("cat", [`${workDir}/stdout.txt`], 5)
-        .catch(() => null);
-      if (stdoutResult && stdoutResult.success && (await stdoutResult.output()).trim()) {
-        outputJson = await stdoutResult.output();
-        outputSource = `file:${workDir}/stdout.txt`;
-      } else {
-        return {
-          success: false,
-          error:
-            "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
-          execution_ms: executionMs,
-        };
-      }
-    }
-
-    logger.debug("Microsandbox executor output", { source: outputSource, len: outputJson.length });
-
-    if (!outputJson.trim()) {
-      return {
-        success: false,
-        error:
-          "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
-        execution_ms: executionMs,
-      };
-    }
-
-    outputJson = outputJson
-      .replace(/\bNaN\b/g, "null")
-      .replace(/\b-Infinity\b/g, "null")
-      .replace(/\bInfinity\b/g, "null");
-
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(outputJson);
-    } catch {
-      return {
-        success: false,
-        error: `Failed to parse output as JSON. Output was: ${outputJson.slice(0, 500)}`,
-        execution_ms: executionMs,
-      };
-    }
-
-    const images: Record<string, string> = (parsed.images as Record<string, string>) ?? {};
-
-    return {
-      success: true,
-      results: (parsed.results as Record<string, unknown>) ?? {},
-      chart_data: (parsed.chart_data as Record<string, unknown>) ?? {},
-      images,
-      datasets: (parsed.datasets as Record<string, Record<string, unknown>[]>) ?? undefined,
-      execution_ms: executionMs,
-    };
+    // Shared runtime-agnostic parsing (incl. the OOM heuristic that used to
+    // exist only on the Docker path) — see parse-output.ts.
+    return await parseSandboxOutput({
+      runtime: "microsandbox",
+      exitCode: parseInt(rawOutput.trim(), 10),
+      executionMs,
+      workDir,
+      readFile: (path) => readSandboxFile(sandbox, path),
+    });
   } catch (err) {
-    // If the sandbox itself is broken, reset it so next query creates a fresh one
+    // Reset the SHARED sandbox only when it is actually broken — a health
+    // probe decides. Unconditionally stopping it here killed the warm sandbox
+    // out from under concurrent queries for per-query failures (a bad script,
+    // a transient write error) that the sandbox itself survived fine.
     if (warmSandbox) {
-      await warmSandbox.stop().catch(() => {});
-      warmSandbox = null;
-      sandboxReady = false;
+      const probe = await warmSandbox.run("print('ok')", { timeout: 5 }).catch(() => null);
+      if (!probe || probe.hasError()) {
+        logger.warn("Microsandbox health probe failed after error — resetting", {
+          error: err instanceof Error ? err.message.slice(0, 200) : String(err),
+        });
+        await warmSandbox.stop().catch(() => {});
+        warmSandbox = null;
+        sandboxReady = false;
+      }
     }
     return {
       success: false,

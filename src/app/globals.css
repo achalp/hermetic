@@ -1016,6 +1016,26 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Recent sources list
+   ═══════════════════════════════════════════════════════════ */
+.recent-row:hover {
+  background: var(--color-accent-subtle);
+}
+/* Row actions fade in on hover (and stay reachable via keyboard focus). */
+.recent-actions {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.recent-row:hover .recent-actions,
+.recent-actions:focus-within {
+  opacity: 1;
+}
+.recent-action-btn:hover:not(:disabled) {
+  background: var(--color-surface-2) !important;
+  color: var(--color-t-primary) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
    Source card hover
    ═══════════════════════════════════════════════════════════ */
 .source-card-hover:hover {

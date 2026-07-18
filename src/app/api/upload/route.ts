@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeGeoJSON, storeLocalFileRef } from "@/lib/csv/storage";
@@ -15,6 +16,7 @@ import {
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { materializeCsvToParquet } from "@/lib/parquet/materialize";
+import { recordRecentSource } from "@/lib/sources/recent-sources";
 import { logger } from "@/lib/logger";
 
 /** Cheap row estimate (count newlines, no parse) to choose Parquet vs CSV. */
@@ -57,6 +59,18 @@ export async function POST(request: Request) {
       );
     }
 
+    // Remember the upload — persist its bytes into the managed store so a
+    // drag-dropped file re-opens in one click later (see recent-sources.ts).
+    const rememberUpload = (rows: number | undefined, bytes: Buffer | string) =>
+      recordRecentSource({
+        kind: "upload",
+        name: file.name,
+        subtitle: "Uploaded file",
+        rows,
+        bytes,
+        filename: file.name,
+      }).catch(() => {});
+
     // ── GeoJSON path ─────────────────────────────────────────────
     // For .json files, peek at the content to check if it's GeoJSON
     let isGeoJSON = isGeoJSONExt;
@@ -88,6 +102,7 @@ export async function POST(request: Request) {
       await storeGeoJSON(csvId, text);
       prepareWarmSandbox(csvId, csvText, getActiveSandboxRuntime(), text);
 
+      rememberUpload(schema.row_count, text);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -126,6 +141,7 @@ export async function POST(request: Request) {
             csvId,
             rows: schema.row_count,
           });
+          rememberUpload(schema.row_count, text);
           return NextResponse.json({ csv_id: csvId, schema });
         } catch (err) {
           logger.warn("Upload: Parquet materialization failed, falling back to CSV", {
@@ -147,6 +163,7 @@ export async function POST(request: Request) {
       await storeCSV(csvId, csvText2, schema);
       prepareWarmSandbox(csvId, csvText2, getActiveSandboxRuntime());
 
+      rememberUpload(schema.row_count, text);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -177,6 +194,7 @@ export async function POST(request: Request) {
       await storeCSV(csvId, csvText3, schema);
       prepareWarmSandbox(csvId, csvText3, getActiveSandboxRuntime());
 
+      rememberUpload(schema.row_count, buffer);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -193,7 +211,6 @@ export async function POST(request: Request) {
       relationships,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Upload failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/upload", err, "Upload failed");
   }
 }

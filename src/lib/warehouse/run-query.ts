@@ -17,6 +17,7 @@ import type { WarehouseConnector } from "./connector";
 import { generateSQLWithRepair } from "./sql-generation";
 import { pickMaterializationScope } from "./materialization-scope";
 import { PLANNER_MODEL } from "@/lib/constants";
+import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 
 export type SqlAttemptPhase = "generating" | "executing" | "repairing";
@@ -106,9 +107,25 @@ export async function runWarehouseQuery(args: {
     warehouseType: args.warehouseType,
     model: args.model,
     execute: async (sql) => {
-      const csv = await args.connector.executeSQL(sql);
-      if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
-      return csv;
+      try {
+        // A warehouse query can run for minutes while the driver polls the API
+        // over the network; idle sleep drops that connection (surfacing as
+        // "Cannot connect to API"). Hold the wake lock for the execution, same
+        // as the Docker sandbox — this path was the one gap the sandbox-only
+        // wake lock left open.
+        const csv = await withWakeLock("warehouse-query", () => args.connector.executeSQL(sql));
+        if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
+        return csv;
+      } catch (err) {
+        // Driver-level context at the shared chokepoint — the connectors
+        // themselves log nothing, so engine quirks (auth failures, dialect
+        // errors) previously surfaced only as generic repair-loop errors.
+        logger.warn("Warehouse SQL execution failed", {
+          warehouseType: args.warehouseType,
+          error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+        });
+        throw err;
+      }
     },
     onAttempt: args.onAttempt,
   });

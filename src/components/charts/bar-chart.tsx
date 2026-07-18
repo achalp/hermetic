@@ -7,11 +7,15 @@ import {
   formatAxisNumber,
   pickTickValues,
   unwrapChartData,
+  truncateLabel,
+  legendItemWidth,
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { drillClickValueRef } from "@/lib/drill-down-context";
 import { CLICK_PRIMARY } from "@/lib/drill-resolve";
+import { ChartEmptyState } from "./chart-empty-state";
+import { ChartShell } from "./chart-shell";
 
 interface BarChartProps {
   title?: string | null;
@@ -109,12 +113,9 @@ export function BarChartComponent({
     : undefined;
 
   // Truncate long labels to prevent overlap
-  const truncateLabel = (v: string | number): string => {
-    const s = String(v);
-    if (!manyCategories) return s;
-    const max = veryManyCategories ? 12 : 18;
-    return s.length > max ? s.slice(0, max - 1) + "\u2026" : s;
-  };
+  // Shared helper (chart-theme); untruncated below the many-categories cutoff.
+  const truncateCategory = (v: string | number): string =>
+    manyCategories ? truncateLabel(v, veryManyCategories ? 12 : 18) : String(v);
 
   // Ensure value scale always includes 0 so bars render correctly with all-negative or all-positive data
   const allValues = data.flatMap((d) => y_keys.map((k) => Number(d[k]) || 0));
@@ -123,117 +124,101 @@ export function BarChartComponent({
 
   // Compute legend item width from longest key name
   const hasLegend = y_keys.length > 1;
-  const maxKeyLen = hasLegend ? Math.max(...y_keys.map((k) => k.length)) : 0;
-  const legendItemWidth = Math.max(100, Math.min(200, maxKeyLen * 8 + 24));
 
   if (data.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (
-    <div
-      className={`w-full${isDrillable || isSelectable ? " cursor-pointer" : ""}${isExpanded ? " h-full flex flex-col" : ""}`}
+    <ChartShell
+      title={props.title}
+      height={chart.height}
+      isExpanded={isExpanded}
+      isDrillable={isDrillable}
+      isSelectable={isSelectable}
+      showSelectHint={isSelectable && selectedValues.length === 0}
     >
-      {props.title && (
-        <h3
-          className="mb-2 text-t-secondary"
-          style={{ fontSize: "var(--chart-title-size)", fontWeight: "var(--chart-title-weight)" }}
-        >
-          {props.title}
-          {isDrillable && (
-            <span className="ml-2 text-xs font-normal text-accent">Click to drill down</span>
-          )}
-          {isSelectable && selectedValues.length === 0 && (
-            <span className="ml-2 text-xs font-normal text-t-tertiary">Click to filter</span>
-          )}
-        </h3>
-      )}
-      <div
-        className={isExpanded ? "flex-1" : ""}
-        style={{ height: isExpanded ? undefined : chart.height }}
-      >
-        <ResponsiveBar
-          data={data as Record<string, string | number>[]}
-          keys={y_keys}
-          indexBy={props.x_key}
-          layout={layout}
-          groupMode={props.stacked ? "stacked" : "grouped"}
-          valueScale={{ type: "linear", min: dataMin, max: dataMax }}
-          colors={colors}
-          margin={{
-            top: chart.margin.top,
-            right: chart.margin.right,
-            bottom:
-              (veryManyCategories
-                ? chart.margin.bottom + 80
-                : manyCategories
-                  ? chart.margin.bottom + 50
-                  : chart.margin.bottom) + (hasLegend ? 30 : 0),
-            left: leftMargin,
-          }}
-          padding={chart.barPadding}
-          borderRadius={chart.barRadius}
-          theme={theme}
-          enableGridX={chart.enableGridX}
-          enableGridY={chart.enableGridY}
-          axisBottom={{
-            tickSize: chart.axisTickSize,
-            tickPadding: 5,
-            tickRotation: veryManyCategories ? -90 : manyCategories ? -45 : 0,
-            ...(isHorizontal
-              ? { format: formatAxisNumber, tickValues: 5 }
-              : {
-                  format: truncateLabel,
-                  ...(tickValues ? { tickValues } : {}),
-                }),
-          }}
-          axisLeft={{
-            tickSize: chart.axisTickSize,
-            tickPadding: 5,
-            tickRotation: 0,
-            ...(!isHorizontal
-              ? { format: formatAxisNumber, tickValues: 5 }
-              : {
-                  format: (v: string | number) => {
-                    const s = String(v);
-                    return s.length > hLabelLimit ? s.slice(0, hLabelLimit - 1) + "\u2026" : s;
-                  },
-                }),
-          }}
-          enableLabel={false}
-          legends={
-            hasLegend
-              ? [
-                  {
-                    dataFrom: "keys",
-                    anchor: "bottom",
-                    direction: "row",
-                    translateY: veryManyCategories ? 96 : manyCategories ? 66 : 46,
-                    itemWidth: legendItemWidth,
-                    itemHeight: 20,
-                    symbolSize: chart.legendSymbolSize,
-                  },
-                ]
-              : []
-          }
-          onClick={
-            isSelectable
-              ? (datum) => onSelect(String(datum.indexValue))
-              : isDrillable
-                ? (datum) => {
-                    // Capture the clicked category (keyed by its real column)
-                    // so the drill callback can resolve the spec's {"$item": …}
-                    // filter binding.
-                    drillClickValueRef.current = {
-                      [props.x_key]: datum.indexValue,
-                      [CLICK_PRIMARY]: datum.indexValue,
-                    };
-                    emit?.("click");
-                  }
-                : undefined
-          }
-        />
-      </div>
-    </div>
+      <ResponsiveBar
+        data={data as Record<string, string | number>[]}
+        keys={y_keys}
+        indexBy={props.x_key}
+        layout={layout}
+        groupMode={props.stacked ? "stacked" : "grouped"}
+        valueScale={{ type: "linear", min: dataMin, max: dataMax }}
+        colors={colors}
+        margin={{
+          top: chart.margin.top,
+          right: chart.margin.right,
+          bottom:
+            (veryManyCategories
+              ? chart.margin.bottom + 80
+              : manyCategories
+                ? chart.margin.bottom + 50
+                : chart.margin.bottom) + (hasLegend ? 30 : 0),
+          left: leftMargin,
+        }}
+        padding={chart.barPadding}
+        borderRadius={chart.barRadius}
+        theme={theme}
+        enableGridX={chart.enableGridX}
+        enableGridY={chart.enableGridY}
+        axisBottom={{
+          tickSize: chart.axisTickSize,
+          tickPadding: 5,
+          tickRotation: veryManyCategories ? -90 : manyCategories ? -45 : 0,
+          ...(isHorizontal
+            ? { format: formatAxisNumber, tickValues: 5 }
+            : {
+                format: truncateCategory,
+                ...(tickValues ? { tickValues } : {}),
+              }),
+        }}
+        axisLeft={{
+          tickSize: chart.axisTickSize,
+          tickPadding: 5,
+          tickRotation: 0,
+          ...(!isHorizontal
+            ? { format: formatAxisNumber, tickValues: 5 }
+            : {
+                format: (v: string | number) => {
+                  const s = String(v);
+                  return s.length > hLabelLimit ? s.slice(0, hLabelLimit - 1) + "\u2026" : s;
+                },
+              }),
+        }}
+        enableLabel={false}
+        legends={
+          hasLegend
+            ? [
+                {
+                  dataFrom: "keys",
+                  anchor: "bottom",
+                  direction: "row",
+                  translateY: veryManyCategories ? 96 : manyCategories ? 66 : 46,
+                  itemWidth: legendItemWidth(hasLegend ? y_keys : [], 200),
+                  itemHeight: 20,
+                  symbolSize: chart.legendSymbolSize,
+                },
+              ]
+            : []
+        }
+        onClick={
+          isSelectable
+            ? (datum) => onSelect(String(datum.indexValue))
+            : isDrillable
+              ? (datum) => {
+                  // Capture the clicked category (keyed by its real column)
+                  // so the drill callback can resolve the spec's {"$item": …}
+                  // filter binding.
+                  drillClickValueRef.current = {
+                    [props.x_key]: datum.indexValue,
+                    [CLICK_PRIMARY]: datum.indexValue,
+                  };
+                  emit?.("click");
+                }
+              : undefined
+        }
+      />
+    </ChartShell>
   );
 }

@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { resolveColor, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface DumbbellChartProps {
   title: string | null;
@@ -21,7 +22,7 @@ export function DumbbellChartComponent({ props }: { props: DumbbellChartProps })
   const isExpanded = useChartExpanded();
   const data = unwrapChartData(props.data) as unknown as DumbbellChartProps["data"];
 
-  if (data.length === 0) return <div style={{ height: chart.height }} />;
+  if (data.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const isHorizontal = props.orientation !== "vertical";
   const sColor = resolveColor(props.start_color ?? "#6366f1");

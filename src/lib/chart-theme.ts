@@ -274,6 +274,25 @@ export function toNivoLineSeries(
 }
 
 /**
+ * Ellipsize an axis label to `max` characters. One definition (FE-12) —
+ * bar/line/area each carried a private copy of this.
+ */
+export function truncateLabel(v: string | number, max = 16): string {
+  const s = String(v);
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+/**
+ * Legend item width sized to the longest series name. The per-chart copies
+ * had drifted on the cap (bar 200 vs line/area 180) — callers pass their
+ * cap explicitly to preserve their current rendering.
+ */
+export function legendItemWidth(keys: string[], maxWidth: number): number {
+  const maxKeyLen = keys.length > 0 ? Math.max(...keys.map((k) => k.length)) : 0;
+  return Math.max(100, Math.min(maxWidth, maxKeyLen * 8 + 24));
+}
+
+/**
  * Abbreviate large numbers for axis ticks: 1500 → "1.5k", 2000000 → "2M".
  */
 export function formatAxisNumber(v: number | string): string {

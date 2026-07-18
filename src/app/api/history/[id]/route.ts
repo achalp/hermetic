@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { stat } from "node:fs/promises";
+import { apiError } from "@/lib/api-error";
 import { loadHistoryEntry, deleteHistoryEntry } from "@/lib/history/storage";
 import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import { parseCSV } from "@/lib/csv/parser";
@@ -58,8 +59,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       csvId,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to load history entry";
-    return NextResponse.json({ error: message }, { status: 404 });
+    return apiError("/api/history/[id]", err, "Failed to load history entry", 404);
   }
 }
 
@@ -69,7 +69,6 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     await deleteHistoryEntry(id);
     return NextResponse.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to delete history entry";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/history/[id]", err, "Failed to delete history entry");
   }
 }

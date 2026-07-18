@@ -1,3 +1,4 @@
+import "server-only";
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -62,4 +63,18 @@ export async function deleteStoredExcel(excelId: string): Promise<void> {
     await unlink(entry.filePath).catch(() => {});
     store.delete(excelId);
   }
+}
+
+/** Active sweep (see lib/store-sweeper.ts) — expiry was lazy-read-only. */
+export function sweepExpiredExcel(): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [k, v] of store) {
+    if (now - v.createdAt > CSV_TTL_MS) {
+      store.delete(k);
+      unlink(v.filePath).catch(() => {});
+      swept++;
+    }
+  }
+  return swept;
 }

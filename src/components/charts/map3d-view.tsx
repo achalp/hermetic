@@ -3,6 +3,8 @@
 import { Component, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { unwrapChartData } from "@/lib/chart-theme";
+import { ChartEmptyState } from "./chart-empty-state";
+import { ChartShell } from "./chart-shell";
 
 const DeckGLMap = dynamic(() => import("./map3d-inner").then((m) => m.Map3DInner), {
   ssr: false,
@@ -30,6 +32,7 @@ interface Map3DProps {
   pitch?: number | null;
   bearing?: number | null;
   height?: number | null;
+  basemap?: "dark" | "light" | null;
 }
 
 class Map3DErrorBoundary extends Component<
@@ -61,29 +64,20 @@ class Map3DErrorBoundary extends Component<
 export function Map3DComponent({ props }: { props: Map3DProps }) {
   const data = unwrapChartData(props.data);
   if (data.length === 0) {
-    return <div style={{ height: props.height ?? 500 }} />;
+    return <ChartEmptyState height={props.height ?? 500} />;
   }
 
   const h = props.height ?? 500;
 
   return (
-    <div className="w-full">
-      {props.title && (
-        <h3
-          className="mb-2 text-t-secondary"
-          style={{ fontSize: "var(--chart-title-size)", fontWeight: "var(--chart-title-weight)" }}
-        >
-          {props.title}
-        </h3>
-      )}
-      <div
-        className="overflow-hidden rounded-lg border border-border-default"
-        style={{ height: h }}
-      >
-        <Map3DErrorBoundary height={h}>
-          <DeckGLMap {...props} />
-        </Map3DErrorBoundary>
-      </div>
-    </div>
+    <ChartShell
+      title={props.title}
+      height={h}
+      bodyClassName="overflow-hidden rounded-lg border border-border-default"
+    >
+      <Map3DErrorBoundary height={h}>
+        <DeckGLMap {...props} />
+      </Map3DErrorBoundary>
+    </ChartShell>
   );
 }

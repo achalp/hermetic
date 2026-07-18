@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { stat } from "fs/promises";
 import { dirname } from "path";
 import { loadSavedVisualization } from "@/lib/saved/storage";
@@ -216,7 +217,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       executionMs: successResult.execution_ms,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Refresh failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/vizs/[id]/refresh", err, "Refresh failed");
   }
 }

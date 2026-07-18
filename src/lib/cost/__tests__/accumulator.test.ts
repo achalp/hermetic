@@ -90,8 +90,8 @@ describe("computeCost / recordCall", () => {
   });
 
   it("computeCost of an empty accumulator is all zeros", () => {
-    const s = computeCost({ calls: [] });
-    expect(s).toEqual({
+    const s = computeCost({ calls: [], startedAt: Date.now() });
+    expect(s).toMatchObject({
       costUsd: 0,
       inputTokens: 0,
       cacheReadTokens: 0,
@@ -100,7 +100,9 @@ describe("computeCost / recordCall", () => {
       llmCalls: 0,
       models: [],
       byPhase: [],
+      llmMs: 0,
     });
+    expect(s.wallMs).toBeGreaterThanOrEqual(0);
   });
 
   it("recordCall is a no-op outside a tracked scope", () => {
@@ -156,9 +158,29 @@ describe("per-phase attribution", () => {
 
   it("formatPhaseBreakdown renders a compact one-liner", () => {
     const s = formatPhaseBreakdown([
-      { phase: "compose", llmCalls: 1, inputTokens: 100, outputTokens: 4000, costUsd: 0.06 },
+      {
+        phase: "compose",
+        llmCalls: 1,
+        inputTokens: 100,
+        outputTokens: 4000,
+        costUsd: 0.06,
+        durationMs: 8200,
+      },
     ]);
-    expect(s).toBe("compose=$0.0600(out:4000,calls:1)");
+    expect(s).toBe("compose=$0.0600(out:4000,calls:1,ms:8200)");
+  });
+
+  it("rolls per-call durations up by phase and in llmMs", async () => {
+    const summary = await runWithCostTracking(async () => {
+      await withPhase("code_gen", async () => {
+        recordCall("claude-sonnet-4-6", { ...OUT(1000), durationMs: 1200 });
+        recordCall("claude-sonnet-4-6", { ...OUT(500), durationMs: 800 });
+      });
+      return computeCost(getCostAccumulator()!);
+    });
+    const codeGen = summary.byPhase.find((p) => p.phase === "code_gen")!;
+    expect(codeGen.durationMs).toBe(2000);
+    expect(summary.llmMs).toBe(2000);
   });
 });
 

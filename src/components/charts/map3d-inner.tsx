@@ -5,11 +5,13 @@ import "@/lib/deckgl-init";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import DeckGL from "@deck.gl/react";
+import { WebMercatorViewport } from "@deck.gl/core";
 import { ScatterplotLayer, ArcLayer, ColumnLayer } from "@deck.gl/layers";
 import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
+import { BASEMAP_TILES, rampColor, numericRange } from "@/components/charts/map-color-ramp";
 
 interface Map3DInnerProps {
   data: Record<string, unknown>[];
@@ -27,6 +29,8 @@ interface Map3DInnerProps {
   pitch?: number | null;
   bearing?: number | null;
   height?: number | null;
+  /** Basemap theme. Defaults to "light" (clean light-grey; points carry the color). */
+  basemap?: "dark" | "light" | null;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -58,16 +62,35 @@ interface PickedFeature {
 
 export function Map3DInner(props: Map3DInnerProps) {
   const [ready, setReady] = useState(false);
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [hoverInfo, setHoverInfo] = useState<PickedFeature | null>(null);
   const [clickInfo, setClickInfo] = useState<PickedFeature | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const chartColors = useChartColors();
 
-  // Delay mount to let the container get a stable size before DeckGL creates its canvas.
-  // This avoids the luma.gl ResizeObserver race where device.limits is undefined.
+  // Only mount DeckGL once the container actually has a non-zero size. Creating
+  // the WebGL device on a 0x0 canvas triggers the luma.gl race where
+  // device.limits is undefined ("maxTextureDimension2D"). A ResizeObserver waits
+  // for real dimensions (e.g. a collapsed flex cell that lays out a frame later).
   useEffect(() => {
-    const id = requestAnimationFrame(() => setReady(true));
-    return () => cancelAnimationFrame(id);
+    const el = containerRef.current;
+    if (!el) return;
+    const check = () => {
+      if (el.clientWidth > 0 && el.clientHeight > 0) {
+        setReady(true);
+        // Feed real dimensions to fitBounds so the initial view frames all points.
+        setSize((prev) =>
+          prev && prev.width === el.clientWidth && prev.height === el.clientHeight
+            ? prev
+            : { width: el.clientWidth, height: el.clientHeight }
+        );
+      }
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const handleError = useCallback((error: Error) => {
@@ -91,10 +114,21 @@ export function Map3DInner(props: Map3DInnerProps) {
     pitch = 45,
     bearing = 0,
     height = 500,
+    basemap = "light",
   } = props;
 
-  // Compute center from data
+  // Numeric range of value_key, for the color ramp (points shaded by metric).
+  const valueRange = useMemo(() => numericRange(data, value_key), [data, value_key]);
+
+  // Frame the data on first render: fit ALL points into the viewport (with the
+  // most-isolated/highest-ranked ones therefore always visible) rather than
+  // centering on the raw centroid at a fixed zoom — the old approach drifted
+  // off-target and cropped points whenever they spanned a wide area.
   const viewState = useMemo(() => {
+    let minLat = Infinity;
+    let minLng = Infinity;
+    let maxLat = -Infinity;
+    let maxLng = -Infinity;
     let sumLat = 0;
     let sumLng = 0;
     let count = 0;
@@ -102,24 +136,53 @@ export function Map3DInner(props: Map3DInnerProps) {
       const lat = Number(row[lat_key]);
       const lng = Number(row[lng_key]);
       if (!isNaN(lat) && !isNaN(lng)) {
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+        minLng = Math.min(minLng, lng);
+        maxLng = Math.max(maxLng, lng);
         sumLat += lat;
         sumLng += lng;
         count++;
       }
     }
-    return {
-      latitude: count > 0 ? sumLat / count : 0,
-      longitude: count > 0 ? sumLng / count : 0,
-      zoom: 10,
-      pitch: pitch ?? 45,
-      bearing: bearing ?? 0,
-    };
-  }, [data, lat_key, lng_key, pitch, bearing]);
+    const base = { pitch: pitch ?? 45, bearing: bearing ?? 0 };
+    if (count === 0) return { latitude: 0, longitude: 0, zoom: 1, ...base };
 
-  // Base map tile layer (OSM)
+    const centerLng = sumLng / count;
+    const centerLat = sumLat / count;
+    // A single point (or all-coincident points) has no extent to fit — center
+    // on it at a sensible neighborhood zoom.
+    const negligibleSpan = maxLat - minLat < 1e-6 && maxLng - minLng < 1e-6;
+    if (!size || negligibleSpan) {
+      return { latitude: centerLat, longitude: centerLng, zoom: negligibleSpan ? 12 : 10, ...base };
+    }
+    try {
+      const fitted = new WebMercatorViewport({
+        width: size.width,
+        height: size.height,
+      }).fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: 48 }
+      );
+      // Cap zoom so a tight cluster doesn't slam to street level.
+      return {
+        latitude: fitted.latitude,
+        longitude: fitted.longitude,
+        zoom: Math.min(fitted.zoom, 14),
+        ...base,
+      };
+    } catch {
+      return { latitude: centerLat, longitude: centerLng, zoom: 10, ...base };
+    }
+  }, [data, lat_key, lng_key, pitch, bearing, size]);
+
+  // Base map tile layer — dark (default) or light Carto basemap.
   const tileLayer = new TileLayer({
-    id: "osm-tiles",
-    data: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    id: "basemap-tiles",
+    data: BASEMAP_TILES[basemap ?? "light"],
     minZoom: 0,
     maxZoom: 19,
     tileSize: 256,
@@ -143,6 +206,12 @@ export function Map3DInner(props: Map3DInnerProps) {
     ];
 
     const getColor = (d: Record<string, unknown>): [number, number, number] => {
+      // Shade by the numeric value_key via the plasma ramp when available — a
+      // metric heat gradient reads far better than a flat single color.
+      if (valueRange && value_key) {
+        const n = Number(d[value_key]);
+        if (isFinite(n)) return rampColor((n - valueRange.min) / (valueRange.max - valueRange.min));
+      }
       if (color_key && color_map && d[color_key]) {
         const name = String(d[color_key]);
         const resolved = color_map[name] ? resolveColor(color_map[name]) : chartColors[0];
@@ -204,21 +273,42 @@ export function Map3DInner(props: Map3DInnerProps) {
           opacity: opacity ?? 0.8,
         });
 
-      case "scatterplot":
+      case "scatterplot": {
+        // Size dots by the metric so rank/isolation reads at a glance: normalize
+        // value_key across the dataset to a PIXEL radius. (The old code used the
+        // raw value as a radius in METERS, so km-scale values like 15 became
+        // ~15m — far below radiusMinPixels — and every dot collapsed to the same
+        // 3px floor, losing all rank information.)
+        const R_MIN_PX = 6;
+        const R_MAX_PX = 22;
         return new ScatterplotLayer({
           id: "scatterplot-layer",
           data,
           getPosition,
           pickable: true,
           getFillColor: (d: Record<string, unknown>) =>
-            [...getColor(d), 200] as [number, number, number, number],
-          getRadius: (d: Record<string, unknown>) =>
-            value_key ? Math.max(50, Number(d[value_key]) || 100) : (radius ?? 100),
+            [...getColor(d), 230] as [number, number, number, number],
+          getRadius: (d: Record<string, unknown>) => {
+            if (valueRange && value_key && valueRange.max > valueRange.min) {
+              const n = Number(d[value_key]);
+              if (isFinite(n)) {
+                const t = (n - valueRange.min) / (valueRange.max - valueRange.min);
+                return R_MIN_PX + t * (R_MAX_PX - R_MIN_PX);
+              }
+            }
+            return radius ?? R_MIN_PX;
+          },
+          radiusUnits: "pixels",
           radiusScale: 1,
-          radiusMinPixels: 2,
-          radiusMaxPixels: 50,
-          opacity: opacity ?? 0.8,
+          radiusMinPixels: 3,
+          radiusMaxPixels: 40,
+          // Thin dark outline so the colored dots stay crisp on a light basemap.
+          stroked: true,
+          getLineColor: [40, 40, 40, 90],
+          lineWidthMinPixels: 0.5,
+          opacity: opacity ?? 0.9,
         });
+      }
 
       case "heatmap":
         return new HeatmapLayer({
@@ -248,6 +338,7 @@ export function Map3DInner(props: Map3DInnerProps) {
     radius,
     opacity,
     chartColors,
+    valueRange,
   ]);
 
   const extractProperties = useCallback(
@@ -301,21 +392,19 @@ export function Map3DInner(props: Map3DInnerProps) {
     [extractProperties]
   );
 
-  if (!ready) {
-    return <div style={{ width: "100%", height: height ?? 500 }} />;
-  }
-
   return (
-    <div style={{ position: "relative", width: "100%", height: height ?? 500 }}>
-      <DeckGL
-        initialViewState={viewState}
-        controller
-        layers={[tileLayer, dataLayer]}
-        onError={handleError}
-        onHover={onHover}
-        onClick={onDeckClick}
-        getCursor={({ isHovering }: { isHovering: boolean }) => (isHovering ? "pointer" : "grab")}
-      />
+    <div ref={containerRef} style={{ position: "relative", width: "100%", height: height ?? 500 }}>
+      {ready && (
+        <DeckGL
+          initialViewState={viewState}
+          controller
+          layers={[tileLayer, dataLayer]}
+          onError={handleError}
+          onHover={onHover}
+          onClick={onDeckClick}
+          getCursor={({ isHovering }: { isHovering: boolean }) => (isHovering ? "pointer" : "grab")}
+        />
+      )}
       {/* Hover tooltip */}
       {hoverInfo && !clickInfo && (
         <div

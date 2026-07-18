@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, useChartColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface SurvivalPoint {
   time: number;
@@ -50,7 +51,7 @@ export function SurvivalChartComponent({ props }: { props: SurvivalChartProps })
   const colors = useColorMap(labels, props.color_map);
   const showCi = props.show_ci ?? true;
 
-  if (curves.length === 0) return <div style={{ height: chart.height }} />;
+  if (curves.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const traces: Data[] = [];
   curves.forEach((curve, i) => {

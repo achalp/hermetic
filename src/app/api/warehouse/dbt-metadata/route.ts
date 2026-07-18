@@ -11,7 +11,7 @@
 
 import { setDbtManifestPath } from "@/lib/warehouse/storage";
 import { validateManifestPath } from "@/lib/warehouse/dbt-metadata";
-import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 
 export async function POST(request: Request) {
   try {
@@ -44,9 +44,7 @@ export async function POST(request: Request) {
       totalTableCount: result.stored.tableSchemas.length,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to load dbt manifest";
-    logger.error("dbt manifest load failed", { error: msg });
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/warehouse/dbt-metadata", err, "Failed to load dbt manifest");
   }
 }
 
@@ -62,7 +60,6 @@ export async function DELETE(request: Request) {
     }
     return Response.json({ ok: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to clear dbt manifest";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/warehouse/dbt-metadata", err, "Failed to clear dbt manifest");
   }
 }

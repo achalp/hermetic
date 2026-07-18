@@ -27,8 +27,32 @@ export const PARQUET_MATERIALIZE_THRESHOLD = 100_000;
 export const MAX_CSV_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
 export const MAX_CSV_SIZE_LABEL = "100MB";
 export const SANDBOX_TIMEOUT_MS = 30_000; // 30 seconds
-export const CSV_TTL_MS = 60 * 60 * 1000; // 1 hour
+// Large local Parquet and remote cloud datasets (e.g. Overture buildings, 2.5B
+// rows read over S3) legitimately need minutes to scan — not a bug, just big.
+// Give those executions a generous budget rather than sampling the data.
+export const LARGE_DATA_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+// Hard cap on a single warehouse query's execution. Warehouses default to
+// enormous limits (BigQuery kills a job only at 6 HOURS) — so a runaway
+// query (e.g. an O(n²) spatial self-join whose grid cells explode in dense
+// urban areas) ties up the user's request and burns warehouse slots for
+// hours before failing. Cancel it at our own budget instead; the engine
+// error then flows into the normal repair/fail path in minutes, not hours.
+export const WAREHOUSE_QUERY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+// SLIDING idle TTL for an uploaded/warehouse-result CSV: time since it was last
+// READ, not since upload. Every access slides it forward, and an in-flight run
+// pins its own CSV regardless of age (see csv/storage.ts isExpired), so this only
+// governs how long a truly-idle dataset lingers between questions. Generous so a
+// user returning to follow up isn't told to re-upload.
+export const CSV_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours idle
 export const DOCKER_SANDBOX_IMAGE = "hermetic-sandbox";
+// Fraction of the Docker/colima DAEMON's total memory that a single sandbox
+// container may use (`docker run --memory`). The remainder is headroom for the
+// daemon/VM's own OS and reclaimable page cache. This is a RATIO, not a byte
+// count — it is derived against whatever `docker info` reports on the host
+// (the colima/Docker-Desktop VM allocation on macOS, host RAM on native
+// Linux), so it scales to any machine with no hardcoded limit. Override with
+// SANDBOX_MEMORY_FRACTION (0 < f <= 1) for unusually memory-tight or -rich hosts.
+export const DEFAULT_SANDBOX_MEMORY_FRACTION = 0.8;
 export const MAX_SAMPLE_ROWS = 5;
 export const MAX_PREVIEW_ROWS = 10;
 export const MAX_COMPONENT_COUNT = 20;
@@ -126,6 +150,7 @@ export function isValidRuntimeId(id: string): id is SandboxRuntimeId {
 
 export const AVAILABLE_PROVIDERS = [
   { id: "anthropic", label: "Anthropic" },
+  { id: "claude-cli", label: "Claude CLI" },
   { id: "bedrock", label: "Amazon Bedrock" },
   { id: "vertex", label: "Google Vertex AI" },
   { id: "openai-compatible", label: "OpenAI-Compatible" },

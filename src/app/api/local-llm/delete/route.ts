@@ -1,5 +1,6 @@
 import { rmSync } from "fs";
 import { join } from "path";
+import { apiError } from "@/lib/api-error";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -46,8 +47,7 @@ export async function POST(request: Request) {
       rmSync(fullPath, { recursive: true, force: true });
       return Response.json({ success: true });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete model";
-      return Response.json({ error: message }, { status: 500 });
+      return apiError("/api/local-llm/delete", err, "Failed to delete model");
     }
   }
 
@@ -66,8 +66,7 @@ export async function POST(request: Request) {
       rmSync(fullPath, { recursive: true, force: true });
       return Response.json({ success: true });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete model";
-      return Response.json({ error: message }, { status: 500 });
+      return apiError("/api/local-llm/delete", err, "Failed to delete model");
     }
   }
 

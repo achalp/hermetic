@@ -3,6 +3,7 @@
 import { useNivoTheme, useChartColors, resolveColor, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface BulletChartProps {
   title: string | null;
@@ -19,7 +20,7 @@ export function BulletChartComponent({ props }: { props: BulletChartProps }) {
   const themeColors = useChartColors();
   const data = unwrapChartData(props.data) as unknown as BulletChartProps["data"];
 
-  if (data.length === 0) return <div style={{ height: chart.height }} />;
+  if (data.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const textFill = (theme.text?.fill as string) ?? "#374151";
   const valueColor = resolveColor(props.value_color ?? themeColors[0]);

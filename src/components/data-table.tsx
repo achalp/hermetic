@@ -16,8 +16,10 @@ import { downloadTableAsCsv, downloadTableAsXlsx } from "@/lib/export-utils";
 import { useThemeConfig } from "@/lib/theme-config";
 
 interface DataTableProps {
-  columns: string[];
-  rows: string[][];
+  // The LLM sends columns as plain strings OR {key,label} objects, and rows as
+  // string arrays OR record objects — the normalization below handles all four.
+  columns: (string | { key?: string; label?: string; name?: string })[];
+  rows: string[][] | Record<string, unknown>[];
   caption?: string | null;
   highlight_max?: boolean | null;
   highlight_min?: boolean | null;
@@ -80,12 +82,12 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
       !Array.isArray(rawRows[0]) && typeof rawRows[0] === "object" && rawRows[0] !== null
         ? (rawRows[0] as Record<string, unknown>)
         : null;
+    const objKeys = firstObj ? Object.keys(firstObj) : [];
     const resolvedKeys = firstObj
-      ? columnKeys.map((key) => {
+      ? columnKeys.map((key, i) => {
           if (key in firstObj) return key;
           // Try case-insensitive match
           const lower = key.toLowerCase();
-          const objKeys = Object.keys(firstObj);
           const ciMatch = objKeys.find((k) => k.toLowerCase() === lower);
           if (ciMatch) return ciMatch;
           // Try normalizing display name to snake_case: "Total PMM (USD)" → "total_pmm_usd"
@@ -95,7 +97,14 @@ export function DataTableComponent({ props }: { props: DataTableProps }) {
             .replace(/^_|_$/g, "");
           const snakeMatch = objKeys.find((k) => k === snake);
           if (snakeMatch) return snakeMatch;
-          return key; // fallback to original
+          // Positional fallback: a purely display header ("Building ID") that
+          // matches no field name maps to the record's field at this column's
+          // position — so a table built from a records array still renders its
+          // cells instead of going blank. Skip a field another column already
+          // claimed by name so we don't duplicate it.
+          const positional = objKeys[i];
+          if (positional && !columnKeys.includes(positional)) return positional;
+          return key; // fallback to original (cell will be blank)
         })
       : columnKeys;
 

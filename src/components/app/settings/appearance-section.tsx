@@ -12,6 +12,7 @@ function useIsMounted() {
   );
 }
 
+/* Theme identity swatches (brand colors per theme — intentionally fixed) */
 const SWATCH_CONFIG: Record<string, { color: string; radius: string }> = {
   vanilla: { color: "#059669", radius: "12px" },
   stamen: { color: "#204ce5", radius: "4px" },

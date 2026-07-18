@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { loadSavedVisualization, deleteSavedVisualization } from "@/lib/saved/storage";
 import type { SavedWorkbook } from "@/lib/saved/storage";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
@@ -51,8 +52,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       workbook: workbookInfo,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Not found";
-    return NextResponse.json({ error: message }, { status: 404 });
+    return apiError("/api/vizs/[id]", err, "Not found", 404);
   }
 }
 
@@ -126,7 +126,6 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     await deleteSavedVisualization(id);
     return NextResponse.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Delete failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/vizs/[id]", err, "Delete failed");
   }
 }

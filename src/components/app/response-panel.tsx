@@ -11,6 +11,7 @@ import type { Spec } from "@json-render/react";
 import { registry, registryActionHandlers } from "@/components/registry";
 import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-context";
+import { logClient } from "@/lib/client-log";
 import { resolveDrillValues, formatFilterValue } from "@/lib/drill-resolve";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, SchemaMode, FilterValue } from "@/lib/types";
@@ -18,12 +19,12 @@ import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";
 import type { InvestigateScope } from "@/lib/llm/investigate-planner";
-import { useSaveExport } from "@/hooks/use-save-export";
 import { useArtifacts } from "@/hooks/use-artifacts";
 import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
+import { ProgressCard, type ProgressStep } from "@/components/app/progress-card";
 import type { CostInfo } from "@/components/app/cost-footer";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
@@ -127,7 +128,6 @@ interface ResponsePanelProps {
   onStreamEnd?: () => void;
   loadedSpec?: Spec | null;
   loadedArtifacts?: CachedArtifacts | null;
-  onSaved?: () => void;
   schemaMode?: SchemaMode;
   codeGenModel?: ModelId;
   uiComposeModel?: ModelId;
@@ -155,6 +155,14 @@ interface ResponsePanelProps {
    * generation (warehouse sources only). Used by SQL Edit-and-Rerun.
    */
   rerunSql?: string | null;
+  /**
+   * When set alongside a fresh `questionSeq`, ResponsePanel REATTACHES to an
+   * already-running server-side analysis (POST /api/query/attach with this
+   * runId) instead of starting a new one — replaying its progress so far, then
+   * streaming to completion. Used to recover a run whose live view was lost to
+   * a reload / HMR (see run-stream-hub, useActiveRuns).
+   */
+  reattachRunId?: string | null;
 }
 
 export function ResponsePanel({
@@ -166,7 +174,6 @@ export function ResponsePanel({
   onStreamEnd,
   loadedSpec,
   loadedArtifacts,
-  onSaved,
   schemaMode = "metadata",
   codeGenModel,
   uiComposeModel,
@@ -181,6 +188,7 @@ export function ResponsePanel({
   onNotebookExportApiChange,
   rerunCode,
   rerunSql,
+  reattachRunId,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   // Dashboard | Notebook view for Investigate results. Initialized from
@@ -226,7 +234,19 @@ export function ResponsePanel({
   // Route the next stream to the right pipeline. The hook reads `api` per
   // call inside its useCallback, so toggling here before a new questionSeq
   // is enough — no remount required.
-  const apiUrl = mode === "investigate" ? "/api/query/investigate" : "/api/query";
+  // Reattaching to a live run streams from the attach endpoint (replay + live);
+  // otherwise a fresh question hits the normal pipeline.
+  const apiUrl = reattachRunId
+    ? "/api/query/attach"
+    : mode === "investigate"
+      ? "/api/query/investigate"
+      : "/api/query";
+
+  // Diagnostics for the mid-stream abort: useUIStream aborts its fetch when this
+  // panel unmounts, so a long query dies if anything tears the panel down. Track
+  // when a stream is live so onError + the unmount cleanup can report it.
+  const streamStartedAtRef = useRef<number | null>(null);
+  const streamingRef = useRef(false);
 
   const { spec, isStreaming, error, send, clear } = useUIStream({
     api: apiUrl,
@@ -245,7 +265,16 @@ export function ResponsePanel({
         });
       }
     },
-    onError: () => {
+    onError: (err) => {
+      // Diagnostic: a mid-stream error is almost always an abort from this panel
+      // unmounting (useUIStream aborts its fetch on unmount). Log it with elapsed
+      // time so we can correlate with what re-rendered/unmounted the panel.
+      const elapsed = streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null;
+      logClient("warn", "[ResponsePanel] stream error", {
+        elapsedMs: elapsed,
+        name: (err as { name?: string })?.name,
+        message: (err as { message?: string })?.message,
+      });
       setPreviousSpec(null);
       onStreamEnd?.();
     },
@@ -256,30 +285,14 @@ export function ResponsePanel({
     ?.__warehouse_csv_id as string | undefined;
   const effectiveCsvId = csvId ?? warehouseCsvId ?? null;
 
-  const {
-    showArtifacts,
-    setShowArtifacts,
-    artifacts,
-    setArtifacts,
-    artifactsLoading,
-    artifactsError,
-    handleToggleArtifacts,
-  } = useArtifacts({ csvId: effectiveCsvId });
-
-  const {
-    saving,
-    saveMessage,
-    exporting,
-    handleSave,
-    handleExportPdf,
-    handleExportDocx,
-    handleExportPptx,
-  } = useSaveExport({
+  // Save/Export moved to the top bar — page.tsx owns the live useSaveExport
+  // instance. A second instance here was fully dead (none of its 7 values
+  // were consumed) yet kept its own state/effects per render and, worse,
+  // diverged from the page's on csvId (page uses csvId, this used
+  // effectiveCsvId) — a drift trap for whichever instance was "authoritative".
+  // Only the artifacts-panel state survives here.
+  const { showArtifacts, setShowArtifacts, artifacts, setArtifacts } = useArtifacts({
     csvId: effectiveCsvId,
-    currentSpecRef,
-    currentQuestionRef,
-    dashboardRef,
-    onSaved,
   });
 
   // Keep current question in sync
@@ -315,6 +328,13 @@ export function ResponsePanel({
     setDashboardStale(false);
     setRecomposeError(null);
     setCitationTarget(null);
+
+    // Reattach: don't start a new analysis — subscribe to the run that's still
+    // executing server-side (replay so far, then live to completion).
+    if (reattachRunId) {
+      send("", { runId: reattachRunId });
+      return;
+    }
 
     // Conversation history is managed server-side (keyed by csvId)
     send("", {
@@ -429,8 +449,49 @@ export function ResponsePanel({
     return () => {
       drillDownCallbackRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveCsvId, warehouseId, send]);
+    // The effect is a cheap ref reassignment, so the full dep list is fine.
+    // It previously listed only [effectiveCsvId, warehouseId, send] behind an
+    // exhaustive-deps disable while the callback SENT schemaMode / models /
+    // runtime / purpose / viewMode — so changing a setting after mount made
+    // subsequent drill-downs silently use the stale values until the csvId
+    // happened to change.
+  }, [
+    effectiveCsvId,
+    warehouseId,
+    send,
+    schemaMode,
+    codeGenModel,
+    uiComposeModel,
+    sandboxRuntime,
+    purpose,
+    viewMode,
+  ]);
+
+  // Track live-stream state for the abort diagnostics above.
+  useEffect(() => {
+    streamingRef.current = isStreaming;
+    if (isStreaming && streamStartedAtRef.current === null) streamStartedAtRef.current = Date.now();
+    if (!isStreaming) streamStartedAtRef.current = null;
+  }, [isStreaming]);
+
+  // If this panel unmounts WHILE a stream is live, that unmount is what aborts the
+  // query ("network error"). Log it loudly so the trigger can be pinned down.
+  useEffect(() => {
+    return () => {
+      if (streamingRef.current) {
+        // logClient (keepalive fetch) so this reaches the SERVER log even as
+        // the page tears down — the browser console alone was lost unless
+        // devtools were open at the moment of failure.
+        logClient(
+          "warn",
+          "[ResponsePanel] UNMOUNTED WHILE STREAMING — aborts the in-flight query",
+          {
+            elapsedMs: streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null,
+          }
+        );
+      }
+    };
+  }, []);
 
   const handleClear = useCallback(() => {
     clear();
@@ -852,58 +913,24 @@ function PipelineProgress({
   const stageToStep = isWarehousePipeline ? WAREHOUSE_STAGE_TO_STEP : FILE_STAGE_TO_STEP;
   const currentStep = stageToStep[progress.stage] ?? progress.step;
   const isRetrying = progress.stage === "retrying";
+  const retryStep = isWarehousePipeline ? 4 : 2;
+
+  const steps: ProgressStep[] = pipelineSteps.map((step, i) => {
+    const stepNum = i + 1;
+    const status: ProgressStep["status"] =
+      stepNum < currentStep ? "done" : stepNum > currentStep ? "upcoming" : "active";
+    const label =
+      status === "active"
+        ? isRetrying && stepNum === retryStep
+          ? RETRYING_LABEL
+          : step.activeLabel
+        : step.label;
+    return { label, status };
+  });
 
   return (
-    <div className="flex justify-center py-16" role="status" aria-live="polite">
-      <div
-        className="grid gap-x-8 gap-y-1.5 text-sm"
-        style={{ gridTemplateColumns: "repeat(2, auto)" }}
-      >
-        {pipelineSteps.map((step, i) => {
-          const stepNum = i + 1;
-          const isCompleted = stepNum < currentStep;
-          const isUpcoming = stepNum > currentStep;
-
-          if (isUpcoming) {
-            return (
-              <div key={step.stage} className="flex items-center gap-2 text-t-tertiary">
-                <span className="inline-block h-4 w-4" />
-                {step.label}
-              </div>
-            );
-          }
-
-          if (isCompleted) {
-            return (
-              <div key={step.stage} className="flex items-center gap-2 text-t-secondary">
-                <svg
-                  className="h-4 w-4 text-success-text"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {step.label}
-              </div>
-            );
-          }
-
-          // Active
-          const retryStep = isWarehousePipeline ? 4 : 2;
-          const label = isRetrying && stepNum === retryStep ? RETRYING_LABEL : step.activeLabel;
-          return (
-            <div key={step.stage} className="flex items-center gap-2 text-accent font-medium">
-              <SpinnerIcon />
-              {label}
-            </div>
-          );
-        })}
-      </div>
+    <div className="flex justify-center py-16">
+      <ProgressCard steps={steps} state={spec?.state as Record<string, unknown> | undefined} />
     </div>
   );
 }
@@ -960,63 +987,60 @@ function InvestigateProgress({ spec }: { spec: Spec | null }) {
               ? "Composing the unified dashboard..."
               : "Working...";
 
+  const steps: ProgressStep[] = [{ label: stageLabel, status: "active" }];
+
   return (
-    <div className="flex flex-col gap-4 py-10" role="status" aria-live="polite">
-      <div className="flex items-center justify-center gap-3">
-        <SpinnerIcon />
-        <span className="text-sm font-medium text-accent">{stageLabel}</span>
-      </div>
+    <div className="flex justify-center py-16">
+      <ProgressCard steps={steps} state={state}>
+        {plan?.approach && (
+          <p className="mt-3 text-sm leading-relaxed text-t-secondary">{plan.approach}</p>
+        )}
 
-      {plan?.approach && (
-        <div className="mx-auto max-w-[700px] text-center text-sm text-t-secondary">
-          {plan.approach}
-        </div>
-      )}
-
-      {plan?.steps && plan.steps.length > 0 && (
-        <ol className="mx-auto flex w-full max-w-[700px] flex-col gap-2 text-sm">
-          {plan.steps.map((step) => (
-            <li
-              key={step.index}
-              className="flex items-start gap-3 border border-border-default px-3 py-2"
-              style={{
-                borderRadius: "var(--radius-card)",
-                background:
-                  step.status === "running" ? "var(--color-accent-subtle)" : "transparent",
-              }}
-            >
-              <span className="mt-0.5 shrink-0">
-                <StepIcon status={step.status} />
-              </span>
-              <div className="flex-1">
-                <div
-                  className={
-                    step.status === "failed"
-                      ? "text-error-text"
-                      : step.status === "done"
-                        ? "text-t-secondary"
-                        : "text-t-primary"
-                  }
-                >
-                  <span className="font-medium">Step {step.index + 1}.</span> {step.question}
+        {plan?.steps && plan.steps.length > 0 && (
+          <ol className="mt-3 flex flex-col gap-2 text-sm">
+            {plan.steps.map((step) => (
+              <li
+                key={step.index}
+                className="flex items-start gap-2.5 border border-border-default px-3 py-2"
+                style={{
+                  borderRadius: "var(--radius-card)",
+                  background:
+                    step.status === "running" ? "var(--color-accent-subtle)" : "transparent",
+                }}
+              >
+                <span className="mt-0.5 shrink-0">
+                  <StepIcon status={step.status} />
+                </span>
+                <div className="flex-1">
+                  <div
+                    className={
+                      step.status === "failed"
+                        ? "text-error-text"
+                        : step.status === "done"
+                          ? "text-t-secondary"
+                          : "text-t-primary"
+                    }
+                  >
+                    <span className="font-medium">Step {step.index + 1}.</span> {step.question}
+                  </div>
+                  {step.rationale && (
+                    <div className="mt-0.5 text-xs text-t-tertiary">{step.rationale}</div>
+                  )}
                 </div>
-                {step.rationale && (
-                  <div className="mt-0.5 text-xs text-t-tertiary">{step.rationale}</div>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
+              </li>
+            ))}
+          </ol>
+        )}
 
-      {errorMsg && (
-        <div
-          className="mx-auto max-w-[700px] border border-error-border bg-error-bg p-3 text-sm text-error-text"
-          style={{ borderRadius: "var(--radius-card)" }}
-        >
-          {errorMsg}
-        </div>
-      )}
+        {errorMsg && (
+          <div
+            className="mt-3 border border-error-border bg-error-bg p-3 text-sm text-error-text"
+            style={{ borderRadius: "var(--radius-card)" }}
+          >
+            {errorMsg}
+          </div>
+        )}
+      </ProgressCard>
     </div>
   );
 }
@@ -1059,9 +1083,9 @@ function InvestigationCaveats({ spec }: { spec: Spec | null }) {
           className="border px-3 py-2 text-sm"
           style={{
             borderRadius: "var(--radius-card)",
-            borderColor: "#d97706",
-            background: "rgba(217, 119, 6, 0.08)",
-            color: "#b45309",
+            borderColor: "var(--color-warning-border)",
+            background: "var(--color-warning-bg)",
+            color: "var(--color-warning-text)",
           }}
         >
           <span className="font-medium">▲ Verify these figures.</span> {g!.ungrounded!.length}{" "}
@@ -1079,12 +1103,14 @@ function InvestigationCaveats({ spec }: { spec: Spec | null }) {
           <ul className="mt-1 flex flex-col gap-0.5 text-xs text-t-secondary">
             {dq!.failed?.map((s) => (
               <li key={`f${s.stepNo}`}>
-                <span style={{ color: "#ef4444" }}>Step {s.stepNo} failed</span> — {s.question}
+                <span style={{ color: "var(--color-error-text)" }}>Step {s.stepNo} failed</span> —{" "}
+                {s.question}
               </li>
             ))}
             {dq!.degraded?.map((s) => (
               <li key={`d${s.stepNo}`}>
-                <span style={{ color: "#d97706" }}>Step {s.stepNo} degraded</span> — {s.question}
+                <span style={{ color: "var(--color-warning-text)" }}>Step {s.stepNo} degraded</span>{" "}
+                — {s.question}
                 {s.reason ? ` (${s.reason})` : ""}
               </li>
             ))}

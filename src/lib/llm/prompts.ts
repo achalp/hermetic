@@ -276,7 +276,7 @@ Rules:
   - pandas is only for reshaping/pivoting that small result into chart_data.
   - Joins and "which X occur together": write them in DuckDB SQL. NEVER load two large frames into pandas and \`pd.merge\` them — that cross-joins in memory and crashes. For co-occurrence: aggregate each group to a list (\`array_agg(DISTINCT x)\`) then pair WITHIN it via \`UNNEST\` twice with a \`<\` guard, or self-join in SQL — all inside DuckDB. Example:
     \`duckdb.sql("WITH g AS (SELECT pr, array_agg(DISTINCT name) c FROM read_parquet('/data/input.parquet') GROUP BY pr) SELECT a, b, count(*) n FROM g, UNNEST(c) t1(a), UNNEST(c) t2(b) WHERE a<b GROUP BY a,b ORDER BY n DESC LIMIT 100").df()\` ← .df() only on the ~100-row result.
-- Always pass datasets={"main": df} to write_output, using the ORIGINAL unfiltered DataFrame (it is capped to 5000 rows for you). This enables client-side interactive filtering.${
+- Always pass datasets={"main": df} to write_output using the ORIGINAL, COMPLETE DataFrame — do NOT pre-truncate it with df.head(...) / df.nlargest(...) / df.sample(...). write_output caps it to 5000 rows for you AND records the true total, which lets the dashboard tell the user when its interactive figures are based on a sample. Pre-truncating hides the total and biases the client-side aggregations.${
     hasWorkbookContext
       ? `
 - Multiple CSV sheets from an Excel workbook are available in the sandbox.
@@ -446,11 +446,93 @@ export function buildCodeGenUserPrompt(
   question: string,
   mode: SchemaMode = "metadata",
   workbookContext?: string,
-  localFileContext?: string
+  localFileContext?: string,
+  sandboxMemoryGb?: string | null
 ): string {
-  return `${buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)}
+  return `${buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext, sandboxMemoryGb)}
 ## Question
 ${question}`;
+}
+
+/**
+ * Geospatial code-gen guidance — the KD-tree / NAMED-REGION-polygon / memory-safe
+ * recipe, included ONLY when the data has a real geometry column. Steers away from
+ * the Overture failure modes: a non-existent GEOGRAPHY cast and O(n^2) distance
+ * self-joins that time out. Exported so the self-correction RETRY path can
+ * re-inject it — a first attempt gets it via the schema block, but a retry that
+ * rebuilt the prompt from scratch would DROP it and "repair" a superlative by
+ * downsampling (the exact regression that turned an all-buildings KD-tree into a
+ * grid-cell approximation on the first California run).
+ */
+export function buildGeospatialGuidance(
+  schema: CSVSchema,
+  sandboxMemoryGb?: string | null
+): string {
+  const hasGeometryColumn = schema.columns.some((c) =>
+    /^(geometry|geom|the_geom|wkb_geometry|geog|shape)$/i.test(c.name)
+  );
+  if (!hasGeometryColumn || schema.has_geojson) return "";
+  const hasBboxColumn = schema.columns.some((c) => /^bbox$/i.test(c.name));
+  const bboxTip = hasBboxColumn
+    ? `\nThis dataset has a bbox STRUCT column (xmin/ymin/xmax/ymax). The geometry/WKB column is the LARGEST column — reading or decoding it for millions of rows over a remote S3 scan is the single dominant cost and can push a ~2-min scan past a 20-min timeout. So for point-based work, do NOT touch geometry at all: (1) FILTER on the bbox struct — bbox.xmin BETWEEN lon_min AND lon_max AND bbox.ymin BETWEEN lat_min AND lat_max — cheap scalar with predicate pushdown, NOT ST_X(ST_Centroid(geometry)) which decodes every geometry. (2) For the building's POINT (centroid, nearest-neighbor, point-in-polygon) derive it from the bbox struct: lon = (bbox.xmin+bbox.xmax)/2.0, lat = (bbox.ymin+bbox.ymax)/2.0 (or ST_Point of those). A building's bbox center is inside its footprint, so it is the correct locating point — and this NEVER reads the geometry column. Only decode geometry (ST_Centroid, ST_Area, ST_Length, distances on shapes) when you genuinely need the SHAPE, not just a point. But a bbox is a coarse PRE-filter, not a region boundary — see NAMED REGION below.`
+    : "";
+  return `\n## Geospatial analysis (spatial extension is loaded)
+Read via read_parquet with spatial loaded, the geometry column is ALREADY a GEOMETRY value — use it DIRECTLY in spatial functions: ST_Centroid(geometry), ST_X(...), ST_Y(...), ST_Intersects(geometry, ...). Do NOT wrap it in ST_GeomFromWKB() or ST_GeomFromText() — those take a BLOB/VARCHAR and ERROR on a GEOMETRY ("No function matches ST_GeomFromWKB(GEOMETRY)"). Only use ST_GeomFromWKB when a column is a raw WKB BLOB.${bboxTip}
+NAMED REGION = POLYGON, NOT A BOX — when the question names an administrative area (a state, county, country, city, neighborhood), a lat/lon bounding box is ONLY a coarse pre-filter, never the final filter: a rectangle around California also contains slices of Oregon, Nevada, Arizona, the Pacific and Mexico, so edge/extreme queries (most-isolated, northern-most, farthest-apart) will return points OUTSIDE the named area. Filter by the actual boundary polygon. On Overture, boundaries live in the divisions theme: read type=division_area from the SAME release as the source (swap \`theme=buildings/type=building\` → \`theme=divisions/type=division_area\` in the S3 path), select the area by ISO code where one exists — WHERE subtype='region' AND region='US-CA' for a state, country='US' for a whole country. For a CITY or COUNTY (no ISO code) match the NAME with the right subtype: WHERE subtype='locality' AND LOWER(names.primary) = LOWER('Seattle') for a city, subtype='county' for a county — and ALSO filter country (and region if known): locality names are homonyms across the planet (there is a Paris in Texas), and the extra predicates cost nothing. names.primary is a STRING — compare it directly; do NOT index it like a list: \`names['primary'][1]\` returns just the FIRST CHARACTER ('S'), so the match silently finds nothing, ST_Union_Agg returns NULL, ST_XMin(NULL) becomes nan, and the next query interpolates "BETWEEN nan AND nan" → cryptic DuckDB error + wasted retry.
+BOUNDARY LOOKUP IS TWO-PHASE (MANDATORY — the divisions-side twin of the bbox rule above): division_area's geometry column holds every admin polygon on the planet, and a one-shot \`SELECT ST_Union_Agg(geometry) ... WHERE <name/subtype filters>\` reads that entire multi-GB column over S3 — a name predicate prunes NOTHING, and this single query is what turns a ~2-min analysis into a 20-min timeout. Phase A — find the extent WITHOUT touching geometry: SELECT MIN(bbox.xmin) AS xmin, MIN(bbox.ymin) AS ymin, MAX(bbox.xmax) AS xmax, MAX(bbox.ymax) AS ymax FROM read_parquet('...type=division_area/**') WHERE <your subtype/name/country filters> — bbox and names are tiny columns, so this runs in seconds even globally. Pull the four numbers into Python floats, but UNPACK SAFELY — a no-match returns a row of NULLs (MIN/MAX over zero rows is NULL), and \`xmin, ymin, xmax, ymax = float(row[0]), float(row[1]), …\` raises \`TypeError: float() argument must be … not 'NoneType'\` on the spot, BEFORE any assert on the next line can run (observed: a "San Francisco" lookup crashed here because the name/subtype filter matched nothing). Coerce with the preloaded \`safe_float()\` and check for None FIRST: \`ext = [safe_float(v) for v in row]; \` then \`if any(v is None for v in ext): raise ValueError("<region> boundary not found — check the subtype/name/country filters")\` and only then \`xmin, ymin, xmax, ymax = ext\`. If they come back None the name matched NO rows — fix the name filter (right subtype? homonym needs country/region?), never interpolate nan into SQL. Phase B — fetch the polygon bounded by those literals: the SAME read_parquet with the SAME filters PLUS \`bbox.xmin >= {xmin - 0.01} AND bbox.xmax <= {xmax + 0.01} AND bbox.ymin >= {ymin - 0.01} AND bbox.ymax <= {ymax + 0.01}\` (every matching row's bbox lies inside the Phase-A extent by construction; the margin is float-paranoia). Now the fat geometry column is read only from the few row groups near the target area. In Phase B, MATERIALIZE the boundary into a single-row temp table AND SIMPLIFY it in the same step: \`CREATE TEMP TABLE region AS SELECT ST_Simplify(ST_Union_Agg(geometry), 0.001) AS geom FROM read_parquet(...) WHERE <filters + bbox literals>\`. ST_Union_Agg collapses the SEVERAL rows a region often has (mainland + islands) into ONE geometry — never CROSS JOIN the raw multi-row result or you double-count/drop islands. ST_Simplify(…, 0.001) (~100m tolerance) is NOT optional for a state/county/country: a real admin boundary (California's coastline especially) has tens of thousands of vertices, and ST_Contains cost is vertices × points-tested, so the per-point test against the full-detail polygon over MILLIONS of buildings is itself a 20-min sink — simplifying cuts the vertex count ~10-50× at negligible accuracy for building-scale point tests. Materialize (CREATE TEMP TABLE), do NOT leave the polygon as a lazy Python relation you reference in a subquery — the temp table pins the simplified geometry so the per-row test reads it once from one small row, not re-planned into the scan.
+Then: the Phase-A extent IS your pre-filter box for the SOURCE table (no hardcoded box, no ST_XMin on the polygon needed) — apply it to bbox.* for cheap pushdown, and keep only rows where ST_Contains((SELECT geom FROM region), ST_Point((bbox.xmin+bbox.xmax)/2.0, (bbox.ymin+bbox.ymax)/2.0)) — test the bbox-center POINT, do NOT write ST_Contains(..., ST_Centroid(geometry)) which decodes the huge geometry column for every row. Use ST_Intersects against geometry only when area OVERLAP (not point-in-region) genuinely matters. Exact and still fast — the bbox prunes billions, the SIMPLIFIED polygon test runs on the survivors' cheap bbox points.
+DuckDB has NO GEOGRAPHY type — NEVER cast \`::GEOGRAPHY\`. For distance in METERS between lon/lat points use ST_Distance_Sphere(ST_Point(lon, lat), ST_Point(lon, lat)); plain ST_Distance on lon/lat returns degrees, not meters.
+F-STRING WHEN YOU INTERPOLATE — any \`duckdb.sql(...)\` that splices a computed Python value (a bbox bound like {xmin - 0.01}, a threshold, a top-N id list) into the SQL MUST be an f-string: \`duckdb.sql(f"""… WHERE bbox.xmin >= {xmin} …""")\`. A PLAIN (non-f) string leaves \`{xmin}\` literal and DuckDB fails with "Parser Error: syntax error at or near }" (observed: it killed a USA run's Phase-1 metadata query on the very first line). Conversely, if the SQL genuinely needs a LITERAL brace (a struct/map literal like {'a': 1}), double it as {{ }} inside an f-string.
+CRITICAL — nearest/farthest-neighbor: a SQL distance self-join is O(n^2) and WILL time out, so do NOT self-join the full table. Instead build a KD-tree in Python (scipy.spatial.cKDTree, O(n log n)) over ALL points in scope (every building in the bounding box) — do not downsample; a KD-tree handles the full region and downsampling would miss the true extreme.
+ROUTE BY SIZE FIRST — estimate N in scope from parquet_metadata (SUM(row_group_num_rows) over row groups whose bbox overlaps the region). If N FITS RAM (≲ ~30M points — BOTH the rowid+lon+lat coords frame AND the cKDTree.query(k=2) output arrays must fit under the cap) use the DIRECT KD-tree (skeleton next — this is Seattle ~0.3M, California ~13.7M). If N does NOT fit (whole USA ~130M, planet 2.5B) you CANNOT pull coords into pandas at all — a coords .df() over ~100M+ rows is THE OOM even "coords-only" — jump to PLANET-SCALE / DOESN'T-FIT below, which COUNTS in DuckDB and materializes only the tiny survivor set.
+GATE THE DECISION IN CODE, DON'T EYEBALL IT — after a cheap COUNT(*) of the in-scope rows, call the preloaded \`assert_fits(N, cols=3)\` BEFORE the coords .df(). It raises (with the exact "switch to DOESN'T-FIT" instruction) when N cannot fit the container's REAL memory cap — so the direct path is taken only when it provably fits, and an over-scale region is forced onto the counting strategy on the FIRST attempt, not after a 25-minute OOM. If it raises, do NOT catch it and retry the direct approach with fewer columns — that is the DIVERGENCE TRAP (each retry trims a column, scans MORE, and OOMs later: observed 6→15→29 min across three attempts). Fewer columns does not help once N is the problem; only switching strategy does. GATE EVERY SCALING .df(), NOT JUST THE KD-TREE FRAME — this applies inside the DOESN'T-FIT path too, where the candidate/leaf reads scale with the data: whenever you are about to \`.df()\` a temp table you just built from the remote scan (a search-area / candidate_buildings pull, a leaf-cell read), first \`n = duckdb.sql("SELECT COUNT(*) FROM <that_table>").fetchone()[0]\` and \`assert_fits(n, cols=<#numeric cols you pull>)\`. The classic leak: an isolated cell's NEAREST occupied neighbour can be a dense METRO edge, so a search box around it returns MILLIONS of rows — that unguarded \`cand_df = duckdb.sql("SELECT rowid, lon, lat FROM candidate_buildings").df()\` is exactly what OOM-killed a USA run at ~18 min. If assert_fits raises there, sub-grid that one dense cell (a finer GROUP BY restricted to its bbox) and read only the sub-cell on the isolated point's facing side — never the whole box. Backstop (not a substitute for the gate): DuckDB is capped to spill to disk, and a memory watchdog aborts in <1s if the pandas side still climbs past ~85% of the cap, with the same switch-strategy message — so a doomed approach fails fast instead of burning 18 minutes.
+CANONICAL SKELETON — for a bounded-region nearest/farthest-neighbor superlative, ADAPT THIS EXACT SHAPE rather than re-deriving it from the prose below (the prose explains WHY each line is written this way). The ONE line that OOM-kills the run when you get it wrong is the .df() feeding cKDTree: it is rowid+lon+lat and NOTHING else. Get this right on the FIRST attempt — an OOM here costs a multi-minute remote re-scan on retry.
+    # region_buildings: TEMP TABLE already materialized (bbox pre-filter + ST_Contains bbox-center point),
+    # with display cols kept IN DuckDB: SELECT (bbox.xmin+bbox.xmax)/2 AS lon, (bbox.ymin+bbox.ymax)/2 AS lat,
+    #   id, names.primary AS name, class, height FROM data WHERE <bbox literals> AND ST_Contains(...)
+    import numpy as np, duckdb
+    from scipy.spatial import cKDTree
+    from math import radians, cos
+    n = duckdb.sql("SELECT COUNT(*) FROM region_buildings").fetchone()[0]
+    assert_fits(n, cols=3, factor=4.0, what="the KD-tree coords frame")   # <== GATE: raises → take the DOESN'T-FIT path instead. Never wrap in try/except to force the direct path.
+    c = duckdb.sql("SELECT rowid, lon, lat FROM region_buildings").df()   # <== 3 NUMERIC cols ONLY. Adding id/name/class/any string here IS the OOM.
+    lat0 = radians(float(c["lat"].mean()))
+    x = c["lon"].to_numpy() * cos(lat0) * 111320.0
+    y = c["lat"].to_numpy() * 111320.0
+    d, _ = cKDTree(np.column_stack([x, y])).query(np.column_stack([x, y]), k=2, workers=-1)
+    nn_m = d[:, 1]                                       # nearest-neighbor distance, METERS
+    N = 20
+    top = np.argpartition(nn_m, -N)[-N:]
+    top = top[np.argsort(nn_m[top])[::-1]]              # rank 1 = most isolated (largest NN distance)
+    ids = ",".join(str(r) for r in c["rowid"].to_numpy()[top])
+    # Hydrate ONLY the ~N winners by rowid, locally (never re-read the remote source):
+    win = duckdb.sql(f"SELECT rowid, id, name, class, height, lon, lat FROM region_buildings WHERE rowid IN ({ids})").df()
+    # WHERE-IN returns rows in ARBITRARY order — re-attach distances BY ROWID, do not zip by position:
+    nn_by_rowid = {int(c["rowid"].to_numpy()[t]): float(nn_m[t]) for t in top}
+    win["nn_dist_m"] = win["rowid"].map(nn_by_rowid)
+    win = win.sort_values("nn_dist_m", ascending=False).reset_index(drop=True)   # rank 1 first
+    # win now has the top-N with names/coords for results + the map layer (tag rank / is_winner).
+    # WINNER RESULT DICT — coerce every numeric attribute with the preloaded safe_float()/safe_int();
+    # NEVER hand-roll \`float(row['num_floors']) if row['num_floors'] and not np.isnan(...)\` — that throws
+    # on None/blank/string/numpy values (a nullable field like num_floors/height IS often null) and has
+    # crashed otherwise-successful runs at the finish line. e.g.
+    #   best = win.iloc[0]
+    #   results["answer"] = {"name": best["name"], "height_m": safe_float(best["height"]),
+    #                        "num_floors": safe_int(best["num_floors"]), "nn_dist_m": safe_float(best["nn_dist_m"])}
+ENGINE-FIRST — DuckDB streams and spills to disk, so it processes FAR more than fits in RAM; pandas does not. Do the heavy work (filter, aggregate, rank, distance) in DuckDB SQL and .df() only SMALL results. The sandbox has ${sandboxMemoryGb ? `a HARD memory cap of ~${sandboxMemoryGb} GB (the container is killed the instant it exceeds this)` : "limited RAM"}, and a large region can be MILLIONS of rows — loading them all (especially string columns) into pandas gets OOM-KILLED ("Killed").
+MEMORY-SAFE KD-tree (MANDATORY on a large region — a wide .df() over millions of rows is THE OOM, and runs get killed for exactly this): the DataFrame you pass to cKDTree must contain ONLY numeric columns. Pull JUST the coordinates: df = duckdb.sql("SELECT lon, lat FROM region_buildings").df() — 2 numeric cols, so tens of millions fit. NEVER select id/class/subtype/height or any string/attribute column into this frame (e.g. do NOT write \`SELECT id, lon, lat, subtype, class, ... FROM region_buildings\`.df() — that is the OOM). Do NOT add \`row_number() OVER ()\` (or any un-partitioned/global window) to manufacture a key — an unpartitioned window is a single-threaded PIPELINE BREAKER that funnels the whole scan through one thread (measured: it turned a ~4-min materialize into an 18-min+ timeout). You don't need a manufactured key: pull DuckDB's free \`rowid\` alongside the coords (df = duckdb.sql("SELECT rowid, lon, lat FROM region_buildings").df()) — the top-N positions give you their rowids. Build the tree, take the top-N positions, THEN hydrate full attributes for ONLY those rows. \`rowid\` IS TABLE-ONLY — it exists ONLY because region_buildings is a MATERIALIZED temp table (CREATE TEMP TABLE …). It does NOT exist on a \`read_parquet(...)\` scan or a VIEW over one: \`SELECT rowid FROM read_parquet(...)\` (or from the \`data\` view) fails with "Binder Error: Referenced column rowid not found in FROM clause". So NEVER select rowid straight from the remote source — materialize into a temp table first, then rowid is valid on THAT table. And a rowid is per-scan positional, NOT a stable identity: a rowid from one scan is meaningless in any OTHER (re-)scan, so you can only use it to hydrate from the SAME temp table you read it from — to hydrate across a fresh read, key on the stable \`id\` column (or exact lon/lat) instead. For a BOUNDED region (a named region / bbox subset — the usual case), materialize the display columns INTO region_buildings in the ONE pass (a bounded subset, so affordable) — but they STAY in DuckDB: they reach pandas ONLY in the final winner hydration, NEVER in the KD-tree frame (which stays rowid+lon+lat). Hydrate the ~N winners LOCALLY by rowid, NAMING the columns (never SELECT *): duckdb.sql(f"SELECT id, names.primary AS name, class, height FROM region_buildings WHERE rowid IN ({top_ids})").df() — do NOT re-read the remote source. OVERTURE COLUMN TRAP: \`names\` is a nested STRUCT, not a string — select \`names.primary AS name\` (materialize it that way too: put \`names.primary AS name\` in region_buildings, never the raw \`names\`). Pulling the raw \`names\` struct into a DataFrame is a top OOM cause (a struct explodes into nested Python objects over millions of rows — this exact mistake OOM-killed a California run), and \`str(row['names'])\` on the struct is garbage. Same for any struct/list/map column: project the scalar field you need, never the container. A second REMOTE bbox read to hydrate a MOST-ISOLATED top-N is also a trap: those winners sit in wide-span row groups that defeat bbox pruning, so it re-reads huge row groups and times out (measured on California). Only a genuinely UNBOUNDED scan (no region) falls back to the second remote read. datasets['main'] gets the bounded top-N (or a sample), never the full frame.
+PROJECT TO METERS FIRST — a KD-tree on raw lon/lat DEGREES is geographically distorted: a longitude degree shrinks with latitude, so degree-space distance mis-ranks neighbors (badly across a wide latitude span like a whole state/country) and can pick the WRONG most-isolated point. Convert to an equal-meter space before building the tree: lat0 = radians(mean_lat); x = lon * cos(lat0) * 111320; y = lat * 111320; cKDTree(column_stack([x, y])). Then the query distances are already ~meters (refine the reported top-N with an exact haversine/ST_Distance_Sphere if you want). NEVER build the tree on unscaled lon/lat.
+EXTREME SCALE (coords don't even fit): do NN in DuckDB with a GRID self-join — bucket points into grid cells (FLOOR(lon/cell), FLOOR(lat/cell)), join a point only to points in the same or the 8 adjacent cells, and MIN(ST_Distance_Sphere(...)) per point. This is spatially correct and streams. For the FARTHEST/loneliest, points with no neighbor in the window are the candidates — widen the window (or increase the cell size) for those so their true NN distance is found, not dropped.
+PLANET-SCALE / DOESN'T-FIT superlative (in-scope N too big to pull into pandas — USA ~130M, planet 2.5B): the fine-pass \`.df()\` is THE OOM (OBSERVED: a 10°-grid USA run climbed 28 min then OOM'd; "coords-only" does NOT save you because cKDTree.query(k=2) adds two more N×2 arrays — several GB). So NEVER materialize the tail — COUNT it in DuckDB, coarse-to-fine, and pull only the tiny survivor set into pandas. A most-isolated building sits in an empty disc, so you only need the sparse tail — and you FIND it by counting cells, not by reading points. (1) L0 DENSITY from footers (free, ~seconds): parquet_metadata('<same glob>') → per-row-group bbox (path_in_schema IN ('bbox, xmin','bbox, xmax','bbox, ymin','bbox, ymax'), CAST(stats_min/stats_max AS DOUBLE)) + row_group_num_rows → coarse density. Use it ONLY to bound WHERE to look (approximate — row-group boxes OVERLAP, so it is a conservative pre-filter, NOT the answer; do NOT read points by those boxes — that leaked and OOM'd). (2) EXACT CELL COUNTS via GROUP BY — the crux, and OOM-proof because it COUNTS, never materializes. Bucket each building's bbox-CENTER into a QUADTREE cell in METER space and GROUP BY it (s = cell size in metres, lat0 = region mean-lat in radians):
+    cells = duckdb.sql(f'''SELECT
+        floor(((bbox.xmin+bbox.xmax)/2.0)*cos({lat0})*111320.0/{s}) AS cx,
+        floor(((bbox.ymin+bbox.ymax)/2.0)*111320.0/{s})            AS cy,
+        count(*) AS occ
+      FROM data WHERE <candidate-region bbox predicate>
+      GROUP BY cx, cy''').df()
+  Output = ONE row per occupied cell (tens of thousands), even if the read touched 100M+ buildings — DuckDB streams/spills the read, NOTHING lands in pandas. THIS is why it cannot OOM. Pick s SMALLER than the expected answer and LARGER than typical spacing; when unknown start coarse (≈ region_span/50) and let step 3 refine. (3) BRANCH-AND-BOUND on the small cells table (pure numpy, NO data reads): for each cell k = Chebyshev grid-distance to the nearest OTHER occupied cell (search over the occupied (cx,cy) set). UB = s·√2 if occ≥2 else (k+1)·s·√2. Seed best-confirmed B by exact-computing (step 4) the cell with the largest (k−1)·s. KEEP cells with UB ≥ B, DROP the rest — every dense cell prunes once s·√2 < B. If little prunes (s too coarse, dense cells survive), REFINE: re-run the step-2 GROUP BY at s/2 restricted to the surviving cells' bboxes; repeat until survivors are few. (4) LEAF exact NN — this is a POINT-ANCHORED nearest-neighbour query per candidate, NOT a region materialization. A survivor cell holds ~1 isolated building q; you need the SINGLE nearest building to q, not all points in a ring. Do NOT read the whole ceil(UB/s) ring into pandas and do NOT accumulate rings across survivors (both OOM: an isolated q's nearest occupied neighbour may BE a dense metro edge, so its ring overlaps millions — OBSERVED, this exact leaf read OOM'd the USA run at ~28 min AFTER the counts succeeded). Instead: (a) read q's own cell's points (sparse → tiny). (b) Use the CELL COUNTS you already have (no data read) to find the nearest OTHER occupied cell to q by increasing Chebyshev radius. (c) Read ONLY that nearest occupied cell. If it is DENSE (high occ — a metro edge), do NOT read it whole: sub-grid THAT ONE cell (a finer GROUP BY restricted to its bbox) and read only the sub-cell on q's facing side — you need the nearest POINT, not the metro. (d) The candidate's NN = min distance from q to the points you actually read; a single point q vs a cell's points is O(cell) linear, NEVER an all-pairs cKDTree over the whole ring (that O(n²)/materialization is the trap). Keep a running best B; skip any survivor whose UB < B without reading. Read the neighbour cell UNFILTERED by the region polygon so a true nearest neighbour just across a border still counts (fixes the nearest-IN-region overstatement of a polygon-only KD-tree). Winner = max confirmed NN; top-K = K largest. Only q's cell + the one nearest occupied (sub-)cell per survivor reach pandas (a few thousand points TOTAL) → peak memory ≈ a small-region run, regardless of N. SCOPE TRAP: a region bbox crossing the antimeridian (USA + Aleutians) makes min(xmin)…max(xmax) span the globe — filter by the polygon and split at ±180, never one bbox. Set results["analysis_scope"] to the resolution reached + that the dense majority was excluded (it cannot hold an isolated outlier). This is the SPATIAL case of the EXTREME/SELECTIVE strategy (see SCAN STRATEGY) — a DENSE-selecting superlative flips it (keep HIGH-occ cells); a global AGGREGATE over every row genuinely needs the full scan → bound+disclose.
+THE MAP MUST SHOW THE ANSWER — when you plot points on a map/scatter for a superlative and you SAMPLE for context (e.g. a random \`np.random.choice(..., 2000)\` of the millions, to show the NN-distance distribution), that uniform sample essentially NEVER contains the single most-extreme building — so the ACTUAL ANSWER is INVISIBLE on the map (observed: the most-isolated Seattle building, at the edge of Seward Park, was absent because it wasn't in the 2,000-point sample). Rules: (1) ALWAYS union the top-N winners (which you already have) INTO whatever point layer the map binds to — never hand the map a bare random sample. (2) TAG the winners with a field the chart can key on — e.g. \`rank\` (1..N) or \`is_winner\`=True — and color/size the layer by the metric so the winner visibly stands out (it is by definition the extreme value). (3) Prefer making the top-N the PRIMARY map layer (guaranteed to include the winner) with any sample as faint context underneath, rather than a sample that merely might contain it. The point of the map is to LOCATE the answer; a map that omits it has failed the question.
+SCOPE DISCLOSURE — if you bound the analysis (a region rather than everything asked, an approximate/sampled method, or a very large count), set results["analysis_scope"] to a short sentence stating exactly what was covered and how (e.g. "Analyzed all 11,240,338 buildings inside the California boundary polygon (Overture division_area, region=US-CA) via an exact KD-tree."). If you filtered by a raw bounding box rather than the true boundary, SAY SO explicitly ("...within the California bounding box, which includes some neighboring-state points") — do not imply the result is confined to the named area when it is not. Report the actual number of points analyzed.\n`;
 }
 
 /**
@@ -465,7 +547,8 @@ export function buildCodeGenSchemaBlock(
   schema: CSVSchema,
   mode: SchemaMode = "metadata",
   workbookContext?: string,
-  localFileContext?: string
+  localFileContext?: string,
+  sandboxMemoryGb?: string | null
 ): string {
   const columnDescriptions = formatColumns(schema, mode);
 
@@ -501,6 +584,11 @@ Column types are database-native (high fidelity). The data has been loaded as CS
 
   const localFileSection = localFileContext ? `\n## Data Location\n${localFileContext}\n` : "";
 
+  // Geospatial guidance (KD-tree / polygon / memory-safe recipe) — only when the
+  // data has a geometry column. Extracted so the retry path re-injects the SAME
+  // text (see buildGeospatialGuidance).
+  const spatialSection = buildGeospatialGuidance(schema, sandboxMemoryGb);
+
   const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
 
   return `## ${headerLabel}
@@ -509,7 +597,7 @@ Rows: ${schema.row_count}${domainSection}${warehouseSection}${localFileSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${correlationSection}${geojsonSection}${workbookSection}`;
+${correlationSection}${geojsonSection}${spatialSection}${workbookSection}`;
 }
 
 // ── User prompt (chat follow-up) ──────────────────────────────────
@@ -544,19 +632,6 @@ function formatConversationTurns(turns: ConversationTurn[]): string {
       return lines.join("\n");
     })
     .join("\n\n");
-}
-
-export function buildCodeGenChatPrompt(
-  schema: CSVSchema,
-  question: string,
-  turns: ConversationTurn[],
-  mode: SchemaMode = "metadata",
-  workbookContext?: string,
-  localFileContext?: string
-): string {
-  return `${buildConversationHistorySection(turns)}${buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)}
-## Question
-${question}`;
 }
 
 /** The "Prior Analysis Context" block for chat follow-ups (empty when none). */
@@ -646,10 +721,6 @@ export function buildWorkbookContext(
 
 // ── Retry prompt ──────────────────────────────────────────────────
 
-export function buildRetryPrompt(originalCode: string, error: string, schema?: CSVSchema): string {
-  return buildRetryPromptMulti([{ code: originalCode, error }], schema);
-}
-
 /**
  * Build a retry prompt that includes ALL prior failed attempts, not just the
  * most recent one. Helps the LLM avoid going in circles — each attempt adds
@@ -715,6 +786,9 @@ export const RETRY_GUIDANCE = `## Common fixes
 - **Empty result / 0 rows after filter**: your filter may be too strict; check the actual values in the column with \`df[col].unique()\` first.
 - **AssertionError**: DELETE the failing \`assert\`. Do NOT assert a computed value equals a hard-coded number (e.g. \`assert corr == 0.785\`) — it crashes on valid data. Just compute the value and put it in the output. Keep only structural checks like \`assert len(df) > 0\`.
 - **ImportError / cannot import name**: you used a function that doesn't exist (e.g. \`auc_score\` — it's \`sklearn.metrics.auc\`). Use the correct name, or compute it with numpy/pandas/scipy instead of a guessed import.
-- **Code timed out**: the dataset may be large — sample first with \`df.head(10_000)\` or aggregate before plotting.
+- **Code timed out / Out of memory ("Killed" / OOM)**: the dataset is large. The fix DEPENDS ON THE QUESTION — do NOT reflexively downsample:
+  - For a SUPERLATIVE / nearest-neighbor / most-isolated / farthest / top-N-by-a-derived-measure question, sampling or \`df.head()\` would DROP the very extreme you are asked to find — NEVER do it. Keep ALL rows in scope and fix memory the RIGHT way: do the heavy filtering/aggregation in DuckDB SQL (it spills to disk), pull ONLY numeric coordinate columns into pandas for the KD-tree (\`SELECT rowid, lon, lat …\` — 2-3 numeric cols, so tens of millions fit), NEVER a string/struct column (the raw \`names\` struct is a top OOM cause), then hydrate the ~N winners by rowid (bounded region) or by id/coordinates (unbounded). Follow the Geospatial analysis recipe above exactly.
+    - IF YOU ALREADY DID coordinates-only AND STILL OOM'd: the region is simply too big for an in-memory KD-tree — trimming another column will NOT help and retrying the direct approach will just OOM again later (the divergence trap). SWITCH to the DOESN'T-FIT counting strategy (COUNT per grid cell in DuckDB, branch-and-bound, pull only the sparse survivors). Gate it next time with \`assert_fits(N, cols=3)\` right after your COUNT(*), before the coords .df(), so this decision happens up front instead of after a kill.
+  - For a plain distribution/plot that genuinely just needs fewer points, THEN aggregate in SQL or take a uniform sample — and disclose it in results["analysis_scope"].
 
 Fix the code and return only the corrected Python script. No markdown fencing, no explanation.`;

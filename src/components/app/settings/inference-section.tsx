@@ -231,7 +231,7 @@ export function InferenceSection({
                   width: 6,
                   height: 6,
                   borderRadius: "50%",
-                  background: "#10b981",
+                  background: "var(--color-accent)",
                   display: "inline-block",
                 }}
               />

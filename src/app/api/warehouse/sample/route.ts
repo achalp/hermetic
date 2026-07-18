@@ -1,4 +1,6 @@
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
+import { ENGINES } from "@/lib/warehouse/engine-descriptor";
+import { apiError } from "@/lib/api-error";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -19,8 +21,22 @@ export async function GET(request: Request) {
     return Response.json({ error: "Warehouse connector not found" }, { status: 404 });
   }
 
+  // Membership check: `table` is user input interpolated into SQL. Requiring
+  // it to be one of the connection's introspected tables kills injection at
+  // the source (the identifier then comes from our own introspection, not the
+  // request) — the Snowflake branch below has no escaping at all, and the
+  // backtick-escaping on the other branches is dialect-questionable.
+  const wanted = tableName.toLowerCase();
+  const known = warehouse.tables.some(
+    (t) => t.name.toLowerCase() === wanted || `${t.schema}.${t.name}`.toLowerCase() === wanted
+  );
+  if (!known) {
+    return Response.json({ error: "Unknown table for this connection" }, { status: 400 });
+  }
+
   try {
-    const csv = await connector.executeSQL(buildSampleQuery(tableName, warehouse.config.type));
+    // Per-engine identifier quoting lives in the engine descriptor (ARCH-12).
+    const csv = await connector.executeSQL(ENGINES[warehouse.config.type].sampleQuery(tableName));
 
     // Parse CSV into rows
     const lines = csv.trim().split("\n");
@@ -33,33 +49,7 @@ export async function GET(request: Request) {
 
     return Response.json({ headers, rows });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to fetch sample";
-    return Response.json({ error: msg }, { status: 500 });
-  }
-}
-
-function buildSampleQuery(table: string, dbType: string): string {
-  switch (dbType) {
-    case "postgresql":
-      return `SELECT * FROM "${table.replace(/"/g, '""')}" LIMIT 5`;
-    case "bigquery":
-      return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
-    case "clickhouse":
-      return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
-    case "trino":
-      return `SELECT * FROM "${table.replace(/"/g, '""')}" LIMIT 5`;
-    case "hive":
-      return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
-    case "snowflake":
-      // Snowflake unquoted identifiers are uppercased; pass through as-is and let
-      // the SQL parser handle case. Quote with double-quotes when caller already
-      // provided a qualified name like "db.schema.table".
-      return `SELECT * FROM ${table} LIMIT 5`;
-    case "databricks":
-      // Databricks (Spark SQL) prefers backticks for three-part Unity Catalog names.
-      return `SELECT * FROM \`${table.replace(/`/g, "\\`")}\` LIMIT 5`;
-    default:
-      return `SELECT * FROM "${table.replace(/"/g, '""')}" LIMIT 5`;
+    return apiError("/api/warehouse/sample", err, "Failed to fetch sample");
   }
 }
 

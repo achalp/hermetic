@@ -6,6 +6,7 @@ import {
   resolveLocalSource,
   resolveRemoteSource,
   isSafeParquetUrl,
+  duckdbRemoteAuthSql,
   DUCKDB_CLOUD_PRELUDE,
   duckdbCloudPreludePy,
 } from "@/lib/parquet/duckdb-source";
@@ -43,16 +44,26 @@ describe("cloud extension prelude", () => {
 });
 
 describe("parquet context builders", () => {
-  it("folder context creates a view and includes the large-data warning past 1M rows", () => {
-    const ctx = parquetFolderContext("read_parquet('X')", 5_000_000, false);
-    expect(ctx).toContain("CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('X')");
+  it("folder context creates a view and includes the large-data warning + scan strategy past 1M rows", () => {
+    const ctx = parquetFolderContext("read_parquet('s3://bkt/**/*.parquet')", 5_000_000, false);
+    expect(ctx).toContain(
+      "CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('s3://bkt/**/*.parquet')"
+    );
     expect(ctx).toContain("large dataset");
     expect(ctx).not.toContain("Hive-partitioned");
+    // Classify-first scan strategy (geo + non-geo), with the metadata path
+    // pulled from the read expression.
+    expect(ctx).toContain("SCAN STRATEGY");
+    expect(ctx).toContain("EXTREME / SELECTIVE");
+    expect(ctx).toContain("METADATA-ONLY AGGREGATE");
+    expect(ctx).toContain("HOLISTIC AGGREGATE");
+    expect(ctx).toContain("parquet_metadata('s3://bkt/**/*.parquet')");
   });
 
-  it("folder context omits the large-data warning under 1M rows and notes hive columns", () => {
+  it("folder context omits the large-data warning AND scan strategy under 1M rows", () => {
     const ctx = parquetFolderContext("read_parquet('X', hive_partitioning=true)", 1000, true);
     expect(ctx).not.toContain("large dataset");
+    expect(ctx).not.toContain("SCAN STRATEGY");
     expect(ctx).toContain("Hive-partitioned");
     expect(ctx).toContain("Partition columns");
   });
@@ -122,15 +133,112 @@ describe("isSafeParquetUrl", () => {
     expect(isSafeParquetUrl(null)).toBe(false);
     expect(isSafeParquetUrl("https://h/" + "a".repeat(3000))).toBe(false);
   });
+
+  it("rejects SSRF targets: metadata endpoint, loopback, private ranges", () => {
+    expect(isSafeParquetUrl("https://169.254.169.254/latest/meta-data/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://metadata.google.internal/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("https://localhost:3000/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("https://127.0.0.1/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://10.0.0.5/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://172.16.0.1/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://192.168.1.1/x.parquet")).toBe(false);
+    expect(isSafeParquetUrl("http://100.64.0.1/x.parquet")).toBe(false); // CGNAT
+    expect(isSafeParquetUrl("http://[::1]/x.parquet")).toBe(false); // IPv6 literal
+    expect(isSafeParquetUrl("http://2130706433/x.parquet")).toBe(false); // decimal 127.0.0.1
+    expect(isSafeParquetUrl("http://svc.cluster.internal/x.parquet")).toBe(false);
+  });
+
+  it("still accepts public https hosts and object-store bucket schemes", () => {
+    expect(isSafeParquetUrl("https://data.example.com/x.parquet")).toBe(true);
+    expect(isSafeParquetUrl("https://172.200.1.1/x.parquet")).toBe(true); // public IP (172 outside 16-31)
+    // s3:// names a bucket, not a network host — always resolves at AWS.
+    expect(isSafeParquetUrl("s3://10.0.0.5/x.parquet")).toBe(true);
+  });
+});
+
+describe("duckdbRemoteAuthSql", () => {
+  it("is empty for anonymous access (no creds, or region-less)", () => {
+    expect(duckdbRemoteAuthSql()).toBe("");
+    expect(duckdbRemoteAuthSql({})).toBe("");
+  });
+
+  it("emits only a region SET when just a region is given", () => {
+    expect(duckdbRemoteAuthSql({ s3Region: "us-west-2" })).toBe("SET s3_region='us-west-2';");
+  });
+
+  it("creates an S3 secret with key + secret (+ optional region/endpoint)", () => {
+    const sql = duckdbRemoteAuthSql({
+      s3AccessKeyId: "AKIA123",
+      s3SecretAccessKey: "shhh",
+      s3Region: "eu-west-1",
+      s3Endpoint: "minio.local",
+    });
+    expect(sql).toContain("CREATE OR REPLACE SECRET hermetic_s3");
+    expect(sql).toContain("TYPE s3");
+    expect(sql).toContain("KEY_ID 'AKIA123'");
+    expect(sql).toContain("SECRET 'shhh'");
+    expect(sql).toContain("REGION 'eu-west-1'");
+    expect(sql).toContain("ENDPOINT 'minio.local'");
+  });
+
+  it("rejects (drops to anonymous) any credential that could break the SQL literal", () => {
+    expect(duckdbRemoteAuthSql({ s3AccessKeyId: "k'; DROP", s3SecretAccessKey: "s" })).toBe("");
+    expect(duckdbRemoteAuthSql({ s3Region: "us-west-2'; --" })).toBe("");
+  });
 });
 
 describe("resolveRemoteSource", () => {
-  it("prepends the cloud prelude and reads via read_parquet(url)", () => {
-    const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
+  it("uses single-file guidance for a single remote .parquet", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/data/x.parquet", 10_000);
     expect(localFileContext).toContain(DUCKDB_CLOUD_PRELUDE);
-    expect(localFileContext).toContain("read_parquet('s3://bucket/data/*.parquet')");
-    expect(localFileContext).toContain("2,500,000,000 rows");
+    expect(localFileContext).toContain("read_parquet('s3://bucket/data/x.parquet')");
+    expect(localFileContext).toContain("This is a Parquet file at");
+    // Anonymous: no authenticate line.
+    expect(localFileContext).not.toContain("authenticate");
+  });
+
+  it("uses folder guidance (create a view, materialize a subset) for a glob", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
+    expect(localFileContext).toContain("folder of Parquet files");
+    expect(localFileContext).toContain(
+      "CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('s3://bucket/data/*.parquet')"
+    );
+    expect(localFileContext).toContain("Total rows: 2,500,000,000.");
     // Large-data guidance carries through for a huge remote dataset.
     expect(localFileContext).toContain("large dataset");
+  });
+
+  it("steers a numeric-only KD-tree frame and LOCAL rowid hydration for a bounded region", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/data/*.parquet", 2_500_000_000);
+    expect(localFileContext).toContain("NETWORK COST");
+    expect(localFileContext).toContain("CREATE TEMP TABLE t AS SELECT");
+    // Cost scales with columns × rows; the KD-tree frame is numeric-only.
+    expect(localFileContext).toContain("COLUMNS × ROWS");
+    expect(localFileContext).toContain("SELECT rowid, lon, lat FROM t");
+    // The fix: a bounded region hydrates the winners LOCALLY by rowid — a
+    // second remote bbox read to hydrate a most-isolated top-N is the trap
+    // that timed out California (winners sit in wide-span row groups).
+    expect(localFileContext).toContain("hydrate the winners");
+    expect(localFileContext).toContain("WHERE rowid IN");
+    expect(localFileContext).toContain("WIDE-SPAN row groups");
+  });
+
+  it("adds the hive_partitioning flag and partition-column note for a Hive dataset", () => {
+    const { localFileContext } = resolveRemoteSource(
+      "s3://overturemaps-us-west-2/release/2026-06-17.0/theme=buildings/type=building/**/*.parquet",
+      2_500_000_000,
+      true
+    );
+    expect(localFileContext).toContain("hive_partitioning=true");
+    expect(localFileContext).toContain("Partition columns");
+  });
+
+  it("includes an authenticate step when credentials are supplied", () => {
+    const { localFileContext } = resolveRemoteSource("s3://bucket/x.parquet", 1000, false, {
+      s3AccessKeyId: "AKIA123",
+      s3SecretAccessKey: "shhh",
+    });
+    expect(localFileContext).toContain("authenticate");
+    expect(localFileContext).toContain("CREATE OR REPLACE SECRET hermetic_s3");
   });
 });

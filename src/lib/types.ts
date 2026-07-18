@@ -116,15 +116,42 @@ export interface SandboxExecutionResult {
 export interface SandboxExecutionError {
   success: false;
   error: string;
+  /**
+   * Structured failure class for the errors that drive CONTROL FLOW —
+   * previously the orchestrator's no-retry decision string-matched
+   * /timed out/ against docker-utils' message, with nothing tying the two
+   * together (a reworded message would silently re-enable futile retries).
+   * "timeout" → fail fast, don't retry; "oom" → retry with lean-script
+   * guidance; "stopped" → the user cancelled — fail fast, don't retry.
+   * Absent for ordinary execution errors.
+   */
+  errorKind?: "timeout" | "oom" | "stopped";
   execution_ms: number;
 }
 
 export type ExecutionResult = SandboxExecutionResult | SandboxExecutionError;
 
+/** Optional cloud credentials for a private remote Parquet bucket. Anonymous
+ *  access (public buckets like Overture) needs none of this. */
+export interface RemoteCreds {
+  s3Region?: string;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
+  s3Endpoint?: string;
+}
+
 export interface StoredCSV {
   schema: CSVSchema;
   filePath: string;
   createdAt: number;
+  /** Last time this entry was read. Expiry is a SLIDING idle window measured
+   *  from here (not from createdAt), so an actively-used dataset never expires
+   *  mid-session. Defaults to createdAt. */
+  lastAccessedAt?: number;
+  /** The runId that last read this entry. While that run is still in-flight the
+   *  entry is pinned (never swept), so a legitimately long analysis can't lose
+   *  its own data — the sandbox exec touches the store only at its start. */
+  ownerRunId?: string;
   /** For local files: host filesystem path (not copied into temp) */
   localPath?: string;
   /** For local Parquet folders: host directory path */
@@ -135,6 +162,11 @@ export interface StoredCSV {
   isParquet?: boolean;
   /** Whether this is a Hive-partitioned Parquet dataset */
   isHivePartitioned?: boolean;
+  /** For a REMOTE cloud Parquet source: the s3:// or https:// URL DuckDB reads
+   *  directly (no download, no bind-mount). */
+  remoteParquetUrl?: string;
+  /** Optional cloud credentials for a private remote bucket (anon when unset). */
+  remoteCreds?: RemoteCreds;
 }
 
 export type PipelineStage =
@@ -405,6 +437,10 @@ export interface StoredWarehouse {
   /** Full column-level schemas for all tables — used for SQL generation */
   tableSchemas: WarehouseTableSchema[];
   createdAt: number;
+  /** Sliding-idle-TTL bookkeeping (see lib/store-ttl.ts): last read + the run
+   *  that pins this connection while it's in-flight. */
+  lastAccessedAt?: number;
+  ownerRunId?: string;
   /** Path to a dbt `manifest.json` whose docs enrich the LLM context */
   dbtManifestPath?: string;
 }

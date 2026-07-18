@@ -7,6 +7,7 @@ import {
   buildConversationHistorySection,
 } from "./prompts";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import type { CSVSchema, ConversationTurn, SchemaMode } from "@/lib/types";
 
 /**
@@ -42,6 +43,20 @@ export function cleanGeneratedCode(raw: string): string {
 
   // Remove any trailing markdown fences that remain after extraction
   code = code.replace(/\n```\s*$/g, "");
+
+  // Strip leaked reasoning prose that precedes the script. On a retry the model
+  // sometimes emits a plan ("Looking at the failures:", "3. Use DuckDB ...")
+  // before the code, which is not valid Python. Analysis scripts start with
+  // imports, so drop everything before the first import line WHEN what precedes
+  // it has a non-comment, non-blank line (i.e. prose, not a leading #comment).
+  const lines = code.split("\n");
+  const firstImport = lines.findIndex((l) => /^(import\s|from\s+\S+\s+import\b)/.test(l.trim()));
+  if (firstImport > 0) {
+    const hasProse = lines
+      .slice(0, firstImport)
+      .some((l) => l.trim() !== "" && !l.trim().startsWith("#"));
+    if (hasProse) code = lines.slice(firstImport).join("\n");
+  }
 
   return code.trim();
 }
@@ -92,6 +107,32 @@ export function fixReadCsvDelimiter(code: string): string {
     if (/delimiter|delim|sep\s*=/.test(match)) return match;
     return `read_csv(${inner}, delimiter=',')`;
   });
+}
+
+/**
+ * Add a missing `f` prefix to a duckdb.sql() string that interpolates a computed
+ * Python value. Common first-shot bug: writing duckdb.sql("""… {xmin} …""") as a
+ * PLAIN string instead of an f-string, so `{xmin}` reaches DuckDB literally and it
+ * errors "Parser Error: syntax error at or near }" — which killed a USA run on its
+ * very first SQL line. Deterministic and conservative: we prefix ONLY when the
+ * braces clearly hold an INTERPOLATION (a bare identifier / attribute / index /
+ * arithmetic on identifiers) and NEVER a DuckDB struct/map literal ({'a': 1} /
+ * {k: v}) — those start with a quote or contain a colon — nor an already-escaped
+ * {{ }}. So a legitimate literal brace is left untouched.
+ */
+export function fixMissingSqlFString(code: string): string {
+  return code.replace(
+    /(\bduckdb\.sql\(\s*)(f?)("""|'''|"|')([\s\S]*?)\3/g,
+    (match, head, fPrefix, quote, body) => {
+      if (fPrefix) return match; // already an f-string
+      const interpolation = /\{\s*[A-Za-z_]\w*(?:\.\w+|\[\s*\d+\s*\])*(?:\s*[-+*/]\s*[\w.]+)*\s*\}/;
+      const structOrMapLiteral = /\{\s*['":]/;
+      if (interpolation.test(body) && !structOrMapLiteral.test(body) && !body.includes("{{")) {
+        return `${head}f${quote}${body}${quote}`;
+      }
+      return match;
+    }
+  );
 }
 
 /**
@@ -151,7 +192,17 @@ export async function generateAnalysisCode(
   // code-gen retries, the schema is identical → cache hits. Non-chat content is
   // byte-identical to buildCodeGenUserPrompt; chat moves history after the
   // (cached) schema.
-  const schemaBlock = buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext);
+  // Derived at runtime from the Docker daemon's own allocation (memoized), so the
+  // model plans against the SAME hard cap the container enforces — not a stale
+  // hardcoded figure. Null (docker absent) → the prompt omits a specific number.
+  const sandboxMemoryGb = await getSandboxMemoryLimitGbLabel();
+  const schemaBlock = buildCodeGenSchemaBlock(
+    schema,
+    mode,
+    workbookContext,
+    localFileContext,
+    sandboxMemoryGb
+  );
   const tail = hasTurns
     ? `\n${buildConversationHistorySection(priorTurns)}## Question\n${question}`
     : `\n## Question\n${question}`;
@@ -172,8 +223,10 @@ export async function generateAnalysisCode(
 
   return fixColumnNameCase(
     stripValueAssertions(
-      fixReadCsvDelimiter(
-        fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+      fixMissingSqlFString(
+        fixReadCsvDelimiter(
+          fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+        )
       )
     ),
     schema.columns.map((c) => c.name)
@@ -209,10 +262,22 @@ export async function prewarmCodeGenCache(
 ): Promise<void> {
   if (getActiveProvider() !== "anthropic") return;
   try {
+    // Must match generateAnalysisCode's value exactly or the cached prefix this
+    // warms won't be read back. getSandboxMemoryLimitGbLabel is memoized, so it
+    // returns the same figure for both.
+    const sandboxMemoryGb = await getSandboxMemoryLimitGbLabel();
     const content = systemOnly
       ? [{ type: "text" as const, text: "\n## Question\nwarmup" }]
       : [
-          cachedText(buildCodeGenSchemaBlock(schema, mode, workbookContext, localFileContext)),
+          cachedText(
+            buildCodeGenSchemaBlock(
+              schema,
+              mode,
+              workbookContext,
+              localFileContext,
+              sandboxMemoryGb
+            )
+          ),
           { type: "text" as const, text: "\n## Question\nwarmup" },
         ];
     await withPhase("prewarm", () =>

@@ -34,7 +34,7 @@ interface SettingsDrawerProps {
   warehouseId?: string | null;
   connectionLabel: string | null;
   savedConnections: SavedConnectionInfo[];
-  onConnect: (config: Record<string, unknown>) => void;
+  onConnect: (config: Record<string, unknown>, force?: boolean) => void;
   onDisconnect: () => void;
   onDeleteSaved: (id: string) => void;
   onRenameSaved: (id: string, name: string) => void;

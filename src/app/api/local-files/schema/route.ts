@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { stat, readFile } from "node:fs/promises";
 import { resolve, basename, extname } from "node:path";
-import { validateLocalOrigin, isAllowedExtension } from "@/lib/local-files/security";
+import {
+  validateLocalOrigin,
+  isAllowedExtension,
+  isPathAllowed,
+  PATH_NOT_ALLOWED_ERROR,
+} from "@/lib/local-files/security";
+import { parseBody, LocalFileSelectSchema } from "@/lib/api-schemas";
 import { getFileInfo } from "@/lib/local-files/browser";
 import { extractParquetSchema } from "@/lib/parquet/schema-extractor";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
@@ -14,6 +21,7 @@ import { detectRelationships } from "@/lib/excel/relationships";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { prepareWarmSandbox } from "@/lib/sandbox";
+import { recordRecentSource } from "@/lib/sources/recent-sources";
 
 export async function POST(request: Request) {
   if (!validateLocalOrigin(request)) {
@@ -21,22 +29,32 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = await request.json();
-    const { path: rawPath, type } = body as {
-      path: string;
-      type: "file" | "folder";
-    };
-
-    if (!rawPath || !type) {
-      return NextResponse.json({ error: "path and type are required" }, { status: 400 });
-    }
+    const parsed = parseBody(LocalFileSelectSchema, await request.json());
+    if (!parsed.ok) return parsed.response;
+    const { path: rawPath, type } = parsed.data;
 
     const filePath = resolve(rawPath);
+
+    // Root-jail — see lib/local-files/security.ts isPathAllowed.
+    if (!isPathAllowed(filePath)) {
+      return NextResponse.json({ error: PATH_NOT_ALLOWED_ERROR }, { status: 403 });
+    }
     const fileInfo = await stat(filePath);
     const filename = basename(filePath);
     const ext = extname(filePath).toLowerCase();
     const runtime = getActiveSandboxRuntime();
     const csvId = uuidv4();
+
+    // Remember this local file/folder so it re-opens without re-browsing.
+    const recordLocal = (rows?: number, hive?: boolean) =>
+      recordRecentSource({
+        kind: type === "folder" ? "local-folder" : "local-file",
+        name: filename,
+        subtitle: filePath,
+        path: filePath,
+        rows,
+        isHivePartitioned: hive,
+      }).catch(() => {});
 
     // ── Parquet folder ─────────────────────────────────────────
     if (type === "folder") {
@@ -52,6 +70,7 @@ export async function POST(request: Request) {
 
       storeLocalFileRef(csvId, schema, filePath, fileInfo.mtimeMs, true, isHive);
 
+      recordLocal(schema.row_count, isHive);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -70,6 +89,7 @@ export async function POST(request: Request) {
 
       storeLocalFileRef(csvId, schema, filePath, fileInfo.mtimeMs, false);
 
+      recordLocal(schema.row_count);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -97,6 +117,7 @@ export async function POST(request: Request) {
       }
 
       prepareWarmSandbox(csvId, csvText, runtime);
+      recordLocal(schema.row_count);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -132,6 +153,7 @@ export async function POST(request: Request) {
       await storeGeoJSON(csvId, text);
 
       prepareWarmSandbox(csvId, csvText, runtime, text);
+      recordLocal(schema.row_count);
       return NextResponse.json({ csv_id: csvId, schema });
     }
 
@@ -157,6 +179,7 @@ export async function POST(request: Request) {
         const csvText2 = toCSVText(parsed);
         await storeCSV(csvId, csvText2, schema);
         prepareWarmSandbox(csvId, csvText2, runtime);
+        recordLocal(schema.row_count);
         return NextResponse.json({ csv_id: csvId, schema });
       }
 
@@ -175,7 +198,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: `Unsupported file type: ${ext}` }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to extract schema";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/local-files/schema", err, "Failed to extract schema");
   }
 }

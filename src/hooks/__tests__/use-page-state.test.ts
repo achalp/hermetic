@@ -16,6 +16,8 @@ const initial = {
   pendingRerunVizId: null,
   rerunCode: null,
   rerunSql: null,
+  loadedVizId: null,
+  refreshStage: null,
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -409,6 +411,60 @@ describe("pageReducer", () => {
       expect(state.rerunningViz).toBe(false);
       expect(state.currentQuestion).toBe("Q");
       expect(state.loadedSpec).toBe(mid.loadedSpec);
+    });
+
+    it("clears refreshStage — the stuck-spinner invariant lives in the reducer", () => {
+      const mid = { ...initial, rerunningViz: true, refreshStage: "executing" as const };
+      const state = pageReducer(mid, { type: "RERUN_ERROR" });
+      expect(state.refreshStage).toBeNull();
+    });
+  });
+
+  describe("refreshStage / loadedVizId lockstep (previously split-brain useState)", () => {
+    it("REFRESH_STAGE advances the stage", () => {
+      const s1 = pageReducer(initial, { type: "REFRESH_STAGE", stage: "loading" });
+      expect(s1.refreshStage).toBe("loading");
+      const s2 = pageReducer(s1, { type: "REFRESH_STAGE", stage: "executing" });
+      expect(s2.refreshStage).toBe("executing");
+    });
+
+    it("RERUN_FAST_SUCCESS clears the stage and claims the viz id", () => {
+      const mid = { ...initial, rerunningViz: true, refreshStage: "composing" as const };
+      const state = pageReducer(mid, {
+        type: "RERUN_FAST_SUCCESS",
+        spec: makeSpec(),
+        artifacts: null,
+        vizId: "viz-7",
+      });
+      expect(state.refreshStage).toBeNull();
+      expect(state.loadedVizId).toBe("viz-7");
+    });
+
+    it("LOAD_VIZ_SUCCESS without a vizId leaves the loaded id unchanged (history restore)", () => {
+      const prior = { ...initial, loadedVizId: "viz-1" };
+      const state = pageReducer(prior, {
+        type: "LOAD_VIZ_SUCCESS",
+        question: "Q",
+        spec: makeSpec(),
+        artifacts: null,
+      });
+      expect(state.loadedVizId).toBe("viz-1");
+    });
+
+    it("RERUN_STREAM_START claims the viz id from its action", () => {
+      const state = pageReducer(initial, {
+        type: "RERUN_STREAM_START",
+        question: "Q",
+        vizId: "viz-3",
+      });
+      expect(state.loadedVizId).toBe("viz-3");
+    });
+
+    it("RESET clears both", () => {
+      const dirty = { ...initial, loadedVizId: "v", refreshStage: "loading" as const };
+      const state = pageReducer(dirty, { type: "RESET" });
+      expect(state.loadedVizId).toBeNull();
+      expect(state.refreshStage).toBeNull();
     });
   });
 

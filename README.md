@@ -1,6 +1,6 @@
 # Hermetic
 
-**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, schedule a saved dashboard to refresh on a cron, and see exactly what each analysis costs. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible) or local models via MLX, llama.cpp, or Ollama.
+**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, schedule a saved dashboard to refresh on a cron, and see exactly what each analysis costs. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama.
 
 ![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
 
@@ -24,7 +24,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 **Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated sandbox (Docker, microVM, or cloud), and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data.
 
-**Sandboxed execution.** Code runs in containers or microVMs with no network access and no access to the host filesystem. Data is passed in via stdin and results are read from stdout. Warm sandbox modes (Docker, Microsandbox) reuse the underlying container across queries for speed but clear working data between runs. E2B creates a fresh sandbox each time.
+**Sandboxed execution.** Code runs in containers or microVMs with no access to the host filesystem. Docker containers run with networking disabled (`--network none`) by default; network is enabled only when the generated code actually reads a remote data source (cloud Parquet over `s3://`/`https://`), and those runs use a fresh ephemeral container rather than the shared warm one. Data is passed in via stdin and results are read from stdout. Warm sandbox modes (Docker, Microsandbox) reuse the underlying container across queries for speed but clear working data between runs. E2B creates a fresh cloud sandbox each time (network posture is E2B's).
 
 **Adaptive UI.** The LLM composes a JSON-Render spec, a declarative layout of charts, stat cards, tables, annotations, and filters, tailored to each question. A bar chart for comparisons, a line chart for trends, stat cards for KPIs, a treemap for composition. The UI adapts to the question rather than using a fixed template.
 
@@ -79,10 +79,11 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Update data.** Re-run saved visualizations with new data files. Schema-compatible updates skip LLM calls.
 - **Cost tracking.** Every analysis' LLM token cost is captured automatically across the whole fan-out (code-gen, retries, planner, sub-questions, compose) with zero call-site threading, and surfaced three ways: a live footer (last analysis + running session total), a per-day CSV log (`data/cost/<date>.csv` with token buckets, per-analysis cost, and a **per-phase breakdown** — planner, SQL-gen, SQL-repair, code-gen, compose, …), and a `/cost` page with totals and a per-dataset breakdown, linked from Settings. Local or unknown models report $0 but still track tokens.
 - **Cost-optimized by default.** Prompt caching (Anthropic ephemeral cache — roughly a 90% input discount on cache hits) wraps the large static prompts that every compose call re-sends, plus cheaper models for heavy vs. classification work, fewer retries, lazy cell composition, output volume scaled to the chosen style, and — for warehouse Investigate — per-step SQL that aggregates in the warehouse so code-gen runs over a small result instead of a million-row frame. The wins are largest on Investigate, which fans out into many LLM calls; per-phase cost telemetry is what made each lever measurable.
+- **Resilient long runs.** Planet-scale analysis won't OOM-kill the sandbox: a memory watchdog polls the container 4×/second, an up-front feasibility gate refuses a plan that already can't fit, DuckDB is capped to the container's real limit, and the coarse-to-fine scan counts candidate cells instead of materializing them. And an in-flight run survives a browser reload or dev hot-reload — reconnect and the live progress and result are still there.
 
 ### Configuration
 
-- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints.
+- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints, or the **Claude CLI** — use your own `claude` login (Pro/Max subscription or API billing) with no API key.
 - **Local models.** MLX (Apple Silicon), llama.cpp, or Ollama. Detect, download, and activate models from the Settings drawer.
 - **Four themes.** Focus (emerald, default), Stamen (cartographic), Info is Beautiful (vivid), Pentagram (reductive). Each with light and dark variants.
 - **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
@@ -498,20 +499,30 @@ Set `SANDBOX_RUNTIME` in `.env.local` to switch runtimes. The startup script (`s
 
 ### LLM Provider
 
-Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from available credentials. Ollama can be enabled from the Settings UI without any environment variables.
+Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from available credentials. Ollama can be enabled from the Settings UI without any environment variables, and the **Claude CLI** needs no key at all — it uses your existing `claude` login (see below).
 
-| Variable                 | Required                      | Default     | Description                                                                          |
-| ------------------------ | ----------------------------- | ----------- | ------------------------------------------------------------------------------------ |
-| `LLM_PROVIDER`           | No                            | auto-detect | Force a provider: `anthropic`, `bedrock`, `vertex`, `openai-compatible`, or `ollama` |
-| `ANTHROPIC_API_KEY`      | If provider=anthropic         |             | Anthropic API key                                                                    |
-| `AWS_ACCESS_KEY_ID`      | If provider=bedrock           |             | AWS access key (or use `AWS_PROFILE`)                                                |
-| `AWS_SECRET_ACCESS_KEY`  | If provider=bedrock           |             | AWS secret key                                                                       |
-| `AWS_REGION`             | No                            | `us-east-1` | AWS region for Bedrock                                                               |
-| `GOOGLE_VERTEX_PROJECT`  | If provider=vertex            |             | GCP project ID                                                                       |
-| `GOOGLE_VERTEX_LOCATION` | No                            | `us-east5`  | GCP region for Vertex AI                                                             |
-| `OPENAI_BASE_URL`        | If provider=openai-compatible |             | OpenAI-compatible endpoint URL                                                       |
-| `OPENAI_API_KEY`         | No                            |             | API key for the endpoint (not needed for Ollama)                                     |
-| `OPENAI_MODEL`           | If provider=openai-compatible |             | Model name (e.g. `llama3.3`, `gpt-4o`)                                               |
+| Variable                 | Required                      | Default     | Description                                                                                        |
+| ------------------------ | ----------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| `LLM_PROVIDER`           | No                            | auto-detect | Force a provider: `anthropic`, `claude-cli`, `bedrock`, `vertex`, `openai-compatible`, or `ollama` |
+| `ANTHROPIC_API_KEY`      | If provider=anthropic         |             | Anthropic API key                                                                                  |
+| `AWS_ACCESS_KEY_ID`      | If provider=bedrock           |             | AWS access key (or use `AWS_PROFILE`)                                                              |
+| `AWS_SECRET_ACCESS_KEY`  | If provider=bedrock           |             | AWS secret key                                                                                     |
+| `AWS_REGION`             | No                            | `us-east-1` | AWS region for Bedrock                                                                             |
+| `GOOGLE_VERTEX_PROJECT`  | If provider=vertex            |             | GCP project ID                                                                                     |
+| `GOOGLE_VERTEX_LOCATION` | No                            | `us-east5`  | GCP region for Vertex AI                                                                           |
+| `OPENAI_BASE_URL`        | If provider=openai-compatible |             | OpenAI-compatible endpoint URL                                                                     |
+| `OPENAI_API_KEY`         | No                            |             | API key for the endpoint (not needed for Ollama)                                                   |
+| `OPENAI_MODEL`           | If provider=openai-compatible |             | Model name (e.g. `llama3.3`, `gpt-4o`)                                                             |
+
+### Claude CLI (use your own Claude login, no API key)
+
+If you have the Claude CLI (Claude Code) installed and authenticated — `npm install -g @anthropic-ai/claude-code`, then run `claude` once to log in — Hermetic can use it as a provider with **no API key**. Set `LLM_PROVIDER=claude-cli`, pick it in **Settings > Inference**, or just have `claude` on your `PATH` and it's auto-detected as a last-resort fallback (a configured API key still wins).
+
+Each analysis call shells out to `claude -p` with the model chosen per task (the same internal model IDs as the Anthropic provider), authenticating with whatever credentials the CLI itself holds — a Pro/Max subscription or API billing. Built-in tools are disabled on every call (Hermetic runs its generated code in its own sandbox and never uses the CLI's tools), which keeps per-call overhead minimal. If `claude` isn't on `PATH`, set `claudeCli.binaryPath` in `data/runtime-config.json`.
+
+Cost is reported at **equivalent API rates** (the CLI can be metered per token, so `$0` would mislead), with cache reads priced at the cheap cache-read rate. It's an estimate, not the CLI's own bill.
+
+> Note: for a self-hosted app where each user authenticates their own `claude`, this is the intended use. Anthropic's terms do not permit _offering_ claude.ai login or subscription rate limits as a feature of a third-party product.
 
 ### Local Models (MLX / llama.cpp / Ollama)
 
@@ -649,7 +660,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 
 **LLM integration**
 
-- [Vercel AI SDK](https://sdk.vercel.ai/) with providers for Anthropic, AWS Bedrock, Google Vertex, and OpenAI-compatible endpoints
+- [Vercel AI SDK](https://sdk.vercel.ai/) with providers for Anthropic, AWS Bedrock, Google Vertex, and OpenAI-compatible endpoints, plus a custom transport that shells out to the Claude CLI and to local MLX / llama.cpp / Ollama backends
 - [Zod](https://zod.dev/) for schema validation
 
 **Charting**

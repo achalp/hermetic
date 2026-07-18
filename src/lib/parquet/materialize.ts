@@ -1,3 +1,4 @@
+import "server-only";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -6,6 +7,7 @@ import type { CSVSchema } from "@/lib/types";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import { run } from "@/lib/sandbox/docker-utils";
+import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
 import { buildSchemaScript } from "./schema-script";
 import { logger } from "@/lib/logger";
@@ -111,10 +113,9 @@ _con.close()
     if (!outputResult.stdout.trim()) {
       throw new Error("Parquet materialization produced no schema output");
     }
-    const rawJson = outputResult.stdout
-      .replace(/\bNaN\b/g, "null")
-      .replace(/\b-?Infinity\b/g, "null");
-    const data = JSON.parse(rawJson) as {
+    // Parse first; regex-sanitize Python NaN/Infinity only on parse failure —
+    // the unconditional regex corrupted legitimate strings ("NaN Zhu").
+    const data = parseJsonWithPythonNonFinite(outputResult.stdout) as {
       row_count: number;
       columns: CSVSchema["columns"];
       sample_rows: CSVSchema["sample_rows"];

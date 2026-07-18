@@ -1,3 +1,4 @@
+import { apiError } from "@/lib/api-error";
 import { stopServer } from "@/lib/llm/process-manager";
 
 export async function POST(request: Request) {
@@ -12,7 +13,6 @@ export async function POST(request: Request) {
     await stopServer(backend);
     return Response.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to stop server";
-    return Response.json({ error: message }, { status: 500 });
+    return apiError("/api/local-llm/stop", err, "Failed to stop server");
   }
 }

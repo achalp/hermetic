@@ -43,7 +43,7 @@ export function ConnectedSourcesSection({
               width: 8,
               height: 8,
               borderRadius: "50%",
-              background: "#10b981",
+              background: "var(--color-accent)",
               flexShrink: 0,
             }}
           />
@@ -56,7 +56,8 @@ export function ConnectedSourcesSection({
               background: "none",
               border: "none",
               fontSize: 13,
-              color: "#f87171",
+              color:
+                "#f87171" /* fixed red on always-dark drawer; error-text token is dark-on-dark in light mode */,
               cursor: "pointer",
               padding: 0,
             }}
@@ -308,7 +309,7 @@ function SavedConnectionRow({
           </button>
           <button
             onClick={onDelete}
-            style={{ ...copyBtnStyle, color: "#f87171" }}
+            style={{ ...copyBtnStyle, color: "#f87171" /* fixed red on always-dark drawer */ }}
             title="Delete saved connection"
           >
             Forget
@@ -452,7 +453,8 @@ function DbtBindingPanel({ warehouseId }: DbtBindingPanelProps) {
               padding: "2px 8px",
               borderRadius: 99,
               background: "rgba(16, 185, 129, 0.15)",
-              color: "#10b981",
+              color:
+                "#10b981" /* fixed green pill on always-dark drawer (paired with alpha bg above) */,
             }}
           >
             linked: {status.enriched} / {status.total} tables
@@ -528,7 +530,7 @@ function DbtBindingPanel({ warehouseId }: DbtBindingPanelProps) {
               fontSize: 12,
               padding: "5px 0",
               border: "none",
-              color: "#f87171",
+              color: "#f87171" /* fixed red on always-dark drawer */,
               background: "none",
               cursor: "pointer",
             }}
@@ -538,7 +540,15 @@ function DbtBindingPanel({ warehouseId }: DbtBindingPanelProps) {
         </>
       )}
       {status.kind === "error" && (
-        <p style={{ fontSize: 12, color: "#f87171", margin: "8px 0 0" }}>{status.error}</p>
+        <p
+          style={{
+            fontSize: 12,
+            color: "#f87171" /* fixed red on always-dark drawer */,
+            margin: "8px 0 0",
+          }}
+        >
+          {status.error}
+        </p>
       )}
     </div>
   );

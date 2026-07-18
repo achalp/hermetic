@@ -43,7 +43,15 @@ vi.mock("@/lib/llm/prompts", () => ({
 // getActiveProvider is called (in a try/catch) before validation. Default to
 // a benign cloud provider so it doesn't throw.
 const getActiveProvider = vi.fn(() => "anthropic");
-vi.mock("@/lib/llm/client", () => ({ getActiveProvider: () => getActiveProvider() }));
+vi.mock("@/lib/llm/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm/client")>();
+  return {
+    ...actual,
+    getActiveProvider: () => getActiveProvider(),
+    // providerCapabilities is pure — keep the real one so the capability
+    // contract (not a mock of it) is what these route tests exercise.
+  };
+});
 
 // Warehouse storage — the 404 branches read these. Default: not found.
 const getStoredWarehouse = vi.fn();
@@ -108,13 +116,13 @@ describe("POST /api/query — validation contract", () => {
     expect(json.error).toBe("Warehouse connector not found");
   });
 
-  it("returns 500 on malformed JSON body", async () => {
+  it("returns 400 on malformed JSON body (client fault, not a server error)", async () => {
     const req = new Request("http://localhost/api/query", {
       method: "POST",
       body: "{not json",
     });
     const res = await POST(req);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
     const json = await res.json();
     expect(typeof json.error).toBe("string");
   });

@@ -4,6 +4,7 @@ import { ResponsiveMarimekko } from "@nivo/marimekko";
 import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface MarimekkoChartProps {
   title: string | null;
@@ -23,7 +24,7 @@ export function MarimekkoChartComponent({ props }: { props: MarimekkoChartProps 
   const colors = useColorMap(dimIds, props.color_map);
 
   if (data.length === 0 || !props.dimensions || props.dimensions.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

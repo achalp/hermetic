@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface PartialDependenceProps {
   title?: string | null;
@@ -27,7 +28,7 @@ export function PartialDependenceComponent({ props }: { props: PartialDependence
   const x = Array.isArray(props.x_values) ? props.x_values : [];
   const pdp = Array.isArray(props.pdp) ? props.pdp : [];
 
-  if (x.length === 0 || pdp.length === 0) return <div style={{ height: chart.height }} />;
+  if (x.length === 0 || pdp.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const color = props.color ?? palette[0];
   const traces: Data[] = [];

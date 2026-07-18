@@ -1,6 +1,8 @@
 import { generateText } from "ai";
+import { apiError } from "@/lib/api-error";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { SUGGEST_MODEL } from "@/lib/constants";
+import { trackRouteCost } from "@/lib/cost/epilogue";
 
 /**
  * Question-suggestion endpoint. Two modes:
@@ -152,6 +154,13 @@ function buildFollowUpUserPrompt(payload: FollowUpPayload, schemaDesc: string): 
 }
 
 export async function POST(request: Request) {
+  // Cost tracking: suggest fires a real LLM call after every analysis but
+  // previously ran outside any tracking scope — its spend never reached the
+  // cost log (see lib/cost/epilogue.ts trackRouteCost).
+  return trackRouteCost({ mode: "suggest" }, () => handleSuggest(request));
+}
+
+async function handleSuggest(request: Request) {
   try {
     const body = (await request.json()) as SchemaPayload | FollowUpPayload;
     const mode: Mode = body.mode === "follow-up" ? "follow-up" : "schema";
@@ -219,7 +228,6 @@ export async function POST(request: Request) {
 
     return Response.json({ questions });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to generate suggestions";
-    return Response.json({ error: msg }, { status: 500 });
+    return apiError("/api/suggest", err, "Failed to generate suggestions");
   }
 }

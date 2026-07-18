@@ -8,6 +8,8 @@ interface SchemaSectionProps {
   allColumns?: { name: string; type: string; sample: string }[];
 }
 
+/* Fixed bright-on-dark badge colors: the data rail is always dark, and each
+   color is paired with an alpha bg of the same hue (no token expresses these). */
 const typeBadgeStyles: Record<string, { background: string; color: string }> = {
   text: { background: "rgba(148,163,184,0.2)", color: "var(--color-surface-dark-text3)" },
   number: { background: "rgba(96,165,250,0.2)", color: "#60a5fa" },

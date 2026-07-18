@@ -1,4 +1,5 @@
 import { getActiveProvider } from "@/lib/llm/client";
+import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
@@ -11,13 +12,15 @@ export function GET() {
     return Response.json({ error: "No LLM provider configured" }, { status: 500 });
   }
 
+  const rc = getRuntimeConfig();
+
   const configured: LLMProviderId[] = [];
   if (process.env.ANTHROPIC_API_KEY) configured.push("anthropic");
+  if (isClaudeCliAvailable(rc.claudeCli?.binaryPath)) configured.push("claude-cli");
   if (process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) configured.push("bedrock");
   if (process.env.GOOGLE_VERTEX_PROJECT) configured.push("vertex");
   if (process.env.OPENAI_BASE_URL) configured.push("openai-compatible");
 
-  const rc = getRuntimeConfig();
   if (rc.mlx?.enabled) configured.push("mlx");
   if (rc.llamaCpp?.enabled) configured.push("llama-cpp");
   if (rc.ollama?.enabled) configured.push("ollama");

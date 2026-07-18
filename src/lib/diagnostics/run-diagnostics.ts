@@ -17,9 +17,11 @@
  * appendFile — no read-modify-write, so no races, no loss. Output:
  * data/diagnostics/<date>.jsonl (one run per line). Strictly best-effort.
  */
+import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, appendFile } from "fs/promises";
 import { join } from "path";
+import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 
 const DIAG_DIR = join(process.cwd(), "data", "diagnostics");
@@ -71,11 +73,15 @@ export interface StepDiag {
   retryClasses: string[];
   status?: string; // ok | degraded | failed
   statusReason?: string;
+  /** Wall time of the step in ms (start → finish, incl. retries). */
+  wallMs?: number;
 }
 
 export interface RunDiagnostics {
   timestamp: string;
   date: string;
+  /** Correlation id joining this record to log lines and the cost row. */
+  runId?: string;
   mode?: string;
   purpose?: string;
   question?: string;
@@ -83,6 +89,19 @@ export interface RunDiagnostics {
   llmCalls?: number;
   materialization?: MaterializationDiag;
   steps: StepDiag[];
+  /**
+   * Progress-stage transitions in order ("stage" events from emitProgress).
+   * These carry a NUMERIC step counter, so the string-keyed step grouping
+   * above silently dropped them — the OBS-9 events never reached disk.
+   */
+  stages?: { stage: string; step?: number; total?: number }[];
+  /**
+   * Run-scoped failure evidence, persisted verbatim: sandbox_failure
+   * (stderr/stdout tails, exit code) and investigation_failed (the partial
+   * per-step trail — question/status/error/code — of a run that died
+   * mid-investigation). These have no step key, so they too were dropped.
+   */
+  failures?: DiagEvent[];
   summary: {
     subQuestions: number;
     escalated: number;
@@ -102,6 +121,7 @@ export function buildRunDiagnostics(
   events: DiagEvent[],
   meta: {
     timestamp: string;
+    runId?: string;
     mode?: string;
     purpose?: string;
     question?: string;
@@ -149,8 +169,21 @@ export function buildRunDiagnostics(
       if (typeof e.status === "string") s.status = e.status;
       if (typeof e.statusReason === "string") s.statusReason = e.statusReason;
       if (typeof e.path === "string" && !s.escalated) s.path = e.path;
+      if (typeof e.wallMs === "number") s.wallMs = e.wallMs;
     }
   }
+
+  // Run-scoped event families (no string `step` key — the grouping above
+  // can't carry them, and dropping them loses the failure post-mortem trail).
+  const stages = events
+    .filter((e) => e.type === "stage")
+    .map((e) => ({
+      stage: String(e.stage ?? ""),
+      step: typeof e.step === "number" ? e.step : undefined,
+      total: typeof e.total === "number" ? e.total : undefined,
+    }));
+  const FAILURE_EVENT_TYPES = new Set(["sandbox_failure", "investigation_failed"]);
+  const failures = events.filter((e) => FAILURE_EVENT_TYPES.has(e.type));
 
   const steps = order.map((k) => stepMap.get(k)!);
   const retryClassCounts: Record<string, number> = {};
@@ -164,6 +197,7 @@ export function buildRunDiagnostics(
   return {
     timestamp: meta.timestamp,
     date: meta.timestamp.slice(0, 10),
+    runId: meta.runId,
     mode: meta.mode,
     purpose: meta.purpose,
     question: meta.question,
@@ -171,6 +205,8 @@ export function buildRunDiagnostics(
     llmCalls: meta.llmCalls,
     materialization,
     steps,
+    stages: stages.length ? stages : undefined,
+    failures: failures.length ? failures : undefined,
     summary: {
       subQuestions: steps.length,
       escalated: steps.filter((s) => s.escalated).length,
@@ -195,7 +231,7 @@ export async function writeRunDiagnostics(meta: {
   const events = getDiagEvents();
   if (!events) return;
   try {
-    const record = buildRunDiagnostics(events, meta);
+    const record = buildRunDiagnostics(events, { ...meta, runId: getRunId() });
     await mkdir(DIAG_DIR, { recursive: true });
     await appendFile(
       join(DIAG_DIR, `${record.date}.jsonl`),
@@ -203,8 +239,44 @@ export async function writeRunDiagnostics(meta: {
       "utf-8"
     );
   } catch (err) {
-    logger.debug("writeRunDiagnostics failed (best-effort)", {
+    // warn, not debug: if the diagnostics writes silently break, the record
+    // that explains escalations/retries/degradations disappears and nobody
+    // notices until the next post-mortem needs it.
+    logger.warn("writeRunDiagnostics failed (best-effort)", {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+/**
+ * Read persisted run records, newest first — the in-app reader for the JSONL
+ * this module writes. It previously had no consumer at all (cost has
+ * /api/cost + listCostRows; diagnostics required shell jq archaeology).
+ */
+export async function listRunDiagnostics(limit = 100): Promise<RunDiagnostics[]> {
+  const { readdir, readFile } = await import("fs/promises");
+  let files: string[];
+  try {
+    files = (await readdir(DIAG_DIR)).filter((f) => f.endsWith(".jsonl")).sort();
+  } catch {
+    return []; // dir doesn't exist yet
+  }
+  const records: RunDiagnostics[] = [];
+  // Newest day files first; within a file, later lines are later runs.
+  for (const f of files.reverse()) {
+    try {
+      const lines = (await readFile(join(DIAG_DIR, f), "utf-8")).trim().split("\n").reverse();
+      for (const line of lines) {
+        try {
+          records.push(JSON.parse(line) as RunDiagnostics);
+        } catch {
+          // skip a corrupt line rather than failing the whole list
+        }
+        if (records.length >= limit) return records;
+      }
+    } catch {
+      // skip an unreadable file
+    }
+  }
+  return records;
 }

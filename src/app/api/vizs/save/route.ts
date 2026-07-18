@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { apiError } from "@/lib/api-error";
 import { getCachedCode } from "@/lib/pipeline/code-cache";
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getStoredCSV, getCSVContent, getWorkbookManifest } from "@/lib/csv/storage";
@@ -96,8 +97,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ meta });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Save failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/vizs/save", err, "Save failed");
   }
 }
 

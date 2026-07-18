@@ -1,6 +1,7 @@
+import "server-only";
 import { execFile } from "node:child_process";
 import type { ExecutionResult } from "@/lib/types";
-import { logger } from "@/lib/logger";
+import { parseSandboxOutput } from "./parse-output";
 
 export function run(
   cmd: string,
@@ -27,7 +28,11 @@ export function run(
       }
     );
 
-    if (opts?.input && child.stdin) {
+    // Close stdin whenever input was provided — INCLUDING an empty string. A
+    // remote/cloud source writes an empty /data/input.csv (its data lives at the
+    // URL); with a truthy check, "" was skipped, stdin never closed, and `cat`
+    // blocked until the timeout fired — surfacing as a spurious "timed out".
+    if (opts?.input !== undefined && child.stdin) {
       child.stdin.write(opts.input);
       child.stdin.end();
     }
@@ -35,99 +40,58 @@ export function run(
 }
 
 /**
- * Parse execution output from a container that ran a Python script.
- * Reads output.json or stdout.txt, parses JSON, returns ExecutionResult.
+ * Whether generated code will do slow remote/network IO — a cloud Parquet read
+ * over DuckDB httpfs (s3://, gs://, azure, or a remote https Parquet). Such reads
+ * are far slower than local/in-container data, so the sandbox must budget the
+ * extended timeout for them, same as a large local Parquet. Detected from the
+ * code itself because that is exactly what determines the IO the sandbox does.
+ */
+export function codeDoesRemoteIo(code: string): boolean {
+  return (
+    /\bhttpfs\b/i.test(code) ||
+    /['"](?:s3|s3a|gs|gcs|az|azure|abfss?):\/\//i.test(code) ||
+    /read_parquet\(\s*['"]https?:\/\//i.test(code)
+  );
+}
+
+/**
+ * Whether generated code needs NETWORK at all — a deliberate superset of
+ * codeDoesRemoteIo. That predicate answers "is this a slow cloud read that
+ * needs the extended timeout"; this one answers "may the container have a
+ * network namespace". Anything without a URL or a network library runs under
+ * `--network none`, which is what makes the sandbox's isolation claim true
+ * for the common local-data case. Kept permissive on purpose: a missed
+ * network need is a hard failure, while a false positive only loses the
+ * no-network hardening for that one run. (DuckDB INSTALL of httpfs/spatial
+ * is pre-bundled in the image and verified to work offline, so a bare
+ * `INSTALL spatial` does NOT need network.)
+ */
+export function codeNeedsNetwork(code: string): boolean {
+  return (
+    codeDoesRemoteIo(code) ||
+    /\bhttps?:\/\//i.test(code) ||
+    /\b(?:import\s+(?:requests|urllib|aiohttp|httpx|socket)|from\s+(?:requests|urllib|aiohttp|httpx|socket)[\s.])/.test(
+      code
+    )
+  );
+}
+
+/**
+ * Parse execution output from a container that ran a Python script — a thin
+ * Docker adapter over the shared runtime-agnostic parser (see parse-output.ts).
  */
 export async function parseExecutionOutput(
   containerId: string,
   start: number,
   exitCodeStdout: string
 ): Promise<ExecutionResult> {
-  const executionMs = Date.now() - start;
-  const exitCode = parseInt(exitCodeStdout.trim(), 10);
-
-  if (exitCode !== 0) {
-    const stderrResult = await run("docker", [
-      "exec",
-      containerId,
-      "cat",
-      "/data/stderr.txt",
-    ]).catch(() => ({ stdout: "Unknown execution error", stderr: "", exitCode: 1 }));
-
-    return {
-      success: false,
-      error: stderrResult.stdout || "Unknown execution error",
-      execution_ms: executionMs,
-    };
-  }
-
-  // Read output: prefer /data/output.json, fallback to /data/stdout.txt
-  let outputJson: string;
-  let outputSource: string;
-
-  const jsonResult = await run("docker", ["exec", containerId, "cat", "/data/output.json"]).catch(
-    () => null
-  );
-
-  if (jsonResult && jsonResult.exitCode === 0 && jsonResult.stdout.trim()) {
-    outputJson = jsonResult.stdout;
-    outputSource = "file:/data/output.json";
-  } else {
-    const stdoutResult = await run("docker", [
-      "exec",
-      containerId,
-      "cat",
-      "/data/stdout.txt",
-    ]).catch(() => null);
-    if (stdoutResult && stdoutResult.exitCode === 0 && stdoutResult.stdout.trim()) {
-      outputJson = stdoutResult.stdout;
-      outputSource = "file:/data/stdout.txt";
-    } else {
-      return {
-        success: false,
-        error:
-          "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
-        execution_ms: executionMs,
-      };
-    }
-  }
-
-  logger.debug("Docker executor output", { source: outputSource, len: outputJson.length });
-
-  if (!outputJson.trim()) {
-    return {
-      success: false,
-      error:
-        "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.",
-      execution_ms: executionMs,
-    };
-  }
-
-  // Replace Python NaN/Infinity with null for valid JSON
-  outputJson = outputJson
-    .replace(/\bNaN\b/g, "null")
-    .replace(/\b-Infinity\b/g, "null")
-    .replace(/\bInfinity\b/g, "null");
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(outputJson);
-  } catch {
-    return {
-      success: false,
-      error: `Failed to parse output as JSON. Output was: ${outputJson.slice(0, 500)}`,
-      execution_ms: executionMs,
-    };
-  }
-
-  const images: Record<string, string> = (parsed.images as Record<string, string>) ?? {};
-
-  return {
-    success: true,
-    results: (parsed.results as Record<string, unknown>) ?? {},
-    chart_data: (parsed.chart_data as Record<string, unknown>) ?? {},
-    images,
-    datasets: (parsed.datasets as Record<string, Record<string, unknown>[]>) ?? undefined,
-    execution_ms: executionMs,
-  };
+  return parseSandboxOutput({
+    runtime: "docker",
+    exitCode: parseInt(exitCodeStdout.trim(), 10),
+    executionMs: Date.now() - start,
+    readFile: async (path) => {
+      const result = await run("docker", ["exec", containerId, "cat", path]).catch(() => null);
+      return result && result.exitCode === 0 ? result.stdout : null;
+    },
+  });
 }

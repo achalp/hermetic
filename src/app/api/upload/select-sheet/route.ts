@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
+import { apiError } from "@/lib/api-error";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV } from "@/lib/csv/storage";
@@ -54,7 +55,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ csv_id: csvId, schema });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Sheet selection failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiError("/api/upload/select-sheet", err, "Sheet selection failed");
   }
 }

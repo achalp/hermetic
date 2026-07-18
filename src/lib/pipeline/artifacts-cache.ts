@@ -1,6 +1,11 @@
 import type { InvestigationTrace } from "@/lib/pipeline/investigation-trace";
+import { isIdleExpired, touch } from "@/lib/store-ttl";
 
-const ARTIFACTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+// SLIDING idle TTL (time since last read, not since it was cached) — every open
+// of the artifacts panel / follow-up / recompose slides it forward, and an
+// in-flight run pins it (see lib/store-ttl.ts). Was a 10-minute absolute window,
+// which expired a result the user was still following up on.
+const ARTIFACTS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour idle
 
 export interface CachedArtifacts {
   code: string;
@@ -22,6 +27,9 @@ export interface CachedArtifacts {
 
 interface CacheEntry extends CachedArtifacts {
   cachedAt: number;
+  /** Sliding-idle-TTL bookkeeping (see lib/store-ttl.ts). */
+  lastAccessedAt?: number;
+  ownerRunId?: string;
 }
 
 const globalCache = globalThis as unknown as {
@@ -39,10 +47,12 @@ export function cacheArtifacts(csvId: string, artifacts: CachedArtifacts): void 
 export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
   const entry = cache.get(csvId);
   if (!entry) return undefined;
-  if (Date.now() - entry.cachedAt > ARTIFACTS_CACHE_TTL_MS) {
+  const now = Date.now();
+  if (isIdleExpired(entry, entry.cachedAt, ARTIFACTS_CACHE_TTL_MS, now)) {
     cache.delete(csvId);
     return undefined;
   }
+  touch(entry, now);
   return {
     code: entry.code,
     question: entry.question,
@@ -53,4 +63,17 @@ export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
     sql: entry.sql,
     investigation: entry.investigation,
   };
+}
+
+/** Active sweep (see lib/store-sweeper.ts) — expiry was lazy-read-only. */
+export function sweepExpiredArtifacts(): number {
+  const now = Date.now();
+  let swept = 0;
+  for (const [k, v] of cache) {
+    if (isIdleExpired(v, v.cachedAt, ARTIFACTS_CACHE_TTL_MS, now)) {
+      cache.delete(k);
+      swept++;
+    }
+  }
+  return swept;
 }

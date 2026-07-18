@@ -4,6 +4,7 @@ import { ResponsiveSankey } from "@nivo/sankey";
 import { useColorMap, useNivoTheme } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface SankeyChartProps {
   title: string | null;
@@ -27,7 +28,7 @@ export function SankeyChartComponent({ props }: { props: SankeyChartProps }) {
   const colors = useColorMap(nodeIds, props.color_map);
 
   if (nodes.length === 0 || links.length === 0) {
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
   }
 
   return (

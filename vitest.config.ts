@@ -11,6 +11,10 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text-summary", "json-summary", "html"],
       reportsDirectory: "./coverage",
+      // Keep the report even when the run is red — v8 defaults to false, so a
+      // failing `test:coverage` used to CLEAR coverage/ and write nothing,
+      // leaving only a stale (or no) summary to mislead readers.
+      reportOnFailure: true,
       include: ["src/**/*.{ts,tsx}"],
       // Exclude tests, type-only files, and Next entry points (page/layout are
       // thin server wrappers exercised by e2e/build, not unit tests).
@@ -42,6 +46,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // `server-only` throws under vitest's default resolve condition (its
+      // job is to fail CLIENT bundles at next-build time; vitest is neither
+      // graph). Stub it so node-only lib modules stay importable in tests.
+      "server-only": path.resolve(__dirname, "./src/test-stubs/server-only.ts"),
     },
   },
 });

@@ -6,11 +6,22 @@ import {
   fixReadCsvDelimiter,
   fixColumnNameCase,
   stripValueAssertions,
+  fixMissingSqlFString,
 } from "@/lib/llm/code-generation";
-import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
+import { buildRetryPromptMulti, RETRY_GUIDANCE, buildGeospatialGuidance } from "@/lib/llm/prompts";
+import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
+import {
+  recordRunStart,
+  recordRunArtifact,
+  recordRunEvent,
+  recordAttemptCode,
+  recordAttemptOutcome,
+} from "@/lib/diagnostics/run-recorder";
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
+import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
+import { estimateRun, reportEstimate } from "@/lib/pipeline/estimate";
 import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
@@ -55,23 +66,64 @@ export interface PipelineResult {
   degradedReason?: string;
 }
 
+export interface PipelineOptions {
+  onStage?: (stage: string) => void;
+  mode?: SchemaMode;
+  model?: string;
+  runtime?: SandboxRuntimeId;
+  geojsonContent?: string | null;
+  additionalFiles?: AdditionalFile[];
+  workbookContext?: string;
+  localMountPath?: string;
+  localFileContext?: string;
+  priorTurns?: ConversationTurn[];
+  /** Host Parquet file to docker-cp into the sandbox (/data/input.parquet). */
+  inputParquetPath?: string;
+  purpose?: string;
+}
+
+/**
+ * Code-gen → sandbox-execute → retry loop. Options object instead of the old
+ * 15 positional parameters — with 12 trailing optionals, three of which were
+ * `string | undefined` neighbors (workbookContext / localMountPath /
+ * localFileContext), a swapped pair type-checked fine and failed at runtime;
+ * call sites were padding with bare `undefined`s to reach the one they meant.
+ */
 export async function runPipeline(
   schema: CSVSchema,
   csvContent: string,
   question: string,
-  onStage?: (stage: string) => void,
-  mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL,
-  runtime?: SandboxRuntimeId,
-  geojsonContent?: string | null,
-  additionalFiles?: AdditionalFile[],
-  workbookContext?: string,
-  localMountPath?: string,
-  localFileContext?: string,
-  priorTurns?: ConversationTurn[],
-  inputParquetPath?: string,
-  purpose?: string
+  options: PipelineOptions = {}
 ): Promise<PipelineResult> {
+  const {
+    onStage,
+    mode = "metadata",
+    model = CODE_GEN_MODEL,
+    runtime,
+    geojsonContent,
+    additionalFiles,
+    workbookContext,
+    localMountPath,
+    localFileContext,
+    priorTurns,
+    inputParquetPath,
+    purpose,
+  } = options;
+  // Open the forensic record for this run: every attempt's code + outcome is
+  // persisted to data/runs/<runId>/ as it happens, so a crash or exhausted-retry
+  // failure (which saves only a near-empty history stub) still leaves the exact
+  // code and errors to debug from.
+  recordRunStart({
+    question,
+    filename: schema.filename,
+    rowCount: schema.row_count,
+    mode,
+    model,
+    localMount: !!localMountPath,
+    remoteParquet: !!inputParquetPath,
+  });
+  let attemptIndex = 1;
+
   // Step 1: Generate analysis code
   onStage?.("generating_code");
   let code: string;
@@ -88,6 +140,7 @@ export async function runPipeline(
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    recordRunEvent({ type: "codegen_failed", attempt: attemptIndex, error: msg });
     // Log the full error including any nested cause/errors for debugging
     const details: Record<string, unknown> = {
       error: msg,
@@ -108,11 +161,26 @@ export async function runPipeline(
     );
   }
 
+  // Persist the code BEFORE executing — an OOM/crash during the run must not lose it.
+  recordAttemptCode(attemptIndex, code);
+
   // Step 2: Execute in sandbox
   logger.debug("Generated code", { chars: code.length, localMount: !!localMountPath });
   if (localMountPath) {
     logger.info("Local file execution", { localMountPath, fullCode: code });
+  } else if (codeDoesRemoteIo(code)) {
+    logger.info("Remote cloud execution", { fullCode: code });
   }
+  // Up-front duration estimate (a bucketed range, not an ETA) so the user knows
+  // a long run is expected — streamed as a progress event before execution.
+  const remote = codeDoesRemoteIo(code);
+  reportEstimate(
+    estimateRun({
+      rowCount: schema.row_count,
+      isRemote: remote,
+      isLargeData: !!localMountPath || !!inputParquetPath || remote,
+    })
+  );
   onStage?.("executing");
   let result = await executeSandbox(
     csvContent,
@@ -124,6 +192,13 @@ export async function runPipeline(
     localMountPath,
     inputParquetPath
   );
+  recordAttemptOutcome(attemptIndex, {
+    success: result.success,
+    error: result.success ? undefined : result.error,
+    errorKind: result.success ? undefined : result.errorKind,
+    executionMs: result.execution_ms,
+    hasResults: result.success && !!result.results,
+  });
 
   // Step 3: Self-correction loop. Up to MAX_RETRIES attempts. Each retry
   // shows the LLM the FULL history of prior failed attempts (code + error),
@@ -162,6 +237,21 @@ export async function runPipeline(
     let retryError: string;
     if (!result.success) {
       retryError = result.error;
+      // A timeout means the query was too slow for the (already generous)
+      // budget, not that the code is buggy — regenerating similar code just
+      // times out again and multiplies the wait. Fail fast instead of
+      // retrying. Keys on the STRUCTURED errorKind the executors set
+      // (CORE-7 — the old message-substring coupling would silently
+      // re-enable futile retries on a reword); the regex stays only as a
+      // fallback for foreign SDK timeout strings we don't control.
+      // A user Stop (errorKind "stopped") must also fail fast — never
+      // regenerate and re-run something the user just cancelled.
+      if (
+        result.errorKind === "timeout" ||
+        result.errorKind === "stopped" ||
+        /timed out/i.test(retryError)
+      )
+        break;
     } else if (semanticVerdict && !semanticVerdict.ok) {
       // Already gave the empty result its one fix attempt → accept it as
       // degraded ("no signal") instead of retrying further.
@@ -189,8 +279,15 @@ export async function runPipeline(
       errorText: retryError,
     });
 
+    // Re-inject the geospatial recipe (KD-tree / polygon / memory-safe rowid) on
+    // retry. Without this, a retry rebuilt from scratch drops the schema block's
+    // spatial guidance and "repairs" a superlative by downsampling — the exact
+    // regression that produced a grid-cell approximation. buildGeospatialGuidance
+    // returns "" for non-geo data, so this is a no-op there.
+    const retryGeoGuidance = buildGeospatialGuidance(schema, await getSandboxMemoryLimitGbLabel());
     const retrySystemExtra =
       (localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "") +
+      (retryGeoGuidance ? `\n${retryGeoGuidance}` : "") +
       (purpose ? `\n\n${getPurposeCodegenScope(purpose)}` : "");
     let retryCode: string;
     try {
@@ -212,8 +309,12 @@ export async function runPipeline(
 
       retryCode = fixColumnNameCase(
         stripValueAssertions(
-          fixReadCsvDelimiter(
-            fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename))
+          fixMissingSqlFString(
+            fixReadCsvDelimiter(
+              fixExcelReadOnCsv(
+                fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename)
+              )
+            )
           )
         ),
         schema.columns.map((c) => c.name)
@@ -230,6 +331,9 @@ export async function runPipeline(
       );
     }
 
+    attemptIndex++;
+    recordAttemptCode(attemptIndex, retryCode);
+
     onStage?.("executing");
     result = await executeSandbox(
       csvContent,
@@ -241,9 +345,27 @@ export async function runPipeline(
       localMountPath,
       inputParquetPath
     );
+    recordAttemptOutcome(attemptIndex, {
+      success: result.success,
+      error: result.success ? undefined : result.error,
+      errorKind: result.success ? undefined : result.errorKind,
+      executionMs: result.execution_ms,
+      hasResults: result.success && !!result.results,
+    });
 
     code = retryCode;
     semanticVerdict = result.success ? validateExecutionResult(result) : null;
+  }
+
+  // Persist the final code + outcome regardless of success/degraded/failure, so
+  // the run's record is complete even when history saves only a stub.
+  recordRunArtifact("code.py", code);
+  recordRunEvent({ type: "final", success: result.success, attempts: attemptIndex });
+  if (result.success) {
+    recordRunArtifact(
+      "output.json",
+      JSON.stringify({ results: result.results, chart_data: result.chart_data }, null, 2)
+    );
   }
 
   // Execution-level failure after exhausting retries → throw, same as
@@ -260,9 +382,16 @@ export async function runPipeline(
       .map((a, i) => `Attempt ${i + 1}: ${a.error.slice(0, 200).replace(/\n/g, " ")}`)
       .concat(`Attempt ${attempt + 1}: ${result.error.slice(0, 200).replace(/\n/g, " ")}`)
       .join("\n");
-    throw new Error(
-      `Analysis failed after ${MAX_RETRIES} retries.\n\n${summary}\n\nFinal error:\n${result.error}`
-    );
+    // Report the ACTUAL attempt count, not MAX_RETRIES — a timeout fail-fast
+    // (errorKind === "timeout") breaks after ONE attempt, so "failed after 3
+    // retries" was a lie that sent every reader hunting for retries that
+    // never ran. A timeout says "too slow", not "buggy"; name that.
+    const attemptsRun = attempt + 1;
+    const headline =
+      result.errorKind === "timeout"
+        ? `Analysis timed out and was not retried (a timeout means the query is too slow for the budget, not that the code is wrong).`
+        : `Analysis failed after ${attemptsRun} attempt${attemptsRun === 1 ? "" : "s"}.`;
+    throw new Error(`${headline}\n\n${summary}\n\nFinal error:\n${result.error}`);
   }
 
   if (attempt > 0) {
@@ -318,11 +447,14 @@ export async function runPipelineWithCode(
     additionalFiles?: AdditionalFile[];
     csvId?: string;
     localMountPath?: string;
+    /** Host Parquet file to docker-cp into the sandbox (/data/input.parquet). */
+    inputParquetPath?: string;
   } = {}
 ): Promise<PipelineResult> {
   logger.debug("Re-executing edited code", {
     chars: code.length,
     localMount: !!options.localMountPath,
+    parquet: !!options.inputParquetPath,
   });
 
   const result = await executeSandbox(
@@ -332,7 +464,8 @@ export async function runPipelineWithCode(
     options.geojsonContent,
     options.additionalFiles,
     options.csvId,
-    options.localMountPath
+    options.localMountPath,
+    options.inputParquetPath
   );
 
   if (!result.success) {

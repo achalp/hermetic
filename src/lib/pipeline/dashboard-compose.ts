@@ -8,8 +8,11 @@
  *
  * `buildDashboardComposeRequest` is pure: given an execution result + options it
  * returns the compose `userPrompt` + `customRules` and the dataset analysis the
- * stream step needs. `composeAndStreamDashboard` runs the LLM + streams the
- * finalized spec.
+ * stream step needs. It is a thin assembler over per-section builders
+ * (`analyzeDatasets`, the `build*Section` functions, `buildComposeRules`) so
+ * each concern — filterable-column detection, sample flagging, drill-down
+ * framing, the rules catalog — can be read and changed in isolation.
+ * `composeAndStreamDashboard` runs the LLM + streams the finalized spec.
  */
 
 import { streamText } from "ai";
@@ -19,6 +22,7 @@ import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
+import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
 import {
   collectNarrativeStrings,
   collectGroundedValues,
@@ -53,10 +57,23 @@ export interface DashboardComposeOpts {
   workbookContext?: string | null;
 }
 
+/**
+ * Max rows shipped to the client for interactive filtering. A dataset AT this
+ * size is assumed to be a `head(cap)` truncation (a sample), not the complete
+ * result — so client-side re-aggregation of it is treated as approximate.
+ */
+export const INTERACTIVE_ROW_CAP = 5000;
+
 export interface DashboardAnalysis {
   useDataController: boolean;
   mainDataset: Record<string, unknown>[] | undefined;
   imagePlaceholders: Record<string, string>;
+  /**
+   * Non-null when /datasets/main is (or may be) a SAMPLE of a larger result, so
+   * client-side filtered aggregations are approximate. Rendered as a caveat on
+   * the DataController and used to steer headline stats to exact $result values.
+   */
+  sampleNote: string | null;
 }
 
 export interface DashboardComposeRequest {
@@ -65,24 +82,35 @@ export interface DashboardComposeRequest {
   analysis: DashboardAnalysis;
 }
 
-/**
- * Pure: build the compose `userPrompt` + `customRules` for a single-shot
- * dashboard, plus the dataset analysis the stream step consumes. No I/O.
- */
-export function buildDashboardComposeRequest(
-  executionResult: SandboxExecutionResult,
-  opts: DashboardComposeOpts
-): DashboardComposeRequest {
-  const { question, schema, schemaMode, purpose, priorTurns, drillDownContext, workbookContext } =
-    opts;
+// ── Dataset analysis ─────────────────────────────────────────────────
 
-  const imageKeys = Object.keys(executionResult.images);
+interface DatasetColumnInfo {
+  name: string;
+  distinct: number;
+  sample: string[];
+}
+
+/** DashboardAnalysis plus the column detail the prompt sections need. */
+interface DatasetAnalysis extends DashboardAnalysis {
+  datasetColumns: DatasetColumnInfo[];
+  filterableColumns: DatasetColumnInfo[];
+}
+
+/**
+ * Inspect the execution result's datasets/results/images: detect filterable
+ * columns (categorical, <15 distinct), decide whether a DataController is
+ * warranted, flag a sampled /datasets/main, and build the image-placeholder
+ * map. Pure derivation — everything downstream (prompt sections, rules,
+ * stream-time injection) keys off this one analysis.
+ */
+function analyzeDatasets(executionResult: SandboxExecutionResult): DatasetAnalysis {
   const datasets = executionResult.datasets;
   const mainDataset = datasets?.main;
-  const hasDataset = !!mainDataset && mainDataset.length > 0 && mainDataset.length <= 5000;
+  const hasDataset =
+    !!mainDataset && mainDataset.length > 0 && mainDataset.length <= INTERACTIVE_ROW_CAP;
 
   // Detect filterable columns (categorical with <15 distinct values)
-  let datasetColumns: { name: string; distinct: number; sample: string[] }[] = [];
+  let datasetColumns: DatasetColumnInfo[] = [];
   if (hasDataset && mainDataset) {
     const allKeys = Object.keys(mainDataset[0] ?? {});
     datasetColumns = allKeys.map((col) => {
@@ -93,111 +121,154 @@ export function buildDashboardComposeRequest(
   const filterableColumns = datasetColumns.filter((c) => c.distinct >= 2 && c.distinct <= 15);
   const useDataController = hasDataset && filterableColumns.length > 0;
 
+  // Is /datasets/main a SAMPLE of a larger result? We can't always be sure, so
+  // flag it when (a) the analysis explicitly says so, or (b) it sits exactly at
+  // the interactive cap — the tell-tale of a head(cap) truncation. When flagged,
+  // client-side filtered aggregations are approximate and get a visible caveat.
+  const resultsObj = executionResult.results as Record<string, unknown>;
+  const explicitSampleNote =
+    typeof resultsObj?._sample_note === "string" ? resultsObj._sample_note : null;
+  const mainTotal = typeof resultsObj?._main_total === "number" ? resultsObj._main_total : null;
+  const flaggedSample =
+    resultsObj?._main_sampled === true || explicitSampleNote !== null || mainTotal !== null;
+  const mainMaybeSampled =
+    useDataController && (mainDataset!.length >= INTERACTIVE_ROW_CAP || flaggedSample);
+  const ofTotal = mainTotal ? ` of ${mainTotal.toLocaleString()}` : "";
+  const sampleNote: string | null = mainMaybeSampled
+    ? (explicitSampleNote ??
+      `Interactive filters and per-group figures below are computed on a sample of ${mainDataset!.length.toLocaleString()}${ofTotal} rows. Unfiltered headline figures reflect the complete dataset.`)
+    : null;
+
   // Build image placeholder map: LLM uses placeholder keys, we replace with real base64
   const imagePlaceholders: Record<string, string> = {};
-  for (const key of imageKeys) {
+  for (const key of Object.keys(executionResult.images)) {
     imagePlaceholders[key] = `data:image/png;base64,${executionResult.images[key]}`;
   }
 
-  // Describe chart_data shape (key names, column types, row counts, sample rows)
-  // so the LLM can choose the right component without receiving full data arrays.
-  function describeShape(val: unknown, includeSamples: boolean): unknown {
-    if (Array.isArray(val)) {
-      if (val.length === 0) return { _type: "array", rows: 0 };
-      const sample = includeSamples ? val.slice(0, 2) : undefined;
-      const first = val[0];
-      if (typeof first === "object" && first !== null) {
-        const cols: Record<string, string> = {};
-        for (const [k, v] of Object.entries(first)) {
-          cols[k] =
-            typeof v === "number" ? "number" : typeof v === "boolean" ? "boolean" : "string";
-        }
-        return sample
-          ? { _type: "array", rows: val.length, columns: cols, sample }
-          : { _type: "array", rows: val.length, columns: cols };
+  return {
+    useDataController,
+    mainDataset,
+    imagePlaceholders,
+    sampleNote,
+    datasetColumns,
+    filterableColumns,
+  };
+}
+
+// ── Shape/size description helpers (pure) ────────────────────────────
+
+/**
+ * Describe chart_data shape (key names, column types, row counts, sample rows)
+ * so the LLM can choose the right component without receiving full data arrays.
+ */
+function describeShape(val: unknown, includeSamples: boolean): unknown {
+  if (Array.isArray(val)) {
+    if (val.length === 0) return { _type: "array", rows: 0 };
+    const sample = includeSamples ? val.slice(0, 2) : undefined;
+    const first = val[0];
+    if (typeof first === "object" && first !== null) {
+      const cols: Record<string, string> = {};
+      for (const [k, v] of Object.entries(first)) {
+        cols[k] = typeof v === "number" ? "number" : typeof v === "boolean" ? "boolean" : "string";
       }
       return sample
-        ? { _type: "array", rows: val.length, valueType: typeof first, sample }
-        : { _type: "array", rows: val.length, valueType: typeof first };
+        ? { _type: "array", rows: val.length, columns: cols, sample }
+        : { _type: "array", rows: val.length, columns: cols };
     }
-    if (typeof val === "object" && val !== null) {
-      const described: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(val)) {
-        described[k] = describeShape(v, includeSamples);
-      }
-      return described;
-    }
-    return val; // scalars pass through
+    return sample
+      ? { _type: "array", rows: val.length, valueType: typeof first, sample }
+      : { _type: "array", rows: val.length, valueType: typeof first };
   }
+  if (typeof val === "object" && val !== null) {
+    const described: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val)) {
+      described[k] = describeShape(v, includeSamples);
+    }
+    return described;
+  }
+  return val; // scalars pass through
+}
 
-  function describeResultsSchema(obj: Record<string, unknown>): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(obj)) {
-      if (val === null || val === undefined) {
-        out[key] = { type: "null" };
-      } else if (typeof val === "number") {
-        out[key] = { type: "number", is_integer: Number.isInteger(val) };
-      } else if (typeof val === "boolean") {
-        out[key] = { type: "boolean" };
-      } else if (typeof val === "string") {
-        out[key] = { type: "string" };
-      } else if (Array.isArray(val)) {
-        out[key] = {
-          type: "array",
-          length: val.length,
-          element_type: val.length > 0 ? typeof val[0] : "unknown",
-        };
-      } else if (typeof val === "object") {
-        out[key] = { type: "object", keys: describeResultsSchema(val as Record<string, unknown>) };
+/** Type-only view of the results object, for metadata mode (no raw values). */
+function describeResultsSchema(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val === null || val === undefined) {
+      out[key] = { type: "null" };
+    } else if (typeof val === "number") {
+      out[key] = { type: "number", is_integer: Number.isInteger(val) };
+    } else if (typeof val === "boolean") {
+      out[key] = { type: "boolean" };
+    } else if (typeof val === "string") {
+      out[key] = { type: "string" };
+    } else if (Array.isArray(val)) {
+      out[key] = {
+        type: "array",
+        length: val.length,
+        element_type: val.length > 0 ? typeof val[0] : "unknown",
+      };
+    } else if (typeof val === "object") {
+      out[key] = { type: "object", keys: describeResultsSchema(val as Record<string, unknown>) };
+    }
+  }
+  return out;
+}
+
+/**
+ * Shrink an oversized value to fit `maxChars` of JSON — arrays get a marked
+ * `_truncated` sample, objects keep whole leading entries, scalars are sliced.
+ */
+function truncateValue(val: unknown, maxChars: number): unknown {
+  if (Array.isArray(val)) {
+    for (let limit = Math.min(val.length, 50); limit >= 5; limit = Math.floor(limit / 2)) {
+      const sliced = val.slice(0, limit);
+      const json = JSON.stringify(sliced);
+      if (json.length <= maxChars) {
+        if (limit < val.length) {
+          return { _truncated: true, _total: val.length, _sample: sliced };
+        }
+        return sliced;
       }
     }
-    return out;
+    return { _truncated: true, _total: val.length, _sample: val.slice(0, 3) };
   }
+  const json = JSON.stringify(val);
+  if (json.length <= maxChars) return val;
+  if (typeof val === "object" && val !== null) {
+    const entries = Object.entries(val as Record<string, unknown>);
+    const trimmed: Record<string, unknown> = {};
+    let remaining = maxChars - 50;
+    for (const [k, v] of entries) {
+      const s = JSON.stringify(v);
+      if (s.length <= remaining) {
+        trimmed[k] = v;
+        remaining -= s.length;
+      } else {
+        trimmed[k] = truncateValue(v, Math.max(remaining, 200));
+        break;
+      }
+    }
+    return trimmed;
+  }
+  return String(val).slice(0, maxChars);
+}
 
-  const chartDataShape = Object.fromEntries(
-    Object.entries(executionResult.chart_data).map(([k, v]) => [
-      k,
-      describeShape(v, schemaMode === "sample"),
-    ])
-  );
+// ── Prompt section builders ──────────────────────────────────────────
+// Each returns a complete block (conditional ones include their own leading
+// blank lines and return "" when not applicable), so the assembler is a plain
+// concatenation.
+
+/** Question + results (schema or values) + chart-data shapes + image keys. */
+function buildCorePrompt(
+  executionResult: SandboxExecutionResult,
+  question: string,
+  schemaMode: SchemaMode,
+  useDataController: boolean
+): string {
+  const imageKeys = Object.keys(executionResult.images);
 
   // Cap results at 30K chars — these are small scalar aggregations the LLM
   // needs verbatim for StatCard values and TextBlock content.
-  function truncateValue(val: unknown, maxChars: number): unknown {
-    if (Array.isArray(val)) {
-      for (let limit = Math.min(val.length, 50); limit >= 5; limit = Math.floor(limit / 2)) {
-        const sliced = val.slice(0, limit);
-        const json = JSON.stringify(sliced);
-        if (json.length <= maxChars) {
-          if (limit < val.length) {
-            return { _truncated: true, _total: val.length, _sample: sliced };
-          }
-          return sliced;
-        }
-      }
-      return { _truncated: true, _total: val.length, _sample: val.slice(0, 3) };
-    }
-    const json = JSON.stringify(val);
-    if (json.length <= maxChars) return val;
-    if (typeof val === "object" && val !== null) {
-      const entries = Object.entries(val as Record<string, unknown>);
-      const trimmed: Record<string, unknown> = {};
-      let remaining = maxChars - 50;
-      for (const [k, v] of entries) {
-        const s = JSON.stringify(v);
-        if (s.length <= remaining) {
-          trimmed[k] = v;
-          remaining -= s.length;
-        } else {
-          trimmed[k] = truncateValue(v, Math.max(remaining, 200));
-          break;
-        }
-      }
-      return trimmed;
-    }
-    return String(val).slice(0, maxChars);
-  }
-
   const resultsJson = JSON.stringify(executionResult.results);
   const compactResults =
     resultsJson.length > 30_000
@@ -213,7 +284,14 @@ Use "$result:<key>" placeholders for all scalar values in StatCard, TrendIndicat
       : `## Analysis Results
 ${JSON.stringify(compactResults)}`;
 
-  let userPrompt = `## Original Question
+  const chartDataShape = Object.fromEntries(
+    Object.entries(executionResult.chart_data).map(([k, v]) => [
+      k,
+      describeShape(v, schemaMode === "sample"),
+    ])
+  );
+
+  return `## Original Question
 ${question}
 
 ${resultsSection}
@@ -233,10 +311,13 @@ For Surface3D: use "$chartData:<key>.z", "$chartData:<key>.x_labels", "$chartDat
 }
 
 ${imageKeys.length > 0 ? `## Available Images\nThe following image keys are available for ChartImage components. Use the EXACT placeholder string as the src value:\n${imageKeys.map((k) => `- Use src: "IMAGE_PLACEHOLDER_${k}" for ${k}`).join("\n")}` : ""}`;
+}
 
-  // Add dataset metadata for DataController awareness
-  if (useDataController && mainDataset) {
-    userPrompt += `
+/** Dataset metadata for DataController awareness ("" when not applicable). */
+function buildDatasetSection(analysis: DatasetAnalysis, schemaMode: SchemaMode): string {
+  const { useDataController, mainDataset, datasetColumns, filterableColumns } = analysis;
+  if (!useDataController || !mainDataset) return "";
+  return `
 
 ## Dataset Available for Client-Side Filtering
 A dataset with ${mainDataset.length} rows is available at state path /datasets/main.
@@ -244,25 +325,26 @@ Columns: ${datasetColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(
 Filterable columns (categorical, <15 values): ${schemaMode === "metadata" ? filterableColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(", ") : filterableColumns.map((c) => `${c.name} [${c.sample.join(", ")}]`).join("; ")}
 
 Use a DataController component to enable instant client-side filtering. The full dataset is stored at /datasets/main in spec.state. Structured chart_data (geojson, globe, sankey, etc.) is also auto-injected at /datasets/<key>. Charts MUST read from /computed/* state paths using {"$state": "/computed/<name>"} for their data prop — NOT "$chartData:" placeholders.`;
-  }
+}
 
-  // Append drill-down context if present
-  if (drillDownContext) {
-    const extraFilters = drillDownContext.additional_filters ?? [];
-    // Multi-select values become "col is one of [...]" / "col IN (...)".
-    const fmtLine = (col: string, v: FilterValue) =>
-      Array.isArray(v) ? `- Filter: ${col} is one of [${v.join(", ")}]` : `- Filter: ${col} = ${v}`;
-    const fmtClause = (col: string, v: FilterValue) =>
-      Array.isArray(v) ? `${col} IN (${v.map((x) => `"${x}"`).join(", ")})` : `${col} = "${v}"`;
-    const filterLines = [
-      fmtLine(drillDownContext.filter_column, drillDownContext.filter_value),
-      ...extraFilters.map((f) => fmtLine(f.column, f.value)),
-    ].join("\n");
-    const filterClause = [
-      fmtClause(drillDownContext.filter_column, drillDownContext.filter_value),
-      ...extraFilters.map((f) => fmtClause(f.column, f.value)),
-    ].join(" AND ");
-    userPrompt += `
+/** Drill-down framing with an AND-joined filter clause ("" when not a drill). */
+function buildDrillDownSection(drillDownContext: DrillDownContext | null | undefined): string {
+  if (!drillDownContext) return "";
+  const extraFilters = drillDownContext.additional_filters ?? [];
+  // Multi-select values become "col is one of [...]" / "col IN (...)".
+  const fmtLine = (col: string, v: FilterValue) =>
+    Array.isArray(v) ? `- Filter: ${col} is one of [${v.join(", ")}]` : `- Filter: ${col} = ${v}`;
+  const fmtClause = (col: string, v: FilterValue) =>
+    Array.isArray(v) ? `${col} IN (${v.map((x) => `"${x}"`).join(", ")})` : `${col} = "${v}"`;
+  const filterLines = [
+    fmtLine(drillDownContext.filter_column, drillDownContext.filter_value),
+    ...extraFilters.map((f) => fmtLine(f.column, f.value)),
+  ].join("\n");
+  const filterClause = [
+    fmtClause(drillDownContext.filter_column, drillDownContext.filter_value),
+    ...extraFilters.map((f) => fmtClause(f.column, f.value)),
+  ].join(" AND ");
+  return `
 
 ## Drill-Down Context
 This is a drill-down analysis. The user clicked on a chart segment to explore deeper.
@@ -272,68 +354,91 @@ ${filterLines}
 ${drillDownContext.chart_title ? `- Source chart: ${drillDownContext.chart_title}` : ""}
 
 Focus the analysis specifically on data where ${filterClause}. Provide detailed breakdown and insights for this specific segment.`;
-  }
+}
 
-  // Append conversation history for follow-ups (from server-side cache). BUT:
-  // re-asking the SAME question is a style/re-render request, not a follow-up —
-  // including the "build on / maintain continuity" anchor there makes the model
-  // replicate the previous dashboard's structure and ignore the newly selected
-  // style. So we only attach continuity context for a genuinely NEW question,
-  // and even then we tell it the requested style governs the form.
+/**
+ * Conversation history for follow-ups (from server-side cache). BUT:
+ * re-asking the SAME question is a style/re-render request, not a follow-up —
+ * including the "build on / maintain continuity" anchor there makes the model
+ * replicate the previous dashboard's structure and ignore the newly selected
+ * style. So we only attach continuity context for a genuinely NEW question,
+ * and even then we tell it the requested style governs the form.
+ */
+function buildHistorySection(priorTurns: ConversationTurn[], question: string): string {
   const isRestyle =
     priorTurns.length > 0 &&
     priorTurns[priorTurns.length - 1].question.trim().toLowerCase() ===
       question.trim().toLowerCase();
-  if (priorTurns.length > 0 && !isRestyle) {
-    userPrompt += `
+  if (priorTurns.length === 0 || isRestyle) return "";
+  return `
 
 ## Conversation History
 The user is asking a follow-up question. Previous turns in this conversation:
 ${priorTurns.map((turn, i) => `### Turn ${i + 1}: "${turn.question}"\nDashboard showed:\n${turn.specSummary}`).join("\n\n")}
 
 Build on the prior analysis where relevant, but compose THIS response in the requested output style/form (see the style rules) — do not simply replicate the previous dashboard's structure.`;
-  }
+}
 
-  if (workbookContext) {
-    userPrompt += `
+/** Multi-sheet workbook context ("" when not an Excel workbook analysis). */
+function buildWorkbookSection(workbookContext: string | null | undefined): string {
+  if (!workbookContext) return "";
+  return `
 
 ## Workbook Context
 This analysis was performed across multiple sheets in an Excel workbook. The code joined/merged data from different sheets.
 ${workbookContext}`;
-  }
+}
 
-  userPrompt += `
+const CLOSING_INSTRUCTION = `
 
 Compose the output that answers the user's question, following the OUTPUT STYLE described in the rules above — that style governs the form (layout, density, framing). Let the question and data decide which visualizations and how many.`;
 
-  // Domain-aware UI rules
-  const domainUiRules: string[] = [];
-  const detectedDomain = schema.detected_domain;
+// ── Rules builders ───────────────────────────────────────────────────
+
+/** Domain-aware UI rules keyed off the schema's detected domain. */
+function domainUiRules(detectedDomain: CSVSchema["detected_domain"]): string[] {
   if (detectedDomain === "financial") {
-    domainUiRules.push(
+    return [
       'For financial metrics, use StatCard with format="currency" and precision=2. For percentage changes, use format="percent".',
       "Use CandlestickChart for OHLC price data — prefer it over LineChart when open/high/low/close are available.",
       "Use WaterfallChart for P&L bridges, revenue walks, or cumulative change breakdowns.",
       "For period-over-period comparisons, use TrendIndicator with format and precision props.",
-      "Negative financial values (losses, declines) should display naturally — do not hide the sign."
-    );
-  } else if (detectedDomain === "statistical") {
-    domainUiRules.push(
+      "Negative financial values (losses, declines) should display naturally — do not hide the sign.",
+    ];
+  }
+  if (detectedDomain === "statistical") {
+    return [
       "For statistical test results, use Annotation (severity: info) to display test names, p-values, and effect sizes clearly.",
       "Use BoxPlot or ViolinChart for distribution comparisons — prefer these over bar charts for numeric distributions.",
       "Use HeatMap with show_values: true for correlation matrices.",
-      "When showing regression results, use ScatterChart with show_regression: true."
-    );
-  } else if (detectedDomain === "time_series") {
-    domainUiRules.push(
+      "When showing regression results, use ScatterChart with show_regression: true.",
+    ];
+  }
+  if (detectedDomain === "time_series") {
+    return [
       "Use LineChart for time-series trends. Use show_dots: false for dense daily data, show_dots: true for sparse monthly/quarterly data.",
       "For period comparisons (YoY, MoM), use TrendIndicator or DumbbellChart.",
-      "Use CalendarChart for daily metrics that benefit from a calendar view."
-    );
+      "Use CalendarChart for daily metrics that benefit from a calendar view.",
+    ];
   }
+  return [];
+}
 
-  const customRules = [
-    ...domainUiRules,
+/**
+ * The full compose rules list: domain rules, metadata-mode placeholder
+ * discipline, the chart-type catalog, and the DataController wiring contract
+ * (or the static $chartData contract when no controller is warranted).
+ */
+function buildComposeRules(args: {
+  schema: CSVSchema;
+  schemaMode: SchemaMode;
+  purpose: string;
+  useDataController: boolean;
+  sampleNote: string | null;
+}): string[] {
+  const { schema, schemaMode, purpose, useDataController, sampleNote } = args;
+  return [
+    ...domainUiRules(schema.detected_domain),
     ...(schemaMode === "metadata"
       ? [
           'Use "$result:<key>" placeholders for ALL scalar values in StatCard value, TrendIndicator value/previous, and any other numeric display props. Never fabricate or guess specific numbers.',
@@ -346,7 +451,7 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
     "Use StatCard for key metrics. Group them in a LayoutGrid (columns: 2-4).",
     "Use the appropriate chart type for the data shape.",
     "Add Annotation components for outliers, notable patterns, or caveats.",
-    "If results includes an `analysis_scope` value, the analysis was bounded to less than the question asked (to fit cost limits). Surface it near the TOP as a TextBlock (variant: warning) or Annotation (severity: info) stating what the result actually covers — do NOT present the answer as global/complete when this is set.",
+    "If results includes an `analysis_scope` value, it is the analyst's OWN provenance note describing exactly what was covered and how — it may state FULL coverage (e.g. 'Analyzed all 13,679,957 buildings ... via an exact KD-tree') OR a bounded/sampled subset. Surface it near the TOP as an Annotation (severity: info) titled 'Analysis Scope', using its text VERBATIM. Do NOT paraphrase it, and do NOT assume it means the data was sampled or bounded — quote what it actually says. Only frame it as a caveat (warning severity) when the text itself describes a bound, sample, or approximation.",
     "Use TrendIndicator when comparing two time periods.",
     "Use ChartImage ONLY when images were generated in the sandbox (truly custom matplotlib visualizations).",
     "For distribution analysis, use Histogram (pass raw data rows + value_key, optional group_key for overlaid groups).",
@@ -397,12 +502,21 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
           'Charts can enable click-to-filter cross-filtering via the "selects" prop. Set selects: {column: "<column>", bindTo: "/filters/<column>"} where bindTo matches a DataController filter. Clicking a bar or pie slice filters the dashboard; clicking again deselects.',
           "Use selects on BarChart and PieChart when the axis or slice represents a filterable category. Do NOT use selects AND on.click drillDown on the same chart.",
           "Cross-filtering is best with 2-3 charts selecting into different filter dimensions.",
+          'CRITICAL: EVERY /computed/<key> that ANY component reads MUST be produced by a DataController output (an entry in `outputs` with that statePath) or pre-populated via "$chartData:". A component bound to a /computed/<key> that no output produces renders EMPTY (blank table, empty map). Never invent a computed key you did not add to `outputs`.',
+          "REUSE computed keys: if a table and a chart show the SAME rows (e.g. the top-N most X), point BOTH at ONE /computed/<key>. Do NOT declare a second, separate key for the table or map — that second key ends up unproduced and empty.",
+          'DataTable inside the DataController: bind `rows` to {"$state": "/computed/<key>"} where <key> is produced by a DataController output that yields a RECORDS array (e.g. a sort+limit for a top-N table). Its `columns` MUST be {key, label} objects whose "key" EXACTLY matches the record field names — e.g. rows of {short_id, nn_distance_m} → columns [{"key":"short_id","label":"Building"},{"key":"nn_distance_m","label":"NN Distance (m)"}]. Plain-string column headers do NOT match record fields and every cell renders blank.',
+          'CORRECTNESS: /datasets/main is often a truncated/sampled subset of the full data (capped at 5000 rows), so re-deriving a "top N / most / farthest / largest" ranking from it via a DataController output can DISAGREE with the headline StatCards/annotations (which are computed in Python over the FULL data). For any ranking/extreme table OR a MapView of points, bind DIRECTLY to the PRE-COMPUTED data the analysis emitted (available at /datasets/<chart_data_key>, e.g. rows: {"$state": "/datasets/top_20_isolated"}, markers: {"$state": "/datasets/buildings_map"}) — do NOT re-rank /datasets/main. That data is the server-computed truth and matches the headline. Use DataController /computed outputs only for aggregations that must react to the filters.',
         ]
       : [
           'Reference chart data using "$chartData:<key>" placeholders in data props. Do NOT inline data arrays. Example: "data": "$chartData:bar_data". For nested fields like heatmap data, use "$chartData:heatmap.z", "$chartData:heatmap.x_labels", "$chartData:heatmap.y_labels".',
+          'For DataTable columns, use plain strings like ["Name", "Age"], NOT objects.',
+          'For DataTable rows, use INLINED arrays of strings like [["Alice", "30"]] — NOT objects, and NOT a "$state" reference.',
         ]),
-    'For DataTable columns, use plain strings like ["Name", "Age"], NOT objects.',
-    'For DataTable rows, use arrays of strings like [["Alice", "30"]], NOT objects.',
+    ...(sampleNote
+      ? [
+          "CORRECTNESS — the interactive dataset (/datasets/main) is a SAMPLE of a larger result. Client-side re-aggregation of it is APPROXIMATE. Therefore: headline StatCards and the summary annotation MUST use exact $result:<key> values computed in Python over the FULL data — do NOT bind them to /computed/stats (which recomputes over the sample). Use /computed outputs only for charts that need to react to the filters. (A sample caveat is added to the dashboard automatically.)",
+        ]
+      : []),
     "When data supports further segmentation or breakdown, add on.click bindings with the drillDown action on chart components. Set appropriate params: segment_label (human-readable label for the segment), segment_value (the data value), chart_title (title of the chart), x_key/y_key (the data keys), filter_column (column to filter on), filter_value (value to filter by). Only add drill-down when further breakdown makes sense.",
     "Prefer named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) in color_map and colors props for consistent theming.",
     schema.has_geojson &&
@@ -414,7 +528,7 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
     useDataController
       ? 'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Include filter columns as extra properties on each point object (e.g. {lat, lng, label, region: row["region"]}). Add a DataController output: {statePath: "/computed/globe", format: "globeData", sourceStatePath: "/datasets/globe"}. Globe3D reads points: {"$state": "/computed/globe/points"}, arcs: {"$state": "/computed/globe/arcs"}. Pre-populate /computed/globe in initial state with "$chartData:globe". globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).'
       : 'Use Globe3D when data spans multiple countries or continents — flight routes, trade flows, global metrics. Wire props using $chartData placeholders: "points": "$chartData:points", "arcs": "$chartData:arcs". The Python code should output chart_data["points"] and/or chart_data["arcs"] as top-level keys. Do NOT pass polygons unless the user explicitly asks for country boundary overlays — points and arcs are sufficient for most use cases. globe_style: "default" (blue marble), "night" (dark), "minimal" (topology).',
-    "Use Map3D for dense geospatial data needing 3D aggregation. layer_type: 'hexagon' for hexagonal density, 'column' for extruded bars at locations, 'arc' for origin-destination flows, 'scatterplot' for points on map, 'heatmap' for density. Use instead of MapView when data has hundreds+ of points or needs aggregation.",
+    "PREFER Map3D over MapView for point maps with more than ~50 points — it renders on a vibrant dark basemap with GPU-drawn points and reads far better. layer_type: 'scatterplot' for individual points (set value_key to a numeric metric to shade them along a color ramp — e.g. value_key: \"nn_dist_m\"), 'hexagon' or 'heatmap' for dense clusters/density, 'column' for extruded bars, 'arc' for origin-destination flows. Set lat_key/lng_key to the ACTUAL field names — DuckDB spatial emits `lon` (ST_X) and `lat` (ST_Y), so use lng_key: \"lon\", lat_key: \"lat\" when those are the fields. For a flat top-down point map set pitch: 0; the basemap is a clean light theme by default (points carry the color). Reserve plain MapView for a handful of labeled markers or GeoJSON choropleths.",
     "Use Scatter3D when there are three numeric variables to explore in 3D. Supports group_key for coloring by category and size_key for a 4th dimension.",
     useDataController
       ? 'Use Surface3D for gridded 2D data that benefits from a 3D surface view (response surfaces, interpolated terrain). If the surface is a crosstab/pivot of the main dataset, use a DataController output with pipeline: [{op: "pivot", rowKey, columnKey, valueKey, aggFn}] and format: "matrix". Surface3D reads z: {"$state": "/computed/surface/z"}, x_labels: {"$state": "/computed/surface/x_labels"}, y_labels: {"$state": "/computed/surface/y_labels"}. For custom-computed surfaces (e.g. correlation), use "$chartData:" directly.'
@@ -422,11 +536,47 @@ Compose the output that answers the user's question, following the OUTPUT STYLE 
     "Prefer 2D charts (BarChart, LineChart, ScatterChart, etc.) when they communicate the data effectively. Only use 3D components when the third dimension adds real analytical value.",
     'For interactive scenario planners, what-if tools, or calculators where NumberInput changes should reactively update StatCard values, use DataController with source.fromState. This builds a reactive single-row dataset from scalar state paths. Example: {"type":"DataController","props":{"source":{"fromState":{"units":"/inputs/units","price":"/inputs/price","margin":"/inputs/margin"}},"filters":[],"pipeline":[{"op":"compute","column":"revenue","expression":"multiply(units, price)"},{"op":"compute","column":"profit","expression":"percentOf(revenue, margin)"}],"outputs":[{"statePath":"/computed/stats","format":"stats"}]}}. NumberInputs bind via $bindState to /inputs/* paths, StatCards read via {"$state":"/computed/stats/revenue"}. Set initial /inputs/* values in spec.state. Compute ops: multiply(a,b), add(a,b), subtract(a,b), percentOf(a,b)=a*b/100, percent(a,b)=a/b*100, ratio(a,b)=a/b, diff(a,b)=a-b.',
   ];
+}
+
+/**
+ * Pure: build the compose `userPrompt` + `customRules` for a single-shot
+ * dashboard, plus the dataset analysis the stream step consumes. No I/O —
+ * a plain assembly of the section builders above.
+ */
+export function buildDashboardComposeRequest(
+  executionResult: SandboxExecutionResult,
+  opts: DashboardComposeOpts
+): DashboardComposeRequest {
+  const { question, schema, schemaMode, purpose, priorTurns, drillDownContext, workbookContext } =
+    opts;
+
+  const analysis = analyzeDatasets(executionResult);
+
+  const userPrompt =
+    buildCorePrompt(executionResult, question, schemaMode, analysis.useDataController) +
+    buildDatasetSection(analysis, schemaMode) +
+    buildDrillDownSection(drillDownContext) +
+    buildHistorySection(priorTurns, question) +
+    buildWorkbookSection(workbookContext) +
+    CLOSING_INSTRUCTION;
+
+  const customRules = buildComposeRules({
+    schema,
+    schemaMode,
+    purpose,
+    useDataController: analysis.useDataController,
+    sampleNote: analysis.sampleNote,
+  });
 
   return {
     userPrompt,
     customRules,
-    analysis: { useDataController, mainDataset, imagePlaceholders },
+    analysis: {
+      useDataController: analysis.useDataController,
+      mainDataset: analysis.mainDataset,
+      imagePlaceholders: analysis.imagePlaceholders,
+      sampleNote: analysis.sampleNote,
+    },
   };
 }
 
@@ -446,7 +596,7 @@ export async function composeAndStreamDashboard(args: {
 }): Promise<void> {
   const { executionResult, opts, uiComposeModel, emit, isClosed, onComposing } = args;
   const { userPrompt, customRules, analysis } = buildDashboardComposeRequest(executionResult, opts);
-  const { useDataController, mainDataset, imagePlaceholders } = analysis;
+  const { useDataController, mainDataset, imagePlaceholders, sampleNote } = analysis;
 
   onComposing?.();
 
@@ -462,6 +612,9 @@ export async function composeAndStreamDashboard(args: {
   let buffer = "";
   let stateInjected = false;
   let lineCount = 0;
+  // Accumulate finalized patches so we can audit computed-key producers once the
+  // spec is fully composed (warn-only — see auditComputedKeys).
+  const composedPatches: PatchLike[] = [];
   // Narrative prose accumulated across the stream, for the grounding pass below.
   const narrativeTexts: string[] = [];
   const emitPatch = (line: string) => {
@@ -507,6 +660,25 @@ export async function composeAndStreamDashboard(args: {
         stateInjected = true;
         return true;
       }
+      // Deterministically stamp the sample caveat onto the DataController element,
+      // regardless of what the LLM emitted, so the user is always warned when the
+      // interactive data is a sample.
+      if (
+        sampleNote &&
+        patch.op === "add" &&
+        typeof patch.path === "string" &&
+        patch.path.startsWith("/elements/") &&
+        patch.value &&
+        typeof patch.value === "object" &&
+        (patch.value as { type?: unknown }).type === "DataController"
+      ) {
+        const el = patch.value as { props?: Record<string, unknown> };
+        el.props = el.props ?? {};
+        if (!el.props.sample_note) {
+          el.props.sample_note = sampleNote;
+          return true;
+        }
+      }
       return false;
     },
   });
@@ -515,12 +687,16 @@ export async function composeAndStreamDashboard(args: {
     const result = finalize(line);
     if (result.skip) return null;
     lineCount++;
+    if (result.patch) composedPatches.push(result.patch as PatchLike);
     return result.line;
   };
 
   try {
+    // NOTE: we do NOT stop on isClosed() — the compose runs to completion even if
+    // the client disconnected, so the FULL patch stream is produced. emit() no-ops
+    // to the dead socket, but the route accumulates the patches to assemble + save
+    // the spec (a mid-run disconnect must not waste the analysis).
     for await (const chunk of textStream) {
-      if (isClosed()) break;
       buffer += chunk;
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
@@ -529,9 +705,19 @@ export async function composeAndStreamDashboard(args: {
         if (result !== null) emitPatch(result);
       }
     }
-    if (!isClosed() && buffer.trim()) {
+    if (buffer.trim()) {
       const result = processLine(buffer.trim());
       if (result !== null) emitPatch(result);
+    }
+
+    // Warn-only: flag components that read a /computed/<key> nothing produces —
+    // they render empty (blank table/map). Tracked in logs, spec left untouched.
+    const audit = auditComputedKeys(composedPatches);
+    if (audit.unproduced.length > 0) {
+      logger.warn("Composed spec reads unproduced computed keys (will render empty)", {
+        unproduced: audit.unproduced,
+        produced: audit.produced,
+      });
     }
   } catch (streamErr) {
     if (!isClosed()) {
@@ -564,8 +750,9 @@ export async function composeAndStreamDashboard(args: {
   }
 
   // If the LLM streamed state as individual field patches (not a single /state
-  // add), we still need to inject the dataset.
-  if (!isClosed() && useDataController && !stateInjected && mainDataset) {
+  // add), we still need to inject the dataset (also when closed, so the assembled
+  // spec is complete for history).
+  if (useDataController && !stateInjected && mainDataset) {
     const datasetsPayload: Record<string, unknown> = { main: mainDataset };
     for (const [key, value] of Object.entries(executionResult.chart_data)) {
       if (typeof value === "object" && value !== null) datasetsPayload[key] = value;

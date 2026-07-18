@@ -1,8 +1,9 @@
 import type { WarmSandboxBackend } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
-import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS } from "@/lib/constants";
-import { run, parseExecutionOutput } from "./docker-utils";
+import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LARGE_DATA_TIMEOUT_MS } from "@/lib/constants";
+import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
+import { sandboxMemoryRunArgs } from "./memory-budget";
 import { logger } from "@/lib/logger";
 
 const CONTAINER_NAME = "hermetic-warm";
@@ -13,7 +14,10 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     // Remove stale container first (ignore errors if it doesn't exist)
     await run("docker", ["rm", "-f", CONTAINER_NAME], { timeoutMs: 10_000 }).catch(() => {});
 
-    // Create persistent container
+    // Create persistent container. Always --network none: the warm container
+    // is shared across queries and created before any code is known, so it
+    // gets the hardened default; code that needs network is routed to a fresh
+    // ephemeral container by the dispatch in sandbox/index.ts instead.
     await run(
       "docker",
       [
@@ -21,6 +25,9 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         "-d",
         "--name",
         CONTAINER_NAME,
+        "--network",
+        "none",
+        ...(await sandboxMemoryRunArgs()),
         DOCKER_SANDBOX_IMAGE,
         "sleep",
         String(CONTAINER_LIFETIME),
@@ -96,7 +103,9 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         timeoutMs: 15_000,
       });
 
-      // Execute
+      // Execute — slow remote cloud reads (httpfs s3://, https://) need the
+      // extended timeout, same as large local Parquet.
+      const execTimeout = codeDoesRemoteIo(code) ? LARGE_DATA_TIMEOUT_MS : SANDBOX_TIMEOUT_MS;
       const execResult = await run(
         "docker",
         [
@@ -106,7 +115,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
           "-c",
           "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
         ],
-        { timeoutMs: SANDBOX_TIMEOUT_MS }
+        { timeoutMs: execTimeout }
       );
 
       return await parseExecutionOutput(CONTAINER_NAME, start, execResult.stdout);

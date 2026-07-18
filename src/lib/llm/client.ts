@@ -8,25 +8,15 @@ import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { recordCall, currentPhase } from "@/lib/cost/accumulator";
+import {
+  responsesJSON,
+  responsesSSE,
+  ollamaDelta,
+  openAISSEDelta,
+  extractMessageText,
+} from "@/lib/llm/local-transport";
+import { claudeCliFetch, isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { logger } from "@/lib/logger";
-
-/**
- * Extract plain-text content from an OpenAI Responses API message.
- * Handles both string content and array-of-blocks content.
- */
-function extractContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((block: Record<string, unknown>) => {
-        if (block.type === "input_text" || block.type === "text") return block.text;
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n");
-  }
-  return "";
-}
 
 /**
  * Custom fetch for Ollama: intercepts SDK requests (Responses API or
@@ -58,7 +48,7 @@ function ollamaFetch(baseUrl: string) {
     const rawMessages = (body.input ?? body.messages ?? []) as Array<Record<string, unknown>>;
     const messages = rawMessages.map((m) => ({
       role: m.role as string,
-      content: extractContent(m.content),
+      content: extractMessageText(m.content),
     }));
 
     const ollamaBody = {
@@ -112,185 +102,23 @@ function ollamaFetch(baseUrl: string) {
       return ollamaRes;
     }
 
-    // --- Responses API format ---
+    // --- Responses API format (shared translation — see local-transport.ts) ---
     if (isResponses) {
       if (!isStreaming) {
         const data = await ollamaRes.json();
-        const ts = Math.floor(Date.now() / 1000);
-        return new Response(
-          JSON.stringify({
-            id: `resp_${ts}`,
-            object: "response",
-            created_at: ts,
-            completed_at: ts,
-            status: "completed",
-            model: body.model,
-            output: [
-              {
-                id: `msg_${ts}`,
-                type: "message",
-                status: "completed",
-                role: "assistant",
-                content: [
-                  {
-                    type: "output_text",
-                    text: data.message?.content ?? "",
-                    annotations: [],
-                  },
-                ],
-              },
-            ],
-            usage: {
-              input_tokens: data.prompt_eval_count ?? 0,
-              output_tokens: data.eval_count ?? 0,
-              total_tokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
+        return responsesJSON(body.model, data.message?.content ?? "", {
+          inputTokens: data.prompt_eval_count ?? 0,
+          outputTokens: data.eval_count ?? 0,
+        });
       }
-
-      // Streaming Responses API: Ollama NDJSON → SSE events
-      const reader = ollamaRes.body.getReader();
-      const decoder = new TextDecoder();
-      const encoder = new TextEncoder();
-      const ts = Math.floor(Date.now() / 1000);
-      const respId = `resp_${ts}`;
-      const msgId = `msg_${ts}`;
-
-      const readable = new ReadableStream({
-        async start(controller) {
-          let seq = 0;
-          const emit = (event: string, data: unknown) => {
-            controller.enqueue(
-              encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-            );
-          };
-
-          const baseResponse = {
-            id: respId,
-            object: "response",
-            status: "in_progress",
-            model: body.model,
-            output: [],
-          };
-
-          emit("response.created", {
-            type: "response.created",
-            sequence_number: seq++,
-            response: baseResponse,
-          });
-          emit("response.in_progress", {
-            type: "response.in_progress",
-            sequence_number: seq++,
-            response: baseResponse,
-          });
-          emit("response.output_item.added", {
-            type: "response.output_item.added",
-            sequence_number: seq++,
-            output_index: 0,
-            item: {
-              id: msgId,
-              type: "message",
-              status: "in_progress",
-              role: "assistant",
-              content: [],
-            },
-          });
-          emit("response.content_part.added", {
-            type: "response.content_part.added",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            part: { type: "output_text", text: "", annotations: [], logprobs: [] },
-          });
-
-          let buffer = "";
-          let fullText = "";
-
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() ?? "";
-
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                try {
-                  const chunk = JSON.parse(line);
-                  const content = chunk.message?.content ?? "";
-                  if (content) {
-                    fullText += content;
-                    emit("response.output_text.delta", {
-                      type: "response.output_text.delta",
-                      sequence_number: seq++,
-                      output_index: 0,
-                      content_index: 0,
-                      item_id: msgId,
-                      delta: content,
-                      logprobs: [],
-                    });
-                  }
-                } catch {
-                  /* skip */
-                }
-              }
-            }
-          } catch {
-            /* stream ended */
-          }
-
-          const doneItem = {
-            id: msgId,
-            type: "message",
-            status: "completed",
-            role: "assistant",
-            content: [{ type: "output_text", text: fullText, annotations: [], logprobs: [] }],
-          };
-
-          emit("response.output_text.done", {
-            type: "response.output_text.done",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            text: fullText,
-          });
-          emit("response.content_part.done", {
-            type: "response.content_part.done",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            part: { type: "output_text", text: fullText, annotations: [], logprobs: [] },
-          });
-          emit("response.output_item.done", {
-            type: "response.output_item.done",
-            sequence_number: seq++,
-            output_index: 0,
-            item: doneItem,
-          });
-          emit("response.completed", {
-            type: "response.completed",
-            sequence_number: seq++,
-            response: {
-              ...baseResponse,
-              status: "completed",
-              output: [doneItem],
-            },
-          });
-
-          controller.close();
-        },
-      });
-
-      return new Response(readable, {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+      // Ollama NDJSON → Responses SSE. Via the shared synthesizer, this path
+      // now ALSO gets the stall-timeout + error-as-text hardening it lacked
+      // (its old copy silently swallowed stream errors).
+      return responsesSSE({
+        upstream: ollamaRes.body,
+        model: body.model,
+        deltaFromLine: ollamaDelta,
+        backend: "ollama",
       });
     }
 
@@ -372,10 +200,10 @@ function ollamaFetch(baseUrl: string) {
 }
 
 /** Timeout for initial connection + response headers from local LLM server.
- *  Large models (e.g. 30B on CPU) can take 5+ minutes for first response. */
+ *  Large models (e.g. 30B on CPU) can take 5+ minutes for first response.
+ *  (The per-chunk stall budget lives in local-transport.ts with the shared
+ *  stream synthesizer.) */
 const LOCAL_REQUEST_TIMEOUT_MS = 10 * 60_000; // 10 minutes
-/** Timeout for individual stream chunk reads — if no data for this long, server is hung */
-const LOCAL_STREAM_STALL_TIMEOUT_MS = 5 * 60_000; // 5 minutes between chunks
 
 /**
  * Custom fetch for local OpenAI-compatible servers (MLX, llama.cpp):
@@ -405,7 +233,7 @@ function localOpenAIFetch(baseUrl: string) {
     const rawMessages = (body.input ?? []) as Array<Record<string, unknown>>;
     const messages = rawMessages.map((m) => ({
       role: m.role as string,
-      content: extractContent(m.content),
+      content: extractMessageText(m.content),
     }));
 
     // Add system instructions if present
@@ -536,224 +364,25 @@ function localOpenAIFetch(baseUrl: string) {
           { status: 502, headers: { "Content-Type": "application/json" } }
         );
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = data as any;
-      const choice = d.choices?.[0];
-      const text = choice?.message?.content ?? "";
+      const d = data as {
+        choices?: { message?: { content?: string } }[];
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      };
+      const text = d.choices?.[0]?.message?.content ?? "";
       logger.debug("localOpenAIFetch response text", { chars: text.length });
-      const ts = Math.floor(Date.now() / 1000);
-      return new Response(
-        JSON.stringify({
-          id: `resp_${ts}`,
-          object: "response",
-          created_at: ts,
-          completed_at: ts,
-          status: "completed",
-          model: body.model,
-          output: [
-            {
-              id: `msg_${ts}`,
-              type: "message",
-              status: "completed",
-              role: "assistant",
-              content: [{ type: "output_text", text, annotations: [] }],
-            },
-          ],
-          usage: {
-            input_tokens: d.usage?.prompt_tokens ?? 0,
-            output_tokens: d.usage?.completion_tokens ?? 0,
-            total_tokens: d.usage?.total_tokens ?? 0,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
+      return responsesJSON(body.model, text, {
+        inputTokens: d.usage?.prompt_tokens ?? 0,
+        outputTokens: d.usage?.completion_tokens ?? 0,
+        totalTokens: d.usage?.total_tokens ?? 0,
+      });
     }
 
-    // --- Streaming: OpenAI SSE → Responses API SSE ---
-    const reader = ccRes.body.getReader();
-    const decoder = new TextDecoder();
-    const encoder = new TextEncoder();
-    const ts = Math.floor(Date.now() / 1000);
-    const respId = `resp_${ts}`;
-    const msgId = `msg_${ts}`;
-
-    const readable = new ReadableStream({
-      async start(controller) {
-        let seq = 0;
-        const emit = (event: string, data: unknown) => {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        };
-
-        const baseResponse = {
-          id: respId,
-          object: "response",
-          status: "in_progress",
-          model: body.model,
-          output: [],
-        };
-
-        emit("response.created", {
-          type: "response.created",
-          sequence_number: seq++,
-          response: baseResponse,
-        });
-        emit("response.in_progress", {
-          type: "response.in_progress",
-          sequence_number: seq++,
-          response: baseResponse,
-        });
-        emit("response.output_item.added", {
-          type: "response.output_item.added",
-          sequence_number: seq++,
-          output_index: 0,
-          item: {
-            id: msgId,
-            type: "message",
-            status: "in_progress",
-            role: "assistant",
-            content: [],
-          },
-        });
-        emit("response.content_part.added", {
-          type: "response.content_part.added",
-          sequence_number: seq++,
-          output_index: 0,
-          content_index: 0,
-          item_id: msgId,
-          part: { type: "output_text", text: "", annotations: [], logprobs: [] },
-        });
-
-        let buffer = "";
-        let fullText = "";
-
-        let streamError: string | null = null;
-        try {
-          while (true) {
-            // Read with stall timeout — if no data arrives for 60s, the server
-            // is hung (common MLX failure mode with large prompts or OOM)
-            const readResult = await Promise.race([
-              reader.read(),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () => reject(new Error("Stream stalled — no data received for 60 seconds")),
-                  LOCAL_STREAM_STALL_TIMEOUT_MS
-                )
-              ),
-            ]);
-            const { done, value } = readResult;
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed === "data: [DONE]") continue;
-              const jsonStr = trimmed.startsWith("data: ") ? trimmed.slice(6) : trimmed;
-              try {
-                const chunk = JSON.parse(jsonStr);
-                const content = chunk.choices?.[0]?.delta?.content ?? "";
-                if (content) {
-                  fullText += content;
-                  emit("response.output_text.delta", {
-                    type: "response.output_text.delta",
-                    sequence_number: seq++,
-                    output_index: 0,
-                    content_index: 0,
-                    item_id: msgId,
-                    delta: content,
-                    logprobs: [],
-                  });
-                }
-              } catch {
-                /* skip malformed SSE lines */
-              }
-            }
-          }
-        } catch (err) {
-          // Stream interrupted — server crashed, stalled, or OOM'd
-          const errMsg = err instanceof Error ? err.message : String(err);
-          logger.error("localOpenAIFetch stream error", {
-            error: errMsg,
-            textSoFar: fullText.length,
-          });
-
-          if (errMsg.includes("Stream stalled")) {
-            streamError =
-              "\n\n[Server stopped responding. It may be overloaded or out of memory. Try a smaller model or shorter prompt.]";
-          } else if (errMsg.includes("ECONNRESET") || errMsg.includes("terminated")) {
-            streamError =
-              "\n\n[Server crashed during inference — the model may be too large for available memory. Try a smaller model.]";
-          } else {
-            streamError = `\n\n[Stream interrupted: ${errMsg}]`;
-          }
-
-          // Cancel the reader to release resources
-          reader.cancel().catch(() => {});
-        }
-
-        if (streamError && !fullText) {
-          // No output generated — emit the error as text so the user sees it
-          fullText = streamError.trim();
-          emit("response.output_text.delta", {
-            type: "response.output_text.delta",
-            sequence_number: seq++,
-            output_index: 0,
-            content_index: 0,
-            item_id: msgId,
-            delta: fullText,
-            logprobs: [],
-          });
-        }
-
-        const doneItem = {
-          id: msgId,
-          type: "message",
-          status: "completed",
-          role: "assistant",
-          content: [{ type: "output_text", text: fullText, annotations: [], logprobs: [] }],
-        };
-
-        emit("response.output_text.done", {
-          type: "response.output_text.done",
-          sequence_number: seq++,
-          output_index: 0,
-          content_index: 0,
-          item_id: msgId,
-          text: fullText,
-        });
-        emit("response.content_part.done", {
-          type: "response.content_part.done",
-          sequence_number: seq++,
-          output_index: 0,
-          content_index: 0,
-          item_id: msgId,
-          part: { type: "output_text", text: fullText, annotations: [], logprobs: [] },
-        });
-        emit("response.output_item.done", {
-          type: "response.output_item.done",
-          sequence_number: seq++,
-          output_index: 0,
-          item: doneItem,
-        });
-        emit("response.completed", {
-          type: "response.completed",
-          sequence_number: seq++,
-          response: {
-            ...baseResponse,
-            status: "completed",
-            output: [doneItem],
-          },
-        });
-
-        controller.close();
-      },
-    });
-
-    return new Response(readable, {
-      status: 200,
-      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+    // --- Streaming: OpenAI SSE → Responses SSE (shared — local-transport.ts) ---
+    return responsesSSE({
+      upstream: ccRes.body,
+      model: body.model,
+      deltaFromLine: openAISSEDelta,
+      backend: "local-openai",
     });
   };
 }
@@ -764,6 +393,15 @@ function localOpenAIFetch(baseUrl: string) {
  */
 const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
   anthropic: {
+    "claude-opus-4-8": "claude-opus-4-8",
+    "claude-opus-4-6": "claude-opus-4-6",
+    "claude-sonnet-4-6": "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
+  },
+  // The `claude` CLI accepts the same full model IDs (passed via --model), so
+  // it honors the app's per-task model choices (haiku for planning, sonnet for
+  // code-gen, …) exactly like the direct Anthropic provider.
+  "claude-cli": {
     "claude-opus-4-8": "claude-opus-4-8",
     "claude-opus-4-6": "claude-opus-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
@@ -801,6 +439,7 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
 export function getActiveProvider(): LLMProviderId {
   const validProviders = [
     "anthropic",
+    "claude-cli",
     "bedrock",
     "vertex",
     "openai-compatible",
@@ -841,13 +480,19 @@ export function getActiveProvider(): LLMProviderId {
   if (process.env.GOOGLE_VERTEX_PROJECT) return "vertex";
   if (process.env.OPENAI_BASE_URL) return "openai-compatible";
 
+  // Last-resort fallback: no API credentials, but the `claude` CLI is installed
+  // and authenticated with the user's own login. Checked last so a configured
+  // API key always wins over shelling out.
+  if (isClaudeCliAvailable(rc.claudeCli?.binaryPath)) return "claude-cli";
+
   throw new Error(
     "No LLM provider configured. Set one of:\n" +
       "  - ANTHROPIC_API_KEY (for Anthropic direct)\n" +
       "  - AWS_ACCESS_KEY_ID (for Amazon Bedrock)\n" +
       "  - GOOGLE_VERTEX_PROJECT (for Google Vertex AI)\n" +
       "  - OPENAI_BASE_URL (for OpenAI-compatible endpoint)\n" +
-      "Or set LLM_PROVIDER explicitly, or enable a local backend in Settings."
+      "Or install the Claude CLI (npm i -g @anthropic-ai/claude-code), " +
+      "set LLM_PROVIDER explicitly, or enable a local backend in Settings."
   );
 }
 
@@ -855,6 +500,17 @@ function createProviderClient(provider: LLMProviderId) {
   switch (provider) {
     case "anthropic":
       return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    case "claude-cli": {
+      const rc = getRuntimeConfig();
+      // Dummy base URL — every request is intercepted by claudeCliFetch, which
+      // spawns the `claude` binary instead of making an HTTP call. The apiKey is
+      // never sent (the CLI uses its own auth) but the SDK requires a non-empty one.
+      return createOpenAI({
+        baseURL: "http://claude-cli.local/v1",
+        apiKey: "claude-cli",
+        fetch: claudeCliFetch({ binaryPath: rc.claudeCli?.binaryPath }),
+      });
+    }
     case "bedrock":
       return createAmazonBedrock({
         region: process.env.AWS_REGION ?? "us-east-1",
@@ -919,7 +575,12 @@ interface V3Usage {
   outputTokens?: { total?: number };
 }
 
-function reportUsage(costKey: string, usage: V3Usage | undefined, phase?: string): void {
+function reportUsage(
+  costKey: string,
+  usage: V3Usage | undefined,
+  phase?: string,
+  durationMs?: number
+): void {
   const inp = usage?.inputTokens;
   recordCall(
     costKey,
@@ -928,6 +589,7 @@ function reportUsage(costKey: string, usage: V3Usage | undefined, phase?: string
       cacheReadTokens: inp?.cacheRead ?? 0,
       cacheWriteTokens: inp?.cacheWrite ?? 0,
       outputTokens: usage?.outputTokens?.total ?? 0,
+      durationMs,
     },
     phase
   );
@@ -940,8 +602,9 @@ function usageMiddleware(costKey: string): LanguageModelMiddleware {
       // Capture the phase NOW (within the caller's withPhase scope), not after
       // the await — belt-and-suspenders so attribution can't drift.
       const phase = currentPhase();
+      const start = Date.now();
       const result = await doGenerate();
-      reportUsage(costKey, result.usage as V3Usage, phase);
+      reportUsage(costKey, result.usage as V3Usage, phase, Date.now() - start);
       return result;
     },
     wrapStream: async ({ doStream }) => {
@@ -949,13 +612,20 @@ function usageMiddleware(costKey: string): LanguageModelMiddleware {
       // outside the withPhase scope — so we MUST bind the phase here, at stream
       // initiation, which still runs inside the scope (streamText is eager).
       const phase = currentPhase();
+      const start = Date.now();
       const { stream, ...rest } = await doStream();
       return {
         stream: stream.pipeThrough(
           new TransformStream({
             transform(chunk, controller) {
               if (chunk.type === "finish") {
-                reportUsage(costKey, (chunk as { usage?: V3Usage }).usage, phase);
+                // Duration = request start → finish chunk (full stream time).
+                reportUsage(
+                  costKey,
+                  (chunk as { usage?: V3Usage }).usage,
+                  phase,
+                  Date.now() - start
+                );
               }
               controller.enqueue(chunk);
             },
@@ -1004,6 +674,39 @@ function track(model: ProviderModel, costKey: string, stripSampling = false): Pr
   });
 }
 
+/**
+ * Per-provider capabilities the routes need — previously each route
+ * hand-maintained its own provider list and they drifted: Ask skipped
+ * Claude model-ID validation for ollama/openai-compatible but NOT mlx/
+ * llama-cpp (whose Ask requests silently fell back to Claude IDs), while
+ * Investigate's local-provider refusal listed mlx/llama-cpp but not
+ * openai-compatible. Adding a provider now means adding one entry here.
+ */
+export function providerCapabilities(provider: LLMProviderId): {
+  /** Model ids are provider-native, not Claude ids — skip Claude validation. */
+  skipModelValidation: boolean;
+  /** Local backends plan/synthesize multi-step investigations poorly. */
+  supportsInvestigate: boolean;
+} {
+  switch (provider) {
+    case "anthropic":
+    case "claude-cli":
+    case "bedrock":
+    case "vertex":
+      // claude-cli fronts the same frontier Claude models via real Claude IDs,
+      // so Claude model-ID validation applies and Investigate is fully supported.
+      return { skipModelValidation: false, supportsInvestigate: true };
+    case "openai-compatible":
+      // A user-configured endpoint may front a capable cloud model —
+      // Investigate stays allowed (the pre-existing behavior).
+      return { skipModelValidation: true, supportsInvestigate: true };
+    case "mlx":
+    case "llama-cpp":
+    case "ollama":
+      return { skipModelValidation: true, supportsInvestigate: false };
+  }
+}
+
 export function getModel(internalModelId: string) {
   const provider = getActiveProvider();
   const client = createProviderClient(provider);
@@ -1037,6 +740,24 @@ export function getModel(internalModelId: string) {
     const model = rc.ollama?.activeModel;
     if (!model) throw new Error("No Ollama model selected. Choose a model in Settings.");
     return track(client(model), model);
+  }
+
+  // Claude CLI: real Claude models (honor per-task model choice via MODEL_MAP).
+  // Price token usage at the EQUIVALENT API rate by keying cost on the internal
+  // model id (a MODEL_PRICING key), exactly like the direct Anthropic provider.
+  // The CLI is not necessarily flat-rate: an org may run it on API / consumption
+  // billing where these tokens are metered, so the equivalent-API-cost figure is
+  // the honest one to surface — not $0. No sampling strip (our fetch ignores
+  // sampling params and the CLI manages thinking itself).
+  //
+  // Cache reads are priced at the cheap cache-read rate (the transport surfaces
+  // them via input_tokens_details.cached_tokens). Cache-CREATION tokens fold
+  // into the input bucket and price at the input rate — the OpenAI-Responses
+  // usage shape has no cache-write bucket — so the figure slightly under-counts
+  // the write premium. It's a close equivalent-cost estimate, not a bill.
+  if (provider === "claude-cli") {
+    const mapped = MODEL_MAP["claude-cli"][internalModelId] ?? internalModelId;
+    return track(client(mapped), internalModelId);
   }
 
   const mappedId = MODEL_MAP[provider][internalModelId] ?? internalModelId;

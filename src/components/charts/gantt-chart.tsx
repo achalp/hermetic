@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useColorMap, useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface GanttTask {
   task: string;
@@ -42,7 +43,7 @@ export function GanttChartComponent({ props }: { props: GanttChartProps }) {
   const groups = Array.from(new Set(tasks.map((t) => String(t.group ?? "—"))));
   const colors = useColorMap(groups, props.color_map);
 
-  if (tasks.length === 0) return <div style={{ height: chart.height }} />;
+  if (tasks.length === 0) return <ChartEmptyState height={chart.height} />;
 
   // Reverse so the first task appears at the top.
   const ordered = [...tasks].reverse();

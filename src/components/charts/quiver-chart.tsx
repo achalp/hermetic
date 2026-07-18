@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface QuiverChartProps {
   title?: string | null;
@@ -37,7 +38,7 @@ export function QuiverChartComponent({ props }: { props: QuiverChartProps }) {
     }))
     .filter((p) => [p.x, p.y, p.u, p.v].every(Number.isFinite));
 
-  if (vecs.length === 0) return <div style={{ height: chart.height }} />;
+  if (vecs.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const scale = props.scale ?? 1;
   const color = props.color ?? palette[0];

@@ -56,7 +56,15 @@ vi.mock("@/lib/warehouse/storage", () => ({
 
 // getActiveProvider gates Investigate (refuses local providers, 400 on throw).
 const getActiveProvider = vi.fn(() => "anthropic");
-vi.mock("@/lib/llm/client", () => ({ getActiveProvider: () => getActiveProvider() }));
+vi.mock("@/lib/llm/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/llm/client")>();
+  return {
+    ...actual,
+    getActiveProvider: () => getActiveProvider(),
+    // providerCapabilities is pure — keep the real one so the capability
+    // contract (not a mock of it) is what these route tests exercise.
+  };
+});
 
 import { POST } from "../route";
 
@@ -147,13 +155,13 @@ describe("POST /api/query/investigate — validation contract", () => {
     expect(json.error).toBe("CSV not found or expired");
   });
 
-  it("returns 500 on malformed JSON body", async () => {
+  it("returns 400 on malformed JSON body (client fault, not a server error)", async () => {
     const req = new Request("http://localhost/api/query/investigate", {
       method: "POST",
       body: "{not json",
     });
     const res = await POST(req);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
     const json = await res.json();
     expect(typeof json.error).toBe("string");
   });

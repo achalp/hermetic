@@ -5,11 +5,13 @@ import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from
 import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
 import { logger } from "@/lib/logger";
 import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
+import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 
 /**
  * Build a description of all warehouse tables for the SQL generation prompt.
  */
 function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: WarehouseType): string {
+  const engine = ENGINES[warehouseType];
   return tables
     .map((t) => {
       const cols = t.columns
@@ -30,10 +32,9 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
       const fks = t.foreign_keys?.length
         ? t.foreign_keys
             .map((fk) => {
-              const refTable =
-                warehouseType === "bigquery"
-                  ? `\`${t.schema}.${fk.references_table}\``
-                  : fk.references_table;
+              const refTable = engine.qualifyFkRefs
+                ? engine.promptTableName(t.schema, fk.references_table)
+                : fk.references_table;
               return `  FOREIGN KEY (${fk.column}) REFERENCES ${refTable}(${fk.references_column})`;
             })
             .join("\n")
@@ -43,23 +44,8 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
       const rowNote =
         t.row_count_estimate > 0 ? ` -- ~${t.row_count_estimate.toLocaleString()} rows` : "";
 
-      // Use fully qualified names with proper quoting per dialect
-      let tableName: string;
-      if (warehouseType === "bigquery") {
-        tableName = `\`${t.schema}.${t.name}\``;
-      } else if (warehouseType === "trino") {
-        // Trino uses "catalog"."schema"."table" — schema field contains "catalog.schema"
-        tableName = `"${t.schema}"."${t.name}"`;
-      } else if (warehouseType === "hive" || warehouseType === "databricks") {
-        // Databricks uses three-part names; schema field is "catalog.schema"
-        tableName = `\`${t.schema}\`.\`${t.name}\``;
-      } else if (warehouseType === "snowflake") {
-        // Snowflake identifiers are case-sensitive when quoted; we render unquoted
-        // (uppercase) so the LLM produces SQL that matches whatever the model server returns.
-        tableName = `${t.schema}.${t.name}`;
-      } else {
-        tableName = `${t.schema}.${t.name}`;
-      }
+      // Fully qualified name with the engine's quoting (see engine-descriptor)
+      const tableName = engine.promptTableName(t.schema, t.name);
 
       // Render table-level dbt description as a SQL comment block above the CREATE
       const tableComment = t.description
@@ -71,22 +57,12 @@ function formatTableSchemas(tables: WarehouseTableSchema[], warehouseType: Wareh
     .join("\n\n");
 }
 
-const DIALECT_NOTES: Record<WarehouseType, string> = {
-  postgresql: `Use PostgreSQL syntax. Use double quotes for identifiers if needed. Use :: for type casts. Use LIMIT for row limits.`,
-  bigquery: `Use Google BigQuery Standard SQL. Use backtick-quoted identifiers (\`project.dataset.table\`). Use LIMIT for row limits. Use APPROX_COUNT_DISTINCT for approximate counts. Date functions: DATE(), TIMESTAMP(), EXTRACT(). IMPORTANT: BigQuery does NOT support backslash escape sequences in strings or LIKE patterns. Do NOT use \\_  to escape underscores in LIKE — underscores are literal wildcard characters in LIKE. To match a literal underscore, use the LIKE ... ESCAPE clause (e.g., LIKE '%x_vendor' ESCAPE 'x') or use REGEXP_CONTAINS instead. To bound a scan, use a real DATE/TIMESTAMP column from the schema — do NOT filter on \`_PARTITIONTIME\`/\`_PARTITIONDATE\` unless the table is genuinely ingestion-time partitioned; on most tables those pseudo-columns are NULL for every row, so any comparison on them returns ZERO rows. GEOGRAPHY: a \`geometry\` column is often a POLYGON, not a point. ST_X / ST_Y require a single POINT and error on a polygon ("Argument to ST_X must be a single point geography") — wrap with ST_CENTROID(geom) first: ST_X(ST_CENTROID(geom)). ST_DISTANCE works on any geographies (polygons included), so use it directly; only point-EXTRACTION (ST_X/ST_Y) needs ST_CENTROID.`,
-  clickhouse: `Use ClickHouse SQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. Aggregation functions: countDistinct(), avg(), quantile(). Date functions: toDate(), toDateTime(), toYear(). IMPORTANT: When doing arithmetic (division, multiplication, percentage) on Decimal columns, ALWAYS cast operands to Float64 first using toFloat64() to avoid Decimal overflow errors. Example: toFloat64(price - open) / toFloat64(open) instead of (price - open) / open. ClickHouse does NOT support LATERAL joins or correlated subqueries in FROM/JOIN — a subquery in the FROM/JOIN list cannot reference columns from another table in the same query (errors "Lateral joins are not supported" / "Correlated column ... is found in the FROM clause"). To derive a value (e.g. a complexity bucket) from already-joined columns, compute it with multiIf()/CASE directly in the SELECT (or wrap the join in a subquery and compute it in the outer SELECT) — never via a CROSS JOIN to a subquery that references the other table's columns. Pre-aggregate each side in its OWN independent subquery, then JOIN them on key columns. Use HAVING (not a correlated subquery) to filter on aggregates. MEMORY (critical): a ClickHouse JOIN builds a hash table from the RIGHT table IN MEMORY, so joining two large row-level tables before aggregating hits "Query memory limit exceeded" (code 241). ALWAYS shrink each side in a subquery BEFORE the join: apply the WHERE filters AND aggregate to the join grain (e.g. collapse checks to one row per pull_request_number with anyIf/maxIf/countIf flags like "had a failed check") so you join compact per-key aggregates, not raw rows. Put the smaller / more-selectively-filtered table on the RIGHT of the JOIN. Never join raw fact tables and aggregate afterwards — aggregate first, then join. CO-OCCURRENCE / PAIRWISE ("which X occur together per group", "pairs that fail together"): do NOT self-join the fact table — that's a many-to-many explosion that times out. Instead collapse each group to a DISTINCT array first (\`SELECT group_key, groupUniqArray(item) AS items FROM ... GROUP BY group_key\`), then form pairs WITHIN each small array by ARRAY JOINing it twice with a \`<\` guard (\`... ARRAY JOIN items AS a ARRAY JOIN items AS b ... WHERE a < b GROUP BY a, b\`). This reads the table once and pairs only within each group, so it scales.`,
-  trino: `Use Trino (Presto) SQL syntax. Use double quotes for identifiers. Use catalog.schema.table fully qualified names. Use LIMIT for row limits. Use APPROX_DISTINCT for approximate counts. Cast with CAST(x AS type). Date functions: date(), current_date, date_trunc(). String: concat(), substr(). Arrays: ARRAY[], UNNEST().`,
-  hive: `Use HiveQL syntax. Use backtick-quoted identifiers. Use LIMIT for row limits. String concat: concat(). Date functions: to_date(), date_format(), datediff(). No INTERSECT or EXCEPT. For exploding arrays use LATERAL VIEW EXPLODE. Use CAST to avoid integer division. Subqueries in WHERE are supported but correlated subqueries are limited.`,
-  snowflake: `Use Snowflake SQL. Identifiers default to UPPERCASE unless double-quoted. Use LIMIT for row limits. Use QUALIFY for window-function filtering. Use IFF(a, b, c) instead of IF. Date functions: TO_DATE(), DATEADD(unit, n, date), DATE_TRUNC(part, expr). String: ||, CONCAT(), SUBSTR(). Use APPROX_COUNT_DISTINCT for approximate counts. Variant/object functions: GET_PATH(), FLATTEN(). For percentile: PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY col).`,
-  databricks: `Use Databricks SQL (Spark SQL flavor with Unity Catalog). Use three-part names \`catalog\`.\`schema\`.\`table\` for cross-schema queries. Identifiers in backticks. Use LIMIT for row limits. Date functions: date_trunc('unit', col), date_format(col, 'pattern'), date_add(col, n). Array functions: explode(), array_contains(). Use APPROX_COUNT_DISTINCT for approximate counts. PERCENTILE/PERCENTILE_APPROX for percentiles. No QUALIFY — use a subquery with ROW_NUMBER instead. String concat: concat() or ||.`,
-};
-
 function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
   return `You are a SQL expert. Given a natural language question and a database schema, generate a single SQL query that answers the question.
 
 ## Rules
 - Output ONLY the SQL query. No explanation, no markdown fencing, no comments.
-- ${DIALECT_NOTES[warehouseType]}
+- ${ENGINES[warehouseType].dialectNotes}
 - The query MUST return a result set (SELECT statement). Never write DDL/DML.
 - Include appropriate JOINs when the question requires data from multiple tables. Use the foreign key relationships provided.
 - Use aggregations (GROUP BY, COUNT, SUM, AVG) when the question asks for summaries.
@@ -95,7 +71,7 @@ function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
 - DON'T reference a SELECT alias in WHERE: a column you DEFINE in the SELECT list (e.g. \`dateDiff(...) AS resolution_seconds\`) cannot be used in that same query's WHERE, nor in an outer query whose subquery doesn't also SELECT it (errors with "Identifier ... cannot be resolved"). Either repeat the full expression in the WHERE, or expose the computed column from the subquery's SELECT and filter on it one level up.
 - COST/TIMEOUT (critical): the warehouse enforces a ~60s timeout AND a hard cap on rows scanned. The table sizes are shown next to each table as \`~N rows\` — TREAT THEM AS REAL. For any table with millions+ of rows you MUST narrow the scan, not just the output: add a SELECTIVE WHERE on a date/time column or the table's primary/ORDER BY key, aggregate (GROUP BY) instead of returning raw rows, and select only the columns you need. Do NOT scan a billion-row table unfiltered — it will hit "Timeout exceeded" or "rows or bytes to read exceeded" and fail. The reliable way to bound the scan is a TIGHT bounded window on the partition/date key. Do NOT rely on \`SAMPLE\` (many tables reject it with "doesn't support sampling") or a \`cityHash64(...) % N\` filter (it still scans every row) — neither reduces the scan.
 - SCALE THE ALGORITHM FIRST, SHRINK THE DATA LAST. When a query is too expensive, make it CHEAPER BY DESIGN before you narrow what it covers — narrowing the scope (a smaller region / shorter window / one category the user did NOT ask for) changes the ANSWER and is a last resort, not the first move. Concretely:
-  • Never CROSS JOIN or self-join a large table for an all-pairs / nearest-neighbor / pairwise-distance / pairwise-similarity / co-occurrence / dedup computation — that is O(n²) and will never finish. BUCKET first, then join only WITHIN a bucket and its immediate neighbors: for GEO, group points into grid cells (round lat/lng to a cell size, or S2_CELLIDFROMPOINT) and compare a cell against itself + the 8 adjacent cells; for non-geo, bucket on the natural join/group key. This turns O(n²) into ~O(n·k). (Nearest-neighbor caveat: a fixed-radius ST_DWITHIN prune can DROP the very rows a "most isolated / farthest neighbor" question is asking for — handle the no-neighbor-in-block rows with a wider second pass rather than dropping them.)
+  • Never CROSS JOIN or self-join a large table for an all-pairs / nearest-neighbor / pairwise-distance / pairwise-similarity / co-occurrence / dedup computation — that is O(n²) and will never finish. BUCKET first, then join only WITHIN a bucket and its immediate neighbors: for GEO, group points into grid cells (round lat/lng to a cell size, or S2_CELLIDFROMPOINT) and compare a cell against itself + the 8 adjacent cells; for non-geo, bucket on the natural join/group key. This turns O(n²) into ~O(n·k). CRITICAL — a grid self-join is only O(n·k) if k (points per cell) is BOUNDED: a FIXED geographic cell size (e.g. 0.05°/~5km) is a trap because a within-cell self-join is still O(n²) INSIDE each cell, and a dense-urban cell (downtown LA/SF) holds hundreds of thousands of buildings → that one cell alone is hundreds of billions of ST_DISTANCE pairs and runs for HOURS (measured: a 0.05° grid over California buildings hit BigQuery's 6-hour job limit). Pick a cell size that keeps the DENSEST cell small, or cap per-cell work. And for a "most isolated / farthest / loneliest" question specifically: the answer is by definition in a SPARSE area, so an INNER self-join that only keeps buildings WITH a neighbor in range silently DROPS the exact candidates you want (the query's own analysis_scope admitting "buildings >5km away may not be resolved" is the tell it's answering the wrong question). Restrict the expensive pairwise work to buildings in LOW-COUNT cells (compute per-cell counts first, keep only sparse cells — dense-cell buildings cannot be the most isolated), then find each survivor's nearest neighbor with an EXPANDING search radius so a genuinely isolated building's true NN distance is measured, not dropped. (Honest note: whole-region nearest-neighbor is a poor fit for warehouse SQL — if this keeps timing out, say so in analysis_scope rather than returning a grid-truncated answer as if exact.)
   • Pre-AGGREGATE to the grain you need (GROUP BY) before any JOIN, so you join compact per-key summaries, not raw rows.
   • Use APPROXIMATE functions for large-cardinality work (APPROX_COUNT_DISTINCT, APPROX_QUANTILES / quantile estimators) instead of exact ones.
   • Push ALL filtering / grouping / windowing into the warehouse; return only the small result.
@@ -287,6 +263,23 @@ export function isResourceLimitError(message: string): boolean {
   );
 }
 
+/**
+ * Errors signalling the LOCAL machine lost its network connection to the
+ * warehouse API — not a SQL mistake, so regenerating the query cannot help and
+ * re-running just fails the same way. Matches the driver/SDK fetch-failure
+ * shapes: gaxios "Cannot connect to API" / "Failed after N attempts", a bare
+ * "request to <url> failed, reason:" (empty reason = socket died), and the
+ * usual node network codes. The dominant cause is the laptop idle-sleeping
+ * mid-query (the outbound poll's socket drops), which the sandbox wake lock
+ * covers for Docker runs but not for warehouse queries — hence bailing with a
+ * clear message beats burning the repair budget on a dead network.
+ */
+export function isConnectivityError(message: string): boolean {
+  return /Cannot connect to API|Failed after \d+ attempts|request to .+ failed, reason:|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network (?:error|is unreachable)/i.test(
+    message
+  );
+}
+
 export async function generateSQLWithRepair<T>(args: {
   tables: WarehouseTableSchema[];
   question: string;
@@ -336,6 +329,20 @@ export async function generateSQLWithRepair<T>(args: {
         error: message.slice(0, 200),
         sql,
       });
+      // A lost network connection is never a SQL bug — repairing/re-running
+      // just fails the same way (and the repair's own LLM call needs the same
+      // dead network). Bail immediately with a message that names the real
+      // cause instead of a cryptic driver string. Not gated on any flag:
+      // regenerating SQL can NEVER fix connectivity.
+      if (isConnectivityError(message)) {
+        logger.warn("Warehouse query lost network connectivity; not repairing", {
+          warehouseType: args.warehouseType,
+          error: message.slice(0, 160),
+        });
+        throw new Error(
+          `Lost the network connection to the ${args.warehouseType} API mid-query — the query was not completed. This usually means the machine slept or the network dropped. Reconnect and re-run. (${message.slice(0, 120)})`
+        );
+      }
       if (args.bailOnResourceError && isResourceLimitError(message)) {
         logger.warn("Warehouse SQL hit a resource limit; not repairing (query too expensive)", {
           question: args.question.slice(0, 120),

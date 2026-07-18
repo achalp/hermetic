@@ -3,26 +3,19 @@ import {
   getCSVContent,
   getGeoJSONContent,
   getWorkbookManifest,
-  storeCSV,
   isLocalFile,
+  isRemoteFile,
 } from "@/lib/csv/storage";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
-import { resolveLocalSource } from "@/lib/parquet/duckdb-source";
-import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
-import { appendCostRow } from "@/lib/cost/storage";
-import { runWithDiagnostics, writeRunDiagnostics } from "@/lib/diagnostics/run-diagnostics";
+import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
+import { runWithCostTracking } from "@/lib/cost/accumulator";
+import { emitCostEpilogue } from "@/lib/cost/epilogue";
+import { runWithDiagnostics } from "@/lib/diagnostics/run-diagnostics";
 import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
-import {
-  UI_COMPOSE_MODEL,
-  CODE_GEN_MODEL,
-  WAREHOUSE_SCAN_ROW_BUDGET,
-  isValidModelId,
-  isValidRuntimeId,
-} from "@/lib/constants";
-import type { SandboxRuntimeId } from "@/lib/constants";
+import { WAREHOUSE_SCAN_ROW_BUDGET } from "@/lib/constants";
 import type { ConversationTurn, SchemaMode } from "@/lib/types";
 import {
   getConversationTurns,
@@ -30,25 +23,39 @@ import {
   buildTurnFromArtifacts,
 } from "@/lib/pipeline/conversation-cache";
 import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline/dashboard-compose";
-import { logger } from "@/lib/logger";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
-import { getActiveProvider } from "@/lib/llm/client";
-import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
+import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
+import { logger, serializeError } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
+import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
+import {
+  validateQueryIds,
+  resolveQuerySources,
+  type QueryRequestContext,
+} from "@/lib/pipeline/validate-request";
+import { readJsonBody } from "@/lib/api-schemas";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
-import { randomUUID } from "crypto";
-import { extractSchema } from "@/lib/csv/schema";
-import { parseCSV } from "@/lib/csv/parser";
+import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
+import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
 
-export const maxDuration = 300; // 5 min — large Parquet datasets need more time
+export const maxDuration = 1260; // 21 min — matches the large-data sandbox budget (remote billion-row scans)
 
 export async function POST(request: Request) {
+  // Aborted duplicate requests truncate the body — a 400, not a logged 500.
+  const read = await readJsonBody(request);
+  if (!read.ok) return read.response;
   try {
-    const body = await request.json();
+    const body = read.body as {
+      prompt?: string;
+      context?: QueryRequestContext & {
+        drill_down_context?: DrillDownContext;
+        schema_mode?: string;
+        purpose?: string;
+        code?: string;
+        sql?: string;
+      };
+    };
     const { prompt, context } = body;
 
-    let csvId: string | undefined = context?.csv_id;
-    const warehouseId: string | undefined = context?.warehouse_id;
-    const question: string = context?.question ?? prompt ?? "";
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";
     const purpose: string = context?.purpose ?? "dashboard";
@@ -72,113 +79,55 @@ export async function POST(request: Request) {
     const editedSql: string | undefined =
       typeof context?.sql === "string" && context.sql.trim().length > 0 ? context.sql : undefined;
 
-    // When Ollama or openai-compatible is active, skip Claude model ID validation
-    // since getModel() will use the Ollama/custom model directly
+    // Local providers use their own model ids — skip Claude model-ID
+    // validation. The capability lives in ONE place (providerCapabilities);
+    // the hand-maintained list here had drifted to omit mlx/llama-cpp, whose
+    // Ask requests silently fell back to Claude model ids.
     let skipModelValidation = false;
     try {
-      const provider = getActiveProvider();
-      skipModelValidation = provider === "ollama" || provider === "openai-compatible";
+      skipModelValidation = providerCapabilities(getActiveProvider()).skipModelValidation;
     } catch {
       // No provider configured — will fail later in getModel()
     }
 
-    const codeGenModel: string =
-      !skipModelValidation && context?.code_gen_model && isValidModelId(context.code_gen_model)
-        ? context.code_gen_model
-        : CODE_GEN_MODEL;
-    const uiComposeModel: string =
-      !skipModelValidation && context?.ui_compose_model && isValidModelId(context.ui_compose_model)
-        ? context.ui_compose_model
-        : UI_COMPOSE_MODEL;
-    const sandboxRuntime: SandboxRuntimeId =
-      context?.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
-        ? context.sandbox_runtime
-        : getActiveSandboxRuntime();
+    // ── Shared preamble: ids/question 400s, warehouse 404s, model/runtime
+    // resolution (lib/pipeline/validate-request.ts — same module Investigate
+    // uses, so the two routes can't drift again). ──
+    const ids = validateQueryIds(context ?? {}, prompt);
+    if (!ids.ok) return ids.response;
+    const { warehouseId, question } = ids;
+    let csvId = ids.csvId;
 
-    if (!csvId && !warehouseId) {
-      return new Response(
-        JSON.stringify({ error: "csv_id or warehouse_id is required in context" }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
+    const sources = resolveQuerySources(ids, context ?? {}, { skipModelValidation });
+    if (!sources.ok) return sources.response;
+    const { warehouseState, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
 
-    if (!question) {
-      return new Response(JSON.stringify({ error: "question is required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    // ── Warehouse: validate early (before streaming) ──────
-    let warehouseState: {
-      warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
-      connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
-    } | null = null;
-
-    if (warehouseId) {
-      const warehouse = getStoredWarehouse(warehouseId);
-      if (!warehouse) {
-        return new Response(
-          JSON.stringify({ error: "Warehouse not found or expired. Please reconnect." }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      const connector = getWarehouseConnector(warehouseId);
-      if (!connector) {
-        return new Response(JSON.stringify({ error: "Warehouse connector not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      warehouseState = { warehouse, connector };
-    }
-
-    // Stream immediately — emit progress patches as the pipeline runs, then stream LLM output
-    const encoder = new TextEncoder();
+    // Stream immediately — emit progress patches as the pipeline runs, then
+    // stream LLM output. The scaffold (emit/keepalive/progress semantics/
+    // headers/abort diagnostics) is shared with Investigate — see
+    // lib/pipeline/patch-stream.ts.
     const isWarehouse = !!warehouseState;
     const totalSteps = isWarehouse ? 5 : 3;
 
-    const readable = new ReadableStream({
-      async start(controller) {
-        let closed = false;
+    let warehouseSQL: string | undefined;
+    // Set when a large warehouse pull was materialized to Parquet: the host
+    // file to copy into the sandbox and the DuckDB read instructions.
+    let warehouseParquetFile: string | undefined;
+    let warehouseParquetContext: string | undefined;
+    let datasetLabel = csvId ?? warehouseId ?? "dataset";
 
-        const emit = (data: string) => {
-          if (closed) return;
-          try {
-            controller.enqueue(encoder.encode(data));
-          } catch {
-            closed = true;
-          }
-        };
-
-        const emitProgress = (stage: string, step: number) => {
-          const patch =
-            step === 1
-              ? {
-                  op: "add",
-                  path: "/state",
-                  value: { __progress: { stage, step, total: totalSteps } },
-                }
-              : {
-                  op: "replace",
-                  path: "/state/__progress",
-                  value: { stage, step, total: totalSteps },
-                };
-          emit(JSON.stringify(patch) + "\n");
-        };
-
-        // Keepalive: send a no-op comment every 15 seconds to prevent
-        // browsers/proxies from closing the connection during slow LLM
-        // calls (llama.cpp code generation can take 2-3+ minutes).
-        const keepalive = setInterval(() => {
-          emit(": keepalive\n");
-        }, 15_000);
-
-        let warehouseSQL: string | undefined;
-        let datasetLabel = csvId ?? warehouseId ?? "dataset";
+    return patchStreamResponse(
+      "/api/query",
+      request,
+      async (stream) => {
+        const emit = stream.emit;
+        const closed = () => stream.isClosed();
+        const emitProgress = (stage: string, step: number) =>
+          stream.emitProgress(stage, step, totalSteps);
+        // Make this run discoverable by a reconnecting client (run-stream-hub).
+        // csvId may still be null here for a warehouse run — updated once its
+        // result is materialized (below).
+        stream.setMeta({ csvId: csvId ?? undefined, question });
 
         await runWithCostTracking(() =>
           runWithDiagnostics(async () => {
@@ -199,7 +148,7 @@ export async function POST(request: Request) {
                     warehouseType: warehouse.config.type,
                     chars: editedSql.length,
                   });
-                  if (closed) return;
+                  if (closed()) return;
                   emitProgress("querying_warehouse", 2);
                   try {
                     warehouseCsvContent = await connector.executeSQL(warehouseSQL);
@@ -236,7 +185,7 @@ export async function POST(request: Request) {
                       model: codeGenModel,
                       scanRowBudget: WAREHOUSE_SCAN_ROW_BUDGET,
                       onAttempt: (attempt, phase) => {
-                        if (closed) return;
+                        if (closed()) return;
                         if (phase === "repairing") {
                           logger.info("Warehouse query: repairing SQL", { attempt });
                           emitProgress("generating_sql", 1);
@@ -260,32 +209,23 @@ export async function POST(request: Request) {
                   }
                 }
 
-                if (closed) return;
-                const rowCount = warehouseCsvContent.split("\n").length - 2; // minus header + trailing newline
-                logger.info("Warehouse query: SQL executed", { rows: rowCount });
+                if (closed()) return;
 
-                // Parse CSV → extract schema → store as regular CSV
-                const parsed = parseCSV(warehouseCsvContent);
-                const newCsvId = randomUUID();
-                const schema = extractSchema(parsed, newCsvId, `warehouse_query_result`);
-                schema.source_type = "warehouse";
-                schema.warehouse_type = warehouse.config.type;
-                await storeCSV(newCsvId, warehouseCsvContent, schema);
-                csvId = newCsvId;
-
-                logger.info("Warehouse query: data stored as CSV", {
-                  csvId: newCsvId,
-                  columns: schema.columns.length,
+                // Store the result (Parquet for large pulls, CSV otherwise) via
+                // the SHARED module — lib/warehouse/materialize-result.ts. Ask
+                // previously always parsed through Node; it now gets the same
+                // Parquet path Investigate uses for million-row results.
+                const storedResult = await storeWarehouseResult({
+                  csvContent: warehouseCsvContent,
+                  warehouseType: warehouse.config.type,
+                  sandboxRuntime,
+                  emit,
                 });
-
-                // Emit the generated csvId so the client can use it for artifacts
-                emit(
-                  JSON.stringify({
-                    op: "add",
-                    path: "/state/__warehouse_csv_id",
-                    value: newCsvId,
-                  }) + "\n"
-                );
+                csvId = storedResult.csvId;
+                warehouseParquetFile = storedResult.parquetFile;
+                warehouseParquetContext = storedResult.parquetContext;
+                // Warehouse csvId now known — make the run discoverable by it.
+                stream.setMeta({ csvId });
               }
 
               // ── Load CSV (file upload or warehouse result) ──────────
@@ -295,8 +235,10 @@ export async function POST(request: Request) {
               }
               datasetLabel = stored.schema.filename;
 
-              // Determine if this is a local file (bind-mount path)
+              // Determine if this is a local file (bind-mount path) or a remote
+              // cloud Parquet source (DuckDB reads the URL directly, no mount).
               const isLocal = isLocalFile(csvId!);
+              const isRemote = isRemoteFile(csvId!);
               let localMountPath: string | undefined;
 
               if (isLocal) {
@@ -332,8 +274,12 @@ export async function POST(request: Request) {
                 ({ localMountPath } = resolveLocalSource(stored));
               }
 
-              const csvContent = isLocal ? "" : await getCSVContent(csvId!);
-              if (!isLocal && !csvContent) {
+              // In Parquet mode (local mount, materialized warehouse, or remote
+              // URL) the analysis reads Parquet directly — never load the
+              // (large) CSV into memory.
+              const csvContent =
+                isLocal || isRemote || warehouseParquetFile ? "" : await getCSVContent(csvId!);
+              if (!isLocal && !isRemote && !warehouseParquetFile && !csvContent) {
                 if (stored.schema.source_type === "warehouse") {
                   throw new Error(
                     "This analysis was from a warehouse query. Please connect to the warehouse first, then ask your question."
@@ -379,8 +325,21 @@ export async function POST(request: Request) {
                 else if (stage === "retrying") emitProgress("retrying", stepOffset + 2);
               };
 
-              // Build local file context for LLM prompt (tells it where to read data)
-              const { localFileContext } = isLocal ? resolveLocalSource(stored) : {};
+              // Build local file context for LLM prompt (tells it where to read
+              // data). A materialized warehouse pull was docker-cp'd to
+              // /data/input.parquet (no mount) — same resolvers as Investigate.
+              const { localFileContext } = warehouseParquetFile
+                ? { localFileContext: warehouseParquetContext }
+                : isLocal
+                  ? resolveLocalSource(stored)
+                  : isRemote
+                    ? resolveRemoteSource(
+                        stored.remoteParquetUrl!,
+                        stored.schema.row_count,
+                        stored.isHivePartitioned,
+                        stored.remoteCreds
+                      )
+                    : {};
 
               // Load prior conversation turns for follow-up context
               const priorTurns = csvId ? getConversationTurns(csvId) : [];
@@ -397,28 +356,35 @@ export async function POST(request: Request) {
                   additionalFiles,
                   csvId,
                   localMountPath,
+                  inputParquetPath: warehouseParquetFile,
                 });
               } else {
-                pipelineResult = await runPipeline(
-                  stored.schema,
-                  csvContent || "",
-                  question,
+                pipelineResult = await runPipeline(stored.schema, csvContent || "", question, {
                   onStage,
-                  schemaMode,
-                  codeGenModel,
-                  sandboxRuntime,
+                  mode: schemaMode,
+                  model: codeGenModel,
+                  runtime: sandboxRuntime,
                   geojsonContent,
                   additionalFiles,
                   workbookContext,
                   localMountPath,
                   localFileContext,
-                  priorTurns.length > 0 ? priorTurns : undefined,
-                  undefined,
-                  purpose
-                );
+                  priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
+                  inputParquetPath: warehouseParquetFile,
+                  purpose,
+                });
               }
 
-              if (closed) return;
+              // NOTE: deliberately NO `if (closed()) return` here. The
+              // execution is the expensive, already-paid part — a client
+              // disconnect during it (the longest phase) must not discard the
+              // result. Compose runs to completion into the dead socket
+              // (emit() no-ops), the patches accumulate in emittedLines, and
+              // persistHistoryOnDisconnect saves the assembled spec so the
+              // user finds the answer in History after reconnecting. An early
+              // return here was exactly how a 13-min remote scan finished
+              // successfully 2 minutes after a "network error" and left
+              // nothing behind (run 16ac725e, 2026-07-09).
 
               // Cache the generated code for save functionality
               cacheGeneratedCode(csvId!, pipelineResult.generatedCode, question);
@@ -464,15 +430,15 @@ export async function POST(request: Request) {
                 },
                 uiComposeModel,
                 emit,
-                isClosed: () => closed,
+                isClosed: stream.isClosed,
                 onComposing: () => emitProgress("composing", stepOffset + 3),
               });
             } catch (pipelineErr) {
               // Pipeline or LLM setup error — emit error annotation into the stream
-              if (!closed) {
+              if (!closed()) {
                 const errMsg =
                   pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
-                logger.error("Pipeline error", { error: errMsg });
+                logger.error("Pipeline error", serializeError(pipelineErr));
                 emit(
                   JSON.stringify({
                     op: "add",
@@ -499,69 +465,21 @@ export async function POST(request: Request) {
                   }) + "\n"
                 );
               }
-            }
-
-            // ── Cost tracking: sum all LLM calls, surface live + persist a row ──
-            try {
-              const acc = getCostAccumulator();
-              if (acc) {
-                const cost = computeCost(acc);
-                emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
-                const now = new Date();
-                await appendCostRow({
-                  timestamp: now.toISOString(),
-                  date: now.toISOString().slice(0, 10),
-                  dataset: datasetLabel,
-                  question,
-                  mode: "ask",
-                  models: cost.models.join(", "),
-                  llm_calls: cost.llmCalls,
-                  input_tokens: cost.inputTokens,
-                  cache_read_tokens: cost.cacheReadTokens,
-                  cache_write_tokens: cost.cacheWriteTokens,
-                  output_tokens: cost.outputTokens,
-                  cost_usd: cost.costUsd,
-                });
-                await writeRunDiagnostics({
-                  timestamp: now.toISOString(),
-                  mode: "ask",
-                  purpose,
-                  question,
-                  costUsd: cost.costUsd,
-                  llmCalls: cost.llmCalls,
-                });
-              }
-            } catch (costErr) {
-              logger.warn("Cost logging failed", {
-                error: costErr instanceof Error ? costErr.message : String(costErr),
-              });
+            } finally {
+              // ── Cost/diagnostics epilogue: shared with Investigate
+              // (lib/cost/epilogue.ts) — surfaces __cost live, persists the
+              // cost row (now with the per-phase breakdown), writes run
+              // diagnostics. In a finally so every exit path is accounted.
+              await emitCostEpilogue({ emit, datasetLabel, question, mode: "ask", purpose });
             }
           })
         );
-
-        clearInterval(keepalive);
-        if (!closed) {
-          try {
-            controller.close();
-          } catch {
-            // Already closed
-          }
-        }
       },
-    });
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-      },
-    });
+      // Client disconnected mid-run → persist history server-side (shared with
+      // Investigate — see lib/history/persist-on-disconnect.ts).
+      (stream) => persistHistoryOnDisconnect(stream, csvId, question)
+    );
   } catch (err) {
-    logger.error("Query error", { error: err instanceof Error ? err.message : String(err) });
-    const message = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return apiError("/api/query", err, String(err));
   }
 }

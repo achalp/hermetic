@@ -14,7 +14,7 @@ interface ColorPickerComponentProps {
 
 export function ColorPickerComponent({ props, bindings }: ColorPickerComponentProps) {
   const [value, setValue] = useBoundProp<string>(props.value, bindings?.value);
-  const current = value ?? props.value ?? "#000000";
+  const current = value ?? props.value ?? "#000000"; /* default picker value (data, not chrome) */
 
   return (
     <div className="flex flex-col gap-1">

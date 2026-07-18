@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { useChartColors } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface DendrogramProps {
   title?: string | null;
@@ -27,7 +28,7 @@ export function DendrogramComponent({ props }: { props: DendrogramProps }) {
   const dcoord = Array.isArray(props.dcoord) ? props.dcoord : [];
 
   if (icoord.length === 0 || icoord.length !== dcoord.length)
-    return <div style={{ height: chart.height }} />;
+    return <ChartEmptyState height={chart.height} />;
 
   const color = props.color ?? palette[0];
   const horizontal = (props.orientation ?? "top") === "left";

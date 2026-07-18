@@ -5,6 +5,7 @@ import { PlotlyChart } from "./plotly-wrapper";
 import { unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface ShapBeeswarmProps {
   title: string | null;
@@ -18,7 +19,7 @@ export function ShapBeeswarmComponent({ props }: { props: ShapBeeswarmProps }) {
   const isExpanded = useChartExpanded();
   const data = unwrapChartData(props.data) as unknown as ShapBeeswarmProps["data"];
 
-  if (data.length === 0) return <div style={{ height: chart.height }} />;
+  if (data.length === 0) return <ChartEmptyState height={chart.height} />;
 
   // Group by feature and sort by mean absolute SHAP value
   const featureMap = new Map<string, { shap: number[]; feat: number[] }>();

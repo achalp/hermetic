@@ -5,6 +5,7 @@ import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
 import { useThemeConfig } from "@/lib/theme-config";
 import { resolveColor, unwrapChartData } from "@/lib/chart-theme";
 import { useChartExpanded } from "./chart-expand-wrapper";
+import { ChartEmptyState } from "./chart-empty-state";
 
 interface WaterfallChartProps {
   title: string | null;
@@ -20,7 +21,7 @@ export function WaterfallChartComponent({ props }: { props: WaterfallChartProps 
   const isExpanded = useChartExpanded();
   const data = unwrapChartData(props.data);
 
-  if (data.length === 0) return <div style={{ height: chart.height }} />;
+  if (data.length === 0) return <ChartEmptyState height={chart.height} />;
 
   const isHorizontal = props.orientation === "horizontal";
   const labels = data.map((d) => d.label);

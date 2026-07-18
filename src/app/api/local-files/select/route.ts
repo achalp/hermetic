@@ -1,21 +1,30 @@
 import { NextResponse } from "next/server";
 import { resolve } from "node:path";
+import { apiError } from "@/lib/api-error";
 import { getFileInfo } from "@/lib/local-files/browser";
-import { validateLocalOrigin, isAllowedExtension } from "@/lib/local-files/security";
+import {
+  validateLocalOrigin,
+  isAllowedExtension,
+  isPathAllowed,
+  PATH_NOT_ALLOWED_ERROR,
+} from "@/lib/local-files/security";
+import { parseBody, LocalFileSelectSchema } from "@/lib/api-schemas";
 
 export async function POST(request: Request) {
   if (!validateLocalOrigin(request)) {
     return NextResponse.json({ error: "Local access only" }, { status: 403 });
   }
 
-  const body = await request.json();
-  const { path: rawPath, type } = body as { path: string; type: "file" | "folder" };
-
-  if (!rawPath || !type) {
-    return NextResponse.json({ error: "path and type are required" }, { status: 400 });
-  }
+  const parsed = parseBody(LocalFileSelectSchema, await request.json());
+  if (!parsed.ok) return parsed.response;
+  const { path: rawPath, type } = parsed.data;
 
   const filePath = resolve(rawPath);
+
+  // Root-jail — see lib/local-files/security.ts isPathAllowed.
+  if (!isPathAllowed(filePath)) {
+    return NextResponse.json({ error: PATH_NOT_ALLOWED_ERROR }, { status: 403 });
+  }
 
   try {
     const info = await getFileInfo(filePath);
@@ -61,7 +70,6 @@ export async function POST(request: Request) {
       info: infoMessage,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to access file";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiError("/api/local-files/select", err, "Failed to access file", 400);
   }
 }

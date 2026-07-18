@@ -89,6 +89,154 @@ export interface TraceDecision {
 }
 
 /**
+ * A step's outcome as known MID-RUN, from progress events alone. The full
+ * TraceStep is only assembled from the orchestrator's return value — which a
+ * mid-run failure never produces. This is what a failed run can still persist
+ * (OBS-8): status, error, and the generated code/SQL of every step that got
+ * far enough to have them.
+ */
+export interface PartialTrailStep {
+  index: number;
+  stepNo: number;
+  question: string;
+  status: "pending" | "running" | "success" | "degraded" | "failed" | "removed";
+  error?: string;
+  degradedReason?: string;
+  code?: string;
+  sql?: string;
+}
+
+/**
+ * Accumulates the audit trail's decision log and per-step provenance from the
+ * orchestrator's progress events. The events are the only place the
+ * re-planner's and composer's rationales surface. This is pure trail logic —
+ * it used to live inline in the investigate route's 150-line onProgress
+ * switch, which made it untestable except through the HTTP endpoint and
+ * pinned the trail format to that one route; the route now keeps only the
+ * emit wiring and forwards each event here.
+ *
+ * Attribution notes (preserved from the inline version): subs_amended events
+ * carry their provenance (amendmentSource), so attribution never depends on
+ * event ordering. `currentReplan` only tracks the most recent replan decision
+ * so a re-planner amendment can fill in its added/removed indices; a composer
+ * amendment parks its indices until the matching composer_dispatched event.
+ */
+export class TraceRecorder {
+  readonly decisions: TraceDecision[] = [];
+  readonly sourceByIndex = new Map<number, StepSource>();
+  private currentReplan: TraceDecision | null = null;
+  private pendingComposerAdded: number[] = [];
+  private readonly partial = new Map<number, PartialTrailStep>();
+
+  /** Feed one orchestrator progress event. Only trail-relevant kinds matter. */
+  record(event: {
+    kind: string;
+    index?: number;
+    question?: string;
+    error?: string;
+    degradedReason?: string;
+    stepResult?: SubQuestionResult;
+    replanAction?: "continue" | "amend" | "stop";
+    replanRationale?: string;
+    composerRationale?: string;
+    amendmentSource?: string;
+    addedSteps?: { index: number; question?: string }[];
+    removedIndices?: number[];
+  }): void {
+    this.recordPartial(event);
+    if (event.kind === "replan_decision") {
+      // The matching subs_amended (if the action was "amend") fills in
+      // added/removed indices below.
+      this.currentReplan = {
+        kind: "replan",
+        action: event.replanAction,
+        rationale: event.replanRationale ?? "",
+        addedIndices: [],
+        removedIndices: [],
+      };
+      this.decisions.push(this.currentReplan);
+    } else if (event.kind === "subs_amended") {
+      const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
+      if (event.amendmentSource === "composer") {
+        this.pendingComposerAdded = addedIndices;
+        for (const idx of addedIndices) this.sourceByIndex.set(idx, "composer");
+      } else if (this.currentReplan) {
+        this.currentReplan.addedIndices = addedIndices;
+        this.currentReplan.removedIndices = event.removedIndices ?? [];
+        for (const idx of addedIndices) this.sourceByIndex.set(idx, "replanner");
+        this.currentReplan = null;
+      }
+    } else if (event.kind === "composer_dispatched") {
+      // Attribute the steps added by the preceding subs_amended.
+      this.decisions.push({
+        kind: "composer_dispatch",
+        rationale: event.composerRationale ?? "",
+        addedIndices: this.pendingComposerAdded,
+        removedIndices: [],
+      });
+      this.pendingComposerAdded = [];
+    }
+  }
+
+  /** Accumulate the mid-run per-step trail from the same event stream. */
+  private recordPartial(event: {
+    kind: string;
+    index?: number;
+    question?: string;
+    error?: string;
+    degradedReason?: string;
+    stepResult?: SubQuestionResult;
+    addedSteps?: { index: number; question?: string }[];
+    removedIndices?: number[];
+  }): void {
+    const idx = event.index;
+    const ensure = (index: number): PartialTrailStep => {
+      let p = this.partial.get(index);
+      if (!p) {
+        p = { index, stepNo: index + 1, question: "", status: "pending" };
+        this.partial.set(index, p);
+      }
+      return p;
+    };
+
+    if (event.kind === "sub_started" && idx !== undefined) {
+      const p = ensure(idx);
+      if (event.question) p.question = event.question;
+      p.status = "running";
+    } else if (
+      (event.kind === "sub_finished" || event.kind === "sub_degraded") &&
+      idx !== undefined
+    ) {
+      const p = ensure(idx);
+      p.status = event.kind === "sub_finished" ? "success" : "degraded";
+      if (event.degradedReason) p.degradedReason = event.degradedReason;
+      p.code = event.stepResult?.result?.generatedCode;
+      p.sql = event.stepResult?.result?.sql;
+    } else if (event.kind === "sub_failed" && idx !== undefined) {
+      const p = ensure(idx);
+      p.status = "failed";
+      if (event.error) p.error = event.error;
+    } else if (event.kind === "subs_amended") {
+      for (const step of event.addedSteps ?? []) {
+        const p = ensure(step.index);
+        if (step.question) p.question = step.question;
+      }
+      for (const removed of event.removedIndices ?? []) {
+        ensure(removed).status = "removed";
+      }
+    }
+  }
+
+  /**
+   * The trail as known right now, in step order — what a failed run persists
+   * to diagnostics. Empty until the first sub-question starts.
+   */
+  partialTrail(): PartialTrailStep[] {
+    return [...this.partial.values()].sort((a, b) => a.index - b.index);
+  }
+}
+
+/**
  * A user-authored notebook layout overlaid on the step trail: lets the user
  * insert markdown cells and reorder cells. Absent → the notebook renders the
  * steps in their natural order. Persists with the trace (and thus history).

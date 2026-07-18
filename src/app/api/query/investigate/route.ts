@@ -15,6 +15,7 @@
  */
 
 import type { Spec } from "@json-render/core";
+import { apiError } from "@/lib/api-error";
 import { generatePlan, type InvestigateScope } from "@/lib/llm/investigate-planner";
 import {
   runInvestigation,
@@ -23,19 +24,12 @@ import {
 } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { prewarmCodeGenCache } from "@/lib/llm/code-generation";
-import {
-  runWithCostTracking,
-  getCostAccumulator,
-  computeCost,
-  formatPhaseBreakdown,
-} from "@/lib/cost/accumulator";
-import { appendCostRow } from "@/lib/cost/storage";
-import {
-  runWithDiagnostics,
-  writeRunDiagnostics,
-  diagEvent,
-} from "@/lib/diagnostics/run-diagnostics";
+import { runWithCostTracking } from "@/lib/cost/accumulator";
+import { emitCostEpilogue } from "@/lib/cost/epilogue";
+import { runWithDiagnostics, diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
+import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
+import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
 import { classifyFollowupDepth } from "@/lib/llm/followup-classifier";
 import { tryConsumeAutoInvestigation } from "@/lib/pipeline/auto-investigation-budget";
 import {
@@ -43,12 +37,11 @@ import {
   PLANNER_MODEL,
   WAREHOUSE_MAX_ROWS,
   WAREHOUSE_SCAN_ROW_BUDGET,
-  PARQUET_MATERIALIZE_THRESHOLD,
 } from "@/lib/constants";
-import { materializeCsvToParquet } from "@/lib/parquet/materialize";
 import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
-import { resolveLocalSource } from "@/lib/parquet/duckdb-source";
+import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
+import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
@@ -56,8 +49,7 @@ import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cac
 import {
   buildInvestigationTrace,
   successfulStepNos,
-  type TraceDecision,
-  type StepSource,
+  TraceRecorder,
 } from "@/lib/pipeline/investigation-trace";
 import {
   collectGroundedValues,
@@ -71,26 +63,15 @@ import {
   getCSVContent,
   getGeoJSONContent,
   isLocalFile,
-  storeCSV,
+  isRemoteFile,
 } from "@/lib/csv/storage";
-import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
 import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
-import { parseCSV } from "@/lib/csv/parser";
-import { extractSchema } from "@/lib/csv/schema";
-import { randomUUID } from "crypto";
-import {
-  CODE_GEN_MODEL,
-  UI_COMPOSE_MODEL,
-  isValidModelId,
-  isValidRuntimeId,
-} from "@/lib/constants";
-import type { SandboxRuntimeId } from "@/lib/constants";
-import type { CSVSchema } from "@/lib/types";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
-import { getActiveProvider } from "@/lib/llm/client";
-import { logger } from "@/lib/logger";
+import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
+import { readJsonBody } from "@/lib/api-schemas";
+import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
+import { logger, serializeError } from "@/lib/logger";
 
-export const maxDuration = 600; // 10 minutes — investigations can run longer than Ask
+export const maxDuration = 1260; // 21 min — investigations over large/remote datasets can run long
 
 interface InvestigateContext {
   csv_id?: string;
@@ -122,55 +103,34 @@ interface InvestigateBody {
   context?: InvestigateContext;
 }
 
-/**
- * Cheap row estimate for a CSV string — counts newlines without a full parse, so
- * it stays fast even on a multi-hundred-MB pull. Used only to choose the Parquet
- * vs CSV path; exact accuracy isn't needed (off-by-one on a trailing newline is
- * fine).
- */
-function countCsvRows(csv: string): number {
-  let rows = 0;
-  let i = csv.indexOf("\n");
-  while (i !== -1) {
-    rows++;
-    i = csv.indexOf("\n", i + 1);
-  }
-  return Math.max(0, rows - 1); // minus the header line
-}
-
 export async function POST(request: Request) {
+  // Aborted duplicate requests truncate the body — a 400, not a logged 500.
+  const read = await readJsonBody(request);
+  if (!read.ok) return read.response;
   try {
-    const body = (await request.json()) as InvestigateBody;
+    const body = read.body as InvestigateBody;
     const context = body.context ?? {};
-    let csvId = context.csv_id;
-    const warehouseId = context.warehouse_id;
-    const question = (context.question ?? body.prompt ?? "").trim();
 
-    if (!csvId && !warehouseId) {
-      return new Response(
-        JSON.stringify({ error: "csv_id or warehouse_id is required in context" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-    if (!question) {
-      return new Response(JSON.stringify({ error: "question is required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    // ── Shared preamble step 1: ids/question 400s (lib/pipeline/
+    // validate-request.ts — same module Ask uses, so the two routes can't
+    // drift again). The provider gate below sits between the syntactic 400s
+    // and the resource 404s, preserving the route's check order. ──
+    const ids = validateQueryIds(context, body.prompt);
+    if (!ids.ok) return ids.response;
+    const { warehouseId, question } = ids;
+    let csvId = ids.csvId;
 
     // Investigate is a heavyweight cloud-LLM operation. Local backends are
     // gated at the UI level; refuse here as a safety net.
-    let activeProvider: string;
+    let activeProvider: ReturnType<typeof getActiveProvider>;
     try {
       activeProvider = getActiveProvider();
     } catch (err) {
-      return new Response(
-        JSON.stringify({ error: err instanceof Error ? err.message : "No LLM configured" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return apiError("/api/query/investigate", err, "No LLM configured", 400);
     }
-    if (activeProvider === "ollama" || activeProvider === "mlx" || activeProvider === "llama-cpp") {
+    // Capability lives in ONE place (providerCapabilities) — this route's
+    // hand-maintained refusal list had drifted from Ask's validation list.
+    if (!providerCapabilities(activeProvider).supportsInvestigate) {
       return new Response(
         JSON.stringify({
           error:
@@ -180,99 +140,40 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate model IDs (only for cloud providers)
-    const codeGenModel: string =
-      context.code_gen_model && isValidModelId(context.code_gen_model)
-        ? context.code_gen_model
-        : CODE_GEN_MODEL;
-    const uiComposeModel: string =
-      context.ui_compose_model && isValidModelId(context.ui_compose_model)
-        ? context.ui_compose_model
-        : UI_COMPOSE_MODEL;
-    const sandboxRuntime: SandboxRuntimeId =
-      context.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
-        ? context.sandbox_runtime
-        : getActiveSandboxRuntime();
+    // ── Shared preamble step 2: warehouse/CSV 404s + model/runtime
+    // resolution. Investigate skips the warehouse lookup when a csv_id
+    // exists (follow-up over an already-materialized pull) and 404s a
+    // missing CSV before streaming. ──
+    const sources = resolveQuerySources(ids, context, {
+      preferCsvOverWarehouse: true,
+      requireStoredCsv: true,
+    });
+    if (!sources.ok) return sources.response;
+    const { warehouseState, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
+
     // Compose notebook cells eagerly only when the client is in Notebook view;
     // otherwise they're composed lazily on Notebook-open (cost optimization).
     const composeCells = context.compose_cells !== false;
 
-    // Warehouse investigations: materialize the data with ONE broad SQL
-    // pull, then run the standard file-source investigation over the
-    // resulting CSV. Per-step SQL (each sub-question generating its own
-    // query) remains the deeper fast-follow — see specs/notebook-mode.
-    // Validate the connection before streaming so failures are clean 404s.
-    let warehouseState: {
-      warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
-      connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
-    } | null = null;
-    if (warehouseId && !csvId) {
-      const warehouse = getStoredWarehouse(warehouseId);
-      if (!warehouse) {
-        return new Response(
-          JSON.stringify({ error: "Warehouse not found or expired. Please reconnect." }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      const connector = getWarehouseConnector(warehouseId);
-      if (!connector) {
-        return new Response(JSON.stringify({ error: "Warehouse connector not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      warehouseState = { warehouse, connector };
-    } else if (!getStoredCSV(csvId!)) {
-      return new Response(JSON.stringify({ error: "CSV not found or expired" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    // ── Stream begins ── (scaffold shared with Ask — lib/pipeline/patch-stream.ts)
+    let datasetLabel = csvId ?? warehouseId ?? "dataset";
+    let analysisMode = "investigate";
 
-    // ── Stream begins ──
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
-      async start(controller) {
-        let closed = false;
-        const emit = (data: string) => {
-          if (closed) return;
-          try {
-            controller.enqueue(encoder.encode(data));
-          } catch {
-            closed = true;
-          }
-        };
-
-        const keepalive = setInterval(() => emit(": keepalive\n"), 15_000);
-
-        // The wholesale `/state` add must happen exactly ONCE (the first
-        // patch); afterwards only `/state/__progress` is touched. Keying on
-        // `step === 1` clobbered sibling state: the warehouse path emits
-        // several step-1 stages, and the later ones wiped
-        // __warehouse_csv_id — leaving the client without a csvId for
-        // artifacts (notebook Code/Data) and cell re-runs.
-        let stateInitialized = false;
-        const emitProgress = (stage: string, step: number, total: number) => {
-          const patch = stateInitialized
-            ? {
-                op: "replace",
-                path: "/state/__progress",
-                value: { stage, step, total },
-              }
-            : {
-                op: "add",
-                path: "/state",
-                value: { __progress: { stage, step, total } },
-              };
-          stateInitialized = true;
-          emit(JSON.stringify(patch) + "\n");
-        };
-
-        let datasetLabel = csvId ?? warehouseId ?? "dataset";
-        let analysisMode = "investigate";
+    return patchStreamResponse(
+      "/api/query/investigate",
+      request,
+      async (stream) => {
+        const emit = stream.emit;
+        const closed = () => stream.isClosed();
+        const emitProgress = stream.emitProgress;
+        // Make this run discoverable by a reconnecting client (run-stream-hub).
+        stream.setMeta({ csvId: csvId ?? undefined, question });
 
         await runWithCostTracking(() =>
           runWithDiagnostics(async () => {
+            // Hoisted above the try so the catch can persist the partial
+            // per-step trail when the run dies mid-investigation (OBS-8).
+            let trailRecorder: TraceRecorder | null = null;
             try {
               // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
               // The pull is intentionally row-level (not pre-aggregated): the
@@ -333,84 +234,20 @@ export async function POST(request: Request) {
                   );
                 }
                 logger.info("Investigate: warehouse SQL executed", { sql: warehouseSQL });
-                const newCsvId = randomUUID();
-                // Cheap row estimate (count newlines; no full parse) to decide the path.
-                const approxRows = countCsvRows(warehouseCsvContent);
-                let schema: CSVSchema | undefined;
-
-                // Large pull → Parquet + DuckDB (no Node parse, scales to millions).
-                // Best-effort: any failure falls back to the proven CSV path below.
-                if (approxRows >= PARQUET_MATERIALIZE_THRESHOLD && sandboxRuntime === "docker") {
-                  try {
-                    const mat = await materializeCsvToParquet(
-                      warehouseCsvContent,
-                      newCsvId,
-                      "warehouse_query_result",
-                      sandboxRuntime
-                    );
-                    schema = mat.schema;
-                    schema.source_type = "warehouse";
-                    schema.warehouse_type = warehouse.config.type;
-                    warehouseParquetFile = mat.parquetPath;
-                    const cappedSample = schema.row_count >= WAREHOUSE_MAX_ROWS;
-                    warehouseParquetContext =
-                      `The materialized dataset is a Parquet file at /data/input.parquet (${schema.row_count.toLocaleString()} rows).\n` +
-                      `Read it with DuckDB: duckdb.sql("SELECT * FROM read_parquet('/data/input.parquet')").df().\n` +
-                      `This is a large dataset — aggregate/filter in DuckDB SQL and convert only the small result to pandas; never SELECT * without a LIMIT or aggregation. Do NOT read /data/input.csv.` +
-                      (cappedSample
-                        ? `\nIMPORTANT — this is a CAPPED SAMPLE of ${schema.row_count.toLocaleString()} rows; the source has MORE. Do NOT present absolute totals or counts as findings (a "total" here just equals the sample size, ${schema.row_count.toLocaleString()}, and is misleading). Express results as RATES, proportions, percentages, or per-entity averages instead.`
-                        : "");
-                    logger.info("Investigate: materialized warehouse data to Parquet", {
-                      csvId: newCsvId,
-                      rows: schema.row_count,
-                    });
-                  } catch (err) {
-                    logger.warn(
-                      "Investigate: Parquet materialization failed, falling back to CSV",
-                      {
-                        error: err instanceof Error ? err.message : String(err),
-                        approxRows,
-                      }
-                    );
-                  }
-                }
-
-                // CSV path (default for small pulls, and the fallback if Parquet failed).
-                if (!schema) {
-                  const parsed = parseCSV(warehouseCsvContent);
-                  schema = extractSchema(parsed, newCsvId, "warehouse_query_result");
-                  schema.source_type = "warehouse";
-                  schema.warehouse_type = warehouse.config.type;
-                }
-
-                await storeCSV(newCsvId, warehouseCsvContent, schema);
-                csvId = newCsvId;
-                // Hitting the cap means the source had more rows than we pulled —
-                // the analysis is over a sample, not the full data.
-                materializationSampled = schema.row_count >= WAREHOUSE_MAX_ROWS;
-                diagEvent("materialization", {
-                  rows: schema.row_count,
-                  columns: schema.columns.length,
-                  sampled: materializationSampled,
-                  parquet: !!warehouseParquetFile,
+                // Store the pull (Parquet for large results, CSV otherwise) via
+                // the SHARED module — lib/warehouse/materialize-result.ts.
+                const storedResult = await storeWarehouseResult({
+                  csvContent: warehouseCsvContent,
+                  warehouseType: warehouse.config.type,
+                  sandboxRuntime,
+                  emit,
                   sqlRepairs: materializationRepairs,
                 });
-                logger.info("Investigate: warehouse data materialized", {
-                  csvId: newCsvId,
-                  columns: schema.columns.length,
-                  rows: schema.row_count,
-                  parquet: !!warehouseParquetFile,
-                  sampled: materializationSampled,
-                });
-                // Emit the generated csvId so the client can use it for
-                // artifacts, notebook cell re-runs, and follow-ups.
-                emit(
-                  JSON.stringify({
-                    op: "add",
-                    path: "/state/__warehouse_csv_id",
-                    value: newCsvId,
-                  }) + "\n"
-                );
+                csvId = storedResult.csvId;
+                stream.setMeta({ csvId }); // warehouse csvId now known
+                materializationSampled = storedResult.sampled;
+                warehouseParquetFile = storedResult.parquetFile;
+                warehouseParquetContext = storedResult.parquetContext;
               }
 
               // ── Resolve the source (file upload, local mount, or the CSV
@@ -421,24 +258,36 @@ export async function POST(request: Request) {
               }
               datasetLabel = stored.schema.filename;
               const isLocal = isLocalFile(csvId!);
-              // In Parquet mode the analysis reads the bind-mounted Parquet, so we
-              // never load the (large) CSV into memory.
+              const isRemote = isRemoteFile(csvId!);
+              // In Parquet mode (local mount, materialized warehouse, or remote
+              // URL) the analysis reads Parquet directly, so we never load the
+              // (large) CSV into memory.
               const csvContent =
-                isLocal || warehouseParquetFile ? "" : ((await getCSVContent(csvId!)) ?? "");
+                isLocal || isRemote || warehouseParquetFile
+                  ? ""
+                  : ((await getCSVContent(csvId!)) ?? "");
               const geojsonContent = stored.schema.has_geojson
                 ? await getGeoJSONContent(csvId!)
                 : null;
 
               // Mount path + code-gen "Data Location" context. A materialized
               // warehouse pull was docker-cp'd to /data/input.parquet (no mount);
-              // a browsed local file resolves via the shared resolver (see
-              // lib/parquet/duckdb-source), the same one /api/query uses.
+              // a browsed local file resolves via the shared resolver; a remote
+              // cloud Parquet URL is read directly by DuckDB (no mount). Same
+              // resolvers as /api/query.
               let localMountPath: string | undefined;
               let localFileContext: string | undefined;
               if (warehouseParquetFile) {
                 localFileContext = warehouseParquetContext;
               } else if (isLocal) {
                 ({ localMountPath, localFileContext } = resolveLocalSource(stored));
+              } else if (isRemote) {
+                ({ localFileContext } = resolveRemoteSource(
+                  stored.remoteParquetUrl!,
+                  stored.schema.row_count,
+                  stored.isHivePartitioned,
+                  stored.remoteCreds
+                ));
               }
 
               // ── Drill-as-sub-investigation cost gate ──
@@ -470,24 +319,17 @@ export async function POST(request: Request) {
                         additional_filters: scope.filters.slice(1),
                       }
                     : null;
-                  const cheap = await runPipeline(
-                    stored.schema,
-                    csvContent || "",
-                    question,
-                    (stage) => {
+                  const cheap = await runPipeline(stored.schema, csvContent || "", question, {
+                    onStage: (stage) => {
                       if (stage === "generating_code") emitProgress("analyzing", 1, 3);
                       else if (stage === "executing") emitProgress("computing", 2, 3);
                     },
-                    "metadata",
-                    codeGenModel,
-                    sandboxRuntime,
+                    model: codeGenModel,
+                    runtime: sandboxRuntime,
                     geojsonContent,
-                    undefined,
-                    undefined,
                     localMountPath,
                     localFileContext,
-                    undefined
-                  );
+                  });
                   await composeAndStreamDashboard({
                     executionResult: cheap.executionResult,
                     opts: {
@@ -500,7 +342,7 @@ export async function POST(request: Request) {
                     },
                     uiComposeModel,
                     emit,
-                    isClosed: () => closed,
+                    isClosed: stream.isClosed,
                     onComposing: () => emitProgress("composing", 3, 3),
                   });
                   analysisMode = "ask"; // routed to the single-shot lookup path
@@ -590,18 +432,11 @@ export async function POST(request: Request) {
                 );
               };
 
-              // Accumulate the audit trail's decision log and per-step provenance
-              // from the orchestrator's progress events. The events are the only
-              // place the re-planner's and composer's rationales surface, so we
-              // capture them here for the trace the artifacts panel renders.
-              const decisions: TraceDecision[] = [];
-              const sourceByIndex = new Map<number, StepSource>();
-              // subs_amended events carry their provenance (amendmentSource), so
-              // attribution never depends on event ordering. currentReplan only
-              // tracks the most recent replan decision so a re-planner amendment
-              // can fill in its added/removed indices.
-              let currentReplan: TraceDecision | null = null;
-              let pendingComposerAdded: number[] = [];
+              // Audit-trail accumulation (decision log + per-step provenance)
+              // lives in lib — see TraceRecorder in investigation-trace.ts. The
+              // onProgress handler below keeps only the stream-emit wiring.
+              const recorder = new TraceRecorder();
+              trailRecorder = recorder;
 
               // Warm the code-gen prompt cache before the first wave fans out in
               // parallel, so concurrent sub-questions read it instead of each
@@ -675,6 +510,7 @@ export async function POST(request: Request) {
                   ? (sql: string) => warehouseState!.connector.executeSQL(sql)
                   : undefined,
                 onProgress: (event) => {
+                  recorder.record(event);
                   if (event.kind === "sub_started" && event.index !== undefined) {
                     stepCount++;
                     emitProgress("investigating", stepCount, totalSteps);
@@ -732,16 +568,6 @@ export async function POST(request: Request) {
                       );
                     }
                   } else if (event.kind === "replan_decision") {
-                    // Record for the audit trail. The matching subs_amended (if the
-                    // action was "amend") fills in added/removed indices below.
-                    currentReplan = {
-                      kind: "replan",
-                      action: event.replanAction,
-                      rationale: event.replanRationale ?? "",
-                      addedIndices: [],
-                      removedIndices: [],
-                    };
-                    decisions.push(currentReplan);
                     // Surface the re-planner's decision as a sibling entry on the plan.
                     // The UI can render this inline as a "Planner re-evaluated" step.
                     emit(
@@ -756,17 +582,6 @@ export async function POST(request: Request) {
                       }) + "\n"
                     );
                   } else if (event.kind === "subs_amended") {
-                    // Audit-trail provenance, read directly off the event.
-                    const addedIndices = (event.addedSteps ?? []).map((s) => s.index);
-                    if (event.amendmentSource === "composer") {
-                      pendingComposerAdded = addedIndices;
-                      for (const idx of addedIndices) sourceByIndex.set(idx, "composer");
-                    } else if (currentReplan) {
-                      currentReplan.addedIndices = addedIndices;
-                      currentReplan.removedIndices = event.removedIndices ?? [];
-                      for (const idx of addedIndices) sourceByIndex.set(idx, "replanner");
-                      currentReplan = null;
-                    }
                     // Append new steps to the visible plan and mark removed ones.
                     if (event.addedSteps) {
                       for (const step of event.addedSteps) {
@@ -799,15 +614,6 @@ export async function POST(request: Request) {
                       }
                     }
                   } else if (event.kind === "composer_dispatched") {
-                    // Record the composer's gap-check dispatch in the audit trail,
-                    // attributing the steps added by the preceding subs_amended.
-                    decisions.push({
-                      kind: "composer_dispatch",
-                      rationale: event.composerRationale ?? "",
-                      addedIndices: pendingComposerAdded,
-                      removedIndices: [],
-                    });
-                    pendingComposerAdded = [];
                     // Surface the composer's gap-check decision. Newly added steps
                     // arrive via a sibling subs_amended event with addedByReplanner.
                     // Override the flag on those steps to indicate composer-source.
@@ -825,7 +631,13 @@ export async function POST(request: Request) {
                 },
               });
 
-              if (closed) return;
+              // NOTE: deliberately NO `if (closed()) return` here — the same
+              // fix as the Ask route. A multi-step investigation is the most
+              // expensive thing this app runs; a client disconnect during it
+              // must not discard the completed sub-analyses. The trace is
+              // cached, compose streams into the dead socket (emit no-ops),
+              // and persistHistoryOnDisconnect saves the assembled spec for
+              // the History panel.
 
               // Build the full audit trail: every sub-question's code + result,
               // the re-planner / composer decisions, and (added after compose) the
@@ -836,8 +648,8 @@ export async function POST(request: Request) {
                 approach: plan.approach,
                 originalQuestion: question,
                 subResults,
-                sourceByIndex,
-                decisions,
+                sourceByIndex: recorder.sourceByIndex,
+                decisions: recorder.decisions,
               });
 
               // Cache artifacts under the csvId. The top-level code/results mirror
@@ -1003,7 +815,7 @@ export async function POST(request: Request) {
 
               let buffer = "";
               for await (const chunk of compose.textStream) {
-                if (closed) break;
+                if (closed()) break;
                 buffer += chunk;
                 const lines = buffer.split("\n");
                 buffer = lines.pop() ?? "";
@@ -1048,7 +860,7 @@ export async function POST(request: Request) {
               // computed value) are surfaced as an advisory caveat and recorded in
               // the trail — the guard against plausible-but-wrong, where semantic
               // validation only catches degenerate.
-              if (!closed) {
+              if (!closed()) {
                 const grounded = collectGroundedValues(mergedResults, mergedChartData);
                 // Also ground against the per-step DATASETS. initialState carries
                 // only results + chart_data, but an insight/brief narrative often
@@ -1091,7 +903,20 @@ export async function POST(request: Request) {
               }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
-              logger.error("Investigate: failed", { error: msg.slice(0, 500) });
+              logger.error("Investigate: failed", {
+                ...serializeError(err),
+                error: msg.slice(0, 500),
+              });
+              // Persist the partial trail (per-step question/status/error/
+              // code) into the run's diagnostics record — the epilogue in
+              // `finally` writes it. Failed runs are the ones that most need
+              // a post-mortem trail, and the in-memory artifacts cache only
+              // gets a trace when the run completes (OBS-8).
+              diagEvent("investigation_failed", {
+                error: msg.slice(0, 500),
+                partialSteps: trailRecorder?.partialTrail() ?? [],
+                decisions: trailRecorder?.decisions ?? [],
+              });
               emit(
                 JSON.stringify({
                   op: "add",
@@ -1100,81 +925,27 @@ export async function POST(request: Request) {
                 }) + "\n"
               );
             } finally {
-              // ── Cost tracking: runs for every exit path (cheap fast-path,
-              // main investigation, or error) before the stream closes. ──
-              try {
-                const acc = getCostAccumulator();
-                if (acc) {
-                  const cost = computeCost(acc);
-                  emit(JSON.stringify({ op: "add", path: "/state/__cost", value: cost }) + "\n");
-                  const phaseBreakdown = formatPhaseBreakdown(cost.byPhase);
-                  logger.info("Investigate: cost by phase", {
-                    total: Number(cost.costUsd.toFixed(4)),
-                    output: cost.outputTokens,
-                    breakdown: phaseBreakdown,
-                  });
-                  const now = new Date();
-                  await appendCostRow({
-                    timestamp: now.toISOString(),
-                    date: now.toISOString().slice(0, 10),
-                    dataset: datasetLabel,
-                    question,
-                    mode: analysisMode,
-                    models: cost.models.join(", "),
-                    llm_calls: cost.llmCalls,
-                    input_tokens: cost.inputTokens,
-                    cache_read_tokens: cost.cacheReadTokens,
-                    cache_write_tokens: cost.cacheWriteTokens,
-                    output_tokens: cost.outputTokens,
-                    cost_usd: cost.costUsd,
-                    phase_breakdown: phaseBreakdown,
-                  });
-                  await writeRunDiagnostics({
-                    timestamp: now.toISOString(),
-                    mode: analysisMode,
-                    purpose: context.purpose,
-                    question,
-                    costUsd: cost.costUsd,
-                    llmCalls: cost.llmCalls,
-                  });
-                }
-              } catch (costErr) {
-                logger.warn("Cost logging failed", {
-                  error: costErr instanceof Error ? costErr.message : String(costErr),
-                });
-              }
-              clearInterval(keepalive);
-              if (!closed) {
-                try {
-                  controller.close();
-                } catch {
-                  // already closed
-                }
-              }
+              // ── Cost/diagnostics epilogue: runs for every exit path (cheap
+              // fast-path, main investigation, or error) before the stream
+              // closes. Shared with Ask — lib/cost/epilogue.ts. ──
+              await emitCostEpilogue({
+                emit,
+                datasetLabel,
+                question,
+                mode: analysisMode,
+                purpose: context.purpose,
+              });
             }
           })
         );
       },
-      cancel() {
-        // Client aborted — best-effort: subsequent emits become no-ops.
-        // In-flight LLM calls and sandbox executions will continue but
-        // their outputs are discarded.
-      },
-    });
-
-    return new Response(readable, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/x-ndjson",
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-      },
-    });
+      // Client disconnected mid-run → persist history server-side, same as Ask.
+      // Investigate runs are longer (multi-step, 21-min budget) and therefore
+      // MORE likely to hit a disconnect; previously only Ask had this and a
+      // dropped investigation lost its entire (expensive) result.
+      (stream) => persistHistoryOnDisconnect(stream, csvId, question)
+    );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Investigate failed";
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return apiError("/api/query/investigate", err, "Investigate failed");
   }
 }
