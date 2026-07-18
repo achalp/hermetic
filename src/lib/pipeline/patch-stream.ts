@@ -24,6 +24,7 @@ import {
   closeRunChannel,
   setRunChannelMeta,
 } from "@/lib/pipeline/run-stream-hub";
+import { acquireWakeLock } from "@/lib/wake-lock";
 
 /**
  * Canonical headers for the patch stream. `no-cache, no-transform` +
@@ -182,11 +183,17 @@ export function patchStreamResponse(
         };
 
         const keepalive = setInterval(() => emit(": keepalive\n"), KEEPALIVE_INTERVAL_MS);
+        // Keep the machine awake for the WHOLE run, not just sandbox execution:
+        // an idle-sleep during the long LLM code-gen phase drops the client's
+        // stream (observed as "TypeError: network error"). Ref-counted, so the
+        // sandbox/warehouse holds nest under this one caffeinate process.
+        const releaseWakeLock = acquireWakeLock(`run:${runId}`);
 
         logger.info("Run started", { route });
         try {
           await handler(stream);
         } finally {
+          releaseWakeLock();
           endRun(runId);
           clearInterval(keepalive);
           // Signal reconnect subscribers that the run ended (they close their

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import http from "node:http";
 import https from "node:https";
-import { raiseServerTimeouts } from "@/instrumentation-node";
+import { raiseServerTimeouts, isAbortedConnectionError } from "@/instrumentation-node";
 
 const BIG = 25 * 60 * 1000;
 
@@ -39,5 +39,23 @@ describe("raiseServerTimeouts — HTTP requestTimeout", () => {
     await raiseServerTimeouts();
     expect(unbounded.requestTimeout).toBe(0);
     expect(larger.requestTimeout).toBe(BIG + 60_000);
+  });
+});
+
+describe("isAbortedConnectionError — benign client-disconnect classifier", () => {
+  it("matches the aborted-socket signatures (client left mid-stream)", () => {
+    expect(isAbortedConnectionError({ code: "ECONNRESET" })).toBe(true);
+    expect(isAbortedConnectionError({ code: "ECONNABORTED" })).toBe(true);
+    expect(isAbortedConnectionError({ code: "ERR_STREAM_PREMATURE_CLOSE" })).toBe(true);
+    expect(isAbortedConnectionError(Object.assign(new Error("aborted"), {}))).toBe(true);
+    expect(isAbortedConnectionError(new Error("The operation was aborted"))).toBe(true);
+  });
+
+  it("does NOT match genuine errors (never mask a real bug)", () => {
+    expect(isAbortedConnectionError(new TypeError("x is not a function"))).toBe(false);
+    expect(isAbortedConnectionError({ code: "ENOENT" })).toBe(false);
+    expect(isAbortedConnectionError(new Error("out of memory"))).toBe(false);
+    expect(isAbortedConnectionError(null)).toBe(false);
+    expect(isAbortedConnectionError(undefined)).toBe(false);
   });
 });

@@ -21,28 +21,62 @@ import { logger } from "@/lib/logger";
  * missing, this is a transparent pass-through. It CANNOT prevent lid-close
  * sleep — nothing in userspace can — only idle sleep (walking away).
  */
-export async function withWakeLock<T>(reason: string, fn: () => Promise<T>): Promise<T> {
-  if (process.platform !== "darwin") return fn();
+// Ref-counted so overlapping holds share ONE caffeinate process: a whole run is
+// wake-locked (covers the long LLM code-gen phase, where an idle-sleep would
+// drop the client's stream — the observed failure), and the sandbox exec /
+// warehouse query nest under it. The single process is spawned on the first
+// acquire and killed on the last release, so nesting never keeps the machine
+// awake longer than the outermost hold.
+let refCount = 0;
+let proc: ChildProcess | undefined;
 
-  let proc: ChildProcess | undefined;
-  try {
-    // -i: prevent idle system sleep. -s: also prevent system sleep on AC.
-    proc = spawn("caffeinate", ["-i", "-s"], { stdio: "ignore" });
-    // A missing/failing caffeinate must not crash the run — degrade to no-op.
-    proc.on("error", () => {
+/**
+ * Acquire the wake lock; returns an idempotent release fn. Best-effort and
+ * macOS-only (a transparent no-op elsewhere or if `caffeinate` is missing).
+ * Prefer withWakeLock() when you have a function to wrap; use this directly for
+ * a lifecycle that isn't a single call (e.g. a streaming run: acquire on start,
+ * release in the finally).
+ */
+export function acquireWakeLock(reason: string): () => void {
+  if (process.platform !== "darwin") return () => {};
+
+  refCount++;
+  if (refCount === 1) {
+    try {
+      // -i: prevent idle system sleep. -s: also prevent system sleep on AC.
+      proc = spawn("caffeinate", ["-i", "-s"], { stdio: "ignore" });
+      // A missing/failing caffeinate must not crash the run — degrade to no-op.
+      proc.on("error", () => {
+        proc = undefined;
+      });
+      logger.debug("Wake lock acquired", { reason });
+    } catch {
       proc = undefined;
-    });
-    logger.debug("Wake lock acquired", { reason });
-  } catch {
-    proc = undefined;
+    }
   }
 
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    refCount = Math.max(0, refCount - 1);
+    if (refCount === 0 && proc) {
+      proc.kill();
+      proc = undefined;
+      logger.debug("Wake lock released", { reason });
+    }
+  };
+}
+
+/**
+ * Hold the wake lock for the duration of `fn`. See the module note for why the
+ * whole run — not just the sandbox exec — needs it.
+ */
+export async function withWakeLock<T>(reason: string, fn: () => Promise<T>): Promise<T> {
+  const release = acquireWakeLock(reason);
   try {
     return await fn();
   } finally {
-    if (proc) {
-      proc.kill();
-      logger.debug("Wake lock released", { reason });
-    }
+    release();
   }
 }
