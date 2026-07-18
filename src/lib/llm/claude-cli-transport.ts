@@ -100,11 +100,14 @@ export function isClaudeCliAvailable(configuredPath?: string): boolean {
  * - `--output-format json` returns one result object; `stream-json` (which
  *   requires `--verbose`) emits JSONL, and `--include-partial-messages` adds
  *   token-level `content_block_delta` events for real streaming.
- * - `--tools none` disables Claude Code's built-in tools. The app consumes the
- *   CLI's TEXT output and runs code in its own sandbox, so it never uses those
- *   tools — and their schemas otherwise inject ~18K tokens of scaffolding that
- *   is cold-cache-WRITTEN on every distinct call and dominates CLI cost.
- *   Measured: ~18K → ~150 prompt tokens per call.
+ * - `--tools ""` disables Claude Code's built-in tools (the documented "disable
+ *   all" form — `--tools <names>` selects from the built-in set, `""` selects
+ *   none). The app consumes the CLI's TEXT output and runs code in its own
+ *   sandbox, so it never uses those tools — and their schemas otherwise inject
+ *   ~18K tokens of scaffolding that is cold-cache-WRITTEN on every distinct call
+ *   and dominates CLI cost. Measured: ~18K → ~150 prompt tokens per call. This
+ *   governs only built-in tools; MCP connectors are a separate axis, so a future
+ *   connector-backed mode can enable those without re-adding this scaffolding.
  * - `--model` selects the model; `--system-prompt` REPLACES Claude Code's
  *   default agent system prompt so the CLI behaves as a plain generator.
  * - A system prompt too large for argv is folded into the stdin prompt instead
@@ -119,7 +122,7 @@ export function buildClaudeInvocation(input: {
   const { model, system, prompt, streaming } = input;
 
   const args: string[] = ["-p", "--output-format", streaming ? "stream-json" : "json"];
-  args.push("--tools", "none");
+  args.push("--tools", "");
   if (streaming) args.push("--verbose", "--include-partial-messages");
   if (model) args.push("--model", model);
 

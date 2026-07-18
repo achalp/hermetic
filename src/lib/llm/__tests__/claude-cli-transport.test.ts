@@ -112,7 +112,7 @@ describe("buildClaudeInvocation", () => {
       "--output-format",
       "json",
       "--tools",
-      "none",
+      "",
       "--model",
       "claude-sonnet-4-6",
       "--system-prompt",
@@ -122,7 +122,7 @@ describe("buildClaudeInvocation", () => {
     expect(systemFolded).toBe(false);
   });
 
-  it("disables built-in tools on every call (cost/scaffolding control)", () => {
+  it("disables built-in tools on every call (documented empty-string form)", () => {
     const { args } = buildClaudeInvocation({
       model: "m",
       system: "",
@@ -131,7 +131,7 @@ describe("buildClaudeInvocation", () => {
     });
     const i = args.indexOf("--tools");
     expect(i).toBeGreaterThanOrEqual(0);
-    expect(args[i + 1]).toBe("none");
+    expect(args[i + 1]).toBe("");
   });
 
   it("adds the streaming flags for stream-json", () => {
@@ -146,7 +146,7 @@ describe("buildClaudeInvocation", () => {
       "--output-format",
       "stream-json",
       "--tools",
-      "none",
+      "",
       "--verbose",
       "--include-partial-messages",
       "--model",
@@ -161,7 +161,7 @@ describe("buildClaudeInvocation", () => {
       prompt: "x",
       streaming: false,
     });
-    expect(args).toEqual(["-p", "--output-format", "json", "--tools", "none"]);
+    expect(args).toEqual(["-p", "--output-format", "json", "--tools", ""]);
   });
 
   it("folds an oversized system prompt into stdin instead of argv", () => {
