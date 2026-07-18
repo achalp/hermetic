@@ -111,6 +111,73 @@ describe("parseSandboxOutput", () => {
     }
   });
 
+  it("gives phase-SPECIFIC OOM guidance from the watchdog's [phase=...] tag", async () => {
+    // The watchdog tags the abort with the progress phase where memory peaked,
+    // so the retry gets a fix for THAT step, not a generic blob it already did.
+    const stderr =
+      "HERMETIC_OOM_PREDICTED: [phase=materializing simplified USA polygon] memory reached 90% of the 4.3 GB cap — aborting before the OOM-kill. " +
+      "SWITCH STRATEGY: COUNT in DuckDB.\n";
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({ "/data/stderr.txt": stderr }),
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.errorKind).toBe("oom");
+      expect(res.error).toContain("materializing simplified USA polygon");
+      // POLYGON hint — names the ST_Union_Agg / simplify remedy, not the generic.
+      expect(res.error).toContain("ST_Union_Agg");
+      expect(res.error).not.toContain("[phase=");
+    }
+  });
+
+  it("recovers the OOM phase from the last stdout progress line on a hard kernel kill", async () => {
+    // No watchdog marker (exit 137, bare 'Killed') — but the progress heartbeat
+    // left the last phase in stdout, which localizes the OOM to the grid scan.
+    const stdout =
+      '{"__progress": {"phase": "counting occupied grid cells", "elapsed_ms": 5000}}\n' +
+      "some later noise\n";
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({ "/data/stderr.txt": "Killed", "/data/stdout.txt": stdout }),
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.errorKind).toBe("oom");
+      expect(res.error).toContain("counting occupied grid cells");
+      // GRID hint — the cell-size-to-span fix.
+      expect(res.error).toContain("span_m/200");
+    }
+  });
+
+  it("falls back to the generic OOM message when the phase is unknown/unmatched", async () => {
+    // A phase tag that matches no rule → verbatim marker (tag stripped), and a
+    // bare kill with no progress → the generic two-case guidance.
+    const unmatched = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({
+        "/data/stderr.txt":
+          "HERMETIC_OOM_PREDICTED: [phase=doing something opaque] memory reached 88% of the cap. SWITCH STRATEGY: x.\n",
+      }),
+    });
+    expect(unmatched.success).toBe(false);
+    if (!unmatched.success) {
+      expect(unmatched.error).toContain("SWITCH STRATEGY");
+      expect(unmatched.error).not.toContain("[phase=");
+    }
+
+    const bare = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({ "/data/stderr.txt": "Killed" }),
+    });
+    expect(bare.success).toBe(false);
+    if (!bare.success) expect(bare.error).toContain("Do NOT load millions of rows");
+  });
+
   it("uses the stderr fallback when the stderr file is unreadable", async () => {
     const result = await parseSandboxOutput({
       ...base,

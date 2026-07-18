@@ -144,9 +144,16 @@ def _mem_watchdog():
             _hot += 1
             if _hot >= 2:  # ~0.5s sustained — not a one-sample blip
                 _lim = "%.1f GB" % (_MEM_LIMIT / 1e9)
+                # Tag the marker with the CURRENT progress phase so the host can
+                # localize the OOM to a specific step (polygon build vs coarse
+                # scan vs leaf read) and feed a phase-SPECIFIC fix into the retry
+                # — a generic "you OOM'd" message is unactionable when the code is
+                # already coordinates-only + counting (observed: retry reproduced
+                # the same shape). Strip brackets/newlines so [phase=...] parses.
+                _ph = str(_hb.get("phase") or "unknown").replace("]", ")").replace("\\n", " ")[:120]
                 _sys.stderr.write(
-                    "HERMETIC_OOM_PREDICTED: memory reached %d%% of the %s cap — aborting "
-                    "before the OOM-kill. " % (int(_frac * 100), _lim)
+                    "HERMETIC_OOM_PREDICTED: [phase=%s] memory reached %d%% of the %s cap — aborting "
+                    "before the OOM-kill. " % (_ph, int(_frac * 100), _lim)
                     + _INFEASIBLE_MSG.format(limit=_lim) + "\\n")
                 _sys.stderr.flush()
                 _os._exit(137)
