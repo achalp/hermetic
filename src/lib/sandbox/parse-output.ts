@@ -57,6 +57,75 @@ const OOM_ERROR =
 const OOM_PREDICTED_MARKER = "HERMETIC_OOM_PREDICTED:";
 
 /**
+ * Phase-keyed OOM guidance. The generic OOM_ERROR blob is a MISDIAGNOSIS for the
+ * planet-scale spatial path: it tells the model to "drop string columns / switch
+ * to counting", but that code is ALREADY coordinates-only and counting — so the
+ * retry reproduces the same shape (observed: attempt-02 ≡ attempt-01). The
+ * watchdog now tags the abort with the progress phase where memory peaked, and a
+ * hard kernel kill still leaves the last `__progress` line in stdout. Matching
+ * that phase to WHERE the memory went yields a fix the model can actually act on.
+ * Returns undefined when the phase doesn't match a known pattern → caller falls
+ * back to the verbatim marker / generic OOM_ERROR (unchanged behavior).
+ */
+const POLYGON_OOM_HINT =
+  "The OOM struck while BUILDING THE REGION/BOUNDARY POLYGON. ST_Union_Agg over a country/large-region " +
+  "multipolygon decodes the single fattest geometry on the continent (millions of vertices) into memory. " +
+  "FIXES: (1) simplify HARD — ST_Simplify(ST_Union_Agg(geometry), 0.01) (~1 km) or 0.02 for a whole country, " +
+  "NOT 0.001. (2) bbox-prefilter the division rows to the target extent BEFORE the union so less geometry is " +
+  "decoded. (3) You only need the polygon to EXCLUDE neighbouring countries when testing cell centroids — a " +
+  "coarse simplified hull suffices; never union raw full-detail geometry.";
+const GRID_OOM_HINT =
+  "The OOM struck during the COARSE GRID COUNT/SCAN. Your cell size is likely too FINE for the region span, so " +
+  "the GROUP BY emits far too many cells (a fixed 10 km cell over a ~5,000 km continent makes ~25x more cells " +
+  "than a state). FIX: scale the cell size to the span — s = max(span_m/200, 2000) — so a larger region " +
+  "auto-coarsens; keep the GROUP BY streaming (never pull the raw buildings into pandas). If the cells frame " +
+  "itself is still millions of rows, coarsen s further before .df().";
+const LEAF_OOM_HINT =
+  "The OOM struck during the PER-CANDIDATE LEAF / nearest-neighbour read. Do NOT read a whole ring of buildings " +
+  "into pandas and do NOT accumulate rings across candidates — an isolated point's nearest neighbour can be a " +
+  "dense metro edge, so its ring overlaps millions of rows. Compute the neighbour distance INSIDE DuckDB as a " +
+  "bounded aggregate (SELECT min(ST_Distance_Sphere(...)) over a small bbox window), pulling only ONE scalar per " +
+  "candidate. Never build a cKDTree over the buildings in a ring.";
+const MATERIALIZE_OOM_HINT =
+  "The OOM struck while MATERIALIZING A DATAFRAME (.df()/read into pandas). A DuckDB relation that streams fine " +
+  "explodes when .df() pulls it all into memory — worst with string/struct columns. Pull ONLY the numeric columns " +
+  "you need, aggregate/COUNT in DuckDB so nothing large lands in pandas, and hydrate only the top-N winners' " +
+  "attributes at the very end by id.";
+
+function oomGuidanceForPhase(phase: string | undefined): string | undefined {
+  const p = (phase ?? "").toLowerCase();
+  if (!p) return undefined;
+  if (/polygon|boundary|union|simplif|region|dissolve|divisions?/.test(p)) return POLYGON_OOM_HINT;
+  if (/leaf|neighbou?r|nearest|hydrat|candidate|winner/.test(p)) return LEAF_OOM_HINT;
+  if (/cell|grid|coarse|group|bucket|count|superlativ/.test(p)) return GRID_OOM_HINT;
+  if (/load|read|materializ|fetch|frame|pandas|\.df/.test(p)) return MATERIALIZE_OOM_HINT;
+  return undefined;
+}
+
+/**
+ * Recover the progress phase active when the OOM happened: from the watchdog
+ * marker's `[phase=...]` tag if it fired, else the last `{"__progress": {...}}`
+ * line the script wrote to stdout (a hard kernel kill leaves no marker but the
+ * progress heartbeat is still on disk).
+ */
+function extractOomPhase(predictedLine: string | undefined, stdout: string): string | undefined {
+  const tagged = predictedLine?.match(/\[phase=([^\]]*)\]/);
+  if (tagged?.[1]?.trim()) return tagged[1].trim();
+  const lines = stdout.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes("__progress")) continue;
+    try {
+      const parsed = JSON.parse(lines[i]) as { __progress?: { phase?: unknown } };
+      const ph = parsed.__progress?.phase;
+      if (typeof ph === "string" && ph.trim()) return ph.trim();
+    } catch {
+      // Partial/interleaved line — keep scanning older ones.
+    }
+  }
+  return undefined;
+}
+
+/**
  * Parse JSON that may contain Python's non-finite float tokens (NaN,
  * Infinity, -Infinity), which are invalid JSON.
  *
@@ -117,15 +186,29 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     });
 
     if (opts.exitCode === 137 || /\bKilled\b/.test(stderr)) {
-      // The watchdog / assert_fits fast-fail (predicted OOM before the kill) emits
-      // a marker line with the exact strategy-switch guidance — prefer it verbatim
-      // so the retry escalates the approach instead of trimming columns.
       const predicted = stderr
         .split("\n")
         .find((l) => l.includes(OOM_PREDICTED_MARKER))
         ?.trim();
+      // Localize the OOM to the phase where memory peaked (watchdog tag, or the
+      // last progress line on a hard kill) and feed a phase-SPECIFIC remedy. The
+      // generic blob is unactionable when the code is already coordinates-only +
+      // counting — the retry just reproduces the same shape.
+      const phase = extractOomPhase(predicted, stdout);
+      const phaseGuidance = oomGuidanceForPhase(phase);
+      if (phaseGuidance) {
+        const lead = predicted
+          ? "Predicted OOM — the watchdog aborted before the kernel OOM-kill."
+          : "Out of memory — the analysis process was killed (OOM).";
+        const error = `${lead} Memory peaked during phase: "${phase}".\n${phaseGuidance}`;
+        return { success: false, error, errorKind: "oom", execution_ms: executionMs };
+      }
+      // No phase match → preserve prior behavior: the watchdog's verbatim marker
+      // (its own strategy-switch guidance) or the generic two-case OOM_ERROR.
       const error = predicted
-        ? predicted.slice(predicted.indexOf(OOM_PREDICTED_MARKER))
+        ? predicted
+            .slice(predicted.indexOf(OOM_PREDICTED_MARKER))
+            .replace(/\[phase=[^\]]*\]\s*/, "")
         : OOM_ERROR;
       return { success: false, error, errorKind: "oom", execution_ms: executionMs };
     }

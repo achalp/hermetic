@@ -144,9 +144,16 @@ def _mem_watchdog():
             _hot += 1
             if _hot >= 2:  # ~0.5s sustained — not a one-sample blip
                 _lim = "%.1f GB" % (_MEM_LIMIT / 1e9)
+                # Tag the marker with the CURRENT progress phase so the host can
+                # localize the OOM to a specific step (polygon build vs coarse
+                # scan vs leaf read) and feed a phase-SPECIFIC fix into the retry
+                # — a generic "you OOM'd" message is unactionable when the code is
+                # already coordinates-only + counting (observed: retry reproduced
+                # the same shape). Strip brackets/newlines so [phase=...] parses.
+                _ph = str(_hb.get("phase") or "unknown").replace("]", ")").replace("\\n", " ")[:120]
                 _sys.stderr.write(
-                    "HERMETIC_OOM_PREDICTED: memory reached %d%% of the %s cap — aborting "
-                    "before the OOM-kill. " % (int(_frac * 100), _lim)
+                    "HERMETIC_OOM_PREDICTED: [phase=%s] memory reached %d%% of the %s cap — aborting "
+                    "before the OOM-kill. " % (_ph, int(_frac * 100), _lim)
                     + _INFEASIBLE_MSG.format(limit=_lim) + "\\n")
                 _sys.stderr.flush()
                 _os._exit(137)
@@ -183,16 +190,75 @@ try:
     _duckdb_mod.sql = _safe_duckdb_sql
     # Bound DuckDB to the CONTAINER cap so a huge scan / GROUP BY / ST_Contains
     # SPILLS to disk instead of ballooning past the cgroup limit and OS-OOM-killing
-    # the whole process. DuckDB's default limit is 80% of DETECTED memory — inside
-    # a container that can be the HOST total (far above the cgroup cap), so it would
-    # not spill until too late. Cap it BELOW _MEM_LIMIT, leaving headroom for the
-    # pandas/numpy side (a .df() materialization, which DuckDB's limit does NOT
-    # cover — the memory watchdog backstops that).
+    # the whole process. DuckDB's default limit is 80% of DETECTED memory — inside a
+    # container that's the VM's MemTotal, NOT the cgroup cap (measured: 2.3 GiB
+    # default under a 3 GiB cap), which leaves almost nothing for the Python/httpfs
+    # side and OOMs a big remote scan. Cap DuckDB LOW — leave ≥ ~1.5 GB (or half the
+    # cap) for pandas/numpy/scipy + httpfs read buffers. Verified: a 179M-row USA
+    # grid-count runs at ~72 MB peak under a 1 GB DuckDB limit, vs OOM at the default.
     try:
         if _MEM_LIMIT:
-            _ddb_mb = max(256, int(_MEM_LIMIT * 0.6 / (1024 * 1024)))
+            _headroom = 1536 * 1024 * 1024  # bytes to reserve outside DuckDB
+            _ddb_bytes = min(_MEM_LIMIT * 0.5, _MEM_LIMIT - _headroom)
+            _ddb_mb = max(384, int(_ddb_bytes / (1024 * 1024)))
             _orig_duckdb_sql("SET memory_limit='%dMB'" % _ddb_mb)
             _orig_duckdb_sql("SET temp_directory='/tmp/duckdb_spill'")
+            _orig_duckdb_sql("SET max_temp_directory_size='40GB'")
+    except Exception:
+        pass
+    # ── Bounded .df() materialization guard (auto-injected) ──────────────────
+    # .df() pulls the WHOLE result into pandas; a single unguarded pull of a
+    # region's rows — especially with string/struct columns (Overture names, id,
+    # class) — is THE recurring OOM (an 11-min run that then diverges on retry;
+    # detailed guidance about COUNT-then-gate is routinely ignored on one read).
+    # This REFUSES an oversized pull: it STREAMS the result in native pandas
+    # chunks (single execution — never re-runs an expensive aggregate) and raises
+    # the instant the row count crosses a TYPE-AWARE cap: generous for numeric-only
+    # frames (KD-tree coords), tight for frames carrying string/struct columns
+    # (which explode in pandas). Over the cap → a clear, retry-actionable error
+    # instead of a silent OS-OOM. Reduce in DuckDB; .df() only the small result.
+    # No-op when the memory cap is unknown; falls back on any non-memory error.
+    try:
+        if _MEM_LIMIT:
+            # Only types that map to a COMPACT numpy dtype (int64/float64/bool) get
+            # the generous row cap. DECIMAL, strings, structs, dates all materialize
+            # as heavy Python OBJECTS in pandas — treat them as "wide" (low cap).
+            _NUMERIC_DUCK = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT",
+                "USMALLINT", "UINTEGER", "UBIGINT", "FLOAT", "DOUBLE", "REAL", "BOOLEAN")
+            _orig_rel_df = _duckdb_mod.DuckDBPyRelation.df
+            def _df_row_cap(rel):
+                try:
+                    _types = [str(t).upper() for t in rel.types]
+                except Exception:
+                    return None
+                _ncol = max(1, len(_types))
+                _numeric = all(any(t.startswith(n) for n in _NUMERIC_DUCK) for t in _types)
+                if _numeric:
+                    return max(2000000, int(_MEM_LIMIT * 0.15) // (_ncol * 8))
+                return 500000  # string/struct/list column → cap low (a legit wide result is the tiny top-N)
+            def _capped_rel_df(self, *a, **kw):
+                _cap = _df_row_cap(self)
+                if _cap is None:
+                    return _orig_rel_df(self, *a, **kw)
+                # Materialize at most cap+1 rows in ONE efficient .df() (no concat
+                # doubling, no re-run of an expensive aggregate). If it comes back
+                # full, the real result is over the cap → refuse; otherwise the
+                # limited result IS the complete result, so return it directly.
+                try:
+                    _probe = _orig_rel_df(self.limit(_cap + 1), *a, **kw)
+                except Exception:
+                    return _orig_rel_df(self, *a, **kw)  # odd relation → don't break a legit call
+                if len(_probe) > _cap:
+                    raise MemoryError(
+                        ("This .df() would materialize %d+ rows into pandas — over the safe budget and "
+                         "the top OOM cause. Do NOT pull scan/region rows into pandas: reduce in DuckDB "
+                         "(COUNT / GROUP BY / aggregate / ORDER BY ... LIMIT k) and .df() ONLY the small "
+                         "final result. For a spatial superlative, gate every point read by a COUNT you "
+                         "already have (never read a cell/region that isn't provably small), and pull ONLY "
+                         "numeric rowid,lon,lat into a KD-tree — never id/names/class/height.") % _cap)
+                return _probe
+            _duckdb_mod.DuckDBPyRelation.df = _capped_rel_df
+            _duckdb_mod.DuckDBPyRelation.fetchdf = _capped_rel_df
     except Exception:
         pass
 except ImportError:

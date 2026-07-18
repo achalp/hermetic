@@ -8,6 +8,8 @@ interface StatusIndicatorProps {
 
 const STAGE_LABELS: Record<PipelineStage, string> = {
   generating_code: "Generating analysis code...",
+  reviewing_code: "Reviewing code for safety...",
+  revising_code: "Revising code after review...",
   executing: "Running analysis in sandbox...",
   retrying: "Retrying with corrected code...",
   composing_ui: "Composing visualization...",
@@ -17,8 +19,18 @@ const STAGE_LABELS: Record<PipelineStage, string> = {
 
 const STAGE_ORDER: PipelineStage[] = ["generating_code", "executing", "composing_ui", "done"];
 
+// The review/revise + retry/error sub-phases aren't their own dot in the coarse
+// stepper — collapse each onto the step it belongs to so exactly one dot lights
+// (review/revise happen around code generation; retry/error during execution).
+function stepFor(stage: PipelineStage): PipelineStage {
+  if (stage === "reviewing_code" || stage === "revising_code") return "generating_code";
+  if (stage === "retrying" || stage === "error") return "executing";
+  return stage;
+}
+
 export function StatusIndicator({ stage }: StatusIndicatorProps) {
   if (!stage) return null;
+  const activeStep = stepFor(stage);
 
   return (
     <div
@@ -29,12 +41,8 @@ export function StatusIndicator({ stage }: StatusIndicatorProps) {
       }}
     >
       {STAGE_ORDER.map((s) => {
-        const isCurrent = stage === s || (stage === "retrying" && s === "executing");
-        const isPast =
-          STAGE_ORDER.indexOf(s) <
-          STAGE_ORDER.indexOf(
-            stage === "retrying" ? "executing" : stage === "error" ? "executing" : stage
-          );
+        const isCurrent = s === activeStep;
+        const isPast = STAGE_ORDER.indexOf(s) < STAGE_ORDER.indexOf(activeStep);
 
         return (
           <div key={s} className="flex items-center gap-2">
