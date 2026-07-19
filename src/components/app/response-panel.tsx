@@ -163,6 +163,12 @@ interface ResponsePanelProps {
    * a reload / HMR (see run-stream-hub, useActiveRuns).
    */
   reattachRunId?: string | null;
+  /**
+   * Called when a reattach produced no renderable result — the run had been
+   * stopped / its channel raced closed / its buffer was incomplete, so replaying
+   * it would leave a blank page. The parent re-runs the question fresh instead.
+   */
+  onReattachFailed?: () => void;
 }
 
 export function ResponsePanel({
@@ -189,6 +195,7 @@ export function ResponsePanel({
   rerunCode,
   rerunSql,
   reattachRunId,
+  onReattachFailed,
 }: ResponsePanelProps) {
   const [drillStack, setDrillStack] = useState<DrillLevel[]>([]);
   // Dashboard | Notebook view for Investigate results. Initialized from
@@ -230,6 +237,11 @@ export function ResponsePanel({
   const [previousSpec, setPreviousSpec] = useState<Spec | null>(null);
   const lastSeqRef = useRef(0);
   const dashboardRef = useRef<HTMLDivElement>(null);
+  // True while the in-flight stream is a REATTACH (replay of a run that survived
+  // a client drop) rather than a fresh analysis. A reattach that ends without a
+  // dashboard (run was stopped / channel raced closed / buffer incomplete) must
+  // NOT leave a blank page — it re-runs fresh via onReattachFailed.
+  const isReattachStreamRef = useRef(false);
 
   // Route the next stream to the right pipeline. The hook reads `api` per
   // call inside its useCallback, so toggling here before a new questionSeq
@@ -251,6 +263,18 @@ export function ResponsePanel({
   const { spec, isStreaming, error, send, clear } = useUIStream({
     api: apiUrl,
     onComplete: (completedSpec) => {
+      // A reattach that replayed to the end but produced no dashboard means the
+      // run was stopped / its channel raced closed / its buffer was incomplete.
+      // Replaying it would blank the page (no root → no dashboard; stream ended
+      // → no progress), so re-run the question fresh instead.
+      if (isReattachStreamRef.current) {
+        isReattachStreamRef.current = false;
+        if (!completedSpec?.root) {
+          onStreamEnd?.(); // let the parent clear reattachRunId
+          onReattachFailed?.();
+          return;
+        }
+      }
       currentSpecRef.current = completedSpec;
       setPreviousSpec(null);
       onStreamEnd?.();
@@ -277,6 +301,15 @@ export function ResponsePanel({
       });
       setPreviousSpec(null);
       onStreamEnd?.();
+      // A reattach that errored (e.g. the attach endpoint 404'd because the run
+      // ended) — recover by re-running fresh rather than stranding a blank page.
+      // But an AbortError is this panel unmounting (user navigated away), NOT a
+      // failed reattach — don't kick off a spurious background run in that case.
+      if (isReattachStreamRef.current) {
+        isReattachStreamRef.current = false;
+        const aborted = (err as { name?: string })?.name === "AbortError";
+        if (!aborted) onReattachFailed?.();
+      }
     },
   });
 
@@ -332,11 +365,13 @@ export function ResponsePanel({
     // Reattach: don't start a new analysis — subscribe to the run that's still
     // executing server-side (replay so far, then live to completion).
     if (reattachRunId) {
+      isReattachStreamRef.current = true;
       send("", { runId: reattachRunId });
       return;
     }
 
     // Conversation history is managed server-side (keyed by csvId)
+    isReattachStreamRef.current = false;
     send("", {
       csv_id: csvId,
       warehouse_id: warehouseId ?? undefined,

@@ -586,6 +586,14 @@ export default function Home() {
     setReattachRunId(null);
   }, [handleStreamEnd]);
 
+  // A resume that reattached to a run which was already stopped/finished (no live
+  // stream, incomplete buffer) would render a blank page. Recover by clearing the
+  // reattach marker and re-running the question fresh, so progress + a result show.
+  const handleReattachFailed = useCallback(() => {
+    setReattachRunId(null);
+    if (currentQuestion) handleQuery(currentQuestion, currentMode);
+  }, [handleQuery, currentQuestion, currentMode]);
+
   // Build profile strip items from schema or warehouse
   const profileItems: string[] = [];
   if (schema) {
@@ -1196,6 +1204,7 @@ export default function Home() {
                   mode={currentMode}
                   reattachRunId={reattachRunId}
                   onStreamEnd={handleStreamEndReattachAware}
+                  onReattachFailed={handleReattachFailed}
                   loadedSpec={loadedSpec}
                   loadedArtifacts={loadedArtifacts}
                   schemaMode={schemaMode}
