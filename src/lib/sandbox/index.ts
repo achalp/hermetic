@@ -204,6 +204,26 @@ try:
             _orig_duckdb_sql("SET memory_limit='%dMB'" % _ddb_mb)
             _orig_duckdb_sql("SET temp_directory='/tmp/duckdb_spill'")
             _orig_duckdb_sql("SET max_temp_directory_size='40GB'")
+        # Cap scan THREADS relative to the cap. memory_limit bounds DuckDB's buffer
+        # manager (hash tables/sorts — spillable), NOT the parallel Parquet/httpfs
+        # scan's per-thread row-group read+decompress buffers: those are LIVE (never
+        # spill) and scale with thread count, so a default all-cores scan over a
+        # 2.5B-row remote parquet blows the cgroup cap even with memory_limit set
+        # (observed: 3x 20-25min OOMs on a USA superlative, fixed only by lowering
+        # threads). ~1 thread per 1.5 GB of cap keeps concurrent read buffers within
+        # budget; floor 2 for I/O overlap on a network-bound S3 scan, never above
+        # the host cores.
+        _cores = _os.cpu_count() or 4
+        if _MEM_LIMIT:
+            _threads = max(2, min(_cores, int(_MEM_LIMIT / (1024 ** 3) / 1.5)))
+        else:
+            _threads = min(_cores, 4)
+        _orig_duckdb_sql("SET threads=%d" % _threads)
+        # Insertion-order preservation buffers a parallel scan's output so input
+        # order can be restored at the end — pure retention overhead for aggregate/
+        # ORDER BY analytics (our queries never rely on raw scan order). Off lets
+        # operators stream/spill instead of holding rows to reorder them.
+        _orig_duckdb_sql("SET preserve_insertion_order=false")
     except Exception:
         pass
     # ── Bounded .df() materialization guard (auto-injected) ──────────────────

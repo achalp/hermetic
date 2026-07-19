@@ -75,11 +75,13 @@ const POLYGON_OOM_HINT =
   "decoded. (3) You only need the polygon to EXCLUDE neighbouring countries when testing cell centroids — a " +
   "coarse simplified hull suffices; never union raw full-detail geometry.";
 const GRID_OOM_HINT =
-  "The OOM struck during the COARSE GRID COUNT/SCAN. Your cell size is likely too FINE for the region span, so " +
-  "the GROUP BY emits far too many cells (a fixed 10 km cell over a ~5,000 km continent makes ~25x more cells " +
-  "than a state). FIX: scale the cell size to the span — s = max(span_m/200, 2000) — so a larger region " +
-  "auto-coarsens; keep the GROUP BY streaming (never pull the raw buildings into pandas). If the cells frame " +
-  "itself is still millions of rows, coarsen s further before .df().";
+  "The OOM struck during the COARSE GRID COUNT/SCAN. TWO independent causes: (A) DuckDB's own PARALLEL SCAN " +
+  "buffers over a billions-row REMOTE parquet scan — memory_limit does NOT bound the per-thread row-group " +
+  "read/decompress buffers, so a default all-cores scan blows the cap even though the GROUP BY output is tiny. " +
+  "The sandbox already SETs a low `threads` + `preserve_insertion_order=false` for this — do NOT raise `SET " +
+  "threads`, and if you did, remove it. (B) The cell size may be too FINE for the region span (a fixed 10 km " +
+  "cell over a ~5,000 km continent makes ~25x more cells): scale it — s = max(span_m/200, 2000). Keep the GROUP " +
+  "BY streaming (never pull raw buildings into pandas); if the cells frame is still millions of rows, coarsen s.";
 const LEAF_OOM_HINT =
   "The OOM struck during the PER-CANDIDATE LEAF / nearest-neighbour read. Do NOT read a whole ring of buildings " +
   "into pandas and do NOT accumulate rings across candidates — an isolated point's nearest neighbour can be a " +
