@@ -68,6 +68,7 @@ import {
   UI_COMPOSE_MODEL,
   DEFAULT_SANDBOX_RUNTIME,
   isValidRuntimeId,
+  isValidModelId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 
@@ -137,8 +138,20 @@ export default function Home() {
   } = pageState;
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
   const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
-  const [codeGenModel, setCodeGenModel] = useState<ModelId>(CODE_GEN_MODEL);
-  const [uiComposeModel, setUiComposeModel] = useState<ModelId>(UI_COMPOSE_MODEL);
+  const [codeGenModel, setCodeGenModel] = useState<ModelId>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("gud-code-gen-model");
+      if (stored && isValidModelId(stored)) return stored;
+    }
+    return CODE_GEN_MODEL;
+  });
+  const [uiComposeModel, setUiComposeModel] = useState<ModelId>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("gud-ui-compose-model");
+      if (stored && isValidModelId(stored)) return stored;
+    }
+    return UI_COMPOSE_MODEL;
+  });
   const [sandboxRuntime, setSandboxRuntime] = useState<SandboxRuntimeId>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("gud-sandbox-runtime");
@@ -351,6 +364,18 @@ export default function Home() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sandboxRuntime: r }),
     }).catch(() => {});
+  }, []);
+
+  // Persist the model choices to localStorage so they survive a restart (the
+  // value is sent with every query, so client-side is enough). Previously these
+  // only called setState → reverted to the default constant on reload.
+  const handleCodeGenModelChange = useCallback((m: ModelId) => {
+    setCodeGenModel(m);
+    localStorage.setItem("gud-code-gen-model", m);
+  }, []);
+  const handleUiComposeModelChange = useCallback((m: ModelId) => {
+    setUiComposeModel(m);
+    localStorage.setItem("gud-ui-compose-model", m);
   }, []);
 
   // Local/remote/upload/sample source selection — see use-source-select.ts.
@@ -828,8 +853,8 @@ export default function Home() {
         onClose={closeSettings}
         codeGenModel={codeGenModel}
         uiComposeModel={uiComposeModel}
-        onCodeGenModelChange={setCodeGenModel}
-        onUiComposeModelChange={setUiComposeModel}
+        onCodeGenModelChange={handleCodeGenModelChange}
+        onUiComposeModelChange={handleUiComposeModelChange}
         sandboxRuntime={sandboxRuntime}
         onSandboxRuntimeChange={handleRuntimeChange}
         ollamaModel={ollamaModel}
