@@ -11,11 +11,17 @@ nearest neighbor" — a nearest-neighbor query over 2.5B Overture rows) kept fai
 with OOM, and **iterating the system-prompt guidance stopped working**. Two failures
 in the same investigation proved the ceiling of the prose-guidance approach:
 
-1. **The model edits away guardrails.** We added `assert n_geom == 1` guidance to
-   catch a NULL region polygon. Opus adopted the code but replaced the assert with
-   `pass  # removed hard-coded value assertion` — it read the literal `== 1` as a
-   "hard-coded value" and deleted the guard. **Prose guardrails are not durable;
-   the model rewrites them.**
+1. **A guardrail we mandated never actually ran.** We added `assert n_geom == 1`
+   guidance to catch a NULL region polygon. Every run showed it replaced by
+   `pass  # removed hard-coded value assertion`. **Correction (found 2026-07-18 via
+   run `572f0145`):** this is NOT the model editing it away — it is our own
+   `stripValueAssertions()` post-processor (`code-generation.ts`), whose regex strips
+   any `assert <expr> == <number>` (built to remove brittle result asserts like
+   `assert answer == 42`) and catches the structural `== 1` guard too. So the guidance
+   was correct but self-defeating. Fixed by having the guidance emit `if not n_geom:
+raise ValueError(...)` (a `raise` the stripper doesn't touch). The deeper lesson
+   stands regardless: **a guard expressed as prose the model must transcribe is fragile
+   — here the pipeline itself removed it; guards belong in a form that survives.**
 
 2. **The retry loop was fed a misdiagnosis.** Run `52ade71f` OOM-killed at ~15 min.
    The generic OOM error we injected into the retry said _"drop string columns /
@@ -112,8 +118,9 @@ diagnosis than the manual one). Fed those findings back to regenerate → the re
 1. **Replaced `s = 10000.0` with `s = max(span_m/200, 25000)`** (span-scaled). For the
    USA span this lands at **~48 km — essentially identical to the successful run
    `2f63fcbe`.** The review moved the code from the OOM shape to the known-good shape.
-2. **Restored the `assert n_geom == 1` NULL-polygon guard** that Opus had stripped
-   (`GUARD-NULL`) — a bonus catch.
+2. **Re-added the NULL-polygon guard** (`GUARD-NULL`) that was missing from the
+   original — a bonus catch. (Note: as of the 2026-07-18 fix the guard is emitted as
+   `if not n_geom: raise ...` so `stripValueAssertions` no longer removes it.)
 3. **Kept everything already correct** — the full-extent polygon build, the bounded
    DuckDB leaf reads, the `write_output` shape — untouched.
 
