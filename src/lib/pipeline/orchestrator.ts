@@ -22,8 +22,9 @@ import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
 import { estimateRun, reportEstimate } from "@/lib/pipeline/estimate";
-import { generateText } from "ai";
-import { withPhase } from "@/lib/cost/accumulator";
+import { streamText } from "ai";
+import { withPhaseSync } from "@/lib/cost/accumulator";
+import { getRunSignal, isRunStopped } from "@/lib/pipeline/run-control";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
@@ -155,8 +156,9 @@ export async function runPipeline(
   const generateFixedCode = async (
     priorAttempts: { code: string; error: string }[]
   ): Promise<string> => {
-    const retryResult = await withPhase("code_gen", () =>
-      generateText({
+    // Stream (see generateAnalysisCode): stall-detected + /stop-killable.
+    const retryResult = withPhaseSync("code_gen", () =>
+      streamText({
         model: getModel(model),
         system: cachedSystem(
           "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
@@ -166,13 +168,15 @@ export async function runPipeline(
         prompt: buildRetryPromptMulti(priorAttempts, schema),
         temperature: 0,
         maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+        abortSignal: getRunSignal(),
       })
     );
+    const retryText = await retryResult.text;
     return fixColumnNameCase(
       stripValueAssertions(
         fixMissingSqlFString(
           fixReadCsvDelimiter(
-            fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(retryResult.text), schema.filename))
+            fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(retryText), schema.filename))
           )
         )
       ),
@@ -224,19 +228,42 @@ export async function runPipeline(
 
   // Step 1: Generate analysis code
   onStage?.("generating_code");
-  let code: string;
-  try {
-    code = await generateAnalysisCode(
-      schema,
-      question,
-      mode,
-      model,
-      workbookContext,
-      localFileContext,
-      priorTurns,
-      purpose
-    );
-  } catch (err: unknown) {
+  // A transient CLI/backend stall on the FIRST code-gen call would otherwise kill
+  // the whole run — the execution-retry loop below only kicks in AFTER a
+  // successful codegen. Retry once on a transport failure (streaming's stall
+  // timeout now surfaces a hang in minutes, not the old 10-min wall clock), but
+  // NEVER after a user /stop — that abort is intentional.
+  const MAX_CODEGEN_ATTEMPTS = 2;
+  let code: string | undefined;
+  let lastCodegenErr: unknown;
+  for (let a = 1; a <= MAX_CODEGEN_ATTEMPTS; a++) {
+    try {
+      code = await generateAnalysisCode(
+        schema,
+        question,
+        mode,
+        model,
+        workbookContext,
+        localFileContext,
+        priorTurns,
+        purpose
+      );
+      break;
+    } catch (err: unknown) {
+      lastCodegenErr = err;
+      if (isRunStopped()) break; // user cancelled — do not retry a stop
+      if (a < MAX_CODEGEN_ATTEMPTS) {
+        const m = err instanceof Error ? err.message : String(err);
+        logger.warn("Initial code-gen failed — retrying once", {
+          attempt: a,
+          error: m.slice(0, 200),
+        });
+        recordRunEvent({ type: "codegen_retry", attempt: a, error: m.slice(0, 200) });
+      }
+    }
+  }
+  if (code === undefined) {
+    const err = lastCodegenErr;
     const msg = err instanceof Error ? err.message : String(err);
     recordRunEvent({ type: "codegen_failed", attempt: attemptIndex, error: msg });
     // Log the full error including any nested cause/errors for debugging

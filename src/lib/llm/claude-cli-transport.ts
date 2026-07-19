@@ -22,6 +22,7 @@ import { existsSync } from "node:fs";
 import { Readable } from "node:stream";
 import { once } from "node:events";
 import { logger, serializeError } from "@/lib/logger";
+import { getRunSignal } from "@/lib/pipeline/run-control";
 import {
   responsesJSON,
   responsesSSE,
@@ -344,6 +345,29 @@ export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number }
 
     // Late errors (after a successful spawn) must not crash the process.
     child.on("error", (err) => logger.error("claudeCliFetch: child error", serializeError(err)));
+
+    // Stop must actually kill the CLI. The AI SDK aborts the fetch (init.signal)
+    // on the caller's abortSignal; we ALSO fall back to the run's abort signal
+    // (getRunSignal) so a /stop kills the child even if a call site forgot to
+    // thread the signal — otherwise a SIGKILL never reaches the spawned `claude`
+    // and it keeps running (and billing) after the user stopped the run. Covers
+    // both the streaming and non-streaming paths below.
+    const abortSignal = init?.signal ?? getRunSignal();
+    if (abortSignal) {
+      const killChild = () => {
+        logger.info("claudeCliFetch: aborted — killing CLI process");
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      };
+      if (abortSignal.aborted) killChild();
+      else {
+        abortSignal.addEventListener("abort", killChild, { once: true });
+        child.once("close", () => abortSignal.removeEventListener("abort", killChild));
+      }
+    }
 
     let stderr = "";
     child.stderr.on("data", (d: Buffer) => {

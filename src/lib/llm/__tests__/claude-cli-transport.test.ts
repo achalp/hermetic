@@ -14,6 +14,9 @@ vi.mock("node:fs", () => ({ existsSync: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   serializeError: (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }),
+  // run-context (pulled in transitively via run-control, imported by the
+  // transport for getRunSignal) calls this at module load.
+  setRunIdProvider: vi.fn(),
 }));
 
 import { spawn, execSync } from "node:child_process";
@@ -362,6 +365,32 @@ describe("claudeCliFetch", () => {
     // The flattened prompt was written to stdin.
     const child = mockedSpawn.mock.results[0].value;
     expect(child.stdin.write).toHaveBeenCalledWith("What is 6*7?");
+  });
+
+  it("SIGKILLs the CLI child when the request signal is aborted (stop)", async () => {
+    // Regression: a /stop aborts the fetch, but the transport used to ignore
+    // init.signal, so the spawned `claude` kept running (and billing). It must
+    // now kill the child.
+    const child = makeChild({
+      stdout: JSON.stringify({ type: "result", subtype: "success", result: "x", usage: {} }),
+    });
+    mockedSpawn.mockReturnValue(child as never);
+
+    const controller = new AbortController();
+    controller.abort(); // stopped before the CLI can finish
+
+    await claudeCliFetch()("http://claude-cli.local/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        instructions: "x",
+        input: [{ role: "user", content: "hi" }],
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
   });
 
   it("surfaces cache-read tokens as input_tokens_details so they price cheaply", async () => {

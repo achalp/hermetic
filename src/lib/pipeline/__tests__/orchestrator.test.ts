@@ -15,7 +15,7 @@ vi.mock("@/lib/sandbox", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/sandbox")>();
   return { ...actual, executeSandbox: vi.fn() };
 });
-vi.mock("ai", () => ({ generateText: vi.fn() }));
+vi.mock("ai", () => ({ generateText: vi.fn(), streamText: vi.fn() }));
 vi.mock("@/lib/llm/client", () => ({
   getModel: vi.fn(() => ({}) as never),
   cachedSystem: vi.fn((s: string) => s),
@@ -25,12 +25,13 @@ vi.mock("@/lib/diagnostics/failure-log", () => ({ recordFailure: vi.fn(async () 
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateAnalysisCode } from "@/lib/llm/code-generation";
 import { executeSandbox } from "@/lib/sandbox";
-import { generateText } from "ai";
+import { streamText } from "ai";
 import type { CSVSchema } from "@/lib/types";
 
 const mockedGen = vi.mocked(generateAnalysisCode);
 const mockedExec = vi.mocked(executeSandbox);
-const mockedRetryLlm = vi.mocked(generateText);
+// The retry path uses streamText (returns { text: Promise<string> }).
+const mockedRetryLlm = vi.mocked(streamText);
 
 const schema: CSVSchema = {
   csv_id: "csv-1",
@@ -60,7 +61,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockedGen.mockResolvedValue("print('v1')");
   // Retry LLM always returns fixed code.
-  mockedRetryLlm.mockResolvedValue({ text: "print('fixed')" } as never);
+  mockedRetryLlm.mockReturnValue({ text: Promise.resolve("print('fixed')") } as never);
 });
 
 describe("runPipeline retry loop", () => {
@@ -142,7 +143,9 @@ describe("runPipeline retry loop", () => {
 
   it("surfaces the underlying LLM error when the retry call itself fails", async () => {
     mockedExec.mockResolvedValue(fail("KeyError: 'colX'"));
-    mockedRetryLlm.mockRejectedValue(new Error("Cannot connect to API"));
+    mockedRetryLlm.mockImplementation(
+      () => ({ text: Promise.reject(new Error("Cannot connect to API")) }) as never
+    );
     await expect(runPipeline(schema, "csv", "q")).rejects.toThrow(
       /retry LLM call also failed[\s\S]*KeyError[\s\S]*Cannot connect/
     );

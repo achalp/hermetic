@@ -20,6 +20,7 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
+import { getRunSignal } from "@/lib/pipeline/run-control";
 import { CODE_REVIEW_MODEL } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 
@@ -71,7 +72,7 @@ function buildReviewSystemPrompt(memLabel: string | null): string {
     `ENGINE-BBOX — a named administrative area (country/state/city) is filtered by a HARDCODED lat/lon bounding box instead of its boundary polygon (ST_Contains against a simplified region). A raw USA box leaks Canada/Mexico and corrupts edge/superlative answers. (A bbox as a cheap PRE-filter BEFORE a polygon test is fine.)\n` +
     `ENGINE-PANDAS — filtering/joining/aggregating that should run in DuckDB SQL is instead done by pulling data into pandas and looping/filtering in Python over a large frame.\n` +
     `HARDCODE-EXTENT — magic coordinates/extents that should be DERIVED from the data (the divisions Phase-A extent) are hardcoded, so a clamp silently excludes the target (e.g. a country boundary row whose bbox spans the antimeridian).\n` +
-    `GUARD-NULL — a region polygon / boundary is used in ST_Contains without first asserting it is non-NULL; a NULL polygon silently rejects every row and yields "no candidate" instead of failing loud.\n\n` +
+    `GUARD-NULL — a region polygon / boundary is used in ST_Contains without a preceding \`if not n_geom: raise ...\` non-NULL check (a NULL polygon silently rejects every row → "no candidate" instead of failing loud). Note: an \`assert n_geom == 1\` does NOT count — the pipeline strips assertions comparing to a literal number, so only an \`if … raise\` guard actually runs.\n\n` +
     `Respond with ONLY a JSON object, no markdown fencing, no prose:\n` +
     `{"findings":[{"rule":"<RULE-ID>","severity":"severe|minor","message":"<one sentence: what line/pattern, why it fails at scale, the concrete fix>"}]}\n` +
     `Empty findings ({"findings":[]}) means the code is clean.`
@@ -113,6 +114,7 @@ export async function reviewGeneratedCode(
         prompt: `## Question\n${question}\n\n## Code to review\n\`\`\`python\n${code}\n\`\`\``,
         temperature: 0,
         maxOutputTokens: 2048,
+        abortSignal: getRunSignal(),
       })
     );
 

@@ -1,5 +1,6 @@
-import { generateText } from "ai";
-import { withPhase } from "@/lib/cost/accumulator";
+import { generateText, streamText } from "ai";
+import { withPhase, withPhaseSync } from "@/lib/cost/accumulator";
+import { getRunSignal } from "@/lib/pipeline/run-control";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "./client";
 import {
   buildCodeGenSystemPrompt,
@@ -207,8 +208,15 @@ export async function generateAnalysisCode(
     ? `\n${buildConversationHistorySection(priorTurns)}## Question\n${question}`
     : `\n## Question\n${question}`;
 
-  const result = await withPhase("code_gen", () =>
-    generateText({
+  // STREAM (not generateText): a non-streaming CLI call has only a 10-min
+  // wall-clock timeout and NO stall detection — a hung backend burns the full
+  // 10 min then hard-fails (observed: run f3bdc1b2). Streaming routes through
+  // responsesSSE's stall timeout, so a stalled generation aborts in minutes, and
+  // the run's abortSignal (getRunSignal) lets /stop actually kill it mid-stream.
+  // withPhaseSync because streamText kicks off the request eagerly and reports
+  // usage during consumption (see cost/accumulator).
+  const result = withPhaseSync("code_gen", () =>
+    streamText({
       model: getModel(model),
       system: cachedSystem(
         buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain, purpose)
@@ -218,14 +226,16 @@ export async function generateAnalysisCode(
       ],
       temperature: 0,
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+      abortSignal: getRunSignal(),
     })
   );
+  const generatedText = await result.text;
 
   return fixColumnNameCase(
     stripValueAssertions(
       fixMissingSqlFString(
         fixReadCsvDelimiter(
-          fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(result.text), schema.filename))
+          fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(generatedText), schema.filename))
         )
       )
     ),
