@@ -235,15 +235,17 @@ try:
     # be restored at the end — pure retention overhead for aggregate/ORDER BY analytics
     # (our queries never rely on raw scan order). Off lets operators stream/spill.
     _ddb_set("SET preserve_insertion_order=false")
-    # Self-report the RESOLVED config so the host logs prove which settings ACTUALLY
-    # applied in THIS container (parse-output surfaces this line on failure). No more
-    # guessing whether a prelude change is live.
+    # Self-report the RESOLVED config to a FILE (not stderr) so parse-output can
+    # surface it, WITHOUT polluting the shared stderr stream — writing it to stderr
+    # made it the first line other error handlers grab (a parquet schema-extraction
+    # failure surfaced this line instead of the real DESCRIBE error). Written to the
+    # workdir at startup, so it survives a hard-kill OOM. Best-effort.
     try:
-        _sys.stderr.write(
-            "HERMETIC_DUCKDB_CFG: threads=%d(applied=%s) memory_limit=%s preserve_insertion_order=false\\n"
-            % (_threads, _threads_ok, (("%dMB" % _ddb_mb) if _ddb_mb else "default"))
-        )
-        _sys.stderr.flush()
+        with open("/data/hermetic_duckdb_cfg.txt", "w") as _cf:
+            _cf.write(
+                "HERMETIC_DUCKDB_CFG: threads=%d(applied=%s) memory_limit=%s preserve_insertion_order=false\\n"
+                % (_threads, _threads_ok, (("%dMB" % _ddb_mb) if _ddb_mb else "default"))
+            )
     except Exception:
         pass
     # ── Bounded .df() materialization guard (auto-injected) ──────────────────

@@ -188,9 +188,17 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     });
     // Surface the prelude's self-reported DuckDB config to the console log so we
     // can SEE which settings actually applied in the container (e.g. threads and
-    // whether the cap even took) — critical for diagnosing a scan OOM.
-    const cfg = `${stderr}\n${stdout}`.split("\n").find((l) => l.includes("HERMETIC_DUCKDB_CFG"));
-    if (cfg) logger.info("Sandbox DuckDB config", { runtime: opts.runtime, config: cfg.trim() });
+    // whether the cap even took) — critical for diagnosing a scan OOM. Read from
+    // the dedicated file (the prelude writes it there, NOT stderr — a stderr write
+    // polluted other error handlers' output). Fall back to a stderr scan for an
+    // old container that still emits it to stderr.
+    const cfg =
+      (await opts.readFile(`${workDir}/hermetic_duckdb_cfg.txt`))?.trim() ||
+      `${stderr}\n${stdout}`
+        .split("\n")
+        .find((l) => l.includes("HERMETIC_DUCKDB_CFG"))
+        ?.trim();
+    if (cfg) logger.info("Sandbox DuckDB config", { runtime: opts.runtime, config: cfg });
 
     // Post-mortem bundle saved to the run recorder (attempt-NN.diag.txt): the
     // config line survives a HARD-kill OOM here even when the container is torn
@@ -202,7 +210,7 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     );
     const execDiag = [
       `exitCode=${opts.exitCode} phase=${phaseNow ?? "(unknown)"}`,
-      cfg?.trim() ?? "HERMETIC_DUCKDB_CFG: (not emitted — prelude config block did not run)",
+      cfg ?? "HERMETIC_DUCKDB_CFG: (not emitted — prelude config block did not run)",
       `--- stderr tail ---\n${stderr.slice(-1500)}`,
       `--- stdout tail ---\n${stdout.slice(-800)}`,
     ].join("\n");
