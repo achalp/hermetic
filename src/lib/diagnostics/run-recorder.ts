@@ -113,6 +113,8 @@ export function recordAttemptOutcome(
     errorKind?: string;
     executionMs?: number;
     hasResults?: boolean;
+    /** Post-mortem diagnostics (config line, phase, stderr/stdout tails). */
+    execDiag?: string;
   }
 ): void {
   recordRunEvent({
@@ -126,6 +128,11 @@ export function recordAttemptOutcome(
   });
   if (!outcome.success && outcome.error) {
     recordRunArtifact(`attempt-${pad(attempt)}.error.txt`, outcome.error);
+  }
+  // Always persist the exec diagnostics on failure — survives a hard-kill OOM
+  // where the container is reaped before the console can surface the config line.
+  if (!outcome.success && outcome.execDiag) {
+    recordRunArtifact(`attempt-${pad(attempt)}.diag.txt`, outcome.execDiag);
   }
 }
 

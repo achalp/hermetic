@@ -127,6 +127,14 @@ export interface SandboxExecutionError {
    */
   errorKind?: "timeout" | "oom" | "stopped";
   execution_ms: number;
+  /**
+   * Post-mortem diagnostics captured at failure — the container's self-reported
+   * DuckDB config line (HERMETIC_DUCKDB_CFG: threads=…), the OOM phase, and a
+   * stderr tail. Saved as attempt-NN.diag.txt so a hard-kill OOM (where the
+   * container is torn down before the console can surface it) is still
+   * diagnosable from the run recorder.
+   */
+  execDiag?: string;
 }
 
 export type ExecutionResult = SandboxExecutionResult | SandboxExecutionError;

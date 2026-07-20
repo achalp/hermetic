@@ -330,6 +330,7 @@ export async function runPipeline(
     errorKind: result.success ? undefined : result.errorKind,
     executionMs: result.execution_ms,
     hasResults: result.success && !!result.results,
+    execDiag: result.success ? undefined : result.execDiag,
   });
 
   // Step 3: Self-correction loop. Up to MAX_RETRIES attempts. Each retry
@@ -453,6 +454,7 @@ export async function runPipeline(
       errorKind: result.success ? undefined : result.errorKind,
       executionMs: result.execution_ms,
       hasResults: result.success && !!result.results,
+      execDiag: result.success ? undefined : result.execDiag,
     });
 
     code = retryCode;

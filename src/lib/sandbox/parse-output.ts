@@ -192,6 +192,21 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     const cfg = `${stderr}\n${stdout}`.split("\n").find((l) => l.includes("HERMETIC_DUCKDB_CFG"));
     if (cfg) logger.info("Sandbox DuckDB config", { runtime: opts.runtime, config: cfg.trim() });
 
+    // Post-mortem bundle saved to the run recorder (attempt-NN.diag.txt): the
+    // config line survives a HARD-kill OOM here even when the container is torn
+    // down before the console can surface it. `(not emitted)` is itself a signal —
+    // it means the prelude's config block never ran.
+    const phaseNow = extractOomPhase(
+      stderr.split("\n").find((l) => l.includes(OOM_PREDICTED_MARKER)),
+      stdout
+    );
+    const execDiag = [
+      `exitCode=${opts.exitCode} phase=${phaseNow ?? "(unknown)"}`,
+      cfg?.trim() ?? "HERMETIC_DUCKDB_CFG: (not emitted — prelude config block did not run)",
+      `--- stderr tail ---\n${stderr.slice(-1500)}`,
+      `--- stdout tail ---\n${stdout.slice(-800)}`,
+    ].join("\n");
+
     if (opts.exitCode === 137 || /\bKilled\b/.test(stderr)) {
       const predicted = stderr
         .split("\n")
@@ -208,7 +223,7 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
           ? "Predicted OOM — the watchdog aborted before the kernel OOM-kill."
           : "Out of memory — the analysis process was killed (OOM).";
         const error = `${lead} Memory peaked during phase: "${phase}".\n${phaseGuidance}`;
-        return { success: false, error, errorKind: "oom", execution_ms: executionMs };
+        return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
       }
       // No phase-specific hint matched — but STILL surface the phase (don't strip
       // it): knowing which step OOM'd (polygon build vs coarse scan vs leaf) is the
@@ -219,12 +234,13 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
             .replace(/\[phase=[^\]]*\]\s*/, "")
         : OOM_ERROR;
       const error = phase ? `Memory peaked during phase: "${phase}".\n${base}` : base;
-      return { success: false, error, errorKind: "oom", execution_ms: executionMs };
+      return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
     }
     return {
       success: false,
       error: stderr || "Unknown execution error",
       execution_ms: executionMs,
+      execDiag,
     };
   }
 
