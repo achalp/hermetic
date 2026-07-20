@@ -1075,7 +1075,19 @@ fi
 # ── 8. Install dependencies ──────────────────────────────
 step "Installing dependencies"
 
-npm install --loglevel=error
+# This is a pnpm project (package.json "packageManager": pnpm). Running `npm
+# install` here IGNORES pnpm-lock.yaml, re-resolves the whole tree from the
+# registry, and rebuilds node_modules from pnpm's symlink layout into npm's flat
+# layout — so it thrashes against pnpm and does a FULL reinstall on EVERY launch.
+# Use pnpm (via corepack, so the pinned version runs even without a global pnpm)
+# with a frozen lockfile: near-instant when node_modules already matches, and it
+# never rewrites the lockfile. Fall back to a normal install on lockfile drift.
+PNPM="pnpm"
+command -v pnpm &>/dev/null || PNPM="corepack pnpm"
+if ! $PNPM install --frozen-lockfile; then
+  warn "Frozen install failed (lockfile drift?) — running a normal pnpm install"
+  $PNPM install
+fi
 ok "Done"
 
 # ── 9. Build sandbox ─────────────────────────────────────
@@ -1106,7 +1118,7 @@ echo -e "    ${DIM}Runtime: $RUNTIME${RESET}"
 
 if [ "$RUNTIME" = "microsandbox" ]; then
   # Start dev server in background so we can warm up the sandbox
-  npm run dev -- -H 127.0.0.1 &
+  $PNPM run dev -- -H 127.0.0.1 &
   DEV_PID=$!
 
   # Wait for server to be ready
@@ -1152,5 +1164,5 @@ else
   # Open browser after a short delay (in background)
   (sleep 3 && open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000" 2>/dev/null || true) &
 
-  exec npm run dev -- -H 127.0.0.1
+  exec $PNPM run dev -- -H 127.0.0.1
 fi
