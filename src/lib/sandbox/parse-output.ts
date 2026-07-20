@@ -210,13 +210,15 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         const error = `${lead} Memory peaked during phase: "${phase}".\n${phaseGuidance}`;
         return { success: false, error, errorKind: "oom", execution_ms: executionMs };
       }
-      // No phase match → preserve prior behavior: the watchdog's verbatim marker
-      // (its own strategy-switch guidance) or the generic two-case OOM_ERROR.
-      const error = predicted
+      // No phase-specific hint matched — but STILL surface the phase (don't strip
+      // it): knowing which step OOM'd (polygon build vs coarse scan vs leaf) is the
+      // single most useful fact for the retry, even without a canned remedy.
+      const base = predicted
         ? predicted
             .slice(predicted.indexOf(OOM_PREDICTED_MARKER))
             .replace(/\[phase=[^\]]*\]\s*/, "")
         : OOM_ERROR;
+      const error = phase ? `Memory peaked during phase: "${phase}".\n${base}` : base;
       return { success: false, error, errorKind: "oom", execution_ms: executionMs };
     }
     return {
