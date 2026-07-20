@@ -760,12 +760,20 @@ export function ResponsePanel({
         </div>
       )}
 
-      {/* Streaming indicator — the notebook renders its own live cells */}
-      {notebookActive && isStreaming ? null : isStreaming && mode === "investigate" ? (
-        <InvestigateProgress spec={activeSpec} />
-      ) : isStreaming ? (
-        <PipelineProgress spec={activeSpec} drillStack={drillStack} previousSpec={previousSpec} />
-      ) : null}
+      {/* Streaming indicator — the notebook renders its own live cells.
+          `showProgress` also covers a REATTACH to a live run: the attach stream
+          delivers valid progress patches but `isStreaming` can read false between
+          the buffer replay and the live tail, which would otherwise leave a blank
+          screen even though the run is still executing. While a reattach is
+          pending (reattachRunId set, no dashboard yet), keep the progress up. */}
+      {(() => {
+        const showProgress = isStreaming || (!!reattachRunId && !activeSpec?.root);
+        return notebookActive && showProgress ? null : showProgress && mode === "investigate" ? (
+          <InvestigateProgress spec={activeSpec} />
+        ) : showProgress ? (
+          <PipelineProgress spec={activeSpec} drillStack={drillStack} previousSpec={previousSpec} />
+        ) : null;
+      })()}
 
       {/* Data-quality + grounding caveats for an Investigate result. Rendered
           above the dashboard so degraded/failed/dropped branches and any
