@@ -1117,8 +1117,12 @@ echo ""
 echo -e "    ${DIM}Runtime: $RUNTIME${RESET}"
 
 if [ "$RUNTIME" = "microsandbox" ]; then
-  # Start dev server in background so we can warm up the sandbox
-  $PNPM run dev -- -H 127.0.0.1 &
+  # Start dev server in background so we can warm up the sandbox.
+  # `npm run` (not `npm install`) only EXECUTES the dev script — it never touches
+  # node_modules, so it can't reintroduce the pnpm/npm thrash. It's used here
+  # because npm strips `--` cleanly, whereas `pnpm run dev -- …` forwards the `--`
+  # into `next dev`, which then reads `-H` as the project directory and fails.
+  npm run dev -- -H 127.0.0.1 &
   DEV_PID=$!
 
   # Wait for server to be ready
@@ -1164,5 +1168,8 @@ else
   # Open browser after a short delay (in background)
   (sleep 3 && open "http://localhost:3000" 2>/dev/null || xdg-open "http://localhost:3000" 2>/dev/null || true) &
 
-  exec $PNPM run dev -- -H 127.0.0.1
+  # `npm run` only executes the dev script (never installs), and npm strips `--`
+  # cleanly — `pnpm run dev -- …` forwards the `--` into `next dev`, which then
+  # treats `-H` as the project directory and fails.
+  exec npm run dev -- -H 127.0.0.1
 fi
