@@ -186,6 +186,11 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
       stderrTail: stderr.length > 1000 ? stderr.slice(-500) : undefined,
       stdoutTail: stdout ? stdout.slice(-500) : undefined,
     });
+    // Surface the prelude's self-reported DuckDB config to the console log so we
+    // can SEE which settings actually applied in the container (e.g. threads and
+    // whether the cap even took) — critical for diagnosing a scan OOM.
+    const cfg = `${stderr}\n${stdout}`.split("\n").find((l) => l.includes("HERMETIC_DUCKDB_CFG"));
+    if (cfg) logger.info("Sandbox DuckDB config", { runtime: opts.runtime, config: cfg.trim() });
 
     if (opts.exitCode === 137 || /\bKilled\b/.test(stderr)) {
       const predicted = stderr

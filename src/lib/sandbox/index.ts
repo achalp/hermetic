@@ -196,40 +196,52 @@ try:
     # side and OOMs a big remote scan. Cap DuckDB LOW — leave ≥ ~1.5 GB (or half the
     # cap) for pandas/numpy/scipy + httpfs read buffers. Verified: a 179M-row USA
     # grid-count runs at ~72 MB peak under a 1 GB DuckDB limit, vs OOM at the default.
+    # Apply each PRAGMA in its OWN try — a single unsupported SET on this DuckDB
+    # build must NEVER skip the ones after it. (Bug: threads + preserve_insertion_order
+    # + the config log used to share ONE try with SET max_temp_directory_size; if that
+    # threw, the thread cap silently never applied and the 2.5B-row scan ran at
+    # default all-cores → OOM. Observed exactly that.)
+    def _ddb_set(_stmt):
+        try:
+            _orig_duckdb_sql(_stmt)
+            return True
+        except Exception:
+            return False
+    _ddb_mb = None
+    if _MEM_LIMIT:
+        _headroom = 1536 * 1024 * 1024  # bytes to reserve outside DuckDB
+        _ddb_bytes = min(_MEM_LIMIT * 0.5, _MEM_LIMIT - _headroom)
+        _ddb_mb = max(384, int(_ddb_bytes / (1024 * 1024)))
+        _ddb_set("SET memory_limit='%dMB'" % _ddb_mb)
+        _ddb_set("SET temp_directory='/tmp/duckdb_spill'")
+        _ddb_set("SET max_temp_directory_size='40GB'")
+    # Cap scan THREADS relative to the cap. memory_limit bounds DuckDB's buffer
+    # manager (hash tables/sorts — spillable), NOT the parallel Parquet/httpfs scan's
+    # per-thread row-group read+decompress buffers: those are LIVE (never spill) and
+    # scale with thread count, so a default all-cores scan over a 2.5B-row remote
+    # parquet blows the cgroup cap even with memory_limit set. ~1 thread per 1.5 GB of
+    # cap keeps concurrent read buffers in budget; floor 2 for I/O overlap on a
+    # network-bound S3 scan, never above the host cores.
+    _cores = _os.cpu_count() or 4
+    if _MEM_LIMIT:
+        # ~1 thread per 2 GB of cap. At the observed ~4.6 GB container this yields
+        # 2 — the ONLY value proven to complete a USA 2.5B-row scan (the one 15-min
+        # success set threads=2 in its own code); 3 was never shown to work.
+        _threads = max(2, min(_cores, int(_MEM_LIMIT / (1024 ** 3) / 2.0)))
+    else:
+        _threads = min(_cores, 4)
+    _threads_ok = _ddb_set("SET threads=%d" % _threads)
+    # Insertion-order preservation buffers a parallel scan's output so input order can
+    # be restored at the end — pure retention overhead for aggregate/ORDER BY analytics
+    # (our queries never rely on raw scan order). Off lets operators stream/spill.
+    _ddb_set("SET preserve_insertion_order=false")
+    # Self-report the RESOLVED config so the host logs prove which settings ACTUALLY
+    # applied in THIS container (parse-output surfaces this line on failure). No more
+    # guessing whether a prelude change is live.
     try:
-        if _MEM_LIMIT:
-            _headroom = 1536 * 1024 * 1024  # bytes to reserve outside DuckDB
-            _ddb_bytes = min(_MEM_LIMIT * 0.5, _MEM_LIMIT - _headroom)
-            _ddb_mb = max(384, int(_ddb_bytes / (1024 * 1024)))
-            _orig_duckdb_sql("SET memory_limit='%dMB'" % _ddb_mb)
-            _orig_duckdb_sql("SET temp_directory='/tmp/duckdb_spill'")
-            _orig_duckdb_sql("SET max_temp_directory_size='40GB'")
-        # Cap scan THREADS relative to the cap. memory_limit bounds DuckDB's buffer
-        # manager (hash tables/sorts — spillable), NOT the parallel Parquet/httpfs
-        # scan's per-thread row-group read+decompress buffers: those are LIVE (never
-        # spill) and scale with thread count, so a default all-cores scan over a
-        # 2.5B-row remote parquet blows the cgroup cap even with memory_limit set
-        # (observed: 3x 20-25min OOMs on a USA superlative, fixed only by lowering
-        # threads). ~1 thread per 1.5 GB of cap keeps concurrent read buffers within
-        # budget; floor 2 for I/O overlap on a network-bound S3 scan, never above
-        # the host cores.
-        _cores = _os.cpu_count() or 4
-        if _MEM_LIMIT:
-            _threads = max(2, min(_cores, int(_MEM_LIMIT / (1024 ** 3) / 1.5)))
-        else:
-            _threads = min(_cores, 4)
-        _orig_duckdb_sql("SET threads=%d" % _threads)
-        # Insertion-order preservation buffers a parallel scan's output so input
-        # order can be restored at the end — pure retention overhead for aggregate/
-        # ORDER BY analytics (our queries never rely on raw scan order). Off lets
-        # operators stream/spill instead of holding rows to reorder them.
-        _orig_duckdb_sql("SET preserve_insertion_order=false")
-        # Self-report the RESOLVED DuckDB config so the host logs prove which
-        # settings actually applied in THIS container — no more guessing whether a
-        # prelude change is live. Marker line is greppable in stdout/stderr.
         _sys.stderr.write(
-            "HERMETIC_DUCKDB_CFG: threads=%d memory_limit=%s preserve_insertion_order=false\\n"
-            % (_threads, (("%dMB" % _ddb_mb) if _MEM_LIMIT else "default"))
+            "HERMETIC_DUCKDB_CFG: threads=%d(applied=%s) memory_limit=%s preserve_insertion_order=false\\n"
+            % (_threads, _threads_ok, (("%dMB" % _ddb_mb) if _ddb_mb else "default"))
         )
         _sys.stderr.flush()
     except Exception:
