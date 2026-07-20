@@ -86,12 +86,21 @@ function extractJsonObject(text: string): string | null {
   return text.slice(start, end + 1);
 }
 
+/**
+ * Feedback sent back to the writer for a redo. We deliberately send EVERY finding
+ * — NOT just the severe ones — and WITHOUT the severity label, with a "fix
+ * everything" ask. Rationale: the critic's severity CALIBRATION is unreliable (a
+ * finding it rated "minor — won't OOM" caused a 16-min OOM). The severity stays in
+ * the journal for forensics, but the writer is told to fix all of it and isn't
+ * given a minor/major tag to rationalize skipping any. Rule ids stay (they're
+ * useful context, not a severity signal).
+ */
 function formatFeedback(findings: ReviewFinding[]): string {
-  const severe = findings.filter((f) => f.severity === "severe");
-  const lines = severe.map((f) => `- [${f.rule}] ${f.message}`).join("\n");
+  const lines = findings.map((f) => `- [${f.rule}] ${f.message}`).join("\n");
   return (
-    "A pre-execution review flagged SEVERE issues that would crash, OOM, or produce a wrong answer at this data scale. " +
-    "Rewrite the code to fix ALL of them; keep everything that is already correct:\n" +
+    "A pre-execution review flagged the issues below (memory, correctness, or engine-usage) that could crash, OOM, " +
+    "produce a wrong answer, or waste a long run at this data scale. Rewrite the code to fix EVERY one of them — do " +
+    "not skip any as minor — and keep everything that is already correct:\n" +
     lines
   );
 }
@@ -124,12 +133,15 @@ export async function reviewGeneratedCode(
     if (!parsed.success) return CLEAN_REVIEW;
 
     const findings = parsed.data.findings;
-    const severe = findings.some((f) => f.severity === "severe");
-    const severity: ReviewSeverity = severe ? "severe" : findings.length > 0 ? "minor" : "none";
+    // Severity is recorded (journal/forensics) but NO LONGER gates the redo:
+    // ANY finding triggers a fix-everything redo (see formatFeedback). The
+    // per-finding severity the critic assigned is kept in `findings` for the log.
+    const anySevere = findings.some((f) => f.severity === "severe");
+    const severity: ReviewSeverity = anySevere ? "severe" : findings.length > 0 ? "minor" : "none";
     return {
       severity,
       findings,
-      feedback: severe ? formatFeedback(findings) : "",
+      feedback: findings.length > 0 ? formatFeedback(findings) : "",
     };
   } catch (err) {
     // Fail open — a flaky/unavailable critic must never block execution.

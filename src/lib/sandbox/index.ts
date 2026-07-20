@@ -224,6 +224,14 @@ try:
         # ORDER BY analytics (our queries never rely on raw scan order). Off lets
         # operators stream/spill instead of holding rows to reorder them.
         _orig_duckdb_sql("SET preserve_insertion_order=false")
+        # Self-report the RESOLVED DuckDB config so the host logs prove which
+        # settings actually applied in THIS container — no more guessing whether a
+        # prelude change is live. Marker line is greppable in stdout/stderr.
+        _sys.stderr.write(
+            "HERMETIC_DUCKDB_CFG: threads=%d memory_limit=%s preserve_insertion_order=false\\n"
+            % (_threads, (("%dMB" % _ddb_mb) if _MEM_LIMIT else "default"))
+        )
+        _sys.stderr.flush()
     except Exception:
         pass
     # ── Bounded .df() materialization guard (auto-injected) ──────────────────

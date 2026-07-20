@@ -35,19 +35,21 @@ describe("reviewGeneratedCode", () => {
     );
     const review = await reviewGeneratedCode("code", "loneliest building in the USA", "3.8 GB");
     expect(review.severity).toBe("severe");
+    // ALL findings go into the redo feedback now (severity no longer filters) —
+    // the writer is asked to fix everything, minor included.
     expect(review.feedback).toContain("MEM-KDTREE");
-    // Only severe findings go into the redo feedback.
-    expect(review.feedback).not.toContain("ENGINE-PANDAS");
+    expect(review.feedback).toContain("ENGINE-PANDAS");
     expect(review.findings).toHaveLength(2);
   });
 
-  it("returns minor (no redo feedback) when only minor findings are present", async () => {
+  it("still returns feedback for minor-only findings (fix everything)", async () => {
     queue(
       JSON.stringify({ findings: [{ rule: "ENGINE-PANDAS", severity: "minor", message: "x" }] })
     );
     const review = await reviewGeneratedCode("code", "q", "3.8 GB");
     expect(review.severity).toBe("minor");
-    expect(review.feedback).toBe("");
+    // Minor findings now trigger a redo — feedback is non-empty and names the rule.
+    expect(review.feedback).toContain("ENGINE-PANDAS");
   });
 
   it("returns none for a clean verdict (empty findings)", async () => {

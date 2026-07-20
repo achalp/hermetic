@@ -184,10 +184,12 @@ export async function runPipeline(
     );
   };
 
-  // Pre-execution "lint critic": review the code BEFORE running it and, on SEVERE
-  // findings (would OOM / blow the memory cap / answer the wrong region), feed the
-  // findings back for a redo. Bounded by MAX_REVIEW_REDOS. No-op off the geo path,
-  // and fail-open (a broken critic returns "none" and never blocks a run).
+  // Pre-execution "lint critic": review the code BEFORE running it and, on ANY
+  // finding, feed ALL of them back for a fix-everything redo — the critic's
+  // severity calibration proved unreliable (a "minor — won't OOM" finding caused
+  // a 16-min OOM), so we no longer trust it to gate the redo. Severity is still
+  // recorded in the journal for forensics. Bounded by MAX_REVIEW_REDOS. No-op off
+  // the geo path, and fail-open (a broken critic returns "none" and never blocks).
   const reviewAndRevise = async (currentCode: string): Promise<string> => {
     if (!reviewEnabled) return currentCode;
     let code = currentCode;
@@ -200,17 +202,17 @@ export async function runPipeline(
         severity: review.severity,
         findings: review.findings,
       });
-      if (review.severity !== "severe" || redo === MAX_REVIEW_REDOS) {
-        if (review.severity === "severe")
-          logger.info("Code review still severe after redo budget — running anyway", {
+      if (review.severity === "none" || redo === MAX_REVIEW_REDOS) {
+        if (review.severity !== "none")
+          logger.info("Code review still flagged issues after redo budget — running anyway", {
             attempt: attemptIndex,
             findings: review.findings.map((f) => f.rule),
           });
         return code;
       }
-      logger.info("Code review flagged severe issues — regenerating before execution", {
+      logger.info("Code review flagged issues — regenerating before execution", {
         attempt: attemptIndex,
-        findings: review.findings.map((f) => `${f.rule}: ${f.message}`),
+        findings: review.findings.map((f) => `${f.severity}/${f.rule}: ${f.message}`),
       });
       onStage?.("revising_code");
       try {
