@@ -362,13 +362,13 @@ export function ResponsePanel({
     setRecomposeError(null);
     setCitationTarget(null);
 
-    // Reattach: don't start a new analysis — subscribe to the run that's still
-    // executing server-side (replay so far, then live to completion).
-    if (reattachRunId) {
-      isReattachStreamRef.current = true;
-      send("", { runId: reattachRunId });
-      return;
-    }
+    // Reattach is handled by its own effect (keyed on reattachRunId), NOT here.
+    // On resume the panel mounts with questionSeq already advanced, so a send in
+    // this effect would fire during the initial mount — where React StrictMode's
+    // dev mount→unmount→remount aborts the fetch (useUIStream aborts on unmount)
+    // and this effect's lastSeqRef guard then blocks the re-send on remount,
+    // stranding the attach stream (blank progress). See the reattach effect below.
+    if (reattachRunId) return;
 
     // Conversation history is managed server-side (keyed by csvId)
     isReattachStreamRef.current = false;
@@ -395,6 +395,23 @@ export function ResponsePanel({
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionSeq]);
+
+  // Reattach to a run still executing server-side (replay so far, then live to
+  // completion). Kept in its OWN effect keyed on reattachRunId — deliberately
+  // NOT the questionSeq effect above — so it survives a remount. On resume the
+  // panel mounts with reattachRunId already set, so the attach send fires during
+  // the initial mount; React StrictMode (dev) then aborts that fetch on its
+  // simulated unmount. Because this effect re-runs on the remount (no lastSeqRef
+  // latch), useUIStream aborts the first fetch and the second one streams — the
+  // questionSeq effect's guard used to swallow that retry, leaving the panel
+  // stuck on the progressless seed ("Building visualization…"). Also correct in
+  // production, where the effect simply runs once.
+  useEffect(() => {
+    if (!reattachRunId) return;
+    isReattachStreamRef.current = true;
+    send("", { runId: reattachRunId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reattachRunId]);
 
   // Set up drill-down callback ref
   useEffect(() => {
