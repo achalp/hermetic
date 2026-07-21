@@ -7,6 +7,7 @@ import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/li
 import { run } from "@/lib/sandbox/docker-utils";
 import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
+import { friendlyParquetError } from "@/lib/parquet/friendly-error";
 import {
   buildSchemaScript,
   buildRemoteParquetSchemaScript,
@@ -63,7 +64,13 @@ async function runSchemaExtraction(args: {
         "cat",
         "/data/stderr.txt",
       ]).catch(() => ({ stdout: "Unknown error", stderr: "", exitCode: 1 }));
-      throw new Error(`Parquet schema extraction failed: ${stderrResult.stdout}`);
+      // Log the RAW traceback server-side (full detail for debugging), but throw a
+      // short, plain-English message — apiError surfaces err.message to the user,
+      // and a mid-word-truncated Python traceback is not a usable error.
+      logger.warn("Parquet schema extraction failed", {
+        stderr: stderrResult.stdout.slice(0, 4000),
+      });
+      throw new Error(friendlyParquetError(stderrResult.stdout));
     }
 
     const outputResult = await run("docker", ["exec", containerId, "cat", "/data/output.json"]);
