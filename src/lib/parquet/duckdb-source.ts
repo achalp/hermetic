@@ -32,10 +32,29 @@ export function duckdbCloudPreludePy(con = "duckdb"): string {
   return `${con}.sql("${DUCKDB_CLOUD_PRELUDE}")`;
 }
 
+/**
+ * Normalize a REMOTE parquet URL for reading. A bare directory/prefix URL — e.g.
+ * `s3://overturemaps-us-west-2/release/…/type=building` — is NOT a file: DuckDB
+ * resolves it to a single non-existent object → 404 / "No files found". Append the
+ * recursive parquet glob so a hive-partitioned prefix reads the whole dataset,
+ * matching how the analysis path reads it. Explicit files (`…/x.parquet`) and URLs
+ * that already contain a glob (`*`) are left untouched; non-remote paths (no
+ * `://`) pass through (local hive dirs are globbed separately by the caller).
+ * This is why "reopen recent" failed: recent sources store the prefix, but the
+ * schema extraction read it raw.
+ */
+export function normalizeRemoteParquetUrl(url: string): string {
+  if (!url.includes("://") || /\.parquet$/i.test(url) || url.includes("*")) return url;
+  return url.replace(/\/+$/, "") + "/**/*.parquet";
+}
+
 /** A DuckDB `read_parquet(...)` expression for a path OR a remote URL (s3://,
- *  https://). Hive-partitioned folders add the flag so partition columns surface. */
+ *  https://). A bare remote directory/prefix is normalized to the recursive glob
+ *  (see normalizeRemoteParquetUrl) so it reads instead of 404-ing. Hive-partitioned
+ *  folders add the flag so partition columns surface. */
 export function parquetReadExpr(pathOrUrl: string, hivePartitioned = false): string {
-  return `read_parquet('${pathOrUrl}'${hivePartitioned ? ", hive_partitioning=true" : ""})`;
+  const p = normalizeRemoteParquetUrl(pathOrUrl);
+  return `read_parquet('${p}'${hivePartitioned ? ", hive_partitioning=true" : ""})`;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parquetReadExpr,
+  normalizeRemoteParquetUrl,
   parquetFolderContext,
   parquetFileContext,
   resolveLocalSource,
@@ -27,6 +28,27 @@ describe("parquetReadExpr", () => {
     expect(parquetReadExpr("/data/local/**/*.parquet", true)).toBe(
       "read_parquet('/data/local/**/*.parquet', hive_partitioning=true)"
     );
+  });
+
+  it("globs a bare remote directory prefix (fixes the reopen-recent 'No files found')", () => {
+    // A stored recent URL is a prefix — read_parquet on it 404s as a single object.
+    expect(parquetReadExpr("s3://overturemaps-us-west-2/release/x/type=building", true)).toBe(
+      "read_parquet('s3://overturemaps-us-west-2/release/x/type=building/**/*.parquet', hive_partitioning=true)"
+    );
+  });
+});
+
+describe("normalizeRemoteParquetUrl", () => {
+  it("appends the recursive glob to a bare remote directory prefix", () => {
+    expect(normalizeRemoteParquetUrl("s3://b/release/type=building")).toBe(
+      "s3://b/release/type=building/**/*.parquet"
+    );
+    expect(normalizeRemoteParquetUrl("s3://b/dir/")).toBe("s3://b/dir/**/*.parquet");
+  });
+  it("leaves explicit files, existing globs, and local paths untouched", () => {
+    expect(normalizeRemoteParquetUrl("s3://b/f.parquet")).toBe("s3://b/f.parquet");
+    expect(normalizeRemoteParquetUrl("s3://b/**/*.parquet")).toBe("s3://b/**/*.parquet");
+    expect(normalizeRemoteParquetUrl("/local/dir")).toBe("/local/dir");
   });
 });
 

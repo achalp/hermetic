@@ -1,5 +1,9 @@
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
-import { DUCKDB_CLOUD_PRELUDE, parquetReadExpr } from "@/lib/parquet/duckdb-source";
+import {
+  DUCKDB_CLOUD_PRELUDE,
+  parquetReadExpr,
+  normalizeRemoteParquetUrl,
+} from "@/lib/parquet/duckdb-source";
 
 /**
  * The source-agnostic tail of the extraction script: given `describe`,
@@ -410,8 +414,9 @@ export function buildSchemaScript(
  *  profiles a bounded prefix of the data. `readUrl` MUST be a pre-validated URL
  *  (see isSafeParquetUrl) — it is interpolated into the DuckDB SQL. */
 function remoteSetup(readUrl: string, authSql: string, isHivePartitioned = false): string {
+  const url = normalizeRemoteParquetUrl(readUrl);
   const auth = authSql ? `con.sql("${authSql}")\n` : "";
-  const readExpr = parquetReadExpr(readUrl, isHivePartitioned);
+  const readExpr = parquetReadExpr(url, isHivePartitioned);
   return `
 import duckdb
 import json
@@ -427,7 +432,7 @@ FOOTER_SAMPLE_FILES = 32
 con = duckdb.connect()
 con.sql("${DUCKDB_CLOUD_PRELUDE}")
 ${auth}
-PATTERN = '${readUrl}'
+PATTERN = '${url}'
 READ_FULL = "${readExpr}"
 
 # Schema from the dataset (opens one file; partition columns included via hive).
@@ -494,6 +499,7 @@ export function buildRemoteParquetSchemaScript(
  * refresh / ignore-cache controls cover it.)
  */
 export function buildParquetFingerprintScript(readUrl: string, authSql = ""): string {
+  const url = normalizeRemoteParquetUrl(readUrl);
   const auth = authSql ? `con.sql("${authSql}")\n` : "";
   return `
 import duckdb
@@ -504,7 +510,7 @@ con.sql("${DUCKDB_CLOUD_PRELUDE}")
 ${auth}
 row = con.sql(
     "SELECT coalesce(md5(string_agg(file, chr(10) ORDER BY file)), 'empty') AS fp, "
-    "count(*) AS n FROM glob('${readUrl}')"
+    "count(*) AS n FROM glob('${url}')"
 ).fetchone()
 
 with open('/data/output.json', 'w') as f:
