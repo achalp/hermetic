@@ -390,6 +390,8 @@ export default function Home() {
     processUploadFile,
     handleSampleData,
     resetSourceSelect,
+    sourceError,
+    clearSourceError,
   } = useSourceSelect({ handleUpload, handleExcelSheets });
 
   // ── Recent sources (uploads / local / cloud) — the file/cloud analogue of
@@ -1136,6 +1138,27 @@ export default function Home() {
                   <span>{llmWarning}</span>
                   <button
                     onClick={() => setLlmWarning(null)}
+                    className="shrink-0 font-medium hover:opacity-70"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {sourceError && (
+                <div
+                  className="mb-4 flex w-full max-w-[700px] items-center justify-between gap-3 border px-4 py-3 text-sm"
+                  role="alert"
+                  style={{
+                    borderRadius: "var(--radius-card)",
+                    borderColor: "var(--color-error-border)",
+                    backgroundColor: "var(--color-error-bg)",
+                    color: "var(--color-error-text)",
+                  }}
+                >
+                  <span>{sourceError}</span>
+                  <button
+                    onClick={clearSourceError}
                     className="shrink-0 font-medium hover:opacity-70"
                   >
                     Dismiss

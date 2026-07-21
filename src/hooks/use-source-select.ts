@@ -32,6 +32,13 @@ export function useSourceSelect(args: {
   // True once a remote Parquet source is loaded — gates the sidebar refresh
   // control (an uploaded CSV has no source to re-read).
   const [hasRemoteSource, setHasRemoteSource] = useState(false);
+  // User-facing error from a source load (schema extraction, upload). Surfaced as
+  // a dismissable banner by the page — previously these threw uncaught (the remote
+  // path) or were console-logged only (local/upload), so a failure either hit the
+  // Next.js error overlay or vanished silently.
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  const errText = (err: unknown, fallback: string) =>
+    err instanceof Error && err.message ? err.message : fallback;
 
   const handleLocalFileSelect = useCallback(
     async (path: string, type: "file" | "folder") => {
@@ -52,6 +59,7 @@ export function useSourceSelect(args: {
         }
       } catch (err) {
         console.error("Local file schema extraction failed:", err);
+        setSourceError(errText(err, "Couldn't read that file."));
       } finally {
         setIsExtractingLocalSchema(false);
       }
@@ -68,10 +76,17 @@ export function useSourceSelect(args: {
       lastRemoteRef.current = { url, creds };
       setHasRemoteSource(true);
       setIsExtractingLocalSchema(true);
+      setSourceError(null);
       try {
         const data = await extractRemoteParquetSchema(url, creds, force);
         handleUpload(data.csv_id, data.schema);
         setShowLocalBrowser(false);
+      } catch (err) {
+        // Catch (don't rethrow) so the failure shows as an in-app banner instead
+        // of the Next.js error overlay. err.message is already user-friendly
+        // (see friendlyParquetError in the schema route).
+        console.error("Remote Parquet schema extraction failed:", err);
+        setSourceError(errText(err, "Couldn't read that Parquet source."));
       } finally {
         setIsExtractingLocalSchema(false);
       }
@@ -105,6 +120,7 @@ export function useSourceSelect(args: {
         }
       } catch (err) {
         console.error("Upload failed:", err);
+        setSourceError(errText(err, "Upload failed."));
       }
     },
     [handleExcelSheets, handleUpload]
@@ -123,6 +139,7 @@ export function useSourceSelect(args: {
       }
     } catch (err) {
       console.error("Sample data load failed:", err);
+      setSourceError(errText(err, "Couldn't load the sample dataset."));
     }
   }, [handleUpload]);
 
@@ -131,6 +148,7 @@ export function useSourceSelect(args: {
     setShowLocalBrowser(false);
     setIsExtractingLocalSchema(false);
     setHasRemoteSource(false);
+    setSourceError(null);
     lastRemoteRef.current = null;
   }, []);
 
@@ -145,5 +163,7 @@ export function useSourceSelect(args: {
     processUploadFile,
     handleSampleData,
     resetSourceSelect,
+    sourceError,
+    clearSourceError: () => setSourceError(null),
   };
 }
