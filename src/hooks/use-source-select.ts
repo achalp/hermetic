@@ -58,7 +58,7 @@ export function useSourceSelect(args: {
           setShowLocalBrowser(false);
         }
       } catch (err) {
-        console.error("Local file schema extraction failed:", err);
+        console.warn("Local file schema extraction failed:", err);
         setSourceError(errText(err, "Couldn't read that file."));
       } finally {
         setIsExtractingLocalSchema(false);
@@ -84,8 +84,10 @@ export function useSourceSelect(args: {
       } catch (err) {
         // Catch (don't rethrow) so the failure shows as an in-app banner instead
         // of the Next.js error overlay. err.message is already user-friendly
-        // (see friendlyParquetError in the schema route).
-        console.error("Remote Parquet schema extraction failed:", err);
+        // (see friendlyParquetError in the schema route). NOTE: use console.warn,
+        // NOT console.error — Next 16's dev overlay surfaces console.error(Error)
+        // as a "Console ApiError", which would re-cover the app on top of the banner.
+        console.warn("Remote Parquet schema extraction failed:", err);
         setSourceError(errText(err, "Couldn't read that Parquet source."));
       } finally {
         setIsExtractingLocalSchema(false);
@@ -119,7 +121,7 @@ export function useSourceSelect(args: {
           handleUpload(data.csv_id, data.schema);
         }
       } catch (err) {
-        console.error("Upload failed:", err);
+        console.warn("Upload failed:", err);
         setSourceError(errText(err, "Upload failed."));
       }
     },
@@ -138,7 +140,7 @@ export function useSourceSelect(args: {
         handleUpload(data.csv_id, data.schema);
       }
     } catch (err) {
-      console.error("Sample data load failed:", err);
+      console.warn("Sample data load failed:", err);
       setSourceError(errText(err, "Couldn't load the sample dataset."));
     }
   }, [handleUpload]);
