@@ -59,10 +59,10 @@ per-skill `helpers.py`) are follow-ups on this branch, not in this milestone.
 
 `__tests__/equivalence.test.ts` snapshots `buildGeospatialGuidance()` output for
 five schema shapes (geometry+bbox+memGb, geometry-only no memGb, no geometry,
-has_geojson, geometry+geojson) **before** the refactor (snapshots committed from
+has*geojson, geometry+geojson) **before** the refactor (snapshots committed from
 the pre-refactor implementation); the refactored delegate must reproduce them
 byte-for-byte. The builtin bodies are extracted from the monolith
-_programmatically_ (source-slice at section markers), not retyped.
+\_programmatically* (source-slice at section markers), not retyped.
 
 ## Test coverage by surface
 
