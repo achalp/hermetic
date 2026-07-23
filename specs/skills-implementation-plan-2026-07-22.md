@@ -1,9 +1,34 @@
 # Skills Registry — Implementation Plan (Milestone A)
 
 **Date:** 2026-07-22 · **Branch:** `skills-registry`
-**Implements:** Phase 1 of `spec/skills-and-custom-modules-2026-07-22.md` plus the
+**Implements:** Phase 1 of `specs/skills-and-custom-modules-2026-07-22.md` plus the
 user-skill surface of Phase 4. Phases 2–3 (the `hermetic` sandbox package and
 per-skill `helpers.py`) are follow-ups on this branch, not in this milestone.
+
+**STATUS UPDATE (later on 2026-07-22): ALL PHASES IMPLEMENTED** on this branch:
+
+- Phase 2 (commit `80ebf42`): `hermetic_runtime` package — shipped PER-RUN as
+  /data/hermetic_runtime/ (not baked into the image: no rebuild coupling, no
+  version skew), prelude imports + overrides its inline copies (fallback kept
+  one release, path observable via the `runtime_pkg` progress field), stdlib
+  unittest suite runs from vitest when python3 exists, "Also preloaded" system
+  prompt line GENERATED from docstrings (closes the "preloaded wording" TODO).
+- Phase 3 (commit `e3d9b10`): per-skill helpers.py → /data/skill_lib/, auto-
+  advertised imports (signatures extracted from source), built-in planet-scale
+  helper (occ_aware_ub / chebyshev_k / scalar_nn_sql), user skills ship a
+  sibling helpers.py (combined mtime cache). Equivalence snapshots updated
+  KNOWINGLY for the one helper-ad extension.
+- Phase 4 (commit `f2f71ff`): data/user_lib/\*.py user modules — load-time
+  import validation (stdlib + image-package manifest, spec §4.5), cached-prefix
+  prompt advertisement, "user-config" errorKind fast-fail backstop for missing
+  packages at run time, GET /api/skills settings surface (skills + modules +
+  per-file validation errors). Deliberately NOT built: a settings UI page (no
+  settings page exists to extend — /api/skills is the surface), the optional
+  Haiku trigger classifier, per-skill cost telemetry.
+- The Investigate path needs no separate wiring — it delegates every
+  sub-question to `runPipeline`, which carries all skill surfaces.
+- Still open (not code): audit the "OBSERVED" scan-buffer-OOM lore in the
+  planet-scale skill body against a clean post-sweeper-fix run.
 
 ## Scope decisions (deltas from the design spec)
 
