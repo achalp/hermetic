@@ -56,13 +56,23 @@ interface RunControl {
   stopped: boolean;
 }
 
-const g = globalThis as unknown as { __hermeticRunControl?: Map<string, RunControl> };
+const g = globalThis as unknown as {
+  __hermeticRunControl?: Map<string, RunControl>;
+  __hermeticContainerOwner?: Map<string, string>;
+};
 g.__hermeticRunControl ??= new Map<string, RunControl>();
 const runs = g.__hermeticRunControl;
 
 /** Every sandbox container id ever registered → the runId that owns it. Lets the
- *  sweeper tell a live container from a crash orphan without scanning each run. */
-const containerOwner = new Map<string, string>();
+ *  sweeper tell a live container from a crash orphan without scanning each run.
+ *  MUST live on globalThis like `runs`: the sweeper is started from
+ *  instrumentation.ts and API routes compile into separate dev module graphs, so
+ *  a module-level Map here splits — the route registers containers in one
+ *  instance while the sweeper reads another (empty) one and reaps every LIVE
+ *  container on its tick as an "orphan" (observed: 11 mid-scan kills across
+ *  three runs, all exactly on the 30-min sweep tick, misdiagnosed as OOM). */
+g.__hermeticContainerOwner ??= new Map<string, string>();
+const containerOwner = g.__hermeticContainerOwner;
 
 /**
  * Register the current run. Returns the AbortController whose signal all of the
@@ -179,7 +189,16 @@ export function activeSandboxContainerIds(): Set<string> {
  * window: registerContainer runs synchronously right after `docker run`
  * resolves, with no await between, so a container that exists is either
  * registered or a true orphan. Called by the store sweeper.
+ *
+ * Defense in depth: a container younger than ORPHAN_MIN_AGE_MS is SPARED even
+ * when unregistered, and its name logged at warn — a true orphan (crash /
+ * server restart) is by definition old news by the next tick, while an
+ * unregistered-but-young container means the registration path is broken again
+ * (the split-brain containerOwner bug killed live runs mid-scan for days
+ * because the only trace was an anonymous count).
  */
+const ORPHAN_MIN_AGE_MS = 30 * 60 * 1000;
+
 export async function reapOrphanSandboxContainers(): Promise<number> {
   const names = await new Promise<string[]>((resolve) => {
     execFile(
@@ -191,11 +210,37 @@ export async function reapOrphanSandboxContainers(): Promise<number> {
     );
   });
   const active = activeSandboxContainerIds();
-  const orphans = names.filter((n) => !active.has(n));
+  const candidates = names.filter((n) => !active.has(n));
+  const orphans: string[] = [];
+  const spared: string[] = [];
+  await Promise.all(
+    candidates.map(async (n) => {
+      const createdIso = await new Promise<string | null>((resolve) => {
+        execFile("docker", ["inspect", "--format", "{{.Created}}", n], (err, stdout) =>
+          resolve(err ? null : String(stdout).trim())
+        );
+      });
+      // Unparseable/missing Created (container already gone, odd daemon) → treat
+      // as reapable; `rm -f` on a vanished container is a harmless no-op.
+      const createdMs = createdIso ? Date.parse(createdIso) : NaN;
+      if (Number.isFinite(createdMs) && Date.now() - createdMs < ORPHAN_MIN_AGE_MS) {
+        spared.push(n);
+      } else {
+        orphans.push(n);
+      }
+    })
+  );
   await Promise.all(
     orphans.map((n) => new Promise<void>((res) => execFile("docker", ["rm", "-f", n], () => res())))
   );
-  if (orphans.length) logger.info("Reaped orphan sandbox containers", { count: orphans.length });
+  if (spared.length) {
+    logger.warn("Sweeper spared unregistered-but-young sandbox containers — registration broken?", {
+      names: spared,
+    });
+  }
+  if (orphans.length) {
+    logger.info("Reaped orphan sandbox containers", { count: orphans.length, names: orphans });
+  }
   return orphans.length;
 }
 

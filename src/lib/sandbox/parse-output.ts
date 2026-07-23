@@ -36,36 +36,20 @@ const SandboxEnvelopeSchema = z.object({
 const NO_OUTPUT_ERROR =
   "Code produced no output. Ensure you print a JSON object to stdout or write to /data/output.json.";
 
-/**
- * OOM guidance: exit 137 = SIGKILL, and a bare "Killed" is the classic
- * out-of-memory signature (the kernel OOM-killer reaps the process). Surface
- * it as OOM with actionable guidance so the retry writes a leaner script
- * instead of guessing.
- */
-const OOM_ERROR =
-  "Out of memory — the analysis process was killed (OOM). Do NOT load millions of rows into pandas. " +
-  "TWO CASES: (1) If you pulled ATTRIBUTE/string columns (id, names, class, height) into the frame, " +
-  "that is the OOM — pull ONLY numeric coordinates (SELECT rowid, lon, lat) into the KD-tree and hydrate " +
-  "the top-N winners afterward by rowid. (2) If you were ALREADY coordinates-only and still OOM'd, N is too " +
-  "large for an in-memory KD-tree (coordinates-only does not fit past ~30M because cKDTree.query allocates " +
-  "two more N-sized arrays) — do NOT retry the direct approach with fewer columns. SWITCH to the DOESN'T-FIT " +
-  "counting strategy: COUNT per grid cell in DuckDB (GROUP BY, nothing lands in pandas), branch-and-bound, " +
-  "then pull only the sparse survivor set. Call assert_fits(N) after your COUNT to choose the path up front.";
-
 /** The watchdog / assert_fits fast-fail marker — its stderr line already carries
  *  the precise, strategy-switching guidance, so surface that verbatim. */
 const OOM_PREDICTED_MARKER = "HERMETIC_OOM_PREDICTED:";
 
 /**
- * Phase-keyed OOM guidance. The generic OOM_ERROR blob is a MISDIAGNOSIS for the
- * planet-scale spatial path: it tells the model to "drop string columns / switch
- * to counting", but that code is ALREADY coordinates-only and counting — so the
- * retry reproduces the same shape (observed: attempt-02 ≡ attempt-01). The
- * watchdog now tags the abort with the progress phase where memory peaked, and a
- * hard kernel kill still leaves the last `__progress` line in stdout. Matching
- * that phase to WHERE the memory went yields a fix the model can actually act on.
+ * Phase-keyed OOM guidance. A generic pandas-OOM blob ("drop string columns /
+ * switch to counting") is a MISDIAGNOSIS for the planet-scale spatial path: that
+ * code is ALREADY coordinates-only and counting, so the retry reproduces the same
+ * shape (observed: attempt-02 ≡ attempt-01). The watchdog tags the abort with the
+ * progress phase where memory peaked; a hard kernel kill leaves the last phase in
+ * stdout or (when the container is reaped) in the host-captured livePhase.
+ * Matching that phase to WHERE the memory went yields a fix the model can act on.
  * Returns undefined when the phase doesn't match a known pattern → caller falls
- * back to the verbatim marker / generic OOM_ERROR (unchanged behavior).
+ * back to the verbatim marker (predicted) or the scan-side hard-kill hint.
  */
 const POLYGON_OOM_HINT =
   "The OOM struck while BUILDING THE REGION/BOUNDARY POLYGON. ST_Union_Agg over a country/large-region " +
@@ -93,6 +77,38 @@ const MATERIALIZE_OOM_HINT =
   "explodes when .df() pulls it all into memory — worst with string/struct columns. Pull ONLY the numeric columns " +
   "you need, aggregate/COUNT in DuckDB so nothing large lands in pandas, and hydrate only the top-N winners' " +
   "attributes at the very end by id.";
+/**
+ * Hard KERNEL OOM-kill (exit 137) with NO watchdog marker and no phase match.
+ * Both pandas-side guards leave a signature: the `.df()` hard cap raises a clean
+ * `MemoryError` (exit 1, not 137), and the memory watchdog writes the
+ * HERMETIC_OOM_PREDICTED marker before exiting. A bare 137 that tripped NEITHER
+ * is therefore almost never the pandas side — it is the DuckDB parallel-scan
+ * buffers over a billions-row REMOTE parquet, which `memory_limit` does not
+ * bound. The generic pandas-OOM blob ("pull only coordinates / switch to
+ * counting") MISDIAGNOSES this: the code is usually already counting, so the
+ * retry rearranges the (correct) pandas side and re-OOMs — OBSERVED: two
+ * successive 137 kills on a USA most-isolated run, each reshuffling an
+ * already-memory-safe pipeline. Point the retry at the actual sink.
+ *
+ * CAVEAT on that observation: exit 137 is just SIGKILL — an external
+ * `docker rm -f` (a cleanup path, Docker itself) produces the IDENTICAL bare-137
+ * signature, and the 2026-07 "scan-buffer OOM" runs were in fact the store
+ * sweeper reaping live containers. `containerGone` now excludes that case
+ * BEFORE any OOM classification: a genuine OOM (process- or init-level) leaves
+ * the container inspectable, while an externally removed one is gone.
+ */
+const HARD_KILL_SCAN_HINT =
+  "Out of memory — a HARD kernel OOM-kill (exit 137) with NO pandas-side guard tripped (the .df() cap raises a " +
+  "clean error, not 137; the memory watchdog would have tagged a phase). That signature means the memory sink is " +
+  "NOT your pandas code — it is almost certainly DuckDB's PARALLEL SCAN BUFFERS over the billions-row remote " +
+  "parquet: memory_limit does NOT bound the per-thread row-group read/decompress buffers, so the scan itself blows " +
+  "the cap even when your GROUP BY output and KD-tree are tiny. So do NOT (again) trim columns, re-verify " +
+  "coordinates-only, or restructure the candidate/branch-and-bound logic — that side is already fine. Instead: " +
+  "(1) COARSEN the grid so fewer/larger cells stream through — s = max(span_m/300, 2000) rather than a fine fixed " +
+  "cell; (2) keep every heavy step in DuckDB (COUNT/GROUP BY streams and spills) and pull only the tiny survivor " +
+  "set into pandas; (3) do NOT add `SET threads=<high>` — the sandbox already caps scan threads low for exactly " +
+  "this reason. If you genuinely just built a huge N-sized PYTHON object (a dict/list over ALL rows, e.g. to label " +
+  "a map sample) that is the one pandas-side way to hard-kill — index by position instead, never build an N-sized map.";
 
 function oomGuidanceForPhase(phase: string | undefined): string | undefined {
   const p = (phase ?? "").toLowerCase();
@@ -105,12 +121,20 @@ function oomGuidanceForPhase(phase: string | undefined): string | undefined {
 }
 
 /**
- * Recover the progress phase active when the OOM happened: from the watchdog
- * marker's `[phase=...]` tag if it fired, else the last `{"__progress": {...}}`
- * line the script wrote to stdout (a hard kernel kill leaves no marker but the
- * progress heartbeat is still on disk).
+ * Recover the progress phase active when the OOM happened, in priority order:
+ * (1) the watchdog marker's `[phase=...]` tag if the soft watchdog fired;
+ * (2) the last `{"__progress": {...}}` line in stdout (readable only when the
+ *     container survived the kill);
+ * (3) the host-captured live phase — the ONLY source that survives a hard cgroup
+ *     OOM-kill that reaps the container init (post-mortem file reads then blank).
+ * A remote-scan OOM is almost always case (3): without it the phase router can't
+ * fire and the retry gets the misleading generic pandas-OOM blob.
  */
-function extractOomPhase(predictedLine: string | undefined, stdout: string): string | undefined {
+function extractOomPhase(
+  predictedLine: string | undefined,
+  stdout: string,
+  livePhase?: string
+): string | undefined {
   const tagged = predictedLine?.match(/\[phase=([^\]]*)\]/);
   if (tagged?.[1]?.trim()) return tagged[1].trim();
   const lines = stdout.split("\n");
@@ -124,6 +148,7 @@ function extractOomPhase(predictedLine: string | undefined, stdout: string): str
       // Partial/interleaved line — keep scanning older ones.
     }
   }
+  if (livePhase?.trim()) return livePhase.trim();
   return undefined;
 }
 
@@ -163,7 +188,35 @@ export interface ParseSandboxOutputOpts {
   runtime: string;
   /** Fallback stderr text when the stderr file itself can't be read. */
   stderrFallback?: string;
+  /**
+   * Last progress phase the host captured LIVE off the stdout stream. Used as the
+   * OOM-phase fallback: a hard cgroup OOM-kill can reap the container's init, so
+   * the stdout progress heartbeat (written to /data on kill) reads back blank —
+   * but the host retained this as it streamed. Without it, the phase router can't
+   * fire and the retry gets the misleading generic pandas-OOM blob.
+   */
+  livePhase?: string;
+  /** Resolved DuckDB config captured live off the stream — fallback for the diag
+   *  line when the /data config file is unreadable after a hard kill. */
+  liveDuckdbCfg?: string;
+  /**
+   * True when the executor probed the sandbox after exit and the container no
+   * longer EXISTS. Exit 137 is just SIGKILL: a genuine OOM (even one that kills
+   * the container's init) leaves the container behind for `docker inspect`,
+   * while a vanished container means something external `rm -f`ed it mid-run.
+   * Classifying that as OOM sends the retry loop chasing a phantom memory bug
+   * (observed: 11 mid-scan reaper kills misdiagnosed as OOM across three runs).
+   */
+  containerGone?: boolean;
 }
+
+/** Externally removed mid-run — an infrastructure failure, NOT a code failure.
+ *  No errorKind: the ordinary retry path re-runs; the text pins the approach. */
+const EXTERNAL_KILL_ERROR =
+  "The sandbox container was removed externally mid-run (exit 137, and the container no longer exists — " +
+  "a genuine OOM kill would have left it inspectable). This is an infrastructure failure, NOT a memory " +
+  "or code problem: do NOT restructure the analysis or add memory workarounds. Keep the exact same " +
+  "approach and re-run it.";
 
 export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<ExecutionResult> {
   const workDir = opts.workDir ?? "/data";
@@ -197,7 +250,10 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
       `${stderr}\n${stdout}`
         .split("\n")
         .find((l) => l.includes("HERMETIC_DUCKDB_CFG"))
-        ?.trim();
+        ?.trim() ||
+      // Host-captured live-stream fallback: survives a hard kill that blanks the
+      // /data config file (container init reaped by the OOM-killer).
+      (opts.liveDuckdbCfg ? `HERMETIC_DUCKDB_CFG: ${opts.liveDuckdbCfg}` : undefined);
     if (cfg) logger.info("Sandbox DuckDB config", { runtime: opts.runtime, config: cfg });
 
     // Post-mortem bundle saved to the run recorder (attempt-NN.diag.txt): the
@@ -206,7 +262,8 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     // it means the prelude's config block never ran.
     const phaseNow = extractOomPhase(
       stderr.split("\n").find((l) => l.includes(OOM_PREDICTED_MARKER)),
-      stdout
+      stdout,
+      opts.livePhase
     );
     const execDiag = [
       `exitCode=${opts.exitCode} phase=${phaseNow ?? "(unknown)"}`,
@@ -214,6 +271,16 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
       `--- stderr tail ---\n${stderr.slice(-1500)}`,
       `--- stdout tail ---\n${stdout.slice(-800)}`,
     ].join("\n");
+
+    // External kill trumps every OOM heuristic: a vanished container cannot
+    // have been a kernel OOM (that leaves the container inspectable), so none
+    // of the memory guidance below applies — it would misdirect the retry.
+    if (opts.exitCode === 137 && opts.containerGone) {
+      logger.warn("Sandbox container vanished mid-run — external kill, not OOM", {
+        runtime: opts.runtime,
+      });
+      return { success: false, error: EXTERNAL_KILL_ERROR, execution_ms: executionMs, execDiag };
+    }
 
     if (opts.exitCode === 137 || /\bKilled\b/.test(stderr)) {
       const predicted = stderr
@@ -224,7 +291,7 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
       // last progress line on a hard kill) and feed a phase-SPECIFIC remedy. The
       // generic blob is unactionable when the code is already coordinates-only +
       // counting — the retry just reproduces the same shape.
-      const phase = extractOomPhase(predicted, stdout);
+      const phase = extractOomPhase(predicted, stdout, opts.livePhase);
       const phaseGuidance = oomGuidanceForPhase(phase);
       if (phaseGuidance) {
         const lead = predicted
@@ -233,15 +300,23 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         const error = `${lead} Memory peaked during phase: "${phase}".\n${phaseGuidance}`;
         return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
       }
-      // No phase-specific hint matched — but STILL surface the phase (don't strip
-      // it): knowing which step OOM'd (polygon build vs coarse scan vs leaf) is the
-      // single most useful fact for the retry, even without a canned remedy.
-      const base = predicted
-        ? predicted
-            .slice(predicted.indexOf(OOM_PREDICTED_MARKER))
-            .replace(/\[phase=[^\]]*\]\s*/, "")
-        : OOM_ERROR;
-      const error = phase ? `Memory peaked during phase: "${phase}".\n${base}` : base;
+      // No phase-specific hint matched. Route by the KILL SIGNATURE:
+      //  • watchdog marker present → a real pandas-side climb the watchdog caught;
+      //    its own text already carries the strategy-switch guidance — surface it.
+      //  • bare 137, no marker → neither pandas guard tripped, so it's the DuckDB
+      //    scan buffers, NOT pandas. The generic pandas blob is a misdiagnosis
+      //    here (it sends the retry to reshuffle already-correct code); point at
+      //    the scan instead. Still prepend the phase when we have one.
+      if (predicted) {
+        const base = predicted
+          .slice(predicted.indexOf(OOM_PREDICTED_MARKER))
+          .replace(/\[phase=[^\]]*\]\s*/, "");
+        const error = phase ? `Memory peaked during phase: "${phase}".\n${base}` : base;
+        return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
+      }
+      const error = phase
+        ? `Memory peaked during phase: "${phase}".\n${HARD_KILL_SCAN_HINT}`
+        : HARD_KILL_SCAN_HINT;
       return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
     }
     return {

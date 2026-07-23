@@ -3,7 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/types";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { DOCKER_SANDBOX_IMAGE, LOCAL_MOUNT_PATH } from "@/lib/constants";
-import { run, parseExecutionOutput, codeDoesRemoteIo, codeNeedsNetwork } from "./docker-utils";
+import {
+  run,
+  parseExecutionOutput,
+  codeDoesRemoteIo,
+  codeNeedsNetwork,
+  lintScript,
+  preflightLintError,
+} from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { streamExec } from "./stream-exec";
 import { registerContainer, unregisterContainer, getRunSignal } from "@/lib/pipeline/run-control";
@@ -104,6 +111,25 @@ export async function executeSandbox(
     });
     logger.debug("Docker: script written");
 
+    // 3b. Static undefined-name pre-flight (milliseconds) — catch a forgotten
+    //     import BEFORE a multi-minute remote scan dies on a last-line NameError.
+    //     Best-effort: a null result (checker couldn't run) means proceed.
+    const lint = await lintScript(id).catch(() => null);
+    const lintError = lint ? preflightLintError(lint) : null;
+    if (lintError) {
+      logger.info("Docker: pre-flight lint rejected script", {
+        undefined: lint?.undefinedNames.map((u) => u.name),
+        syntax: lint?.syntaxError?.message,
+      });
+      // No errorKind → ordinary retryable error: the retry loop re-generates with
+      // the missing import added (not a timeout/oom/stopped control-flow case).
+      return {
+        success: false,
+        error: lintError,
+        execution_ms: Date.now() - start,
+      };
+    }
+
     // 4. Run script — STREAMED (no timeout), under a macOS wake lock so idle
     //    sleep doesn't drop the container's S3 connections mid-scan. Progress
     //    heartbeats on stdout surface live via run-control; a user Stop aborts
@@ -121,8 +147,14 @@ export async function executeSandbox(
       };
     }
 
-    // 5. Parse output. Log the OUTCOME symmetrically with the start line.
-    const result = await parseExecutionOutput(id, start, String(execResult.exitCode));
+    // 5. Parse output. Log the OUTCOME symmetrically with the start line. Pass
+    //    the host-captured live phase/config so an OOM that hard-killed the whole
+    //    container (post-mortem file reads blank) still routes to phase-specific
+    //    guidance instead of the generic pandas blob.
+    const result = await parseExecutionOutput(id, start, String(execResult.exitCode), {
+      lastPhase: execResult.lastPhase,
+      duckdbCfg: execResult.duckdbCfg,
+    });
     logger.info("Docker: execution finished", {
       ms: Date.now() - start,
       success: result.success,

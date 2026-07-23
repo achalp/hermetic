@@ -6,6 +6,17 @@ export interface StreamExecResult {
   exitCode: number;
   /** True when the run's signal fired (the user hit Stop). */
   aborted: boolean;
+  /**
+   * The last progress phase seen on the live stdout stream. Captured HOST-SIDE
+   * because a hard cgroup OOM-kill can reap the container's init, after which
+   * every post-mortem `docker exec cat /data/...` returns empty — so the stdout
+   * progress heartbeat (the only signal that localizes WHERE memory peaked) is
+   * gone unless we retain it here as it arrives. Fed to the OOM-phase router.
+   */
+  lastPhase?: string;
+  /** The resolved DuckDB config (threads/memory_limit) the prelude emitted on
+   *  the live stream — survives a hard kill for the same reason as lastPhase. */
+  duckdbCfg?: string;
 }
 
 /**
@@ -26,6 +37,10 @@ export interface StreamExecResult {
 export function streamExec(containerId: string, signal?: AbortSignal): Promise<StreamExecResult> {
   return new Promise((resolve, reject) => {
     let aborted = false;
+    // Retained from the live stream so they survive a hard kill (post-mortem file
+    // reads fail when the OOM-killer takes the whole container).
+    let lastPhase: string | undefined;
+    let duckdbCfg: string | undefined;
     const child = spawn("docker", [
       "exec",
       containerId,
@@ -44,7 +59,13 @@ export function streamExec(containerId: string, signal?: AbortSignal): Promise<S
         if (!t) continue;
         try {
           const obj = JSON.parse(t) as { __progress?: SandboxProgress };
-          if (obj && obj.__progress) reportProgress(obj.__progress);
+          if (obj && obj.__progress) {
+            const p = obj.__progress;
+            reportProgress(p);
+            if (typeof p.phase === "string" && p.phase.trim()) lastPhase = p.phase.trim();
+            const cfg = p.duckdb_cfg;
+            if (typeof cfg === "string" && cfg.trim()) duckdbCfg = cfg.trim();
+          }
         } catch {
           // Not a progress line — ignore (the real result is in output.json).
         }
@@ -67,12 +88,12 @@ export function streamExec(containerId: string, signal?: AbortSignal): Promise<S
     };
     child.on("error", (err) => {
       cleanup();
-      if (aborted) resolve({ exitCode: -1, aborted: true });
+      if (aborted) resolve({ exitCode: -1, aborted: true, lastPhase, duckdbCfg });
       else reject(err);
     });
     child.on("exit", (code) => {
       cleanup();
-      resolve({ exitCode: aborted ? -1 : (code ?? 1), aborted });
+      resolve({ exitCode: aborted ? -1 : (code ?? 1), aborted, lastPhase, duckdbCfg });
     });
   });
 }

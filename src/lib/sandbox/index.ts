@@ -235,17 +235,24 @@ try:
     # be restored at the end — pure retention overhead for aggregate/ORDER BY analytics
     # (our queries never rely on raw scan order). Off lets operators stream/spill.
     _ddb_set("SET preserve_insertion_order=false")
-    # Self-report the RESOLVED config to a FILE (not stderr) so parse-output can
-    # surface it, WITHOUT polluting the shared stderr stream — writing it to stderr
-    # made it the first line other error handlers grab (a parquet schema-extraction
-    # failure surfaced this line instead of the real DESCRIBE error). Written to the
-    # workdir at startup, so it survives a hard-kill OOM. Best-effort.
+    # Self-report the RESOLVED config on TWO channels so it survives every death
+    # mode. (1) A FILE (not stderr — a stderr write made it the first line other
+    # error handlers grab, e.g. a parquet schema-extraction failure surfaced this
+    # instead of the real DESCRIBE error): readable post-mortem WHEN the container
+    # survives. (2) The LIVE stdout progress stream (a duckdb_cfg field): a hard
+    # cgroup OOM-kill can reap the whole container's init, after which every
+    # post-mortem 'docker exec cat /data/...' returns empty (OBSERVED: config,
+    # stderr AND progress all came back blank on the 2.5B-row USA scan kills) — but
+    # the host has already captured this line off the live stream before the kill.
+    _cfg_str = ("threads=%d(applied=%s) memory_limit=%s preserve_insertion_order=false"
+                % (_threads, _threads_ok, (("%dMB" % _ddb_mb) if _ddb_mb else "default")))
     try:
         with open("/data/hermetic_duckdb_cfg.txt", "w") as _cf:
-            _cf.write(
-                "HERMETIC_DUCKDB_CFG: threads=%d(applied=%s) memory_limit=%s preserve_insertion_order=false\\n"
-                % (_threads, _threads_ok, (("%dMB" % _ddb_mb) if _ddb_mb else "default"))
-            )
+            _cf.write("HERMETIC_DUCKDB_CFG: " + _cfg_str + "\\n")
+    except Exception:
+        pass
+    try:
+        progress(duckdb_cfg=_cfg_str)  # no phase change — keeps the current heartbeat phase
     except Exception:
         pass
     # ── Bounded .df() materialization guard (auto-injected) ──────────────────

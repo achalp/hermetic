@@ -152,9 +152,10 @@ describe("parseSandboxOutput", () => {
     }
   });
 
-  it("falls back to the generic OOM message when the phase is unknown/unmatched", async () => {
-    // A phase tag that matches no rule → verbatim marker (tag stripped), and a
-    // bare kill with no progress → the generic two-case guidance.
+  it("surfaces the watchdog marker verbatim when its phase tag matches no rule", async () => {
+    // A predicted (watchdog) marker with an unmatched phase → verbatim marker
+    // (tag stripped). The watchdog only fires on a real pandas-side climb, so its
+    // own strategy-switch text is the right guidance.
     const unmatched = await parseSandboxOutput({
       ...base,
       exitCode: 137,
@@ -168,14 +169,75 @@ describe("parseSandboxOutput", () => {
       expect(unmatched.error).toContain("SWITCH STRATEGY");
       expect(unmatched.error).not.toContain("[phase=");
     }
+  });
 
+  it("routes a bare 137 kill (no watchdog marker) to SCAN-side guidance, not the pandas blob", async () => {
+    // Fix: a hard kernel kill with NO marker means neither pandas guard tripped
+    // (the .df() cap raises a clean error, the watchdog would have tagged a
+    // phase), so it's the DuckDB parallel-SCAN buffers — not pandas. The retry
+    // must NOT be told to reshuffle its already-coordinates-only pandas code.
     const bare = await parseSandboxOutput({
       ...base,
       exitCode: 137,
       readFile: io({ "/data/stderr.txt": "Killed" }),
     });
     expect(bare.success).toBe(false);
-    if (!bare.success) expect(bare.error).toContain("Do NOT load millions of rows");
+    if (!bare.success) {
+      expect(bare.errorKind).toBe("oom");
+      expect(bare.error).toContain("PARALLEL SCAN BUFFERS");
+      expect(bare.error).toContain("COARSEN the grid");
+      // The misdiagnosing pandas blob is gone from this path.
+      expect(bare.error).not.toContain("Do NOT load millions of rows");
+    }
+  });
+
+  it("recovers the OOM phase from the host-captured livePhase when files are blank (hard kill)", async () => {
+    // A hard cgroup kill can reap the container init → every /data read is blank.
+    // The host retained the last streamed phase; it must still route the retry.
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({}), // nothing readable post-mortem
+      livePhase: "counting occupied grid cells",
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.errorKind).toBe("oom");
+      expect(res.error).toContain("counting occupied grid cells");
+      expect(res.error).toContain("span_m/200"); // GRID hint fired via livePhase
+    }
+  });
+
+  it("classifies a 137 with a VANISHED container as an external kill, never OOM", async () => {
+    // Regression: the store sweeper `docker rm -f`ed live containers mid-scan
+    // (split-brain containerOwner map) and the bare-137 heuristic diagnosed
+    // every kill as a scan-buffer OOM — 4 retries chasing a phantom memory bug.
+    // A genuine OOM leaves the container inspectable; gone = external kill.
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({}),
+      livePhase: "counting occupied grid cells", // must NOT trigger the GRID OOM hint
+      containerGone: true,
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error).toContain("removed externally");
+      expect(res.error).toContain("NOT a memory");
+      expect(res.errorKind).toBeUndefined(); // ordinary retryable error, not "oom"
+      expect(res.error).not.toContain("PARALLEL SCAN BUFFERS");
+    }
+  });
+
+  it("still classifies a 137 as OOM when the container SURVIVED the kill", async () => {
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({ "/data/stderr.txt": "Killed" }),
+      containerGone: false,
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) expect(res.errorKind).toBe("oom");
   });
 
   it("uses the stderr fallback when the stderr file is unreadable", async () => {
