@@ -3,14 +3,15 @@ import { buildGeospatialGuidance } from "@/lib/llm/prompts";
 import type { CSVSchema } from "@/lib/types";
 
 /**
- * Byte-for-byte equivalence lock for the geo-monolith → skills split.
+ * Byte-for-byte equivalence lock for the geo guidance text.
  *
- * These snapshots were recorded from the PRE-refactor monolithic
- * buildGeospatialGuidance. The refactored delegate (three built-in skills
- * concatenated by the registry) must reproduce them exactly — any diff means
- * the split changed emitted prompt text, which is a bug in the split, not a
- * snapshot to update. Do NOT regenerate these snapshots to make a failure go
- * away; fix the skill bodies instead.
+ * Originally recorded from the PRE-refactor monolithic buildGeospatialGuidance
+ * and reproduced exactly by the Phase-1 split. Phase 3 then DELIBERATELY
+ * extended the text: planet-scale-superlative ships a helper module, and the
+ * registry appends its generated import advertisement — snapshots were updated
+ * knowingly for that one change. The lock's job is unchanged: any OTHER diff
+ * means the split/registry changed emitted prompt text unintentionally — fix
+ * the skill bodies, do NOT regenerate snapshots to make a failure go away.
  */
 
 function schemaWith(cols: string[], extra: Partial<CSVSchema> = {}): CSVSchema {

@@ -42,6 +42,19 @@ export interface SkillTriggerSpec {
   label?: string;
 }
 
+/** A file shipped into the sandbox (structurally = sandbox AdditionalFile). */
+export interface SkillFile {
+  path: string;
+  content: string;
+}
+
+/** A Python helper module a skill ships to /data/skill_lib/<module>.py. */
+export interface SkillHelperModule {
+  /** Python module name (snake_case, no .py) — imported as skill_lib.<module>. */
+  moduleName: string;
+  content: string;
+}
+
 /** A phase-keyed remedy merged into the sandbox OOM-failure router. */
 export interface SkillFailureHint {
   /** Case-insensitive regex source matched against the failing progress phase. */
@@ -74,6 +87,12 @@ export interface SkillDefinition {
   /** Activates the pre-execution review gate when this skill is active. */
   reviewGate?: boolean;
   failureHints?: Omit<SkillFailureHint, "skill">[];
+  /**
+   * Python helper modules shipped with the run when this skill is active.
+   * Guards as functions instead of prose — the registry auto-appends an
+   * import advertisement (module + signatures) to the skill's guidance.
+   */
+  helpers?: SkillHelperModule[];
 }
 
 /** One activated skill with the reason and placement it activated under. */
@@ -98,6 +117,8 @@ export interface ActiveSkills {
   reviewRules: string[];
   /** Aggregated failure hints, activation order, tagged with the owning skill. */
   failureHints: SkillFailureHint[];
+  /** Active skills' helper modules as sandbox files (/data/skill_lib/...). */
+  helperFiles: SkillFile[];
   /** Guidance from schema/source-triggered skills (cache-prefix-safe). */
   prefixGuidance(ctx: SkillRenderContext): string;
   /** Guidance from question-triggered skills (un-cached tail). */

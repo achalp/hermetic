@@ -6,6 +6,80 @@
 import type { SkillDefinition, SkillRenderContext } from "../types";
 import { hasBareGeometryColumn } from "../triggers";
 
+/**
+ * The branch-and-bound math as EXECUTABLE functions (guards in code, not
+ * prose): the occ-aware upper bound is the #1 correctness bug when the model
+ * re-derives it (a remote cluster beats a lone building), and the scalar-NN
+ * SQL is the #1 OOM when hand-rolled as a ring read. Pure math + SQL string
+ * builder — no duckdb import, so it is unit-testable anywhere and the
+ * generated code keeps explicit control of query execution.
+ */
+const PLANET_SCALE_HELPER = `"""Branch-and-bound helpers for most/least-isolated superlatives.
+
+Pure functions: math + SQL string builders. Execute the SQL yourself with
+duckdb.sql(...) so scans stay visible in your code.
+"""
+
+import math
+
+
+def occ_aware_ub(occ, k, s):
+    """Upper bound (meters) on a cell's best isolation - occ-AWARE, the critical bit.
+
+    A cell with occ >= 2 holds two buildings within one diagonal (ub = s*sqrt(2));
+    only an occ == 1 cell can use the (k+1)-ring bound. Ranking every cell by the
+    ring bound alone picks a remote CLUSTER over a lone building (observed bug).
+    k is the Chebyshev grid-distance to the nearest OTHER occupied cell.
+    """
+    return s * math.sqrt(2.0) if occ > 1 else (k + 1) * s * math.sqrt(2.0)
+
+
+def chebyshev_k(cx, cy, occupied):
+    """Chebyshev grid-distance from cell (cx, cy) to the nearest OTHER occupied cell.
+
+    occupied is an iterable of (cx, cy) tuples (or a set). Pure python over the
+    SMALL cells table - never call this per raw building.
+    """
+    best = None
+    for ox, oy in occupied:
+        if ox == cx and oy == cy:
+            continue
+        d = max(abs(ox - cx), abs(oy - cy))
+        if best is None or d < best:
+            best = d
+            if best == 1:
+                break
+    return best
+
+
+def scalar_nn_sql(qlon, qlat, half_deg, source="data", exclude_eps=1e-7):
+    """The bounded scalar-aggregate nearest-neighbour SQL for candidate (qlon, qlat).
+
+    Returns ONE row / ONE float (meters): min ST_Distance_Sphere over a bbox
+    window of +/- half_deg degrees, excluding the candidate itself. Execute with
+    duckdb.sql(scalar_nn_sql(...)).fetchone()[0] - NEVER read the ring into
+    pandas and NEVER build a KD-tree over it (that is the recurring OOM).
+    """
+    return (
+        "SELECT min(ST_Distance_Sphere(ST_Point({qlon}, {qlat}), "
+        "ST_Point((bbox.xmin+bbox.xmax)/2.0, (bbox.ymin+bbox.ymax)/2.0))) "
+        "FROM {source} "
+        "WHERE bbox.xmin BETWEEN {lon_lo} AND {lon_hi} "
+        "AND bbox.ymin BETWEEN {lat_lo} AND {lat_hi} "
+        "AND NOT (abs((bbox.xmin+bbox.xmax)/2.0 - {qlon}) < {eps} "
+        "AND abs((bbox.ymin+bbox.ymax)/2.0 - {qlat}) < {eps})"
+    ).format(
+        qlon=float(qlon),
+        qlat=float(qlat),
+        source=source,
+        lon_lo=float(qlon) - float(half_deg),
+        lon_hi=float(qlon) + float(half_deg),
+        lat_lo=float(qlat) - float(half_deg),
+        lat_hi=float(qlat) + float(half_deg),
+        eps=float(exclude_eps),
+    )
+`;
+
 export const planetScaleSuperlative: SkillDefinition = {
   name: "planet-scale-superlative",
   description:
@@ -18,6 +92,7 @@ export const planetScaleSuperlative: SkillDefinition = {
     when: hasBareGeometryColumn,
     label: "geometry column present (no GeoJSON sidecar)",
   },
+  helpers: [{ moduleName: "planet_scale", content: PLANET_SCALE_HELPER }],
   buildGuidance({ sandboxMemoryGb }: SkillRenderContext): string {
     return `CRITICAL — nearest/farthest-neighbor: a SQL distance self-join is O(n^2) and WILL time out, so do NOT self-join the full table. Instead build a KD-tree in Python (scipy.spatial.cKDTree, O(n log n)) over ALL points in scope (every building in the bounding box) — do not downsample; a KD-tree handles the full region and downsampling would miss the true extreme.
 ROUTE BY SIZE FIRST — estimate N in scope from parquet_metadata (SUM(row_group_num_rows) over row groups whose bbox overlaps the region). If N FITS RAM (≲ ~30M points — BOTH the rowid+lon+lat coords frame AND the cKDTree.query(k=2) output arrays must fit under the cap) use the DIRECT KD-tree (skeleton next — this is Seattle ~0.3M, California ~13.7M). If N does NOT fit (whole USA ~130M, planet 2.5B) you CANNOT pull coords into pandas at all — a coords .df() over ~100M+ rows is THE OOM even "coords-only" — jump to PLANET-SCALE / DOESN'T-FIT below, which COUNTS in DuckDB and materializes only the tiny survivor set.

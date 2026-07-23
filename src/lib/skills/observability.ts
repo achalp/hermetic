@@ -28,6 +28,7 @@ export function reportSkillActivation(active: ActiveSkills): void {
     reviewGated: active.reviewGated,
     extraReviewRules: active.reviewRules.length,
     failureHints: active.failureHints.length,
+    helperModules: active.helperFiles.map((f) => f.path),
   });
   diagEvent("skills_activated", { skills: names, reasons, reviewGated: active.reviewGated });
   recordRunEvent({ type: "skills_activated", skills: names, reviewGated: active.reviewGated });
@@ -46,6 +47,7 @@ export function reportSkillActivation(active: ActiveSkills): void {
         reviewGated: active.reviewGated,
         extraReviewRules: active.reviewRules.length,
         failureHints: active.failureHints.map((h) => ({ skill: h.skill, pattern: h.pattern })),
+        helperModules: active.helperFiles.map((f) => f.path),
       },
       null,
       2

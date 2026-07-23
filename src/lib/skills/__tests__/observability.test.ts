@@ -35,6 +35,7 @@ function fakeActive(): ActiveSkills {
     reviewGated: true,
     reviewRules: ["R — rule"],
     failureHints: [{ pattern: "pivot", hint: "h", skill: "geo-overture" }],
+    helperFiles: [{ path: "/data/skill_lib/geo.py", content: "def f():\n    pass\n" }],
     prefixGuidance: () => "g",
     questionGuidance: () => "",
   };
@@ -88,6 +89,7 @@ describe("reportSkillActivation", () => {
       reviewGated: false,
       reviewRules: [],
       failureHints: [],
+      helperFiles: [],
       prefixGuidance: () => "",
       questionGuidance: () => "",
     });

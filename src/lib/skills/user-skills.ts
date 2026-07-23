@@ -22,8 +22,9 @@ export function defaultUserSkillsDir(): string {
 }
 
 interface CacheEntry {
-  mtimeMs: number;
-  skill: SkillDefinition | null; // null = invalid at this mtime
+  /** SKILL.md mtime + sibling helpers.py mtime (0 when absent). */
+  key: string;
+  skill: SkillDefinition | null; // null = invalid at this version
   reason?: string;
 }
 
@@ -50,15 +51,22 @@ export function loadUserSkills(dir: string = defaultUserSkillsDir()): UserSkillL
   const skills: SkillDefinition[] = [];
   const errors: UserSkillLoadResult["errors"] = [];
   for (const file of entries) {
-    let mtimeMs: number;
+    const helpersFile = path.join(path.dirname(file), "helpers.py");
+    let key: string;
+    let helpersMtime = 0;
     try {
-      mtimeMs = statSync(file).mtimeMs;
+      try {
+        helpersMtime = statSync(helpersFile).mtimeMs;
+      } catch {
+        helpersMtime = 0; // no helpers.py — fine
+      }
+      key = `${statSync(file).mtimeMs}:${helpersMtime}`;
     } catch {
       continue; // skill dir without a SKILL.md — not an error, just not a skill
     }
 
     const cached = cache.get(file);
-    if (cached && cached.mtimeMs === mtimeMs) {
+    if (cached && cached.key === key) {
       if (cached.skill) skills.push(cached.skill);
       else if (cached.reason) errors.push({ path: file, reason: cached.reason });
       continue;
@@ -66,15 +74,28 @@ export function loadUserSkills(dir: string = defaultUserSkillsDir()): UserSkillL
 
     try {
       const skill = parseSkillMd(readFileSync(file, "utf8"), file);
-      cache.set(file, { mtimeMs, skill });
+      if (helpersMtime > 0) {
+        // Sibling helpers.py ships as skill_lib.<name_with_underscores>.
+        skill.helpers = [
+          {
+            moduleName: skill.name.replace(/-/g, "_"),
+            content: readFileSync(helpersFile, "utf8"),
+          },
+        ];
+      }
+      cache.set(file, { key, skill });
       skills.push(skill);
-      logger.info("User skill loaded", { skill: skill.name, path: file });
+      logger.info("User skill loaded", {
+        skill: skill.name,
+        path: file,
+        helpers: helpersMtime > 0,
+      });
     } catch (err) {
       const reason =
         err instanceof SkillParseError
           ? err.message
           : `unreadable: ${err instanceof Error ? err.message : String(err)}`;
-      cache.set(file, { mtimeMs, skill: null, reason });
+      cache.set(file, { key, skill: null, reason });
       errors.push({ path: file, reason });
       // Warn once per file version (the cache suppresses repeats until an edit).
       logger.warn("User skill rejected", { path: file, reason });

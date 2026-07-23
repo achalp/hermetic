@@ -109,7 +109,6 @@ export async function runPipeline(
     model = CODE_GEN_MODEL,
     runtime,
     geojsonContent,
-    additionalFiles,
     workbookContext,
     localMountPath,
     localFileContext,
@@ -117,6 +116,8 @@ export async function runPipeline(
     inputParquetPath,
     purpose,
   } = options;
+  // Mutable: active skills append their helper modules below.
+  let additionalFiles = options.additionalFiles;
   // Open the forensic record for this run: every attempt's code + outcome is
   // persisted to data/runs/<runId>/ as it happens, so a crash or exhausted-retry
   // failure (which saves only a near-empty history stub) still leaves the exact
@@ -146,6 +147,11 @@ export async function runPipeline(
   const activeSkills = activateSkills({ schema, question });
   reportSkillActivation(activeSkills);
   setRunFailureHints(activeSkills.failureHints);
+  // Ship active skills' helper modules with every execution of this run
+  // (initial + retries share this local). Guidance advertises the import path.
+  if (activeSkills.helperFiles.length > 0) {
+    additionalFiles = [...(additionalFiles ?? []), ...activeSkills.helperFiles];
+  }
   const skillRenderCtx = { schema, sandboxMemoryGb: memLabel };
   // Gate the pre-execution review to skills that ask for it (the geo/heavy path
   // built-ins do): that is where the OOM / memory-cap / prefer-engine failures
