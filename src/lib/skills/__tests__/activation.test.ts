@@ -30,16 +30,45 @@ describe("activateSkills (built-ins)", () => {
       "map-answer-visibility",
     ]);
     expect(active.reviewGated).toBe(true);
-    // Built-ins contribute no extra critic rules (prompt stays byte-stable).
-    expect(active.reviewRules).toEqual([]);
-    expect(active.failureHints).toEqual([]);
+    // The geo critic rules live on the skills now (code-review.ts keeps only
+    // the domain-agnostic MEM-DF / ENGINE-PANDAS).
+    const rules = active.reviewRules.join("\n");
+    for (const id of [
+      "MEM-GEOM",
+      "POLY-HEAVY",
+      "ENGINE-BBOX",
+      "GUARD-NULL",
+      "MEM-KDTREE",
+      "MEM-RING",
+      "GRID-SCALE",
+      "HARDCODE-EXTENT",
+      "SCAN-OR",
+    ]) {
+      expect(rules).toContain(`${id} —`);
+    }
+    // Phase-keyed OOM hints live on the skills too, tagged with their owner;
+    // the catch-all is fallback-only and must stay LAST.
+    expect(active.failureHints.map((h) => h.skill)).toEqual([
+      "geo-overture",
+      "planet-scale-superlative",
+      "planet-scale-superlative",
+      "planet-scale-superlative",
+    ]);
+    const last = active.failureHints[active.failureHints.length - 1];
+    expect(last.pattern).toBe("^");
+    expect(last.fallback).toBe(true);
+    // planet-scale wires the guards' strategy hint via its prelude fragment.
+    expect(active.preludeSnippets.join("")).toContain("set_strategy_hint");
   });
 
-  it("activates nothing on a plain schema", () => {
+  it("activates nothing on a plain schema — no rules, hints, or snippets leak", () => {
     const active = activateSkills({ schema: plainSchema }, { builtinOnly: true });
     expect(active.skills).toEqual([]);
     expect(active.reviewGated).toBe(false);
     expect(active.prefixGuidance({ schema: plainSchema })).toBe("");
+    expect(active.reviewRules).toEqual([]);
+    expect(active.failureHints).toEqual([]);
+    expect(active.preludeSnippets).toEqual([]);
   });
 
   it("prefixGuidance is non-empty and question guidance empty for geo built-ins", () => {

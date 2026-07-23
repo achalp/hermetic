@@ -8,6 +8,21 @@ function io(files: Record<string, string>) {
 
 const base = { runtime: "test", executionMs: 42, exitCode: 0 };
 
+// The geo phase hints now live on the built-in skills (parse-output keeps only
+// the generic MATERIALIZE hint + a generic hard-kill fallback). Tests that
+// exercise geo routing pass the REAL built-in hints, like the orchestrator does.
+import { activateSkills } from "@/lib/skills/registry";
+const GEO_HINTS = activateSkills(
+  {
+    schema: {
+      filename: "b.parquet",
+      row_count: 1,
+      columns: [{ name: "geometry", dtype: "object", sample_values: [] }],
+    } as never,
+  },
+  { builtinOnly: true }
+).failureHints;
+
 describe("parseSandboxOutput", () => {
   it("parses output.json into a success envelope", async () => {
     const result = await parseSandboxOutput({
@@ -121,6 +136,7 @@ describe("parseSandboxOutput", () => {
       ...base,
       exitCode: 137,
       readFile: io({ "/data/stderr.txt": stderr }),
+      skillFailureHints: GEO_HINTS,
     });
     expect(res.success).toBe(false);
     if (!res.success) {
@@ -128,7 +144,9 @@ describe("parseSandboxOutput", () => {
       expect(res.error).toContain("materializing simplified USA polygon");
       // POLYGON hint — names the ST_Union_Agg / simplify remedy, not the generic.
       expect(res.error).toContain("ST_Union_Agg");
+      expect(res.error).toContain("Predicted OOM"); // watchdog lead preserved
       expect(res.error).not.toContain("[phase=");
+      expect(res.execDiag).toContain("hint=skill:geo-overture");
     }
   });
 
@@ -142,6 +160,7 @@ describe("parseSandboxOutput", () => {
       ...base,
       exitCode: 137,
       readFile: io({ "/data/stderr.txt": "Killed", "/data/stdout.txt": stdout }),
+      skillFailureHints: GEO_HINTS,
     });
     expect(res.success).toBe(false);
     if (!res.success) {
@@ -149,6 +168,7 @@ describe("parseSandboxOutput", () => {
       expect(res.error).toContain("counting occupied grid cells");
       // GRID hint — the cell-size-to-span fix.
       expect(res.error).toContain("span_m/200");
+      expect(res.execDiag).toContain("hint=skill:planet-scale-superlative");
     }
   });
 
@@ -171,11 +191,26 @@ describe("parseSandboxOutput", () => {
     }
   });
 
-  it("routes a bare 137 kill (no watchdog marker) to SCAN-side guidance, not the pandas blob", async () => {
-    // Fix: a hard kernel kill with NO marker means neither pandas guard tripped
-    // (the .df() cap raises a clean error, the watchdog would have tagged a
-    // phase), so it's the DuckDB parallel-SCAN buffers — not pandas. The retry
-    // must NOT be told to reshuffle its already-coordinates-only pandas code.
+  it("routes a bare 137 kill to the planet-scale SCAN-side fallback hint when geo skills are active", async () => {
+    // The scan-buffer diagnosis is planet-scale domain knowledge: it fires via
+    // the skill's fallback (catch-all) hint — only on runs where the geo
+    // skills activated, never on an ordinary CSV OOM.
+    const bare = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({ "/data/stderr.txt": "Killed" }),
+      skillFailureHints: GEO_HINTS,
+    });
+    expect(bare.success).toBe(false);
+    if (!bare.success) {
+      expect(bare.errorKind).toBe("oom");
+      expect(bare.error).toContain("PARALLEL SCAN BUFFERS");
+      expect(bare.error).toContain("COARSEN the grid");
+      expect(bare.execDiag).toContain("hint=skill:planet-scale-superlative");
+    }
+  });
+
+  it("routes a bare 137 kill WITHOUT active skills to the generic hard-kill hint", async () => {
     const bare = await parseSandboxOutput({
       ...base,
       exitCode: 137,
@@ -184,10 +219,29 @@ describe("parseSandboxOutput", () => {
     expect(bare.success).toBe(false);
     if (!bare.success) {
       expect(bare.errorKind).toBe("oom");
-      expect(bare.error).toContain("PARALLEL SCAN BUFFERS");
-      expect(bare.error).toContain("COARSEN the grid");
-      // The misdiagnosing pandas blob is gone from this path.
-      expect(bare.error).not.toContain("Do NOT load millions of rows");
+      expect(bare.error).toContain("HARD kernel OOM-kill");
+      // No geo diagnosis on a non-geo run — that was the old misrouting.
+      expect(bare.error).not.toContain("PARALLEL SCAN BUFFERS");
+      expect(bare.error).not.toContain("COARSEN the grid");
+    }
+  });
+
+  it("a watchdog-predicted abort is NEVER overridden by a fallback catch-all hint", async () => {
+    // The catch-all assumes no watchdog marker; a predicted abort's own
+    // message (plus any skill strategy hint the prelude wired) must surface.
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({
+        "/data/stderr.txt":
+          "HERMETIC_OOM_PREDICTED: [phase=doing something opaque] memory reached 88% of the cap. SWITCH STRATEGY: x.\n",
+      }),
+      skillFailureHints: GEO_HINTS,
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error).toContain("SWITCH STRATEGY");
+      expect(res.error).not.toContain("PARALLEL SCAN BUFFERS");
     }
   });
 
@@ -199,6 +253,7 @@ describe("parseSandboxOutput", () => {
       exitCode: 137,
       readFile: io({}), // nothing readable post-mortem
       livePhase: "counting occupied grid cells",
+      skillFailureHints: GEO_HINTS,
     });
     expect(res.success).toBe(false);
     if (!res.success) {
@@ -247,7 +302,10 @@ describe("parseSandboxOutput", () => {
     });
     expect(res.success).toBe(false);
     if (!res.success) {
-      expect(res.error).toContain("span_m/200"); // built-in GRID hint fired
+      // No skill hint matched and the built-in router is domain-agnostic now →
+      // the generic hard-kill guidance fires (with the phase preserved).
+      expect(res.error).toContain("counting occupied grid cells");
+      expect(res.error).toContain("HARD kernel OOM-kill");
       expect(res.error).not.toContain("never used");
     }
   });

@@ -57,12 +57,18 @@ export interface SkillHelperModule {
 
 /** A phase-keyed remedy merged into the sandbox OOM-failure router. */
 export interface SkillFailureHint {
-  /** Case-insensitive regex source matched against the failing progress phase. */
+  /** Case-insensitive regex source matched against the failing progress phase
+   *  ("" when a hard kill left no heartbeat — use pattern `^` to catch that). */
   pattern: string;
   /** Remedy text injected verbatim into the retry error message. */
   hint: string;
   /** Owning skill name — logged when the hint fires. */
   skill: string;
+  /**
+   * Matched only for a BARE hard kill — never over a watchdog-predicted abort,
+   * whose own message carries the right guidance. For catch-all (`^`) hints.
+   */
+  fallback?: boolean;
 }
 
 export interface SkillDefinition {
@@ -93,6 +99,14 @@ export interface SkillDefinition {
    * import advertisement (module + signatures) to the skill's guidance.
    */
   helpers?: SkillHelperModule[];
+  /**
+   * Python fragment prepended to the generated code (AFTER the prelude) when
+   * this skill is active — for wiring the shared runtime to the skill's
+   * domain (e.g. planet-scale registers its strategy hint on the memory
+   * guards). Must be side-effect-safe: wrap in try/except so a missing
+   * runtime package degrades instead of killing the run.
+   */
+  preludeSnippet?: string;
 }
 
 /** One activated skill with the reason and placement it activated under. */
@@ -119,6 +133,8 @@ export interface ActiveSkills {
   failureHints: SkillFailureHint[];
   /** Active skills' helper modules as sandbox files (/data/skill_lib/...). */
   helperFiles: SkillFile[];
+  /** Active skills' prelude fragments, activation order (run before user code). */
+  preludeSnippets: string[];
   /** Guidance from schema/source-triggered skills (cache-prefix-safe). */
   prefixGuidance(ctx: SkillRenderContext): string;
   /** Guidance from question-triggered skills (un-cached tail). */

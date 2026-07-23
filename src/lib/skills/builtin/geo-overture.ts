@@ -17,6 +17,26 @@ export const geoOverture: SkillDefinition = {
     when: hasBareGeometryColumn,
     label: "geometry column present (no GeoJSON sidecar)",
   },
+  // Boundary/polygon/bbox critic rules — moved here from code-review.ts so the
+  // critic engine stays domain-agnostic and geo knowledge audits in ONE place.
+  reviewRules: [
+    `MEM-GEOM — ST_Centroid/ST_X/ST_Y/ST_Area or any geometry(WKB) decode runs over millions of rows. For point work, derive the point from the bbox struct ((xmin+xmax)/2, (ymin+ymax)/2); only decode geometry when the SHAPE genuinely matters.`,
+    `POLY-HEAVY — a region boundary is built with ST_Union_Agg over a country/large multipolygon WITHOUT simplifying hard (ST_Simplify ~0.01), or unions full-detail geometry — that decodes the fattest geometry on the continent into memory.`,
+    `ENGINE-BBOX — a named administrative area (country/state/city) is filtered by a HARDCODED lat/lon bounding box instead of its boundary polygon (ST_Contains against a simplified region). A raw USA box leaks Canada/Mexico and corrupts edge/superlative answers. (A bbox as a cheap PRE-filter BEFORE a polygon test is fine.)`,
+    `GUARD-NULL — a region polygon / boundary is used in ST_Contains without a preceding \`if not n_geom: raise ...\` non-NULL check (a NULL polygon silently rejects every row → "no candidate" instead of failing loud). Note: an \`assert n_geom == 1\` does NOT count — the pipeline strips assertions comparing to a literal number, so only an \`if … raise\` guard actually runs.`,
+  ].join("\n"),
+  failureHints: [
+    {
+      pattern: "polygon|boundary|union|simplif|region|dissolve|divisions?",
+      hint:
+        "The OOM struck while BUILDING THE REGION/BOUNDARY POLYGON. ST_Union_Agg over a country/large-region " +
+        "multipolygon decodes the single fattest geometry on the continent (millions of vertices) into memory. " +
+        "FIXES: (1) simplify HARD — ST_Simplify(ST_Union_Agg(geometry), 0.01) (~1 km) or 0.02 for a whole country, " +
+        "NOT 0.001. (2) bbox-prefilter the division rows to the target extent BEFORE the union so less geometry is " +
+        "decoded. (3) You only need the polygon to EXCLUDE neighbouring countries when testing cell centroids — a " +
+        "coarse simplified hull suffices; never union raw full-detail geometry.",
+    },
+  ],
   buildGuidance({ schema }: SkillRenderContext): string {
     const hasBboxColumn = schema.columns.some((c) => /^bbox$/i.test(c.name));
     const bboxTip = hasBboxColumn

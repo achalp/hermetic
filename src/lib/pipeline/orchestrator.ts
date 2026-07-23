@@ -155,6 +155,12 @@ export async function runPipeline(
   if (shippedModules.length > 0) {
     additionalFiles = [...(additionalFiles ?? []), ...shippedModules];
   }
+  // Skill prelude fragments run AFTER the shared prelude and BEFORE the
+  // generated code (e.g. planet-scale wires its strategy hint onto the memory
+  // guards). Prepended at execution time so post-processing and the recorded
+  // attempt code stay the raw generated script.
+  const skillPrelude =
+    activeSkills.preludeSnippets.length > 0 ? activeSkills.preludeSnippets.join("\n") + "\n" : "";
   const skillRenderCtx = { schema, sandboxMemoryGb: memLabel };
   // Gate the pre-execution review to skills that ask for it (the geo/heavy path
   // built-ins do): that is where the OOM / memory-cap / prefer-engine failures
@@ -353,7 +359,7 @@ export async function runPipeline(
   onStage?.("executing");
   let result = await executeSandbox(
     csvContent,
-    code,
+    skillPrelude + code,
     runtime,
     geojsonContent,
     additionalFiles,
@@ -480,7 +486,7 @@ export async function runPipeline(
     onStage?.("executing");
     result = await executeSandbox(
       csvContent,
-      retryCode,
+      skillPrelude + retryCode,
       runtime,
       geojsonContent,
       additionalFiles,

@@ -7,15 +7,18 @@ minutes into a kernel OOM-kill.
 """
 
 _mem_limit_bytes = None
+_strategy_hint = ""
 
+# Domain-NEUTRAL base message — the guard mechanism protects every large run
+# (warehouse exports, wide CSVs, remote parquet), so it must not assume the
+# spatial recipe. An active skill appends its own strategy pointer via
+# set_strategy_hint() (e.g. planet-scale adds the DOESN'T-FIT recipe pointer).
 INFEASIBLE_MSG = (
     "This approach does not fit the container memory cap ({limit}). You are pulling too "
-    "many rows into pandas. Do NOT retry the direct in-memory approach with fewer columns "
-    "— at this scale even coordinates-only does NOT fit (cKDTree.query also allocates two "
-    "more N-sized arrays). SWITCH STRATEGY: COUNT in DuckDB and go coarse-to-fine — bucket "
-    "rows into grid cells with GROUP BY (nothing lands in pandas), branch-and-bound on the "
-    "small cells table, then pull ONLY the tiny survivor set. Follow the PLANET-SCALE / "
-    "DOESN'T-FIT recipe; do not materialize the tail."
+    "many rows into pandas. Do NOT retry the same in-memory approach with fewer columns "
+    "— at this scale the ROW COUNT is the problem, not the width. SWITCH STRATEGY: push "
+    "the heavy work into DuckDB (filter/COUNT/GROUP BY/aggregate — it streams and spills "
+    "to disk) and pull only a small aggregated result into pandas."
 )
 
 
@@ -23,6 +26,17 @@ def configure(mem_limit_bytes):
     """Set the container memory cap (bytes) assert_fits gates against. None disables."""
     global _mem_limit_bytes
     _mem_limit_bytes = mem_limit_bytes if (mem_limit_bytes or 0) > 0 else None
+
+
+def set_strategy_hint(text):
+    """Append a domain strategy pointer to guard failures (called by skill preludes)."""
+    global _strategy_hint
+    _strategy_hint = text or ""
+
+
+def get_strategy_hint():
+    """The currently configured strategy pointer ("" when no skill set one)."""
+    return _strategy_hint
 
 
 def assert_fits(n_rows, cols=3, dtype_bytes=8, factor=3.0, what="this DataFrame"):
@@ -40,4 +54,5 @@ def assert_fits(n_rows, cols=3, dtype_bytes=8, factor=3.0, what="this DataFrame"
             "%s would need ~%.1f GB for %d rows, over the %s cap. "
             % (what, need / 1e9, int(n_rows), lim)
             + INFEASIBLE_MSG.format(limit=lim)
+            + _strategy_hint
         )

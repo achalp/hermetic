@@ -42,89 +42,51 @@ const NO_OUTPUT_ERROR =
 const OOM_PREDICTED_MARKER = "HERMETIC_OOM_PREDICTED:";
 
 /**
- * Phase-keyed OOM guidance. A generic pandas-OOM blob ("drop string columns /
- * switch to counting") is a MISDIAGNOSIS for the planet-scale spatial path: that
- * code is ALREADY coordinates-only and counting, so the retry reproduces the same
- * shape (observed: attempt-02 ≡ attempt-01). The watchdog tags the abort with the
- * progress phase where memory peaked; a hard kernel kill leaves the last phase in
- * stdout or (when the container is reaped) in the host-captured livePhase.
- * Matching that phase to WHERE the memory went yields a fix the model can act on.
- * Returns undefined when the phase doesn't match a known pattern → caller falls
- * back to the verbatim marker (predicted) or the scan-side hard-kill hint.
+ * DOMAIN-AGNOSTIC OOM guidance only. The geo/planet-scale phase hints that
+ * used to live here (polygon build, coarse grid scan, per-candidate leaf, the
+ * scan-buffer hard-kill blob) are now `failureHints` on the geo built-in
+ * skills — matched FIRST via `skillFailureHints`, and only when those skills
+ * are actually active. That fixes a real misrouting: the scan-buffer hint
+ * used to fire on ANY bare 137, telling a non-geo OOM about parquet grids.
  */
-const POLYGON_OOM_HINT =
-  "The OOM struck while BUILDING THE REGION/BOUNDARY POLYGON. ST_Union_Agg over a country/large-region " +
-  "multipolygon decodes the single fattest geometry on the continent (millions of vertices) into memory. " +
-  "FIXES: (1) simplify HARD — ST_Simplify(ST_Union_Agg(geometry), 0.01) (~1 km) or 0.02 for a whole country, " +
-  "NOT 0.001. (2) bbox-prefilter the division rows to the target extent BEFORE the union so less geometry is " +
-  "decoded. (3) You only need the polygon to EXCLUDE neighbouring countries when testing cell centroids — a " +
-  "coarse simplified hull suffices; never union raw full-detail geometry.";
-const GRID_OOM_HINT =
-  "The OOM struck during the COARSE GRID COUNT/SCAN. TWO independent causes: (A) DuckDB's own PARALLEL SCAN " +
-  "buffers over a billions-row REMOTE parquet scan — memory_limit does NOT bound the per-thread row-group " +
-  "read/decompress buffers, so a default all-cores scan blows the cap even though the GROUP BY output is tiny. " +
-  "The sandbox already SETs a low `threads` + `preserve_insertion_order=false` for this — do NOT raise `SET " +
-  "threads`, and if you did, remove it. (B) The cell size may be too FINE for the region span (a fixed 10 km " +
-  "cell over a ~5,000 km continent makes ~25x more cells): scale it — s = max(span_m/200, 2000). Keep the GROUP " +
-  "BY streaming (never pull raw buildings into pandas); if the cells frame is still millions of rows, coarsen s.";
-const LEAF_OOM_HINT =
-  "The OOM struck during the PER-CANDIDATE LEAF / nearest-neighbour read. Do NOT read a whole ring of buildings " +
-  "into pandas and do NOT accumulate rings across candidates — an isolated point's nearest neighbour can be a " +
-  "dense metro edge, so its ring overlaps millions of rows. Compute the neighbour distance INSIDE DuckDB as a " +
-  "bounded aggregate (SELECT min(ST_Distance_Sphere(...)) over a small bbox window), pulling only ONE scalar per " +
-  "candidate. Never build a cKDTree over the buildings in a ring.";
 const MATERIALIZE_OOM_HINT =
   "The OOM struck while MATERIALIZING A DATAFRAME (.df()/read into pandas). A DuckDB relation that streams fine " +
   "explodes when .df() pulls it all into memory — worst with string/struct columns. Pull ONLY the numeric columns " +
   "you need, aggregate/COUNT in DuckDB so nothing large lands in pandas, and hydrate only the top-N winners' " +
   "attributes at the very end by id.";
 /**
- * Hard KERNEL OOM-kill (exit 137) with NO watchdog marker and no phase match.
- * Both pandas-side guards leave a signature: the `.df()` hard cap raises a clean
- * `MemoryError` (exit 1, not 137), and the memory watchdog writes the
- * HERMETIC_OOM_PREDICTED marker before exiting. A bare 137 that tripped NEITHER
- * is therefore almost never the pandas side — it is the DuckDB parallel-scan
- * buffers over a billions-row REMOTE parquet, which `memory_limit` does not
- * bound. The generic pandas-OOM blob ("pull only coordinates / switch to
- * counting") MISDIAGNOSES this: the code is usually already counting, so the
- * retry rearranges the (correct) pandas side and re-OOMs — OBSERVED: two
- * successive 137 kills on a USA most-isolated run, each reshuffling an
- * already-memory-safe pipeline. Point the retry at the actual sink.
- *
- * CAVEAT on that observation: exit 137 is just SIGKILL — an external
- * `docker rm -f` (a cleanup path, Docker itself) produces the IDENTICAL bare-137
- * signature, and the 2026-07 "scan-buffer OOM" runs were in fact the store
- * sweeper reaping live containers. `containerGone` now excludes that case
- * BEFORE any OOM classification: a genuine OOM (process- or init-level) leaves
- * the container inspectable, while an externally removed one is gone.
+ * Bare hard kill (exit 137) with no watchdog marker, no skill hint, no phase
+ * match. Generic by design — anything sharper is domain knowledge and belongs
+ * on a skill. (Exit 137 is just SIGKILL: `containerGone` has already excluded
+ * the external-kill case before this is reached.)
  */
-const HARD_KILL_SCAN_HINT =
+const GENERIC_HARD_KILL_HINT =
   "Out of memory — a HARD kernel OOM-kill (exit 137) with NO pandas-side guard tripped (the .df() cap raises a " +
-  "clean error, not 137; the memory watchdog would have tagged a phase). That signature means the memory sink is " +
-  "NOT your pandas code — it is almost certainly DuckDB's PARALLEL SCAN BUFFERS over the billions-row remote " +
-  "parquet: memory_limit does NOT bound the per-thread row-group read/decompress buffers, so the scan itself blows " +
-  "the cap even when your GROUP BY output and KD-tree are tiny. So do NOT (again) trim columns, re-verify " +
-  "coordinates-only, or restructure the candidate/branch-and-bound logic — that side is already fine. Instead: " +
-  "(1) COARSEN the grid so fewer/larger cells stream through — s = max(span_m/300, 2000) rather than a fine fixed " +
-  "cell; (2) keep every heavy step in DuckDB (COUNT/GROUP BY streams and spills) and pull only the tiny survivor " +
-  "set into pandas; (3) do NOT add `SET threads=<high>` — the sandbox already caps scan threads low for exactly " +
-  "this reason. If you genuinely just built a huge N-sized PYTHON object (a dict/list over ALL rows, e.g. to label " +
-  "a map sample) that is the one pandas-side way to hard-kill — index by position instead, never build an N-sized map.";
+  "clean error, not 137; the memory watchdog would have tagged a phase). Something allocated past the container " +
+  "cap outside pandas' view — commonly a huge N-sized PYTHON object (a dict/list/set built over ALL rows), a " +
+  "wide in-memory index, or engine-side buffers on a very large scan. Push the heavy work into DuckDB " +
+  "(filter/COUNT/GROUP BY stream and spill), pull only small aggregated results into pandas, index arrays by " +
+  "position instead of building N-sized maps, and do NOT raise `SET threads` on large scans.";
 
 /**
  * Active skills' hints are matched FIRST — a skill that knows its own failure
- * mode beats the generic built-in router. Which skill's hint fired is logged
- * and recorded in the diag bundle so a retry that went sideways can be traced
- * to the guidance that steered it.
+ * mode beats the generic router. `phase` may be undefined (a hard kill that
+ * left no heartbeat): only a catch-all pattern like `^` matches then, which is
+ * how planet-scale claims the bare-137 case on runs where it is active. Which
+ * skill's hint fired is logged and recorded in the diag bundle so a retry that
+ * went sideways can be traced to the guidance that steered it.
  */
 function skillHintForPhase(
   phase: string | undefined,
-  hints: SkillFailureHint[] | undefined
+  hints: SkillFailureHint[] | undefined,
+  includeFallback: boolean
 ): SkillFailureHint | undefined {
-  if (!phase || !hints?.length) return undefined;
+  if (!hints?.length) return undefined;
+  const p = phase ?? "";
   return hints.find((h) => {
+    if (h.fallback && !includeFallback) return false;
     try {
-      return new RegExp(h.pattern, "i").test(phase);
+      return new RegExp(h.pattern, "i").test(p);
     } catch {
       return false; // parse-time validation should prevent this; never throw here
     }
@@ -134,9 +96,6 @@ function skillHintForPhase(
 function oomGuidanceForPhase(phase: string | undefined): string | undefined {
   const p = (phase ?? "").toLowerCase();
   if (!p) return undefined;
-  if (/polygon|boundary|union|simplif|region|dissolve|divisions?/.test(p)) return POLYGON_OOM_HINT;
-  if (/leaf|neighbou?r|nearest|hydrat|candidate|winner/.test(p)) return LEAF_OOM_HINT;
-  if (/cell|grid|coarse|group|bucket|count|superlativ/.test(p)) return GRID_OOM_HINT;
   if (/load|read|materializ|fetch|frame|pandas|\.df/.test(p)) return MATERIALIZE_OOM_HINT;
   return undefined;
 }
@@ -319,14 +278,19 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
       // generic blob is unactionable when the code is already coordinates-only +
       // counting — the retry just reproduces the same shape.
       const phase = extractOomPhase(predicted, stdout, opts.livePhase);
-      const skillHint = skillHintForPhase(phase, opts.skillFailureHints);
+      // Fallback (catch-all) skill hints only apply to a BARE kill — a
+      // watchdog-predicted abort keeps its own strategy-switch message below.
+      const skillHint = skillHintForPhase(phase, opts.skillFailureHints, !predicted);
       if (skillHint) {
         logger.info("Skill failure hint applied", {
           runtime: opts.runtime,
           skill: skillHint.skill,
           phase,
         });
-        const error = `Out of memory — the analysis process was killed (OOM). Memory peaked during phase: "${phase}".\n${skillHint.hint}`;
+        const lead = predicted
+          ? "Predicted OOM — the watchdog aborted before the kernel OOM-kill."
+          : "Out of memory — the analysis process was killed (OOM).";
+        const error = `${lead}${phase ? ` Memory peaked during phase: "${phase}".` : ""}\n${skillHint.hint}`;
         return {
           success: false,
           error,
@@ -343,13 +307,13 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         const error = `${lead} Memory peaked during phase: "${phase}".\n${phaseGuidance}`;
         return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
       }
-      // No phase-specific hint matched. Route by the KILL SIGNATURE:
-      //  • watchdog marker present → a real pandas-side climb the watchdog caught;
-      //    its own text already carries the strategy-switch guidance — surface it.
-      //  • bare 137, no marker → neither pandas guard tripped, so it's the DuckDB
-      //    scan buffers, NOT pandas. The generic pandas blob is a misdiagnosis
-      //    here (it sends the retry to reshuffle already-correct code); point at
-      //    the scan instead. Still prepend the phase when we have one.
+      // No skill or phase hint matched. Route by the KILL SIGNATURE:
+      //  • watchdog marker present → a real pandas-side climb the watchdog
+      //    caught; its own text carries the strategy-switch guidance (plus any
+      //    skill-set strategy hint the prelude wired in) — surface it verbatim.
+      //  • bare 137, no marker → generic hard-kill guidance; anything sharper
+      //    (e.g. the scan-buffer diagnosis) is domain knowledge and fires via
+      //    the active skills' fallback hints above.
       if (predicted) {
         const base = predicted
           .slice(predicted.indexOf(OOM_PREDICTED_MARKER))
@@ -358,8 +322,8 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
       }
       const error = phase
-        ? `Memory peaked during phase: "${phase}".\n${HARD_KILL_SCAN_HINT}`
-        : HARD_KILL_SCAN_HINT;
+        ? `Memory peaked during phase: "${phase}".\n${GENERIC_HARD_KILL_HINT}`
+        : GENERIC_HARD_KILL_HINT;
       return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
     }
     // Missing-package residue from a user/skill module — a USER-CONFIG error,

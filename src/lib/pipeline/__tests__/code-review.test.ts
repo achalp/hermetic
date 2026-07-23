@@ -86,10 +86,33 @@ describe("reviewGeneratedCode", () => {
     const call = generateTextMock.mock.calls[0][0] as { system: string };
     expect(call.system).toContain("COHORT-PIVOT — flag when retention is computed row-wise");
     // Inserted inside the RULES section, before the response-format epilogue.
-    expect(call.system.indexOf("COHORT-PIVOT")).toBeGreaterThan(call.system.indexOf("GUARD-NULL"));
+    expect(call.system.indexOf("COHORT-PIVOT")).toBeGreaterThan(
+      call.system.indexOf("ENGINE-PANDAS")
+    );
     expect(call.system.indexOf("COHORT-PIVOT")).toBeLessThan(
       call.system.indexOf("Respond with ONLY a JSON object")
     );
+  });
+
+  it("keeps only domain-agnostic rules in the base prompt — geo rules come from skills", async () => {
+    queue(JSON.stringify({ findings: [] }));
+    await reviewGeneratedCode("code", "q", "3.8 GB");
+    const system = (generateTextMock.mock.calls[0][0] as { system: string }).system;
+    expect(system).toContain("MEM-DF —");
+    expect(system).toContain("ENGINE-PANDAS —");
+    for (const geoRule of [
+      "MEM-KDTREE",
+      "MEM-RING",
+      "MEM-GEOM",
+      "GRID-SCALE",
+      "POLY-HEAVY",
+      "ENGINE-BBOX",
+      "HARDCODE-EXTENT",
+      "GUARD-NULL",
+      "SCAN-OR",
+    ]) {
+      expect(system).not.toContain(`${geoRule} —`);
+    }
   });
 
   it("emits a byte-stable system prompt when no extra rules are supplied", async () => {

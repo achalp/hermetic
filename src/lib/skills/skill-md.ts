@@ -49,8 +49,19 @@ const FrontmatterSchema = z.object({
   reviewGate: z.boolean().default(false),
   reviewRules: z.string().optional(),
   failureHints: z
-    .array(z.object({ pattern: z.string().min(1), hint: z.string().min(1) }))
+    .array(
+      z.object({
+        pattern: z.string().min(1),
+        hint: z.string().min(1),
+        // Matched only on a bare hard kill, never over a watchdog-predicted
+        // abort — for catch-all ("^") hints.
+        fallback: z.boolean().optional(),
+      })
+    )
     .optional(),
+  // Python fragment run after the shared prelude, before generated code.
+  // Executes inside the sandbox like all skill code; wrap in try/except.
+  preludeSnippet: z.string().optional(),
 });
 
 /** Thrown with a human-readable, settings-page-worthy reason. */
@@ -116,6 +127,7 @@ export function parseSkillMd(text: string, sourcePath: string): SkillDefinition 
     reviewGate: meta.reviewGate,
     reviewRules: meta.reviewRules?.trim() || undefined,
     failureHints: meta.failureHints,
+    preludeSnippet: meta.preludeSnippet,
     buildGuidance: (ctx) => `\n## Skill: ${meta.name}\n${renderPlaceholders(guidance, ctx)}`,
   };
 }

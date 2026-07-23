@@ -82,6 +82,9 @@ let cachedApi: string | null = null;
  *  the generated inventory covers everything else so the two never overlap. */
 const HAND_CURATED = new Set(["write_output", "to_num", "numeric", "safe_qcut"]);
 
+/** Prelude/skill wiring functions — not for generated code, never advertised. */
+const WIRING_FNS = new Set(["configure", "set_strategy_hint", "get_strategy_hint"]);
+
 let cachedExtras: string | null = null;
 
 /**
@@ -96,7 +99,7 @@ export function preloadedExtrasLine(): string {
   const fns = hermeticRuntimeFiles()
     .filter((f) => !f.path.endsWith("__init__.py"))
     .flatMap((f) => extractPreloadedFns(f.content))
-    .filter((fn) => fn.name !== "configure" && !HAND_CURATED.has(fn.name));
+    .filter((fn) => !WIRING_FNS.has(fn.name) && !HAND_CURATED.has(fn.name));
   cachedExtras =
     fns.length === 0
       ? ""
@@ -119,7 +122,7 @@ export function buildPreloadedApiSection(): string {
   const fns = files
     .filter((f) => !f.path.endsWith("__init__.py"))
     .flatMap((f) => extractPreloadedFns(f.content))
-    .filter((fn) => fn.name !== "configure"); // prelude-internal wiring, not for generated code
+    .filter((fn) => !WIRING_FNS.has(fn.name));
   if (fns.length === 0) {
     cachedApi = "";
     return cachedApi;

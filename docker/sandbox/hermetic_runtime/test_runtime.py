@@ -79,6 +79,7 @@ class TestToNative(unittest.TestCase):
 class TestGuards(unittest.TestCase):
     def setUp(self):
         guards.configure(None)
+        guards.set_strategy_hint("")
 
     def test_noop_without_cap_or_rows(self):
         guards.assert_fits(10**12)  # unconfigured cap → no raise
@@ -96,6 +97,17 @@ class TestGuards(unittest.TestCase):
     def test_fits_under_cap(self):
         guards.configure(1024**3)
         guards.assert_fits(1000)  # tiny → no raise
+
+    def test_base_message_is_domain_neutral_and_skill_hint_appends(self):
+        guards.configure(1024**3)
+        with self.assertRaises(MemoryError) as ctx:
+            guards.assert_fits(10**9)
+        self.assertNotIn("PLANET-SCALE", str(ctx.exception))  # no baked-in geo recipe
+        guards.set_strategy_hint(" Follow the PLANET-SCALE recipe.")
+        self.assertEqual(guards.get_strategy_hint(), " Follow the PLANET-SCALE recipe.")
+        with self.assertRaises(MemoryError) as ctx2:
+            guards.assert_fits(10**9)
+        self.assertIn("PLANET-SCALE recipe", str(ctx2.exception))
 
 
 class TestWriteOutput(unittest.TestCase):

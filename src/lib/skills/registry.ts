@@ -132,6 +132,7 @@ export function activateSkills(ctx: SkillTriggerContext, opts?: ActivateOptions)
           content: h.content,
         })) ?? []
     ),
+    preludeSnippets: ordered.flatMap((s) => (s.def.preludeSnippet ? [s.def.preludeSnippet] : [])),
     prefixGuidance: (renderCtx) => renderGuidance(prefixSkills, renderCtx),
     questionGuidance: (renderCtx) => renderGuidance(questionSkills, renderCtx),
   };

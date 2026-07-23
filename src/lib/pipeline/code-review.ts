@@ -62,19 +62,16 @@ function buildReviewSystemPrompt(memLabel: string | null, extraRules?: string[])
     `reading potentially planet-scale Parquet (billions of rows) over S3 via DuckDB. You do NOT rewrite the code — you ONLY report violations of the rules below.\n\n` +
     `MINDSET (read twice): treat this code as GUILTY until proven innocent on memory — assume it has ALREADY been run and OOM-KILLED at planet scale, and your only job is to find WHERE. Code that "looks reasonable" is exactly what has shipped and OOM'd before, so give it ZERO benefit of the doubt on memory: for every .df(), every in-memory index, every geometry op, prove to yourself it is bounded at the data scale in the question, and if you cannot, flag it. You may be reviewing code written by the same model that generated it — do NOT rubber-stamp; scrutinize hardest the parts that feel obviously fine, because that is where a shared blind spot hides.\n\n` +
     `Calibrate the VERDICT (not your attention): flag a rule "severe" only when it would ACTUALLY hit at the data scale implied by the question (a whole country/planet, not a small CSV); "minor" when it is suboptimal but would still run; a clean script produces an empty findings list. Hunt adversarially, but rate honestly.\n\n` +
+    // Only DOMAIN-AGNOSTIC rules live here — the geo/Overture/superlative
+    // rules that used to sit in this list (MEM-KDTREE, MEM-RING, MEM-GEOM,
+    // GRID-SCALE, POLY-HEAVY, ENGINE-BBOX, HARDCODE-EXTENT, GUARD-NULL,
+    // SCAN-OR) are contributed by the active skills via extraRules, so all
+    // geo knowledge audits in src/lib/skills/builtin/ and a non-geo
+    // review-gated skill doesn't inherit irrelevant geo rules.
     `RULES (id — when to flag severe):\n` +
-    `MEM-KDTREE — a scipy/sklearn spatial index (cKDTree, KDTree, BallTree) is built over the RAW points/buildings of a large scan. A KD-tree over millions of points allocates several N-sized arrays and OOMs. (A KD-tree over a small aggregated CELLS table — tens of thousands of rows — is FINE, do not flag that.)\n` +
     `MEM-DF — a .df()/.fetchdf()/.arrow()/pd.read_* pulls an UNBOUNDED result into pandas: a raw SELECT * of a large/remote table, or a full column of millions of rows. .df() on an AGGREGATED (GROUP BY / COUNT) or provably-sparse (single small region, top-N) result is fine.\n` +
-    `MEM-RING — a nearest-neighbour / "leaf" / farthest / most-isolated step reads a whole RING or radius of buildings into pandas, or accumulates rings across candidates. The neighbour distance must be a DuckDB aggregate (min(ST_Distance...) over a bounded bbox window) returning ONE scalar per candidate.\n` +
-    `MEM-GEOM — ST_Centroid/ST_X/ST_Y/ST_Area or any geometry(WKB) decode runs over millions of rows. For point work, derive the point from the bbox struct ((xmin+xmax)/2, (ymin+ymax)/2); only decode geometry when the SHAPE genuinely matters.\n` +
-    `GRID-SCALE — a grid/cell superlative uses a FIXED small cell size (e.g. 10 km) regardless of region span. Over a continent that emits far too many cells. Cell size must scale to the span (e.g. s = max(span_m/200, floor)).\n` +
-    `POLY-HEAVY — a region boundary is built with ST_Union_Agg over a country/large multipolygon WITHOUT simplifying hard (ST_Simplify ~0.01), or unions full-detail geometry — that decodes the fattest geometry on the continent into memory.\n` +
-    `ENGINE-BBOX — a named administrative area (country/state/city) is filtered by a HARDCODED lat/lon bounding box instead of its boundary polygon (ST_Contains against a simplified region). A raw USA box leaks Canada/Mexico and corrupts edge/superlative answers. (A bbox as a cheap PRE-filter BEFORE a polygon test is fine.)\n` +
     `ENGINE-PANDAS — filtering/joining/aggregating that should run in DuckDB SQL is instead done by pulling data into pandas and looping/filtering in Python over a large frame.\n` +
-    `HARDCODE-EXTENT — magic coordinates/extents that should be DERIVED from the data (the divisions Phase-A extent) are hardcoded, so a clamp silently excludes the target (e.g. a country boundary row whose bbox spans the antimeridian).\n` +
-    `GUARD-NULL — a region polygon / boundary is used in ST_Contains without a preceding \`if not n_geom: raise ...\` non-NULL check (a NULL polygon silently rejects every row → "no candidate" instead of failing loud). Note: an \`assert n_geom == 1\` does NOT count — the pipeline strips assertions comparing to a literal number, so only an \`if … raise\` guard actually runs.\n` +
-    // Extra rules contributed by the run's active skills (same "ID — when to
-    // flag" format). Built-ins contribute none, keeping the prompt byte-stable.
+    // Rules contributed by the run's active skills (same "ID — when to flag" format).
     (extraRules?.length ? extraRules.map((r) => `${r.trim()}\n`).join("") : "") +
     `\n` +
     `Respond with ONLY a JSON object, no markdown fencing, no prose:\n` +
