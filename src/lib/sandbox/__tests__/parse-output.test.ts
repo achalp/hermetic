@@ -284,6 +284,37 @@ describe("parseSandboxOutput", () => {
     if (!res.success) expect(res.errorKind).toBe("oom");
   });
 
+  it("classifies a missing package inside a user/skill module as user-config (non-retryable)", async () => {
+    const stderr =
+      'Traceback (most recent call last):\n  File "/data/script.py", line 3, in <module>\n' +
+      '    from user_lib.metrics import net_revenue\n  File "/data/user_lib/metrics.py", line 2, in <module>\n' +
+      "    import polars\nModuleNotFoundError: No module named 'polars'\n";
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 1,
+      readFile: io({ "/data/stderr.txt": stderr }),
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.errorKind).toBe("user-config");
+      expect(res.error).toContain("'polars'");
+      expect(res.error).toContain("configuration issue");
+    }
+  });
+
+  it("does NOT classify a ModuleNotFoundError in generated code itself as user-config", async () => {
+    const stderr =
+      'Traceback (most recent call last):\n  File "/data/script.py", line 3, in <module>\n' +
+      "    import polars\nModuleNotFoundError: No module named 'polars'\n";
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 1,
+      readFile: io({ "/data/stderr.txt": stderr }),
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) expect(res.errorKind).toBeUndefined(); // ordinary retryable code error
+  });
+
   it("uses the stderr fallback when the stderr file is unreadable", async () => {
     const result = await parseSandboxOutput({
       ...base,

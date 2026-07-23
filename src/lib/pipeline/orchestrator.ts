@@ -10,6 +10,7 @@ import {
 } from "@/lib/llm/code-generation";
 import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
 import { activateSkills, reportSkillActivation } from "@/lib/skills";
+import { userModuleFiles } from "@/lib/skills/user-modules";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
 import {
@@ -147,10 +148,12 @@ export async function runPipeline(
   const activeSkills = activateSkills({ schema, question });
   reportSkillActivation(activeSkills);
   setRunFailureHints(activeSkills.failureHints);
-  // Ship active skills' helper modules with every execution of this run
-  // (initial + retries share this local). Guidance advertises the import path.
-  if (activeSkills.helperFiles.length > 0) {
-    additionalFiles = [...(additionalFiles ?? []), ...activeSkills.helperFiles];
+  // Ship active skills' helper modules and the user's data/user_lib modules
+  // with every execution of this run (initial + retries share this local).
+  // Guidance / the schema block advertise the import paths.
+  const shippedModules = [...activeSkills.helperFiles, ...userModuleFiles()];
+  if (shippedModules.length > 0) {
+    additionalFiles = [...(additionalFiles ?? []), ...shippedModules];
   }
   const skillRenderCtx = { schema, sandboxMemoryGb: memLabel };
   // Gate the pre-execution review to skills that ask for it (the geo/heavy path
@@ -412,10 +415,13 @@ export async function runPipeline(
       // re-enable futile retries on a reword); the regex stays only as a
       // fallback for foreign SDK timeout strings we don't control.
       // A user Stop (errorKind "stopped") must also fail fast — never
-      // regenerate and re-run something the user just cancelled.
+      // regenerate and re-run something the user just cancelled. Same for
+      // "user-config" (a preloaded user/skill module needs a package the
+      // sandbox image lacks): no regenerated code can fix configuration.
       if (
         result.errorKind === "timeout" ||
         result.errorKind === "stopped" ||
+        result.errorKind === "user-config" ||
         /timed out/i.test(retryError)
       )
         break;

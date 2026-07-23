@@ -125,7 +125,7 @@ export interface SandboxExecutionError {
    * guidance; "stopped" → the user cancelled — fail fast, don't retry.
    * Absent for ordinary execution errors.
    */
-  errorKind?: "timeout" | "oom" | "stopped";
+  errorKind?: "timeout" | "oom" | "stopped" | "user-config";
   execution_ms: number;
   /**
    * Post-mortem diagnostics captured at failure — the container's self-reported

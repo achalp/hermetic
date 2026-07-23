@@ -362,6 +362,28 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         : HARD_KILL_SCAN_HINT;
       return { success: false, error, errorKind: "oom", execution_ms: executionMs, execDiag };
     }
+    // Missing-package residue from a user/skill module — a USER-CONFIG error,
+    // not a code error: no regenerated analysis code can conjure the package,
+    // so the retry loop must fail fast with the same wording as the save-time
+    // validation (spec §4.5 runtime backstop; save-time validation should make
+    // this unreachable).
+    const missingModule = stderr.match(/ModuleNotFoundError: No module named '([^']+)'/);
+    if (missingModule && /\/data\/(user_lib|skill_lib)\//.test(stderr)) {
+      logger.warn("Sandbox import failed inside a user/skill module — user-config error", {
+        runtime: opts.runtime,
+        missing: missingModule[1],
+      });
+      return {
+        success: false,
+        error:
+          `A preloaded user/skill module needs the Python package '${missingModule[1]}', which is ` +
+          `not available in the sandbox image. This is a configuration issue, not a code issue — ` +
+          `remove the import from the module (or extend the sandbox image) and re-run.`,
+        errorKind: "user-config",
+        execution_ms: executionMs,
+        execDiag,
+      };
+    }
     return {
       success: false,
       error: stderr || "Unknown execution error",

@@ -13,6 +13,7 @@ import type {
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { activateSkills } from "@/lib/skills/registry";
+import { buildUserModulesSection } from "@/lib/skills/user-modules";
 import { preloadedExtrasLine } from "@/lib/sandbox/runtime-files";
 
 // ── Column metadata formatter ─────────────────────────────────────
@@ -527,6 +528,11 @@ Column types are database-native (high fidelity). The data has been loaded as CS
   // text (see buildGeospatialGuidance).
   const spatialSection = buildGeospatialGuidance(schema, sandboxMemoryGb);
 
+  // User Python modules (data/user_lib) — preloaded into the sandbox and
+  // advertised with extracted signatures. Stable per user_lib contents, so it
+  // belongs in this cached prefix.
+  const userModulesSection = buildUserModulesSection();
+
   const headerLabel = schema.source_type === "warehouse" ? "Data Schema" : "CSV Schema";
 
   return `## ${headerLabel}
@@ -535,7 +541,7 @@ Rows: ${schema.row_count}${domainSection}${warehouseSection}${localFileSection}
 Columns:
 ${columnDescriptions}
 ${formatDataSection(schema, mode)}
-${correlationSection}${geojsonSection}${spatialSection}${workbookSection}`;
+${correlationSection}${geojsonSection}${spatialSection}${userModulesSection}${workbookSection}`;
 }
 
 // ── User prompt (chat follow-up) ──────────────────────────────────
