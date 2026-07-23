@@ -8,7 +8,8 @@ import {
   stripValueAssertions,
   fixMissingSqlFString,
 } from "@/lib/llm/code-generation";
-import { buildRetryPromptMulti, RETRY_GUIDANCE, buildGeospatialGuidance } from "@/lib/llm/prompts";
+import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
+import { activateSkills, reportSkillActivation } from "@/lib/skills";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
 import {
@@ -24,7 +25,7 @@ import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
 import { estimateRun, reportEstimate } from "@/lib/pipeline/estimate";
 import { streamText } from "ai";
 import { withPhaseSync } from "@/lib/cost/accumulator";
-import { getRunSignal, isRunStopped } from "@/lib/pipeline/run-control";
+import { getRunSignal, isRunStopped, setRunFailureHints } from "@/lib/pipeline/run-control";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
@@ -135,19 +136,37 @@ export async function runPipeline(
   // prompt, the geo guidance, and the review critic so all three reason against
   // the SAME cap. Hoisted so the retry loop / review redo reuse it.
   const memLabel = await getSandboxMemoryLimitGbLabel();
-  // Gate the pre-execution review to the geospatial/heavy path: that is where
-  // the OOM / memory-cap / prefer-engine failures live and where a 15-min remote
-  // scan makes a few-thousand-token critic obviously worth it. buildGeospatialGuidance
-  // returns "" for ordinary CSV data, so a plain question never pays for review.
-  const reviewEnabled = buildGeospatialGuidance(schema, memLabel) !== "";
+  // Activate skills ONCE per run (deterministic for a given schema+question, so
+  // every retry shares the same prompt prefix). The active set drives all four
+  // skill surfaces: codegen guidance (schema-triggered text flows through the
+  // cached schema block via buildGeospatialGuidance; question-triggered text
+  // rides the un-cached tail below), the review gate + its extra rules, and the
+  // sandbox failure-hint router (via run-control). Activation is logged to the
+  // console, the diagnostics journal, and data/runs/<id>/skills.json.
+  const activeSkills = activateSkills({ schema, question });
+  reportSkillActivation(activeSkills);
+  setRunFailureHints(activeSkills.failureHints);
+  const skillRenderCtx = { schema, sandboxMemoryGb: memLabel };
+  // Gate the pre-execution review to skills that ask for it (the geo/heavy path
+  // built-ins do): that is where the OOM / memory-cap / prefer-engine failures
+  // live and where a 15-min remote scan makes a few-thousand-token critic
+  // obviously worth it. A plain CSV question activates nothing → never pays.
+  const reviewEnabled = activeSkills.reviewGated;
+  const questionGuidance = activeSkills.questionGuidance(skillRenderCtx);
 
-  // The system-prompt tail shared by every fix/retry generation (geo recipe +
-  // purpose scope + local-file note). Computed lazily so it always reflects the
-  // hoisted memLabel.
-  const retrySystemExtra = () =>
-    (localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "") +
-    (reviewEnabled ? `\n${buildGeospatialGuidance(schema, memLabel)}` : "") +
-    (purpose ? `\n\n${getPurposeCodegenScope(purpose)}` : "");
+  // The system-prompt tail shared by every fix/retry generation (active skill
+  // guidance — BOTH placements, retries are uncached anyway — + purpose scope +
+  // local-file note). Computed lazily so it always reflects the hoisted memLabel.
+  const retrySystemExtra = () => {
+    const guidance = [activeSkills.prefixGuidance(skillRenderCtx), questionGuidance]
+      .filter(Boolean)
+      .join("\n");
+    return (
+      (localFileContext ? `\n\nIMPORTANT: ${localFileContext}` : "") +
+      (guidance ? `\n${guidance}` : "") +
+      (purpose ? `\n\n${getPurposeCodegenScope(purpose)}` : "")
+    );
+  };
 
   // Regenerate code from a history of prior (code, error) pairs — used by both
   // the execution-retry loop and the review redo (a severe review is just
@@ -195,7 +214,13 @@ export async function runPipeline(
     let code = currentCode;
     for (let redo = 0; redo <= MAX_REVIEW_REDOS; redo++) {
       onStage?.("reviewing_code");
-      const review = await reviewGeneratedCode(code, question, memLabel, CODE_REVIEW_MODEL);
+      const review = await reviewGeneratedCode(
+        code,
+        question,
+        memLabel,
+        CODE_REVIEW_MODEL,
+        activeSkills.reviewRules
+      );
       recordRunEvent({
         type: "review",
         attempt: attemptIndex,
@@ -248,7 +273,10 @@ export async function runPipeline(
         workbookContext,
         localFileContext,
         priorTurns,
-        purpose
+        purpose,
+        // Question-triggered skill guidance rides the un-cached question tail
+        // (schema-triggered guidance is already inside the cached schema block).
+        questionGuidance || undefined
       );
       break;
     } catch (err: unknown) {

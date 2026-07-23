@@ -6,14 +6,21 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { rmCalls, psOutput } = vi.hoisted(() => ({
+const { rmCalls, psOutput, inspectCreated } = vi.hoisted(() => ({
   rmCalls: [] as string[][],
   psOutput: { value: "" },
+  // docker inspect {{.Created}} per container name; "" = inspect fails/empty.
+  inspectCreated: { byName: {} as Record<string, string> },
 }));
 vi.mock("node:child_process", () => ({
   execFile: (_cmd: string, args: string[], cb?: (e: unknown, stdout?: string) => void) => {
     if (args[0] === "ps") {
       if (typeof cb === "function") cb(null, psOutput.value);
+      return {};
+    }
+    if (args[0] === "inspect") {
+      const name = args[args.length - 1];
+      if (typeof cb === "function") cb(null, inspectCreated.byName[name] ?? "");
       return {};
     }
     rmCalls.push(args);
@@ -38,6 +45,8 @@ import {
   isRunStopped,
   reapOrphanSandboxContainers,
   endRun,
+  setRunFailureHints,
+  getRunFailureHints,
 } from "@/lib/pipeline/run-control";
 
 // runWithRunId mints a random id; capture it so the test can drive stopRun().
@@ -133,5 +142,40 @@ describe("run-control", () => {
       endRun(runId);
     });
     psOutput.value = "";
+  });
+
+  it("reaper SPARES an unregistered container younger than the orphan age floor", async () => {
+    // Regression guard for the split-brain class: if registration ever breaks
+    // again, a fresh live container must survive the first sweep tick and be
+    // called out by name, not silently killed.
+    psOutput.value = "hermetic-sandbox-young\nhermetic-sandbox-old\n";
+    inspectCreated.byName["hermetic-sandbox-young"] = new Date().toISOString();
+    inspectCreated.byName["hermetic-sandbox-old"] = new Date(
+      Date.now() - 2 * 60 * 60 * 1000
+    ).toISOString();
+    const reaped = await reapOrphanSandboxContainers();
+    expect(reaped).toBe(1);
+    const removed = rmCalls.map((a) => a.join(" "));
+    expect(removed).toContain("rm -f hermetic-sandbox-old");
+    expect(removed).not.toContain("rm -f hermetic-sandbox-young");
+    psOutput.value = "";
+    inspectCreated.byName = {};
+  });
+
+  it("skill failure hints attach to the current run and die with it", async () => {
+    const hints = [{ pattern: "pivot", hint: "aggregate in DuckDB", skill: "cohort" }];
+    await inRun(async (runId) => {
+      registerRun(runId);
+      expect(getRunFailureHints()).toEqual([]); // none registered yet
+      setRunFailureHints(hints);
+      expect(getRunFailureHints()).toEqual(hints);
+      endRun(runId);
+      expect(getRunFailureHints()).toEqual([]); // torn down with the run
+    });
+  });
+
+  it("skill failure hint accessors are safe no-ops outside a run context", () => {
+    setRunFailureHints([{ pattern: "x", hint: "y", skill: "z" }]);
+    expect(getRunFailureHints()).toEqual([]);
   });
 });

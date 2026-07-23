@@ -208,6 +208,50 @@ describe("parseSandboxOutput", () => {
     }
   });
 
+  it("skill failure hints beat the built-in phase router and are attributed in the diag", async () => {
+    // A skill that knows its own failure mode supplies the remedy; the generic
+    // GRID hint (which this phase would otherwise match) must not fire.
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({}),
+      livePhase: "counting cohort pivot cells",
+      skillFailureHints: [
+        {
+          pattern: "cohort pivot",
+          hint: "Aggregate the cohort matrix in DuckDB.",
+          skill: "cohort-retention",
+        },
+      ],
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.errorKind).toBe("oom");
+      expect(res.error).toContain("counting cohort pivot cells");
+      expect(res.error).toContain("Aggregate the cohort matrix in DuckDB.");
+      expect(res.error).not.toContain("span_m/200"); // built-in GRID hint suppressed
+      expect(res.execDiag).toContain("hint=skill:cohort-retention");
+    }
+  });
+
+  it("falls through to built-in phase hints when no skill hint matches (bad regex tolerated)", async () => {
+    const res = await parseSandboxOutput({
+      ...base,
+      exitCode: 137,
+      readFile: io({}),
+      livePhase: "counting occupied grid cells",
+      skillFailureHints: [
+        { pattern: "([bad", hint: "never used", skill: "broken" },
+        { pattern: "unrelated phase", hint: "never used", skill: "other" },
+      ],
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error).toContain("span_m/200"); // built-in GRID hint fired
+      expect(res.error).not.toContain("never used");
+    }
+  });
+
   it("classifies a 137 with a VANISHED container as an external kill, never OOM", async () => {
     // Regression: the store sweeper `docker rm -f`ed live containers mid-scan
     // (split-brain containerOwner map) and the bare-137 heuristic diagnosed

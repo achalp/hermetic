@@ -55,7 +55,7 @@ const VerdictSchema = z.object({
  * `memLabel` (e.g. "3.8 GB") is the SAME hard cap the container enforces, so the
  * critic reasons against the real ceiling rather than assuming abundant RAM.
  */
-function buildReviewSystemPrompt(memLabel: string | null): string {
+function buildReviewSystemPrompt(memLabel: string | null, extraRules?: string[]): string {
   const cap = memLabel ? `a HARD ~${memLabel} container memory cap` : "a HARD container memory cap";
   return (
     `You are a strict code reviewer for Python data-analysis scripts that run in a sandboxed Docker container with ${cap}, ` +
@@ -72,7 +72,11 @@ function buildReviewSystemPrompt(memLabel: string | null): string {
     `ENGINE-BBOX — a named administrative area (country/state/city) is filtered by a HARDCODED lat/lon bounding box instead of its boundary polygon (ST_Contains against a simplified region). A raw USA box leaks Canada/Mexico and corrupts edge/superlative answers. (A bbox as a cheap PRE-filter BEFORE a polygon test is fine.)\n` +
     `ENGINE-PANDAS — filtering/joining/aggregating that should run in DuckDB SQL is instead done by pulling data into pandas and looping/filtering in Python over a large frame.\n` +
     `HARDCODE-EXTENT — magic coordinates/extents that should be DERIVED from the data (the divisions Phase-A extent) are hardcoded, so a clamp silently excludes the target (e.g. a country boundary row whose bbox spans the antimeridian).\n` +
-    `GUARD-NULL — a region polygon / boundary is used in ST_Contains without a preceding \`if not n_geom: raise ...\` non-NULL check (a NULL polygon silently rejects every row → "no candidate" instead of failing loud). Note: an \`assert n_geom == 1\` does NOT count — the pipeline strips assertions comparing to a literal number, so only an \`if … raise\` guard actually runs.\n\n` +
+    `GUARD-NULL — a region polygon / boundary is used in ST_Contains without a preceding \`if not n_geom: raise ...\` non-NULL check (a NULL polygon silently rejects every row → "no candidate" instead of failing loud). Note: an \`assert n_geom == 1\` does NOT count — the pipeline strips assertions comparing to a literal number, so only an \`if … raise\` guard actually runs.\n` +
+    // Extra rules contributed by the run's active skills (same "ID — when to
+    // flag" format). Built-ins contribute none, keeping the prompt byte-stable.
+    (extraRules?.length ? extraRules.map((r) => `${r.trim()}\n`).join("") : "") +
+    `\n` +
     `Respond with ONLY a JSON object, no markdown fencing, no prose:\n` +
     `{"findings":[{"rule":"<RULE-ID>","severity":"severe|minor","message":"<one sentence: what line/pattern, why it fails at scale, the concrete fix>"}]}\n` +
     `Empty findings ({"findings":[]}) means the code is clean.`
@@ -113,13 +117,15 @@ export async function reviewGeneratedCode(
   code: string,
   question: string,
   memLabel: string | null,
-  model: string = CODE_REVIEW_MODEL
+  model: string = CODE_REVIEW_MODEL,
+  /** Extra critic rules from the run's active skills (see skills/types.ts). */
+  extraRules?: string[]
 ): Promise<CodeReview> {
   try {
     const result = await withPhase("code_review", () =>
       generateText({
         model: getModel(model),
-        system: cachedSystem(buildReviewSystemPrompt(memLabel)),
+        system: cachedSystem(buildReviewSystemPrompt(memLabel, extraRules)),
         prompt: `## Question\n${question}\n\n## Code to review\n\`\`\`python\n${code}\n\`\`\``,
         temperature: 0,
         maxOutputTokens: 2048,

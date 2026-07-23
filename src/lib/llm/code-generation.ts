@@ -185,7 +185,13 @@ export async function generateAnalysisCode(
   workbookContext?: string,
   localFileContext?: string,
   priorTurns?: ConversationTurn[],
-  purpose?: string
+  purpose?: string,
+  /**
+   * Question-triggered skill guidance. Rides in the UN-cached tail next to the
+   * question (never the cached schema-block prefix) so a user skill keyed on
+   * question keywords can't fragment the per-dataset prompt cache.
+   */
+  extraGuidance?: string
 ): Promise<string> {
   const hasTurns = priorTurns && priorTurns.length > 0;
   // Cache the stable schema/context prefix; the question (and any chat history)
@@ -204,9 +210,10 @@ export async function generateAnalysisCode(
     localFileContext,
     sandboxMemoryGb
   );
+  const guidanceTail = extraGuidance ? `\n${extraGuidance}` : "";
   const tail = hasTurns
-    ? `\n${buildConversationHistorySection(priorTurns)}## Question\n${question}`
-    : `\n## Question\n${question}`;
+    ? `${guidanceTail}\n${buildConversationHistorySection(priorTurns)}## Question\n${question}`
+    : `${guidanceTail}\n## Question\n${question}`;
 
   // STREAM (not generateText): a non-streaming CLI call has only a 10-min
   // wall-clock timeout and NO stall detection — a hung backend burns the full

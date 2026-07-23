@@ -1,6 +1,7 @@
 import "server-only";
 import { execFile } from "node:child_process";
 import type { ExecutionResult } from "@/lib/types";
+import { getRunFailureHints } from "@/lib/pipeline/run-control";
 import { parseSandboxOutput } from "./parse-output";
 
 export function run(
@@ -249,6 +250,8 @@ export async function parseExecutionOutput(
     livePhase: live?.lastPhase,
     liveDuckdbCfg: live?.duckdbCfg,
     containerGone,
+    // Active skills' phase-keyed OOM remedies (empty outside a run context).
+    skillFailureHints: getRunFailureHints(),
     readFile: async (path) => {
       const result = await run("docker", ["exec", containerId, "cat", path]).catch(() => null);
       return result && result.exitCode === 0 ? result.stdout : null;

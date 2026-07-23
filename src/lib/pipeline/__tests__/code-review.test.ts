@@ -77,4 +77,28 @@ describe("reviewGeneratedCode", () => {
     const review = await reviewGeneratedCode("code", "q", "3.8 GB");
     expect(review.severity).toBe("none");
   });
+
+  it("appends skill-contributed extra rules to the critic's RULES list verbatim", async () => {
+    queue(JSON.stringify({ findings: [] }));
+    await reviewGeneratedCode("code", "q", "3.8 GB", undefined, [
+      "COHORT-PIVOT — flag when retention is computed row-wise in Python.",
+    ]);
+    const call = generateTextMock.mock.calls[0][0] as { system: string };
+    expect(call.system).toContain("COHORT-PIVOT — flag when retention is computed row-wise");
+    // Inserted inside the RULES section, before the response-format epilogue.
+    expect(call.system.indexOf("COHORT-PIVOT")).toBeGreaterThan(call.system.indexOf("GUARD-NULL"));
+    expect(call.system.indexOf("COHORT-PIVOT")).toBeLessThan(
+      call.system.indexOf("Respond with ONLY a JSON object")
+    );
+  });
+
+  it("emits a byte-stable system prompt when no extra rules are supplied", async () => {
+    queue(JSON.stringify({ findings: [] }));
+    await reviewGeneratedCode("code", "q", "3.8 GB");
+    const without = (generateTextMock.mock.calls[0][0] as { system: string }).system;
+    queue(JSON.stringify({ findings: [] }));
+    await reviewGeneratedCode("code", "q", "3.8 GB", undefined, []);
+    const withEmpty = (generateTextMock.mock.calls[0][0] as { system: string }).system;
+    expect(withEmpty).toBe(without);
+  });
 });

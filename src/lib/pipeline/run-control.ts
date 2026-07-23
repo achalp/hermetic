@@ -2,6 +2,7 @@ import "server-only";
 import { execFile } from "node:child_process";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
+import type { SkillFailureHint } from "@/lib/skills/types";
 
 /**
  * Per-run control registry — the single mechanism behind "stop on demand" and
@@ -52,6 +53,8 @@ interface RunControl {
   containers: Set<string>;
   /** Forwards sandbox progress to the run's patch stream. */
   onProgress?: (p: SandboxProgress) => void;
+  /** Active skills' phase-keyed OOM remedies (see skills/types.ts). */
+  failureHints?: SkillFailureHint[];
   startedAt: number;
   stopped: boolean;
 }
@@ -131,6 +134,26 @@ export function unregisterContainer(containerId: string): void {
   const runId = getRunId();
   if (runId) runs.get(runId)?.containers.delete(containerId);
   containerOwner.delete(containerId);
+}
+
+/**
+ * Attach the active skills' failure hints to the current run so the sandbox
+ * output parser (which has no other channel to the skill activation) can match
+ * them against the failing phase. Lives on RunControl — the globalThis-backed
+ * registry — and is torn down with the run by endRun. No-op outside a run
+ * context (tests, fingerprint containers).
+ */
+export function setRunFailureHints(hints: SkillFailureHint[]): void {
+  const runId = getRunId();
+  if (!runId) return;
+  const rc = runs.get(runId);
+  if (rc) rc.failureHints = hints;
+}
+
+/** The current run's skill failure hints ([] outside a run / none registered). */
+export function getRunFailureHints(): SkillFailureHint[] {
+  const runId = getRunId();
+  return (runId && runs.get(runId)?.failureHints) || [];
 }
 
 /** Emit a progress event from the current run's sandbox into its patch stream. */

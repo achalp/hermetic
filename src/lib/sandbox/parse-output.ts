@@ -12,6 +12,7 @@
  */
 import { z } from "zod";
 import type { ExecutionResult } from "@/lib/types";
+import type { SkillFailureHint } from "@/lib/skills/types";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { logger } from "@/lib/logger";
 
@@ -109,6 +110,26 @@ const HARD_KILL_SCAN_HINT =
   "set into pandas; (3) do NOT add `SET threads=<high>` — the sandbox already caps scan threads low for exactly " +
   "this reason. If you genuinely just built a huge N-sized PYTHON object (a dict/list over ALL rows, e.g. to label " +
   "a map sample) that is the one pandas-side way to hard-kill — index by position instead, never build an N-sized map.";
+
+/**
+ * Active skills' hints are matched FIRST — a skill that knows its own failure
+ * mode beats the generic built-in router. Which skill's hint fired is logged
+ * and recorded in the diag bundle so a retry that went sideways can be traced
+ * to the guidance that steered it.
+ */
+function skillHintForPhase(
+  phase: string | undefined,
+  hints: SkillFailureHint[] | undefined
+): SkillFailureHint | undefined {
+  if (!phase || !hints?.length) return undefined;
+  return hints.find((h) => {
+    try {
+      return new RegExp(h.pattern, "i").test(phase);
+    } catch {
+      return false; // parse-time validation should prevent this; never throw here
+    }
+  });
+}
 
 function oomGuidanceForPhase(phase: string | undefined): string | undefined {
   const p = (phase ?? "").toLowerCase();
@@ -208,6 +229,12 @@ export interface ParseSandboxOutputOpts {
    * (observed: 11 mid-scan reaper kills misdiagnosed as OOM across three runs).
    */
   containerGone?: boolean;
+  /**
+   * Phase-keyed OOM remedies contributed by the run's active skills, matched
+   * ahead of the built-in phase router (executors fetch these from
+   * run-control's per-run registry).
+   */
+  skillFailureHints?: SkillFailureHint[];
 }
 
 /** Externally removed mid-run — an infrastructure failure, NOT a code failure.
@@ -292,6 +319,22 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
       // generic blob is unactionable when the code is already coordinates-only +
       // counting — the retry just reproduces the same shape.
       const phase = extractOomPhase(predicted, stdout, opts.livePhase);
+      const skillHint = skillHintForPhase(phase, opts.skillFailureHints);
+      if (skillHint) {
+        logger.info("Skill failure hint applied", {
+          runtime: opts.runtime,
+          skill: skillHint.skill,
+          phase,
+        });
+        const error = `Out of memory — the analysis process was killed (OOM). Memory peaked during phase: "${phase}".\n${skillHint.hint}`;
+        return {
+          success: false,
+          error,
+          errorKind: "oom",
+          execution_ms: executionMs,
+          execDiag: `hint=skill:${skillHint.skill}\n${execDiag}`,
+        };
+      }
       const phaseGuidance = oomGuidanceForPhase(phase);
       if (phaseGuidance) {
         const lead = predicted
