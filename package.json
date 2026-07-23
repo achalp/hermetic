@@ -107,6 +107,7 @@
     "three": "^0.183.1",
     "trino-client": "^0.2.9",
     "uuid": "^13.0.0",
+    "yaml": "^2.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
