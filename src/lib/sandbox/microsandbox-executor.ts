@@ -249,15 +249,17 @@ export async function executeSandbox(
       if (geoErr) return fail("GeoJSON", geoErr);
     }
 
-    // Additional files (workbook sheets)
+    // Additional files (workbook sheets, runtime package, skill/user libs)
     if (additionalFiles && additionalFiles.length > 0) {
-      await sandbox.run(
-        `import pathlib; pathlib.Path("${workDir}/sheets").mkdir(parents=True, exist_ok=True)`,
-        { timeout: 5 }
-      );
       for (const file of additionalFiles) {
-        // Rewrite /data/sheets/X.csv → workDir/sheets/X.csv
+        // Rewrite /data/sheets/X.csv → workDir/sheets/X.csv; create each
+        // file's own parent dir (paths span sheets/, hermetic_runtime/, ...).
         const localPath = file.path.replace(/^\/data\//, `${workDir}/`);
+        const parent = localPath.slice(0, localPath.lastIndexOf("/")) || workDir;
+        await sandbox.run(
+          `import pathlib; pathlib.Path(${JSON.stringify(parent)}).mkdir(parents=True, exist_ok=True)`,
+          { timeout: 5 }
+        );
         const fileErr = await writeChunkedFile(sandbox, localPath, file.content);
         if (fileErr) return fail(`additional file ${file.path}`, fileErr);
       }

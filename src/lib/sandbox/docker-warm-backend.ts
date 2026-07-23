@@ -63,17 +63,23 @@ export class DockerWarmBackend implements WarmSandboxBackend {
       });
     }
 
-    // Write additional files (workbook sheets)
+    // Write additional files (workbook sheets, runtime package, skill/user libs)
     if (additionalFiles && additionalFiles.length > 0) {
-      await run("docker", ["exec", CONTAINER_NAME, "mkdir", "-p", "/data/sheets"], {
-        timeoutMs: 5_000,
-      });
       for (const file of additionalFiles) {
         const safePath = file.path.replace(/'/g, "'\\''");
-        await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", `cat > '${safePath}'`], {
-          input: file.content,
-          timeoutMs: 15_000,
-        });
+        const safeDir = safePath.slice(0, safePath.lastIndexOf("/")) || "/data";
+        await run(
+          "docker",
+          [
+            "exec",
+            "-i",
+            CONTAINER_NAME,
+            "sh",
+            "-c",
+            `mkdir -p '${safeDir}' && cat > '${safePath}'`,
+          ],
+          { input: file.content, timeoutMs: 15_000 }
+        );
       }
     }
 

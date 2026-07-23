@@ -94,13 +94,16 @@ export async function executeSandbox(
     }
 
     if (additionalFiles && additionalFiles.length > 0) {
-      await run("docker", ["exec", id, "mkdir", "-p", "/data/sheets"], { timeoutMs: 5_000 });
       for (const file of additionalFiles) {
+        // Each file creates its own parent dir — paths now span /data/sheets,
+        // /data/hermetic_runtime, /data/skill_lib, /data/user_lib.
         const safePath = file.path.replace(/'/g, "'\\''");
-        await run("docker", ["exec", "-i", id, "sh", "-c", `cat > '${safePath}'`], {
-          input: file.content,
-          timeoutMs: 15_000,
-        });
+        const safeDir = safePath.slice(0, safePath.lastIndexOf("/")) || "/data";
+        await run(
+          "docker",
+          ["exec", "-i", id, "sh", "-c", `mkdir -p '${safeDir}' && cat > '${safePath}'`],
+          { input: file.content, timeoutMs: 15_000 }
+        );
       }
     }
 

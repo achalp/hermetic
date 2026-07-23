@@ -36,14 +36,15 @@ export class MicrosandboxWarmBackend implements WarmSandboxBackend {
       if (geoErr) throw new Error(geoErr);
     }
 
-    // Write additional files (workbook sheets)
+    // Write additional files (workbook sheets, runtime package, skill/user libs)
     if (additionalFiles && additionalFiles.length > 0) {
-      await sandbox.run(
-        `import pathlib; pathlib.Path("/data/sheets").mkdir(parents=True, exist_ok=True)`,
-        { timeout: 5 }
-      );
       for (const file of additionalFiles) {
-        const localPath = file.path; // already /data/sheets/X.csv
+        const localPath = file.path; // already absolute under /data/
+        const parent = localPath.slice(0, localPath.lastIndexOf("/")) || "/data";
+        await sandbox.run(
+          `import pathlib; pathlib.Path(${JSON.stringify(parent)}).mkdir(parents=True, exist_ok=True)`,
+          { timeout: 5 }
+        );
         const fileErr = await writeChunkedFile(sandbox, localPath, file.content);
         if (fileErr) throw new Error(fileErr);
       }

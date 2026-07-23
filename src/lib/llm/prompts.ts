@@ -13,6 +13,7 @@ import type {
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { activateSkills } from "@/lib/skills/registry";
+import { preloadedExtrasLine } from "@/lib/sandbox/runtime-files";
 
 // ── Column metadata formatter ─────────────────────────────────────
 
@@ -263,7 +264,7 @@ Rules:
   - write_output(results=, chart_data=, datasets=, images=) — the ONLY way to emit output (see structure above).
   - to_num(series) — coerce to numeric, stripping currency symbols, commas, percent signs and whitespace. Use before ANY arithmetic on a column that might be stored as strings (currency/percentage columns are flagged in the schema).
   - numeric(df, cols=None) — a numeric-only coerced view. Use it before df.diff(), .pct_change(), .corr(), or matrix math. NEVER call .diff()/.pct_change()/.corr() on a frame that may contain non-numeric columns.
-  - safe_qcut(series, q) — quantile bucketing that won't crash. Use it INSTEAD of pd.qcut: plain qcut raises on skewed / low-cardinality columns (duplicate bin edges). Check the column's "distinct" / "zeros" stats in the schema first — if a column is mostly one value, bucket by value rather than by quantile.
+  - safe_qcut(series, q) — quantile bucketing that won't crash. Use it INSTEAD of pd.qcut: plain qcut raises on skewed / low-cardinality columns (duplicate bin edges). Check the column's "distinct" / "zeros" stats in the schema first — if a column is mostly one value, bucket by value rather than by quantile.${preloadedExtrasLine()}
 - Avoid degenerate output: a percent-change / QoQ on small-magnitude integer columns (see the range/zeros stats) can round to all-zeros — also include the ABSOLUTE change so the chart isn't empty. Before calling write_output, confirm results and chart_data are each non-empty.
 - "No signal" IS a valid answer — never end with empty results AND empty charts. If an analysis legitimately yields zero rows (a filter/breakdown/correlation with no matches, no clustering, etc.), that is a real finding: record it in results (e.g. results["temporal_clustering_found"] = False, results["pairs_analyzed"] = N) AND still show the data you DO have (the overall distribution, the inputs you analyzed) rather than an empty breakdown. An output with empty results and empty chart_data is treated as a failure and retried — so always write at least one concrete finding into results, even when the headline answer is "nothing here". Check df[col].unique() before filtering on specific values.
 - Do NOT use print() at all, and do NOT call json.dump or open("/data/output.json") yourself — emit results ONLY via write_output(...). It handles NaN/None and type coercion, so you never need fillna() before serialization.

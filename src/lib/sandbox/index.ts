@@ -6,6 +6,7 @@ import { getWarmManager } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/types";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { hermeticRuntimeFiles } from "./runtime-files";
 
 export interface AdditionalFile {
   path: string;
@@ -459,6 +460,31 @@ def safe_qcut(s, q, labels=None):
             return _pd.qcut(ser.rank(method='first'), k, labels=lab, duplicates='drop')
         except Exception:
             return _pd.cut(ser, min(k, 2), duplicates='drop')
+
+# ── Hermetic runtime package override (auto-injected) ────────────────────────
+# The helper definitions above are the LEGACY INLINE COPY. The host ships the
+# TESTED package (docker/sandbox/hermetic_runtime/) into /data/hermetic_runtime
+# with every run; when importable, its versions take over so there is one
+# source of truth. The inline copy stays for one release as the fallback (a
+# deployment that failed to ship the files degrades, not dies) and is removed
+# next. The runtime_pkg progress field makes which path ran OBSERVABLE on the
+# live stream and in the journal — never guess from behavior.
+try:
+    import sys as _rt_sys
+    if "/data" not in _rt_sys.path:
+        _rt_sys.path.insert(0, "/data")
+    import hermetic_runtime as _hrt
+    from hermetic_runtime import safe_float, safe_int, write_output, to_num, numeric, safe_qcut
+    from hermetic_runtime import to_native as _to_native
+    _hrt.guards.configure(_MEM_LIMIT)
+    assert_fits = _hrt.guards.assert_fits
+    _INFEASIBLE_MSG = _hrt.guards.INFEASIBLE_MSG
+    progress(runtime_pkg="hermetic_runtime")
+except Exception as _rt_err:
+    try:
+        progress(runtime_pkg="inline-fallback: %s" % _rt_err)
+    except Exception:
+        pass
 `;
 
 type SandboxExecutor = (
@@ -485,6 +511,10 @@ export function executeSandbox(
   inputParquetPath?: string
 ): Promise<ExecutionResult> {
   const rt = runtime ?? getActiveSandboxRuntime();
+  // Every run carries the hermetic runtime package (tested helper sources the
+  // prelude imports, overriding its inline copies). Injected HERE — the single
+  // dispatch point — so all runtimes and the warm paths get it identically.
+  additionalFiles = [...hermeticRuntimeFiles(), ...(additionalFiles ?? [])];
 
   // Both a bind-mount (browsed local files) and a copied-in Parquet (materialized
   // data) need the ephemeral Docker path — the warm container can't take a volume,
