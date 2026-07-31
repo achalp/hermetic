@@ -1,6 +1,6 @@
 # Hermetic
 
-**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, schedule a saved dashboard to refresh on a cron, and see exactly what each analysis costs. Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama.
+**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, schedule a saved dashboard to refresh on a cron, see exactly what each analysis costs, and teach it your domain with drop-in **skills** (markdown guidance + Python helpers the model is steered to import). Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama.
 
 ![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
 
@@ -51,6 +51,14 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Scheduled runs.** Saved dashboards can be scheduled with node-cron. Schedule popover anchored to the dashboard toolbar, schedule pills on saved-viz cards with edit/delete in place — a dashboard you built last week refreshes itself every Monday morning.
 - **Persistent history.** Every analysis auto-saves to disk (generated code, results, visualizations). History survives restarts. Browse from a dedicated page, restore any previous result instantly, or re-run it against fresh data.
 
+### Skills — teach it your domain
+
+- **Drop-in skills.** A skill is a folder — `data/skills/<name>/SKILL.md` — that teaches the engine a domain: activation triggers (column-name regexes, question keywords, data-source kind), prompt guidance, reviewer rules, and failure hints for the retry loop. Drop it in and it's live on the next question — no restart, no rebuild. Invalid files are skipped with a logged reason, and `GET /api/skills` lists every skill plus every rejected file with why.
+- **Python helpers.** A sibling `helpers.py` ships into the sandbox as `skill_lib.<name>` when its skill activates. Function signatures and docstring first-lines are auto-advertised in the prompt — generated, not hand-written, so the prompt can never advertise a function the module doesn't define — and the model imports tested code instead of re-deriving formulas. `data/user_lib/*.py` modules preload on **every** run for team-wide metrics and loaders.
+- **Built-in skills.** The engine's own geo expertise ships the same way: Overture polygon hydration, planet-scale superlatives (Parquet-footer coarse-to-fine scan + KD-tree), and map answer visibility are built-in skills activated per question — the critic, router, and guards stay domain-agnostic.
+- **Pre-execution review gate.** An LLM critic lints generated code against the active skills' rules **before** it runs (won-only revenue, no OR'd bounding-box scans, significance before declaring an A/B winner, …) and forces a regeneration on findings — cheaper than paying for a doomed two-minute scan.
+- **Worked samples.** Five sample skills ship in [`samples/skills/`](samples/skills/): sales correctness guards, cohort retention, A/B experiment readouts, anomaly windows, and spatial clustering (the Clark-Evans index via scipy as a preloaded helper). Full authoring guide: [`docs/creating-skills.md`](docs/creating-skills.md).
+
 ### Data Sources
 
 - **File uploads.** CSV, Excel (multi-sheet workbooks with relationship detection), GeoJSON, JSON.
@@ -79,11 +87,11 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Update data.** Re-run saved visualizations with new data files. Schema-compatible updates skip LLM calls.
 - **Cost tracking.** Every analysis' LLM token cost is captured automatically across the whole fan-out (code-gen, retries, planner, sub-questions, compose) with zero call-site threading, and surfaced three ways: a live footer (last analysis + running session total), a per-day CSV log (`data/cost/<date>.csv` with token buckets, per-analysis cost, and a **per-phase breakdown** — planner, SQL-gen, SQL-repair, code-gen, compose, …), and a `/cost` page with totals and a per-dataset breakdown, linked from Settings. Local or unknown models report $0 but still track tokens.
 - **Cost-optimized by default.** Prompt caching (Anthropic ephemeral cache — roughly a 90% input discount on cache hits) wraps the large static prompts that every compose call re-sends, plus cheaper models for heavy vs. classification work, fewer retries, lazy cell composition, output volume scaled to the chosen style, and — for warehouse Investigate — per-step SQL that aggregates in the warehouse so code-gen runs over a small result instead of a million-row frame. The wins are largest on Investigate, which fans out into many LLM calls; per-phase cost telemetry is what made each lever measurable.
-- **Resilient long runs.** Planet-scale analysis won't OOM-kill the sandbox: a memory watchdog polls the container 4×/second, an up-front feasibility gate refuses a plan that already can't fit, DuckDB is capped to the container's real limit, and the coarse-to-fine scan counts candidate cells instead of materializing them. And an in-flight run survives a browser reload or dev hot-reload — reconnect and the live progress and result are still there.
+- **Resilient long runs.** Planet-scale analysis won't OOM-kill the sandbox: a memory watchdog polls the container 4×/second, an up-front feasibility gate refuses a plan that already can't fit, DuckDB is capped to the container's real limit (scan threads included), `.df()` pulls are hard-capped so an unguarded materialization can't take out the container, and the coarse-to-fine scan counts candidate cells instead of materializing them. A preflight lint catches forgotten imports before execution; when a run does die, the retry carries a **phase-accurate** signal — which progress phase was executing, plus any skill-provided remedy — instead of a generic OOM blob. The app holds a wake lock during execution so a sleeping laptop doesn't sever a long remote scan, an in-flight run survives a browser reload or dev hot-reload, and **Stop actually stops** — it kills the in-flight LLM call and the sandbox process, not just the spinner. Code-gen and retries stream into the progress panel live, and each attempt's diagnostics (config, phase, output tails) persist to the run directory.
 
 ### Configuration
 
-- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints, or the **Claude CLI** — use your own `claude` login (Pro/Max subscription or API billing) with no API key.
+- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints, or the **Claude CLI** — use your own `claude` login (Pro/Max subscription or API billing) with no API key. The chosen model persists across restarts.
 - **Local models.** MLX (Apple Silicon), llama.cpp, or Ollama. Detect, download, and activate models from the Settings drawer.
 - **Four themes.** Focus (emerald, default), Stamen (cartographic), Info is Beautiful (vivid), Pentagram (reductive). Each with light and dark variants.
 - **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
@@ -390,6 +398,7 @@ src/
       suggest/          Question suggestion endpoint
       providers/        LLM provider detection
       runtimes/         Sandbox runtime status
+      skills/           Skill listing (valid + rejected files with reasons)
       ollama/           Ollama model management
       local-llm/        Local model (MLX / llama.cpp) management
     history/            Persistent history page
@@ -427,6 +436,12 @@ src/
       investigate-planner.ts   Decompose question → sub-questions
       investigate-composer.ts  Synthesize sub-results → one dashboard
       resolve-placeholders.ts  Hydrate composed spec with real values
+    skills/             Skill system (see docs/creating-skills.md)
+      builtin/          geo-overture, planet-scale-superlative, map-answer-visibility
+      skill-md.ts       SKILL.md parser (frontmatter, triggers, review rules, hints)
+      user-skills.ts    data/skills/<name>/ loader (mtime-cached, never throws)
+      user-modules.ts   data/user_lib always-on Python modules
+      registry.ts       Activation + guidance render + helper auto-advertisement
     pipeline/           Query orchestration
       orchestrator.ts            Single-question pipeline w/ multi-retry
       investigate-orchestrator.ts Multi-step Investigate runner
@@ -446,8 +461,8 @@ src/
 **File uploads:**
 
 1. **Load.** CSV, Excel (multi-sheet), GeoJSON, JSON, or Parquet file is parsed, schema extracted, and stored in memory (Parquet stays on disk and is bind-mounted into the sandbox).
-2. **Query.** User question + schema (and prior conversation history, if any) sent to your configured LLM for Python code generation.
-3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, scikit-learn, and DuckDB. Failures retry up to 3× with a reflection prompt after the second attempt.
+2. **Query.** User question + schema (and prior conversation history, if any) sent to your configured LLM for Python code generation, along with guidance from any skills whose triggers match the schema or question.
+3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, scikit-learn, and DuckDB (plus any active skills' helper modules under `skill_lib`). When a review gate is active, an LLM critic lints the code against the skills' rules first and regenerates on findings. Failures retry up to 3× with a reflection prompt after the second attempt.
 4. **Compose.** Execution results sent to the LLM for UI composition as a JSON-Render spec.
 5. **Render.** JSON-Render spec streamed to the browser and rendered as interactive React components. Every analysis auto-saves to persistent history.
 
@@ -518,7 +533,7 @@ Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from a
 
 If you have the Claude CLI (Claude Code) installed and authenticated — `npm install -g @anthropic-ai/claude-code`, then run `claude` once to log in — Hermetic can use it as a provider with **no API key**. Set `LLM_PROVIDER=claude-cli`, pick it in **Settings > Inference**, or just have `claude` on your `PATH` and it's auto-detected as a last-resort fallback (a configured API key still wins).
 
-Each analysis call shells out to `claude -p` with the model chosen per task (the same internal model IDs as the Anthropic provider), authenticating with whatever credentials the CLI itself holds — a Pro/Max subscription or API billing. Built-in tools are disabled on every call (Hermetic runs its generated code in its own sandbox and never uses the CLI's tools), which keeps per-call overhead minimal. If `claude` isn't on `PATH`, set `claudeCli.binaryPath` in `data/runtime-config.json`.
+Each analysis call shells out to `claude -p` with the model chosen per task (the same internal model IDs as the Anthropic provider), authenticating with whatever credentials the CLI itself holds — a Pro/Max subscription or API billing. When the CLI provider is selected, API-key variables are stripped from its environment, so calls always use the CLI's own login instead of silently billing a leftover `ANTHROPIC_API_KEY`. Built-in tools are disabled on every call (Hermetic runs its generated code in its own sandbox and never uses the CLI's tools), which keeps per-call overhead minimal. If `claude` isn't on `PATH`, set `claudeCli.binaryPath` in `data/runtime-config.json`.
 
 Cost is reported at **equivalent API rates** (the CLI can be metered per token, so `$0` would mislead), with cache reads priced at the cheap cache-read rate. It's an estimate, not the CLI's own bill.
 
