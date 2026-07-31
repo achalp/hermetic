@@ -8,7 +8,9 @@ import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface GaugeRange {
   to: number;
-  color: string;
+  color?: string | null;
+  /** Accepted from LLM specs; bands render by color, labels are not drawn. */
+  label?: string | null;
 }
 
 interface GaugeChartProps {
@@ -37,12 +39,19 @@ export function GaugeChartComponent({ props }: { props: GaugeChartProps }) {
   const value = Number(props.value) || 0;
   const min = props.min ?? 0;
   const max = props.max ?? Math.max(value, min + 1);
-  const ranges = Array.isArray(props.ranges) ? props.ranges : [];
+  const ranges = (Array.isArray(props.ranges) ? props.ranges : []).filter(
+    (r) => r != null && Number.isFinite(Number(r.to))
+  );
 
   let prev = min;
-  const steps = ranges.map((r) => {
-    const step = { range: [prev, r.to] as [number, number], color: resolveColor(r.color) };
-    prev = r.to;
+  const steps = ranges.map((r, i) => {
+    const step = {
+      range: [prev, Number(r.to)] as [number, number],
+      // Bands without a color (label-only specs) fall back to the palette,
+      // offset so band 0 doesn't blend into the value bar (palette[0]).
+      color: resolveColor(r.color, palette[(i + 1) % palette.length]),
+    };
+    prev = Number(r.to);
     return step;
   });
 

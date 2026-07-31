@@ -1,6 +1,12 @@
 "use client";
 
-import { useNivoTheme, useChartColors, resolveColor, unwrapChartData } from "@/lib/chart-theme";
+import {
+  useNivoTheme,
+  useChartColors,
+  resolveColor,
+  resolveColors,
+  unwrapChartData,
+} from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
@@ -26,9 +32,7 @@ export function BulletChartComponent({ props }: { props: BulletChartProps }) {
   const valueColor = resolveColor(props.value_color ?? themeColors[0]);
 
   const defaultRangeColors = ["#e5e7eb", "#d1d5db", "#9ca3af"];
-  const rangeColors = props.range_colors
-    ? props.range_colors.map(resolveColor)
-    : defaultRangeColors;
+  const rangeColors = props.range_colors ? resolveColors(props.range_colors) : defaultRangeColors;
 
   const itemHeight = 50;
   const labelWidth = 100;

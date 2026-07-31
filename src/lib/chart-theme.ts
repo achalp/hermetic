@@ -149,13 +149,16 @@ export function unwrapChartData(data: unknown): Record<string, unknown>[] {
   return [];
 }
 
-export function resolveColor(nameOrHex: string): string {
+export function resolveColor(nameOrHex: string | null | undefined, fallback?: string): string {
+  // LLM-shaped specs can omit or null a color field (e.g. gauge ranges with
+  // only labels) — never let a missing color throw at the render boundary.
+  if (typeof nameOrHex !== "string" || !nameOrHex) return fallback ?? DEFAULT_CHART_COLORS[0];
   return CHART_COLORS[nameOrHex.toLowerCase()] ?? nameOrHex;
 }
 
 /** Resolve an array of named colors / hex codes */
-export function resolveColors(arr: string[]): string[] {
-  return arr.map(resolveColor);
+export function resolveColors(arr: (string | null | undefined)[]): string[] {
+  return arr.map((c, i) => resolveColor(c, DEFAULT_CHART_COLORS[i % DEFAULT_CHART_COLORS.length]));
 }
 
 /**
