@@ -138,15 +138,18 @@ Rules that make helpers work well:
 
 ## Worked examples
 
-Four live samples sit in `data/skills/` (they are user-local; full sources
-below so this doc is self-contained). Each demonstrates a different surface:
+Five samples ship in [`samples/skills/`](../samples/skills/) — copy any of
+them into `data/skills/` to make them live (`data/` is gitignored, so the
+tracked copies under `samples/` are the canonical sources). Each demonstrates
+a different surface:
 
-| Skill              | Domain                  | Demonstrates                                                                                 |
-| ------------------ | ----------------------- | -------------------------------------------------------------------------------------------- |
-| `sales-analysis`   | Bundled sales demo CSV  | Column triggers, review rules, won-only correctness guards                                   |
-| `cohort-retention` | Retention/cohorts       | DuckDB-first helper (matrix built in SQL), failure hint                                      |
-| `ab-experiment`    | Experiment readouts     | Question triggers, a review rule enforcing significance, stats helpers, `_private` functions |
-| `anomaly-windows`  | Spike/outlier detection | Question-only triggers, robust-stats helper, chart-visibility guidance                       |
+| Skill                | Domain                      | Demonstrates                                                                                                                               |
+| -------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sales-analysis`     | Bundled sales demo CSV      | Column triggers, review rules, won-only correctness guards                                                                                 |
+| `cohort-retention`   | Retention/cohorts           | DuckDB-first helper (matrix built in SQL), failure hint                                                                                    |
+| `ab-experiment`      | Experiment readouts         | Question triggers, a review rule enforcing significance, stats helpers, `_private` functions                                               |
+| `anomaly-windows`    | Spike/outlier detection     | Question-only triggers, robust-stats helper, chart-visibility guidance                                                                     |
+| `spatial-clustering` | Overture building centroids | A named statistical test as a helper (Clark-Evans index via scipy cKDTree), sampling-bias review rule, layering on the built-in geo skills |
 
 ### `cohort-retention` — the pattern to copy
 
