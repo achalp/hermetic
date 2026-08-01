@@ -104,6 +104,31 @@ describe("runWarehouseQuery", () => {
     expect(passedQuestion).toContain("SCAN BUDGET");
   });
 
+  it("threads follow-up priorTurns through to SQL generation", async () => {
+    mockedScope.mockResolvedValue(null); // no scan hint
+    mockedRepair.mockResolvedValue({ sql: "SELECT 2", result: "a\n1\n" } as never);
+    const priorTurns = [
+      {
+        question: "revenue last quarter?",
+        analysisSummary: { resultKeys: {}, chartDataShapes: {} },
+        specSummary: "",
+        sql: "SELECT SUM(revenue) FROM orders",
+      },
+    ];
+
+    await runWarehouseQuery({
+      tables: TABLES,
+      connector: { executeSQL: vi.fn() } as never,
+      warehouseType: "clickhouse",
+      question: "break that down by region",
+      model: "m",
+      scanRowBudget: 1_000_000,
+      priorTurns,
+    });
+
+    expect(mockedRepair).toHaveBeenCalledWith(expect.objectContaining({ priorTurns }));
+  });
+
   it("treats an empty result as a failure (so the repair loop can retry)", async () => {
     mockedScope.mockResolvedValue(null);
     const executeSQL = vi.fn().mockResolvedValue("   ");

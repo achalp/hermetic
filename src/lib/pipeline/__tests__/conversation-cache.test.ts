@@ -4,6 +4,7 @@ import {
   appendConversationTurn,
   clearConversationTurns,
   buildTurnFromArtifacts,
+  aliasConversationKey,
 } from "@/lib/pipeline/conversation-cache";
 import type { ConversationTurn } from "@/lib/types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -157,6 +158,61 @@ describe("conversation-cache", () => {
       const turn = buildTurnFromArtifacts("q", makeArtifacts(), { root: "r", elements: {} });
       expect(turn.analysisSummary.resultKeys).toEqual({});
       expect(turn.analysisSummary.chartDataShapes).toEqual({});
+    });
+  });
+
+  describe("sql on warehouse turns", () => {
+    it("buildTurnFromArtifacts carries artifacts.sql into the turn", () => {
+      const turn = buildTurnFromArtifacts(
+        "revenue by region?",
+        {
+          code: "",
+          question: "",
+          results: {},
+          chart_data: {},
+          datasets: {},
+          execution_ms: 0,
+          sql: "SELECT region, SUM(revenue) FROM orders GROUP BY 1",
+        },
+        { root: "r", elements: {} }
+      );
+      expect(turn.sql).toBe("SELECT region, SUM(revenue) FROM orders GROUP BY 1");
+    });
+
+    it("omits the sql field entirely for non-warehouse turns", () => {
+      const turn = buildTurnFromArtifacts(
+        "q",
+        { code: "", question: "", results: {}, chart_data: {}, datasets: {}, execution_ms: 0 },
+        { root: "r", elements: {} }
+      );
+      expect("sql" in turn).toBe(false);
+    });
+  });
+
+  describe("conversation key aliases", () => {
+    it("reads via an alias land on the canonical conversation", () => {
+      appendConversationTurn("wh-stable", makeTurn("first"));
+      aliasConversationKey("snapshot-abc", "wh-stable");
+      expect(getConversationTurns("snapshot-abc").map((t) => t.question)).toEqual(["first"]);
+    });
+
+    it("appends via an alias land on the canonical conversation", () => {
+      aliasConversationKey("snapshot-def", "wh-stable2");
+      appendConversationTurn("snapshot-def", makeTurn("via-alias"));
+      expect(getConversationTurns("wh-stable2").map((t) => t.question)).toEqual(["via-alias"]);
+    });
+
+    it("clearing via an alias clears the canonical conversation", () => {
+      appendConversationTurn("wh-stable3", makeTurn("x"));
+      aliasConversationKey("snapshot-ghi", "wh-stable3");
+      clearConversationTurns("snapshot-ghi");
+      expect(getConversationTurns("wh-stable3")).toEqual([]);
+    });
+
+    it("self-aliases are ignored", () => {
+      aliasConversationKey("same", "same");
+      appendConversationTurn("same", makeTurn("ok"));
+      expect(getConversationTurns("same").map((t) => t.question)).toEqual(["ok"]);
     });
   });
 });

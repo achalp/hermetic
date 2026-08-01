@@ -12,7 +12,7 @@
  *
  * Future warehouse-SQL fixes belong HERE, not in a route.
  */
-import type { WarehouseTableSchema, WarehouseType } from "@/lib/types";
+import type { ConversationTurn, WarehouseTableSchema, WarehouseType } from "@/lib/types";
 import type { WarehouseConnector } from "./connector";
 import { generateSQLWithRepair } from "./sql-generation";
 import { pickMaterializationScope } from "./materialization-scope";
@@ -92,6 +92,8 @@ export async function runWarehouseQuery(args: {
   scanRowBudget: number;
   /** Cheaper model for the scope pick; defaults to PLANNER_MODEL. */
   scopeModel?: string;
+  /** Follow-up context (prior questions + their SQL) for SQL generation. */
+  priorTurns?: ConversationTurn[];
   onAttempt?: (attempt: number, phase: SqlAttemptPhase) => void;
 }): Promise<{ sql: string; csv: string }> {
   const hint = await scanWindowHint({
@@ -106,6 +108,7 @@ export async function runWarehouseQuery(args: {
     question: args.question + hint,
     warehouseType: args.warehouseType,
     model: args.model,
+    priorTurns: args.priorTurns,
     execute: async (sql) => {
       try {
         // A warehouse query can run for minutes while the driver polls the API

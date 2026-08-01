@@ -19,15 +19,40 @@ interface SessionEntry {
 
 const globalCache = globalThis as unknown as {
   __conversationCache?: Map<string, SessionEntry>;
+  __conversationAliases?: Map<string, string>;
 };
 if (!globalCache.__conversationCache) {
   globalCache.__conversationCache = new Map();
 }
+if (!globalCache.__conversationAliases) {
+  globalCache.__conversationAliases = new Map();
+}
 const cache = globalCache.__conversationCache;
+// Snapshot id → stable conversation key. Warehouse turns key by warehouseId
+// (stable across questions), but several consumers (history persist, suggest)
+// only know the per-question materialized snapshot csvId — the alias lets
+// their lookups land on the same conversation.
+const aliases = globalCache.__conversationAliases;
+const MAX_ALIASES = 500;
+
+/** Map a per-question snapshot id onto the stable conversation key. */
+export function aliasConversationKey(aliasId: string, canonicalId: string): void {
+  if (aliasId === canonicalId) return;
+  aliases.set(aliasId, canonicalId);
+  if (aliases.size > MAX_ALIASES) {
+    // Trim oldest (Map preserves insertion order) — a bounded session-scoped map.
+    const first = aliases.keys().next().value;
+    if (first !== undefined) aliases.delete(first);
+  }
+}
+
+function resolveKey(id: string): string {
+  return aliases.get(id) ?? id;
+}
 
 /** Get prior conversation turns for a data source. */
 export function getConversationTurns(csvId: string): ConversationTurn[] {
-  const entry = cache.get(csvId);
+  const entry = cache.get(resolveKey(csvId));
   if (!entry) return [];
   const now = Date.now();
   if (isIdleExpired(entry, entry.updatedAt, TTL_MS, now)) {
@@ -42,16 +67,17 @@ export function getConversationTurns(csvId: string): ConversationTurn[] {
 
 /** Append a new turn after a successful analysis. */
 export function appendConversationTurn(csvId: string, turn: ConversationTurn): void {
-  const entry = cache.get(csvId);
+  const key = resolveKey(csvId);
+  const entry = cache.get(key);
   const turns = entry ? [...entry.turns, turn] : [turn];
   // Keep only the most recent turns to avoid prompt bloat
   const trimmed = turns.length > MAX_TURNS ? turns.slice(turns.length - MAX_TURNS) : turns;
-  cache.set(csvId, { turns: trimmed, updatedAt: Date.now() });
+  cache.set(key, { turns: trimmed, updatedAt: Date.now() });
 }
 
 /** Clear conversation history for a data source (e.g. on reset). */
 export function clearConversationTurns(csvId: string): void {
-  cache.delete(csvId);
+  cache.delete(resolveKey(csvId));
 }
 
 /** Build a ConversationTurn from artifacts we already have. */
@@ -89,6 +115,9 @@ export function buildTurnFromArtifacts(
     question,
     analysisSummary: { resultKeys, chartDataShapes },
     specSummary: summarizeSpec(spec),
+    // Warehouse turns carry their SQL so follow-up SQL-gen can inherit the
+    // exact population (see ConversationTurn.sql).
+    ...(artifacts.sql ? { sql: artifacts.sql } : {}),
   };
 }
 

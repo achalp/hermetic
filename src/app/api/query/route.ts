@@ -16,11 +16,12 @@ import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { WAREHOUSE_SCAN_ROW_BUDGET } from "@/lib/constants";
-import type { ConversationTurn, SchemaMode } from "@/lib/types";
+import type { SchemaMode } from "@/lib/types";
 import {
   getConversationTurns,
   appendConversationTurn,
   buildTurnFromArtifacts,
+  aliasConversationKey,
 } from "@/lib/pipeline/conversation-cache";
 import { composeAndStreamDashboard, type DrillDownContext } from "@/lib/pipeline/dashboard-compose";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
@@ -109,6 +110,12 @@ export async function POST(request: Request) {
     const isWarehouse = !!warehouseState;
     const totalSteps = isWarehouse ? 5 : 3;
 
+    // Conversation turns must key by a STABLE id. Files: csvId (constant per
+    // upload). Warehouse: warehouseId — each warehouse question materializes a
+    // NEW snapshot csvId, so keying those turns by csvId stored them under ids
+    // that were never read again (warehouse follow-ups silently had no context).
+    const conversationKey = isWarehouse ? warehouseId : csvId;
+
     let warehouseSQL: string | undefined;
     // Set when a large warehouse pull was materialized to Parquet: the host
     // file to copy into the sandbox and the DuckDB read instructions.
@@ -132,6 +139,11 @@ export async function POST(request: Request) {
         await runWithCostTracking(() =>
           runWithDiagnostics(async () => {
             try {
+              // Follow-up context — read once, BEFORE SQL generation, so a
+              // warehouse follow-up's SQL inherits the prior turns' questions
+              // and SQL (population continuity), not just the Python stage.
+              const priorTurns = conversationKey ? getConversationTurns(conversationKey) : [];
+
               // ── Warehouse path: generate SQL → execute → store as CSV ──
               if (warehouseState) {
                 const { warehouse, connector } = warehouseState;
@@ -184,6 +196,7 @@ export async function POST(request: Request) {
                       question,
                       model: codeGenModel,
                       scanRowBudget: WAREHOUSE_SCAN_ROW_BUDGET,
+                      priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
                       onAttempt: (attempt, phase) => {
                         if (closed()) return;
                         if (phase === "repairing") {
@@ -224,8 +237,12 @@ export async function POST(request: Request) {
                 csvId = storedResult.csvId;
                 warehouseParquetFile = storedResult.parquetFile;
                 warehouseParquetContext = storedResult.parquetContext;
-                // Warehouse csvId now known — make the run discoverable by it.
+                // Warehouse csvId now known — make the run discoverable by it,
+                // and alias this snapshot onto the stable conversation key so
+                // csvId-keyed consumers (history persist, suggest) find the
+                // warehouse conversation.
                 stream.setMeta({ csvId });
+                if (conversationKey) aliasConversationKey(csvId, conversationKey);
               }
 
               // ── Load CSV (file upload or warehouse result) ──────────
@@ -341,9 +358,6 @@ export async function POST(request: Request) {
                       )
                     : {};
 
-              // Load prior conversation turns for follow-up context
-              const priorTurns = csvId ? getConversationTurns(csvId) : [];
-
               // Run the code-gen + sandbox pipeline. When the caller supplied
               // pre-edited code via context.code (Edit-and-Rerun), skip the
               // code-gen step and execute the provided code directly.
@@ -410,9 +424,9 @@ export async function POST(request: Request) {
               // it will be populated by the client via the update endpoint after rendering.
               // The analysisSummary (resultKeys + chartDataShapes) is the critical part
               // that tells the code gen LLM what was computed.
-              if (csvId) {
+              if (conversationKey) {
                 const turn = buildTurnFromArtifacts(question, cachedArtifactData, {});
-                appendConversationTurn(csvId, turn);
+                appendConversationTurn(conversationKey, turn);
               }
               // Compose + stream the dashboard. Shared with the Investigate lookup
               // fast-path (see lib/pipeline/dashboard-compose.ts) so both produce an

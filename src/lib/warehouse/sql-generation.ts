@@ -4,7 +4,7 @@ import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from "@/lib/constants";
 import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
 import { logger } from "@/lib/logger";
-import type { WarehouseType, WarehouseTableSchema } from "@/lib/types";
+import type { ConversationTurn, WarehouseType, WarehouseTableSchema } from "@/lib/types";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 
 /**
@@ -99,15 +99,55 @@ function buildSQLGenSchemaBlock(
   return `## Database Schema (${warehouseType})\n\n${formatTableSchemas(tables, warehouseType)}`;
 }
 
+/** Per-turn cap so one giant prior query can't crowd out the schema/question. */
+const HISTORY_SQL_MAX_CHARS = 4000;
+
+/**
+ * Conversation history for follow-up SQL generation. The critical payload is
+ * each prior turn's QUESTION (resolves "that"/"those" and carries implicit
+ * constraints forward) and its SQL (the exact record of tables, joins,
+ * filters, and scan window that produced what the user is referencing) — so a
+ * follow-up becomes a minimal edit of a known-good query rather than a fresh
+ * blind derivation over the wrong population. Rides the un-cached prompt tail
+ * (next to the question), never the cached schema block.
+ */
+export function buildSQLHistorySection(turns: ConversationTurn[] | undefined): string {
+  if (!turns || turns.length === 0) return "";
+  const formatted = turns
+    .map((turn, i) => {
+      const lines = [`### Turn ${i + 1}: "${turn.question}"`];
+      if (turn.sql) {
+        const sql =
+          turn.sql.length > HISTORY_SQL_MAX_CHARS
+            ? `${turn.sql.slice(0, HISTORY_SQL_MAX_CHARS)}\n-- …truncated…`
+            : turn.sql;
+        lines.push("SQL that produced this turn's result:", "```sql", sql, "```");
+      }
+      return lines.join("\n");
+    })
+    .join("\n\n");
+  return `## Prior Queries (same conversation)
+The user is asking a follow-up question. Earlier turns against this warehouse:
+
+${formatted}
+
+Resolve references like "that" / "those" / "the same" against the turns above. Treat the MOST RECENT turn's SQL as the baseline population: PRESERVE its filters, joins, and time window unless the new question explicitly changes them, and prefer a minimal edit of that SQL (new grouping, measure, or cut) over a fresh derivation — silently dropping an inherited constraint answers a different question than the one asked.
+
+`;
+}
+
 /**
  * Generate a SQL query from a natural language question using the LLM.
+ * `priorTurns` (follow-ups) ride the variable tail with the question.
  */
 export async function generateSQL(
   tables: WarehouseTableSchema[],
   question: string,
   warehouseType: WarehouseType,
-  model: string = CODE_GEN_MODEL
+  model: string = CODE_GEN_MODEL,
+  priorTurns?: ConversationTurn[]
 ): Promise<string> {
+  const historySection = buildSQLHistorySection(priorTurns);
   const result = await withPhase("sql_gen", () =>
     generateText({
       model: getModel(model),
@@ -117,7 +157,7 @@ export async function generateSQL(
           role: "user",
           content: [
             cachedText(buildSQLGenSchemaBlock(tables, warehouseType)),
-            { type: "text", text: `\n\n## Question\n${question}` },
+            { type: "text", text: `\n\n${historySection}## Question\n${question}` },
           ],
         },
       ],
@@ -294,11 +334,20 @@ export async function generateSQLWithRepair<T>(args: {
    * still repair as normal.
    */
   bailOnResourceError?: boolean;
+  /** Follow-up context: prior questions + their SQL (see buildSQLHistorySection).
+   *  Repairs don't need it re-sent — the generated SQL already encodes the intent. */
+  priorTurns?: ConversationTurn[];
   onAttempt?: (attempt: number, phase: "generating" | "executing" | "repairing") => void;
 }): Promise<{ sql: string; result: T }> {
   const maxRepairs = args.maxRepairs ?? 2;
   args.onAttempt?.(0, "generating");
-  let sql = await generateSQL(args.tables, args.question, args.warehouseType, args.model);
+  let sql = await generateSQL(
+    args.tables,
+    args.question,
+    args.warehouseType,
+    args.model,
+    args.priorTurns
+  );
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRepairs; attempt++) {

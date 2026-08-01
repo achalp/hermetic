@@ -226,6 +226,13 @@ export interface ConversationTurn {
   };
   /** Compact text tree of the dashboard layout (from summarizeSpec) */
   specSummary: string;
+  /**
+   * Warehouse turns only: the SQL that produced this turn's snapshot. Lets a
+   * follow-up's SQL generation inherit the exact tables, joins, filters, and
+   * scan window (minimal-edit) instead of re-deriving the population blind.
+   * SQL is code, not data — sharing it does not violate blind execution.
+   */
+  sql?: string;
 }
 
 // ── Analysis history types ─────────────────────────────────────
