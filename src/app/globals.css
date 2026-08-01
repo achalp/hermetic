@@ -91,6 +91,12 @@
 
   /* Chart tokens */
   --chart-bar-radius: 6px 6px 2px 2px;
+  /* First three series colors as CSS tokens so SSR'd previews resolve via the
+     cascade (no hydration mismatch). MUST mirror THEME_CHART_COLORS in
+     src/lib/chart-theme.ts — a test guards the sync. */
+  --color-series-1: #6366f1;
+  --color-series-2: #10b981;
+  --color-series-3: #f59e0b;
 
   /* Fonts */
   --font-sans: var(--font-geist-sans);
@@ -316,6 +322,9 @@
   --chart-title-size: 0.8125rem;
   --chart-title-weight: 600;
   --stat-value-weight: 700;
+  --color-series-1: #204ce5;
+  --color-series-2: #d4956a;
+  --color-series-3: #6aafb8;
 
   /* Stamen semantic: muted, scholarly tones */
   --color-trend-up: #5d8c4e;
@@ -507,6 +516,9 @@
   --chart-title-size: 0.9375rem;
   --chart-title-weight: 700;
   --stat-value-weight: 800;
+  --color-series-1: #00acc1;
+  --color-series-2: #f06292;
+  --color-series-3: #ffb74d;
 
   /* IiB semantic: vivid, saturated tones */
   --color-trend-up: #43a047;
@@ -699,6 +711,9 @@
   --chart-title-size: 0.8125rem;
   --chart-title-weight: 400;
   --stat-value-weight: 700;
+  --color-series-1: #cc0000;
+  --color-series-2: #2b2b2b;
+  --color-series-3: #6b7280;
 
   /* Pentagram semantic: reductive, monochrome + red signal */
   --color-trend-up: #000000;

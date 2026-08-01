@@ -5,6 +5,7 @@ import { Drawer } from "./drawer";
 import { CollapsibleSection } from "./collapsible-section";
 import { AppearanceSection } from "./settings/appearance-section";
 import { ConnectedSourcesSection } from "./settings/connected-sources-section";
+import { RecentSourcesSection } from "./settings/recent-sources-section";
 import { InferenceSection } from "./settings/inference-section";
 // Schedule UI moved out of Settings to the dashboard toolbar + Saved Vizs panel.
 import { AnalysisDefaultsSection } from "./settings/analysis-defaults-section";
@@ -96,6 +97,7 @@ export function SettingsDrawer({
           onDeleteSaved={onDeleteSaved}
           onRenameSaved={onRenameSaved}
         />
+        <RecentSourcesSection />
       </CollapsibleSection>
 
       <CollapsibleSection title="Analysis Defaults" defaultOpen={false}>

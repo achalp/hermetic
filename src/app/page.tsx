@@ -14,8 +14,13 @@ import { MainContent } from "@/components/app/main-content";
 import { SettingsDrawer } from "@/components/app/settings-drawer";
 import { DataRail } from "@/components/app/data-rail";
 import { DataRailContent } from "@/components/app/data-rail-content";
-import { SourceCards } from "@/components/app/source-cards";
-import { RecentSources, type RecentItem } from "@/components/app/recent-sources";
+import type { RecentItem } from "@/components/app/recent-sources";
+import { AskComposer } from "@/components/app/home/ask-composer";
+import { AddDataMenu, type SavedConnectionItem } from "@/components/app/home/add-data-menu";
+import { ExampleCards, type ExampleRun } from "@/components/app/home/example-cards";
+import { usePendingAsk } from "@/hooks/use-pending-ask";
+import { RECENTS_CHANGED_EVENT } from "@/components/app/settings/recent-sources-section";
+import { relTimeAgo } from "@/lib/rel-time";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 import { LocalFileBrowser } from "@/components/app/local-file-browser";
 
@@ -27,7 +32,6 @@ import { useSaveExport } from "@/hooks/use-save-export";
 import { useVizActions } from "@/hooks/use-viz-actions";
 import { useSourceSelect } from "@/hooks/use-source-select";
 import { useHistoryRestore } from "@/hooks/use-history-restore";
-import { PreviewStrip } from "@/components/app/preview-strip";
 import { RefreshProgress } from "@/components/app/refresh-progress";
 import { ArtifactsPanel } from "@/components/app/artifacts-panel";
 import { CostFooter, type CostInfo } from "@/components/app/cost-footer";
@@ -54,9 +58,6 @@ import {
   getLocalBackendConfig,
   saveHistoryEntry,
   getRecentSources,
-  removeRecentSource as apiRemoveRecent,
-  renameRecentSource as apiRenameRecent,
-  clearRecentSources as apiClearRecent,
   getSchemaByCsvId,
   type RecentSourceInfo,
   type ActiveRun,
@@ -78,19 +79,6 @@ function fmtRowCount(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
   if (n >= 1e3) return `${Math.round(n / 1e3)}K`;
   return String(n);
-}
-
-/** Relative "used …" label for a recent source. */
-function relTimeAgo(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!then) return "";
-  const s = Math.max(0, (Date.now() - then) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  if (s < 172800) return "yesterday";
-  if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
-  return new Date(iso).toLocaleDateString();
 }
 
 export default function Home() {
@@ -399,11 +387,15 @@ export default function Home() {
   // connect, so we just refetch after each open/remove. Warehouses are merged in
   // from the warehouse hook for one unified "Recent" list.
   const [recents, setRecents] = useState<RecentSourceInfo[]>([]);
-  const [busyRecentId, setBusyRecentId] = useState<string | null>(null);
   const refetchRecents = useCallback(() => {
     void getRecentSources().then(setRecents);
   }, []);
   useEffect(() => refetchRecents(), [refetchRecents]);
+  // Stay in sync with renames/removals made in Settings → Recent sources.
+  useEffect(() => {
+    window.addEventListener(RECENTS_CHANGED_EVENT, refetchRecents);
+    return () => window.removeEventListener(RECENTS_CHANGED_EVENT, refetchRecents);
+  }, [refetchRecents]);
 
   const recentItems = useMemo<RecentItem[]>(() => {
     const files = recents.map((r) => ({
@@ -437,7 +429,6 @@ export default function Home() {
   // file path as an on-disk file.
   const reopenRecent = useCallback(
     async (item: RecentItem, force = false) => {
-      setBusyRecentId(item.id);
       try {
         if (item.kind === "warehouse") {
           const saved = warehouse.savedConnections.find((c) => c.id === item.id);
@@ -454,34 +445,11 @@ export default function Home() {
           await handleLocalFileSelect(src.path, "file");
         }
       } finally {
-        setBusyRecentId(null);
         refetchRecents();
       }
     },
     [recents, warehouse, handleRemoteFileSelect, handleLocalFileSelect, refetchRecents]
   );
-
-  const removeRecent = useCallback(
-    async (item: RecentItem) => {
-      if (item.kind === "warehouse") await warehouse.deleteSaved(item.id);
-      else await apiRemoveRecent(item.id).then(refetchRecents);
-    },
-    [warehouse, refetchRecents]
-  );
-
-  const renameRecent = useCallback(
-    (item: RecentItem, name: string) => {
-      if (item.kind === "warehouse") warehouse.renameSaved(item.id, name);
-      else void apiRenameRecent(item.id, name).then(refetchRecents);
-    },
-    [warehouse, refetchRecents]
-  );
-
-  const clearRecents = useCallback(() => {
-    // Clears the file/cloud history; saved warehouse connections persist (remove
-    // those individually).
-    void apiClearRecent().then(refetchRecents);
-  }, [refetchRecents]);
 
   // Schema-sidebar "refresh" — re-read the current source's schema, ignoring the
   // cache. Only cache-backed sources (warehouse / remote Parquet) offer it; an
@@ -596,6 +564,124 @@ export default function Home() {
     if (currentQuestion) handleQuery(currentQuestion, currentMode);
   }, [handleQuery, currentQuestion, currentMode]);
 
+  // ── Ask-first composer (home) ───────────────────────────────
+  // The question is typed BEFORE data exists; attaching a source is async, so
+  // the question is armed and fires once the source is ready (isState2).
+  const [homeQuestion, setHomeQuestion] = useState("");
+  const runPendingAsk = useCallback(
+    (question: string, mode: QueryMode) => {
+      setQueryMode(mode);
+      void handleGuardedQuery(question, mode);
+    },
+    [handleGuardedQuery]
+  );
+  const { arm: armPendingAsk } = usePendingAsk(isState2, runPendingAsk);
+
+  // Every attach action arms the currently-typed question (if any) so picking
+  // a source with a question already written runs it with zero extra clicks.
+  const armFromComposer = useCallback(() => {
+    const q = homeQuestion.trim();
+    if (q) armPendingAsk({ question: q, mode: queryMode });
+  }, [homeQuestion, queryMode, armPendingAsk]);
+
+  const composerUpload = useCallback(() => {
+    armFromComposer();
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
+    uploadInputRef.current?.click();
+  }, [armFromComposer]);
+
+  const composerLocalBrowse = useCallback(() => {
+    if (sandboxRuntime !== "docker") {
+      const label =
+        sandboxRuntime === "e2b"
+          ? "E2B (Cloud)"
+          : sandboxRuntime === "microsandbox"
+            ? "Microsandbox"
+            : sandboxRuntime;
+      alert(
+        `Local file browsing requires the Docker runtime.\n\nCurrent runtime: ${label}.\nSwitch to Docker in Settings or re-run ./start.sh.`
+      );
+      return;
+    }
+    armFromComposer();
+    setShowLocalBrowser(true);
+  }, [armFromComposer, sandboxRuntime, setShowLocalBrowser]);
+
+  const composerNewWarehouse = useCallback(() => {
+    armFromComposer();
+    setShowWarehouseForm(true);
+  }, [armFromComposer]);
+
+  const composerSavedConnect = useCallback(
+    (id: string) => {
+      const saved = warehouse.savedConnections.find((c) => c.id === id);
+      if (!saved) return;
+      armFromComposer();
+      void warehouse.connect(saved.config);
+    },
+    [armFromComposer, warehouse]
+  );
+
+  const composerSample = useCallback(() => {
+    armFromComposer();
+    void handleSampleData();
+  }, [armFromComposer, handleSampleData]);
+
+  const composerOpenRecent = useCallback(
+    (item: RecentItem) => {
+      armFromComposer();
+      void reopenRecent(item);
+    },
+    [armFromComposer, reopenRecent]
+  );
+
+  // Example cards: question + sample dataset + mode in one click.
+  const runExample = useCallback(
+    (run: ExampleRun) => {
+      setQueryMode(run.mode);
+      setHomeQuestion(run.question);
+      armPendingAsk({ question: run.question, mode: run.mode });
+      void handleSampleData();
+    },
+    [armPendingAsk, handleSampleData]
+  );
+
+  const savedConnectionItems = useMemo<SavedConnectionItem[]>(
+    () =>
+      warehouse.savedConnections.map((c) => ({
+        id: c.id,
+        name: c.name ?? c.label,
+        brandColor: ENGINES[c.config.type]?.brandColor,
+      })),
+    [warehouse.savedConnections]
+  );
+
+  const renderAddDataMenu = useCallback(
+    (close: () => void) => (
+      <AddDataMenu
+        recents={recentItems}
+        savedConnections={savedConnectionItems}
+        onOpenRecent={composerOpenRecent}
+        onUpload={composerUpload}
+        onLocalBrowse={composerLocalBrowse}
+        onNewWarehouse={composerNewWarehouse}
+        onSavedConnect={composerSavedConnect}
+        onSample={composerSample}
+        onPicked={close}
+      />
+    ),
+    [
+      recentItems,
+      savedConnectionItems,
+      composerOpenRecent,
+      composerUpload,
+      composerLocalBrowse,
+      composerNewWarehouse,
+      composerSavedConnect,
+      composerSample,
+    ]
+  );
+
   // Build profile strip items from schema or warehouse
   const profileItems: string[] = [];
   if (schema) {
@@ -610,6 +696,13 @@ export default function Home() {
     profileItems.push(`${warehouse.tableCount} tables`);
     profileItems.push(`${warehouse.totalColumns} columns`);
   }
+
+  // Composer data-chip label — the attached dataset/connection, State 2+.
+  const datasetLabel = schema
+    ? (schema.filename ?? "Uploaded data")
+    : warehouse.isConnected
+      ? `${warehouse.warehouseType ?? "Warehouse"} · ${warehouse.tableCount} tables`
+      : null;
 
   // Source label for top bar pill
   const sourceLabel = schema
@@ -1002,15 +1095,24 @@ export default function Home() {
           )}
           {isState1 && !warehouse.isConnecting && (
             <div
-              className="flex flex-col items-center gap-8"
+              className="flex flex-col items-center gap-6"
               style={{
                 minHeight: "calc(100vh - 56px)",
-                paddingTop: "max(7vh, 40px)",
-                paddingBottom: 56,
+                paddingTop: "max(4.5vh, 24px)",
+                paddingBottom: 48,
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                  armFromComposer();
+                  processUploadFile(file);
+                }
               }}
             >
               <div
-                className="flex flex-col items-center gap-3 text-center"
+                className="flex flex-col items-center gap-2 text-center"
                 style={{ maxWidth: 640 }}
               >
                 <h1
@@ -1028,8 +1130,7 @@ export default function Home() {
                   className="text-t-secondary"
                   style={{ fontSize: "var(--text-subhead)", lineHeight: 1.5, maxWidth: 540 }}
                 >
-                  Upload a file or connect a warehouse, ask in plain English, and get an interactive
-                  dashboard. The model writes the code &mdash; it never sees your rows.
+                  Plain English in, a live dashboard out &mdash; the model never sees your rows.
                 </p>
               </div>
 
@@ -1041,42 +1142,16 @@ export default function Home() {
                 onDismiss={activeRuns.dismiss}
               />
 
-              {/* Unified "Recent" history — uploads, local/cloud files, and saved
-                  warehouses. One click to re-open; no re-pasting URLs or
-                  re-browsing. Subsumes the warehouse-only tray. */}
-              <RecentSources
-                items={recentItems}
-                busyId={busyRecentId}
-                onOpen={(item) => reopenRecent(item)}
-                onRefresh={(item) => reopenRecent(item, true)}
-                onRemove={removeRecent}
-                onRename={renameRecent}
-                onClearAll={clearRecents}
-              />
-
-              <SourceCards
-                onFileDrop={() => {
-                  if (uploadInputRef.current) uploadInputRef.current.value = "";
-                  uploadInputRef.current?.click();
-                }}
-                onFileSelected={processUploadFile}
-                onWarehouseClick={() => setShowWarehouseForm((v) => !v)}
-                onLocalBrowse={() => {
-                  if (sandboxRuntime !== "docker") {
-                    const label =
-                      sandboxRuntime === "e2b"
-                        ? "E2B (Cloud)"
-                        : sandboxRuntime === "microsandbox"
-                          ? "Microsandbox"
-                          : sandboxRuntime;
-                    alert(
-                      `Local file browsing requires the Docker runtime.\n\nCurrent runtime: ${label}.\nSwitch to Docker in Settings or re-run ./start.sh.`
-                    );
-                    return;
-                  }
-                  setShowLocalBrowser(true);
-                }}
-                onSampleData={handleSampleData}
+              {/* THE primary action: question first, data attached to it.
+                  Recents and saved connections live inside the Add-data menu. */}
+              <AskComposer
+                question={homeQuestion}
+                onQuestionChange={setHomeQuestion}
+                mode={queryMode}
+                onModeChange={setQueryMode}
+                attachedLabel={null}
+                onSubmit={(q, m) => void handleGuardedQuery(q, m)}
+                renderMenu={renderAddDataMenu}
               />
 
               <InlineConnectionForm
@@ -1086,8 +1161,8 @@ export default function Home() {
                 }
               />
 
-              {/* Payoff preview — show the artifact before asking for data */}
-              <PreviewStrip />
+              {/* Examples ARE the payoff preview — click to run on the sample */}
+              <ExampleCards onRun={runExample} />
 
               {/* Trust strip — the differentiator, promoted out of the footnote */}
               <div
@@ -1166,16 +1241,18 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="w-full max-w-[700px]">
-                <QueryInput
-                  onSubmit={handleGuardedQuery}
-                  disabled={!hasData}
-                  isLoading={isAnalyzing}
-                  initialValue={currentQuestion}
-                  mode={queryMode}
-                  onModeChange={setQueryMode}
-                />
-              </div>
+              {/* Same composer as the home screen — the data chip now shows the
+                  attached source, and the menu becomes "Change data". */}
+              <AskComposer
+                question={homeQuestion}
+                onQuestionChange={setHomeQuestion}
+                mode={queryMode}
+                onModeChange={setQueryMode}
+                attachedLabel={datasetLabel}
+                onSubmit={(q, m) => void handleGuardedQuery(q, m)}
+                renderMenu={renderAddDataMenu}
+                isLoading={isAnalyzing}
+              />
 
               {/* Data-specific question suggestions — typewriter animation */}
               <SuggestionPills suggestions={suggestions} onSelect={handleGuardedQuery} />

@@ -28,8 +28,10 @@ export const CHART_COLORS: Record<string, string> = {
   fuchsia: "#d946ef",
 };
 
-/** Per-theme chart color palettes */
-const THEME_CHART_COLORS: Record<ThemeId, string[]> = {
+/** Per-theme chart color palettes. The first three of each theme are ALSO
+ *  exposed as --color-series-1..3 CSS tokens in globals.css (SSR-safe theme
+ *  resolution for chart previews) — a test guards the sync. */
+export const THEME_CHART_COLORS: Record<ThemeId, string[]> = {
   vanilla: [
     "#6366f1", // indigo
     "#10b981", // emerald
