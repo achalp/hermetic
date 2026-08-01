@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hermetic — Prototype A: Ask-first composer</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #faf9f7; --surface: #ffffff; --surface-2: #f4f2ef;
+    --ink: #1b1a18; --ink-2: #52514e; --ink-3: #6e6d69;
+    --border: #e5e3df; --border-strong: #cfccc6;
+    --accent: #b42318; --accent-ink: #8e1b12; --accent-subtle: #fbeae8;
+    --ok: #1a7f37; --ok-subtle: #e6f4ea;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+    --radius: 14px; --shadow: 0 1px 2px rgba(27,26,24,.05), 0 8px 24px rgba(27,26,24,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg: #141413; --surface: #1e1d1c; --surface-2: #262523;
+      --ink: #f4f3f0; --ink-2: #c3c2b7; --ink-3: #98968e;
+      --border: #34322f; --border-strong: #4a4843;
+      --accent: #e66757; --accent-ink: #f0897c; --accent-subtle: #3a201c;
+      --ok: #4ac26b; --ok-subtle: #1c2f22;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  a, button { font: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  /* ── Top bar ─────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; height: 56px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .logo { font-weight: 700; font-size: 18px; color: var(--accent); letter-spacing: -.3px; }
+  .iconbtn {
+    width: 40px; height: 40px; border: none; background: none; border-radius: 10px;
+    color: var(--ink-2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .iconbtn:hover { background: var(--surface-2); }
+
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: clamp(32px, 7vh, 72px) 20px 48px; }
+
+  /* ── Hero ────────────────────────────────────────────── */
+  .hero { text-align: center; max-width: 620px; }
+  h1 { font-size: clamp(30px, 4.6vw, 44px); letter-spacing: -1px; line-height: 1.05; }
+  .sub { color: var(--ink-2); margin-top: 10px; font-size: 17px; }
+  .sub strong { color: var(--ink); font-weight: 600; }
+
+  /* ── Composer (THE one CTA) ──────────────────────────── */
+  .composer {
+    width: 100%; max-width: 680px; margin-top: 32px;
+    background: var(--surface); border: 1.5px solid var(--border-strong);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    transition: border-color .15s;
+  }
+  .composer:focus-within { border-color: var(--accent); }
+  .composer textarea {
+    width: 100%; border: none; background: none; resize: none; color: var(--ink);
+    padding: 18px 20px 6px; font-size: 17px; line-height: 1.45; min-height: 74px; outline: none;
+  }
+  .composer textarea::placeholder { color: var(--ink-3); }
+  .composer-row {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px 12px; flex-wrap: wrap;
+  }
+  .chip-attach {
+    display: inline-flex; align-items: center; gap: 7px; min-height: 40px;
+    padding: 0 14px; border-radius: 10px; cursor: pointer;
+    border: 1.5px dashed var(--border-strong); background: none; color: var(--ink-2); font-weight: 600; font-size: 14px;
+  }
+  .chip-attach:hover { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-subtle); }
+  .chip-data {
+    display: none; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px;
+    border-radius: 10px; background: var(--ok-subtle); color: var(--ok); font-weight: 600; font-size: 14px;
+    border: 1.5px solid transparent;
+  }
+  .chip-data.on { display: inline-flex; }
+  .spacer { flex: 1; }
+  .go {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 22px;
+    border: none; border-radius: 11px; background: var(--accent); color: #fff;
+    font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  .go:disabled { opacity: .45; cursor: not-allowed; }
+  .hint { color: var(--ink-3); font-size: 13px; margin-top: 10px; text-align: center; }
+  kbd { font: 600 11px/1 ui-monospace, monospace; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; color: var(--ink-2); }
+
+  /* attach menu */
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; bottom: calc(100% + 8px); left: 0; min-width: 280px; z-index: 5;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 6px; display: none;
+  }
+  .menu.open { display: block; }
+  .menu button {
+    display: flex; width: 100%; align-items: center; gap: 12px; text-align: left;
+    padding: 10px 12px; border: none; background: none; border-radius: 9px; cursor: pointer; color: var(--ink);
+  }
+  .menu button:hover { background: var(--surface-2); }
+  .menu .t { font-weight: 600; font-size: 14.5px; }
+  .menu .d { color: var(--ink-3); font-size: 12.5px; }
+  .mi { width: 34px; height: 34px; border-radius: 9px; background: var(--accent-subtle); color: var(--accent-ink);
+       display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+  /* ── Starter questions ───────────────────────────────── */
+  .starters { margin-top: 26px; max-width: 680px; width: 100%; text-align: center; }
+  .starters p { color: var(--ink-3); font-size: 13.5px; margin-bottom: 10px; }
+  .starters .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .starter {
+    min-height: 40px; padding: 8px 16px; border-radius: 99px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); font-size: 14px;
+  }
+  .starter:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+  /* ── Payoff strip ────────────────────────────────────── */
+  .payoff { margin-top: 56px; width: 100%; max-width: 900px; }
+  .payoff > p { text-align: center; color: var(--ink-3); font-size: 13.5px; margin-bottom: 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .pcard {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px 16px; box-shadow: var(--shadow);
+  }
+  .pcard .q { font-size: 13px; color: var(--ink-2); margin-bottom: 12px; display: flex; gap: 7px; align-items: baseline; }
+  .pcard .q::before { content: "“"; color: var(--ink-3); font-size: 18px; line-height: 0; }
+  .stat .n { font-size: 30px; font-weight: 700; letter-spacing: -.5px; }
+  .stat .l { color: var(--ink-3); font-size: 12.5px; }
+  .stat .delta { color: var(--ok); font-size: 13px; font-weight: 600; }
+  .bars { display: flex; align-items: flex-end; gap: 6px; height: 76px; padding-top: 6px; }
+  .bars i { flex: 1; border-radius: 4px 4px 0 0; background: var(--s1); min-width: 10px; }
+  .bars i.hl { background: var(--s2); }
+  .blabels { display: flex; gap: 6px; margin-top: 6px; }
+  .blabels span { flex: 1; text-align: center; font-size: 10.5px; color: var(--ink-3); }
+  .mini-line { width: 100%; height: 84px; }
+  .legend { display: flex; gap: 14px; margin-top: 4px; font-size: 11.5px; color: var(--ink-2); }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 5px; vertical-align: -1px; }
+
+  /* ── Trust footer ────────────────────────────────────── */
+  footer {
+    padding: 18px 20px 26px; text-align: center; color: var(--ink-3); font-size: 13.5px;
+    display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  }
+  footer b { color: var(--ink-2); font-weight: 600; }
+
+  /* drag overlay + toast */
+  .dropveil {
+    position: fixed; inset: 10px; border: 3px dashed var(--accent); border-radius: 18px;
+    background: color-mix(in srgb, var(--accent-subtle) 82%, transparent);
+    display: none; align-items: center; justify-content: center; z-index: 40;
+    font-size: 22px; font-weight: 700; color: var(--accent-ink); pointer-events: none;
+  }
+  body.dragging .dropveil { display: flex; }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
+    background: var(--ink); color: var(--bg); padding: 11px 18px; border-radius: 10px;
+    font-size: 14px; opacity: 0; transition: .25s; pointer-events: none; z-index: 50;
+  }
+  .toast.on { opacity: 1; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+  <div class="dropveil" aria-hidden="true">Drop your file to attach it</div>
+
+  <header>
+    <span class="logo">hermetic</span>
+    <nav style="display:flex; gap:4px" aria-label="App">
+      <button class="iconbtn" aria-label="Saved dashboards"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
+      <button class="iconbtn" aria-label="Settings"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.4 2.6a7 7 0 00-2 1.2l-2.5-1-2 3.4 2.1 1.6a7 7 0 000 2.4L3 14.8l2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.4-2.6a7 7 0 002-1.2l2.5 1 2-3.4-2.1-1.6c.1-.4.2-.8.2-1.2z"/></svg></button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>Ask your data anything.</h1>
+      <p class="sub">Type the question first — then point it at your data. <strong>The model writes the code; it never sees your rows.</strong></p>
+    </div>
+
+    <!-- ONE primary action: the question, with data as an attachment -->
+    <section class="composer" aria-label="Ask a question">
+      <label for="q" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)">Your question</label>
+      <textarea id="q" rows="2" placeholder="e.g. Which region drove revenue growth last quarter, and was it price or volume?"></textarea>
+      <div class="composer-row">
+        <div class="menu-wrap">
+          <button class="chip-attach" id="attachBtn" aria-haspopup="menu" aria-expanded="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+            Add data
+          </button>
+          <div class="menu" id="attachMenu" role="menu" aria-label="Add data">
+            <button role="menuitem" data-src="orders_2026.csv"><span class="mi">⬆︎</span><span><span class="t">Upload a file</span><br><span class="d">CSV · Excel · JSON · GeoJSON — or just drop it anywhere</span></span></button>
+            <button role="menuitem" data-src="s3://…/events/*.parquet"><span class="mi">🗂</span><span><span class="t">Local &amp; cloud files</span><br><span class="d">Parquet folders, S3/HTTPS — no upload, zero-copy</span></span></button>
+            <button role="menuitem" data-src="ClickHouse · play"><span class="mi">🛢</span><span><span class="t">Connect a warehouse</span><br><span class="d">PostgreSQL · BigQuery · ClickHouse · Trino · Hive</span></span></button>
+            <button role="menuitem" data-src="Sample — sales.csv"><span class="mi">✨</span><span><span class="t">Use the sample dataset</span><br><span class="d">475 deals, ready now — nothing to set up</span></span></button>
+          </div>
+        </div>
+        <span class="chip-data" id="dataChip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M4 12l5 5L20 6"/></svg><span id="dataChipName"></span></span>
+        <span class="spacer"></span>
+        <button class="go" id="go" disabled>Analyze <span aria-hidden>→</span></button>
+      </div>
+    </section>
+    <p class="hint">Drop a file anywhere on this page · <kbd>⌘</kbd><kbd>↵</kbd> to run</p>
+
+    <!-- Zero-friction path: question + data in ONE click -->
+    <section class="starters" aria-label="Try one question">
+      <p>No data handy? One click runs a real analysis on the sample dataset:</p>
+      <div class="row">
+        <button class="starter">Top products by revenue, by quarter</button>
+        <button class="starter">Where are we losing deals — and to what?</button>
+        <button class="starter">Which sales rep is most efficient per deal?</button>
+      </div>
+    </section>
+
+    <!-- Payoff preview: the artifact, before we ask for anything -->
+    <section class="payoff" aria-label="Example results">
+      <p>Every answer is a live dashboard — computed in a sealed sandbox, never by the model.</p>
+      <div class="cards">
+        <div class="pcard stat">
+          <div class="q">What did we close this quarter?</div>
+          <div class="n">$4.82M</div>
+          <div class="l">Closed-won revenue · Q2</div>
+          <div class="delta">▲ 12.4% vs Q1</div>
+        </div>
+        <div class="pcard">
+          <div class="q">Revenue by region?</div>
+          <div class="bars" role="img" aria-label="Bar chart: West leads four regions at 1.9 million dollars">
+            <i style="height:92%" class="hl"></i><i style="height:64%"></i><i style="height:48%"></i><i style="height:30%"></i>
+          </div>
+          <div class="blabels"><span>West·$1.9M</span><span>East</span><span>South</span><span>North</span></div>
+        </div>
+        <div class="pcard">
+          <div class="q">Are win rates trending up?</div>
+          <svg class="mini-line" viewBox="0 0 260 84" role="img" aria-label="Line chart: win rate rising from 24 to 31 percent over six months, losses flat">
+            <g stroke="var(--border)" stroke-width="1"><line x1="0" y1="70" x2="260" y2="70"/><line x1="0" y1="38" x2="260" y2="38"/></g>
+            <polyline fill="none" stroke="var(--s1)" stroke-width="2.5" stroke-linecap="round" points="8,58 56,54 104,48 152,50 200,36 252,24"/>
+            <polyline fill="none" stroke="var(--s3)" stroke-width="2.5" stroke-linecap="round" points="8,66 56,64 104,65 152,62 200,63 252,61"/>
+            <circle cx="252" cy="24" r="4" fill="var(--s1)"/>
+            <text x="248" y="14" font-size="11" font-weight="600" fill="var(--ink)" text-anchor="end">31%</text>
+          </svg>
+          <div class="legend"><span><i style="background:var(--s1)"></i>Win rate</span><span><i style="background:var(--s3)"></i>Loss rate</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>🔒 <b>Sealed</b> — your data stays local</span><span aria-hidden>·</span>
+    <span>Local models or your own API key</span><span aria-hidden>·</span>
+    <span>Sandboxed execution</span>
+  </footer>
+
+  <div class="toast" id="toast" role="status"></div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const menu = $('#attachMenu'), attachBtn = $('#attachBtn'), go = $('#go'),
+        chip = $('#dataChip'), chipName = $('#dataChipName'), q = $('#q'), toast = $('#toast');
+
+  function say(msg){ toast.textContent = msg; toast.classList.add('on');
+    clearTimeout(say.t); say.t = setTimeout(() => toast.classList.remove('on'), 2600); }
+  function attach(name){ chipName.textContent = name; chip.classList.add('on');
+    attachBtn.innerHTML = '↺ Change data'; update(); }
+  function update(){ go.disabled = !(chip.classList.contains('on') && q.value.trim().length > 2); }
+
+  attachBtn.addEventListener('click', () => {
+    const open = menu.classList.toggle('open');
+    attachBtn.setAttribute('aria-expanded', open);
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.menu-wrap')) { menu.classList.remove('open'); attachBtn.setAttribute('aria-expanded','false'); }
+  });
+  menu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    attach(b.dataset.src); menu.classList.remove('open');
+    say('Prototype: “' + b.dataset.src + '” attached'); q.focus();
+  }));
+  document.querySelectorAll('.starter').forEach(b => b.addEventListener('click', () => {
+    q.value = b.textContent; attach('Sample — sales.csv');
+    say('Prototype: sample attached — press Analyze'); update(); go.focus();
+  }));
+  q.addEventListener('input', update);
+  q.addEventListener('keydown', (e) => { if ((e.metaKey||e.ctrlKey) && e.key === 'Enter' && !go.disabled) go.click(); });
+  go.addEventListener('click', () => say('Prototype: this would run the analysis and stream the dashboard in'));
+
+  let dragDepth = 0;
+  document.addEventListener('dragenter', (e) => { e.preventDefault(); if (++dragDepth) document.body.classList.add('dragging'); });
+  document.addEventListener('dragleave', () => { if (--dragDepth <= 0) document.body.classList.remove('dragging'); });
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+    const f = e.dataTransfer.files?.[0]; attach(f ? f.name : 'dropped file'); say('Prototype: file attached'); });
+</script>
+</body>
+</html>

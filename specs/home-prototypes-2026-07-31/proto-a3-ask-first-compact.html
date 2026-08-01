@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en" data-theme="vanilla" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hermetic — Prototype A3: Ask-first, compact (payoff above the fold)</title>
+<style>
+  :root { --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.06); }
+
+  [data-theme="vanilla"][data-mode="light"] { color-scheme: light;
+    --bg:#f8faf9; --surface:#ffffff; --surface-2:#f3f4f6; --border:#e5e7eb; --border-strong:#d1d5db;
+    --ink:#111827; --ink-2:#6b7280; --ink-3:#8b929e;
+    --accent:#059669; --accent-ink:#047857; --accent-subtle:#ecfdf5; --on-accent:#fff;
+    --ok:#16a34a; --ok-subtle:#ecfdf5; --s1:#6366f1; --s2:#10b981; --s3:#f59e0b; --radius:12px; --hw:650; }
+  [data-theme="vanilla"][data-mode="dark"] { color-scheme: dark;
+    --bg:#030712; --surface:#111827; --surface-2:#1f2937; --border:#374151; --border-strong:#4b5563;
+    --ink:#f9fafb; --ink-2:#9ca3af; --ink-3:#7b8494;
+    --accent:#34d399; --accent-ink:#6ee7b7; --accent-subtle:rgba(5,150,105,.12); --on-accent:#052e22;
+    --ok:#4ade80; --ok-subtle:rgba(22,163,74,.15); --s1:#818cf8; --s2:#34d399; --s3:#fbbf24; --radius:12px; --hw:650;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45); }
+  [data-theme="stamen"][data-mode="light"] { color-scheme: light;
+    --bg:#fafaf8; --surface:#ffffff; --surface-2:#f5f4f0; --border:#e8e6e1; --border-strong:#d4d1c9;
+    --ink:#112337; --ink-2:#5a6b7d; --ink-3:#82909c;
+    --accent:#204ce5; --accent-ink:#1a3db8; --accent-subtle:#eef2fc; --on-accent:#fff;
+    --ok:#2e7d32; --ok-subtle:#e8f3e9; --s1:#204CE5; --s2:#D4956A; --s3:#6AAFB8; --radius:4px; --hw:600; }
+  [data-theme="stamen"][data-mode="dark"] { color-scheme: dark;
+    --bg:#0a1220; --surface:#142030; --surface-2:#1e2e42; --border:rgba(240,240,237,.1); --border-strong:rgba(240,240,237,.22);
+    --ink:#f0f0ed; --ink-2:#96a2ae; --ink-3:#71808d;
+    --accent:#5b8def; --accent-ink:#7fa8f4; --accent-subtle:rgba(91,141,239,.12); --on-accent:#0a1220;
+    --ok:#66bb6a; --ok-subtle:rgba(102,187,106,.14); --s1:#5b8def; --s2:#D4956A; --s3:#6AAFB8; --radius:4px; --hw:600;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45); }
+  [data-theme="iib"][data-mode="light"] { color-scheme: light;
+    --bg:#ffffff; --surface:#ffffff; --surface-2:#f5f7fa; --border:#e8ebf0; --border-strong:#cdd4de;
+    --ink:#1a1a2e; --ink-2:#5c5c7a; --ink-3:#8888a0;
+    --accent:#00acc1; --accent-ink:#00838f; --accent-subtle:#e0f7fa; --on-accent:#fff;
+    --ok:#2e7d32; --ok-subtle:#e8f5e9; --s1:#00ACC1; --s2:#F06292; --s3:#FFB74D; --radius:12px; --hw:700; }
+  [data-theme="iib"][data-mode="dark"] { color-scheme: dark;
+    --bg:#0d0d1a; --surface:#1a1a2e; --surface-2:#252540; --border:rgba(240,240,245,.1); --border-strong:rgba(240,240,245,.22);
+    --ink:#f0f0f5; --ink-2:#9c9cb2; --ink-3:#77778f;
+    --accent:#26c6da; --accent-ink:#4dd0e1; --accent-subtle:rgba(38,198,218,.12); --on-accent:#0d2d33;
+    --ok:#66bb6a; --ok-subtle:rgba(102,187,106,.14); --s1:#26c6da; --s2:#F06292; --s3:#FFB74D; --radius:12px; --hw:700;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45); }
+  [data-theme="pentagram"][data-mode="light"] { color-scheme: light;
+    --bg:#ffffff; --surface:#ffffff; --surface-2:#f5f5f5; --border:#e0e0e0; --border-strong:#bdbdbd;
+    --ink:#000000; --ink-2:#4a4a4a; --ink-3:#757575;
+    --accent:#cc0000; --accent-ink:#a30000; --accent-subtle:#fff0f0; --on-accent:#fff;
+    --ok:#1b5e20; --ok-subtle:#eef4ee; --s1:#CC0000; --s2:#2B2B2B; --s3:#6B7280; --radius:0px; --hw:400; }
+  [data-theme="pentagram"][data-mode="dark"] { color-scheme: dark;
+    --bg:#000000; --surface:#0a0a0a; --surface-2:#161616; --border:#1f1f1f; --border-strong:#3a3a3a;
+    --ink:#ffffff; --ink-2:#b0b0b0; --ink-3:#8a8a8a;
+    --accent:#ef4444; --accent-ink:#fca5a5; --accent-subtle:rgba(239,68,68,.1); --on-accent:#fff;
+    --ok:#4ade80; --ok-subtle:rgba(74,222,128,.12); --s1:#ef4444; --s2:#d1d5db; --s3:#9ca3af; --radius:0px; --hw:400;
+    --shadow: 0 1px 2px rgba(0,0,0,.6), 0 8px 24px rgba(0,0,0,.5); }
+
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--ink); min-height: 100vh; display: flex; flex-direction: column;
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         transition: background .2s, color .2s; }
+  button { font: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 56px;
+           border-bottom: 1px solid var(--border); background: var(--surface); }
+  .logo { font-weight: 700; font-size: 18px; color: var(--accent); letter-spacing: -.3px; }
+  .spacer { flex: 1; }
+  .themes { display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border);
+            border-radius: 99px; background: var(--surface-2); }
+  .tbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: 99px;
+          border: 1px solid transparent; background: none; color: var(--ink-2); font-size: 12.5px; cursor: pointer; }
+  .tbtn[aria-pressed="true"] { background: var(--surface); border-color: var(--border-strong); color: var(--ink); font-weight: 600; }
+  .tbtn .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .modebtn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-2);
+             color: var(--ink-2); cursor: pointer; font-size: 15px; }
+  .iconbtn { width: 40px; height: 40px; border: none; background: none; border-radius: 10px; color: var(--ink-2);
+             cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .iconbtn:hover { background: var(--surface-2); }
+
+  /* Tight vertical rhythm: hero → composer → examples all in the first viewport */
+  main { flex: 1; display: flex; flex-direction: column; align-items: center;
+         padding: clamp(20px, 4.5vh, 44px) 20px 40px; }
+  .hero { text-align: center; }
+  h1 { font-size: clamp(28px, 3.8vw, 38px); letter-spacing: -.9px; line-height: 1.06; font-weight: var(--hw); }
+  [data-theme="pentagram"] h1 { text-transform: uppercase; letter-spacing: .5px; }
+  .sub { color: var(--ink-2); margin-top: 8px; font-size: 15.5px; }
+
+  /* ── Composer: one card, one footer row ──────────────── */
+  .composer { width: 100%; max-width: 720px; margin-top: 22px; background: var(--surface);
+              border: 1.5px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow);
+              transition: border-color .15s; }
+  .composer:focus-within { border-color: var(--accent); }
+  .composer textarea { width: 100%; border: none; background: none; resize: none; color: var(--ink);
+                       padding: 16px 18px 4px; font: inherit; font-size: 16.5px; line-height: 1.45; min-height: 56px; outline: none; }
+  .composer textarea::placeholder { color: var(--ink-3); }
+  .composer-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px 12px; flex-wrap: wrap; }
+  .chip-attach { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 13px;
+                 border-radius: calc(var(--radius) - 2px); cursor: pointer; border: 1.5px dashed var(--border-strong);
+                 background: none; color: var(--ink-2); font-weight: 600; font-size: 14px; }
+  .chip-attach:hover { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-subtle); }
+  .chip-data { display: none; align-items: center; gap: 7px; min-height: 40px; padding: 0 13px; max-width: 260px;
+               border-radius: calc(var(--radius) - 2px); background: var(--ok-subtle); color: var(--ok);
+               font-weight: 600; font-size: 13.5px; }
+  .chip-data.on { display: inline-flex; }
+  .chip-data .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rowspacer { flex: 1; }
+  .modeseg { display: flex; padding: 3px; gap: 2px; border: 1px solid var(--border); background: var(--surface-2);
+             border-radius: calc(var(--radius) - 2px); }
+  .modeseg button { min-height: 34px; padding: 0 13px; border: none; border-radius: calc(var(--radius) - 4px);
+                    background: none; color: var(--ink-2); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .modeseg button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .go { display: inline-flex; align-items: center; gap: 7px; min-height: 42px; padding: 0 20px; border: none;
+        border-radius: calc(var(--radius) - 2px); background: var(--accent); color: var(--on-accent);
+        font-weight: 700; font-size: 15px; cursor: pointer; }
+  .go:disabled { opacity: .45; cursor: not-allowed; }
+  /* One quiet status line: mode meaning + shortcuts, nothing else */
+  .modehint { color: var(--ink-3); font-size: 12.5px; margin-top: 8px; text-align: center; min-height: 18px; }
+  .modehint b { color: var(--ink-2); }
+
+  /* Attach menu: recents live HERE now (first group), then sources */
+  .menu-wrap { position: relative; }
+  .menu { position: absolute; top: calc(100% + 8px); left: 0; min-width: 330px; z-index: 5;
+          background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+          box-shadow: var(--shadow); padding: 6px; display: none; }
+  .menu.open { display: block; }
+  .mhead { font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); padding: 8px 12px 4px; }
+  .menu .item { display: flex; width: 100%; align-items: center; gap: 11px; text-align: left; min-height: 42px;
+                padding: 7px 12px; border: none; background: none; border-radius: calc(var(--radius) - 4px);
+                cursor: pointer; color: var(--ink); }
+  .menu .item:hover { background: var(--surface-2); }
+  .menu .t { font-weight: 600; font-size: 14px; }
+  .menu .d { color: var(--ink-3); font-size: 12px; }
+  .menu .when { margin-left: auto; color: var(--ink-3); font-size: 11.5px; flex-shrink: 0; }
+  .mi { width: 30px; height: 30px; border-radius: calc(var(--radius) - 4px); background: var(--accent-subtle);
+        color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center;
+        flex-shrink: 0; font-size: 14px; }
+  .conn-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .msep { height: 1px; background: var(--border); margin: 5px 8px; }
+  .saved { margin: 0 6px 4px 47px; border-left: 2px solid var(--border); padding-left: 6px; }
+  .saved .item { min-height: 40px; padding: 6px 10px; }
+  .saved-t { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Examples ARE the payoff: clickable cards, above the fold ── */
+  .examples { margin-top: 26px; width: 100%; max-width: 920px; }
+  .examples > p { text-align: center; color: var(--ink-3); font-size: 13px; margin-bottom: 12px; }
+  .examples > p b { color: var(--ink-2); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .pcard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+           padding: 13px 15px 14px; box-shadow: var(--shadow); text-align: left; cursor: pointer;
+           transition: border-color .15s, transform .15s; }
+  .pcard:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .pcard .q { font-size: 13px; color: var(--ink-2); margin-bottom: 10px; display: flex; justify-content: space-between; gap: 8px; }
+  .pcard .run { color: var(--accent-ink); font-weight: 600; white-space: nowrap; opacity: 0; transition: opacity .15s; }
+  .pcard:hover .run, .pcard:focus-visible .run { opacity: 1; }
+  .stat .n { font-size: 28px; font-weight: 700; letter-spacing: -.5px; }
+  .stat .l { color: var(--ink-3); font-size: 12px; }
+  .stat .delta { color: var(--ok); font-size: 12.5px; font-weight: 600; }
+  .bars { display: flex; align-items: flex-end; gap: 6px; height: 64px; padding-top: 4px; }
+  .bars i { flex: 1; border-radius: 4px 4px 0 0; background: var(--s2); min-width: 10px; }
+  .bars i.hl { background: var(--s1); }
+  [data-theme="pentagram"] .bars i, [data-theme="stamen"] .bars i { border-radius: 0; }
+  .blabels { display: flex; gap: 6px; margin-top: 5px; }
+  .blabels span { flex: 1; text-align: center; font-size: 10.5px; color: var(--ink-3); }
+  .mini-line { width: 100%; height: 68px; }
+  .legend { display: flex; gap: 12px; margin-top: 3px; font-size: 11px; color: var(--ink-2); }
+  .legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
+
+  /* Privacy: one line, promoted into the page (not a buried footnote) */
+  footer { padding: 16px 20px 24px; text-align: center; color: var(--ink-3); font-size: 13px;
+           display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  footer b { color: var(--ink-2); font-weight: 600; }
+
+  .dropveil { position: fixed; inset: 10px; border: 3px dashed var(--accent); border-radius: 18px;
+              background: color-mix(in srgb, var(--accent-subtle) 82%, transparent);
+              display: none; align-items: center; justify-content: center; z-index: 40;
+              font-size: 22px; font-weight: 700; color: var(--accent-ink); pointer-events: none; }
+  body.dragging .dropveil { display: flex; }
+  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
+           background: var(--ink); color: var(--bg); padding: 11px 18px; border-radius: 10px; font-size: 14px;
+           opacity: 0; transition: .25s; pointer-events: none; z-index: 50; }
+  .toast.on { opacity: 1; transform: translateX(-50%); }
+  @media (max-width: 760px) { .themes .tname { display: none; } .modehint span.extra { display: none; } }
+</style>
+</head>
+<body>
+  <div class="dropveil" aria-hidden="true">Drop your file to attach it</div>
+
+  <header>
+    <span class="logo">hermetic</span>
+    <span class="spacer"></span>
+    <div class="themes" role="group" aria-label="Theme (prototype review control)">
+      <button class="tbtn" data-t="vanilla" aria-pressed="true"><span class="dot" style="background:#059669"></span><span class="tname">Focus</span></button>
+      <button class="tbtn" data-t="stamen" aria-pressed="false"><span class="dot" style="background:#204ce5"></span><span class="tname">Stamen</span></button>
+      <button class="tbtn" data-t="iib" aria-pressed="false"><span class="dot" style="background:#00acc1"></span><span class="tname">IIB</span></button>
+      <button class="tbtn" data-t="pentagram" aria-pressed="false"><span class="dot" style="background:#cc0000"></span><span class="tname">Pentagram</span></button>
+    </div>
+    <button class="modebtn" id="modeToggle" aria-label="Toggle light or dark mode">☀︎</button>
+    <button class="iconbtn" aria-label="Saved dashboards"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
+    <button class="iconbtn" aria-label="Settings"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.4 2.6a7 7 0 00-2 1.2l-2.5-1-2 3.4 2.1 1.6a7 7 0 000 2.4L3 14.8l2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.4-2.6a7 7 0 002-1.2l2.5 1 2-3.4-2.1-1.6c.1-.4.2-.8.2-1.2z"/></svg></button>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>Ask your data anything.</h1>
+      <p class="sub">Plain English in, a live dashboard out — the model never sees your rows.</p>
+    </div>
+
+    <section class="composer" aria-label="Ask a question">
+      <label for="q" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)">Your question</label>
+      <textarea id="q" rows="1" placeholder="What changed last quarter, and why?"></textarea>
+      <div class="composer-row">
+        <div class="menu-wrap">
+          <button class="chip-attach" id="attachBtn" aria-haspopup="menu" aria-expanded="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+            <span id="attachLabel">Add data</span>
+          </button>
+          <div class="menu" id="attachMenu" role="menu" aria-label="Add data">
+            <!-- RECENT lives inside the menu now — one section, zero page rows -->
+            <div class="mhead" role="presentation">Recent</div>
+            <button class="item" role="menuitem" data-src="quarterly_deals.xlsx"><span class="mi" aria-hidden="true">📄</span><span class="t">quarterly_deals.xlsx</span><span class="when">2h ago</span></button>
+            <button class="item" role="menuitem" data-src="ClickHouse · play"><span class="conn-dot" style="background:#ffcc01" aria-hidden="true"></span><span class="t">play.clickhouse.com / default</span><span class="when">yesterday</span></button>
+            <button class="item" role="menuitem" data-src="s3://acme-lake/events/*.parquet"><span class="mi" aria-hidden="true">🗂</span><span class="t">acme-lake/events (Parquet)</span><span class="when">Mon</span></button>
+            <div class="msep" role="presentation"></div>
+            <div class="mhead" role="presentation">Add new</div>
+            <button class="item" role="menuitem" data-src="orders_2026.csv"><span class="mi" aria-hidden="true">⬆︎</span><span><span class="t">Upload a file</span><br><span class="d">CSV · Excel · JSON · GeoJSON — or drop anywhere</span></span></button>
+            <button class="item" role="menuitem" data-src="s3://…/*.parquet"><span class="mi" aria-hidden="true">🗂</span><span><span class="t">Local &amp; cloud files</span><br><span class="d">Parquet · S3/HTTPS — zero-copy</span></span></button>
+            <button class="item" role="menuitem" data-src="New warehouse connection"><span class="mi" aria-hidden="true">🛢</span><span><span class="t">Connect a warehouse</span><br><span class="d">Postgres · BigQuery · ClickHouse · Trino · Hive</span></span></button>
+            <!-- SAVED connections: one level inside the warehouse door, always present
+                 (recents only show what was recently used; saved is the full set) -->
+            <div class="saved" role="group" aria-label="Saved connections">
+              <button class="item" role="menuitem" data-src="ClickHouse · play"><span class="conn-dot" style="background:#ffcc01" aria-hidden="true"></span><span class="t saved-t">play.clickhouse.com / default</span><span class="when">saved</span></button>
+              <button class="item" role="menuitem" data-src="BigQuery · stackoverflow"><span class="conn-dot" style="background:#4285f4" aria-hidden="true"></span><span class="t saved-t">bigquery-public-data.stackoverflow</span><span class="when">saved</span></button>
+            </div>
+            <button class="item" role="menuitem" data-src="Sample — sales.csv"><span class="mi" aria-hidden="true">✨</span><span><span class="t">Use the sample dataset</span><br><span class="d">Ready now — nothing to set up</span></span></button>
+          </div>
+        </div>
+        <span class="chip-data" id="dataChip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg><span class="nm" id="dataChipName"></span></span>
+        <span class="rowspacer"></span>
+        <div class="modeseg" role="radiogroup" aria-label="Analysis depth">
+          <button role="radio" aria-checked="true" data-m="ask">Ask</button>
+          <button role="radio" aria-checked="false" data-m="investigate">Investigate</button>
+        </div>
+        <button class="go" id="go" disabled><span id="goLabel">Analyze</span> <span aria-hidden>→</span></button>
+      </div>
+    </section>
+    <p class="modehint" id="modehint"><b>Ask</b> — one dashboard, ~30s. <span class="extra">Drop a file anywhere · ⌘↵ to run</span></p>
+
+    <!-- Examples = starters + payoff, merged. Click a card → question + sample attach, ready to run. -->
+    <section class="examples" aria-label="Examples — click to run on the sample dataset">
+      <p><b>No data handy?</b> Click an example — it runs live on the sample dataset:</p>
+      <div class="cards">
+        <button class="pcard stat" data-q="What did we close this quarter, vs last?">
+          <span class="q">“What did we close this quarter?” <span class="run">Run →</span></span>
+          <span class="n">$4.82M</span>
+          <span class="l" style="display:block">Closed-won revenue · Q2</span>
+          <span class="delta">▲ 12.4% vs Q1</span>
+        </button>
+        <button class="pcard" data-q="Break down revenue by region.">
+          <span class="q">“Revenue by region?” <span class="run">Run →</span></span>
+          <span class="bars" role="img" aria-label="Bar chart preview: West leads four regions at 1.9 million dollars">
+            <i style="height:92%" class="hl"></i><i style="height:64%"></i><i style="height:48%"></i><i style="height:30%"></i>
+          </span>
+          <span class="blabels" aria-hidden="true"><span>West·$1.9M</span><span>East</span><span>South</span><span>North</span></span>
+        </button>
+        <button class="pcard" data-q="Are win rates trending up? Investigate what's driving the change." data-mode="investigate">
+          <span class="q">“Are win rates trending up?” <span class="run">Investigate →</span></span>
+          <svg class="mini-line" viewBox="0 0 260 68" role="img" aria-label="Line chart preview: win rate rising from 24 to 31 percent, losses flat">
+            <g stroke="var(--border)" stroke-width="1"><line x1="0" y1="56" x2="260" y2="56"/><line x1="0" y1="30" x2="260" y2="30"/></g>
+            <polyline fill="none" stroke="var(--s1)" stroke-width="2.5" stroke-linecap="round" points="8,47 56,44 104,39 152,41 200,29 252,19"/>
+            <polyline fill="none" stroke="var(--s3)" stroke-width="2.5" stroke-linecap="round" points="8,54 56,52 104,53 152,50 200,51 252,49"/>
+            <circle cx="252" cy="19" r="4" fill="var(--s1)"/>
+            <text x="248" y="10" font-size="10.5" font-weight="600" fill="var(--ink)" text-anchor="end">31%</text>
+          </svg>
+          <span class="legend"><span><i style="background:var(--s1)"></i>Win rate</span><span><i style="background:var(--s3)"></i>Loss rate</span></span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>🔒 <b>Sealed</b> — data stays local</span><span aria-hidden>·</span>
+    <span>Local models or your own key</span><span aria-hidden>·</span>
+    <span>Sandboxed execution</span>
+  </footer>
+
+  <div class="toast" id="toast" role="status"></div>
+
+<script>
+  const $ = (s) => document.querySelector(s), $$ = (s) => [...document.querySelectorAll(s)];
+  const menu = $('#attachMenu'), attachBtn = $('#attachBtn'), go = $('#go'),
+        chip = $('#dataChip'), chipName = $('#dataChipName'), q = $('#q'), toast = $('#toast');
+  let mode = 'ask';
+
+  function say(m){ toast.textContent = m; toast.classList.add('on');
+    clearTimeout(say.t); say.t = setTimeout(() => toast.classList.remove('on'), 2600); }
+  function attach(name){ chipName.textContent = name; chip.classList.add('on');
+    $('#attachLabel').textContent = 'Change'; update(); }
+  function update(){ go.disabled = !(chip.classList.contains('on') && q.value.trim().length > 2); }
+  function setMode(m){
+    mode = m;
+    $$('.modeseg [role="radio"]').forEach(b => b.setAttribute('aria-checked', b.dataset.m === m));
+    $('#goLabel').textContent = m === 'ask' ? 'Analyze' : 'Investigate';
+    $('#modehint').innerHTML = m === 'ask'
+      ? '<b>Ask</b> — one dashboard, ~30s. <span class="extra">Drop a file anywhere · ⌘↵ to run</span>'
+      : '<b>Investigate</b> — multi-step deep dive: sub-questions planned and composed into one report. Minutes.';
+  }
+
+  $$('.tbtn').forEach(b => b.addEventListener('click', () => {
+    $$('.tbtn').forEach(x => x.setAttribute('aria-pressed', x === b));
+    document.documentElement.dataset.theme = b.dataset.t;
+  }));
+  $('#modeToggle').addEventListener('click', () => {
+    const d = document.documentElement.dataset;
+    d.mode = d.mode === 'light' ? 'dark' : 'light';
+    $('#modeToggle').textContent = d.mode === 'light' ? '☀︎' : '☾';
+  });
+
+  attachBtn.addEventListener('click', () => {
+    const open = menu.classList.toggle('open');
+    attachBtn.setAttribute('aria-expanded', open);
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.menu-wrap')) { menu.classList.remove('open'); attachBtn.setAttribute('aria-expanded','false'); }
+  });
+  $$('#attachMenu .item').forEach(b => b.addEventListener('click', () => {
+    attach(b.dataset.src); menu.classList.remove('open');
+    say('Prototype: “' + b.dataset.src + '” attached'); q.focus();
+  }));
+
+  $$('.pcard').forEach(c => c.addEventListener('click', () => {
+    q.value = c.dataset.q; attach('Sample — sales.csv');
+    setMode(c.dataset.mode === 'investigate' ? 'investigate' : 'ask');
+    update(); go.focus();
+    say('Prototype: example loaded — press ' + $('#goLabel').textContent);
+  }));
+
+  $$('.modeseg [role="radio"]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.m)));
+  q.addEventListener('input', update);
+  q.addEventListener('keydown', (e) => { if ((e.metaKey||e.ctrlKey) && e.key === 'Enter' && !go.disabled) go.click(); });
+  go.addEventListener('click', () => say('Prototype: ' + (mode === 'ask'
+    ? 'runs one analysis and streams the dashboard in'
+    : 'plans sub-questions and runs the multi-step Investigate')));
+
+  let depth = 0;
+  document.addEventListener('dragenter', (e) => { e.preventDefault(); if (++depth) document.body.classList.add('dragging'); });
+  document.addEventListener('dragleave', () => { if (--depth <= 0) document.body.classList.remove('dragging'); });
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('drop', (e) => { e.preventDefault(); depth = 0; document.body.classList.remove('dragging');
+    attach(e.dataTransfer.files?.[0]?.name ?? 'dropped file'); say('Prototype: file attached'); });
+</script>
+</body>
+</html>

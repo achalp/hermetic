@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hermetic — Prototype C: Payoff-first demo</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #faf9f7; --surface: #ffffff; --surface-2: #f4f2ef;
+    --ink: #1b1a18; --ink-2: #52514e; --ink-3: #6e6d69;
+    --border: #e5e3df; --border-strong: #cfccc6;
+    --accent: #b42318; --accent-ink: #8e1b12; --accent-subtle: #fbeae8;
+    --ok: #1a7f37;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+    --radius: 14px; --shadow: 0 1px 2px rgba(27,26,24,.05), 0 10px 30px rgba(27,26,24,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg: #141413; --surface: #1e1d1c; --surface-2: #262523;
+      --ink: #f4f3f0; --ink-2: #c3c2b7; --ink-3: #98968e;
+      --border: #34322f; --border-strong: #4a4843;
+      --accent: #e66757; --accent-ink: #f0897c; --accent-subtle: #3a201c;
+      --ok: #4ac26b;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.4);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--ink); min-height: 100vh; display: flex; flex-direction: column;
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  button { font: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; height: 56px;
+           border-bottom: 1px solid var(--border); background: var(--surface); }
+  .logo { font-weight: 700; font-size: 18px; color: var(--accent); letter-spacing: -.3px; }
+  .iconbtn { width: 40px; height: 40px; border: none; background: none; border-radius: 10px; color: var(--ink-2);
+             cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .iconbtn:hover { background: var(--surface-2); }
+
+  main { flex: 1; width: 100%; max-width: 1060px; margin: 0 auto; padding: clamp(28px, 6vh, 64px) 20px 48px; }
+
+  /* ── Split hero: message left, living proof right ────── */
+  .split { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(320px, 6fr); gap: 44px; align-items: center; }
+  @media (max-width: 820px) { .split { grid-template-columns: 1fr; } }
+  h1 { font-size: clamp(30px, 4.4vw, 46px); letter-spacing: -1.2px; line-height: 1.04; }
+  .sub { color: var(--ink-2); margin-top: 14px; font-size: 17px; max-width: 44ch; }
+  .sub b { color: var(--ink); }
+  .ctas { display: flex; gap: 10px; margin-top: 26px; flex-wrap: wrap; }
+  .primary { min-height: 48px; padding: 0 24px; border: none; border-radius: 12px; background: var(--accent);
+             color: #fff; font-weight: 700; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 9px; }
+  .primary:hover { filter: brightness(1.06); }
+  .secondary { min-height: 48px; padding: 0 20px; border-radius: 12px; background: var(--surface);
+               border: 1.5px solid var(--border-strong); color: var(--ink); font-weight: 600; font-size: 15px;
+               cursor: pointer; display: inline-flex; align-items: center; gap: 9px; }
+  .secondary:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .subcta { margin-top: 12px; font-size: 13.5px; color: var(--ink-3); }
+  .trust { display: flex; gap: 9px; margin-top: 26px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+  .trust span { display: inline-flex; gap: 6px; align-items: center; background: var(--surface); border: 1px solid var(--border);
+                border-radius: 99px; padding: 6px 12px; }
+
+  /* ── The demo artifact ───────────────────────────────── */
+  .demo { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .askbar { display: flex; gap: 10px; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .askbar .qtext { flex: 1; font-size: 14.5px; color: var(--ink); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .askbar .badge { font-size: 11px; color: var(--ink-3); border: 1px solid var(--border-strong); padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
+  .dash { padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tile { border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; }
+  .tile .l { font-size: 11.5px; color: var(--ink-3); letter-spacing: .2px; }
+  .tile .n { font-size: 25px; font-weight: 700; letter-spacing: -.4px; margin-top: 2px; }
+  .tile .d { font-size: 12px; font-weight: 600; margin-top: 2px; color: var(--ok); }
+  .plot { grid-column: 1 / -1; border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px 10px; }
+  .plot .t { font-size: 12.5px; color: var(--ink-2); font-weight: 600; margin-bottom: 8px; }
+  .narr { grid-column: 1 / -1; font-size: 13px; color: var(--ink-2); line-height: 1.55;
+          border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; }
+  .bars { display: flex; align-items: flex-end; gap: 7px; height: 90px; }
+  .bars .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; }
+  .bars i { border-radius: 4px 4px 0 0; display: block; }
+  .bars .v { font-size: 10px; color: var(--ink-3); text-align: center; margin-top: 4px; }
+  .legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11.5px; color: var(--ink-2); }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 5px; vertical-align: -1px; }
+  .demo-tabs { display: flex; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface-2); }
+  .demo-tabs [role="tab"] { min-height: 36px; padding: 5px 13px; border-radius: 99px; border: 1px solid transparent;
+                            background: none; color: var(--ink-2); font-size: 13px; cursor: pointer; }
+  .demo-tabs [role="tab"]:hover { color: var(--ink); }
+  .demo-tabs [role="tab"][aria-selected="true"] { background: var(--surface); border-color: var(--border-strong); color: var(--ink); font-weight: 600; }
+  .caption { text-align: center; font-size: 12.5px; color: var(--ink-3); margin-top: 10px; }
+
+  /* ── How it works ────────────────────────────────────── */
+  .how { margin-top: 64px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+  .step .k { width: 30px; height: 30px; border-radius: 50%; background: var(--accent-subtle); color: var(--accent-ink);
+             font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+  .step h3 { font-size: 15.5px; margin-bottom: 4px; }
+  .step p { font-size: 13.5px; color: var(--ink-2); }
+
+  footer { padding: 18px 20px 26px; text-align: center; color: var(--ink-3); font-size: 13.5px; }
+
+  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
+           background: var(--ink); color: var(--bg); padding: 11px 18px; border-radius: 10px; font-size: 14px;
+           opacity: 0; transition: .25s; pointer-events: none; z-index: 50; }
+  .toast.on { opacity: 1; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+  <header>
+    <span class="logo">hermetic</span>
+    <nav style="display:flex; gap:4px" aria-label="App">
+      <button class="iconbtn" aria-label="Saved dashboards"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
+      <button class="iconbtn" aria-label="Settings"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.4 2.6a7 7 0 00-2 1.2l-2.5-1-2 3.4 2.1 1.6a7 7 0 000 2.4L3 14.8l2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.4-2.6a7 7 0 002-1.2l2.5 1 2-3.4-2.1-1.6c.1-.4.2-.8.2-1.2z"/></svg></button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="split">
+      <div>
+        <h1>One question in.<br>A dashboard out.</h1>
+        <p class="sub">Ask in plain English; Hermetic writes and runs the analysis code in a sealed sandbox. <b>The model never sees your rows</b> — only the shape of your data.</p>
+        <div class="ctas">
+          <button class="primary" id="try">Try it now — no data needed <span aria-hidden>→</span></button>
+          <button class="secondary" id="own">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
+            Bring your own data
+          </button>
+        </div>
+        <p class="subcta">Files, Parquet/S3, or a warehouse — you'll pick in the next step. Drop a file anywhere to skip ahead.</p>
+        <div class="trust" aria-label="Privacy guarantees">
+          <span>🔒 Data stays local</span>
+          <span>Local models or your key</span>
+          <span>Sandboxed execution</span>
+        </div>
+      </div>
+
+      <!-- The proof: a real (mock) artifact with the question that made it -->
+      <div>
+        <div class="demo" role="figure" aria-label="Example generated dashboard">
+          <div class="askbar">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+            <span class="qtext" id="demoQ">Which region drove growth last quarter — price or volume?</span>
+            <span class="badge">generated in 24s</span>
+          </div>
+          <div class="dash" id="demoBody"><!-- filled by JS --></div>
+          <div class="demo-tabs" role="tablist" aria-label="Example questions">
+            <button role="tab" aria-selected="true" data-ex="0">Sales</button>
+            <button role="tab" aria-selected="false" data-ex="1">UK housing</button>
+            <button role="tab" aria-selected="false" data-ex="2">Retention</button>
+          </div>
+        </div>
+        <p class="caption">Real output format — every number computed from data, none written by the model.</p>
+      </div>
+    </div>
+
+    <div class="how" aria-label="How it works">
+      <div class="step"><div class="k" aria-hidden="true">1</div><h3>Point at data</h3><p>Drop a file, browse Parquet/S3, or connect a warehouse. Schema is read locally.</p></div>
+      <div class="step"><div class="k" aria-hidden="true">2</div><h3>Ask</h3><p>Plain English. The model sees column names and stats — never your rows.</p></div>
+      <div class="step"><div class="k" aria-hidden="true">3</div><h3>Get the dashboard</h3><p>Code runs sandboxed; charts, stats, and narrative stream in. Ask follow-ups.</p></div>
+    </div>
+  </main>
+
+  <footer>hermetic — sealed by design</footer>
+  <div class="toast" id="toast" role="status"></div>
+
+<script>
+  const EXAMPLES = [
+    {
+      q: "Which region drove growth last quarter — price or volume?",
+      tiles: [["Closed-won revenue","$4.82M","▲ 12.4% vs Q1"],["Avg selling price","$8,140","▲ 3.1% — volume led"]],
+      plot: { title: "Revenue by region · Q1 vs Q2", series: ["Q1","Q2"],
+        cols: [["West",64,92],["East",52,64],["South",41,48],["North",28,30]] },
+      narr: "West drove 62% of the quarter's growth, and it was volume: deal count rose 18% while price rose 3%. North is flat for a second quarter."
+    },
+    {
+      q: "Average property price trend in London vs the UK?",
+      tiles: [["London median","£512k","▲ 2.1% YoY"],["Rest of UK","£286k","▲ 4.6% YoY"]],
+      plot: { title: "Median price by year (indexed, 2019 = 100)", series: ["London","Rest of UK"],
+        cols: [["'22",78,72],["'23",84,80],["'24",90,88],["'25",95,96]] },
+      narr: "The gap is closing: since 2019 the rest of the UK compounded faster than London in 3 of 4 years — London's premium is at its narrowest since 2013."
+    },
+    {
+      q: "Are newer signup cohorts retaining better?",
+      tiles: [["Month-1 retention","46%","▲ 5pts vs 2025 cohorts"],["Month-6 retention","22%","flat"]],
+      plot: { title: "Retention by cohort · month 1 vs month 6", series: ["Month 1","Month 6"],
+        cols: [["Jan",70,38],["Feb",74,40],["Mar",80,41],["Apr",84,0]] },
+      narr: "Early retention is improving — month-1 up 5 points across 2026 cohorts — but month-6 is unchanged, so the gains wash out by mid-year. (April month-6 not yet observable.)"
+    }
+  ];
+
+  const body = document.getElementById('demoBody'), qEl = document.getElementById('demoQ'), toast = document.getElementById('toast');
+  function say(m){ toast.textContent = m; toast.classList.add('on');
+    clearTimeout(say.t); say.t = setTimeout(() => toast.classList.remove('on'), 2600); }
+
+  function render(i){
+    const ex = EXAMPLES[i]; qEl.textContent = ex.q;
+    const max = Math.max(...ex.plot.cols.flatMap(c => [c[1], c[2]]));
+    body.innerHTML =
+      ex.tiles.map(t => `<div class="tile"><div class="l">${t[0]}</div><div class="n">${t[1]}</div><div class="d">${t[2]}</div></div>`).join('') +
+      `<div class="plot"><div class="t">${ex.plot.title}</div>
+        <div class="bars" role="img" aria-label="Grouped bar chart: ${ex.plot.title}">` +
+        ex.plot.cols.map(c => `
+          <div class="col" aria-hidden="true">
+            <div style="display:flex; gap:3px; align-items:flex-end; height:90px">
+              <i style="flex:1; height:${(c[1]/max)*100}%; background:var(--s1)"></i>
+              <i style="flex:1; height:${(c[2]/max)*100}%; background:var(--s2)"></i>
+            </div>
+            <span class="v">${c[0]}</span>
+          </div>`).join('') +
+        `</div>
+        <div class="legend"><span><i style="background:var(--s1)"></i>${ex.plot.series[0]}</span><span><i style="background:var(--s2)"></i>${ex.plot.series[1]}</span></div>
+      </div>
+      <div class="narr">${ex.narr}</div>`;
+  }
+  render(0);
+
+  document.querySelectorAll('[role="tab"]').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('[role="tab"]').forEach(x => x.setAttribute('aria-selected', x === t));
+    render(+t.dataset.ex);
+  }));
+  document.getElementById('try').addEventListener('click', () =>
+    say('Prototype: opens the sample dataset with this question pre-filled — one click to a live dashboard'));
+  document.getElementById('own').addEventListener('click', () =>
+    say('Prototype: opens the unified data picker (file / Parquet / S3 / warehouse)'));
+  document.addEventListener('dragover', (e) => e.preventDefault());
+  document.addEventListener('drop', (e) => { e.preventDefault(); say('Prototype: file accepted — jumps straight to the Ask screen'); });
+</script>
+</body>
+</html>
