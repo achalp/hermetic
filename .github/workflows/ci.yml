@@ -74,3 +74,47 @@ jobs:
 
       - name: Run tests with coverage
         run: pnpm test:coverage
+
+  # Golden transcripts: replay-mode server + journey runner, fully offline
+  # (LLM responses come from committed fixtures in test-fixtures/llm/).
+  # Activates automatically once goldens are recorded and committed
+  # (scripts/golden/run-journeys.mjs header documents the recording flow).
+  golden-transcripts:
+    name: Golden Transcripts
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('test-fixtures/golden/*.ndjson') != '' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build sandbox image
+        run: docker build -t hermetic-sandbox ./docker/sandbox/
+
+      - name: Build app
+        run: pnpm run build
+        env:
+          ANTHROPIC_API_KEY: test-key-replay-only
+
+      - name: Start server (replay mode) and check journeys
+        env:
+          HERMETIC_LLM_MODE: replay
+          ANTHROPIC_API_KEY: test-key-replay-only
+        run: |
+          pnpm start &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/api/providers >/dev/null && break
+            sleep 2
+          done
+          node scripts/golden/run-journeys.mjs check
