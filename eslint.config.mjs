@@ -39,6 +39,87 @@ const eslintConfig = defineConfig([
       "react/use": "off",
     },
   },
+  // ── Modularization layer boundaries (Phase 1, warn mode) ──────────────────
+  // Target layering: specs/modularization-2026-08-01.md §3.3. These flip to
+  // "error" as each workstream lands; suppressions are counted by the ratchet
+  // (scripts/ratchet.mjs) and must stay at zero.
+  {
+    files: ["src/lib/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "warn",
+        {
+          patterns: [
+            {
+              group: ["@/app/*", "@/components/*", "@/hooks/*"],
+              message:
+                "lib is below the app layer and must not import from it (modularization WS1).",
+            },
+            {
+              group: ["next", "next/*"],
+              message:
+                "lib must stay framework-free; Next belongs to the harness (modularization WS1).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/lib/sandbox/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "warn",
+        {
+          patterns: [
+            {
+              group: ["@/app/*", "@/components/*", "@/hooks/*"],
+              message:
+                "lib is below the app layer and must not import from it (modularization WS1).",
+            },
+            {
+              group: ["next", "next/*"],
+              message:
+                "lib must stay framework-free; Next belongs to the harness (modularization WS1).",
+            },
+            {
+              group: ["@/lib/pipeline/*"],
+              message:
+                "sandbox sits below orchestration; take AbortSignal/onProgress as inputs instead (modularization WS6).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: [
+      "src/components/charts/**/*.{ts,tsx}",
+      "src/components/controllers/**/*.{ts,tsx}",
+      "src/components/inputs/**/*.{ts,tsx}",
+      "src/components/registry.tsx",
+      "src/components/registry-primitives.tsx",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "warn",
+        {
+          patterns: [
+            {
+              group: ["@/hooks/*", "@/lib/api", "@/components/app/*"],
+              message:
+                "the renderer closure must stay free of app state and transport (modularization WS7).",
+            },
+            {
+              group: ["next", "next/*"],
+              message:
+                "the renderer must be framework-free; use React.lazy instead of next/dynamic (modularization WS7).",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
