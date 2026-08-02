@@ -14,7 +14,7 @@ import { relTimeAgo } from "@/lib/rel-time";
  * Fired on window after any recents mutation here, so the home page's
  * Add-data menu can refetch instead of showing a stale list.
  */
-export const RECENTS_CHANGED_EVENT = "hermetic:recents-changed";
+import { RECENTS_CHANGED_EVENT } from "@/lib/constants";
 
 const KIND_LABEL: Record<RecentSourceInfo["kind"], string> = {
   upload: "upload",

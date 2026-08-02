@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { HistoryMeta } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseType } from "@/lib/contracts/connection-configs";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 
 const HISTORY_DIR = join(process.cwd(), "data", "history");

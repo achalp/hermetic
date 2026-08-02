@@ -35,12 +35,8 @@ import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export"
 import { downloadAsSlides } from "@/lib/slides-export";
 import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/lib/export-utils";
 import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type {
-  TraceStep,
-  TraceDecision,
-  NotebookLayoutCell,
-} from "@/lib/pipeline/investigation-trace";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
+import type { TraceStep, TraceDecision, NotebookLayoutCell } from "@/lib/contracts/investigation";
 
 type CellStatus = "pending" | "running" | "done" | "degraded" | "failed" | "removed";
 

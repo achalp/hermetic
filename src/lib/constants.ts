@@ -369,3 +369,6 @@ export const RECOMMENDED_LLAMACPP_MODELS: readonly RecommendedModel[] = [
     minRam: 24,
   },
 ] as const;
+
+/** DOM event fired when the recent-sources list changes (settings section → page). */
+export const RECENTS_CHANGED_EVENT = "hermetic:recents-changed";

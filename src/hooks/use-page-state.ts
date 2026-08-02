@@ -2,7 +2,7 @@
 
 import { useReducer, useCallback } from "react";
 import type { Spec } from "@json-render/react";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 
 export type QueryMode = "ask" | "investigate";
 

@@ -1,4 +1,4 @@
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 
 /**

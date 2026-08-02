@@ -4,7 +4,7 @@ import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { SavedVizMeta } from "@/lib/contracts/storage-types";
 import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 
 /** Persisted workbook data — all sheets' CSV content + UI metadata */
 export interface SavedWorkbook {

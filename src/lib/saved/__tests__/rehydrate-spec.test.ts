@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { rehydrateSpec } from "@/lib/saved/rehydrate-spec";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 
 function makeResult(over: Partial<SandboxExecutionResult> = {}): SandboxExecutionResult {

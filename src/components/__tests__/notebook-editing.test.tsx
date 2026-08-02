@@ -4,7 +4,7 @@ import React from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import { Markdown } from "@/components/app/markdown";
 import { orderedEntries, type NotebookCellModel } from "@/components/app/notebook-view";
-import type { NotebookLayoutCell } from "@/lib/pipeline/investigation-trace";
+import type { NotebookLayoutCell } from "@/lib/contracts/investigation";
 
 afterEach(cleanup);
 

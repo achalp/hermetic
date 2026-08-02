@@ -19,7 +19,7 @@ import { AskComposer } from "@/components/app/home/ask-composer";
 import { AddDataMenu, type SavedConnectionItem } from "@/components/app/home/add-data-menu";
 import { ExampleCards, type ExampleRun } from "@/components/app/home/example-cards";
 import { usePendingAsk } from "@/hooks/use-pending-ask";
-import { RECENTS_CHANGED_EVENT } from "@/components/app/settings/recent-sources-section";
+import { RECENTS_CHANGED_EVENT } from "@/lib/constants";
 import { relTimeAgo } from "@/lib/rel-time";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 import { LocalFileBrowser } from "@/components/app/local-file-browser";

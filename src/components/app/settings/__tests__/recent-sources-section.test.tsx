@@ -18,10 +18,8 @@ import {
   renameRecentSource,
   clearRecentSources,
 } from "@/lib/api";
-import {
-  RecentSourcesSection,
-  RECENTS_CHANGED_EVENT,
-} from "@/components/app/settings/recent-sources-section";
+import { RecentSourcesSection } from "@/components/app/settings/recent-sources-section";
+import { RECENTS_CHANGED_EVENT } from "@/lib/constants";
 
 const RECENTS: RecentSourceInfo[] = [
   {

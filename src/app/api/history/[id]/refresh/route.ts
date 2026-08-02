@@ -12,7 +12,7 @@ import { getWarehouseConnector } from "@/lib/warehouse/storage";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";

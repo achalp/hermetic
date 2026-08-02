@@ -38,7 +38,8 @@ import {
 } from "@/lib/purpose-prompts";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
-import type { FilterValue } from "@/lib/contracts/spec-types";
+import type { InvestigateScope } from "@/lib/contracts/investigation";
+export type { InvestigateScope };
 import { logger } from "@/lib/logger";
 
 /** Hard cap on how many prior sub-questions a single dependent can reference. */
@@ -164,19 +165,6 @@ function summarizeSchemaForPlanner(
  * investigation already established so it can go DEEPER instead of repeating
  * it, optionally restricted to a drilled segment.
  */
-export interface InvestigateScope {
-  /** The question the parent investigation answered. */
-  parent_question?: string;
-  /** The parent investigation's approach (from its plan). */
-  prior_approach?: string;
-  /** Sub-questions the parent already explored (so we don't repeat them). */
-  prior_steps?: string[];
-  /** Segment filters to restrict every sub-question to (from a chart drill). */
-  filters?: { column: string; value: FilterValue }[];
-  /** Human-readable label for the drilled segment. */
-  segment_label?: string;
-}
-
 function buildScopeBlock(scope: InvestigateScope): string {
   const lines: string[] = ["## Prior Investigation Context — this is a scoped follow-up"];
   lines.push(

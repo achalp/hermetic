@@ -1,6 +1,6 @@
 "use client";
 
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { ArtifactsViewer } from "./artifacts-viewer";
 
 interface ArtifactsPanelProps {

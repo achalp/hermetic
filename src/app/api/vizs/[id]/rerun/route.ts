@@ -18,7 +18,7 @@ import { isValidRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { rehydrateSpec } from "@/lib/saved/rehydrate-spec";
 import type { ParsedCSV } from "@/lib/csv/parser";
 
