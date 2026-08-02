@@ -7,7 +7,7 @@
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  const { raiseServerTimeouts, installConnectionErrorGuard } =
+  const { raiseServerTimeouts, installConnectionErrorGuard, configureLLMReplayFromEnv } =
     await import("./instrumentation-node");
   await raiseServerTimeouts();
   // A client leaving mid-stream (reload / tab close / laptop sleep) must not
@@ -18,19 +18,6 @@ export async function register(): Promise<void> {
   // warehouse connector pools) leaked. See lib/store-sweeper.ts.
   const { startStoreSweeper } = await import("./lib/store-sweeper");
   startStoreSweeper();
-  // LLM record/replay (modularization M0-0a). Harness boot is where env is
-  // read and pushed into lib as explicit config — lib itself never touches
-  // process.env (ratchet-enforced).
-  const mode = process.env.HERMETIC_LLM_MODE;
-  if (mode === "record" || mode === "replay") {
-    const { configureLLMReplay } = await import("./lib/llm/replay");
-    const { resolve } = await import("node:path");
-    configureLLMReplay({
-      mode,
-      dir: resolve(process.env.HERMETIC_LLM_FIXTURES ?? "test-fixtures/llm"),
-    });
-    console.log(
-      `[llm-replay] ${mode} mode, fixtures: ${process.env.HERMETIC_LLM_FIXTURES ?? "test-fixtures/llm"}`
-    );
-  }
+  // LLM record/replay (modularization M0-0a) — see instrumentation-node.ts.
+  await configureLLMReplayFromEnv();
 }
