@@ -1,4 +1,5 @@
 import "server-only";
+import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 import { execFile } from "node:child_process";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
@@ -226,7 +227,7 @@ export async function reapOrphanSandboxContainers(): Promise<number> {
   const names = await new Promise<string[]>((resolve) => {
     execFile(
       "docker",
-      ["ps", "--filter", "name=hermetic-sandbox-", "--format", "{{.Names}}"],
+      ["ps", "--filter", `name=${SANDBOX_CONTAINER_PREFIX}`, "--format", "{{.Names}}"],
       (err: unknown, stdout: string) => {
         resolve(err ? [] : String(stdout).trim().split("\n").filter(Boolean));
       }

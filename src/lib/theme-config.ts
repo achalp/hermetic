@@ -230,6 +230,9 @@ export const THEME_CONFIGS: Record<ThemeId, ThemeConfig> = {
   pentagram: PENTAGRAM,
 };
 
+/** All theme ids — drives the no-FOUC bootstrap allow-list in layout.tsx. */
+export const THEME_IDS = Object.keys(THEME_CONFIGS) as ThemeId[];
+
 export function useThemeConfig(): ThemeConfig {
   const { theme } = useTheme();
   return THEME_CONFIGS[theme] ?? THEME_CONFIGS.vanilla;

@@ -8,6 +8,7 @@ import {
   VisibilityProvider,
 } from "@json-render/react";
 import type { Spec } from "@json-render/react";
+import { STORAGE_KEYS } from "@/lib/constants";
 import { registry, registryActionHandlers } from "@/components/registry";
 import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
 import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-context";
@@ -77,7 +78,7 @@ function buildInvestigateScope(
   };
 }
 
-const VIEW_MODE_STORAGE_KEY = "hermetic-investigate-view";
+const VIEW_MODE_STORAGE_KEY = STORAGE_KEYS.investigateView;
 
 /** Dashboard | Notebook segmented control for Investigate results. */
 function ViewModeToggle({

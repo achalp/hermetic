@@ -1,4 +1,5 @@
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import { readdirSync, statSync, mkdirSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
@@ -106,7 +107,7 @@ export async function GET(request: Request) {
 
   if (backend === "ollama") {
     const rc = getRuntimeConfig();
-    const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
+    const baseUrl = rc.ollama?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama;
     try {
       const res = await fetch(`${baseUrl}/api/tags`);
       if (!res.ok) return Response.json({ error: "Failed to list models" }, { status: 502 });

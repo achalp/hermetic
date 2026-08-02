@@ -1,4 +1,5 @@
 import { rmSync } from "fs";
+import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import { join } from "path";
 import { apiError } from "@/lib/api-error";
 
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
   if (backend === "ollama") {
     const { getRuntimeConfig } = await import("@/lib/runtime-config");
     const rc = getRuntimeConfig();
-    const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
+    const baseUrl = rc.ollama?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama;
     try {
       const res = await fetch(`${baseUrl}/api/delete`, {
         method: "DELETE",

@@ -372,3 +372,37 @@ export const RECOMMENDED_LLAMACPP_MODELS: readonly RecommendedModel[] = [
 
 /** DOM event fired when the recent-sources list changes (settings section → page). */
 export const RECENTS_CHANGED_EVENT = "hermetic:recents-changed";
+
+// ── Modularization M1-1d: named constants for former magic strings ──────────
+
+/** Docker container name prefix — producer (docker-executor) and orphan
+ *  reaper (run-control) must agree; two harnesses sharing a host would
+ *  otherwise reap each other's containers. */
+export const SANDBOX_CONTAINER_PREFIX = "hermetic-sandbox-";
+
+/** Every localStorage key the app writes. The `gud-` prefix is a legacy
+ *  product name kept for existing users' persisted settings. */
+export const STORAGE_KEYS = {
+  theme: "gud-theme",
+  mode: "gud-mode",
+  codeGenModel: "gud-code-gen-model",
+  uiComposeModel: "gud-ui-compose-model",
+  sandboxRuntime: "gud-sandbox-runtime",
+  investigateView: "hermetic-investigate-view",
+} as const;
+
+/** Default endpoints for local LLM backends (overridable via runtime config). */
+export const DEFAULT_LOCAL_LLM_ENDPOINTS = {
+  ollama: "http://localhost:11434",
+  mlx: "http://localhost:8080",
+  "llama-cpp": "http://localhost:8081",
+} as const;
+
+/** External map/export assets. Self-hosters point these at their own
+ *  infrastructure (config override lands with HermeticConfig, WS3). */
+export const BASEMAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+export const BASEMAP_TILE_URLS = {
+  dark: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+  light: "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+} as const;
+export const REVEALJS_CDN_URL = "https://cdn.jsdelivr.net/npm/reveal.js@5.1.0";

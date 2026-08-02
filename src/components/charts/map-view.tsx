@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { BASEMAP_STYLE_URL } from "@/lib/constants";
 import MapGL, {
   Source,
   Layer,
@@ -70,7 +71,7 @@ interface EventHandle {
   shouldPreventDefault: boolean;
 }
 
-const BASEMAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const BASEMAP_STYLE = BASEMAP_STYLE_URL;
 
 function computeBounds(
   markers: MarkerItem[] | null | undefined,

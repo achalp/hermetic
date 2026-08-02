@@ -4,7 +4,7 @@ import type { SystemModelMessage, TextPart, LanguageModelMiddleware } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
-import { LOCAL_CTX_SIZE } from "@/lib/constants";
+import { LOCAL_CTX_SIZE, DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { recordCall, currentPhase } from "@/lib/cost/accumulator";
@@ -528,7 +528,7 @@ function createProviderClient(provider: LLMProviderId) {
       });
     case "mlx": {
       const rc = getRuntimeConfig();
-      const baseUrl = rc.mlx?.baseUrl || "http://localhost:8080";
+      const baseUrl = rc.mlx?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.mlx;
       return createOpenAI({
         baseURL: `${baseUrl}/v1`,
         apiKey: "mlx-local",
@@ -537,7 +537,7 @@ function createProviderClient(provider: LLMProviderId) {
     }
     case "llama-cpp": {
       const rc = getRuntimeConfig();
-      const baseUrl = rc.llamaCpp?.baseUrl || "http://localhost:8081";
+      const baseUrl = rc.llamaCpp?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS["llama-cpp"];
       return createOpenAI({
         baseURL: `${baseUrl}/v1`,
         apiKey: "llama-cpp-local",
@@ -546,7 +546,7 @@ function createProviderClient(provider: LLMProviderId) {
     }
     case "ollama": {
       const rc = getRuntimeConfig();
-      const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
+      const baseUrl = rc.ollama?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama;
       return createOpenAI({
         baseURL: `${baseUrl}/v1`,
         apiKey: "ollama",

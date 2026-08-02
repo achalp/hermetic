@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RECOMMENDED_OLLAMA_MODELS } from "@/lib/constants";
+import { RECOMMENDED_OLLAMA_MODELS, DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 
 interface OllamaModel {
   name: string;
@@ -46,7 +46,7 @@ export function OllamaSection({ onProviderChange, isActive, activeModel }: Ollam
         fetchModels();
       }
     } catch {
-      setStatus({ running: false, baseUrl: "http://localhost:11434" });
+      setStatus({ running: false, baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS.ollama });
     }
   }, []);
 

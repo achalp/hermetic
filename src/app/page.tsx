@@ -19,7 +19,7 @@ import { AskComposer } from "@/components/app/home/ask-composer";
 import { AddDataMenu, type SavedConnectionItem } from "@/components/app/home/add-data-menu";
 import { ExampleCards, type ExampleRun } from "@/components/app/home/example-cards";
 import { usePendingAsk } from "@/hooks/use-pending-ask";
-import { RECENTS_CHANGED_EVENT } from "@/lib/constants";
+import { RECENTS_CHANGED_EVENT, STORAGE_KEYS } from "@/lib/constants";
 import { relTimeAgo } from "@/lib/rel-time";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 import { LocalFileBrowser } from "@/components/app/local-file-browser";
@@ -128,21 +128,21 @@ export default function Home() {
   const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
   const [codeGenModel, setCodeGenModel] = useState<ModelId>(() => {
     if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("gud-code-gen-model");
+      const stored = localStorage.getItem(STORAGE_KEYS.codeGenModel);
       if (stored && isValidModelId(stored)) return stored;
     }
     return CODE_GEN_MODEL;
   });
   const [uiComposeModel, setUiComposeModel] = useState<ModelId>(() => {
     if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("gud-ui-compose-model");
+      const stored = localStorage.getItem(STORAGE_KEYS.uiComposeModel);
       if (stored && isValidModelId(stored)) return stored;
     }
     return UI_COMPOSE_MODEL;
   });
   const [sandboxRuntime, setSandboxRuntime] = useState<SandboxRuntimeId>(() => {
     if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("gud-sandbox-runtime");
+      const stored = localStorage.getItem(STORAGE_KEYS.sandboxRuntime);
       if (stored && isValidRuntimeId(stored)) return stored;
     }
     return DEFAULT_SANDBOX_RUNTIME;
@@ -346,7 +346,7 @@ export default function Home() {
 
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
     setSandboxRuntime(r);
-    localStorage.setItem("gud-sandbox-runtime", r);
+    localStorage.setItem(STORAGE_KEYS.sandboxRuntime, r);
     fetch("/api/runtimes", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -359,11 +359,11 @@ export default function Home() {
   // only called setState → reverted to the default constant on reload.
   const handleCodeGenModelChange = useCallback((m: ModelId) => {
     setCodeGenModel(m);
-    localStorage.setItem("gud-code-gen-model", m);
+    localStorage.setItem(STORAGE_KEYS.codeGenModel, m);
   }, []);
   const handleUiComposeModelChange = useCallback((m: ModelId) => {
     setUiComposeModel(m);
-    localStorage.setItem("gud-ui-compose-model", m);
+    localStorage.setItem(STORAGE_KEYS.uiComposeModel, m);
   }, []);
 
   // Local/remote/upload/sample source selection — see use-source-select.ts.

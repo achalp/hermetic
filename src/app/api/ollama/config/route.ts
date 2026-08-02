@@ -1,10 +1,15 @@
 import { getRuntimeConfig, setRuntimeConfig, clearRuntimeConfigCache } from "@/lib/runtime-config";
+import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import { clearEnvConfigCache } from "@/lib/config";
 
 export async function GET() {
   const rc = getRuntimeConfig();
   return Response.json({
-    ollama: rc.ollama ?? { enabled: false, baseUrl: "http://localhost:11434", activeModel: "" },
+    ollama: rc.ollama ?? {
+      enabled: false,
+      baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS.ollama,
+      activeModel: "",
+    },
   });
 }
 
@@ -16,7 +21,7 @@ export async function PUT(request: Request) {
     const updated = setRuntimeConfig({
       ollama: {
         enabled: enabled ?? false,
-        baseUrl: baseUrl || "http://localhost:11434",
+        baseUrl: baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama,
         activeModel: activeModel || "",
       },
     });

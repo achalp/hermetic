@@ -16,6 +16,7 @@ import { streamExec } from "./stream-exec";
 import { registerContainer, unregisterContainer, getRunSignal } from "@/lib/pipeline/run-control";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
+import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 
 export async function executeSandbox(
   csvContent: string,
@@ -26,7 +27,7 @@ export async function executeSandbox(
   inputParquetPath?: string
 ): Promise<ExecutionResult> {
   const start = Date.now();
-  const id = `hermetic-sandbox-${randomUUID()}`;
+  const id = `${SANDBOX_CONTAINER_PREFIX}${randomUUID()}`;
 
   // Whether the run touches large local Parquet or slow remote cloud data — kept
   // for logging/telemetry only. It NO LONGER bounds execution: we never impose a

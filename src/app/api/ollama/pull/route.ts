@@ -1,8 +1,9 @@
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 
 export async function POST(request: Request) {
   const rc = getRuntimeConfig();
-  const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
+  const baseUrl = rc.ollama?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama;
 
   try {
     const body = await request.json();
