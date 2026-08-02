@@ -68,7 +68,10 @@ const METRICS = [
     why: "the __-key wire protocol must be read via the typed StreamState module only",
     dirs: ["src/components", "src/hooks", "src/app"],
     excludeDirs: ["src/app/api"],
-    pattern: new RegExp(`(?:\\.|\\[")__(?:${STREAM_KEYS})\\b`, "g"),
+    // Counts CASTS of protocol keys (`.__plan as`, `["__plan"]`, `"__plan" in`)
+    // — typed access through readStreamState()/StreamState is the sanctioned
+    // path and does not match.
+    pattern: new RegExp(`(?:\\.__(?:${STREAM_KEYS})\\s+as\\s)|(?:\\["'"'"']__(?:${STREAM_KEYS}))|(?:"__(?:${STREAM_KEYS})" in\\s)`, "g"),
   },
   {
     id: "boundary-lint-suppressions",

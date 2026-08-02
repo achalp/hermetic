@@ -14,7 +14,7 @@ import type {
   WarehouseTableSchema,
 } from "@/lib/types";
 import type { TraceStep, NotebookLayout } from "@/lib/pipeline/investigation-trace";
-import type { Spec } from "@json-render/core";
+import type { Spec } from "@/lib/contracts/spec";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 // ── Helpers ────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
 import { ProgressCard, type ProgressStep } from "@/components/app/progress-card";
-import type { CostInfo } from "@/components/app/cost-footer";
+import { readStreamState, type CostInfo, type PlanStep } from "@/lib/contracts/stream-state";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
 import { Card } from "@/components/ui/card";
@@ -42,7 +42,7 @@ interface DrillLevel {
  * Ask-mode prose is rendered verbatim.
  */
 function specHasInvestigation(spec: Spec | null | undefined): boolean {
-  return Boolean(spec?.state && "__plan" in (spec.state as Record<string, unknown>));
+  return readStreamState(spec).__plan !== undefined;
 }
 
 /**
@@ -60,9 +60,7 @@ function buildInvestigateScope(
     segmentLabel?: string;
   }
 ): InvestigateScope | undefined {
-  const plan = (spec?.state as Record<string, unknown> | undefined)?.__plan as
-    | { approach?: string; steps?: { question?: string }[] }
-    | undefined;
+  const plan = readStreamState(spec).__plan;
   const hasPlan = !!plan && typeof plan === "object";
   if (!hasPlan && !extra?.filters?.length) return undefined;
   return {
@@ -277,9 +275,7 @@ export function ResponsePanel({
       currentSpecRef.current = completedSpec;
       setPreviousSpec(null);
       onStreamEnd?.();
-      const cost = (completedSpec?.state as Record<string, unknown> | undefined)?.__cost as
-        | CostInfo
-        | undefined;
+      const cost = readStreamState(completedSpec).__cost;
       if (cost) onCost?.(cost);
       if (completedSpec?.root && currentQuestionRef.current) {
         onAnalysisComplete?.({
@@ -313,8 +309,7 @@ export function ResponsePanel({
   });
 
   // For warehouse queries, the csvId is generated server-side and emitted in the stream
-  const warehouseCsvId = (spec?.state as Record<string, unknown> | undefined)
-    ?.__warehouse_csv_id as string | undefined;
+  const warehouseCsvId = readStreamState(spec).__warehouse_csv_id;
   const effectiveCsvId = csvId ?? warehouseCsvId ?? null;
 
   // Save/Export moved to the top bar — page.tsx owns the live useSaveExport
@@ -929,9 +924,7 @@ function PipelineProgress({
   drillStack: DrillLevel[];
   previousSpec: Spec | null;
 }) {
-  const progress = (spec?.state as Record<string, unknown> | undefined)?.__progress as
-    | { stage: string; step: number; total: number }
-    | undefined;
+  const progress = readStreamState(spec).__progress;
 
   // If dashboard content is already building, hide the stepper
   if (spec?.root) return null;
@@ -970,7 +963,8 @@ function PipelineProgress({
   const isWarehousePipeline = progress.total === 5;
   const pipelineSteps = isWarehousePipeline ? WAREHOUSE_PIPELINE_STEPS : FILE_PIPELINE_STEPS;
   const stageToStep = isWarehousePipeline ? WAREHOUSE_STAGE_TO_STEP : FILE_STAGE_TO_STEP;
-  const currentStep = stageToStep[progress.stage] ?? progress.step;
+  const currentStep =
+    (progress.stage ? stageToStep[progress.stage] : undefined) ?? progress.step ?? 1;
   const isRetrying = progress.stage === "retrying";
   const retryStep = isWarehousePipeline ? 4 : 2;
 
@@ -989,27 +983,9 @@ function PipelineProgress({
 
   return (
     <div className="flex justify-center py-16">
-      <ProgressCard steps={steps} state={spec?.state as Record<string, unknown> | undefined} />
+      <ProgressCard steps={steps} state={readStreamState(spec)} />
     </div>
   );
-}
-
-interface PlanStep {
-  index: number;
-  question: string;
-  rationale: string;
-  status: "pending" | "running" | "done" | "failed";
-}
-
-interface PlanState {
-  approach?: string;
-  steps?: PlanStep[];
-}
-
-interface ProgressMeta {
-  stage?: string;
-  step?: number;
-  total?: number;
 }
 
 /**
@@ -1023,10 +999,10 @@ interface ProgressMeta {
  * fires sub_started / sub_finished / sub_failed events.
  */
 function InvestigateProgress({ spec }: { spec: Spec | null }) {
-  const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
-  const plan = state.__plan as PlanState | undefined;
-  const progress = state.__progress as ProgressMeta | undefined;
-  const errorMsg = state.__error as string | undefined;
+  const state = readStreamState(spec);
+  const plan = state.__plan;
+  const progress = state.__progress;
+  const errorMsg = state.__error;
 
   // Once the dashboard root has started rendering, hide this UI — the
   // composed content takes over.
@@ -1104,19 +1080,6 @@ function InvestigateProgress({ spec }: { spec: Spec | null }) {
   );
 }
 
-interface DataQualityState {
-  degraded?: { stepNo: number; question: string; reason?: string }[];
-  failed?: { stepNo: number; question: string; error?: string }[];
-  removed?: { stepNo: number; question: string }[];
-}
-
-interface GroundingState {
-  ok?: boolean;
-  checkedCount?: number;
-  ungrounded?: string[];
-  uncitedSuccessfulSteps?: number[];
-}
-
 /**
  * Surfaces the two Investigate trust signals the server emits as state:
  *   /state/__dataQuality — degraded / failed / dropped sub-questions
@@ -1126,9 +1089,9 @@ interface GroundingState {
  * re-runnable detail lives in the artifacts panel's Trail tab.
  */
 function InvestigationCaveats({ spec }: { spec: Spec | null }) {
-  const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
-  const dq = state.__dataQuality as DataQualityState | undefined;
-  const g = state.__grounding as GroundingState | undefined;
+  const state = readStreamState(spec);
+  const dq = state.__dataQuality;
+  const g = state.__grounding;
 
   const hasDq =
     !!dq && (dq.degraded?.length ?? 0) + (dq.failed?.length ?? 0) + (dq.removed?.length ?? 0) > 0;

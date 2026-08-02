@@ -1,5 +1,6 @@
 "use client";
 
+import type { ExecState, StreamState } from "@/lib/contracts/stream-state";
 import { useState, type ReactNode } from "react";
 import { stopAnalysis } from "@/lib/api";
 
@@ -7,16 +8,6 @@ export interface ProgressStep {
   /** The one-liner for this stage (the active-tense label while it runs). */
   label: string;
   status: "done" | "active" | "upcoming";
-}
-
-/** The live-execution progress the server streams (see run-control SandboxProgress). */
-interface ExecState {
-  phase?: string;
-  detail?: string;
-  fraction?: number;
-  rows?: number;
-  total_rows?: number;
-  elapsed_ms?: number;
 }
 
 function fmtDuration(ms: number): string {
@@ -57,16 +48,14 @@ export function ProgressCard({
   children,
 }: {
   steps: ProgressStep[];
-  state: Record<string, unknown> | undefined;
+  state: StreamState | undefined;
   defaultExpanded?: boolean;
   children?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [stopping, setStopping] = useState(false);
 
-  const exec = state?.__exec as ExecState | undefined;
-  const estimate = state?.__estimate as { detail?: string } | undefined;
-  const runId = state?.__runId as string | undefined;
+  const { __exec: exec, __estimate: estimate, __runId: runId } = state ?? {};
 
   const active = steps.find((s) => s.status === "active");
   const heading = active?.label ?? steps.find((s) => s.status !== "done")?.label ?? "Working…";
