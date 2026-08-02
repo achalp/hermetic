@@ -8,6 +8,7 @@ import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { recordCall, currentPhase } from "@/lib/cost/accumulator";
+import { llmReplayMiddleware } from "@/lib/llm/replay";
 import {
   responsesJSON,
   responsesSSE,
@@ -666,11 +667,15 @@ const stripSamplingMiddleware: LanguageModelMiddleware = {
 type ProviderModel = Parameters<typeof wrapLanguageModel>[0]["model"];
 
 function track(model: ProviderModel, costKey: string, stripSampling = false): ProviderModel {
+  // Order matters: replay sits INNERMOST (last) so usage middleware still
+  // observes replayed results and cost attribution works in replay mode.
+  // The replay middleware is a passthrough until the harness configures it
+  // (see lib/llm/replay.ts).
   return wrapLanguageModel({
     model,
     middleware: stripSampling
-      ? [stripSamplingMiddleware, usageMiddleware(costKey)]
-      : usageMiddleware(costKey),
+      ? [stripSamplingMiddleware, usageMiddleware(costKey), llmReplayMiddleware(costKey)]
+      : [usageMiddleware(costKey), llmReplayMiddleware(costKey)],
   });
 }
 
