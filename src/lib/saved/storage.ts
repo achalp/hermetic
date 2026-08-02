@@ -106,7 +106,14 @@ export async function saveNewVersion(
   await mkdir(historyDir, { recursive: true });
 
   // Move current root files to history (best-effort — skip if missing)
-  const filesToArchive = ["spec.json", "code.py", "source.csv", "artifacts.json"];
+  const filesToArchive = [
+    "spec.json",
+    "code.py",
+    "source.csv",
+    "artifacts.json",
+    "schema.json",
+    "workbook.json",
+  ];
   await Promise.all(
     filesToArchive.map(async (f) => {
       try {

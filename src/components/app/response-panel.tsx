@@ -236,7 +236,6 @@ export function ResponsePanel({
   // Conversation history is now managed server-side via the conversation cache.
   const [previousSpec, setPreviousSpec] = useState<Spec | null>(null);
   const lastSeqRef = useRef(0);
-  const dashboardRef = useRef<HTMLDivElement>(null);
   // True while the in-flight stream is a REATTACH (replay of a run that survived
   // a client drop) rather than a fresh analysis. A reattach that ends without a
   // dashboard (run was stopped / channel raced closed / buffer incomplete) must
@@ -803,7 +802,7 @@ export function ResponsePanel({
           or a Dashboard↔Notebook toggle — making the re-shape visible. */}
       <CitationNavigateContext.Provider value={notebookAvailable ? navigateToCell : null}>
         {notebookActive ? (
-          <Card key={`nb-${questionSeq}`} ref={dashboardRef} className="form-morph">
+          <Card key={`nb-${questionSeq}`} className="form-morph">
             <NotebookView
               spec={activeSpec}
               artifacts={artifacts}
@@ -818,7 +817,7 @@ export function ResponsePanel({
         ) : (
           activeSpec?.root &&
           activeSpec?.elements && (
-            <Card key={`db-${questionSeq}`} ref={dashboardRef} className="form-morph">
+            <Card key={`db-${questionSeq}`} className="form-morph">
               {dashboardStale && (
                 <div
                   className="mb-3 flex items-center justify-between gap-2 border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-text"

@@ -1319,11 +1319,6 @@ export default function Home() {
                   rerunCode={rerunCode}
                   rerunSql={rerunSql}
                   onAnalysisComplete={(entry) => {
-                    console.log("[follow-up] onAnalysisComplete fired", {
-                      question: entry.question,
-                      hasSpec: !!entry.spec,
-                      hasRoot: !!entry.spec?.root,
-                    });
                     setAnalysisHistory((prev) => [...prev, { ...entry, timestamp: Date.now() }]);
                     setLastCompleteSpec(entry.spec);
                     // Sync the freshly-streamed spec into the refs that
