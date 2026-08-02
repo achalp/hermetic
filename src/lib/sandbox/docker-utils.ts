@@ -1,4 +1,3 @@
-import "server-only";
 import { execFile } from "node:child_process";
 import type { ExecutionResult } from "@/lib/contracts/execution";
 import { getRunFailureHints } from "@/lib/pipeline/run-control";

@@ -19,7 +19,6 @@
  * the client copy is capped at MAX_CLIENT_ERROR_CHARS — the same cap
  * remote-parquet/schema already used.
  */
-import { NextResponse } from "next/server";
 import { logger, serializeError } from "@/lib/logger";
 
 /** Cap on error text returned to the client — enough to be actionable,
@@ -31,13 +30,8 @@ export const MAX_CLIENT_ERROR_CHARS = 300;
  * body. `route` tags the log line (e.g. "/api/cost"); `fallback` is the
  * client message when the thrown value has no usable message.
  */
-export function apiError(
-  route: string,
-  err: unknown,
-  fallback: string,
-  status = 500
-): NextResponse {
+export function apiError(route: string, err: unknown, fallback: string, status = 500): Response {
   logger.error(`${route} failed`, serializeError(err));
   const message = err instanceof Error && err.message ? err.message : fallback;
-  return NextResponse.json({ error: message.slice(0, MAX_CLIENT_ERROR_CHARS) }, { status });
+  return Response.json({ error: message.slice(0, MAX_CLIENT_ERROR_CHARS) }, { status });
 }

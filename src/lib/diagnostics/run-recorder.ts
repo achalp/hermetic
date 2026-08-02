@@ -1,4 +1,3 @@
-import "server-only";
 import { mkdir, writeFile, appendFile, readdir, stat, rm } from "fs/promises";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";

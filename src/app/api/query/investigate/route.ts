@@ -16,7 +16,6 @@
 
 import type { Spec } from "@json-render/core";
 import { apiError } from "@/lib/api-error";
-import { type InvestigateScope } from "@/lib/contracts/investigation";
 import { generatePlan } from "@/lib/llm/investigate-planner";
 import {
   runInvestigation,

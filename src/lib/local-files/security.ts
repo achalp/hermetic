@@ -1,4 +1,3 @@
-import "server-only";
 import { homedir } from "node:os";
 import { resolve, sep, delimiter } from "node:path";
 import { ALLOWED_LOCAL_EXTENSIONS } from "@/lib/constants";

@@ -1,4 +1,3 @@
-import "server-only";
 import { spawn } from "node:child_process";
 import { reportProgress, type SandboxProgress } from "@/lib/pipeline/run-control";
 

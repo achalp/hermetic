@@ -1,4 +1,3 @@
-import "server-only";
 import { randomUUID } from "node:crypto";
 import { dirname, basename } from "node:path";
 import type { CSVSchema } from "@/lib/contracts/data-schema";

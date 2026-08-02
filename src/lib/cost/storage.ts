@@ -7,7 +7,6 @@
  * question/dataset are quoted correctly. Single-user local tool, so the small
  * race on concurrent appends to the same day file is acceptable.
  */
-import "server-only";
 import { mkdir, readFile, writeFile, readdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";

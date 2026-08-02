@@ -6,7 +6,6 @@
  * It lives here now, so a change (or a new source kind like remote cloud Parquet)
  * lands once.
  */
-import "server-only";
 import { basename, dirname } from "node:path";
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
 import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";

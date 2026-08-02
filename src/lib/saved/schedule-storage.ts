@@ -14,7 +14,6 @@
  * Status tracking: lastRunAt, lastStatus ("success" | "error"), lastError.
  */
 
-import "server-only";
 import { mkdir, readFile, writeFile, stat } from "fs/promises";
 import { join, dirname } from "path";
 

@@ -1,4 +1,3 @@
-import "server-only";
 import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 import { execFile } from "node:child_process";
 import { getRunId } from "@/lib/run-context";

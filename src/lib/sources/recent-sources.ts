@@ -1,4 +1,3 @@
-import "server-only";
 import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { homedir } from "node:os";

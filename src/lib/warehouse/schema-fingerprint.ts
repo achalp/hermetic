@@ -1,4 +1,3 @@
-import "server-only";
 import { createHash } from "node:crypto";
 import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 import type { WarehouseTableInfo } from "@/lib/contracts/warehouse-schema";

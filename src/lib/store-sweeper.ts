@@ -13,7 +13,6 @@
  * cap is enforced at the write site instead (prune-on-save in
  * lib/history/storage.ts, HERMETIC_MAX_HISTORY_ENTRIES; API-9).
  */
-import "server-only";
 import { logger } from "@/lib/logger";
 
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes

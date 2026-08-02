@@ -1,5 +1,3 @@
-import "server-only";
-
 /**
  * Run output hub — lets a client that lost its connection (page reload, dev
  * HMR, navigation) REATTACH to an analysis that is still running server-side.

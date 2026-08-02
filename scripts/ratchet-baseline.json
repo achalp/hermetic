@@ -2,7 +2,7 @@
   "lib-process-env": 77,
   "lib-process-cwd": 14,
   "lib-globalthis-stores": 20,
-  "server-only-imports": 36,
+  "server-only-imports": 0,
   "app-raw-fetch": 24,
   "api-boundary-casts": 16,
   "json-render-imports": 37,

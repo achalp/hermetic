@@ -16,7 +16,6 @@
  * line parsing, usage extraction) is factored out for direct unit testing; the
  * process plumbing is the only impure part.
  */
-import "server-only";
 import { spawn, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Readable } from "node:stream";

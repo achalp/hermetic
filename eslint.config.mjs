@@ -45,9 +45,10 @@ const eslintConfig = defineConfig([
   // (scripts/ratchet.mjs) and must stay at zero.
   {
     files: ["src/lib/**/*.{ts,tsx}"],
+    ignores: ["src/lib/**/__tests__/**", "src/lib/**/*.test.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
-        "warn",
+        "error",
         {
           patterns: [
             {

@@ -1,4 +1,3 @@
-import "server-only";
 import { run } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { DEFAULT_SANDBOX_MEMORY_FRACTION } from "@/lib/constants";

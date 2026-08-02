@@ -1,4 +1,3 @@
-import "server-only";
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { join, dirname } from "path";
 

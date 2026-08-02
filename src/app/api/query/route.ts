@@ -28,11 +28,7 @@ import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { logger, serializeError } from "@/lib/logger";
 import { apiError } from "@/lib/api-error";
 import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
-import {
-  validateQueryIds,
-  resolveQuerySources,
-  type QueryRequestContext,
-} from "@/lib/pipeline/validate-request";
+import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { readJsonBody, parseBody, analysisRequestSchema } from "@/lib/api-schemas";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
