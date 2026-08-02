@@ -16,6 +16,8 @@
  */
 
 import { streamText } from "ai";
+import type { DrillDownContext } from "@/lib/contracts/analysis-request";
+export type { DrillDownContext };
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
@@ -33,16 +35,6 @@ import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { FilterValue } from "@/lib/contracts/spec-types";
-
-export interface DrillDownContext {
-  parent_question: string;
-  filter_column: string;
-  filter_value: FilterValue;
-  segment_label: string;
-  chart_title: string | null;
-  /** Additional filters AND-combined with the primary filter (2D / multi-select). */
-  additional_filters?: { column: string; value: FilterValue }[] | null;
-}
 
 export interface DashboardComposeOpts {
   question: string;

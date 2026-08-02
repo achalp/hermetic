@@ -27,6 +27,7 @@ import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
 import { ProgressCard, type ProgressStep } from "@/components/app/progress-card";
 import { readStreamState, type CostInfo, type PlanStep } from "@/lib/contracts/stream-state";
+import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { ActionButton } from "@/components/ui/action-button";
 import { Card } from "@/components/ui/card";
@@ -368,7 +369,7 @@ export function ResponsePanel({
     // Conversation history is managed server-side (keyed by csvId)
     isReattachStreamRef.current = false;
     send("", {
-      csv_id: csvId,
+      csv_id: csvId ?? undefined,
       warehouse_id: warehouseId ?? undefined,
       question: question,
       schema_mode: schemaMode,
@@ -386,7 +387,7 @@ export function ResponsePanel({
       // view; otherwise they're composed lazily on Notebook-open (saves N
       // compose calls for the common Dashboard path). Investigate route only.
       compose_cells: viewMode === "notebook",
-    });
+    } satisfies AnalysisRequestContext);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionSeq]);
@@ -472,7 +473,7 @@ export function ResponsePanel({
       currentSpecRef.current = null;
 
       send("", {
-        csv_id: effectiveCsvId,
+        csv_id: effectiveCsvId ?? undefined,
         warehouse_id: warehouseId ?? undefined,
         question: drillQuestion,
         drill_down_context: {
@@ -490,7 +491,7 @@ export function ResponsePanel({
         ui_compose_model: uiComposeModel,
         sandbox_runtime: sandboxRuntime,
         purpose,
-      });
+      } satisfies AnalysisRequestContext);
     };
 
     return () => {

@@ -154,3 +154,53 @@ export const WarehouseConnectionConfigSchema = z.discriminatedUnion("type", [
     schema: z.string().optional(),
   }),
 ]);
+
+// ── /api/query and /api/query/investigate ─────────────────────────────
+// Declared as z.ZodType<AnalysisRequest> so any drift between this schema and
+// the shared contract type fails compilation (modularization M1-1c).
+
+const filterValueSchema: z.ZodType<import("@/lib/contracts/spec-types").FilterValue> = z.union([
+  z.string(),
+  z.number(),
+  z.array(z.union([z.string(), z.number()])),
+]);
+
+const drillDownContextSchema = z.object({
+  parent_question: z.string(),
+  filter_column: z.string(),
+  filter_value: filterValueSchema,
+  segment_label: z.string(),
+  chart_title: z.string().nullable(),
+  additional_filters: z.array(z.object({ column: z.string(), value: filterValueSchema })).nullish(),
+});
+
+const investigateScopeSchema = z.object({
+  parent_question: z.string().optional(),
+  prior_approach: z.string().optional(),
+  prior_steps: z.array(z.string()).optional(),
+  filters: z.array(z.object({ column: z.string(), value: filterValueSchema })).optional(),
+  segment_label: z.string().optional(),
+});
+
+export const analysisRequestSchema: z.ZodType<
+  import("@/lib/contracts/analysis-request").AnalysisRequest
+> = z.object({
+  prompt: z.string().optional(),
+  context: z
+    .object({
+      csv_id: z.string().optional(),
+      warehouse_id: z.string().optional(),
+      question: z.string().optional(),
+      schema_mode: z.enum(["metadata", "sample"]).optional(),
+      code_gen_model: z.string().optional(),
+      ui_compose_model: z.string().optional(),
+      sandbox_runtime: z.string().optional(),
+      purpose: z.string().optional(),
+      code: z.string().optional(),
+      sql: z.string().optional(),
+      drill_down_context: drillDownContextSchema.optional(),
+      scope: investigateScopeSchema.optional(),
+      compose_cells: z.boolean().optional(),
+    })
+    .optional(),
+});

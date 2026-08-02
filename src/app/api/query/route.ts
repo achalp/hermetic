@@ -33,7 +33,7 @@ import {
   resolveQuerySources,
   type QueryRequestContext,
 } from "@/lib/pipeline/validate-request";
-import { readJsonBody } from "@/lib/api-schemas";
+import { readJsonBody, parseBody, analysisRequestSchema } from "@/lib/api-schemas";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
@@ -45,17 +45,9 @@ export async function POST(request: Request) {
   const read = await readJsonBody(request);
   if (!read.ok) return read.response;
   try {
-    const body = read.body as {
-      prompt?: string;
-      context?: QueryRequestContext & {
-        drill_down_context?: DrillDownContext;
-        schema_mode?: string;
-        purpose?: string;
-        code?: string;
-        sql?: string;
-      };
-    };
-    const { prompt, context } = body;
+    const parsed = parseBody(analysisRequestSchema, read.body);
+    if (!parsed.ok) return parsed.response;
+    const { prompt, context } = parsed.data;
 
     const drillDownContext: DrillDownContext | undefined = context?.drill_down_context;
     const schemaMode: SchemaMode = context?.schema_mode === "sample" ? "sample" : "metadata";

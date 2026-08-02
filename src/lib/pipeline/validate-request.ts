@@ -32,14 +32,9 @@ import {
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 
-export interface QueryRequestContext {
-  csv_id?: string;
-  warehouse_id?: string;
-  question?: string;
-  code_gen_model?: string;
-  ui_compose_model?: string;
-  sandbox_runtime?: string;
-}
+import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
+/** @deprecated alias — use AnalysisRequestContext (modularization M1-1c). */
+export type QueryRequestContext = AnalysisRequestContext;
 
 export interface WarehouseState {
   warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;

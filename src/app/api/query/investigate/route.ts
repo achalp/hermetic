@@ -68,48 +68,20 @@ import {
 } from "@/lib/csv/storage";
 import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
-import { readJsonBody } from "@/lib/api-schemas";
+import { readJsonBody, parseBody, analysisRequestSchema } from "@/lib/api-schemas";
 import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
 import { logger, serializeError } from "@/lib/logger";
 
 export const maxDuration = 1260; // 21 min — investigations over large/remote datasets can run long
-
-interface InvestigateContext {
-  csv_id?: string;
-  warehouse_id?: string;
-  question?: string;
-  code_gen_model?: string;
-  ui_compose_model?: string;
-  sandbox_runtime?: string;
-  purpose?: string;
-  /**
-   * Prior-investigation context for a scoped follow-up (drill-as-sub-
-   * investigation). Set by the client when the user drills into a chart
-   * segment or asks a follow-up on an Investigate result; threaded into the
-   * planner so the new plan goes deeper instead of repeating the parent.
-   */
-  scope?: InvestigateScope;
-  /**
-   * Whether to eagerly compose per-step notebook cells during the run. The
-   * client sets this to true only when the Notebook view is active at submit;
-   * otherwise the cells are composed lazily on demand when the user opens the
-   * Notebook (see /api/query/investigate/compose-cell), saving N compose calls
-   * for the common Dashboard-only path. Defaults to true if unset.
-   */
-  compose_cells?: boolean;
-}
-
-interface InvestigateBody {
-  prompt?: string;
-  context?: InvestigateContext;
-}
 
 export async function POST(request: Request) {
   // Aborted duplicate requests truncate the body — a 400, not a logged 500.
   const read = await readJsonBody(request);
   if (!read.ok) return read.response;
   try {
-    const body = read.body as InvestigateBody;
+    const parsed = parseBody(analysisRequestSchema, read.body);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const context = body.context ?? {};
 
     // ── Shared preamble step 1: ids/question 400s (lib/pipeline/
