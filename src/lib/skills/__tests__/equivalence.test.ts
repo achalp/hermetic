@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildGeospatialGuidance } from "@/lib/llm/prompts";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 /**
  * Byte-for-byte equivalence lock for the geo guidance text.

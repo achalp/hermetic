@@ -1,6 +1,6 @@
 "use client";
 
-import type { SheetInfo, SheetRelationship } from "@/lib/types";
+import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import {
   useRelationshipAnnotations,
   MATCH_TYPE_LABELS,

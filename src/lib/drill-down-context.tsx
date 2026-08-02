@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, type MutableRefObject } from "react";
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 import type { ClickedRecord } from "@/lib/drill-resolve";
 
 type DrillDownCallback = ((params: DrillDownParams) => void) | null;

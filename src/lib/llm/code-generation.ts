@@ -9,7 +9,8 @@ import {
 } from "./prompts";
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
-import type { CSVSchema, ConversationTurn, SchemaMode } from "@/lib/types";
+import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
 
 /**
  * Clean LLM-generated code by stripping markdown fences, chat template

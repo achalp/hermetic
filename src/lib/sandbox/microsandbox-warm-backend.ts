@@ -1,6 +1,6 @@
 import "server-only";
 import type { WarmSandboxBackend } from "./warm-sandbox";
-import type { ExecutionResult } from "@/lib/types";
+import type { ExecutionResult } from "@/lib/contracts/execution";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { getOrCreateSandbox, writeChunkedFile, readSandboxFile } from "./microsandbox-executor";

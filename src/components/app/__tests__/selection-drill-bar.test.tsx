@@ -6,7 +6,7 @@ import React from "react";
 import { StateProvider } from "@json-render/react";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
 function renderBar(filters: Record<string, unknown>) {
   return render(

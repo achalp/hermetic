@@ -9,9 +9,9 @@ import type {
   CSVColumn,
   CategoricalMeta,
   NumericMeta,
-  WarehouseTableSchema,
   DataDomain,
-} from "@/lib/types";
+} from "@/lib/contracts/data-schema";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 // ── Helpers ────────────────────────────────────────────────────────
 

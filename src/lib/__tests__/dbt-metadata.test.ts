@@ -9,7 +9,7 @@ import {
   validateManifestPath,
   clearDbtManifestCache,
 } from "@/lib/warehouse/dbt-metadata";
-import type { WarehouseTableSchema } from "@/lib/types";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 const MANIFEST_FIXTURE = path.resolve(
   __dirname,

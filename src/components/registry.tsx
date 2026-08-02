@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { defineRegistry, type Components } from "@json-render/react";
 import { catalog } from "@/lib/catalog";
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import {
   StatCardComponent,

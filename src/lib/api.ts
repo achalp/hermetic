@@ -3,16 +3,10 @@
  * Replaces raw fetch() scattered across components.
  */
 
-import type {
-  CSVSchema,
-  HistoryMeta,
-  SavedVizMeta,
-  SheetInfo,
-  SheetRelationship,
-  WarehouseConnectionConfig,
-  WarehouseTableInfo,
-  WarehouseTableSchema,
-} from "@/lib/types";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
+import type { HistoryMeta, SavedVizMeta } from "@/lib/contracts/storage-types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import type { TraceStep, NotebookLayout } from "@/lib/pipeline/investigation-trace";
 import type { Spec } from "@/lib/contracts/spec";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";

@@ -7,7 +7,7 @@
  * data/skills/<name>/SKILL.md into the same shape, so everything downstream of
  * `activateSkills` is origin-agnostic.
  */
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 /** Inputs available when deciding whether a skill applies to a run. */
 export interface SkillTriggerContext {

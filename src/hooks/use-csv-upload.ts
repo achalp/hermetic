@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 
 interface ExcelMeta {
   excelId: string;

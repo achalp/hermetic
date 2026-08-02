@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { WarehouseConnectionConfig } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 
 interface InlineConnectionFormProps {
   visible: boolean;

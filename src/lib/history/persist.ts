@@ -13,7 +13,7 @@ import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getConversationTurns } from "@/lib/pipeline/conversation-cache";
 import { saveHistoryEntry } from "@/lib/history/storage";
 import { summarizeSpec } from "@/lib/spec-summary";
-import type { HistoryMeta } from "@/lib/types";
+import type { HistoryMeta } from "@/lib/contracts/storage-types";
 import { logger } from "@/lib/logger";
 
 export type PersistResult = { saved: true; meta: HistoryMeta } | { saved: false; reason: string };

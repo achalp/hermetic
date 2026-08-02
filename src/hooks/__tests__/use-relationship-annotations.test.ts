@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import type { SheetInfo, SheetRelationship } from "@/lib/types";
+import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 
 // Test the pure logic extracted from useRelationshipAnnotations.
 // Since the hook uses useMemo, we test the underlying logic directly.

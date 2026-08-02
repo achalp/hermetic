@@ -2,7 +2,8 @@ import "server-only";
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import type { CSVSchema, StoredCSV, WorkbookManifest, RemoteCreds } from "@/lib/types";
+import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
+import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";
 import { CSV_TTL_MS } from "@/lib/constants";
 import { isIdleExpired, touch } from "@/lib/store-ttl";
 

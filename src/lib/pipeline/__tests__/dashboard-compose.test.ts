@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildDashboardComposeRequest } from "@/lib/pipeline/dashboard-compose";
-import type { SandboxExecutionResult, CSVSchema, ConversationTurn } from "@/lib/types";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
 
 // Characterization tests for the compose-request builder extracted from the Ask
 // route. They pin the conditional prompt construction (the highest-risk part of

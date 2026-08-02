@@ -23,7 +23,8 @@ import { materializeCsvToParquet } from "@/lib/parquet/materialize";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { WAREHOUSE_MAX_ROWS, PARQUET_MATERIALIZE_THRESHOLD } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import type { CSVSchema, WarehouseType } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import { logger } from "@/lib/logger";
 
 /**

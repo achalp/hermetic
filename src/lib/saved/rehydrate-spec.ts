@@ -1,5 +1,5 @@
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { SandboxExecutionResult } from "@/lib/types";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 
 /**
  * Clone the saved spec and inject new execution results.

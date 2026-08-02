@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { schemaFingerprint, schemasCompatible } from "@/lib/saved/schema-compat";
-import type { CSVSchema, CSVColumn } from "@/lib/types";
+import type { CSVSchema, CSVColumn } from "@/lib/contracts/data-schema";
 
 function col(name: string, dtype: CSVColumn["dtype"]): CSVColumn {
   return {

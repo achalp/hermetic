@@ -8,7 +8,7 @@
  * extraction-in-progress state those flows share.
  */
 import { useCallback, useState, useRef } from "react";
-import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import {
   extractLocalSchema,
   extractRemoteParquetSchema,

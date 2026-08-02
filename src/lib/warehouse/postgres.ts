@@ -1,10 +1,10 @@
 import pg from "pg";
+import type { PostgresConnectionConfig } from "@/lib/contracts/connection-configs";
 import type {
-  PostgresConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
   WarehouseColumnInfo,
-} from "@/lib/types";
+} from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
 import { csvValue, rowsToCsv } from "./csv-util";
 

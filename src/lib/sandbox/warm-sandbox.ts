@@ -1,4 +1,4 @@
-import type { ExecutionResult } from "@/lib/types";
+import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { AdditionalFile } from "./index";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";

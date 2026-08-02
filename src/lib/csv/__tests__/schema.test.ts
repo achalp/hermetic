@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { extractSchema } from "@/lib/csv/schema";
 import type { ParsedCSV } from "@/lib/csv/parser";
-import type { CSVColumn, NumericMeta, DateMeta, CategoricalMeta, BooleanMeta } from "@/lib/types";
+import type {
+  CSVColumn,
+  NumericMeta,
+  DateMeta,
+  CategoricalMeta,
+  BooleanMeta,
+} from "@/lib/contracts/data-schema";
 
 // ── Helpers ────────────────────────────────────────────────────────
 

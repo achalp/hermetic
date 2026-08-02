@@ -20,7 +20,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Spec } from "@json-render/react";
-import type { CSVSchema, WarehouseTableSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import {
   generateSuggestions,
   generateWarehouseSuggestions,

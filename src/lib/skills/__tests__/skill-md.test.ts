@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseSkillMd, SkillParseError } from "@/lib/skills/skill-md";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const schema = {
   filename: "sales.csv",

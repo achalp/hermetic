@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 
 interface SchemaPreviewProps {

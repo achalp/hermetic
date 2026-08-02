@@ -29,13 +29,10 @@ import {
   verifyGrounding,
 } from "@/lib/pipeline/grounding";
 import { logger } from "@/lib/logger";
-import type {
-  SandboxExecutionResult,
-  CSVSchema,
-  SchemaMode,
-  ConversationTurn,
-  FilterValue,
-} from "@/lib/types";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
+import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
+import type { FilterValue } from "@/lib/contracts/spec-types";
 
 export interface DrillDownContext {
   parent_question: string;

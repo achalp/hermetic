@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { warehouseSourceKey, warehouseTablesFingerprint } from "@/lib/warehouse/schema-fingerprint";
-import type { WarehouseConnectionConfig, WarehouseTableInfo } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableInfo } from "@/lib/contracts/warehouse-schema";
 
 const tbl = (
   schema: string,

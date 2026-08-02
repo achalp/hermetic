@@ -2,7 +2,9 @@ import "server-only";
 import { mkdir, writeFile, readFile, readdir, rm } from "fs/promises";
 import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
-import type { HistoryMeta, CSVSchema, WarehouseType } from "@/lib/types";
+import type { HistoryMeta } from "@/lib/contracts/storage-types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 

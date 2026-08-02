@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import type { ConversationTurn } from "@/lib/types";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { CachedArtifacts } from "./artifacts-cache";
 import { summarizeSpec } from "@/lib/spec-summary";
 import { isIdleExpired, touch } from "@/lib/store-ttl";

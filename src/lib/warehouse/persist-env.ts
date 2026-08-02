@@ -2,7 +2,7 @@ import "server-only";
 import { readFile, writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import type { WarehouseConnectionConfig } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 // Per-engine label lives in the engine descriptor (ARCH-12).
 import { connectionLabel } from "@/lib/warehouse/engine-descriptor";
 

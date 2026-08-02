@@ -1,4 +1,4 @@
-import type { StoredWarehouse } from "@/lib/types";
+import type { StoredWarehouse } from "@/lib/contracts/storage-types";
 import { CSV_TTL_MS } from "@/lib/constants";
 import { isIdleExpired, touch } from "@/lib/store-ttl";
 import type { WarehouseConnector } from "./connector";

@@ -9,7 +9,7 @@ vi.mock("@google-cloud/bigquery", () => ({
 }));
 
 import { createBigQueryConnector } from "@/lib/warehouse/bigquery";
-import type { BigQueryConnectionConfig } from "@/lib/types";
+import type { BigQueryConnectionConfig } from "@/lib/contracts/connection-configs";
 
 const config: BigQueryConnectionConfig = {
   type: "bigquery",

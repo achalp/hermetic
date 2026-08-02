@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useStateStore, useStateValue } from "@json-render/react";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
 import { formatFilterValue } from "@/lib/drill-resolve";
-import type { DrillDownParams, FilterValue } from "@/lib/types";
+import type { DrillDownParams, FilterValue } from "@/lib/contracts/spec-types";
 
 /**
  * Shared "Investigate this selection" action bar for both Ask and Investigate

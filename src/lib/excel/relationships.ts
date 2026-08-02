@@ -1,4 +1,8 @@
-import type { SheetInfo, SheetRelationship, RelationshipMatchType } from "@/lib/types";
+import type {
+  SheetInfo,
+  SheetRelationship,
+  RelationshipMatchType,
+} from "@/lib/contracts/data-schema";
 
 // Generic column names that produce false positives — halve their confidence
 const GENERIC_NAMES = new Set([

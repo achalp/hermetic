@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { WarehouseTableSchema } from "@/lib/types";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 // Mock the LLM layer: generateText returns the next queued SQL string.
 const generateTextMock = vi.fn();

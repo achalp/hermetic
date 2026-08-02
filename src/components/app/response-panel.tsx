@@ -14,7 +14,8 @@ import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-conte
 import { logClient } from "@/lib/client-log";
 import { resolveDrillValues, formatFilterValue } from "@/lib/drill-resolve";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DrillDownParams, SchemaMode, FilterValue } from "@/lib/types";
+import type { DrillDownParams, FilterValue } from "@/lib/contracts/spec-types";
+import type { SchemaMode } from "@/lib/contracts/data-schema";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { TraceStep } from "@/lib/pipeline/investigation-trace";

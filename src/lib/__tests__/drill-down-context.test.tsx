@@ -7,7 +7,7 @@ import {
   drillDownCallbackRef,
   useDrillDownCallback,
 } from "@/lib/drill-down-context";
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
 afterEach(() => {
   cleanup();

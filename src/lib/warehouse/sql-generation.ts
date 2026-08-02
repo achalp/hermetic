@@ -4,7 +4,9 @@ import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm
 import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from "@/lib/constants";
 import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
 import { logger } from "@/lib/logger";
-import type { ConversationTurn, WarehouseType, WarehouseTableSchema } from "@/lib/types";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
+import type { WarehouseType } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 
 /**

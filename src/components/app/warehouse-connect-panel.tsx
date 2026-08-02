@@ -1,12 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type {
-  WarehouseType,
-  WarehouseConnectionConfig,
-  WarehouseTableInfo,
-  WarehouseTableSchema,
-} from "@/lib/types";
+import type { WarehouseType, WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import { getWarehouseSample, type SavedConnectionInfo } from "@/lib/api";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 

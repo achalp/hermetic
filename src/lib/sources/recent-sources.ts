@@ -3,7 +3,7 @@ import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { RemoteCreds } from "@/lib/types";
+import type { RemoteCreds } from "@/lib/contracts/storage-types";
 
 /**
  * Recent data sources — the file/cloud analogue of the saved warehouse

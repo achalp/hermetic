@@ -2,7 +2,8 @@ import "server-only";
 import { mkdir, writeFile, readFile, readdir, rm, rename, stat } from "fs/promises";
 import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
-import type { SavedVizMeta, SheetInfo, SheetRelationship } from "@/lib/types";
+import type { SavedVizMeta } from "@/lib/contracts/storage-types";
+import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 /** Persisted workbook data — all sheets' CSV content + UI metadata */

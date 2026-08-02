@@ -23,7 +23,7 @@
  *   decided until the UI-composition step downstream. Skipping for v1.
  */
 
-import type { SandboxExecutionResult } from "@/lib/types";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 
 export type ValidationVerdict = { ok: true } | { ok: false; reason: string; suggestedFix: string };
 

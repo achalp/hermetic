@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { SheetInfo, SheetRelationship } from "@/lib/types";
+import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import { SheetTable, RelationshipPanel } from "./sheet-table";
 import { useRelationshipAnnotations } from "@/hooks/use-relationship-annotations";
 

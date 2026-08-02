@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { SheetInfo, SheetRelationship } from "@/lib/types";
+import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 
 export const MATCH_TYPE_LABELS: Record<string, string> = {
   exact_name: "exact match",

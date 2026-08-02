@@ -235,7 +235,7 @@ export function lookupTableMeta(
  * Returns the count of tables enriched (for logging / UI badges).
  */
 export function applyDbtMetadata(
-  schemas: import("@/lib/types").WarehouseTableSchema[],
+  schemas: import("@/lib/contracts/warehouse-schema").WarehouseTableSchema[],
   index: DbtMetadataIndex,
   /** Database name from the warehouse connection (Postgres "database", BigQuery "project", etc.) */
   database?: string

@@ -1,6 +1,6 @@
 "use client";
 
-import type { PipelineStage } from "@/lib/types";
+import type { PipelineStage } from "@/lib/contracts/spec-types";
 
 interface StatusIndicatorProps {
   stage: PipelineStage | null;

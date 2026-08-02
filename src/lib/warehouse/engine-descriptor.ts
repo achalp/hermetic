@@ -29,7 +29,7 @@
  * This module is CLIENT-SAFE: no node imports (UI components read
  * displayName/brandColor from it).
  */
-import type { WarehouseConnectionConfig, WarehouseType } from "@/lib/types";
+import type { WarehouseConnectionConfig, WarehouseType } from "@/lib/contracts/connection-configs";
 
 type ConfigOf<K extends WarehouseType> = Extract<WarehouseConnectionConfig, { type: K }>;
 

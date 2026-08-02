@@ -3,7 +3,7 @@ import {
   validateExecutionResult,
   formatSemanticVerdictForRetry,
 } from "@/lib/pipeline/result-validator";
-import type { SandboxExecutionResult } from "@/lib/types";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 
 function ok(): SandboxExecutionResult {
   return {

@@ -3,7 +3,7 @@ import { executeSandbox as dockerExecutor } from "./docker-executor";
 import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
 import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
 import { getWarmManager } from "./warm-sandbox";
-import type { ExecutionResult } from "@/lib/types";
+import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { hermeticRuntimeFiles } from "./runtime-files";

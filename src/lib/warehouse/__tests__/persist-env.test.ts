@@ -16,7 +16,7 @@ vi.mock("fs/promises", () => ({
 }));
 
 import { saveConnection, renameConnection, loadConnections } from "@/lib/warehouse/persist-env";
-import type { WarehouseConnectionConfig } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 
 const PG: WarehouseConnectionConfig = {
   type: "postgresql",

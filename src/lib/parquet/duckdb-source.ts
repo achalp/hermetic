@@ -9,7 +9,7 @@
 import "server-only";
 import { basename, dirname } from "node:path";
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
-import type { StoredCSV, RemoteCreds } from "@/lib/types";
+import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";
 
 export type { RemoteCreds };
 

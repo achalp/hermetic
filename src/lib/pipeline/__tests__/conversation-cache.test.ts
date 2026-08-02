@@ -6,7 +6,7 @@ import {
   buildTurnFromArtifacts,
   aliasConversationKey,
 } from "@/lib/pipeline/conversation-cache";
-import type { ConversationTurn } from "@/lib/types";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 function makeTurn(question: string): ConversationTurn {

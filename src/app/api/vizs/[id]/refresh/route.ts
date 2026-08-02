@@ -14,7 +14,7 @@ import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import { saveHistoryEntry } from "@/lib/history/storage";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { SandboxExecutionResult } from "@/lib/types";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 

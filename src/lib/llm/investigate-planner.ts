@@ -36,7 +36,9 @@ import {
   getPurposeMaxSubQuestions,
   DEFAULT_PURPOSE,
 } from "@/lib/purpose-prompts";
-import type { CSVSchema, WarehouseTableSchema, FilterValue } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
+import type { FilterValue } from "@/lib/contracts/spec-types";
 import { logger } from "@/lib/logger";
 
 /** Hard cap on how many prior sub-questions a single dependent can reference. */

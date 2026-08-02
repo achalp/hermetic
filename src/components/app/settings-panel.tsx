@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { AVAILABLE_MODELS, AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId, LLMProviderId } from "@/lib/constants";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
-import type { SchemaMode } from "@/lib/types";
+import type { SchemaMode } from "@/lib/contracts/data-schema";
 import { useTheme, THEMES } from "@/lib/theme-context";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { LocalBackendSection } from "./local-backend-section";

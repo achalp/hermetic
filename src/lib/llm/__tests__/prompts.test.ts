@@ -6,7 +6,12 @@ import {
   buildCodeGenSystemPrompt,
   buildCodeGenUserPrompt,
 } from "@/lib/llm/prompts";
-import type { CSVSchema, CSVColumn, WorkbookManifest, SheetRelationship } from "@/lib/types";
+import type {
+  CSVSchema,
+  CSVColumn,
+  WorkbookManifest,
+  SheetRelationship,
+} from "@/lib/contracts/data-schema";
 
 // ── Fixtures ──────────────────────────────────────────────────────
 

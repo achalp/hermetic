@@ -51,7 +51,7 @@ const ResponsePanel = dynamic(
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { useWarehouse } from "@/hooks/use-warehouse";
 import { usePageState } from "@/hooks/use-page-state";
-import type { SchemaMode } from "@/lib/types";
+import type { SchemaMode } from "@/lib/contracts/data-schema";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
 import {
   checkLlmReady,

@@ -12,7 +12,7 @@
  */
 import { useEffect } from "react";
 import type { Spec } from "@json-render/react";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { evaluateSkill, hasBareGeometryColumn } from "@/lib/skills/triggers";
 import type { SkillDefinition } from "@/lib/skills/types";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 function schemaWith(cols: string[], extra: Partial<CSVSchema> = {}): CSVSchema {
   return {

@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import type { WarehouseConnectionConfig, WarehouseTableInfo } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableInfo } from "@/lib/contracts/warehouse-schema";
 
 /**
  * Source-agnostic warehouse schema caching helpers.

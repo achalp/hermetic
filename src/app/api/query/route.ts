@@ -16,7 +16,7 @@ import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { WAREHOUSE_SCAN_ROW_BUDGET } from "@/lib/constants";
-import type { SchemaMode } from "@/lib/types";
+import type { SchemaMode } from "@/lib/contracts/data-schema";
 import {
   getConversationTurns,
   appendConversationTurn,

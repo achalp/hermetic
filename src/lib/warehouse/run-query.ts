@@ -12,7 +12,9 @@
  *
  * Future warehouse-SQL fixes belong HERE, not in a route.
  */
-import type { ConversationTurn, WarehouseTableSchema, WarehouseType } from "@/lib/types";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
+import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import type { WarehouseConnector } from "./connector";
 import { generateSQLWithRepair } from "./sql-generation";
 import { pickMaterializationScope } from "./materialization-scope";

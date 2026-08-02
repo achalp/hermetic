@@ -26,7 +26,7 @@ import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateAnalysisCode } from "@/lib/llm/code-generation";
 import { executeSandbox } from "@/lib/sandbox";
 import { streamText } from "ai";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const mockedGen = vi.mocked(generateAnalysisCode);
 const mockedExec = vi.mocked(executeSandbox);

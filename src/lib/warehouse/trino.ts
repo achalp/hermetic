@@ -1,10 +1,10 @@
 import { Trino, BasicAuth } from "trino-client";
+import type { TrinoConnectionConfig } from "@/lib/contracts/connection-configs";
 import type {
-  TrinoConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
   WarehouseColumnInfo,
-} from "@/lib/types";
+} from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
 import { csvValue } from "./csv-util";
 

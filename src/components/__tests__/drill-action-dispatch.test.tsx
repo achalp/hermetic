@@ -19,7 +19,7 @@ import React from "react";
 import { ActionProvider, StateProvider, useActions } from "@json-render/react";
 import { registryActionHandlers } from "@/components/registry";
 import { drillDownCallbackRef } from "@/lib/drill-down-context";
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
 // The on.click binding the investigate composer emits for a region bar chart:
 // filter_value is an $item binding (resolves to undefined outside a repeat
