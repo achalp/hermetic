@@ -84,11 +84,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const execResult = await executeSandbox(
         "", // no CSV content needed — code reads from bind-mount
         entry.generatedCode,
-        runtime,
-        undefined,
-        undefined,
-        csvId,
-        localMountPath
+        { runtime, csvId, localMountPath }
       );
 
       if (!execResult.success) {
@@ -156,15 +152,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     // 4. Re-execute the saved code
-    const execResult = await executeSandbox(
-      normalizedCsv,
-      entry.generatedCode,
+    const execResult = await executeSandbox(normalizedCsv, entry.generatedCode, {
       runtime,
-      undefined,
-      undefined,
       csvId,
-      localMountPath
-    );
+      localMountPath,
+    });
 
     if (!execResult.success) {
       return NextResponse.json(

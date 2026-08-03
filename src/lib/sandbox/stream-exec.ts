@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { reportProgress, type SandboxProgress } from "@/lib/pipeline/run-control";
+import type { SandboxProgress } from "@/lib/contracts/execution";
 
 export interface StreamExecResult {
   exitCode: number;
@@ -33,7 +33,11 @@ export interface StreamExecResult {
  * the prelude's progress() helper. `python3 -u` keeps stdout unbuffered so the
  * heartbeats arrive live rather than in one lump at the end.
  */
-export function streamExec(containerId: string, signal?: AbortSignal): Promise<StreamExecResult> {
+export function streamExec(
+  containerId: string,
+  opts?: { signal?: AbortSignal; onProgress?: (p: SandboxProgress) => void }
+): Promise<StreamExecResult> {
+  const signal = opts?.signal;
   return new Promise((resolve, reject) => {
     let aborted = false;
     // Retained from the live stream so they survive a hard kill (post-mortem file
@@ -60,7 +64,7 @@ export function streamExec(containerId: string, signal?: AbortSignal): Promise<S
           const obj = JSON.parse(t) as { __progress?: SandboxProgress };
           if (obj && obj.__progress) {
             const p = obj.__progress;
-            reportProgress(p);
+            opts?.onProgress?.(p);
             if (typeof p.phase === "string" && p.phase.trim()) lastPhase = p.phase.trim();
             const cfg = p.duckdb_cfg;
             if (typeof cfg === "string" && cfg.trim()) duckdbCfg = cfg.trim();

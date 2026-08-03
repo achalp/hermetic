@@ -41,12 +41,7 @@ describe("runPipelineWithCode", () => {
     expect(executeSandboxMock).toHaveBeenCalledWith(
       "a,b\n1,2\n",
       "print('hello')",
-      undefined,
-      undefined,
-      undefined,
-      "csv-123",
-      undefined,
-      undefined
+      expect.objectContaining({ csvId: "csv-123" })
     );
     expect(result.executionResult.success).toBe(true);
     expect(result.generatedCode).toBe("print('hello')");
@@ -89,12 +84,14 @@ describe("runPipelineWithCode", () => {
     expect(executeSandboxMock).toHaveBeenCalledWith(
       "a\n1\n",
       "ok",
-      "docker",
-      '{"type":"FeatureCollection"}',
-      additionalFiles,
-      "id",
-      "/data/local/foo.parquet",
-      "/tmp/materialized.parquet"
+      expect.objectContaining({
+        runtime: "docker",
+        geojsonContent: '{"type":"FeatureCollection"}',
+        additionalFiles,
+        csvId: "id",
+        localMountPath: "/data/local/foo.parquet",
+        inputParquetPath: "/tmp/materialized.parquet",
+      })
     );
   });
 

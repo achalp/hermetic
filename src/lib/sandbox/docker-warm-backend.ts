@@ -1,6 +1,7 @@
 import type { WarmSandboxBackend } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/contracts/execution";
-import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
+import type { AdditionalFile } from "@/lib/contracts/execution";
+import { pythonNanPrelude } from "./prelude";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LARGE_DATA_TIMEOUT_MS } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
@@ -105,7 +106,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
 
       // Write script (with NaN-safety prelude)
       await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/script.py"], {
-        input: PYTHON_NAN_PRELUDE + code,
+        input: pythonNanPrelude() + code,
         timeoutMs: 15_000,
       });
 

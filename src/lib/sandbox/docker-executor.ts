@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExecutionResult } from "@/lib/contracts/execution";
-import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
+import type { AdditionalFile, SandboxRunHooks } from "@/lib/contracts/execution";
+import { pythonNanPrelude } from "./prelude";
 import { DOCKER_SANDBOX_IMAGE, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import {
   run,
@@ -12,19 +13,24 @@ import {
 } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { streamExec } from "./stream-exec";
-import { registerContainer, unregisterContainer, getRunSignal } from "@/lib/pipeline/run-control";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 
+export interface DockerExecOptions {
+  geojsonContent?: string | null;
+  additionalFiles?: AdditionalFile[];
+  localMountPath?: string;
+  inputParquetPath?: string;
+  hooks?: SandboxRunHooks;
+}
+
 export async function executeSandbox(
   csvContent: string,
   code: string,
-  geojsonContent?: string | null,
-  additionalFiles?: AdditionalFile[],
-  localMountPath?: string,
-  inputParquetPath?: string
+  opts: DockerExecOptions = {}
 ): Promise<ExecutionResult> {
+  const { geojsonContent, additionalFiles, localMountPath, inputParquetPath, hooks } = opts;
   const start = Date.now();
   const id = `${SANDBOX_CONTAINER_PREFIX}${randomUUID()}`;
 
@@ -60,9 +66,9 @@ export async function executeSandbox(
       network: withNetwork,
     });
     await run("docker", runArgs, { timeoutMs: 15_000 });
-    // Register with run-control so a user Stop can force-remove this container
-    // (and the sweeper knows it's a live run, not an orphan).
-    registerContainer(id);
+    // Register with the caller's run registry so a user Stop can force-remove
+    // this container (and the sweeper knows it's a live run, not an orphan).
+    hooks?.onContainerStart?.(id);
     logger.debug("Docker: container created");
 
     // A materialized Parquet is copied IN with `docker cp` (binary-safe, and —
@@ -109,7 +115,7 @@ export async function executeSandbox(
 
     // 3. Write script via stdin (with NaN-safety prelude)
     await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/script.py"], {
-      input: PYTHON_NAN_PRELUDE + code,
+      input: pythonNanPrelude() + code,
       timeoutMs: 15_000,
     });
     logger.debug("Docker: script written");
@@ -138,7 +144,9 @@ export async function executeSandbox(
     //    heartbeats on stdout surface live via run-control; a user Stop aborts
     //    the run's signal, which force-removes the container.
     logger.info("Docker: executing script", { largeData: isLargeData });
-    const execResult = await withWakeLock(`sandbox:${id}`, () => streamExec(id, getRunSignal()));
+    const execResult = await withWakeLock(`sandbox:${id}`, () =>
+      streamExec(id, { signal: hooks?.signal, onProgress: hooks?.onProgress })
+    );
 
     if (execResult.aborted) {
       logger.info("Docker: execution stopped by user", { ms: Date.now() - start });
@@ -154,10 +162,13 @@ export async function executeSandbox(
     //    the host-captured live phase/config so an OOM that hard-killed the whole
     //    container (post-mortem file reads blank) still routes to phase-specific
     //    guidance instead of the generic pandas blob.
-    const result = await parseExecutionOutput(id, start, String(execResult.exitCode), {
-      lastPhase: execResult.lastPhase,
-      duckdbCfg: execResult.duckdbCfg,
-    });
+    const result = await parseExecutionOutput(
+      id,
+      start,
+      String(execResult.exitCode),
+      { lastPhase: execResult.lastPhase, duckdbCfg: execResult.duckdbCfg },
+      hooks?.failureHints
+    );
     logger.info("Docker: execution finished", {
       ms: Date.now() - start,
       success: result.success,
@@ -177,7 +188,7 @@ export async function executeSandbox(
     };
   } finally {
     // 6. Cleanup — always remove container + drop it from the live registry.
-    unregisterContainer(id);
+    hooks?.onContainerEnd?.(id);
     run("docker", ["rm", "-f", id]).catch(() => {});
   }
 }

@@ -1,6 +1,7 @@
 import type { WarmSandboxBackend } from "./warm-sandbox";
 import type { ExecutionResult } from "@/lib/contracts/execution";
-import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
+import type { AdditionalFile } from "@/lib/contracts/execution";
+import { pythonNanPrelude } from "./prelude";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { getOrCreateSandbox, writeChunkedFile, readSandboxFile } from "./microsandbox-executor";
 import { parseSandboxOutput } from "./parse-output";
@@ -81,7 +82,7 @@ export class MicrosandboxWarmBackend implements WarmSandboxBackend {
       );
 
       // Rewrite /data/ paths to per-query paths and write script (with NaN-safety prelude)
-      const patchedCode = PYTHON_NAN_PRELUDE + code.replace(/\/data\//g, `${workDir}/`);
+      const patchedCode = pythonNanPrelude() + code.replace(/\/data\//g, `${workDir}/`);
       const patchedB64 = Buffer.from(patchedCode).toString("base64");
       const writeExec = await sandbox.run(
         `import base64, pathlib\n` +

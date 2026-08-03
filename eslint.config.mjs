@@ -68,9 +68,10 @@ const eslintConfig = defineConfig([
   },
   {
     files: ["src/lib/sandbox/**/*.ts"],
+    ignores: ["src/lib/sandbox/**/__tests__/**"],
     rules: {
       "no-restricted-imports": [
-        "warn",
+        "error",
         {
           patterns: [
             {

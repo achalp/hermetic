@@ -28,26 +28,8 @@ import { registerRunLivenessProbe } from "@/lib/store-ttl";
  * stores.
  */
 
-/**
- * Source-agnostic progress event streamed to the client. Field names match the
- * on-the-wire shape the sandbox prelude's progress() emits (snake_case), so it
- * passes through untransformed.
- */
-export interface SandboxProgress {
-  /** Coarse phase: starting | scanning | analyzing | hydrating | composing | … */
-  phase: string;
-  /** Human-readable detail ("scanning California buildings"). */
-  detail?: string;
-  /** 0..1 completion when the phase can report it (e.g. a DuckDB scan). */
-  fraction?: number;
-  /** Rows processed so far / expected, when known. */
-  rows?: number;
-  total_rows?: number;
-  /** Milliseconds since the run started. */
-  elapsed_ms?: number;
-  /** Extra fields the analysis code passes to progress(**fields). */
-  [k: string]: unknown;
-}
+import type { SandboxProgress, SandboxRunHooks } from "@/lib/contracts/execution";
+export type { SandboxProgress };
 
 interface RunControl {
   controller: AbortController;
@@ -273,4 +255,20 @@ export function endRun(runId: string): void {
   const rc = runs.get(runId);
   if (rc) for (const id of rc.containers) containerOwner.delete(id);
   runs.delete(runId);
+}
+
+/**
+ * The orchestration layer's standard SandboxRunHooks (modularization M4-4c):
+ * this registry's ambient lookups, packaged as the injected capabilities the
+ * executors take. Executors never import this module — callers inside
+ * pipeline/ build hooks here and pass them down.
+ */
+export function ambientSandboxHooks(): SandboxRunHooks {
+  return {
+    signal: getRunSignal(),
+    onProgress: reportProgress,
+    onContainerStart: registerContainer,
+    onContainerEnd: unregisterContainer,
+    failureHints: getRunFailureHints,
+  };
 }

@@ -1,6 +1,7 @@
 import { Sandbox } from "@e2b/code-interpreter";
 import type { ExecutionResult } from "@/lib/contracts/execution";
-import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
+import type { AdditionalFile } from "@/lib/contracts/execution";
+import { pythonNanPrelude } from "./prelude";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { parseSandboxOutput } from "./parse-output";
 import { envConfig } from "@/lib/harness-slot";
@@ -8,9 +9,13 @@ import { envConfig } from "@/lib/harness-slot";
 export async function executeSandbox(
   csvContent: string,
   code: string,
-  geojsonContent?: string | null,
-  additionalFiles?: AdditionalFile[]
+  opts: {
+    geojsonContent?: string | null;
+    additionalFiles?: AdditionalFile[];
+    hooks?: import("@/lib/contracts/execution").SandboxRunHooks;
+  } = {}
 ): Promise<ExecutionResult> {
+  const { geojsonContent, additionalFiles } = opts;
   const start = Date.now();
   let sandbox: Sandbox | null = null;
 
@@ -30,7 +35,7 @@ export async function executeSandbox(
         await sandbox.files.write(file.path, file.content);
       }
     }
-    await sandbox.files.write("/data/script.py", PYTHON_NAN_PRELUDE + code);
+    await sandbox.files.write("/data/script.py", pythonNanPrelude() + code);
 
     // Use shell redirection to capture stdout to a file at the OS level.
     // This bypasses all SDK/Jupyter buffer limits on stdout capture.

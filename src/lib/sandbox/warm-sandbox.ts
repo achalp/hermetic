@@ -121,9 +121,13 @@ export class WarmSandboxManager {
     csvId: string,
     csvContent: string,
     code: string,
-    geojsonContent?: string | null,
-    additionalFiles?: AdditionalFile[]
+    opts: {
+      geojsonContent?: string | null;
+      additionalFiles?: AdditionalFile[];
+      hooks?: import("@/lib/contracts/execution").SandboxRunHooks;
+    } = {}
   ): Promise<ExecutionResult> {
+    const { geojsonContent, additionalFiles } = opts;
     return this.withLock(async () => {
       try {
         await this.ensureWarm();

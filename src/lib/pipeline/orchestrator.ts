@@ -26,7 +26,12 @@ import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
 import { estimateRun, reportEstimate } from "@/lib/pipeline/estimate";
 import { streamText } from "ai";
 import { withPhaseSync } from "@/lib/cost/accumulator";
-import { getRunSignal, isRunStopped, setRunFailureHints } from "@/lib/pipeline/run-control";
+import {
+  getRunSignal,
+  isRunStopped,
+  setRunFailureHints,
+  ambientSandboxHooks,
+} from "@/lib/pipeline/run-control";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
@@ -359,16 +364,15 @@ export async function runPipeline(
     })
   );
   onStage?.("executing");
-  let result = await executeSandbox(
-    csvContent,
-    skillPrelude + code,
+  let result = await executeSandbox(csvContent, skillPrelude + code, {
     runtime,
     geojsonContent,
     additionalFiles,
-    schema.csv_id,
+    csvId: schema.csv_id,
     localMountPath,
-    inputParquetPath
-  );
+    inputParquetPath,
+    hooks: ambientSandboxHooks(),
+  });
   recordAttemptOutcome(attemptIndex, {
     success: result.success,
     error: result.success ? undefined : result.error,
@@ -486,16 +490,15 @@ export async function runPipeline(
     recordAttemptCode(attemptIndex, retryCode);
 
     onStage?.("executing");
-    result = await executeSandbox(
-      csvContent,
-      skillPrelude + retryCode,
+    result = await executeSandbox(csvContent, skillPrelude + retryCode, {
       runtime,
       geojsonContent,
       additionalFiles,
-      schema.csv_id,
+      csvId: schema.csv_id,
       localMountPath,
-      inputParquetPath
-    );
+      inputParquetPath,
+      hooks: ambientSandboxHooks(),
+    });
     recordAttemptOutcome(attemptIndex, {
       success: result.success,
       error: result.success ? undefined : result.error,
@@ -609,16 +612,15 @@ export async function runPipelineWithCode(
     parquet: !!options.inputParquetPath,
   });
 
-  const result = await executeSandbox(
-    csvContent,
-    code,
-    options.runtime,
-    options.geojsonContent,
-    options.additionalFiles,
-    options.csvId,
-    options.localMountPath,
-    options.inputParquetPath
-  );
+  const result = await executeSandbox(csvContent, code, {
+    runtime: options.runtime,
+    geojsonContent: options.geojsonContent,
+    additionalFiles: options.additionalFiles,
+    csvId: options.csvId,
+    localMountPath: options.localMountPath,
+    inputParquetPath: options.inputParquetPath,
+    hooks: ambientSandboxHooks(),
+  });
 
   if (!result.success) {
     throw new Error(result.error || "Edited code failed to execute.");

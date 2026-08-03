@@ -92,14 +92,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     // 6. Compatible path — re-execute saved code with new data
-    const execResult = await executeSandbox(
-      normalizedCsv,
-      savedViz.generatedCode,
+    const execResult = await executeSandbox(normalizedCsv, savedViz.generatedCode, {
       runtime,
-      geojsonText,
-      undefined,
-      newCsvId
-    );
+      geojsonContent: geojsonText,
+      csvId: newCsvId,
+    });
 
     if (!execResult.success) {
       // Code failed on new data — fall back to incompatible path

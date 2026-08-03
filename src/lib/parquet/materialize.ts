@@ -7,7 +7,7 @@ import type { SandboxRuntimeId } from "@/lib/constants";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import { run } from "@/lib/sandbox/docker-utils";
 import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
-import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
+import { pythonNanPrelude } from "@/lib/sandbox/prelude";
 import { buildSchemaScript } from "./schema-script";
 import { logger } from "@/lib/logger";
 import { hermeticPaths } from "@/lib/paths";
@@ -56,7 +56,7 @@ _con = _ddb.connect()
 _con.execute("COPY (SELECT * FROM read_csv_auto('/data/input.csv', header=true)) TO '${LOCAL_MOUNT_PATH}/output.parquet' (FORMAT PARQUET)")
 _con.close()
 `;
-  const script = PYTHON_NAN_PRELUDE + conversionPrefix + buildSchemaScript("output.parquet", false);
+  const script = pythonNanPrelude() + conversionPrefix + buildSchemaScript("output.parquet", false);
 
   try {
     await run(
