@@ -1,7 +1,7 @@
 {
   "lib-process-env": 9,
   "lib-process-cwd": 3,
-  "lib-globalthis-stores": 13,
+  "lib-globalthis-stores": 4,
   "server-only-imports": 0,
   "app-raw-fetch": 24,
   "api-boundary-casts": 16,

@@ -3,6 +3,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { CSV_TTL_MS } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
+import { stateNamespace } from "@/lib/state-store";
 
 interface StoredExcel {
   filePath: string;
@@ -10,13 +11,7 @@ interface StoredExcel {
   createdAt: number;
 }
 
-const globalStore = globalThis as unknown as {
-  __excelStore?: Map<string, StoredExcel>;
-};
-if (!globalStore.__excelStore) {
-  globalStore.__excelStore = new Map();
-}
-const store = globalStore.__excelStore;
+const store = stateNamespace<StoredExcel>("excel");
 
 const EXCEL_DIR = hermeticPaths.excelTempDir();
 

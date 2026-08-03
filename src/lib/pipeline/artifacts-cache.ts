@@ -1,6 +1,7 @@
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 export type { CachedArtifacts };
 import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { stateNamespace } from "@/lib/state-store";
 
 // SLIDING idle TTL (time since last read, not since it was cached) — every open
 // of the artifacts panel / follow-up / recompose slides it forward, and an
@@ -15,13 +16,7 @@ interface CacheEntry extends CachedArtifacts {
   ownerRunId?: string;
 }
 
-const globalCache = globalThis as unknown as {
-  __artifactsCache?: Map<string, CacheEntry>;
-};
-if (!globalCache.__artifactsCache) {
-  globalCache.__artifactsCache = new Map();
-}
-const cache = globalCache.__artifactsCache;
+const cache = stateNamespace<CacheEntry>("artifacts-cache");
 
 export function cacheArtifacts(csvId: string, artifacts: CachedArtifacts): void {
   cache.set(csvId, { ...artifacts, cachedAt: Date.now() });

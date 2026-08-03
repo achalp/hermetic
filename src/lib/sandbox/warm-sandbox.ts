@@ -3,6 +3,7 @@ import type { AdditionalFile } from "./index";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
+import { stateNamespace, stateBox } from "@/lib/state-store";
 
 // ── WarmSandboxBackend interface ─────────────────────────────────────
 
@@ -165,18 +166,15 @@ export class WarmSandboxManager {
 // still-running container via its health check, so there's no re-warm cost.
 const REGISTRY_VERSION = 2;
 
-const globalRegistry = globalThis as unknown as {
-  __warmSandboxManagers?: Map<SandboxRuntimeId, WarmSandboxManager>;
-  __warmSandboxRegistryVersion?: number;
-};
-if (
-  !globalRegistry.__warmSandboxManagers ||
-  globalRegistry.__warmSandboxRegistryVersion !== REGISTRY_VERSION
-) {
-  globalRegistry.__warmSandboxManagers = new Map();
-  globalRegistry.__warmSandboxRegistryVersion = REGISTRY_VERSION;
+const managers = stateNamespace<WarmSandboxManager>("warm-sandbox-managers") as Map<
+  SandboxRuntimeId,
+  WarmSandboxManager
+>;
+const registryVersion = stateBox<number>("warm-sandbox-registry-version", () => REGISTRY_VERSION);
+if (registryVersion.get() !== REGISTRY_VERSION) {
+  managers.clear();
+  registryVersion.set(REGISTRY_VERSION);
 }
-const managers = globalRegistry.__warmSandboxManagers;
 
 export function registerWarmManager(
   runtime: SandboxRuntimeId,

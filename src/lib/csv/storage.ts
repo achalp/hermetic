@@ -6,20 +6,11 @@ import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";
 import { CSV_TTL_MS } from "@/lib/constants";
 import { isIdleExpired, touch } from "@/lib/store-ttl";
 import { hermeticPaths } from "@/lib/paths";
+import { stateNamespace } from "@/lib/state-store";
 
-// Use globalThis to persist across module reloads in dev mode
-const globalStore = globalThis as unknown as {
-  __csvStore?: Map<string, StoredCSV>;
-  __workbookManifestStore?: Map<string, WorkbookManifest>;
-};
-if (!globalStore.__csvStore) {
-  globalStore.__csvStore = new Map();
-}
-if (!globalStore.__workbookManifestStore) {
-  globalStore.__workbookManifestStore = new Map();
-}
-const store = globalStore.__csvStore;
-const manifestStore = globalStore.__workbookManifestStore;
+// Process-lifetime state via the shared StateStore (survives dev reloads).
+const store = stateNamespace<StoredCSV>("csv");
+const manifestStore = stateNamespace<WorkbookManifest>("workbook-manifests");
 
 const CSV_DIR = hermeticPaths.scratchDir();
 

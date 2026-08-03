@@ -1,3 +1,4 @@
+import { stateNamespace } from "@/lib/state-store";
 /**
  * Run output hub — lets a client that lost its connection (page reload, dev
  * HMR, navigation) REATTACH to an analysis that is still running server-side.
@@ -33,9 +34,7 @@ interface RunChannel {
 
 // globalThis so the map survives dev hot-reloads (the very event that reattach
 // exists to recover from).
-const g = globalThis as unknown as { __hermeticRunStreamHub?: Map<string, RunChannel> };
-g.__hermeticRunStreamHub ??= new Map<string, RunChannel>();
-const channels = g.__hermeticRunStreamHub;
+const channels = stateNamespace<RunChannel>("run-stream-hub");
 
 /** How long a finished run's buffer lingers for a late reconnect before reaping. */
 const CLOSED_GRACE_MS = 2 * 60 * 1000;

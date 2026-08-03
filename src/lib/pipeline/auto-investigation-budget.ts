@@ -1,3 +1,4 @@
+import { stateNamespace } from "@/lib/state-store";
 /**
  * Per-session budget for auto-routed sub-investigations (drill-as-sub-
  * investigation). A hard backstop against pathological drilling: even if the
@@ -17,13 +18,7 @@ interface BudgetEntry {
   updatedAt: number;
 }
 
-const globalBudget = globalThis as unknown as {
-  __autoInvestigationBudget?: Map<string, BudgetEntry>;
-};
-if (!globalBudget.__autoInvestigationBudget) {
-  globalBudget.__autoInvestigationBudget = new Map();
-}
-const budget = globalBudget.__autoInvestigationBudget;
+const budget = stateNamespace<BudgetEntry>("auto-investigation-budget");
 
 function getFresh(key: string, now: number): BudgetEntry {
   const entry = budget.get(key);

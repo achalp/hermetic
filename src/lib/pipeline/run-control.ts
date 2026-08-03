@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 import type { SkillFailureHint } from "@/lib/skills/types";
+import { stateNamespace } from "@/lib/state-store";
 
 /**
  * Per-run control registry — the single mechanism behind "stop on demand" and
@@ -59,12 +60,7 @@ interface RunControl {
   stopped: boolean;
 }
 
-const g = globalThis as unknown as {
-  __hermeticRunControl?: Map<string, RunControl>;
-  __hermeticContainerOwner?: Map<string, string>;
-};
-g.__hermeticRunControl ??= new Map<string, RunControl>();
-const runs = g.__hermeticRunControl;
+const runs = stateNamespace<RunControl>("run-control");
 
 /** Every sandbox container id ever registered → the runId that owns it. Lets the
  *  sweeper tell a live container from a crash orphan without scanning each run.
@@ -74,8 +70,7 @@ const runs = g.__hermeticRunControl;
  *  instance while the sweeper reads another (empty) one and reaps every LIVE
  *  container on its tick as an "orphan" (observed: 11 mid-scan kills across
  *  three runs, all exactly on the 30-min sweep tick, misdiagnosed as OOM). */
-g.__hermeticContainerOwner ??= new Map<string, string>();
-const containerOwner = g.__hermeticContainerOwner;
+const containerOwner = stateNamespace<string>("run-container-owner");
 
 /**
  * Register the current run. Returns the AbortController whose signal all of the

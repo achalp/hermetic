@@ -10,24 +10,15 @@ import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 import { hermeticPaths } from "@/lib/paths";
+import { stateNamespace } from "@/lib/state-store";
 
 const MAX_LOG_LINES = 200;
 
 // Use globalThis to survive Next.js HMR — prevents orphan processes
-const g = globalThis as unknown as {
-  __llmProcesses?: Map<string, ChildProcess>;
-  __llmServerLogs?: Map<string, string[]>;
-  __llmStartLocks?: Map<string, boolean>;
-  __llmStartTimestamps?: Map<string, number>;
-};
-if (!g.__llmProcesses) g.__llmProcesses = new Map();
-if (!g.__llmServerLogs) g.__llmServerLogs = new Map();
-if (!g.__llmStartLocks) g.__llmStartLocks = new Map();
-if (!g.__llmStartTimestamps) g.__llmStartTimestamps = new Map();
-const processes = g.__llmProcesses;
-const serverLogs = g.__llmServerLogs;
-const startLocks = g.__llmStartLocks;
-const startTimestamps = g.__llmStartTimestamps;
+const processes = stateNamespace<ChildProcess>("llm-processes");
+const serverLogs = stateNamespace<string[]>("llm-server-logs");
+const startLocks = stateNamespace<boolean>("llm-start-locks");
+const startTimestamps = stateNamespace<number>("llm-start-timestamps");
 
 const DEFAULT_PORTS: Record<string, number> = {
   mlx: 8080,
