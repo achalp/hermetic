@@ -1,5 +1,18 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS } from "@/lib/basemap-constants";
+
+// CSP hosts derived from the SAME constants self-hosters override (leaf
+// module: Edge-safe, no envConfig evaluation) — a
+// re-pointed basemap must not be silently blocked by a stale literal here.
+const BASEMAP_HOSTS = Array.from(
+  new Set(
+    [BASEMAP_STYLE_URL, BASEMAP_TILE_URLS.dark, BASEMAP_TILE_URLS.light].map(
+      (u) => new URL(u).origin
+    )
+  )
+);
+const BASEMAP_WILDCARD = BASEMAP_HOSTS.map((o) => o.replace("://", "://*.")).join(" ");
 
 /**
  * Simple in-memory rate limiter for API routes.
@@ -101,9 +114,9 @@ export function middleware(request: NextRequest) {
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
+      `img-src 'self' data: blob: ${BASEMAP_WILDCARD}`,
       "font-src 'self' data:",
-      "connect-src 'self' https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com https://huggingface.co http://localhost:* http://127.0.0.1:*",
+      `connect-src 'self' ${BASEMAP_HOSTS.join(" ")} ${BASEMAP_WILDCARD} https://huggingface.co http://localhost:* http://127.0.0.1:*`,
       "worker-src 'self' blob:",
       "frame-ancestors 'none'",
     ].join("; ")

@@ -1,36 +1,15 @@
 import type { ExecutionResult } from "@/lib/contracts/execution";
-import type { AdditionalFile } from "./index";
+import type { AdditionalFile } from "@/lib/contracts/execution";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
 import { stateNamespace, stateBox } from "@/lib/state-store";
 
-// ── WarmSandboxBackend interface ─────────────────────────────────────
-
-export interface WarmSandboxBackend {
-  /** Create sandbox, install packages */
-  warmup(): Promise<void>;
-  /** Write data files into the sandbox */
-  loadData(
-    csvId: string,
-    csvContent: string,
-    geojsonContent?: string | null,
-    additionalFiles?: AdditionalFile[]
-  ): Promise<void>;
-  /** Write script + run (data already loaded) */
-  executeScript(code: string): Promise<ExecutionResult>;
-  /** Fallback: full execution (warmup + load + execute) */
-  executeFull(
-    csvContent: string,
-    code: string,
-    geojsonContent?: string | null,
-    additionalFiles?: AdditionalFile[]
-  ): Promise<ExecutionResult>;
-  /** Container/sandbox alive? */
-  isHealthy(): Promise<boolean>;
-  /** Tear down */
-  destroy(): Promise<void>;
-}
+// Backend SPI lives in ./warm-backend (leaf module) so implementations can
+// import it without a cycle back through this file; re-exported for existing
+// consumers.
+export type { WarmSandboxBackend } from "./warm-backend";
+import type { WarmSandboxBackend } from "./warm-backend";
 
 // ── WarmSandboxManager ───────────────────────────────────────────────
 

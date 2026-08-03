@@ -1,6 +1,5 @@
 import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { join, extname } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import { hermeticPaths } from "@/lib/paths";

@@ -1,4 +1,4 @@
-import type { WarmSandboxBackend } from "./warm-sandbox";
+import type { WarmSandboxBackend } from "./warm-backend";
 import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import { pythonNanPrelude } from "./prelude";

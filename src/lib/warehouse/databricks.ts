@@ -17,7 +17,7 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue, rowsToCsv } from "./csv-util";
+import { rowsToCsv } from "./csv-util";
 
 type Row = Record<string, unknown>;
 

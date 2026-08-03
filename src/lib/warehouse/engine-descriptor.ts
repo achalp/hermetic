@@ -22,9 +22,9 @@
  *      this module stays client-safe for the UI components)
  *   5. THIS FILE — one ENGINES entry (dialect notes, naming, label, color)
  *   6. persist-env.ts loadLegacyFromEnv — only if env-var bootstrap is wanted
- *   7. The connection form UI (warehouse-connect-panel / inline-connection-
- *      form) — per-engine form fields remain hand-built, the one seam this
- *      registry does not cover
+ *   7. The connection form UI derives from THIS registry's `fields`
+ *      (inline-connection-form renders ENGINES[type].fields) — no
+ *      hand-built per-engine form remains (M5-5g)
  *
  * This module is CLIENT-SAFE: no node imports (UI components read
  * displayName/brandColor from it).

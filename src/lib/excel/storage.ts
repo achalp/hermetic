@@ -1,6 +1,5 @@
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
-import { tmpdir } from "os";
 import { CSV_TTL_MS } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
 import { stateNamespace } from "@/lib/state-store";

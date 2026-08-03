@@ -341,6 +341,9 @@ export async function startServer(
       proc = spawn("ollama", ["serve"], {
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
+        // Full-env passthrough to a spawned child (PATH, HOME, proxy vars) is a
+        // process concern, not hermetic config — envConfig() deliberately does
+        // not cover it. Counted in the ratchet lib-process-env baseline.
         env: { ...process.env, OLLAMA_HOST: `127.0.0.1:${port}` },
       });
     } else if (backend === "mlx") {
@@ -371,6 +374,8 @@ export async function startServer(
       // respects the MLX_METAL_CACHE_LIMIT env var (bytes) to cap GPU
       // memory usage. Without this, large models consume all unified
       // memory and get SIGABRT'd by macOS jetsam.
+      // Full-env passthrough to the child (see ollama spawn above) — counted
+      // in the ratchet lib-process-env baseline.
       const mlxEnv = { ...process.env };
       // MLX is Apple-Silicon-only; hw.memsize is a macOS sysctl.
       try {

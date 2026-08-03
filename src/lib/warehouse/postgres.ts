@@ -6,7 +6,7 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue, rowsToCsv } from "./csv-util";
+import { rowsToCsv } from "./csv-util";
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;

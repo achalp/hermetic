@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
-import { join, dirname } from "path";
+import { dirname } from "path";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
 

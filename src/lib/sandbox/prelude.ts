@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { hermeticPaths } from "@/lib/paths";
 
 /**
@@ -21,10 +20,7 @@ let cached: string | undefined;
 
 export function pythonNanPrelude(): string {
   if (cached === undefined) {
-    cached = readFileSync(
-      join(hermeticPaths.sandboxRuntimeAssetsDir(), "..", "prelude.py"),
-      "utf-8"
-    );
+    cached = readFileSync(hermeticPaths.sandboxPreludeFile(), "utf-8");
   }
   return cached;
 }

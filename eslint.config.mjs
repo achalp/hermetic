@@ -39,10 +39,10 @@ const eslintConfig = defineConfig([
       "react/use": "off",
     },
   },
-  // ── Modularization layer boundaries (Phase 1, warn mode) ──────────────────
-  // Target layering: specs/modularization-2026-08-01.md §3.3. These flip to
-  // "error" as each workstream lands; suppressions are counted by the ratchet
-  // (scripts/ratchet.mjs) and must stay at zero.
+  // ── Modularization layer boundaries (ERROR severity — Phase 1 complete) ───
+  // Target layering: specs/modularization-2026-08-01.md §3.3. All groups run
+  // at "error"; suppressions are counted by the ratchet (scripts/ratchet.mjs)
+  // and must stay at zero.
   {
     files: ["src/lib/**/*.{ts,tsx}"],
     ignores: ["src/lib/**/__tests__/**", "src/lib/**/*.test.{ts,tsx}"],

@@ -224,6 +224,10 @@ const CLI_STRIPPED_AUTH_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as 
  * provider still works with NO reload and no global mutation (which would race
  * concurrent requests and leak across the whole process). Returns the pruned env
  * plus which vars were actually removed (for a one-time debug log). Pure.
+ *
+ * The parent-env default is full-env passthrough to a spawned child — a
+ * process concern envConfig() deliberately does not cover; counted in the
+ * ratchet lib-process-env baseline.
  */
 type EnvRecord = Record<string, string | undefined>;
 export function claudeCliChildEnv(base: EnvRecord = process.env): {

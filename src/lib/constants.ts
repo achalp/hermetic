@@ -403,11 +403,6 @@ export const DEFAULT_LOCAL_LLM_ENDPOINTS = {
   "llama-cpp": "http://localhost:8081",
 } as const;
 
-/** External map/export assets. Self-hosters point these at their own
- *  infrastructure (config override lands with HermeticConfig, WS3). */
-export const BASEMAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
-export const BASEMAP_TILE_URLS = {
-  dark: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-  light: "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-} as const;
-export const REVEALJS_CDN_URL = "https://cdn.jsdelivr.net/npm/reveal.js@5.1.0";
+// External map/export assets live in a leaf module so Edge-compiled
+// middleware can derive its CSP host list without evaluating this file.
+export { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS, REVEALJS_CDN_URL } from "@/lib/basemap-constants";

@@ -77,4 +77,5 @@ export const hermeticPaths = {
   savedSourcesDir: () => join(roots().userRoot, "sources"),
   // ── assetRoot ──
   sandboxRuntimeAssetsDir: () => join(roots().assetRoot, "docker", "sandbox", "hermetic_runtime"),
+  sandboxPreludeFile: () => join(roots().assetRoot, "docker", "sandbox", "prelude.py"),
 } as const;

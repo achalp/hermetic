@@ -4,13 +4,7 @@
  * not like SQL queries.
  */
 
-import type {
-  CSVSchema,
-  CSVColumn,
-  CategoricalMeta,
-  NumericMeta,
-  DataDomain,
-} from "@/lib/contracts/data-schema";
+import type { CSVSchema, CSVColumn, NumericMeta, DataDomain } from "@/lib/contracts/data-schema";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 // ── Helpers ────────────────────────────────────────────────────────

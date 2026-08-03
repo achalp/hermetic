@@ -14,8 +14,8 @@
  * Status tracking: lastRunAt, lastStatus ("success" | "error"), lastError.
  */
 
-import { mkdir, readFile, writeFile, stat } from "fs/promises";
-import { join, dirname } from "path";
+import { mkdir, readFile, writeFile } from "fs/promises";
+import { dirname } from "path";
 import { hermeticPaths } from "@/lib/paths";
 
 export type ScheduleCadence =
