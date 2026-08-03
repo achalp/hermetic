@@ -380,7 +380,9 @@ export async function startServer(
       // memory usage. Without this, large models consume all unified
       // memory and get SIGABRT'd by macOS jetsam.
       const mlxEnv = { ...process.env };
+      // MLX is Apple-Silicon-only; hw.memsize is a macOS sysctl.
       try {
+        if (process.platform !== "darwin") throw new Error("non-darwin");
         const memBytes = parseInt(
           execSync("sysctl -n hw.memsize", { encoding: "utf-8", timeout: 3000 }).trim(),
           10

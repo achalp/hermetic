@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest";
 
 // Mock child_process before importing process-manager
 const mockSpawn = vi.fn();
@@ -201,6 +201,9 @@ describe("process-manager", () => {
     it("sets MLX_METAL_CACHE_LIMIT env var based on system RAM", async () => {
       mockSpawn.mockReturnValue(makeMockProc());
       setupMlxExecSync();
+      // The Metal cache limit is darwin-only behavior (hw.memsize guard).
+      const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+      onTestFinished(() => platformSpy.mockRestore());
 
       const { startServer } = await import("../llm/process-manager");
       await startServer("mlx", { model: "test-model" });
@@ -432,6 +435,12 @@ describe("process-manager", () => {
         if (typeof cmd === "string" && cmd.includes("lsof")) throw new Error("not found");
         throw new Error("not found");
       });
+      // Hermetic: the resolver also checks the bundled <cwd>/data/bin
+      // location, which EXISTS on dev machines that ran start.sh — point
+      // cwd at an empty temp dir so the test doesn't depend on host state.
+      const os = await import("node:os");
+      const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(os.tmpdir());
+      onTestFinished(() => cwdSpy.mockRestore());
 
       const { startServer } = await import("../llm/process-manager");
       await expect(startServer("llama-cpp", { model: "test.gguf" })).rejects.toThrow(
