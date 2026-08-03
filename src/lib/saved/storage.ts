@@ -1,10 +1,10 @@
-import { mkdir, writeFile, readFile, readdir, rm, rename, stat } from "fs/promises";
 import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { SavedVizMeta } from "@/lib/contracts/storage-types";
 import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { hermeticPaths } from "@/lib/paths";
+import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
 
 /** Persisted workbook data — all sheets' CSV content + UI metadata */
 export interface SavedWorkbook {
@@ -14,20 +14,7 @@ export interface SavedWorkbook {
   relationships: SheetRelationship[];
 }
 
-const SAVED_DIR = hermeticPaths.savedVizsDir();
-
-let dirCreated = false;
-async function ensureDir(subdir?: string) {
-  const dir = subdir ? join(SAVED_DIR, subdir) : SAVED_DIR;
-  if (!dirCreated) {
-    await mkdir(SAVED_DIR, { recursive: true });
-    dirCreated = true;
-  }
-  if (subdir) {
-    await mkdir(dir, { recursive: true });
-  }
-  return dir;
-}
+const store = new RecordDirStore(hermeticPaths.savedVizsDir());
 
 export interface SaveInput {
   question: string;
@@ -45,7 +32,6 @@ export interface SaveInput {
 
 export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta> {
   const vizId = uuidv4();
-  const dir = await ensureDir(vizId);
   const now = Date.now();
 
   const meta: SavedVizMeta = {
@@ -61,19 +47,15 @@ export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta>
     sql: input.sql,
   };
 
-  const writes = [
-    writeFile(join(dir, "meta.json"), JSON.stringify(meta, null, 2), "utf-8"),
-    writeFile(join(dir, "spec.json"), JSON.stringify(input.spec, null, 2), "utf-8"),
-    writeFile(join(dir, "code.py"), input.generatedCode, "utf-8"),
-    writeFile(join(dir, "source.csv"), input.csvContent, "utf-8"),
-  ];
-  if (input.artifacts) {
-    writes.push(writeFile(join(dir, "artifacts.json"), JSON.stringify(input.artifacts), "utf-8"));
-  }
-  if (input.workbook) {
-    writes.push(writeFile(join(dir, "workbook.json"), JSON.stringify(input.workbook), "utf-8"));
-  }
-  await Promise.all(writes);
+  const files: Record<string, string> = {
+    [RECORD_FILES.meta]: JSON.stringify(meta, null, 2),
+    [RECORD_FILES.spec]: JSON.stringify(input.spec, null, 2),
+    [RECORD_FILES.code]: input.generatedCode,
+    [RECORD_FILES.source]: input.csvContent,
+  };
+  if (input.artifacts) files[RECORD_FILES.artifacts] = JSON.stringify(input.artifacts);
+  if (input.workbook) files[RECORD_FILES.workbook] = JSON.stringify(input.workbook);
+  await store.writeFiles(vizId, files);
 
   return meta;
 }
@@ -98,33 +80,14 @@ export async function saveNewVersion(
   vizId: string,
   input: SaveVersionInput
 ): Promise<SavedVizMeta> {
-  const dir = join(SAVED_DIR, vizId);
-  const metaRaw = await readFile(join(dir, "meta.json"), "utf-8");
-  const meta: SavedVizMeta = JSON.parse(metaRaw);
+  const meta = await store.readRequiredJson<SavedVizMeta>(vizId, RECORD_FILES.meta);
 
   const oldTimestamp = meta.latestVersionTs ?? meta.createdAt;
-  const historyDir = join(dir, "history", String(oldTimestamp));
-  await mkdir(historyDir, { recursive: true });
-
-  // Move current root files to history (best-effort — skip if missing)
-  const filesToArchive = [
-    "spec.json",
-    "code.py",
-    "source.csv",
-    "artifacts.json",
-    "schema.json",
-    "workbook.json",
-  ];
-  await Promise.all(
-    filesToArchive.map(async (f) => {
-      try {
-        await stat(join(dir, f));
-        await rename(join(dir, f), join(historyDir, f));
-      } catch {
-        // File may not exist (e.g. artifacts.json on older vizs)
-      }
-    })
-  );
+  // Archive every record file except meta.json (which is updated in place) —
+  // derived from THE layout, so a new record file can't be silently dropped
+  // from versioning again.
+  const filesToArchive = Object.values(RECORD_FILES).filter((f) => f !== RECORD_FILES.meta);
+  await store.archiveFiles(vizId, filesToArchive, join("history", String(oldTimestamp)));
 
   const now = Date.now();
   const updatedMeta: SavedVizMeta = {
@@ -139,40 +102,21 @@ export async function saveNewVersion(
     sql: input.sql ?? meta.sql,
   };
 
-  const writes = [
-    writeFile(join(dir, "meta.json"), JSON.stringify(updatedMeta, null, 2), "utf-8"),
-    writeFile(join(dir, "spec.json"), JSON.stringify(input.spec, null, 2), "utf-8"),
-    writeFile(join(dir, "code.py"), input.generatedCode, "utf-8"),
-    writeFile(join(dir, "source.csv"), input.csvContent, "utf-8"),
-  ];
-  if (input.artifacts) {
-    writes.push(writeFile(join(dir, "artifacts.json"), JSON.stringify(input.artifacts), "utf-8"));
-  }
-  await Promise.all(writes);
+  const files: Record<string, string> = {
+    [RECORD_FILES.meta]: JSON.stringify(updatedMeta, null, 2),
+    [RECORD_FILES.spec]: JSON.stringify(input.spec, null, 2),
+    [RECORD_FILES.code]: input.generatedCode,
+    [RECORD_FILES.source]: input.csvContent,
+  };
+  if (input.artifacts) files[RECORD_FILES.artifacts] = JSON.stringify(input.artifacts);
+  await store.writeFiles(vizId, files);
 
   return updatedMeta;
 }
 
 export async function listSavedVisualizations(): Promise<SavedVizMeta[]> {
-  try {
-    await ensureDir();
-    const entries = await readdir(SAVED_DIR, { withFileTypes: true });
-    const metas: SavedVizMeta[] = [];
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      try {
-        const raw = await readFile(join(SAVED_DIR, entry.name, "meta.json"), "utf-8");
-        metas.push(JSON.parse(raw));
-      } catch {
-        // Skip corrupted entries
-      }
-    }
-
-    return metas.sort((a, b) => b.createdAt - a.createdAt);
-  } catch {
-    return [];
-  }
+  const metas = await store.listMetas<SavedVizMeta>();
+  return metas.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 interface LoadedVisualization {
@@ -185,45 +129,17 @@ interface LoadedVisualization {
 }
 
 export async function loadSavedVisualization(id: string): Promise<LoadedVisualization> {
-  const dir = join(SAVED_DIR, id);
-  const [metaRaw, specRaw, code, csv] = await Promise.all([
-    readFile(join(dir, "meta.json"), "utf-8"),
-    readFile(join(dir, "spec.json"), "utf-8"),
-    readFile(join(dir, "code.py"), "utf-8"),
-    readFile(join(dir, "source.csv"), "utf-8"),
+  const [meta, spec, generatedCode, csvContent, artifacts, workbook] = await Promise.all([
+    store.readRequiredJson<SavedVizMeta>(id, RECORD_FILES.meta),
+    store.readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
+    store.readRequiredText(id, RECORD_FILES.code),
+    store.readRequiredText(id, RECORD_FILES.source),
+    store.readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
+    store.readOptionalJson<SavedWorkbook>(id, RECORD_FILES.workbook),
   ]);
-
-  let artifacts: CachedArtifacts | undefined;
-  try {
-    const artifactsRaw = await readFile(join(dir, "artifacts.json"), "utf-8");
-    artifacts = JSON.parse(artifactsRaw);
-  } catch {
-    // artifacts.json may not exist for older saved vizs
-  }
-
-  let workbook: SavedWorkbook | undefined;
-  try {
-    const workbookRaw = await readFile(join(dir, "workbook.json"), "utf-8");
-    workbook = JSON.parse(workbookRaw);
-  } catch {
-    // workbook.json only exists for workbook-mode vizs
-  }
-
-  return {
-    meta: JSON.parse(metaRaw),
-    spec: JSON.parse(specRaw),
-    generatedCode: code,
-    csvContent: csv,
-    artifacts,
-    workbook,
-  };
+  return { meta, spec, generatedCode, csvContent, artifacts, workbook };
 }
 
 export async function deleteSavedVisualization(id: string): Promise<void> {
-  // Validate id is a UUID to prevent path traversal
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-    throw new Error("Invalid visualization ID");
-  }
-  const dir = join(SAVED_DIR, id);
-  await rm(dir, { recursive: true, force: true });
+  await store.delete(id);
 }
