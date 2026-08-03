@@ -1,0 +1,165 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the CSV from \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. Emits the result by calling the preloaded helper write_output(...) — do NOT build the\\n   JSON or call json.dump yourself:\\n       write_output(\\n           results={ ... },        # computed values, aggregations, statistics\\n           chart_data={ ... },      # objects/arrays formatted for chart components\\n           datasets={\\\"main\\\": df},   # the working DataFrame (capped to 5000 rows for you)\\n           images={ ... },          # optional base64 matplotlib/seaborn PNGs\\n       )\\n   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion and always writes all four\\n   keys, so the output is never silently empty. results and chart_data must EACH contain at\\n   least one entry. (It writes \\\"/data/output.json\\\".)\\n\\nRules:\\n- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.\\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics.\\n- Use pandas for all data manipulation.\\n- For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.\\n- For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.\\n- For box plots: return ra",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785730039",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785730039"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "import pandas as pd\nimport numpy as np"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\nfrom scipy import stats\n\ndf = pd.read_csv(\"/data/input.csv\")\n\nfor col in [\"new_mrr\", \"expansion_mrr\", \"churn_mrr\", \"customers\", \"arpu\"]:\n    df[col] = to_num(df["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "col])\n\n# Aggregate across plans per month\nmonthly = (\n    df.groupby(\"month\")\n    .agg(\n        total_churn_mrr=(\"churn_mrr\", \"sum\"),\n        total_customers="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "(\"customers\", \"sum\"),\n        total_new_mrr=(\"new_mrr\", \"sum\"),\n        total_expansion_mrr=(\"expansion_mrr\", \"sum\"),\n    )\n    .reset_index()\n    .sort_values"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "(\"month\")\n    .reset_index(drop=True)\n)\n\nmonthly[\"churn_per_customer\"] = monthly[\"total_churn_mrr\"] / monthly[\"total_customers\"]\nmonthly[\"rolling_3m\"] = monthly[\"ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "urn_per_customer\"].rolling(3, center=True, min_periods=1).mean()\nmonthly[\"mom_abs_change\"] = monthly[\"churn_per_customer\"].diff()\nmonthly[\"mom_pct_change\"] = monthly[\"churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "per_customer\"].pct_change() * 100\n\nmean_val = monthly[\"churn_per_customer\"].mean()\nstd_val = monthly[\"churn_per_customer\"].std()\n\npeak_row = monthly.loc[monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "[\"churn_per_customer\"].idxmax()]\ntrough_row = monthly.loc[monthly[\"churn_per_customer\"].idxmin()]\n\nh1_avg = monthly.iloc[:6][\"churn_per_customer\"].mean()\nh2_avg = monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": ".iloc[6:][\"churn_per_customer\"].mean()\n\nx = np.arange(len(monthly))\nslope, intercept, r_value, p_value, se = stats.linregress(x, monthly[\"churn_per_customer\"])\n\nif"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": " p_value < 0.05:\n    trend_direction = \"increasing\" if slope > 0 else \"decreasing\"\nelse:\n    trend_direction = \"no_significant_trend\"\n\n# Months ranked"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": " by normalized churn\nmonthly[\"rank\"] = monthly[\"churn_per_customer\"].rank(ascending=False).astype(int)\n\nchart_rows = []\nfor _, row in monthly.iterrows():\n    chart"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "_rows.append({\n        \"month\": row[\"month\"],\n        \"churn_per_customer\": round(row[\"churn_per_customer\"], 2),\n        \"rolling_3m\": round(row[\"rolling_3m\"], 2),\n        \"mean_line"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\": round(mean_val, 2),\n    })\n\nresults = {\n    \"mean_churn_per_customer\": round(mean_val, 2),\n    \"std_churn_per_customer\": round(std_val, 2),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\n    \"cv_pct\": round(std_val / mean_val * 100, 1),\n    \"peak_month\": str(peak_row[\"month\"]),\n    \"peak_churn_per_customer\": round(float(peak_row[\"churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "per_customer\"]), 2),\n    \"trough_month\": str(trough_row[\"month\"]),\n    \"trough_churn_per_customer\": round(float(trough_row[\"churn_per_customer\"]), 2),\n    \"peak_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "to_trough_ratio\": round(float(peak_row[\"churn_per_customer\"]) / float(trough_row[\"churn_per_customer\"]), 2),\n    \"h1_avg_churn_per_customer\": round(h1_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "avg, 2),\n    \"h2_avg_churn_per_customer\": round(h2_avg, 2),\n    \"h2_vs_h1_pct_change\": round((h2_avg - h1_avg) / h1_avg *"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": " 100, 1),\n    \"trend_slope_per_month\": round(float(slope), 4),\n    \"trend_r_squared\": round(float(r_value ** 2), 3),\n    \"trend_p_value\": round"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "(float(p_value), 4),\n    \"trend_direction\": trend_direction,\n    \"months_above_mean\": int((monthly[\"churn_per_customer\"] > mean_val).sum()),\n    \"months_below_mean\": int(("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "monthly[\"churn_per_customer\"] < mean_val).sum()),\n}\n\nwrite_output(\n    results=results,\n    chart_data={\"normalized_churn_by_month\": chart_rows},\n    datasets={\"main\": df},"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\n)"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785730039",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785730039"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 14306,
+          "noCache": 7912,
+          "cacheRead": 6394
+        },
+        "outputTokens": {
+          "total": 4279,
+          "text": 4279,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 14306,
+          "input_tokens_details": {
+            "cached_tokens": 6394
+          },
+          "output_tokens": 4279
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,235 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the CSV from \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. Emits the result by calling the preloaded helper write_output(...) — do NOT build the\\n   JSON or call json.dump yourself:\\n       write_output(\\n           results={ ... },        # computed values, aggregations, statistics\\n           chart_data={ ... },      # objects/arrays formatted for chart components\\n           datasets={\\\"main\\\": df},   # the working DataFrame (capped to 5000 rows for you)\\n           images={ ... },          # optional base64 matplotlib/seaborn PNGs\\n       )\\n   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion and always writes all four\\n   keys, so the output is never silently empty. results and chart_data must EACH contain at\\n   least one entry. (It writes \\\"/data/output.json\\\".)\\n\\nRules:\\n- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.\\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics.\\n- Output scope: produce a FOCUSED set for a scannable dashboard — the handful of headline metrics (results) and the 2-4 chart_data structures that best answer THIS question. Do not build an exhaustive battery of charts/breakdowns that won't be shown; compute what a focused dashboard needs.\\n- Use pandas for all data manipulation.\\n- For charts that the UI can handle natively (bar, line, area, pie, scatte",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785729528",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785729528"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "import"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " pandas as pd\nimport numpy as np\n\ndf = pd.read_csv(\"/data/input.csv\")\n\nfor col"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " in [\"new_mrr\", \"expansion_mrr\", \"churn_mrr\", \"customers\", \"arpu\"]:\n    df[col] = to_num(df[col])\n\n#"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " Aggregate by month across all plans\nmonthly = df.groupby(\"month\", sort=True).agg(\n    new_mrr=(\"new_mrr\", \"sum\"),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "\n    expansion_mrr=(\"expansion_mrr\", \"sum\"),\n    churn_mrr=(\"churn_mrr\", \"sum\"),\n    customers=(\"customers\", \"sum\"),\n).reset_index()\n\nmonthly[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "net_new_mrr\"] = monthly[\"new_mrr\"] + monthly[\"expansion_mrr\"] - monthly[\"churn_mrr\"]\nmonthly[\"cumulative_mrr\"] = monthly[\"net_new_mrr\"].cumsum()"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "\nmonthly[\"churn_mrr_neg\"] = -monthly[\"churn_mrr\"]\n\n# MRR by plan over time (pivot"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": ")\nplan_monthly = df.pivot_table(\n    index=\"month\", columns=\"plan\", values=\"net_new_mrr\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " if \"net_new_mrr\" in df.columns else \"new_mrr\",\n    aggfunc=\"sum\"\n)\n# Compute net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "_new_mrr per plan\ndf[\"net_new_mrr\"] = df[\"new_mrr\"] + df[\"expansion_mrr\"] - df[\"churn_mrr\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "\nplan_pivot = df.pivot_table(index=\"month\", columns=\"plan\", values=\"net_new_mrr\", aggfunc=\"sum\").reset_index()\nplan_pivot.columns.name = None"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "\nplan_pivot = plan_pivot.rename(columns=lambda c: c.lower().replace(\" \", \"_\") if c !="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " \"month\" else c)\n\n# Key metrics\ntotal_net_new_mrr = monthly[\"net_new_mrr\"].sum()\nfinal_cumulative_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "mrr = monthly[\"cumulative_mrr\"].iloc[-1]\nbest_month = monthly.loc[monthly[\"net_new_mrr\"].idxmax(), \"month\"]\nbest_month_mrr = monthly[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "net_new_mrr\"].max()\nworst_month = monthly.loc[monthly[\"net_new_mrr\"].idxmin(), \"month\"]\nworst_month_mrr = monthly[\"net_new_mrr\"].min()"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "\navg_net_new_mrr = monthly[\"net_new_mrr\"].mean()\n\n# Month-over-month growth\nmonthly[\"mom_growth_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "pct\"] = monthly[\"net_new_mrr\"].pct_change() * 100\navg_mom_growth = monthly[\"mom_growth_pct\"].mean()\n\n# First vs"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " last month\nfirst_net = monthly[\"net_new_mrr\"].iloc[0]\nlast_net = monthly[\"net_new_mrr\"].iloc[-1]\nytd_growth_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "pct = ((last_net - first_net) / abs(first_net) * 100) if first_net != 0 else None\n\n# Ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "urn rate (avg churn / avg new+expansion)\navg_churn_rate = (monthly[\"churn_mrr\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " / (monthly[\"new_mrr\"] + monthly[\"expansion_mrr\"])).mean() * 100\n\nresults = {\n    \"total_net_new_mrr\": round"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "(total_net_new_mrr, 2),\n    \"final_cumulative_mrr\": round(final_cumulative_mrr, 2),\n    \"avg_monthly_net_new_mrr\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " round(avg_net_new_mrr, 2),\n    \"best_month\": best_month,\n    \"best_month_net_new_mrr\": round(best_month_mrr, 2),\n    \"worst_month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "\": worst_month,\n    \"worst_month_net_new_mrr\": round(worst_month_mrr, 2),\n    \"jan_to_dec_growth_pct\": round(yt"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "d_growth_pct, 1) if ytd_growth_pct is not None else None,\n    \"avg_mom_growth_pct\": round(avg_mom"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "_growth, 1),\n    \"avg_churn_rate_pct\": round(avg_churn_rate, 1),\n}\n\n# Chart 1: MRR components"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " trend (area)\nmrr_components = monthly[[\"month\", \"new_mrr\", \"expansion_mrr\", \"churn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "_mrr\", \"net_new_mrr\"]].copy()\n\n# Chart 2: Cumulative MRR\ncumulative_chart = monthly[[\"month\", \"cum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "ulative_mrr\"]].copy()\n\n# Chart 3: Net new MRR by plan\nplan_chart = plan_pivot.copy()\n\n# Chart 4:"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " Churn vs Growth ratio over time\nmonthly_rounded = monthly["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "[\"month\", \"net_new_mrr\", \"churn_mrr_neg\", \"customers\"]].copy()\n\nwrite_output"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "(\n    results=results,\n    chart_data={\n        \"mrr_components_by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "_month\": mrr_components.to_dict(orient=\"records\"),\n        \"cumulative_mrr_trend\": cumulative_chart.to_dict(orient=\"records\"),\n        \"net_new_mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": "by_plan\": plan_chart.to_dict(orient=\"records\"),\n    },\n    datasets={\"main\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785729528",
+      "delta": " df},\n)"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785729528",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785729528"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 14355,
+          "noCache": 3,
+          "cacheRead": 14352
+        },
+        "outputTokens": {
+          "total": 2019,
+          "text": 2019,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 14355,
+          "input_tokens_details": {
+            "cached_tokens": 14352
+          },
+          "output_tokens": 2019
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

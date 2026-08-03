@@ -34,6 +34,18 @@ normalized NDJSON stream lands in `test-fixtures/golden/<journey>.ndjson`.
 Expect a few minutes and roughly single-digit dollars (investigate is
 multi-wave and dominates the cost).
 
+## Canonical goldens are recorded in REPLAY mode
+
+Live recording captures the LLM fixtures, but live transcripts contain
+timing-dependent frames (keepalives, progress cadence). After the live pass,
+regenerate the goldens against a replay server — fully offline, seconds per
+journey — so the committed transcripts are deterministic:
+
+```bash
+# server: HERMETIC_LLM_MODE=replay pnpm dev
+HERMETIC_LLM_MODE=replay pnpm golden:record   # regenerate goldens from fixtures
+```
+
 ## Verify the loop closes offline
 
 ```bash

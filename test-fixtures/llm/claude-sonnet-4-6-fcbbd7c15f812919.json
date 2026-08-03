@@ -1,0 +1,210 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the CSV from \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. Emits the result by calling the preloaded helper write_output(...) — do NOT build the\\n   JSON or call json.dump yourself:\\n       write_output(\\n           results={ ... },        # computed values, aggregations, statistics\\n           chart_data={ ... },      # objects/arrays formatted for chart components\\n           datasets={\\\"main\\\": df},   # the working DataFrame (capped to 5000 rows for you)\\n           images={ ... },          # optional base64 matplotlib/seaborn PNGs\\n       )\\n   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion and always writes all four\\n   keys, so the output is never silently empty. results and chart_data must EACH contain at\\n   least one entry. (It writes \\\"/data/output.json\\\".)\\n\\nRules:\\n- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.\\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics.\\n- Use pandas for all data manipulation.\\n- For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.\\n- For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.\\n- For box plots: return ra",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785730039",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785730039"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "```python\nimport pandas as pd\nimport numpy as np\n\ndf = pd.read_csv(\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "data/input.csv\")\n\n# Coerce numeric columns\nfor"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": " col in [\"new_mrr\", \"expansion_mrr\", \"churn_mrr\", \"customers\", \"arpu\"]:\n    df[col] = to_num(df[col])\n\n# Per"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "-row churn per customer (row-level ratio"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": ")\ndf[\"churn_per_customer\"] = df[\"churn_mrr\"] / df[\"customers\"]\n\n# Aggregate by plan: sum-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "based churn per customer (total churn / total customers)\nplan_agg = df.groupby(\"plan\").agg("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\n    total_churn_mrr=(\"churn_mrr\", \"sum\"),\n    total_customers=(\"customers\", \"sum\"),\n    total_new_mrr=(\"new_mrr\", \"sum\"),\n    avg"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "_churn_mrr=(\"churn_mrr\", \"mean\"),\n    avg_customers=(\"customers\", \"mean\"),\n    months_observed"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "=(\"month\", \"count\"),\n).reset_index()\n\nplan_agg[\"churn_per_customer\"] = (plan_agg[\"total_churn_mrr\"] / plan_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "agg[\"total_customers\"]).round(2)\nplan_agg[\"churn_to_new_mrr_ratio\"] = (plan_agg[\"total_churn_mrr\"] / plan_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "agg[\"total_new_mrr\"] * 100).round(2)\nplan_agg[\"avg_monthly_churn_mrr\"] = plan_agg[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "avg_churn_mrr\"].round(2)\n\n# Rank by churn per customer (1 = highest churn intensity)\nplan_agg = plan_agg.sort_values"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "(\"churn_per_customer\", ascending=False).reset_index(drop=True)\nplan_agg[\"churn_intensity_rank\"] = plan_agg.index + 1"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\n\n# Monthly churn per customer trend by plan (for line chart)\nmonthly ="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": " df[[\"month\", \"plan\", \"churn_per_customer\"]].copy()\nmonthly[\"churn_per_customer\"] = monthly[\"churn_per_customer\"].round(2)\nmonthly_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "pivot = monthly.pivot_table(index=\"month\", columns=\"plan\", values=\"churn_per_customer\").reset_index()\nmonthly_pivot.columns.name = None\nmonthly_pivot = monthly_pivot.sort"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "_values(\"month\").reset_index(drop=True)\n\n# Build results\nresults = {}\nfor _, row in plan_agg.iter"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "rows():\n    key = row[\"plan\"].lower()\n    results[f\"{key}_churn_per_customer\"] = float(row[\"churn_per_customer\"])\n    results[f\"{"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "key}_churn_to_new_mrr_pct\"] = float(row[\"churn_to_new_mrr_ratio\"])\n    results[f\"{key}_churn_intensity_rank\"] = int(row[\"churn_intensity_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "rank\"])\n\nresults[\"highest_churn_intensity_plan\"] = plan_agg.iloc[0][\"plan\"]\nresults[\"lowest_churn_intensity_plan\"] = plan_agg."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "iloc[-1][\"plan\"]\nresults[\"overall_avg_churn_per_customer\"] = round(\n    df[\"churn_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "r\"].sum() / df[\"customers\"].sum(), 2\n)\n\n# Bar chart: churn per customer by plan (ranked)\nbar_data = plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "_agg[[\"plan\", \"churn_per_customer\", \"churn_to_new_mrr_ratio\", \"churn_intensity_rank\"]].copy()\nbar_data = bar_data.rename(columns={"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\n    \"plan\": \"plan\",\n    \"churn_per_customer\": \"churn_per_customer\",\n    \"churn_to_new_mrr_ratio\": \"churn_to_new_mrr_pct\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\n    \"churn_intensity_rank\": \"rank\",\n})\n\n# Line chart: monthly churn per customer by plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\nline_cols = [c for c in monthly_pivot.columns if c != \"month\"]\nline_data = monthly_pivot.to_dict(orient=\"records"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "\")\n\nwrite_output(\n    results=results,\n    chart_data={\n        \"churn_per_customer_by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "_plan\": bar_data.to_dict(orient=\"records\"),\n        \"monthly_churn_per_customer_trend\": line_data,\n        \"monthly_trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "_x_key\": \"month\",\n        \"monthly_trend_y_keys\": line_cols,\n    },\n    datasets="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785730039",
+      "delta": "{\"main\": df},\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785730039",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785730039"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 14303,
+          "noCache": 7909,
+          "cacheRead": 6394
+        },
+        "outputTokens": {
+          "total": 1429,
+          "text": 1429,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 14303,
+          "input_tokens_details": {
+            "cached_tokens": 6394
+          },
+          "output_tokens": 1429
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

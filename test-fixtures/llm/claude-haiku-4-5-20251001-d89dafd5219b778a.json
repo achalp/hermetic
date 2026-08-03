@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-haiku-4-5-20251001",
+  "modelId": "claude-haiku-4-5-20251001",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.116\"},\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analysis planner. Given a user's question and a dataset schema, decompose the question into the FEWEST, most penetrating sub-questions that together answer the original. Favor sharp, insightful questions that directly answer what was asked over broad coverage — never pad for breadth. The user prompt specifies the target count for this request; treat it as a ceiling, not a quota.\\n\\nEach sub-question should:\\n- Be answerable by ONE Python data-analysis script (groupBy, aggregation, simple chart, statistical test, etc.)\\n- Reference real columns from the schema\\n- Have a clear analytical purpose distinct from the others\\n- Not duplicate work across sub-questions\\n\\nDeclare dependencies as `depends_on`: an array of prior sub-question indices (0-based) whose results this one needs. Use `[]` (empty array) for sub-questions that can run independently — those execute in parallel. Use `[N]` when the sub-question needs ONE prior result (e.g. \\\"Now drill into the top region from step 1\\\"). Use `[N, M]` when it genuinely needs BOTH (e.g. \\\"Compare the top region from step 1 with the bottom region from step 2\\\"). Cap dependencies at 3 priors per sub-question. All indices in `depends_on` MUST be less than the sub-question's own index.\\n\\nPick decomposition styles that fit the question:\\n- Investigate-an-anomaly: trend → segments → time-of-onset → correlated factors → recommendation\\n- Compare-two-things: each side's metrics (independent) → side-by-side comparison (depends_on both) → drivers of difference\\n- Profile-a-segment: descriptives → distribution → outliers → context vs. rest of population\\n- Trend-analysis: overall trend → by-segment trend → seasonality → outliers → year-over-year\\n\\nOutput STRICT JSON matching this schema:\\n{\\n  \\\"approach\\\": \\\"1-2 sentence approach summary\\\",\\n  \\\"subQuestions\\\": [\\n    {\\n      \\\"question\\\": \\\"single focused question\\\",\\n      \\\"rationa",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "```json\n{\n  \"approach\": \"Investigate plan-level differences, temporal patterns, and the characteristics driving monthly churn volatility.\",\n  \"subQuestions\": [\n    {\n      \"question\": \"What is the average churn_mrr per customer by plan, and how do plans rank by churn intensity?\",\n      \"rationale\": \"Reveals whether churn is driven by plan type; normalizing by customer count controls for size differences\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"How does normalized churn (churn_mrr per customer) vary across months, and are there seasonal peaks or troughs?\",\n      \"rationale\": \"Identifies if churn has temporal drivers like seasonality or cycles\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"What characterizes the high-churn and low-churn months identified in step 2: how do plan composition, new_mrr, expansion_mrr, customer count, and ARPU differ between them?\",\n      \"rationale\": \"Explains what drives monthly churn variation and tests if churn co-moves with growth metrics or is independent\",\n      \"depends_on\": [1]\n    }\n  ]\n}\n```",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1785730038"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 7530,
+        "noCache": 10,
+        "cacheRead": 7520
+      },
+      "outputTokens": {
+        "total": 5309,
+        "text": 5309,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 7530,
+        "input_tokens_details": {
+          "cached_tokens": 7520
+        },
+        "output_tokens": 5309
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1785730038"
+      }
+    },
+    "warnings": []
+  }
+}
