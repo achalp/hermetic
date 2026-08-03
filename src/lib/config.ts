@@ -4,6 +4,7 @@
  */
 
 import type { LLMProviderId } from "@/lib/constants";
+import { detectActiveProvider, VALID_PROVIDERS } from "@/lib/llm/client";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { envConfig } from "@/lib/harness-slot";
@@ -32,48 +33,11 @@ export function clearEnvConfigCache(): void {
   cachedConfig = null;
 }
 
-/**
- * Detect which LLM provider is configured (same logic as client.ts getActiveProvider
- * but returns undefined instead of throwing when nothing is found).
- */
-function detectProvider(): LLMProviderId | undefined {
-  const explicit = envConfig().LLM_PROVIDER;
-  if (explicit) {
-    const normalized = explicit.toLowerCase();
-    if (
-      [
-        "anthropic",
-        "claude-cli",
-        "bedrock",
-        "vertex",
-        "openai-compatible",
-        "mlx",
-        "llama-cpp",
-        "ollama",
-      ].includes(normalized)
-    ) {
-      return normalized as LLMProviderId;
-    }
-    return undefined; // invalid — will be caught below
-  }
-  // Check runtime config for local backends — user explicitly enabled in UI,
-  // so they take priority over auto-detected env var credentials
-  const rc = getRuntimeConfig();
-  if (rc.mlx?.enabled && rc.mlx.activeModel) return "mlx";
-  if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
-  if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
-
-  if (envConfig().ANTHROPIC_API_KEY) return "anthropic";
-  if (envConfig().AWS_ACCESS_KEY_ID || envConfig().AWS_PROFILE) return "bedrock";
-  if (envConfig().GOOGLE_VERTEX_PROJECT) return "vertex";
-  if (envConfig().OPENAI_BASE_URL) return "openai-compatible";
-
-  // Last-resort fallback (mirrors client.ts getActiveProvider): the `claude` CLI
-  // is installed and authenticated with the user's own login.
-  if (isClaudeCliAvailable(rc.claudeCli?.binaryPath)) return "claude-cli";
-
-  return undefined;
-}
+// Provider detection lives in ONE place: client.ts detectActiveProvider
+// (modularization M2-B2). The previous local copy had drifted — it ignored
+// the Settings-UI provider selection (rc.activeProvider), so validateEnv
+// could disagree with the provider actually in use.
+const detectProvider = detectActiveProvider;
 
 export function validateEnv(): EnvConfig {
   if (cachedConfig) return cachedConfig;
@@ -82,19 +46,10 @@ export function validateEnv(): EnvConfig {
   const explicitProvider = envConfig().LLM_PROVIDER;
   if (
     explicitProvider &&
-    ![
-      "anthropic",
-      "claude-cli",
-      "bedrock",
-      "vertex",
-      "openai-compatible",
-      "mlx",
-      "llama-cpp",
-      "ollama",
-    ].includes(explicitProvider.toLowerCase())
+    !(VALID_PROVIDERS as readonly string[]).includes(explicitProvider.toLowerCase())
   ) {
     throw new EnvError(
-      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: anthropic, claude-cli, bedrock, vertex, openai-compatible, mlx, llama-cpp, ollama`
+      `Invalid LLM_PROVIDER "${explicitProvider}". Must be one of: ${VALID_PROVIDERS.join(", ")}`
     );
   }
 

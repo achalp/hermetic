@@ -438,54 +438,66 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
  * 2. Auto-detect from available credentials
  * 3. Error if nothing configured
  */
-export function getActiveProvider(): LLMProviderId {
-  const validProviders = [
-    "anthropic",
-    "claude-cli",
-    "bedrock",
-    "vertex",
-    "openai-compatible",
-    "mlx",
-    "llama-cpp",
-    "ollama",
-  ];
+export const VALID_PROVIDERS = [
+  "anthropic",
+  "claude-cli",
+  "bedrock",
+  "vertex",
+  "openai-compatible",
+  "mlx",
+  "llama-cpp",
+  "ollama",
+] as const;
 
-  // Check runtime config for user-selected provider (from Settings UI).
-  // This takes priority over env vars so the UI dropdown actually works.
+/**
+ * THE provider-detection path (modularization M2-B2) — the only
+ * implementation; config.ts validateEnv/detectProvider delegate here.
+ * Returns undefined instead of throwing so probes can ask "is anything
+ * configured?"; getActiveProvider() wraps it with the user-facing errors.
+ *
+ * Order: Settings-UI selection → explicit LLM_PROVIDER → UI-enabled local
+ * backends → credential auto-detect → authenticated `claude` CLI fallback.
+ */
+export function detectActiveProvider(): LLMProviderId | undefined {
   const rc = getRuntimeConfig();
-  if (rc.activeProvider) {
-    if (validProviders.includes(rc.activeProvider)) {
-      return rc.activeProvider as LLMProviderId;
-    }
+  if (rc.activeProvider && (VALID_PROVIDERS as readonly string[]).includes(rc.activeProvider)) {
+    return rc.activeProvider as LLMProviderId;
   }
 
-  // Explicit LLM_PROVIDER env var (used as default before user picks in UI)
   const explicit = envConfig().LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase() as LLMProviderId;
-    if (!validProviders.includes(normalized)) {
-      throw new Error(
-        `Invalid LLM_PROVIDER "${explicit}". Must be one of: ${validProviders.join(", ")}`
-      );
-    }
-    return normalized;
+    // Invalid explicit selection is terminal (no silent fallback) — the
+    // caller surfaces the error.
+    return (VALID_PROVIDERS as readonly string[]).includes(normalized) ? normalized : undefined;
   }
 
-  // Check runtime config for local backends — user explicitly enabled in UI
   if (rc.mlx?.enabled && rc.mlx.activeModel) return "mlx";
   if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
   if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
 
-  // Auto-detect from credentials
   if (envConfig().ANTHROPIC_API_KEY) return "anthropic";
   if (envConfig().AWS_ACCESS_KEY_ID || envConfig().AWS_PROFILE) return "bedrock";
   if (envConfig().GOOGLE_VERTEX_PROJECT) return "vertex";
   if (envConfig().OPENAI_BASE_URL) return "openai-compatible";
 
-  // Last-resort fallback: no API credentials, but the `claude` CLI is installed
-  // and authenticated with the user's own login. Checked last so a configured
-  // API key always wins over shelling out.
+  // Last resort: no API credentials, but the `claude` CLI is installed and
+  // authenticated. Checked last so a configured key always wins.
   if (isClaudeCliAvailable(rc.claudeCli?.binaryPath)) return "claude-cli";
+
+  return undefined;
+}
+
+export function getActiveProvider(): LLMProviderId {
+  const detected = detectActiveProvider();
+  if (detected) return detected;
+
+  const explicit = envConfig().LLM_PROVIDER;
+  if (explicit && !(VALID_PROVIDERS as readonly string[]).includes(explicit.toLowerCase())) {
+    throw new Error(
+      `Invalid LLM_PROVIDER "${explicit}". Must be one of: ${VALID_PROVIDERS.join(", ")}`
+    );
+  }
 
   throw new Error(
     "No LLM provider configured. Set one of:\n" +
