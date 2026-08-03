@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { join, dirname } from "path";
+import { envConfig } from "@/lib/harness-slot";
 
 export interface OllamaConfig {
   enabled: boolean;
@@ -115,7 +116,7 @@ export function clearRuntimeConfigCache(): void {
 export function getActiveSandboxRuntime(): "docker" | "e2b" | "microsandbox" {
   const rc = getRuntimeConfig();
   if (rc.sandboxRuntime) return rc.sandboxRuntime;
-  const env = process.env.SANDBOX_RUNTIME;
+  const env = envConfig().SANDBOX_RUNTIME;
   if (env === "docker" || env === "e2b" || env === "microsandbox") return env;
   return "docker";
 }

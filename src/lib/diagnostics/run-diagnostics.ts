@@ -22,6 +22,7 @@ import { mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
+import { envConfig } from "@/lib/harness-slot";
 
 const DIAG_DIR = join(process.cwd(), "data", "diagnostics");
 
@@ -226,7 +227,7 @@ export async function writeRunDiagnostics(meta: {
   costUsd?: number;
   llmCalls?: number;
 }): Promise<void> {
-  if (process.env.VITEST || process.env.NODE_ENV === "test") return;
+  if (envConfig().VITEST || envConfig().NODE_ENV === "test") return;
   const events = getDiagEvents();
   if (!events) return;
   try {

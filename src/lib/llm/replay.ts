@@ -30,19 +30,16 @@ export interface LLMReplayConfig {
   dir: string;
 }
 
-// The config slot lives on globalThis, NOT module state: Next dev compiles
-// instrumentation and each route as separate module graphs, so a module-level
-// variable set at boot is invisible to the instance the routes import. Same
-// dev-reload rationale as every other cross-cutting store here; replaced by
-// StateStore/HermeticConfig threading in WS3/WS4.
-const g = globalThis as unknown as { __hermeticLLMReplay?: LLMReplayConfig | null };
+// Config crosses Next dev's separate module graphs via the shared harness
+// slot (see lib/harness-slot.ts — the M0-0a lesson).
+import { harnessSlot } from "@/lib/harness-slot";
 
 export function configureLLMReplay(cfg: LLMReplayConfig | null): void {
-  g.__hermeticLLMReplay = cfg;
+  harnessSlot().llmReplay = cfg;
 }
 
 export function llmReplayConfig(): LLMReplayConfig | null {
-  return g.__hermeticLLMReplay ?? null;
+  return harnessSlot().llmReplay ?? null;
 }
 
 /** Deterministic JSON stringify: object keys sorted recursively. */

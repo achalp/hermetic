@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 // Per-engine label lives in the engine descriptor (ARCH-12).
 import { connectionLabel } from "@/lib/warehouse/engine-descriptor";
+import { envConfig } from "@/lib/harness-slot";
 
 const CONNECTIONS_PATH = join(process.cwd(), ".warehouse-connections.json");
 
@@ -96,30 +97,30 @@ export async function removeConnection(id: string): Promise<void> {
 
 /** Legacy: read single connection from WAREHOUSE_* env vars */
 function loadLegacyFromEnv(): WarehouseConnectionConfig | null {
-  const type = process.env.WAREHOUSE_TYPE;
+  const type = envConfig().WAREHOUSE_TYPE;
   if (!type) return null;
 
   switch (type) {
     case "postgresql":
       return {
         type: "postgresql",
-        host: process.env.WAREHOUSE_PG_HOST ?? "localhost",
-        port: Number(process.env.WAREHOUSE_PG_PORT) || 5432,
-        database: process.env.WAREHOUSE_PG_DATABASE ?? "",
-        user: process.env.WAREHOUSE_PG_USER ?? "",
-        password: process.env.WAREHOUSE_PG_PASSWORD ?? "",
-        ssl: process.env.WAREHOUSE_PG_SSL === "true",
-        schema: process.env.WAREHOUSE_PG_SCHEMA ?? "public",
+        host: envConfig().WAREHOUSE_PG_HOST ?? "localhost",
+        port: Number(envConfig().WAREHOUSE_PG_PORT) || 5432,
+        database: envConfig().WAREHOUSE_PG_DATABASE ?? "",
+        user: envConfig().WAREHOUSE_PG_USER ?? "",
+        password: envConfig().WAREHOUSE_PG_PASSWORD ?? "",
+        ssl: envConfig().WAREHOUSE_PG_SSL === "true",
+        schema: envConfig().WAREHOUSE_PG_SCHEMA ?? "public",
       };
     case "clickhouse":
       return {
         type: "clickhouse",
-        host: process.env.WAREHOUSE_CH_HOST ?? "localhost",
-        port: Number(process.env.WAREHOUSE_CH_PORT) || 8123,
-        database: process.env.WAREHOUSE_CH_DATABASE ?? "default",
-        user: process.env.WAREHOUSE_CH_USER ?? "default",
-        password: process.env.WAREHOUSE_CH_PASSWORD ?? "",
-        ssl: process.env.WAREHOUSE_CH_SSL === "true",
+        host: envConfig().WAREHOUSE_CH_HOST ?? "localhost",
+        port: Number(envConfig().WAREHOUSE_CH_PORT) || 8123,
+        database: envConfig().WAREHOUSE_CH_DATABASE ?? "default",
+        user: envConfig().WAREHOUSE_CH_USER ?? "default",
+        password: envConfig().WAREHOUSE_CH_PASSWORD ?? "",
+        ssl: envConfig().WAREHOUSE_CH_SSL === "true",
       };
     case "bigquery":
       // .env.example documented these vars for years while this switch
@@ -127,9 +128,9 @@ function loadLegacyFromEnv(): WarehouseConnectionConfig | null {
       // that did nothing and concluded the feature was broken.
       return {
         type: "bigquery",
-        projectId: process.env.WAREHOUSE_BQ_PROJECT ?? "",
-        dataset: process.env.WAREHOUSE_BQ_DATASET ?? "",
-        credentialsJson: process.env.WAREHOUSE_BQ_CREDENTIALS_JSON ?? "",
+        projectId: envConfig().WAREHOUSE_BQ_PROJECT ?? "",
+        dataset: envConfig().WAREHOUSE_BQ_DATASET ?? "",
+        credentialsJson: envConfig().WAREHOUSE_BQ_CREDENTIALS_JSON ?? "",
       };
     default:
       return null;

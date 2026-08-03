@@ -1,3 +1,4 @@
+import { envConfig } from "@/lib/harness-slot";
 export const ALLOWED_LOCAL_EXTENSIONS = [".parquet", ".csv", ".xlsx", ".geojson", ".json"] as const;
 export const LOCAL_MOUNT_PATH = "/data/local"; // mount point inside sandbox container
 
@@ -150,7 +151,7 @@ export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"];
 
 /** Static fallback — prefer getActiveSandboxRuntime() which checks runtime config */
 export const DEFAULT_SANDBOX_RUNTIME: SandboxRuntimeId =
-  (process.env.SANDBOX_RUNTIME as SandboxRuntimeId) || "docker";
+  (envConfig().SANDBOX_RUNTIME as SandboxRuntimeId) || "docker";
 
 export function isValidRuntimeId(id: string): id is SandboxRuntimeId {
   return AVAILABLE_RUNTIMES.some((r) => r.id === id);

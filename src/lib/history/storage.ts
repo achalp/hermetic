@@ -6,6 +6,7 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
+import { envConfig } from "@/lib/harness-slot";
 
 const HISTORY_DIR = join(process.cwd(), "data", "history");
 
@@ -19,7 +20,7 @@ const HISTORY_DIR = join(process.cwd(), "data", "history");
 const DEFAULT_MAX_HISTORY_ENTRIES = 200;
 
 function maxHistoryEntries(): number {
-  const raw = Number(process.env.HERMETIC_MAX_HISTORY_ENTRIES);
+  const raw = Number(envConfig().HERMETIC_MAX_HISTORY_ENTRIES);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_HISTORY_ENTRIES;
 }
 

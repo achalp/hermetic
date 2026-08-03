@@ -18,6 +18,7 @@ import {
 } from "@/lib/llm/local-transport";
 import { claudeCliFetch, isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { logger } from "@/lib/logger";
+import { envConfig } from "@/lib/harness-slot";
 
 /**
  * Custom fetch for Ollama: intercepts SDK requests (Responses API or
@@ -459,7 +460,7 @@ export function getActiveProvider(): LLMProviderId {
   }
 
   // Explicit LLM_PROVIDER env var (used as default before user picks in UI)
-  const explicit = process.env.LLM_PROVIDER;
+  const explicit = envConfig().LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase() as LLMProviderId;
     if (!validProviders.includes(normalized)) {
@@ -476,10 +477,10 @@ export function getActiveProvider(): LLMProviderId {
   if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
 
   // Auto-detect from credentials
-  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  if (process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return "bedrock";
-  if (process.env.GOOGLE_VERTEX_PROJECT) return "vertex";
-  if (process.env.OPENAI_BASE_URL) return "openai-compatible";
+  if (envConfig().ANTHROPIC_API_KEY) return "anthropic";
+  if (envConfig().AWS_ACCESS_KEY_ID || envConfig().AWS_PROFILE) return "bedrock";
+  if (envConfig().GOOGLE_VERTEX_PROJECT) return "vertex";
+  if (envConfig().OPENAI_BASE_URL) return "openai-compatible";
 
   // Last-resort fallback: no API credentials, but the `claude` CLI is installed
   // and authenticated with the user's own login. Checked last so a configured
@@ -500,7 +501,7 @@ export function getActiveProvider(): LLMProviderId {
 function createProviderClient(provider: LLMProviderId) {
   switch (provider) {
     case "anthropic":
-      return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      return createAnthropic({ apiKey: envConfig().ANTHROPIC_API_KEY });
     case "claude-cli": {
       const rc = getRuntimeConfig();
       // Dummy base URL — every request is intercepted by claudeCliFetch, which
@@ -514,17 +515,17 @@ function createProviderClient(provider: LLMProviderId) {
     }
     case "bedrock":
       return createAmazonBedrock({
-        region: process.env.AWS_REGION ?? "us-east-1",
+        region: envConfig().AWS_REGION ?? "us-east-1",
       });
     case "vertex":
       return createVertex({
-        project: process.env.GOOGLE_VERTEX_PROJECT,
-        location: process.env.GOOGLE_VERTEX_LOCATION ?? "us-east5",
+        project: envConfig().GOOGLE_VERTEX_PROJECT,
+        location: envConfig().GOOGLE_VERTEX_LOCATION ?? "us-east5",
       });
     case "openai-compatible":
       return createOpenAI({
-        baseURL: process.env.OPENAI_BASE_URL,
-        apiKey: process.env.OPENAI_API_KEY ?? "",
+        baseURL: envConfig().OPENAI_BASE_URL,
+        apiKey: envConfig().OPENAI_API_KEY ?? "",
       });
     case "mlx": {
       const rc = getRuntimeConfig();
@@ -720,7 +721,7 @@ export function getModel(internalModelId: string) {
 
   // OpenAI-compatible uses a single user-configured model for all calls
   if (provider === "openai-compatible") {
-    const model = process.env.OPENAI_MODEL;
+    const model = envConfig().OPENAI_MODEL;
     if (!model) {
       throw new Error("OPENAI_MODEL is required when using the openai-compatible provider.");
     }

@@ -24,6 +24,7 @@ luma.registerAdapters([webgl2Adapter]);
 // there is no overlay, and a session-wide console.error filter is the
 // riskiest of the layers (it drops ANY error mentioning the string, from any
 // code), so all three layers are dev-gated.
+// Client bundle: NODE_ENV is inlined at build time — envConfig() has no browser harness.
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
   // ResizeObserver is patched in "@/lib/patch-resize-observer" (imported first)
   // to swallow the benign luma.gl race at its source. The listeners below are a

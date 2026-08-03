@@ -6,6 +6,7 @@
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
+import { envConfig } from "@/lib/harness-slot";
 
 export interface EnvConfig {
   LLM_PROVIDER: LLMProviderId;
@@ -36,7 +37,7 @@ export function clearEnvConfigCache(): void {
  * but returns undefined instead of throwing when nothing is found).
  */
 function detectProvider(): LLMProviderId | undefined {
-  const explicit = process.env.LLM_PROVIDER;
+  const explicit = envConfig().LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase();
     if (
@@ -62,10 +63,10 @@ function detectProvider(): LLMProviderId | undefined {
   if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
   if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
 
-  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  if (process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return "bedrock";
-  if (process.env.GOOGLE_VERTEX_PROJECT) return "vertex";
-  if (process.env.OPENAI_BASE_URL) return "openai-compatible";
+  if (envConfig().ANTHROPIC_API_KEY) return "anthropic";
+  if (envConfig().AWS_ACCESS_KEY_ID || envConfig().AWS_PROFILE) return "bedrock";
+  if (envConfig().GOOGLE_VERTEX_PROJECT) return "vertex";
+  if (envConfig().OPENAI_BASE_URL) return "openai-compatible";
 
   // Last-resort fallback (mirrors client.ts getActiveProvider): the `claude` CLI
   // is installed and authenticated with the user's own login.
@@ -78,7 +79,7 @@ export function validateEnv(): EnvConfig {
   if (cachedConfig) return cachedConfig;
 
   // --- LLM provider validation ---
-  const explicitProvider = process.env.LLM_PROVIDER;
+  const explicitProvider = envConfig().LLM_PROVIDER;
   if (
     explicitProvider &&
     ![
@@ -110,7 +111,7 @@ export function validateEnv(): EnvConfig {
   }
 
   // Validate provider-specific credentials
-  if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+  if (provider === "anthropic" && !envConfig().ANTHROPIC_API_KEY) {
     throw new EnvError(
       "ANTHROPIC_API_KEY is required when using the Anthropic provider. " +
         "Get one at https://console.anthropic.com/settings/keys"
@@ -129,7 +130,7 @@ export function validateEnv(): EnvConfig {
   }
 
   if (provider === "bedrock") {
-    if (!process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_PROFILE) {
+    if (!envConfig().AWS_ACCESS_KEY_ID && !envConfig().AWS_PROFILE) {
       throw new EnvError(
         "AWS credentials are required when using the Bedrock provider. " +
           "Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or AWS_PROFILE."
@@ -138,19 +139,19 @@ export function validateEnv(): EnvConfig {
   }
 
   if (provider === "vertex") {
-    if (!process.env.GOOGLE_VERTEX_PROJECT) {
+    if (!envConfig().GOOGLE_VERTEX_PROJECT) {
       throw new EnvError("GOOGLE_VERTEX_PROJECT is required when using the Vertex AI provider.");
     }
   }
 
   if (provider === "openai-compatible") {
-    if (!process.env.OPENAI_BASE_URL) {
+    if (!envConfig().OPENAI_BASE_URL) {
       throw new EnvError(
         "OPENAI_BASE_URL is required when using the openai-compatible provider. " +
           "Example: http://localhost:11434/v1 (Ollama)"
       );
     }
-    if (!process.env.OPENAI_MODEL) {
+    if (!envConfig().OPENAI_MODEL) {
       throw new EnvError(
         "OPENAI_MODEL is required when using the openai-compatible provider. " +
           "Example: llama3.3, gpt-4o, mistral"
@@ -159,19 +160,19 @@ export function validateEnv(): EnvConfig {
   }
 
   // --- Sandbox runtime validation ---
-  const runtime = (process.env.SANDBOX_RUNTIME || "docker") as EnvConfig["SANDBOX_RUNTIME"];
+  const runtime = (envConfig().SANDBOX_RUNTIME || "docker") as EnvConfig["SANDBOX_RUNTIME"];
   if (!["docker", "e2b", "microsandbox"].includes(runtime)) {
     throw new EnvError(
       `Invalid SANDBOX_RUNTIME "${runtime}". Must be one of: docker, e2b, microsandbox`
     );
   }
 
-  if (runtime === "e2b" && !process.env.E2B_API_KEY) {
+  if (runtime === "e2b" && !envConfig().E2B_API_KEY) {
     throw new EnvError("E2B_API_KEY is required when SANDBOX_RUNTIME=e2b");
   }
 
   if (runtime === "microsandbox") {
-    if (!process.env.MICROSANDBOX_URL) {
+    if (!envConfig().MICROSANDBOX_URL) {
       throw new EnvError("MICROSANDBOX_URL is required when SANDBOX_RUNTIME=microsandbox");
     }
   }
@@ -179,23 +180,15 @@ export function validateEnv(): EnvConfig {
   cachedConfig = {
     LLM_PROVIDER: provider,
     SANDBOX_RUNTIME: runtime,
-    E2B_API_KEY: process.env.E2B_API_KEY,
-    MICROSANDBOX_URL: process.env.MICROSANDBOX_URL,
-    MICROSANDBOX_API_KEY: process.env.MICROSANDBOX_API_KEY,
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
-    OPENAI_MODEL: process.env.OPENAI_MODEL,
+    E2B_API_KEY: envConfig().E2B_API_KEY,
+    MICROSANDBOX_URL: envConfig().MICROSANDBOX_URL,
+    MICROSANDBOX_API_KEY: envConfig().MICROSANDBOX_API_KEY,
+    OPENAI_BASE_URL: envConfig().OPENAI_BASE_URL,
+    OPENAI_MODEL: envConfig().OPENAI_MODEL,
   };
 
   return cachedConfig;
 }
 
-/** Validate env on first import (server-side only) */
-if (typeof window === "undefined") {
-  try {
-    validateEnv();
-  } catch (e) {
-    if (e instanceof EnvError) {
-      console.error(`[config] ${e.message}`);
-    }
-  }
-}
+// Env validation runs as an explicit harness boot step
+// (instrumentation-node installBootConfig) — no import side effects here.

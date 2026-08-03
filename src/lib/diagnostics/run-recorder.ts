@@ -2,6 +2,7 @@ import { mkdir, writeFile, appendFile, readdir, stat, rm } from "fs/promises";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
+import { envConfig } from "@/lib/harness-slot";
 
 /**
  * Incremental, best-effort forensic trail for a run.
@@ -25,7 +26,7 @@ const DEFAULT_MAX_RUNS = 200;
 const MAX_ARTIFACT_BYTES = 512 * 1024;
 
 function maxRuns(): number {
-  const raw = Number(process.env.HERMETIC_MAX_RUN_RECORDS);
+  const raw = Number(envConfig().HERMETIC_MAX_RUN_RECORDS);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_RUNS;
 }
 

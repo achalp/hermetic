@@ -101,6 +101,20 @@ export async function raiseServerTimeouts(): Promise<void> {
  * touches process.env (ratchet-enforced). Lives here (not instrumentation.ts)
  * because node:path must stay out of the Edge bundle.
  */
+export async function installBootConfig(): Promise<void> {
+  const { installEnvConfig } = await import("./harness/env-config");
+  installEnvConfig("snapshot");
+  // Env validation is an explicit boot step, not an import side effect
+  // (previously ran at config.ts module load — modularization M2-B1).
+  const { validateEnv, EnvError } = await import("./lib/config");
+  try {
+    validateEnv();
+  } catch (e) {
+    if (e instanceof EnvError) console.error(`[config] ${e.message}`);
+    else throw e;
+  }
+}
+
 export async function configureLLMReplayFromEnv(): Promise<void> {
   const mode = process.env.HERMETIC_LLM_MODE;
   if (mode !== "record" && mode !== "replay") return;

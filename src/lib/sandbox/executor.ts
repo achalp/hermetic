@@ -3,6 +3,7 @@ import type { ExecutionResult } from "@/lib/contracts/execution";
 import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { parseSandboxOutput } from "./parse-output";
+import { envConfig } from "@/lib/harness-slot";
 
 export async function executeSandbox(
   csvContent: string,
@@ -15,7 +16,7 @@ export async function executeSandbox(
 
   try {
     sandbox = await Sandbox.create({
-      apiKey: process.env.E2B_API_KEY,
+      apiKey: envConfig().E2B_API_KEY,
       timeoutMs: SANDBOX_TIMEOUT_MS + 10_000, // extra buffer for sandbox setup
     });
 

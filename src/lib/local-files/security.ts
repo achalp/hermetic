@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { resolve, sep, delimiter } from "node:path";
 import { ALLOWED_LOCAL_EXTENSIONS } from "@/lib/constants";
+import { envConfig } from "@/lib/harness-slot";
 
 /**
  * Check if a filename is a dotfile / hidden file.
@@ -23,7 +24,7 @@ export function isAllowedExtension(name: string): boolean {
  * external volume). Read lazily so tests can vary the env.
  */
 export function allowedLocalRoots(): string[] {
-  const extra = (process.env.HERMETIC_LOCAL_FILE_ROOTS ?? "")
+  const extra = (envConfig().HERMETIC_LOCAL_FILE_ROOTS ?? "")
     .split(delimiter)
     .map((p) => p.trim())
     .filter(Boolean)
