@@ -72,6 +72,7 @@ import {
   isValidModelId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
+import { setActiveSandboxRuntime } from "@/lib/api";
 
 /** Compact row count for a recent-source subtitle: 2547927232 → "2.5B". */
 function fmtRowCount(n: number): string {
@@ -347,11 +348,7 @@ export default function Home() {
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
     setSandboxRuntime(r);
     localStorage.setItem(STORAGE_KEYS.sandboxRuntime, r);
-    fetch("/api/runtimes", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sandboxRuntime: r }),
-    }).catch(() => {});
+    setActiveSandboxRuntime(r).catch(() => {});
   }, []);
 
   // Persist the model choices to localStorage so they survive a restart (the

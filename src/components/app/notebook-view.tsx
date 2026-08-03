@@ -33,7 +33,7 @@ import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
 import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
 import { downloadAsSlides } from "@/lib/slides-export";
 import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/lib/export-utils";
-import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
+import { rerunInvestigateStep, saveNotebookLayout, composeNotebookCells } from "@/lib/api";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { TraceStep, TraceDecision, NotebookLayoutCell } from "@/lib/contracts/investigation";
 import { SpecView } from "@/components/spec-view";
@@ -829,34 +829,28 @@ export function NotebookView({
     need.forEach((c) => lazyFetchedRef.current.add(c.index));
     (async () => {
       try {
-        const res = await fetch("/api/query/investigate/compose-cell", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            original_question: originalQuestion,
-            approach,
-            // So the server can persist the composed cells back onto the trail
-            // (cache + history) — a reopened notebook then renders them without
-            // recomposing.
-            csv_id: csvId,
-            steps: need.map((c) => ({
-              index: c.index,
-              stepNo: c.stepNo,
-              question: c.question,
-              rationale: c.rationale ?? "",
-              results: c.trace?.results ?? {},
-              chart_data: c.trace?.chart_data ?? {},
-              degraded: c.status === "degraded",
-              degradedReason: c.degradedReason,
-            })),
-          }),
+        const cells = await composeNotebookCells({
+          original_question: originalQuestion,
+          approach,
+          // So the server can persist the composed cells back onto the trail
+          // (cache + history) — a reopened notebook then renders them without
+          // recomposing.
+          csv_id: csvId,
+          steps: need.map((c) => ({
+            index: c.index,
+            stepNo: c.stepNo,
+            question: c.question,
+            rationale: c.rationale ?? "",
+            results: c.trace?.results ?? {},
+            chart_data: c.trace?.chart_data ?? {},
+            degraded: c.status === "degraded",
+            degradedReason: c.degradedReason,
+          })),
         });
-        if (!res.ok) return;
-        const data = (await res.json()) as { cells?: Record<string, Spec> };
-        if (!mountedRef.current || !data.cells) return;
+        if (!mountedRef.current || Object.keys(cells).length === 0) return;
         setLazyCells((prev) => {
           const next = new Map(prev);
-          for (const [k, v] of Object.entries(data.cells!)) next.set(Number(k), v);
+          for (const [k, v] of Object.entries(cells)) next.set(Number(k), v);
           return next;
         });
       } catch {

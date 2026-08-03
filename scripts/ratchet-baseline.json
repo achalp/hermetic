@@ -3,9 +3,9 @@
   "lib-process-cwd": 3,
   "lib-globalthis-stores": 4,
   "server-only-imports": 0,
-  "app-raw-fetch": 24,
-  "api-boundary-casts": 16,
-  "json-render-imports": 37,
+  "app-raw-fetch": 12,
+  "api-boundary-casts": 7,
+  "json-render-imports": 36,
   "untyped-stream-state-reads": 0,
   "boundary-lint-suppressions": 0
 }

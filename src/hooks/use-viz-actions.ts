@@ -70,7 +70,7 @@ export function useVizActions(args: {
         dispatch({
           type: "LOAD_VIZ_SUCCESS",
           question: data.meta.question,
-          spec: data.spec as unknown as Spec,
+          spec: data.spec,
           artifacts: data.artifacts ?? null,
           vizId,
         });
@@ -97,11 +97,11 @@ export function useVizActions(args: {
       dispatch({ type: "RERUN_START" });
       try {
         const result = await rerunViz(vizId, file, sandboxRuntime);
-        if (result.schemaMatch) {
+        if (result.schemaMatch && result.spec) {
           handleUpload(result.csvId, result.schema);
           dispatch({
             type: "RERUN_FAST_SUCCESS",
-            spec: result.spec as unknown as Spec,
+            spec: result.spec,
             artifacts: result.artifacts ?? null,
             vizId,
           });
@@ -137,7 +137,7 @@ export function useVizActions(args: {
         // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
         dispatch({
           type: "RERUN_FAST_SUCCESS",
-          spec: result.spec as unknown as Spec,
+          spec: result.spec,
           artifacts: result.artifacts ?? null,
           vizId,
         });

@@ -56,6 +56,60 @@ export async function getRuntimes(signal?: AbortSignal): Promise<RuntimeStatus[]
   return json<RuntimeStatus[]>(res);
 }
 
+/** Persist the server-side active sandbox runtime selection. Best-effort. */
+export async function setActiveSandboxRuntime(sandboxRuntime: string): Promise<void> {
+  await fetch("/api/runtimes", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sandboxRuntime }),
+  });
+}
+
+/** Switch the active LLM provider (Settings). */
+export async function setActiveProvider(
+  provider: string
+): Promise<{ active: string; activeLabel: string }> {
+  const res = await fetch("/api/providers", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider }),
+  });
+  return json<{ active: string; activeLabel: string }>(res);
+}
+
+// ── Notebook lazy cell compose ─────────────────────────────
+
+export interface ComposeCellStep {
+  index: number;
+  stepNo: number;
+  question: string;
+  rationale: string;
+  results: Record<string, unknown>;
+  chart_data: Record<string, unknown>;
+  degraded: boolean;
+  degradedReason?: string;
+}
+
+/** Compose notebook cells lazily on Notebook-open (investigate route). */
+export async function composeNotebookCells(
+  body: {
+    original_question: string;
+    approach?: string;
+    csv_id?: string | null;
+    steps: ComposeCellStep[];
+  },
+  signal?: AbortSignal
+): Promise<Record<string, Spec>> {
+  const res = await fetch("/api/query/investigate/compose-cell", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const data = await json<{ cells?: Record<string, Spec> }>(res);
+  return data.cells ?? {};
+}
+
 // ── Upload ─────────────────────────────────────────────────────
 
 export interface UploadResult {
@@ -111,7 +165,7 @@ export interface LoadedVizWorkbook {
 
 export interface LoadedViz {
   meta: SavedVizMeta;
-  spec: Record<string, unknown>;
+  spec: Spec;
   csvId: string;
   schema: CSVSchema;
   artifacts?: CachedArtifacts;
@@ -153,7 +207,7 @@ export async function saveViz(
 
 export interface RerunResult {
   schemaMatch: boolean;
-  spec?: Record<string, unknown>;
+  spec?: Spec;
   artifacts?: CachedArtifacts;
   meta?: SavedVizMeta;
   csvId: string;
@@ -180,7 +234,7 @@ export async function rerunViz(
 // ── Refresh (re-run without LLM) ─────────────────────────────
 
 export interface RefreshResult {
-  spec: Record<string, unknown>;
+  spec: Spec;
   artifacts: CachedArtifacts;
   csvId: string;
   schema: CSVSchema;
@@ -347,9 +401,9 @@ export async function getCostRows(signal?: AbortSignal): Promise<Record<string, 
 
 export interface LoadedHistory {
   meta: HistoryMeta;
-  spec: Record<string, unknown>;
+  spec: Spec;
   artifacts?: Record<string, unknown>;
-  schema: Record<string, unknown>;
+  schema: CSVSchema;
   csvId?: string;
 }
 

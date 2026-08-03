@@ -28,7 +28,7 @@ import {
   summarizeAnalysisResults,
 } from "@/lib/suggest-questions";
 import { extractSpecComponentTypes } from "@/lib/spec-summary";
-import { getArtifacts, getFollowUpSuggestions } from "@/lib/api";
+import { getArtifacts, getFollowUpSuggestions, getSuggestions } from "@/lib/api";
 
 export function useSuggestions(args: {
   schema: CSVSchema | null;
@@ -106,17 +106,11 @@ export function useSuggestions(args: {
       setLlmFailed(true);
     }, 8000);
 
-    fetch("/api/suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(suggestBody),
-      signal: controller.signal,
-    })
-      .then((res) => res.json())
-      .then((data) => {
+    getSuggestions(suggestBody, controller.signal)
+      .then((questions) => {
         clearTimeout(timeout);
-        if (!controller.signal.aborted && data.questions?.length) {
-          setLlmSuggestions(data.questions);
+        if (!controller.signal.aborted && questions.length) {
+          setLlmSuggestions(questions);
         } else {
           setLlmFailed(true);
         }
