@@ -1,6 +1,5 @@
 "use client";
 
-import { useUIStream } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { SpecView } from "@/components/spec-view";
@@ -27,6 +26,7 @@ import {
   type DrillLevel,
 } from "@/components/app/spec-insights";
 import { ViewModeToggle } from "@/components/app/view-mode-toggle";
+import { useAnalysisStream } from "@/hooks/use-analysis-stream";
 import {
   PipelineProgress,
   InvestigateProgress,
@@ -162,83 +162,50 @@ export function ResponsePanel({
   // True once any step has been re-run from the notebook: the composed
   // dashboard still reflects the ORIGINAL run (v1 does not recompose it).
   const [dashboardStale, setDashboardStale] = useState(false);
-  const currentSpecRef = useRef<Spec | null>(null);
-  const currentQuestionRef = useRef<string | null>(question);
-  // Conversation history is now managed server-side via the conversation cache.
-  const [previousSpec, setPreviousSpec] = useState<Spec | null>(null);
-  const lastSeqRef = useRef(0);
-  // True while the in-flight stream is a REATTACH (replay of a run that survived
-  // a client drop) rather than a fresh analysis. A reattach that ends without a
-  // dashboard (run was stopped / channel raced closed / buffer incomplete) must
-  // NOT leave a blank page — it re-runs fresh via onReattachFailed.
-  const isReattachStreamRef = useRef(false);
-
-  // Route the next stream to the right pipeline. The hook reads `api` per
-  // call inside its useCallback, so toggling here before a new questionSeq
-  // is enough — no remount required.
-  // Reattaching to a live run streams from the attach endpoint (replay + live);
-  // otherwise a fresh question hits the normal pipeline.
-  const apiUrl = reattachRunId
-    ? "/api/query/attach"
-    : mode === "investigate"
-      ? "/api/query/investigate"
-      : "/api/query";
-
-  // Diagnostics for the mid-stream abort: useUIStream aborts its fetch when this
-  // panel unmounts, so a long query dies if anything tears the panel down. Track
-  // when a stream is live so onError + the unmount cleanup can report it.
-  const streamStartedAtRef = useRef<number | null>(null);
-  const streamingRef = useRef(false);
-
-  const { spec, isStreaming, error, send, clear } = useUIStream({
-    api: apiUrl,
-    onComplete: (completedSpec) => {
-      // A reattach that replayed to the end but produced no dashboard means the
-      // run was stopped / its channel raced closed / its buffer was incomplete.
-      // Replaying it would blank the page (no root → no dashboard; stream ended
-      // → no progress), so re-run the question fresh instead.
-      if (isReattachStreamRef.current) {
-        isReattachStreamRef.current = false;
-        if (!completedSpec?.root) {
-          onStreamEnd?.(); // let the parent clear reattachRunId
-          onReattachFailed?.();
-          return;
-        }
-      }
-      currentSpecRef.current = completedSpec;
-      setPreviousSpec(null);
-      onStreamEnd?.();
-      const cost = readStreamState(completedSpec).__cost;
-      if (cost) onCost?.(cost);
-      if (completedSpec?.root && currentQuestionRef.current) {
-        onAnalysisComplete?.({
-          question: currentQuestionRef.current,
-          spec: JSON.parse(JSON.stringify(completedSpec)),
-        });
-      }
+  // Stream lifecycle extracted to useAnalysisStream (M5-5d): endpoint
+  // selection, request building, the seq latch, StrictMode-safe reattach,
+  // and the stream's three spec holders live in the hook — the panel keeps
+  // presentation/restore state and supplies reset + completion callbacks.
+  const {
+    spec,
+    isStreaming,
+    error,
+    send,
+    clear,
+    previousSpec,
+    setPreviousSpec,
+    currentSpecRef,
+    currentQuestionRef,
+  } = useAnalysisStream({
+    mode,
+    questionSeq,
+    question,
+    csvId,
+    warehouseId,
+    reattachRunId,
+    schemaMode,
+    codeGenModel,
+    uiComposeModel,
+    sandboxRuntime,
+    purpose,
+    rerunCode,
+    rerunSql,
+    // Only eager-compose notebook cells if the user is already in Notebook
+    // view; otherwise they're composed lazily on Notebook-open.
+    composeCells: viewMode === "notebook",
+    onStreamStarting: () => {
+      // Reset drill stack and stale artifacts/flags on a new question.
+      setDrillStack([]);
+      setArtifacts(null);
+      setShowArtifacts(false);
+      setDashboardStale(false);
+      setRecomposeError(null);
+      setCitationTarget(null);
     },
-    onError: (err) => {
-      // Diagnostic: a mid-stream error is almost always an abort from this panel
-      // unmounting (useUIStream aborts its fetch on unmount). Log it with elapsed
-      // time so we can correlate with what re-rendered/unmounted the panel.
-      const elapsed = streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null;
-      logClient("warn", "[ResponsePanel] stream error", {
-        elapsedMs: elapsed,
-        name: (err as { name?: string })?.name,
-        message: (err as { message?: string })?.message,
-      });
-      setPreviousSpec(null);
-      onStreamEnd?.();
-      // A reattach that errored (e.g. the attach endpoint 404'd because the run
-      // ended) — recover by re-running fresh rather than stranding a blank page.
-      // But an AbortError is this panel unmounting (user navigated away), NOT a
-      // failed reattach — don't kick off a spurious background run in that case.
-      if (isReattachStreamRef.current) {
-        isReattachStreamRef.current = false;
-        const aborted = (err as { name?: string })?.name === "AbortError";
-        if (!aborted) onReattachFailed?.();
-      }
-    },
+    onCompleted: (completedSpec, q) => onAnalysisComplete?.({ question: q, spec: completedSpec }),
+    onCost,
+    onStreamEnd,
+    onReattachFailed,
   });
 
   // For warehouse queries, the csvId is generated server-side and emitted in the stream
@@ -251,90 +218,10 @@ export function ResponsePanel({
   // again. Only the inline-viewer visibility is panel-local UI state.
   const [showArtifacts, setShowArtifacts] = useState(false);
 
-  // Keep current question in sync
-  useEffect(() => {
-    currentQuestionRef.current = question;
-  }, [question]);
-
-  // Watch questionSeq changes to trigger initial queries and follow-ups
-  useEffect(() => {
-    if (questionSeq === 0 || questionSeq === lastSeqRef.current) return;
-    lastSeqRef.current = questionSeq;
-
-    if ((!csvId && !warehouseId) || !question) return;
-
-    // Capture the prior result's investigation plan BEFORE it's cleared below.
-    // A follow-up asked in Investigate mode on an Investigate result becomes a
-    // scoped sub-investigation: the planner sees what the parent already
-    // explored and goes deeper instead of repeating it (drill-as-sub-
-    // investigation). No scope on a first question or an Ask-mode follow-up.
-    const followUpScope =
-      mode === "investigate" ? buildInvestigateScope(currentSpecRef.current) : undefined;
-
-    // Show previous spec dimmed while streaming
-    if (currentSpecRef.current) {
-      setPreviousSpec(currentSpecRef.current);
-    }
-
-    // Reset drill stack and stale artifacts on follow-up
-    setDrillStack([]);
-    currentSpecRef.current = null;
-    setArtifacts(null);
-    setShowArtifacts(false);
-    setDashboardStale(false);
-    setRecomposeError(null);
-    setCitationTarget(null);
-
-    // Reattach is handled by its own effect (keyed on reattachRunId), NOT here.
-    // On resume the panel mounts with questionSeq already advanced, so a send in
-    // this effect would fire during the initial mount — where React StrictMode's
-    // dev mount→unmount→remount aborts the fetch (useUIStream aborts on unmount)
-    // and this effect's lastSeqRef guard then blocks the re-send on remount,
-    // stranding the attach stream (blank progress). See the reattach effect below.
-    if (reattachRunId) return;
-
-    // Conversation history is managed server-side (keyed by csvId)
-    isReattachStreamRef.current = false;
-    send("", {
-      csv_id: csvId ?? undefined,
-      warehouse_id: warehouseId ?? undefined,
-      question: question,
-      schema_mode: schemaMode,
-      code_gen_model: codeGenModel,
-      ui_compose_model: uiComposeModel,
-      sandbox_runtime: sandboxRuntime,
-      purpose,
-      // When set, the server uses these instead of generating fresh code/SQL.
-      // Used for Edit-and-Rerun: rebuild dashboard from edited Python and/or SQL.
-      code: rerunCode ?? undefined,
-      sql: rerunSql ?? undefined,
-      // Scoped follow-up on a prior Investigate (consumed by the investigate route).
-      scope: followUpScope,
-      // Only eager-compose notebook cells if the user is already in Notebook
-      // view; otherwise they're composed lazily on Notebook-open (saves N
-      // compose calls for the common Dashboard path). Investigate route only.
-      compose_cells: viewMode === "notebook",
-    } satisfies AnalysisRequestContext);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questionSeq]);
-
-  // Reattach to a run still executing server-side (replay so far, then live to
-  // completion). Kept in its OWN effect keyed on reattachRunId — deliberately
-  // NOT the questionSeq effect above — so it survives a remount. On resume the
-  // panel mounts with reattachRunId already set, so the attach send fires during
-  // the initial mount; React StrictMode (dev) then aborts that fetch on its
-  // simulated unmount. Because this effect re-runs on the remount (no lastSeqRef
-  // latch), useUIStream aborts the first fetch and the second one streams — the
-  // questionSeq effect's guard used to swallow that retry, leaving the panel
-  // stuck on the progressless seed ("Building visualization…"). Also correct in
-  // production, where the effect simply runs once.
-  useEffect(() => {
-    if (!reattachRunId) return;
-    isReattachStreamRef.current = true;
-    send("", { runId: reattachRunId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reattachRunId]);
+  // Diagnostics for the mid-stream abort: track when a stream is live so the
+  // unmount cleanup can report it (fed from the hook's isStreaming below).
+  const streamStartedAtRef = useRef<number | null>(null);
+  const streamingRef = useRef(false);
 
   // Drill-down handler — passed to <SpecView onDrillDown>; SpecView supplies
   // the clicked mark's dimension values from its per-instance click context
@@ -428,6 +315,8 @@ export function ResponsePanel({
       effectiveCsvId,
       warehouseId,
       send,
+      currentSpecRef,
+      currentQuestionRef,
       schemaMode,
       codeGenModel,
       uiComposeModel,
@@ -468,7 +357,7 @@ export function ResponsePanel({
     setDrillStack([]);
     currentSpecRef.current = null;
     setPreviousSpec(null);
-  }, [clear]);
+  }, [clear, currentSpecRef, setPreviousSpec]);
 
   // Restored spec for drill-back or loaded viz
   const [restoredSpec, setRestoredSpec] = useState<Spec | null>(null);
@@ -488,7 +377,14 @@ export function ResponsePanel({
       setRestoredSpec(null);
       currentSpecRef.current = null;
     }
-  }, [loadedSpec, loadedArtifacts, setArtifacts, setShowArtifacts]);
+  }, [
+    loadedSpec,
+    loadedArtifacts,
+    setArtifacts,
+    setShowArtifacts,
+    currentSpecRef,
+    setPreviousSpec,
+  ]);
 
   // Report effectiveCsvId to parent (needed for page-level artifacts panel)
   useEffect(() => {
@@ -505,7 +401,7 @@ export function ResponsePanel({
       clear();
       setRestoredSpec(targetLevel.spec);
     },
-    [drillStack, clear]
+    [drillStack, clear, currentSpecRef, currentQuestionRef]
   );
 
   // When a new stream starts, clear restored spec
@@ -564,7 +460,7 @@ export function ResponsePanel({
     } finally {
       setRecomposing(false);
     }
-  }, [effectiveCsvId]);
+  }, [effectiveCsvId, currentSpecRef]);
 
   // The notebook's code/data disclosures come from the audit trail in the
   // cached artifacts — fetch them quietly once the stream ends. Failure is
