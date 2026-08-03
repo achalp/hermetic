@@ -1,5 +1,5 @@
 import type { HermeticEnvConfig } from "@/lib/contracts/env-config";
-import type { LLMReplayConfig } from "@/lib/llm/replay";
+import type { LLMReplayConfig, HermeticPathRoots } from "@/lib/contracts/harness-boot";
 
 /**
  * The ONE globalThis slot through which the harness hands boot-resolved
@@ -14,7 +14,7 @@ import type { LLMReplayConfig } from "@/lib/llm/replay";
 export interface HarnessSlot {
   envConfig?: HermeticEnvConfig;
   /** On-disk layout roots (see lib/paths.ts). */
-  pathRoots?: import("@/lib/paths").HermeticPathRoots;
+  pathRoots?: HermeticPathRoots;
   llmReplay?: LLMReplayConfig | null;
   /** One-time warning flags (dev ergonomics, not state). */
   warnedNoEnvConfig?: boolean;

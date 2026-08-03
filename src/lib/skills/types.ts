@@ -55,21 +55,11 @@ export interface SkillHelperModule {
   content: string;
 }
 
-/** A phase-keyed remedy merged into the sandbox OOM-failure router. */
-export interface SkillFailureHint {
-  /** Case-insensitive regex source matched against the failing progress phase
-   *  ("" when a hard kill left no heartbeat — use pattern `^` to catch that). */
-  pattern: string;
-  /** Remedy text injected verbatim into the retry error message. */
-  hint: string;
-  /** Owning skill name — logged when the hint fires. */
-  skill: string;
-  /**
-   * Matched only for a BARE hard kill — never over a watchdog-predicted abort,
-   * whose own message carries the right guidance. For catch-all (`^`) hints.
-   */
-  fallback?: boolean;
-}
+// SkillFailureHint lives in contracts/execution (the sandbox failure-hint
+// seam) — contracts must not import from skills (exit audit F4). Re-exported
+// here so skill authors keep one import point.
+export type { SkillFailureHint } from "@/lib/contracts/execution";
+import type { SkillFailureHint } from "@/lib/contracts/execution";
 
 export interface SkillDefinition {
   /** Kebab-case unique id. User skills colliding with a built-in are rejected. */

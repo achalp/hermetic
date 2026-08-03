@@ -30,7 +30,7 @@ import { RangeSliderComponent } from "./inputs/range-slider";
 import { DataTableComponent } from "./data-table";
 import { DefinitionListComponent } from "./definition-list";
 import { PivotTableComponent } from "./pivot-table";
-import { RendererErrorBoundary } from "./app/renderer-error-boundary";
+import { RendererErrorBoundary } from "./renderer-error-boundary";
 import { memo } from "react";
 import type { ReactNode, ComponentType } from "react";
 

@@ -27,6 +27,7 @@
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "ratchet": "node scripts/ratchet.mjs",
+    "isolation": "node scripts/isolation-check.mjs",
     "golden:record": "node scripts/golden/run-journeys.mjs record",
     "golden:check": "node scripts/golden/run-journeys.mjs check",
     "format": "prettier --write .",

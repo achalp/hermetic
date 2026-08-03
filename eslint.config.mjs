@@ -101,6 +101,12 @@ const eslintConfig = defineConfig([
       "src/components/inputs/**/*.{ts,tsx}",
       "src/components/registry.tsx",
       "src/components/registry-primitives.tsx",
+      "src/components/spec-view.tsx",
+      "src/components/lazy-client.tsx",
+      "src/components/data-table.tsx",
+      "src/components/definition-list.tsx",
+      "src/components/pivot-table.tsx",
+      "src/components/renderer-error-boundary.tsx",
     ],
     ignores: ["src/components/charts/**/__tests__/**"],
     rules: {
@@ -117,6 +123,29 @@ const eslintConfig = defineConfig([
               group: ["next", "next/*"],
               message:
                 "the renderer must be framework-free; use React.lazy instead of next/dynamic (modularization WS7).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/spec/**/*.{ts,tsx}"],
+    ignores: ["src/spec/**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/app/*", "@/components/*", "@/hooks/*", "@/lib/*", "@/harness/*", "@/cli/*"],
+              message:
+                "the vendored spec fork is the bottom of the stack — it imports nothing of hermetic's (exit audit F4; Phase 2 ships it as @hermetic/spec).",
+            },
+            {
+              group: ["next", "next/*"],
+              message:
+                "the spec fork must be framework-free (exit audit F4).",
             },
           ],
         },

@@ -21,7 +21,7 @@
 import type { Spec } from "@/lib/contracts/spec";
 // Type-only re-export — erased at runtime; grounding.ts is a zero-import
 // pure module, so this adds no server dependency to client bundles.
-import type { GroundingReport } from "@/lib/pipeline/grounding";
+import type { GroundingReport } from "./grounding";
 
 export type { GroundingReport };
 

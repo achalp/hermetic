@@ -26,7 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Spec } from "@/spec/react";
 import { registry } from "@/components/registry";
 import { renderWithCitations } from "@/components/registry-primitives";
-import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
+import { RendererErrorBoundary } from "@/components/renderer-error-boundary";
 import { CodeEditor } from "@/components/app/code-editor";
 import { Markdown } from "@/components/app/markdown";
 import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";

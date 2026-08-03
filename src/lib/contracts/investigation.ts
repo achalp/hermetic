@@ -8,7 +8,7 @@
 
 import type { Spec } from "@/lib/contracts/spec";
 import type { FilterValue } from "@/lib/contracts/spec-types";
-import type { GroundingReport } from "@/lib/pipeline/grounding";
+import type { GroundingReport } from "./grounding";
 
 export type StepStatus = "success" | "degraded" | "failed" | "removed";
 

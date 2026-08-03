@@ -42,6 +42,9 @@ jobs:
       - name: Modularization ratchet
         run: pnpm run ratchet
 
+      - name: Package isolation check
+        run: pnpm run isolation
+
       - name: Format check
         run: pnpm run format:check
 

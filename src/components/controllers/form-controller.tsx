@@ -33,6 +33,26 @@ interface FormControllerComponentProps {
   children?: ReactNode;
 }
 
+/**
+ * The submit endpoint is LLM-AUTHORED (it arrives in the spec), so it must
+ * not be able to point a browser POST at an arbitrary origin or at
+ * non-/api/ routes. Resolve it as a relative URL and require it to stay
+ * same-origin under /api/ — URL resolution normalizes ../ segments and
+ * percent-encoding, so traversal cannot smuggle a path out. Returns the
+ * normalized path+query, or null if the endpoint is not allowed.
+ */
+export function safeFormEndpoint(endpoint: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(endpoint, "https://form.internal");
+  } catch {
+    return null;
+  }
+  if (url.origin !== "https://form.internal") return null; // absolute or protocol-relative
+  if (!url.pathname.startsWith("/api/")) return null;
+  return url.pathname + url.search;
+}
+
 function validateField(value: unknown, rules: ValidationRule[]): string | null {
   for (const rule of rules) {
     const strVal = value == null ? "" : String(value);
@@ -171,11 +191,21 @@ export function FormControllerComponent({ props, children }: FormControllerCompo
         payload[field.key] = store.get(field.bindTo);
       }
 
+      const endpoint = safeFormEndpoint(props.submit.endpoint);
+      if (!endpoint) {
+        if (props.submit.onErrorStatePath) {
+          store.set(props.submit.onErrorStatePath, {
+            error: `Form endpoint not allowed: ${props.submit.endpoint}`,
+          });
+        }
+        return;
+      }
+
       store.set("/form/_submitting", true);
       store.set("/form/_submitted", false);
 
       try {
-        const resp = await fetch(props.submit.endpoint, {
+        const resp = await fetch(endpoint, {
           method: props.submit.method ?? "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),

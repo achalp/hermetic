@@ -24,12 +24,10 @@ import { harnessSlot } from "@/lib/harness-slot";
  *     docker/sandbox/hermetic_runtime   (WS6 bundles this properly)
  */
 
-export interface HermeticPathRoots {
-  dataRoot: string;
-  scratchRoot: string;
-  userRoot: string;
-  assetRoot: string;
-}
+// HermeticPathRoots is owned by contracts/harness-boot (the slot must not
+// import this file); re-exported here for existing consumers.
+export type { HermeticPathRoots } from "@/lib/contracts/harness-boot";
+import type { HermeticPathRoots } from "@/lib/contracts/harness-boot";
 
 export function defaultPathRoots(): HermeticPathRoots {
   return {

@@ -53,7 +53,7 @@ import {
   type Spec,
 } from "@/spec/react";
 import { registry, registryActionHandlers } from "@/components/registry";
-import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
+import { RendererErrorBoundary } from "@/components/renderer-error-boundary";
 import { catalogComponents, validateSpec } from "@/lib/catalog";
 import { ALL_CATALOG_SAMPLES } from "@/lib/__tests__/fixtures/catalog-samples";
 import dataControllerSpec from "../../../test-specs/data-controller-test.json";

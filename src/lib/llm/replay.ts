@@ -22,13 +22,10 @@ import type { LanguageModelMiddleware } from "ai";
  *   failure instead of a silent output-quality change.
  */
 
-export type LLMReplayMode = "record" | "replay";
-
-export interface LLMReplayConfig {
-  mode: LLMReplayMode;
-  /** Absolute path to the fixture directory (resolved by the harness). */
-  dir: string;
-}
+// Config types are owned by contracts/harness-boot (the slot must not import
+// this file); re-exported here for existing consumers.
+export type { LLMReplayMode, LLMReplayConfig } from "@/lib/contracts/harness-boot";
+import type { LLMReplayConfig } from "@/lib/contracts/harness-boot";
 
 // Config crosses Next dev's separate module graphs via the shared harness
 // slot (see lib/harness-slot.ts — the M0-0a lesson).

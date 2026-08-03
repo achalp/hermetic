@@ -11,7 +11,7 @@ import {
   makeRegistryActionHandlers,
 } from "@/components/registry";
 import { CitationsContext } from "@/components/registry-primitives";
-import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
+import { RendererErrorBoundary } from "@/components/renderer-error-boundary";
 import {
   DrillClickContext,
   DrillDownDispatchContext,

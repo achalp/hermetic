@@ -68,8 +68,23 @@ export interface SandboxProgress {
   [k: string]: unknown;
 }
 
-/** Phase-keyed failure remedies contributed by active skills (skills/types). */
-export type SkillFailureHint = import("@/lib/skills/types").SkillFailureHint;
+/** A phase-keyed remedy merged into the sandbox OOM-failure router.
+ *  Owned here (not skills/types, which re-exports it): it is part of the
+ *  sandbox execution seam, and contracts imports nothing above it. */
+export interface SkillFailureHint {
+  /** Case-insensitive regex source matched against the failing progress phase
+   *  ("" when a hard kill left no heartbeat — use pattern `^` to catch that). */
+  pattern: string;
+  /** Remedy text injected verbatim into the retry error message. */
+  hint: string;
+  /** Owning skill name — logged when the hint fires. */
+  skill: string;
+  /**
+   * Matched only for a BARE hard kill — never over a watchdog-predicted abort,
+   * whose own message carries the right guidance. For catch-all (`^`) hints.
+   */
+  fallback?: boolean;
+}
 
 /**
  * Everything the ORCHESTRATION layer supplies to a sandbox execution
