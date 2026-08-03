@@ -13,7 +13,7 @@ import MapGL, {
 import "maplibre-gl/dist/maplibre-gl.css";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
-import { drillClickValueRef } from "@/lib/drill-down-context";
+import { useDrillClickRef } from "@/lib/drill-down-context";
 import { featureClickRecord } from "@/lib/drill-resolve";
 
 interface MarkerItem {
@@ -219,6 +219,7 @@ export function MapViewComponent({
   emit?: (event: string) => void;
   on?: (event: string) => EventHandle;
 }) {
+  const drillClickValueRef = useDrillClickRef();
   const clickHandle = on?.("click");
   const isDrillable = clickHandle?.bound ?? false;
   const chartColors = useChartColors();

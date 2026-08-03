@@ -12,7 +12,7 @@ import {
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
-import { drillClickValueRef } from "@/lib/drill-down-context";
+import { useDrillClickRef } from "@/lib/drill-down-context";
 import { CLICK_PRIMARY } from "@/lib/drill-resolve";
 import { ChartEmptyState } from "./chart-empty-state";
 import { ChartShell } from "./chart-shell";
@@ -47,6 +47,7 @@ export function BarChartComponent({
   selectedValues?: string[];
   onSelect?: (value: string) => void;
 }) {
+  const drillClickValueRef = useDrillClickRef();
   const isSelectable = !!onSelect;
   const clickHandle = on?.("click");
   const isDrillable = !isSelectable && (clickHandle?.bound ?? false);

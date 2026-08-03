@@ -23,7 +23,6 @@ import {
   type GroundingReport,
 } from "@/lib/contracts/stream-state";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Renderer, StateProvider, ActionProvider, VisibilityProvider } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { registry } from "@/components/registry";
 import { renderWithCitations } from "@/components/registry-primitives";
@@ -37,6 +36,7 @@ import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/
 import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { TraceStep, TraceDecision, NotebookLayoutCell } from "@/lib/contracts/investigation";
+import { SpecView } from "@/components/spec-view";
 
 type CellStatus = "pending" | "running" | "done" | "degraded" | "failed" | "removed";
 
@@ -187,17 +187,7 @@ function Disclosure({
 }
 
 function CellOutput({ cellSpec }: { cellSpec: Spec }) {
-  return (
-    <StateProvider initialState={cellSpec.state ?? {}}>
-      <ActionProvider>
-        <VisibilityProvider>
-          <RendererErrorBoundary>
-            <Renderer spec={cellSpec} registry={registry} />
-          </RendererErrorBoundary>
-        </VisibilityProvider>
-      </ActionProvider>
-    </StateProvider>
-  );
+  return <SpecView spec={cellSpec} />;
 }
 
 function NotebookCell({

@@ -17,8 +17,7 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { ActionProvider, StateProvider, useActions } from "@json-render/react";
-import { registryActionHandlers } from "@/components/registry";
-import { drillDownCallbackRef } from "@/lib/drill-down-context";
+import { registryActionHandlers, makeRegistryActionHandlers } from "@/components/registry";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
 // The on.click binding the investigate composer emits for a region bar chart:
@@ -47,12 +46,8 @@ function Dispatcher() {
   );
 }
 
-beforeEach(() => {
-  drillDownCallbackRef.current = null;
-});
 afterEach(() => {
   cleanup();
-  drillDownCallbackRef.current = null;
 });
 
 describe("chart drill-down action dispatch", () => {
@@ -60,13 +55,11 @@ describe("chart drill-down action dispatch", () => {
     expect(typeof registryActionHandlers.drillDown).toBe("function");
   });
 
-  it("dispatching drillDown reaches drillDownCallbackRef when handlers are registered", async () => {
+  it("dispatching drillDown reaches the wired dispatch (makeRegistryActionHandlers)", async () => {
     const received: DrillDownParams[] = [];
-    drillDownCallbackRef.current = (p) => received.push(p);
-
     render(
       <StateProvider initialState={{}}>
-        <ActionProvider handlers={registryActionHandlers}>
+        <ActionProvider handlers={makeRegistryActionHandlers((p) => received.push(p))}>
           <Dispatcher />
         </ActionProvider>
       </StateProvider>
@@ -80,8 +73,7 @@ describe("chart drill-down action dispatch", () => {
 
   it("does NOT reach the callback with a bare ActionProvider (the original bug)", async () => {
     const received: DrillDownParams[] = [];
-    drillDownCallbackRef.current = (p) => received.push(p);
-
+    void received;
     render(
       <StateProvider initialState={{}}>
         <ActionProvider>
@@ -93,5 +85,37 @@ describe("chart drill-down action dispatch", () => {
     await userEvent.click(screen.getByTestId("go"));
 
     expect(received.length).toBe(0);
+  });
+});
+
+// M5-5b regression: with the old module-level drillDownCallbackRef, a second
+// mounted panel overwrote the first's callback (and unmount nulled it for
+// both). Two SpecView-wired handler sets must route independently.
+describe("two mounted panels (M5-5b)", () => {
+  it("each panel's dispatch receives only its own drills", async () => {
+    const a: DrillDownParams[] = [];
+    const b: DrillDownParams[] = [];
+    render(
+      <>
+        <StateProvider initialState={{}}>
+          <ActionProvider handlers={makeRegistryActionHandlers((p) => a.push(p))}>
+            <Dispatcher />
+          </ActionProvider>
+        </StateProvider>
+        <StateProvider initialState={{}}>
+          <ActionProvider handlers={makeRegistryActionHandlers((p) => b.push(p))}>
+            <Dispatcher />
+          </ActionProvider>
+        </StateProvider>
+      </>
+    );
+    const buttons = screen.getAllByTestId("go");
+    expect(buttons).toHaveLength(2);
+    await userEvent.click(buttons[0]);
+    await waitFor(() => expect(a.length).toBe(1));
+    expect(b.length).toBe(0);
+    await userEvent.click(buttons[1]);
+    await waitFor(() => expect(b.length).toBe(1));
+    expect(a.length).toBe(1);
   });
 });

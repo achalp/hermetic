@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Renderer, StateProvider, ActionProvider, VisibilityProvider } from "@json-render/react";
 import type { Spec } from "@json-render/react";
-import { registry } from "@/components/registry";
 import dataControllerSpec from "../../../test-specs/data-controller-test.json";
 import formControllerSpec from "../../../test-specs/form-controller-test.json";
 import newChartsSmokeSpec from "../../../test-specs/new-charts-smoke.json";
+import { SpecView } from "@/components/spec-view";
 
 const specs: Record<string, Spec> = {
   "data-controller": dataControllerSpec as unknown as Spec,
@@ -37,13 +36,7 @@ export default function TestSpecPage() {
         ))}
       </div>
       <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">
-        <StateProvider initialState={spec.state ?? {}}>
-          <ActionProvider>
-            <VisibilityProvider>
-              <Renderer spec={spec} registry={registry} />
-            </VisibilityProvider>
-          </ActionProvider>
-        </StateProvider>
+        <SpecView spec={spec} />
       </div>
     </div>
   );

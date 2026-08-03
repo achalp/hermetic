@@ -9,11 +9,10 @@ import {
 } from "@json-render/react";
 import type { Spec } from "@json-render/react";
 import { STORAGE_KEYS } from "@/lib/constants";
-import { registry, registryActionHandlers } from "@/components/registry";
+import { SpecView } from "@/components/spec-view";
 import { CitationsContext, CitationNavigateContext } from "@/components/registry-primitives";
-import { drillDownCallbackRef, drillClickValueRef } from "@/lib/drill-down-context";
 import { logClient } from "@/lib/client-log";
-import { resolveDrillValues, formatFilterValue } from "@/lib/drill-resolve";
+import { resolveDrillValues, formatFilterValue, type ClickedRecord } from "@/lib/drill-resolve";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams, FilterValue } from "@/lib/contracts/spec-types";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
@@ -410,18 +409,19 @@ export function ResponsePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reattachRunId]);
 
-  // Set up drill-down callback ref
-  useEffect(() => {
-    drillDownCallbackRef.current = (params: DrillDownParams) => {
+  // Drill-down handler — passed to <SpecView onDrillDown>; SpecView supplies
+  // the clicked mark's dimension values from its per-instance click context
+  // (M5-5b: this replaced the two module-level refs that limited the app to
+  // one mounted panel).
+  const handleDrillDown = useCallback(
+    (params: DrillDownParams, clicked: ClickedRecord) => {
       // Use effectiveCsvId (csvId ?? warehouseCsvId) so warehouse-sourced
       // investigations can drill too — the raw csvId is null for those.
       if (!currentSpecRef.current || (!effectiveCsvId && !warehouseId)) return;
 
       // Charts aren't json-render list/repeater contexts, so the composer's
       // {"$item": ...} drill bindings arrive unresolved. Resolve them against
-      // the dimension values the chart captured on click (drillClickValueRef).
-      const clicked = drillClickValueRef.current;
-      drillClickValueRef.current = null;
+      // the dimension values the chart captured on click.
       const resolved = resolveDrillValues(params, clicked);
       // Value-less click on a bound chart, or a binding with nothing captured
       // — nothing meaningful to drill into.
@@ -493,28 +493,22 @@ export function ResponsePanel({
         sandbox_runtime: sandboxRuntime,
         purpose,
       } satisfies AnalysisRequestContext);
-    };
-
-    return () => {
-      drillDownCallbackRef.current = null;
-    };
-    // The effect is a cheap ref reassignment, so the full dep list is fine.
-    // It previously listed only [effectiveCsvId, warehouseId, send] behind an
-    // exhaustive-deps disable while the callback SENT schemaMode / models /
-    // runtime / purpose / viewMode — so changing a setting after mount made
-    // subsequent drill-downs silently use the stale values until the csvId
-    // happened to change.
-  }, [
-    effectiveCsvId,
-    warehouseId,
-    send,
-    schemaMode,
-    codeGenModel,
-    uiComposeModel,
-    sandboxRuntime,
-    purpose,
-    viewMode,
-  ]);
+    },
+    // Full dep list: the callback SENDS schemaMode / models / runtime /
+    // purpose / viewMode — the old ref-assignment effect once listed only
+    // three deps behind a disable, so changed settings drilled stale.
+    [
+      effectiveCsvId,
+      warehouseId,
+      send,
+      schemaMode,
+      codeGenModel,
+      uiComposeModel,
+      sandboxRuntime,
+      purpose,
+      viewMode,
+    ]
+  );
 
   // Track live-stream state for the abort diagnostics above.
   useEffect(() => {
@@ -750,17 +744,7 @@ export function ResponsePanel({
             >
               <p className="mb-2 text-xs font-medium text-t-secondary">{level.question}</p>
               {level.spec?.root && level.spec?.elements && (
-                <CitationsContext.Provider value={specHasInvestigation(level.spec)}>
-                  <StateProvider initialState={level.spec.state ?? {}}>
-                    <ActionProvider handlers={registryActionHandlers}>
-                      <VisibilityProvider>
-                        <RendererErrorBoundary>
-                          <Renderer spec={level.spec} registry={registry} />
-                        </RendererErrorBoundary>
-                      </VisibilityProvider>
-                    </ActionProvider>
-                  </StateProvider>
-                </CitationsContext.Provider>
+                <SpecView spec={level.spec} citations={specHasInvestigation(level.spec)} />
               )}
             </div>
           ))}
@@ -839,22 +823,16 @@ export function ResponsePanel({
                   Recompose failed: {recomposeError}
                 </div>
               )}
-              <CitationsContext.Provider value={specHasInvestigation(activeSpec)}>
-                <StateProvider initialState={activeSpec.state ?? {}}>
-                  <SelectionDrillBar />
-                  <ActionProvider handlers={registryActionHandlers}>
-                    <VisibilityProvider>
-                      <RendererErrorBoundary>
-                        {/* data-slides-root: the Slides export segments this
-                            content into per-section deck slides. */}
-                        <div data-slides-root>
-                          <Renderer spec={activeSpec} registry={registry} loading={isStreaming} />
-                        </div>
-                      </RendererErrorBoundary>
-                    </VisibilityProvider>
-                  </ActionProvider>
-                </StateProvider>
-              </CitationsContext.Provider>
+              {/* data-slides-root (via slidesRoot): the Slides export segments
+                  this content into per-section deck slides. */}
+              <SpecView
+                spec={activeSpec}
+                citations={specHasInvestigation(activeSpec)}
+                loading={isStreaming}
+                onDrillDown={handleDrillDown}
+                toolbar={<SelectionDrillBar />}
+                slidesRoot
+              />
 
               {/* Save/Export/Artifacts actions moved to top bar — see page.tsx */}
             </Card>
@@ -868,17 +846,7 @@ export function ResponsePanel({
       {/* Previous spec shown dimmed below the new dashboard during follow-ups */}
       {previousSpec?.root && previousSpec?.elements && isStreaming && (
         <Card className="opacity-40">
-          <CitationsContext.Provider value={specHasInvestigation(previousSpec)}>
-            <StateProvider initialState={previousSpec.state ?? {}}>
-              <ActionProvider handlers={registryActionHandlers}>
-                <VisibilityProvider>
-                  <RendererErrorBoundary>
-                    <Renderer spec={previousSpec} registry={registry} />
-                  </RendererErrorBoundary>
-                </VisibilityProvider>
-              </ActionProvider>
-            </StateProvider>
-          </CitationsContext.Provider>
+          <SpecView spec={previousSpec} citations={specHasInvestigation(previousSpec)} />
         </Card>
       )}
     </div>

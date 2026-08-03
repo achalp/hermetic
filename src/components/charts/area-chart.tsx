@@ -13,7 +13,7 @@ import {
 } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
-import { drillClickValueRef } from "@/lib/drill-down-context";
+import { useDrillClickRef } from "@/lib/drill-down-context";
 import { lineClickRecord } from "@/lib/drill-resolve";
 import { ChartEmptyState } from "./chart-empty-state";
 import { ChartShell } from "./chart-shell";
@@ -43,6 +43,7 @@ export function AreaChartComponent({
   emit?: (event: string) => void;
   on?: (event: string) => EventHandle;
 }) {
+  const drillClickValueRef = useDrillClickRef();
   const clickHandle = on?.("click");
   const isDrillable = clickHandle?.bound ?? false;
   const theme = useNivoTheme();

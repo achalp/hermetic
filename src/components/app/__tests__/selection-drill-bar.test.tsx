@@ -5,23 +5,26 @@ import userEvent from "@testing-library/user-event";
 import React from "react";
 import { StateProvider } from "@json-render/react";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
-import { drillDownCallbackRef } from "@/lib/drill-down-context";
+import { DrillDownDispatchContext } from "@/lib/drill-down-context";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
+
+let dispatched: DrillDownParams[] = [];
 
 function renderBar(filters: Record<string, unknown>) {
   return render(
-    <StateProvider initialState={{ filters }}>
-      <SelectionDrillBar />
-    </StateProvider>
+    <DrillDownDispatchContext.Provider value={(p) => dispatched.push(p)}>
+      <StateProvider initialState={{ filters }}>
+        <SelectionDrillBar />
+      </StateProvider>
+    </DrillDownDispatchContext.Provider>
   );
 }
 
 beforeEach(() => {
-  drillDownCallbackRef.current = null;
+  dispatched = [];
 });
 afterEach(() => {
   cleanup();
-  drillDownCallbackRef.current = null;
 });
 
 describe("SelectionDrillBar", () => {
@@ -47,8 +50,7 @@ describe("SelectionDrillBar", () => {
   });
 
   it("builds DrillDownParams (primary + additional_filters) and invokes the callback", async () => {
-    const received: DrillDownParams[] = [];
-    drillDownCallbackRef.current = (p) => received.push(p);
+    const received = dispatched;
 
     renderBar({ region: "West", channel: "Online", quarter: "All" });
     await userEvent.click(screen.getByRole("button"));
@@ -62,8 +64,7 @@ describe("SelectionDrillBar", () => {
   });
 
   it("omits additional_filters for a single selection", async () => {
-    const received: DrillDownParams[] = [];
-    drillDownCallbackRef.current = (p) => received.push(p);
+    const received = dispatched;
 
     renderBar({ region: "West" });
     await userEvent.click(screen.getByRole("button"));
@@ -74,7 +75,6 @@ describe("SelectionDrillBar", () => {
   });
 
   it("clears the selection after dispatching (bar disappears)", async () => {
-    drillDownCallbackRef.current = () => {};
     renderBar({ region: "West" });
     const btn = screen.getByRole("button");
     await userEvent.click(btn);
@@ -82,8 +82,7 @@ describe("SelectionDrillBar", () => {
   });
 
   it("supports a multi-select (array) on one dimension as column IN (...)", async () => {
-    const received: DrillDownParams[] = [];
-    drillDownCallbackRef.current = (p) => received.push(p);
+    const received = dispatched;
 
     renderBar({ region: ["North", "East"] });
     expect(screen.getByText(/region in \(North, East\)/)).toBeTruthy();
@@ -102,8 +101,7 @@ describe("SelectionDrillBar", () => {
   });
 
   it("preserves numeric selection values", async () => {
-    const received: DrillDownParams[] = [];
-    drillDownCallbackRef.current = (p) => received.push(p);
+    const received = dispatched;
 
     renderBar({ year: 2025 });
     await userEvent.click(screen.getByRole("button"));
