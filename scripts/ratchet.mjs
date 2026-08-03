@@ -109,7 +109,14 @@ function countMetric(metric) {
       if (excluded.some((e) => file.startsWith(e + "/") || file === e)) continue;
       if (metric.excludeFiles?.test(file)) continue;
       const text = readFileSync(file, "utf8");
-      const matches = [...text.matchAll(metric.pattern)];
+      // Lines carrying `ratchet-allow: <metric-id>` are exempt — reserved for
+      // documented boundaries (the comment must say WHY), reviewed like
+      // eslint-disable. The exemption itself is grep-able.
+      const effective = text
+        .split("\n")
+        .filter((line) => !line.includes(`ratchet-allow: ${metric.id}`))
+        .join("\n");
+      const matches = [...effective.matchAll(metric.pattern)];
       if (matches.length === 0) continue;
       if (metric.distinct) {
         for (const m of matches) distinctValues.add(m[1] ?? m[0]);
