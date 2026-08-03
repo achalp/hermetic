@@ -901,3 +901,146 @@ export async function renameSavedConnection(id: string, name: string): Promise<v
     throw new ApiError(data.error ?? "Rename failed", res.status);
   }
 }
+
+// ── Local LLM backends (Settings) ──────────────────────────────
+
+export interface LocalLlmStatus {
+  running: boolean;
+  status?: string;
+  version?: string;
+  baseUrl?: string;
+  activeModel?: string;
+  pid?: number;
+  managed?: boolean;
+  systemRamGb?: number;
+  logs?: string[];
+  downloads?: Array<{ model: string; progress: number; status: string }>;
+}
+
+export interface LocalBackendModel {
+  name: string;
+  size: number;
+  modified_at: string;
+}
+
+export interface LlmfitModel {
+  name: string;
+  provider: string;
+  score: number;
+  best_quant: string;
+  fit_level: string;
+  memory_required_gb: number;
+  estimated_tps: number;
+  parameter_count: string;
+  use_case: string;
+  category: string;
+  context_length: number;
+  gguf_sources: Array<{ provider: string; repo: string }>;
+}
+
+export async function getLocalLlmStatus(
+  backend: string,
+  signal?: AbortSignal
+): Promise<LocalLlmStatus> {
+  const res = await fetch(`/api/local-llm/status?backend=${encodeURIComponent(backend)}`, {
+    signal,
+  });
+  return json<LocalLlmStatus>(res);
+}
+
+export async function getLocalLlmModels(
+  backend: string
+): Promise<{ models?: LocalBackendModel[] }> {
+  const res = await fetch(`/api/local-llm/models?backend=${encodeURIComponent(backend)}`);
+  return json<{ models?: LocalBackendModel[] }>(res);
+}
+
+export async function getLocalLlmRecommendations(
+  backend: string,
+  limit: number
+): Promise<{ models?: LlmfitModel[] }> {
+  const res = await fetch(
+    `/api/local-llm/recommend?backend=${encodeURIComponent(backend)}&limit=${limit}`
+  );
+  return json<{ models?: LlmfitModel[] }>(res);
+}
+
+export async function getLocalLlmPlatform(
+  signal?: AbortSignal
+): Promise<{ os: string; arch: string }> {
+  const res = await fetch("/api/local-llm/platform", { signal });
+  return json<{ os: string; arch: string }>(res);
+}
+
+export async function putLocalLlmConfig(config: {
+  backend: string;
+  enabled: boolean;
+  activeModel: string;
+}): Promise<void> {
+  const res = await fetch("/api/local-llm/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Failed to save config", res.status);
+  }
+}
+
+export async function startLocalLlmServer(
+  body: { backend: string; model: string },
+  signal?: AbortSignal
+): Promise<unknown> {
+  const res = await fetch("/api/local-llm/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  return json<unknown>(res);
+}
+
+/** Best-effort: the caller deactivates + re-polls regardless of outcome. */
+export async function stopLocalLlmServer(backend: string): Promise<void> {
+  await fetch("/api/local-llm/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ backend }),
+  });
+}
+
+/** Returns the raw Response: the body is an NDJSON progress stream. */
+export async function downloadLocalLlmModel(body: {
+  backend: string;
+  model: string;
+}): Promise<Response> {
+  const res = await fetch("/api/local-llm/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new ApiError("Failed to start download", res.status);
+  return res;
+}
+
+export async function deleteLocalLlmModel(body: { backend: string; model: string }): Promise<void> {
+  const res = await fetch("/api/local-llm/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Failed to delete model", res.status);
+  }
+}
+
+// ── Static assets ──────────────────────────────────────────────
+
+/** Fetch a same-origin static asset (e.g. the bundled sample dataset). */
+export async function fetchStaticAsset(path: string): Promise<Blob> {
+  const res = await fetch(path);
+  if (!res.ok) throw new ApiError(`Failed to fetch ${path}`, res.status);
+  return res.blob();
+}

@@ -12,6 +12,7 @@ import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/da
 import {
   extractLocalSchema,
   extractRemoteParquetSchema,
+  fetchStaticAsset,
   uploadFile,
   type RemoteParquetCreds,
 } from "@/lib/api";
@@ -130,8 +131,7 @@ export function useSourceSelect(args: {
 
   const handleSampleData = useCallback(async () => {
     try {
-      const response = await fetch("/sample-data/sales-data.csv");
-      const blob = await response.blob();
+      const blob = await fetchStaticAsset("/sample-data/sales-data.csv");
       const file = new File([blob], "sales-data.csv", { type: "text/csv" });
       const formData = new FormData();
       formData.append("csv", file);

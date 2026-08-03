@@ -5,6 +5,7 @@ import { AVAILABLE_MODELS, AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId, LLMProviderId, LocalBackendId } from "@/lib/constants";
 import { LocalBackendSection } from "@/components/app/local-backend-section";
 import {
+  getLocalLlmPlatform,
   getProviders,
   getRuntimes,
   type ProviderInfo,
@@ -119,8 +120,7 @@ export function InferenceSection({
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/local-llm/platform", { signal: controller.signal })
-      .then((r) => r.json())
+    getLocalLlmPlatform(controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
         setPlatform(data);
