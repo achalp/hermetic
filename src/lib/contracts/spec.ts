@@ -7,3 +7,11 @@
  * migrate to this seam.
  */
 export type { Spec } from "@/spec/core";
+
+/**
+ * Version stamped into every PERSISTED spec (history entries, saved vizs) —
+ * modularization WS2. Readers currently ignore it (the renderer reads only
+ * root/elements/state); it exists so a future format change has something
+ * to negotiate on. Bump on any breaking envelope change, with a compat shim.
+ */
+export const HERMETIC_SPEC_VERSION = 1;

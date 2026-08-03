@@ -7,6 +7,9 @@ import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
 import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
+import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
+import { validateSpec } from "@/lib/catalog";
+import { logger } from "@/lib/logger";
 
 const store = new RecordDirStore(hermeticPaths.historyDir());
 
@@ -104,9 +107,23 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
     description: extractDescription(input.spec),
   };
 
+  // Warn-only spec validation (WS2): surfaces composer regressions in logs
+  // without ever blocking a save the user is depending on.
+  const check = validateSpec(input.spec);
+  if (!check.success) {
+    logger.warn("Persisting spec that fails catalog validation", {
+      id,
+      error: check.error?.slice(0, 300),
+    });
+  }
+
   const files: Record<string, string> = {
     [RECORD_FILES.meta]: JSON.stringify(meta, null, 2),
-    [RECORD_FILES.spec]: JSON.stringify(input.spec, null, 2),
+    [RECORD_FILES.spec]: JSON.stringify(
+      { ...input.spec, hermeticSpecVersion: HERMETIC_SPEC_VERSION },
+      null,
+      2
+    ),
     [RECORD_FILES.code]: input.generatedCode,
     [RECORD_FILES.schema]: JSON.stringify(input.schema, null, 2),
   };

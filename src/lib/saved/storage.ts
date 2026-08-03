@@ -5,6 +5,7 @@ import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { hermeticPaths } from "@/lib/paths";
 import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
+import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
 
 /** Persisted workbook data — all sheets' CSV content + UI metadata */
 export interface SavedWorkbook {
@@ -49,7 +50,11 @@ export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta>
 
   const files: Record<string, string> = {
     [RECORD_FILES.meta]: JSON.stringify(meta, null, 2),
-    [RECORD_FILES.spec]: JSON.stringify(input.spec, null, 2),
+    [RECORD_FILES.spec]: JSON.stringify(
+      { ...input.spec, hermeticSpecVersion: HERMETIC_SPEC_VERSION },
+      null,
+      2
+    ),
     [RECORD_FILES.code]: input.generatedCode,
     [RECORD_FILES.source]: input.csvContent,
   };
@@ -104,7 +109,11 @@ export async function saveNewVersion(
 
   const files: Record<string, string> = {
     [RECORD_FILES.meta]: JSON.stringify(updatedMeta, null, 2),
-    [RECORD_FILES.spec]: JSON.stringify(input.spec, null, 2),
+    [RECORD_FILES.spec]: JSON.stringify(
+      { ...input.spec, hermeticSpecVersion: HERMETIC_SPEC_VERSION },
+      null,
+      2
+    ),
     [RECORD_FILES.code]: input.generatedCode,
     [RECORD_FILES.source]: input.csvContent,
   };

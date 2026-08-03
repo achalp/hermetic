@@ -1283,3 +1283,37 @@ export const catalog = defineCatalog(schema, {
 });
 
 export type AppCatalog = typeof catalog;
+
+/**
+ * Validate a spec against the full catalog (every component's zod props
+ * schema + the envelope) — modularization WS2. The 84 schemas existed from
+ * day one but never ran against whole specs; this export runs in the render
+ * smoke suite for every fixture and (warn-only) on the history persist path.
+ */
+export function validateSpec(spec: unknown): { success: boolean; error?: string } {
+  // Wire-reality tolerance: hermetic's composer omits `children` on leaf
+  // elements and the renderer treats that as "no children" — the envelope
+  // schema requires the array. Normalize before validating so validateSpec
+  // checks what matters (types, props, structure) against specs the product
+  // actually produces. Tightening to always-emit-children is the deferred
+  // upstream prompt rule recorded in src/spec/NOTICE (adopt with a golden
+  // re-record).
+  let candidate = spec;
+  if (spec && typeof spec === "object" && "elements" in spec) {
+    const s = spec as { elements?: Record<string, Record<string, unknown>> };
+    if (s.elements && typeof s.elements === "object") {
+      candidate = {
+        ...spec,
+        elements: Object.fromEntries(
+          Object.entries(s.elements).map(([k, el]) => [
+            k,
+            el && typeof el === "object" && !("children" in el) ? { ...el, children: [] } : el,
+          ])
+        ),
+      };
+    }
+  }
+  const result = catalog.validate(candidate);
+  if (result.success) return { success: true };
+  return { success: false, error: String(result.error ?? "invalid spec") };
+}

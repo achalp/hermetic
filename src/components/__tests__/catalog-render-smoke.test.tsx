@@ -54,7 +54,7 @@ import {
 } from "@/spec/react";
 import { registry, registryActionHandlers } from "@/components/registry";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
-import { catalogComponents } from "@/lib/catalog";
+import { catalogComponents, validateSpec } from "@/lib/catalog";
 import { ALL_CATALOG_SAMPLES } from "@/lib/__tests__/fixtures/catalog-samples";
 import dataControllerSpec from "../../../test-specs/data-controller-test.json";
 import formControllerSpec from "../../../test-specs/form-controller-test.json";
@@ -152,6 +152,9 @@ describe("spec fixture render smoke", () => {
   ];
   for (const [name, spec] of fixtures) {
     it(`${name} mounts without errors`, async () => {
+      // WS2: every committed fixture must pass full-spec validation.
+      const validated = validateSpec(spec);
+      expect(validated.success, `validateSpec: ${validated.error}`).toBe(true);
       const view = await renderAndSettle(spec as Spec);
       expect(view.container.innerHTML.length).toBeGreaterThan(0);
       expect(view.container.textContent).not.toContain("Something went wrong");
