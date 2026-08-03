@@ -423,7 +423,7 @@ export function flatToTree(elements: FlatElement[]): Spec {
  *
  * @example
  * ```tsx
- * import { useBoundProp } from "@json-render/react";
+ * import { useBoundProp } from "@/spec/react";
  *
  * const Input: ComponentRenderer = ({ props, bindings }) => {
  *   const [value, setValue] = useBoundProp<string>(props.value, bindings?.value);
@@ -580,7 +580,7 @@ export function getTextFromParts(parts: DataPart[]): string {
  *
  * @example
  * ```tsx
- * import { useJsonRenderMessage } from "@json-render/react";
+ * import { useJsonRenderMessage } from "@/spec/react";
  *
  * function MessageBubble({ message }) {
  *   const { spec, text, hasSpec } = useJsonRenderMessage(message.parts);

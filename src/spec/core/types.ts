@@ -956,7 +956,7 @@ const SPEC_FENCE_CLOSE = "```";
  *
  * @example
  * ```ts
- * import { createJsonRenderTransform } from "@json-render/core";
+ * import { createJsonRenderTransform } from "@/spec/core";
  * import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
  *
  * const stream = createUIMessageStream({
@@ -1172,7 +1172,7 @@ export function createJsonRenderTransform(): TransformStream<StreamChunk, Stream
  *
  * @example
  * ```ts
- * import { SPEC_DATA_PART, type SpecDataPart } from "@json-render/core";
+ * import { SPEC_DATA_PART, type SpecDataPart } from "@/spec/core";
  * type AppDataParts = { [SPEC_DATA_PART]: SpecDataPart };
  * ```
  */
@@ -1207,7 +1207,7 @@ export type SpecDataPart =
  *
  * @example
  * ```ts
- * import { pipeJsonRender } from "@json-render/core";
+ * import { pipeJsonRender } from "@/spec/core";
  *
  * const stream = createUIMessageStream({
  *   execute: async ({ writer }) => {
