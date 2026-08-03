@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import { StateProvider } from "@json-render/react";
+import { StateProvider } from "@/spec/react";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
 import { DrillDownDispatchContext } from "@/lib/drill-down-context";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";

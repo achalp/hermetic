@@ -5,7 +5,7 @@
  * persist history itself at the concluding stage (surviving a client that
  * disconnected mid-run) instead of relying on the client to POST it after render.
  */
-import { setByPath, removeByPath } from "@json-render/core";
+import { setByPath, removeByPath } from "@/spec/core";
 import type { PatchLike } from "./computed-key-audit";
 
 export interface AssembledSpec {

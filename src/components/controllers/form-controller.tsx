@@ -1,6 +1,6 @@
 "use client";
 
-import { useStateStore } from "@json-render/react";
+import { useStateStore } from "@/spec/react";
 import { useState, useCallback, type ReactNode, type FormEvent } from "react";
 
 interface ValidationRule {

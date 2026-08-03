@@ -20,7 +20,7 @@
  * small preview (TRACE_DATASET_MAX_ROWS) so the serialized trace stays small.
  */
 
-import type { Spec } from "@json-render/core";
+import type { Spec } from "@/spec/core";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
 import type {
   StepStatus,

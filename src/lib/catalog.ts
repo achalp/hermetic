@@ -1,5 +1,5 @@
-import { defineCatalog } from "@json-render/core";
-import { schema } from "@json-render/react/schema";
+import { defineCatalog } from "@/spec/core";
+import { schema } from "@/spec/react/schema";
 import { z } from "zod";
 
 // Exported so tests (and tooling) can validate props directly against each

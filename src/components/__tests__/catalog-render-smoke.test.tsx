@@ -51,7 +51,7 @@ import {
   VisibilityProvider,
   Renderer,
   type Spec,
-} from "@json-render/react";
+} from "@/spec/react";
 import { registry, registryActionHandlers } from "@/components/registry";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
 import { catalogComponents } from "@/lib/catalog";

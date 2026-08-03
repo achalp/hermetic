@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
 import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
-import type { Spec } from "@json-render/core";
+import type { Spec } from "@/spec/core";
 
 const cellSpec: Spec = {
   root: "c",

@@ -23,7 +23,7 @@ import {
   type GroundingReport,
 } from "@/lib/contracts/stream-state";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import { registry } from "@/components/registry";
 import { renderWithCitations } from "@/components/registry-primitives";
 import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";

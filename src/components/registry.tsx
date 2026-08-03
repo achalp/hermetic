@@ -1,7 +1,7 @@
 "use client";
 
 import { clientLazy } from "@/components/lazy-client";
-import { defineRegistry, type Components } from "@json-render/react";
+import { defineRegistry, type Components } from "@/spec/react";
 import { catalog } from "@/lib/catalog";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
 import {

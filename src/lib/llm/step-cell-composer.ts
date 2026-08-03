@@ -20,7 +20,7 @@
  */
 
 import { generateText } from "ai";
-import { applySpecPatch, parseSpecStreamLine, type Spec } from "@json-render/core";
+import { applySpecPatch, parseSpecStreamLine, type Spec } from "@/spec/core";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { describeShape, describeResultsSchema } from "@/lib/llm/investigate-composer";

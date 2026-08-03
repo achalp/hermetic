@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useCallback, type ReactNode } from "react";
-import { StateProvider, ActionProvider, VisibilityProvider, Renderer } from "@json-render/react";
+import { StateProvider, ActionProvider, VisibilityProvider, Renderer } from "@/spec/react";
 import type { Spec } from "@/lib/contracts/spec";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
 import type { ClickedRecord } from "@/lib/drill-resolve";

@@ -11,7 +11,7 @@
  * mount-time warehouse/runtime values — hence the empty dep lists.
  */
 import { useEffect } from "react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxRuntimeId } from "@/lib/constants";

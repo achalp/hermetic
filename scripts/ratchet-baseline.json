@@ -5,7 +5,7 @@
   "server-only-imports": 0,
   "app-raw-fetch": 12,
   "api-boundary-casts": 7,
-  "json-render-imports": 36,
+  "json-render-imports": 5,
   "untyped-stream-state-reads": 0,
   "boundary-lint-suppressions": 0
 }

@@ -10,7 +10,7 @@
  * results/chart_data the client already holds, not raw rows.
  */
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
-import type { Spec } from "@json-render/core";
+import type { Spec } from "@/spec/core";
 import { isValidModelId, type ModelId } from "@/lib/constants";
 import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
 import { appendCostRow } from "@/lib/cost/storage";

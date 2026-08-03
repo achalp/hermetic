@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import { SheetPicker } from "@/components/app/sheet-picker";
 import { QueryInput, type QueryMode } from "@/components/app/query-input";
 import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";

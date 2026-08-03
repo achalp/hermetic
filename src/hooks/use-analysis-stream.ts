@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import { useUIStream } from "@json-render/react";
+import { useUIStream } from "@/spec/react";
 import type { Spec } from "@/lib/contracts/spec";
 import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
 import type { SchemaMode } from "@/lib/contracts/data-schema";

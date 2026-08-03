@@ -11,7 +11,7 @@
  * Returns the assembled spec as JSON (one composer call — no need to stream).
  */
 
-import { applySpecPatch, parseSpecStreamLine, type Spec } from "@json-render/core";
+import { applySpecPatch, parseSpecStreamLine, type Spec } from "@/spec/core";
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getStoredCSV } from "@/lib/csv/storage";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";

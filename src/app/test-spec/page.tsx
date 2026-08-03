@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import dataControllerSpec from "../../../test-specs/data-controller-test.json";
 import formControllerSpec from "../../../test-specs/form-controller-test.json";
 import newChartsSmokeSpec from "../../../test-specs/new-charts-smoke.json";

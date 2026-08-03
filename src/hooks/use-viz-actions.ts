@@ -8,7 +8,7 @@
  * flow needs.
  */
 import { useCallback, useEffect, useRef } from "react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";

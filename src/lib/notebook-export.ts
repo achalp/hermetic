@@ -8,7 +8,7 @@
  * Pure + dependency-free so it runs client-side from the cached trail.
  */
 
-import type { Spec } from "@json-render/core";
+import type { Spec } from "@/spec/core";
 import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
 
 export interface NotebookSynthesis {

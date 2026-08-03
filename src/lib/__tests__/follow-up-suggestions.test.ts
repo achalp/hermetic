@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { summarizeAnalysisResults } from "@/lib/suggest-questions";
 import { extractSpecComponentTypes } from "@/lib/spec-summary";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 
 describe("summarizeAnalysisResults", () => {
   it("returns empty object for undefined input", () => {

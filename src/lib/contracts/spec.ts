@@ -6,4 +6,4 @@
  * `json-render-imports` counts direct imports and shrinks as consumers
  * migrate to this seam.
  */
-export type { Spec } from "@json-render/core";
+export type { Spec } from "@/spec/core";

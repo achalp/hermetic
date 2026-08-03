@@ -1,6 +1,6 @@
 "use client";
 
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { SpecView } from "@/components/spec-view";
 import { CitationNavigateContext } from "@/components/registry-primitives";

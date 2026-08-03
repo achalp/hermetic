@@ -16,7 +16,7 @@ import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import { ActionProvider, StateProvider, useActions } from "@json-render/react";
+import { ActionProvider, StateProvider, useActions } from "@/spec/react";
 import { registryActionHandlers, makeRegistryActionHandlers } from "@/components/registry";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
 

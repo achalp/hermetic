@@ -1,4 +1,4 @@
-import type { Spec } from "@json-render/core";
+import type { Spec } from "@/spec/core";
 import { generatePlan } from "@/lib/llm/investigate-planner";
 import {
   runInvestigation,

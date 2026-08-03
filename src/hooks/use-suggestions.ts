@@ -19,7 +19,7 @@
  * cancel the in-flight fetch. The artifacts fetch happens INSIDE the effect.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import {
