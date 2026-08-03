@@ -35,7 +35,9 @@ const METRICS = [
     id: "lib-globalthis-stores",
     why: "process-global singleton stores; state belongs behind StateStore",
     dirs: ["src/lib"],
-    pattern: /globalThis(\.| as )/g,
+    // The store idiom only — `globalThis.fetch` etc. are explicit global
+    // references, not singleton state.
+    pattern: /globalThis as unknown as|globalThis\.__/g,
   },
   {
     id: "server-only-imports",
