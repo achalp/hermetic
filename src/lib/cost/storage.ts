@@ -10,8 +10,9 @@
 import { mkdir, readFile, writeFile, readdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
+import { hermeticPaths } from "@/lib/paths";
 
-const COST_DIR = join(process.cwd(), "data", "cost");
+const COST_DIR = hermeticPaths.costDir();
 
 export const COST_HEADERS = [
   "timestamp",

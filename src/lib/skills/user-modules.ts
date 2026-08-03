@@ -17,6 +17,7 @@ import { logger } from "@/lib/logger";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { extractPreloadedFns, type PreloadedFn } from "@/lib/sandbox/runtime-files";
 import type { SkillFile } from "./types";
+import { hermeticPaths } from "@/lib/paths";
 
 /** Import names satisfiable inside the sandbox image (docker/sandbox/Dockerfile
  *  pins + their user-importable transitive deps). Keep in sync with the image. */
@@ -96,7 +97,7 @@ export interface UserModuleLoadResult {
 }
 
 export function defaultUserLibDir(): string {
-  return path.join(process.cwd(), "data", "user_lib");
+  return hermeticPaths.userLibDir();
 }
 
 interface CacheEntry {

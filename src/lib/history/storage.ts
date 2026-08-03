@@ -7,8 +7,9 @@ import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 import { envConfig } from "@/lib/harness-slot";
+import { hermeticPaths } from "@/lib/paths";
 
-const HISTORY_DIR = join(process.cwd(), "data", "history");
+const HISTORY_DIR = hermeticPaths.historyDir();
 
 /**
  * Cap on persisted history entries (API-9). Every run writes

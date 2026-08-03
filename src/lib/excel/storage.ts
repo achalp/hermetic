@@ -2,6 +2,7 @@ import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { CSV_TTL_MS } from "@/lib/constants";
+import { hermeticPaths } from "@/lib/paths";
 
 interface StoredExcel {
   filePath: string;
@@ -17,7 +18,7 @@ if (!globalStore.__excelStore) {
 }
 const store = globalStore.__excelStore;
 
-const EXCEL_DIR = join(tmpdir(), "hermetic", "excel-temp");
+const EXCEL_DIR = hermeticPaths.excelTempDir();
 
 let dirCreated = false;
 async function ensureDir() {

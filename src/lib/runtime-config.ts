@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { join, dirname } from "path";
 import { envConfig } from "@/lib/harness-slot";
+import { hermeticPaths } from "@/lib/paths";
 
 export interface OllamaConfig {
   enabled: boolean;
@@ -40,7 +41,7 @@ export interface RuntimeConfig {
   activeProvider?: string;
 }
 
-const CONFIG_PATH = join(process.cwd(), "data", "runtime-config.json");
+const CONFIG_PATH = hermeticPaths.runtimeConfigFile();
 const CACHE_TTL_MS = 5_000;
 
 let cached: RuntimeConfig | null = null;

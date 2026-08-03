@@ -435,12 +435,15 @@ describe("process-manager", () => {
         if (typeof cmd === "string" && cmd.includes("lsof")) throw new Error("not found");
         throw new Error("not found");
       });
-      // Hermetic: the resolver also checks the bundled <cwd>/data/bin
-      // location, which EXISTS on dev machines that ran start.sh — point
-      // cwd at an empty temp dir so the test doesn't depend on host state.
+      // Hermetic: the resolver also checks the bundled data/bin location,
+      // which EXISTS on dev machines that ran start.sh — point the paths
+      // dataRoot at an empty temp dir so the test doesn't depend on host
+      // state (this is exactly the seam HermeticPaths exists to provide).
       const os = await import("node:os");
-      const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(os.tmpdir());
-      onTestFinished(() => cwdSpy.mockRestore());
+      const pathMod = await import("node:path");
+      const { setPathRoots } = await import("../paths");
+      setPathRoots({ dataRoot: pathMod.join(os.tmpdir(), "hermetic-test-empty-data") });
+      onTestFinished(() => setPathRoots({}));
 
       const { startServer } = await import("../llm/process-manager");
       await expect(startServer("llama-cpp", { model: "test.gguf" })).rejects.toThrow(

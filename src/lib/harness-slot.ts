@@ -13,6 +13,8 @@ import type { LLMReplayConfig } from "@/lib/llm/replay";
  */
 export interface HarnessSlot {
   envConfig?: HermeticEnvConfig;
+  /** On-disk layout roots (see lib/paths.ts). */
+  pathRoots?: import("@/lib/paths").HermeticPathRoots;
   llmReplay?: LLMReplayConfig | null;
   /** One-time warning flags (dev ergonomics, not state). */
   warnedNoEnvConfig?: boolean;

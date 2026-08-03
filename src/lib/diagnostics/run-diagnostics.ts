@@ -23,8 +23,9 @@ import { join } from "path";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 import { envConfig } from "@/lib/harness-slot";
+import { hermeticPaths } from "@/lib/paths";
 
-const DIAG_DIR = join(process.cwd(), "data", "diagnostics");
+const DIAG_DIR = hermeticPaths.diagnosticsDir();
 
 export interface DiagEvent {
   type: string;

@@ -10,6 +10,7 @@ import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
 import { buildSchemaScript } from "./schema-script";
 import { logger } from "@/lib/logger";
+import { hermeticPaths } from "@/lib/paths";
 
 /**
  * Host dir holding materialized Parquet files, bind-mounted into analysis
@@ -18,7 +19,7 @@ import { logger } from "@/lib/logger";
  * and read_parquet finds nothing. The home dir (/Users/...) is shared by default
  * (it's where the working local-files mounts live), so we anchor here.
  */
-export const PARQUET_DIR = join(homedir(), ".hermetic", "parquet");
+export const PARQUET_DIR = hermeticPaths.parquetCacheDir();
 
 /**
  * Convert CSV text into a Parquet file on the host AND extract its schema, in a

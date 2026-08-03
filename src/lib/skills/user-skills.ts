@@ -11,6 +11,7 @@ import { logger } from "@/lib/logger";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import type { SkillDefinition } from "./types";
 import { parseSkillMd, SkillParseError } from "./skill-md";
+import { hermeticPaths } from "@/lib/paths";
 
 export interface UserSkillLoadResult {
   skills: SkillDefinition[];
@@ -18,7 +19,7 @@ export interface UserSkillLoadResult {
 }
 
 export function defaultUserSkillsDir(): string {
-  return path.join(process.cwd(), "data", "skills");
+  return hermeticPaths.skillsDir();
 }
 
 interface CacheEntry {

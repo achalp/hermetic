@@ -5,8 +5,12 @@ import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-confi
 // Per-engine label lives in the engine descriptor (ARCH-12).
 import { connectionLabel } from "@/lib/warehouse/engine-descriptor";
 import { envConfig } from "@/lib/harness-slot";
+import { hermeticPaths } from "@/lib/paths";
 
-const CONNECTIONS_PATH = join(process.cwd(), ".warehouse-connections.json");
+// Credentials live INSIDE the data dir (M2-C1) — previously a hidden file at
+// the repo root, invisible to backups/gitignore reasoning and unmovable.
+const CONNECTIONS_PATH = hermeticPaths.warehouseConnectionsFile();
+const LEGACY_CONNECTIONS_PATH = hermeticPaths.legacyWarehouseConnectionsFile();
 
 export interface SavedConnection {
   id: string;
@@ -24,6 +28,16 @@ export async function loadConnections(): Promise<SavedConnection[]> {
     const raw = await readFile(CONNECTIONS_PATH, "utf-8");
     return JSON.parse(raw) as SavedConnection[];
   } catch {
+    // One-time migration from the pre-C1 repo-root location.
+    try {
+      const legacyRaw = await readFile(LEGACY_CONNECTIONS_PATH, "utf-8");
+      const parsed = JSON.parse(legacyRaw) as SavedConnection[];
+      await writeFile(CONNECTIONS_PATH, legacyRaw, "utf-8");
+      await unlink(LEGACY_CONNECTIONS_PATH).catch(() => {});
+      return parsed;
+    } catch {
+      // fall through to env-var migration
+    }
     // Also migrate from legacy .env.local WAREHOUSE_* vars if present
     const legacy = loadLegacyFromEnv();
     if (legacy) {

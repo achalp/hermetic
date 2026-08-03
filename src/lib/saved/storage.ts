@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { SavedVizMeta } from "@/lib/contracts/storage-types";
 import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
+import { hermeticPaths } from "@/lib/paths";
 
 /** Persisted workbook data — all sheets' CSV content + UI metadata */
 export interface SavedWorkbook {
@@ -13,7 +14,7 @@ export interface SavedWorkbook {
   relationships: SheetRelationship[];
 }
 
-const SAVED_DIR = join(process.cwd(), "data", "saved-vizs");
+const SAVED_DIR = hermeticPaths.savedVizsDir();
 
 let dirCreated = false;
 async function ensureDir(subdir?: string) {

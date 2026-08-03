@@ -9,6 +9,7 @@ import { join, isAbsolute } from "path";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import { logger } from "@/lib/logger";
+import { hermeticPaths } from "@/lib/paths";
 
 const MAX_LOG_LINES = 200;
 
@@ -148,7 +149,7 @@ export function isStarting(backend: string): boolean {
 }
 
 /** GGUF model directory */
-const GGUF_DIR = join(process.cwd(), "data", "models", "gguf");
+const GGUF_DIR = hermeticPaths.ggufModelsDir();
 
 /**
  * Resolve the llama-server binary path. Checks multiple locations:
@@ -178,7 +179,7 @@ function resolveLlamaServerBinary(binaryPath?: string): string {
   }
 
   // Check bundled location
-  const bundled = join(process.cwd(), "data", "bin", "llama-server");
+  const bundled = join(hermeticPaths.bundledBinDir(), "llama-server");
   if (existsSync(bundled)) return bundled;
 
   throw new Error(

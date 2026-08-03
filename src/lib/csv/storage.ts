@@ -5,6 +5,7 @@ import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
 import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";
 import { CSV_TTL_MS } from "@/lib/constants";
 import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { hermeticPaths } from "@/lib/paths";
 
 // Use globalThis to persist across module reloads in dev mode
 const globalStore = globalThis as unknown as {
@@ -20,7 +21,7 @@ if (!globalStore.__workbookManifestStore) {
 const store = globalStore.__csvStore;
 const manifestStore = globalStore.__workbookManifestStore;
 
-const CSV_DIR = join(tmpdir(), "hermetic");
+const CSV_DIR = hermeticPaths.scratchDir();
 
 let dirCreated = false;
 async function ensureDir() {
