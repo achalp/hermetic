@@ -73,6 +73,7 @@ import {
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import { setActiveSandboxRuntime } from "@/lib/api";
+import { useCurrentAnalysis } from "@/hooks/use-current-analysis";
 
 /** Compact row count for a recent-source subtitle: 2547927232 → "2.5B". */
 function fmtRowCount(n: number): string {
@@ -156,8 +157,11 @@ export default function Home() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const dashboardRef = useRef<HTMLDivElement>(null);
-  const currentSpecRef = useRef<Spec | null>(loadedSpec ?? null);
-  const currentQuestionRef = useRef<string | null>(currentQuestion);
+  // ONE holder for the analysis on screen (M5-5e) — replaces currentSpecRef,
+  // currentQuestionRef, and lastCompleteSpec plus their hand-rolled syncs.
+  const analysis = useCurrentAnalysis({ loadedSpec, currentQuestion, isAnalyzing });
+  const currentSpecRef = analysis.specRef;
+  const currentQuestionRef = analysis.questionRef;
 
   // ── New redesign state ──────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -191,7 +195,6 @@ export default function Home() {
    * page-level state. Cleared when a new analysis starts or the data
    * source changes.
    */
-  const [lastCompleteSpec, setLastCompleteSpec] = useState<Spec | null>(null);
 
   // Mutual exclusion: only one panel open at a time
   const openSettings = useCallback(() => {
@@ -224,7 +227,11 @@ export default function Home() {
     handleExportPptx,
     lastSavedVizId,
   } = useSaveExport({
-    csvId,
+    // effectiveCsvId first (M5-5e): a warehouse analysis materializes its
+    // data under a NEW csvId reported mid-stream — saving under the raw
+    // upload id (null for warehouse runs) was the audit's save-vs-artifacts
+    // id divergence.
+    csvId: effectiveCsvId ?? csvId,
     currentSpecRef,
     currentQuestionRef,
     dashboardRef,
@@ -260,14 +267,6 @@ export default function Home() {
     },
     [loadedVizId, lastSavedVizId, doSave]
   );
-
-  // Sync refs for save/export (must be in effect, not render)
-  useEffect(() => {
-    currentQuestionRef.current = currentQuestion;
-  }, [currentQuestion]);
-  useEffect(() => {
-    currentSpecRef.current = loadedSpec ?? null;
-  }, [loadedSpec]);
 
   // URL-driven history restore / re-run (?restore= / ?rerun_history=) —
   // see use-history-restore.ts.
@@ -491,26 +490,19 @@ export default function Home() {
   });
 
   // ── Question suggestions (initial + follow-up) — see use-suggestions.ts ──
-  // Drives off `lastCompleteSpec` (captured from ResponsePanel.onAnalysisComplete),
-  // not pageState.loadedSpec — the latter is only set when LOADING a saved viz,
-  // not after a fresh stream.
+  // Drives off analysis.freshSpec (the last COMPLETED stream) — not
+  // pageState.loadedSpec, which is only set when LOADING a saved viz.
   const { suggestions, followUpSuggestions } = useSuggestions({
     schema,
     warehouse,
     isAnalyzing,
     currentQuestion,
-    lastCompleteSpec,
+    lastCompleteSpec: analysis.freshSpec,
     effectiveCsvId,
     csvId,
     // Switching sources resets source-scoped page state.
     onSourceChange: () => setAnalysisHistory([]),
   });
-
-  // Clear the captured spec when a new analysis starts so stale follow-ups
-  // don't linger from the previous question while the new dashboard composes.
-  useEffect(() => {
-    if (isAnalyzing) setLastCompleteSpec(null);
-  }, [isAnalyzing]);
 
   // Status now driven by ResponsePanel's PipelineProgress (real pipeline stages)
 
@@ -1315,16 +1307,13 @@ export default function Home() {
                   onNotebookExportApiChange={setNotebookExportApi}
                   rerunCode={rerunCode}
                   rerunSql={rerunSql}
+                  artifacts={pageArtifacts.artifacts}
+                  setArtifacts={pageArtifacts.setArtifacts}
                   onAnalysisComplete={(entry) => {
                     setAnalysisHistory((prev) => [...prev, { ...entry, timestamp: Date.now() }]);
-                    setLastCompleteSpec(entry.spec);
-                    // Sync the freshly-streamed spec into the refs that
-                    // useSaveExport reads. Without this, Save / Export /
-                    // Schedule all silently no-op for fresh streams because
-                    // pageState.loadedSpec is only set when LOADING a saved
-                    // viz, not after a fresh question.
-                    currentSpecRef.current = entry.spec;
-                    currentQuestionRef.current = entry.question;
+                    // ONE write path (M5-5e): the hook feeds Save/Export/
+                    // Schedule and follow-up suggestions alike.
+                    analysis.complete(entry.spec, entry.question);
                     const cid = effectiveCsvId ?? csvId;
                     if (cid) {
                       saveHistoryEntry(cid, entry.spec, entry.question).catch(() => {});
@@ -1359,7 +1348,7 @@ export default function Home() {
         fullscreen={artifactsFullscreen}
         onClose={() => setShowArtifactsPanel(false)}
         onToggleFullscreen={() => setArtifactsFullscreen((f) => !f)}
-        artifacts={pageArtifacts.artifacts ?? loadedArtifacts ?? null}
+        artifacts={pageArtifacts.artifacts}
         csvId={effectiveCsvId ?? csvId}
         sandboxRuntime={sandboxRuntime}
         onRerunSuccess={(newArtifacts) => pageArtifacts.setArtifacts(newArtifacts)}

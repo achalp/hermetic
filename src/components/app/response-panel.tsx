@@ -13,7 +13,6 @@ import type { SchemaMode } from "@/lib/contracts/data-schema";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { TraceStep } from "@/lib/contracts/investigation";
-import { useArtifacts } from "@/hooks/use-artifacts";
 import { getArtifacts, recomposeInvestigation } from "@/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
@@ -62,7 +61,11 @@ interface ResponsePanelProps {
   purpose?: string;
   onRerun?: () => void;
   loadedVizId?: string | null;
-  onArtifactsChange?: (artifacts: CachedArtifacts | null) => void;
+  /** Page-owned artifacts state (single source — see M5-5e). */
+  artifacts: CachedArtifacts | null;
+  setArtifacts: (
+    a: CachedArtifacts | null | ((prev: CachedArtifacts | null) => CachedArtifacts | null)
+  ) => void;
   onEffectiveCsvIdChange?: (csvId: string | null) => void;
   onAnalysisComplete?: (entry: { question: string; spec: Spec }) => void;
   /** Per-analysis cost (from the streamed /state/__cost). Drives the footer. */
@@ -114,7 +117,8 @@ export function ResponsePanel({
   purpose = "dashboard",
   onRerun,
   loadedVizId,
-  onArtifactsChange,
+  artifacts,
+  setArtifacts,
   onEffectiveCsvIdChange,
   onAnalysisComplete,
   onCost,
@@ -241,15 +245,11 @@ export function ResponsePanel({
   const warehouseCsvId = readStreamState(spec).__warehouse_csv_id;
   const effectiveCsvId = csvId ?? warehouseCsvId ?? null;
 
-  // Save/Export moved to the top bar — page.tsx owns the live useSaveExport
-  // instance. A second instance here was fully dead (none of its 7 values
-  // were consumed) yet kept its own state/effects per render and, worse,
-  // diverged from the page's on csvId (page uses csvId, this used
-  // effectiveCsvId) — a drift trap for whichever instance was "authoritative".
-  // Only the artifacts-panel state survives here.
-  const { showArtifacts, setShowArtifacts, artifacts, setArtifacts } = useArtifacts({
-    csvId: effectiveCsvId,
-  });
+  // Artifacts DATA is owned by the page (M5-5e — one useArtifacts instance
+  // app-wide): the side panel, the inline viewer, and notebook step-re-run
+  // merges all read/write the same state, so the Trail can never diverge
+  // again. Only the inline-viewer visibility is panel-local UI state.
+  const [showArtifacts, setShowArtifacts] = useState(false);
 
   // Keep current question in sync
   useEffect(() => {
@@ -489,11 +489,6 @@ export function ResponsePanel({
       currentSpecRef.current = null;
     }
   }, [loadedSpec, loadedArtifacts, setArtifacts, setShowArtifacts]);
-
-  // Notify parent when artifacts change
-  useEffect(() => {
-    onArtifactsChange?.(artifacts);
-  }, [artifacts, onArtifactsChange]);
 
   // Report effectiveCsvId to parent (needed for page-level artifacts panel)
   useEffect(() => {
