@@ -1,7 +1,7 @@
 # Hermetic Modularization — Audit & Phased Plan
 
 **Date:** 2026-08-01 (v2 — full-scope revision)
-**Status:** Proposed
+**Status:** Phase 1 complete (exit audit §9, 2026-08-03) — Phase 2 gated on a named consumer
 **Scope:** Refactor Hermetic into a set of libraries with owned, explicit contracts, composed by interchangeable harnesses (Next.js today, CLI next, third-party later), followed by externalization of selected libraries as public packages.
 
 ---
@@ -305,3 +305,90 @@ Phase 2 (external; distribution only, gated on a named consumer):
   2a @hermetic/spec + @hermetic/renderer (packaging · CSS decision · hardening · docs)
   2b server libraries — default: do not publish
 ```
+
+---
+
+## 9. Phase 1 exit audit (2026-08-03)
+
+Three adversarial verification agents re-audited the working tree at the end of
+M7 (server/pipeline, contracts/app layer, renderer/fork), instructed to refute
+every closure claim. 25 of 28 claims verified outright; the residue they found
+was either fixed in the M7 remediation commit or dispositioned below. Suite:
+1,970/1,970 tests, ratchet all-green, golden transcripts byte-identical,
+`madge --circular` clean on `src/lib/sandbox`.
+
+### 9.1 Exit criteria — verdicts
+
+| #   | Criterion                                                                                       | Verdict                                                                                                                                                                                                                                                                          |
+| --- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | CLI harness runs ask → spec.json in CI, no Next import                                          | **Met** — `pnpm cli` proof + framework-free grep steps in CI                                                                                                                                                                                                                     |
+| 2   | json-render gone; `hermeticSpecVersion` stamped; `validateSpec()`; prompt snapshot              | **Met** — 0 imports (ratcheted), fork vendored at 0.8.0/`0a40430` with 367 upstream tests; see D3/D4                                                                                                                                                                             |
+| 3   | Zero `process.env`/`cwd` in lib, no import-time side effects                                    | **Met as ratcheted baseline** — 9 `process.env` sites remain, every one a documented exception (logger fallback ×3, env-config seam ×2, child-process env passthrough ×4 — a process concern `envConfig()` deliberately excludes); 3 `cwd` sites are `defaultPathRoots()` itself |
+| 4   | Zero ad-hoc `globalThis`; StateStore/RecordStore; one storage-root policy                       | **Met** — 4 remaining slots are the sanctioned internals (harness-slot, state-store); roots owned by `hermeticPaths`                                                                                                                                                             |
+| 5   | ESLint boundaries error-level, zero suppressions, no cycles                                     | **Met** — type-only sandbox cycles broken in M7 (`warm-backend.ts` leaf module)                                                                                                                                                                                                  |
+| 6   | `types.ts` deleted; StreamState sole `__` reader; shared `AnalysisRequest`; no boundary casts   | **Met** — all 11 contracts-layer claims verified; boundary casts ratcheted at 7, each annotated                                                                                                                                                                                  |
+| 7   | Routes ≤ ~50 lines; `page.tsx`/`response-panel.tsx` ≤ ~400; one state holder; zero raw fetch    | **Partially met** — routes thin, single holder landed (`useCurrentAnalysis`/`useAnalysisStream`/page-owned artifacts); `page.tsx` is 1,386 lines and `app-raw-fetch` ratchets at 12, not 0. Carried as follow-ups F1/F2                                                          |
+| 8   | `<SpecView>` only mount; no lib writes to localStorage/document; no `next/` in renderer closure | **Partially met** — single mount + closure hygiene verified (ESLint-enforced, `clientLazy` replaced `next/dynamic`); theme detox (5c) did not land and deckgl-init remains an import side effect (lazy-gated). Dispositions D1/D2                                                |
+| 9   | All §2.7 bugs closed                                                                            | **Met** — verified individually by the server and contracts audits                                                                                                                                                                                                               |
+
+### 9.2 Recorded dispositions (deliberate, not drift)
+
+- **D1 — theme-context** still reads/writes localStorage and
+  `document.documentElement`; the renderer consumes it transitively. Contained
+  (constants-dedup half landed; no-FOUC script generated from shared
+  constants), but the props-driven `<SpecView theme=...>` is Phase-2a work —
+  it changes the public renderer API and belongs with packaging.
+- **D2 — deckgl-init** remains an import-side-effect module, reachable only
+  through `clientLazy` when a 3D map first renders in a browser. The
+  ResizeObserver patch applies in production; acceptable while maps ship in
+  the same app, must become an explicit entry point in Phase 2a.
+- **D3 — `hermeticSpecVersion` is write-only** by design at version 1: there
+  is nothing to negotiate until a breaking envelope change exists. The compat
+  shim + fixture-per-version test is the FIRST task of any version bump.
+- **D4 — validation asymmetry**: history persist validates (warn-only);
+  saved-viz create/update and the refresh route stamp but do not validate.
+  Also: the fork ships its own structural `validateSpec` (zero app consumers)
+  alongside the zod one in `catalog.ts` — a name-collision trap. Follow-up F5.
+- **D5 — sandbox `executeSandbox` options-bag** documents 19 named fields with
+  a single caller; the positional-params hazard the audit flagged no longer
+  exists.
+- **D6 — upstream prompt rule** from json-render `c731a9c` ("REQUIRED FIELDS
+  children") deliberately NOT adopted with the zod fix — adopting it changes
+  every prompt hash and requires a golden re-record. Adopt in one planned
+  pass (F6).
+- **D7 — `envConfig()` before boot** warns once (server-side) and returns an
+  empty snapshot rather than throwing: routes must not 500 on a misordered
+  import during dev HMR. Documented at the seam.
+- **D8 — absent-Origin requests pass the DNS-rebinding guard** intentionally:
+  CLI, curl, and same-origin GETs carry no Origin header; browsers always
+  send one cross-origin.
+
+### 9.3 Follow-up register (ordered; F1–F4 are pre-Phase-2 gates)
+
+1. **F1** Decompose `page.tsx` (1,386 lines) to the ≤ ~400 target — the one
+   WS7 deliverable that did not land.
+2. **F2** Drive `app-raw-fetch` ratchet 12 → 0 via the typed api client.
+3. **F3** `form-controller`'s spec-authored `endpoint` lets LLM output choose
+   the POST target: constrain to an allowlist (`/api/`-relative, no
+   traversal). Security-texture, cheap; do before any external renderer use.
+4. **F4** Guard the fork itself: `src/spec` ESLint boundary group (no `next`,
+   `@/lib`, `@/components`) + per-directory isolation `tsc` in CI proving
+   `spec/`, `contracts/`, renderer compile alone (the "Phase 2 is a `git mv`"
+   guarantee, currently unproven).
+5. **F5** Resolve fork `validateSpec` name collision (rename to
+   `validateSpecStructure` or adopt it); prune or adopt dead vendored surface
+   (`useJsonRenderMessage`, core `buildUserPrompt`, JSONL element-tree path).
+6. **F6** Adopt upstream prompt rule (D6) in a dedicated pass with golden
+   re-record.
+7. **F7** Validate on saved-viz persist/update + refresh paths (close D4
+   asymmetry).
+8. **F8** local-llm routes still resolve gguf paths off `cwd` directly —
+   route them through `hermeticPaths` (harness-side residue).
+9. **F9** Smoke-test `SpecHarness` duplicates SpecView's provider stack;
+   have the test import a SpecView-exported stack (or mount SpecView) so
+   they cannot diverge silently.
+
+**Phase 1 verdict: complete.** The architecture holds under adversarial
+re-audit; the two partial criteria are app-layer size/hygiene targets (F1,
+F2), not library-boundary violations — no library imports a harness, all
+config flows through the seams, and the CLI harness proves it in CI.
