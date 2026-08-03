@@ -118,3 +118,22 @@ jobs:
             sleep 2
           done
           node scripts/golden/run-journeys.mjs check
+
+      - name: CLI harness proof (offline, no server)
+        env:
+          HERMETIC_LLM_MODE: replay
+          ANTHROPIC_API_KEY: test-key-replay-only
+        run: |
+          # The libraries must be drivable with no Next server in-process
+          # (Phase 1 exit criterion #1). Filename must match the recorded
+          # fixture (the journey runner uploads as fixture.csv).
+          cp test-specs/data/01-saas-mrr.csv /tmp/fixture.csv
+          pnpm cli ask "What is the MRR trend over time?" /tmp/fixture.csv --out /tmp/cli-spec.ndjson
+          grep -q '"path":"/root"' /tmp/cli-spec.ndjson
+          ! grep -q '"value":"error"' /tmp/cli-spec.ndjson
+
+      - name: Harness stays framework-free
+        run: |
+          # The CLI + harness layers must never import Next (lib is
+          # lint-enforced; this guards the harness files themselves).
+          ! grep -rE 'from "next(/|")' src/cli src/harness

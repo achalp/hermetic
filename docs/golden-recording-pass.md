@@ -74,6 +74,12 @@ every future PR replays the journeys offline.
   in prompt text, which changes the request hash. Report the `costKey` from
   the error message; the prompt's date source needs pinning. This is exactly
   the class of ambient assumption Phase 1 removes.
+- **A replay miss right after a dependency bump**: fixture hashes exclude
+  transport metadata (`headers` — the AI SDK stamps its version there), so
+  routine SDK bumps don't invalidate fixtures. If a miss still occurs, the
+  replay layer writes `<costKey>-<hash>.miss.json` beside the fixtures with
+  the FULL request — diff it against the stored fixture's `requestPreview`
+  to see exactly what drifted before re-recording.
 - **Transcript MISMATCH (not a miss)**: LLM responses were identical but the
   stream differed — the normalizer (`scripts/golden/normalize.mjs`) missed a
   volatile field. The runner writes `<journey>.received.ndjson` next to the

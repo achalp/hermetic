@@ -54,11 +54,25 @@ function stableStringify(value: unknown): string {
   });
 }
 
+/**
+ * Hash input = the request MINUS transport metadata. `headers` carries the
+ * AI SDK's user-agent (e.g. "ai/6.0.116"), so hashing it invalidated every
+ * generate-kind fixture on a routine dependency bump — prompt content is
+ * the identity, transport is not.
+ */
+function hashableParams(params: unknown): unknown {
+  if (params && typeof params === "object" && !Array.isArray(params)) {
+    const { headers: _headers, ...rest } = params as Record<string, unknown>;
+    return rest;
+  }
+  return params;
+}
+
 function requestHash(modelId: string, params: unknown): string {
   return createHash("sha256")
     .update(modelId)
     .update(" ")
-    .update(stableStringify(params))
+    .update(stableStringify(hashableParams(params)))
     .digest("hex")
     .slice(0, 16);
 }
@@ -90,6 +104,28 @@ function preview(params: unknown): string {
   return stableStringify(params).slice(0, 2000);
 }
 
+function writeMissDiagnostic(
+  dir: string,
+  costKey: string,
+  modelId: string,
+  hash: string,
+  params: unknown
+): void {
+  // A miss means the prompt drifted since recording. Persist the FULL request
+  // next to the fixtures so the drift is diffable against the stored
+  // fixture's requestPreview (which truncates) — turns "re-record and hope"
+  // into "diff and see exactly what changed".
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${costKey.replace(/[^a-zA-Z0-9_-]/g, "_")}-${hash}.miss.json`),
+      JSON.stringify({ costKey, modelId, hash, request: params }, null, 2) + "\n"
+    );
+  } catch {
+    // diagnostic only — never mask the real error
+  }
+}
+
 function missError(costKey: string, modelId: string, hash: string, dir: string): Error {
   return new Error(
     `LLM replay miss: no fixture for costKey=${costKey} model=${modelId} hash=${hash} in ${dir}. ` +
@@ -114,7 +150,10 @@ export function llmReplayMiddleware(costKey: string): LanguageModelMiddleware {
       const file = fixturePath(cfg.dir, costKey, hash);
 
       if (cfg.mode === "replay") {
-        if (!existsSync(file)) throw missError(costKey, modelId, hash, cfg.dir);
+        if (!existsSync(file)) {
+          writeMissDiagnostic(cfg.dir, costKey, modelId, hash, params);
+          throw missError(costKey, modelId, hash, cfg.dir);
+        }
         const fixture = JSON.parse(readFileSync(file, "utf8")) as GenerateFixture;
         return fixture.result as Awaited<ReturnType<typeof doGenerate>>;
       }
@@ -142,7 +181,10 @@ export function llmReplayMiddleware(costKey: string): LanguageModelMiddleware {
       const file = fixturePath(cfg.dir, costKey, hash);
 
       if (cfg.mode === "replay") {
-        if (!existsSync(file)) throw missError(costKey, modelId, hash, cfg.dir);
+        if (!existsSync(file)) {
+          writeMissDiagnostic(cfg.dir, costKey, modelId, hash, params);
+          throw missError(costKey, modelId, hash, cfg.dir);
+        }
         const fixture = JSON.parse(readFileSync(file, "utf8")) as StreamFixture;
         const stream = new ReadableStream({
           start(controller) {

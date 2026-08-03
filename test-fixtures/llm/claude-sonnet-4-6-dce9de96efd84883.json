@@ -1,0 +1,300 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the CSV from \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. Emits the result by calling the preloaded helper write_output(...) — do NOT build the\\n   JSON or call json.dump yourself:\\n       write_output(\\n           results={ ... },        # computed values, aggregations, statistics\\n           chart_data={ ... },      # objects/arrays formatted for chart components\\n           datasets={\\\"main\\\": df},   # the working DataFrame (capped to 5000 rows for you)\\n           images={ ... },          # optional base64 matplotlib/seaborn PNGs\\n       )\\n   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion and always writes all four\\n   keys, so the output is never silently empty. results and chart_data must EACH contain at\\n   least one entry. (It writes \\\"/data/output.json\\\".)\\n\\nRules:\\n- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.\\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics.\\n- Use pandas for all data manipulation.\\n- For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.\\n- For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.\\n- For box plots: return ra",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785777340",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785777340"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "```"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "python\nimport pandas as pd\nimport numpy as np\nfrom scipy import stats\n\ndf = pd.read_csv(\"/data/input."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "csv\")\n\ndf[\"new_mrr\"] = to_num(df[\"new_mrr\"])\ndf[\"expansion_mrr\"] = to_num("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "df[\"expansion_mrr\"])\ndf[\"churn_mrr\"] = to_num(df[\"churn_mrr\"])\ndf[\"customers\"] = to_num(df[\"customers\"])\ndf[\"arpu\"] = to_num(df[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "arpu\"])\n\ndf_clean = df.dropna(subset=[\"churn_mrr\", \"customers\", \"arpu\"])\nn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": " = len(df_clean)\n\n# Pearson correlations\nr_customers, p_customers = stats.pearsonr(df_clean[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "churn_mrr\"], df_clean[\"customers\"])\nr_arpu, p_arpu = stats.pearsonr(df_clean[\"churn_mrr\"], df_clean[\"arpu\"])\n\n# Spearman correlations\nr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "ho_customers, psp_customers = stats.spearmanr(df_clean[\"churn_mrr\"], df_clean[\"customers\"])\nrho_arpu, psp_arpu = stats.sp"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "earmanr(df_clean[\"churn_mrr\"], df_clean[\"arpu\"])\n\n# R-squared\nr2_customers = round(r_customers ** 2"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": ", 3)\nr2_arpu = round(r_arpu ** 2, 3)\n\n# Effect sizes (Cohen's conventions"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": ": r~0.1 small, 0.3 medium, "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "0.5 large)\ndef interpret_r(r):\n    a = abs(r)\n    if a"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": " >= 0.5:\n        return \"strong\"\n    elif a >= 0.3:\n        return \"moderate\"\n    elif a >= 0.1:"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "\n        return \"weak\"\n    return \"negligible\"\n\nwinner = \"customers\" if abs(r_customers) > abs(r_arpu) else"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": " \"arpu\"\n\n# Scatter data for churn vs customers\nscatter_customers = df_clean["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "[\"churn_mrr\", \"customers\", \"plan\"]].copy()\nscatter_customers.columns = [\"churn_mrr\", \"x"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "_value\", \"plan\"]\nscatter_customers[\"predictor\"] = \"customers\"\n\n# Scatter data for churn vs arpu\nscatter_arpu"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": " = df_clean[[\"churn_mrr\", \"arpu\", \"plan\"]].copy()\nscatter_arpu.columns = [\"churn_mrr\", \"x_value\", \"plan\"]\nscatter_arpu[\"predictor\"] = \""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "arpu\"\n\n# Regression lines for reference\nslope_c, intercept_c, *"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "_ = stats.linregress(df_clean[\"customers\"], df_clean[\"churn_mrr\"])\nslope_a, intercept_a, *_ = stats.linregress(df_clean[\"ar"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "pu\"], df_clean[\"churn_mrr\"])\n\ncustomers_range = np.linspace(df_clean[\"customers\"].min(), df_clean[\"customers\"].max(), 50)\narpu_range ="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": " np.linspace(df_clean[\"arpu\"].min(), df_clean[\"arpu\"].max(), 50)\n\nregression_customers = [{\"x\": round"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "(float(x), 1), \"fitted_churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "mrr\": round(float(slope_c * x + intercept_c), 0)} for x in customers_range]\nregression_arpu = [{\"x\": round(float(x), 2), \"fitted_churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "mrr\": round(float(slope_a * x + intercept_a), 0)} for x in arpu_range]\n\n# Bar chart comparing r values"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "\nbar_data = [\n    {\"predictor\": \"customers (volume)\", \"pearson_r\": round"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "(float(r_customers), 3), \"r_squared\": round(float(r2_customers), 3), \"spearman_r"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "ho\": round(float(rho_customers), 3)},\n    {\"predictor\": \"arpu (health)\", \"pearson_r\": round(float(r_arpu), 3), \"r_squared\": round(float("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "r2_arpu), 3), \"spearman_rho\": round(float(rho_arpu), 3)},\n]\n\nresults = {\n    \"n_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "observations\": int(n),\n    \"churn_vs_customers_pearson_r\": round(float(r"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "_customers), 3),\n    \"churn_vs_customers_r_squared\": round(float(r2_customers), 3),\n    \"churn_vs_customers_p_value\": round(float"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "(p_customers), 4),\n    \"churn_vs_customers_spearman_rho\": round(float(rho_customers), 3),\n    \"churn_vs_customers"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "_strength\": interpret_r(r_customers),\n    \"churn_vs_arpu_pearson_r\": round(float(r_arpu), 3),\n    \"churn_vs_arpu_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "r_squared\": round(float(r2_arpu), 3),\n    \"churn_vs_arpu_p_value\": round(float(p_arpu), 4),\n    \"churn_vs_arpu_sp"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "earman_rho\": round(float(rho_arpu), 3),\n    \"churn_vs_arpu_strength\": interpret_r(r_arpu),\n    \"stronger_predic"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "tor\": winner,\n    \"r_difference\": round(abs(float(r_customers)) - abs(float(r_arpu)), 3),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "\n    \"r2_difference\": round(float(r2_customers) - float(r2_arpu), 3),\n    \"interpretation\": (\n        f"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "\"churn_mrr correlates more strongly with {'customer count (volume)' if winner == "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "'customers' else 'ARPU (health)'} \"\n        f\"(r={round(abs(r_customers if winner == 'customers' else r_arpu), 3"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": ")}) than \"\n        f\"{'ARPU' if winner == 'customers' else 'customer count'} \"\n        f\"(r={round(abs(r_ar"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "pu if winner == 'customers' else r_customers), 3)}). \"\n        f\"Customer count explains {round(r2_customers *"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": " 100, 1)}% of churn variance vs {round(r2_arpu * 100, 1)}% for"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": " ARPU.\"\n    ),\n}\n\nchart_data = {\n    \"correlation_comparison\": bar_data,\n    \"scatter"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "_churn_vs_customers\": df_clean[[\"churn_mrr\", \"customers\", \"plan\"]].rename(columns={\"customers\": \"customers_count"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "\"}).to_dict(orient=\"records\"),\n    \"scatter_churn_vs_arpu\": df_clean[[\"churn_mrr\", \"arpu\", \"plan\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "].to_dict(orient=\"records\"),\n    \"regression_line_customers\": regression_customers,\n    \"regression_line_arpu\": regression_arpu,\n}\n\nwrite_output"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "(\n    results=results,\n    chart_data=chart_data,\n    datasets={\"main\": df"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785777340",
+      "delta": "},\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785777340",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785777340"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 15071,
+          "noCache": 12768,
+          "cacheRead": 2303
+        },
+        "outputTokens": {
+          "total": 1884,
+          "text": 1884,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 15071,
+          "input_tokens_details": {
+            "cached_tokens": 2303
+          },
+          "output_tokens": 1884
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

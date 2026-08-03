@@ -1,0 +1,44 @@
+{
+  "kind": "generate",
+  "costKey": "claude-haiku-4-5-20251001",
+  "modelId": "claude-haiku-4-5-20251001",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":2000,\"prompt\":[{\"content\":\"You are about to compose a unified investigation dashboard. Before you commit, do a sanity check: do the completed sub-question results contain everything you need to write a coherent narrative answer to the user's question?\\n\\nYou will see:\\n- The original user question.\\n- Per-step metadata + result keys + chart data shapes for every completed sub-question.\\n\\nAnswer one of:\\n\\n1. `needs: []` — results are sufficient. Compose now. Use this most of the time.\\n\\n2. `needs: [1-2 follow-up sub-questions]` — there's a SPECIFIC missing piece without which the dashboard would be misleading or incomplete. Common cases:\\n   - You have churn counts but no denominators, so you can't compute rates.\\n   - You have a comparison but the time window for one side wasn't returned.\\n   - You have a leading indicator but no lagging confirmation.\\n\\nStrict rules:\\n- Each requested sub-question must be answerable by ONE Python script. Reference REAL columns from the original schema.\\n- depends_on indices in new sub-questions reference the EXISTING completed steps (0..N-1). New sub-questions don't depend on each other (no cross-references in this batch).\\n- Do NOT duplicate any existing sub-question's rationale.\\n- Maximum 2 follow-ups. Be conservative — every follow-up costs another round of code generation + sandbox execution.\\n- If you're unsure, prefer needs: [] and let the composer work with what it has.\\n\\nOutput STRICT JSON:\\n{\\n  \\\"needs\\\": [\\n    { \\\"question\\\": \\\"...\\\", \\\"rationale\\\": \\\"what gap this closes\\\", \\\"depends_on\\\": [] }\\n  ],\\n  \\\"rationale\\\": \\\"1-2 sentences on what's missing (or 'all sufficient' if needs is empty)\\\"\\n}\\n\\nOutput ONLY the JSON object. No markdown fencing, no preamble.\",\"role\":\"system\"},{\"content\":[{\"text\":\"## Original Question\\nInvestigate what drives churn in this data.\\n\\n## Completed Sub-question Artifacts\\n### Step 1\\nBy plan, what are the average churn_mrr, cus",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "```json\n{\n  \"needs\": [],\n  \"rationale\": \"all sufficient\"\n}\n```",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1785777389"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 8370,
+        "noCache": 8370,
+        "cacheRead": 0
+      },
+      "outputTokens": {
+        "total": 1627,
+        "text": 1627,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 8370,
+        "output_tokens": 1627
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1785777389"
+      }
+    },
+    "warnings": []
+  }
+}
