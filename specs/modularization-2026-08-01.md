@@ -363,18 +363,28 @@ was either fixed in the M7 remediation commit or dispositioned below. Suite:
   CLI, curl, and same-origin GETs carry no Origin header; browsers always
   send one cross-origin.
 
-### 9.3 Follow-up register (ordered; F1–F4 are pre-Phase-2 gates)
+### 9.3 Follow-up register (F1–F4 RESOLVED 2026-08-03; F5+ open)
 
-1. **F1** Decompose `page.tsx` (1,386 lines) to the ≤ ~400 target — the one
-   WS7 deliverable that did not land.
-2. **F2** Drive `app-raw-fetch` ratchet 12 → 0 via the typed api client.
-3. **F3** `form-controller`'s spec-authored `endpoint` lets LLM output choose
-   the POST target: constrain to an allowlist (`/api/`-relative, no
-   traversal). Security-texture, cheap; do before any external renderer use.
-4. **F4** Guard the fork itself: `src/spec` ESLint boundary group (no `next`,
-   `@/lib`, `@/components`) + per-directory isolation `tsc` in CI proving
-   `spec/`, `contracts/`, renderer compile alone (the "Phase 2 is a `git mv`"
-   guarantee, currently unproven).
+1. **F1 ✓** `page.tsx` decomposed 1,386 → 476: behavior in seven hooks
+   (model-settings, recents-list, home-composer, reattach,
+   analysis-actions, schedule-popover, panels), render in six components
+   (HomeTopBar/ResultsToolbar, PageChrome, ResultsRegion, home-screens,
+   data-rail-derive). Logic-free composition root.
+2. **F2 ✓** `app-raw-fetch` ratcheted 12 → 0: typed local-llm client
+   functions + `fetchStaticAsset` in `lib/api.ts`; error-skip semantics of
+   the status pollers preserved via `ApiError` discrimination.
+3. **F3 ✓** `safeFormEndpoint()` — the spec-authored submit target must
+   resolve same-origin under `/api/` (URL-normalized, traversal-proof);
+   rejected endpoints surface through `onErrorStatePath`. Tested.
+4. **F4 ✓** `src/spec` ESLint boundary group + `scripts/isolation-check.mjs`
+   (`pnpm isolation`, in CI after the ratchet): resolves each future
+   package's module graph via `tsc --listFilesOnly` and fails if it escapes
+   its declared roots. First run caught 7 real breaches, all fixed:
+   GroundingReport → `contracts/grounding`, SkillFailureHint →
+   `contracts/execution`, HermeticPathRoots/LLMReplayConfig →
+   `contracts/harness-boot` (harness-slot no longer drags paths/replay into
+   every graph), renderer-error-boundary + data-table/definition-list/
+   pivot-table annexed into the guarded renderer closure.
 5. **F5** Resolve fork `validateSpec` name collision (rename to
    `validateSpecStructure` or adopt it); prune or adopt dead vendored surface
    (`useJsonRenderMessage`, core `buildUserPrompt`, JSONL element-tree path).
