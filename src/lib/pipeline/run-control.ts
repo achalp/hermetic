@@ -4,6 +4,7 @@ import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 import type { SkillFailureHint } from "@/lib/skills/types";
 import { stateNamespace } from "@/lib/state-store";
+import { registerRunLivenessProbe } from "@/lib/store-ttl";
 
 /**
  * Per-run control registry — the single mechanism behind "stop on demand" and
@@ -61,6 +62,11 @@ interface RunControl {
 }
 
 const runs = stateNamespace<RunControl>("run-control");
+
+// Provide the store-ttl active-run pin (M2-C4). The import points DOWNWARD
+// (orchestration -> lib util) — the old coupling was store-ttl importing this
+// registry, dragging it into every session store.
+registerRunLivenessProbe(isRunActive);
 
 /** Every sandbox container id ever registered → the runId that owns it. Lets the
  *  sweeper tell a live container from a crash orphan without scanning each run.
