@@ -1,6 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { clientLazy } from "@/components/lazy-client";
 import { defineRegistry, type Components } from "@json-render/react";
 import { catalog } from "@/lib/catalog";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
@@ -89,7 +89,7 @@ function wrapAll(components: Components<typeof catalog>): Components<typeof cata
 // - Everything else (selectedValues arrays etc.) compares by reference.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function lazyChart(loader: () => Promise<ComponentType<any>>): ComponentType<any> {
-  const Dynamic = dynamic(loader, { ssr: false });
+  const Dynamic = clientLazy(loader);
   return memo(Dynamic, (prev: any, next: any) => {
     for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
       const a = prev[key];
@@ -146,9 +146,9 @@ const Surface3DChartComponent = lazyChart(() =>
 const Globe3DComponent = lazyChart(() =>
   import("./charts/globe-view").then((m) => m.Globe3DComponent)
 );
-const Map3DComponent = dynamic(() => import("./charts/map3d-view").then((m) => m.Map3DComponent), {
-  ssr: false,
-});
+const Map3DComponent = clientLazy(() =>
+  import("./charts/map3d-view").then((m) => m.Map3DComponent)
+);
 const CandlestickChartComponent = lazyChart(() =>
   import("./charts/candlestick-chart").then((m) => m.CandlestickChartComponent)
 );

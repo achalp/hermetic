@@ -1,27 +1,22 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { clientLazy } from "@/components/lazy-client";
 import type { Data, Layout, Config } from "plotly.js";
 import { usePlotlyLayout } from "@/lib/chart-theme";
 import { useRef, useEffect } from "react";
 
-const PlotlyPlot = dynamic(
+const PlotlyPlot = clientLazy(
   async () => {
     const Plotly = await import("plotly.js-cartesian-dist");
     const createPlotlyComponent = (await import("react-plotly.js/factory")).default;
     return createPlotlyComponent(Plotly);
   },
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        className="flex h-[350px] w-full items-center justify-center bg-surface-2"
-        style={{ borderRadius: "var(--radius-card)" }}
-      >
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
-      </div>
-    ),
-  }
+  <div
+    className="flex h-[350px] w-full items-center justify-center bg-surface-2"
+    style={{ borderRadius: "var(--radius-card)" }}
+  >
+    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
+  </div>
 );
 
 const PLOTLY_CONFIG: Partial<Config> = {

@@ -5,27 +5,12 @@
 // schema validation alone proved props parse, not that components render.
 // WebGL/canvas leaf libraries (plotly dists, maplibre, deck.gl, globe.gl) are
 // stubbed; everything above them (chart data prep, registry wiring, wrappers)
-// runs for real. next/dynamic is adapted to React.lazy so lazy charts resolve
-// inside the test instead of rendering a permanent loading placeholder.
+// runs for real. Charts load through the renderer's own clientLazy
+// (React.lazy + Suspense; M5-5c) whose fallback carries data-testid
+// lazy-loading — renderAndSettle awaits full resolution.
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
-
-vi.mock("next/dynamic", () => ({
-  default: (loader: () => Promise<unknown>) => {
-    const Lazy = React.lazy(async () => {
-      const mod = (await loader()) as { default?: React.ComponentType } | React.ComponentType;
-      const Comp = (mod && (mod as { default?: React.ComponentType }).default) ?? mod;
-      return { default: Comp as React.ComponentType };
-    });
-    const DynamicAdapter = (props: Record<string, unknown>) => (
-      <React.Suspense fallback={<div data-testid="lazy-loading" />}>
-        <Lazy {...props} />
-      </React.Suspense>
-    );
-    return DynamicAdapter;
-  },
-}));
 
 const stubComponent = (name: string) => {
   const Stub = ({ children }: { children?: React.ReactNode }) => (

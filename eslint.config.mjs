@@ -102,9 +102,10 @@ const eslintConfig = defineConfig([
       "src/components/registry.tsx",
       "src/components/registry-primitives.tsx",
     ],
+    ignores: ["src/components/charts/**/__tests__/**"],
     rules: {
       "no-restricted-imports": [
-        "warn",
+        "error",
         {
           patterns: [
             {

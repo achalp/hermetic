@@ -1,19 +1,17 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
-import dynamic from "next/dynamic";
+import { clientLazy } from "@/components/lazy-client";
 import { unwrapChartData } from "@/lib/chart-theme";
 import { ChartEmptyState } from "./chart-empty-state";
 import { ChartShell } from "./chart-shell";
 
-const DeckGLMap = dynamic(() => import("./map3d-inner").then((m) => m.Map3DInner), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-[500px] w-full items-center justify-center rounded-lg bg-surface-2">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
-    </div>
-  ),
-});
+const DeckGLMap = clientLazy(
+  () => import("./map3d-inner").then((m) => m.Map3DInner),
+  <div className="flex h-[500px] w-full items-center justify-center rounded-lg bg-surface-2">
+    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
+  </div>
+);
 
 interface Map3DProps {
   title?: string | null;
