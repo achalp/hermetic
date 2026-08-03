@@ -1,5 +1,5 @@
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
-import { apiError } from "@/lib/api-error";
+import { apiError, validationErrorResponse } from "@/lib/api-error";
 import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { readJsonBody, parseBody, analysisRequestSchema } from "@/lib/api-schemas";
@@ -37,11 +37,11 @@ export async function POST(request: Request) {
     // resolution (lib/pipeline/validate-request.ts — same module Investigate
     // uses, so the two routes can't drift again). ──
     const ids = validateQueryIds(context ?? {}, prompt);
-    if (!ids.ok) return ids.response;
+    if (!ids.ok) return validationErrorResponse(ids);
     const { warehouseId, question } = ids;
 
     const sources = resolveQuerySources(ids, context ?? {}, { skipModelValidation });
-    if (!sources.ok) return sources.response;
+    if (!sources.ok) return validationErrorResponse(sources);
     const { warehouseState, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
 
     // Shared mutable run state: a warehouse run learns its materialized csvId

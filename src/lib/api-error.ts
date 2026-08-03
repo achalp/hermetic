@@ -35,3 +35,11 @@ export function apiError(route: string, err: unknown, fallback: string, status =
   const message = err instanceof Error && err.message ? err.message : fallback;
   return Response.json({ error: message.slice(0, MAX_CLIENT_ERROR_CHARS) }, { status });
 }
+
+/** Map a lib-layer ValidationFailure to the HTTP error shape (M3-3c). */
+export function validationErrorResponse(failure: { status: number; error: string }): Response {
+  return new Response(JSON.stringify({ error: failure.error }), {
+    status: failure.status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
