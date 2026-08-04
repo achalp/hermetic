@@ -4,7 +4,14 @@ import { useState, useEffect, useCallback } from "react";
 import { AVAILABLE_MODELS, AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId, LLMProviderId, LocalBackendId } from "@/lib/constants";
 import { LocalBackendSection } from "@/components/app/local-backend-section";
-import { getProviders, getRuntimes, type ProviderInfo, type RuntimeStatus } from "@/lib/api";
+import {
+  getLocalLlmPlatform,
+  getProviders,
+  getRuntimes,
+  type ProviderInfo,
+  type RuntimeStatus,
+  setActiveProvider,
+} from "@/lib/api";
 
 interface InferenceSectionProps {
   codeGenModel: ModelId;
@@ -113,8 +120,7 @@ export function InferenceSection({
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/local-llm/platform", { signal: controller.signal })
-      .then((r) => r.json())
+    getLocalLlmPlatform(controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
         setPlatform(data);
@@ -162,19 +168,12 @@ export function InferenceSection({
               onChange={async (e) => {
                 const newProvider = e.target.value as LLMProviderId;
                 try {
-                  const res = await fetch("/api/providers", {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ provider: newProvider }),
+                  const data = await setActiveProvider(newProvider);
+                  setProviderInfo({
+                    ...providerInfo,
+                    active: data.active,
+                    activeLabel: data.activeLabel,
                   });
-                  if (res.ok) {
-                    const data = await res.json();
-                    setProviderInfo({
-                      ...providerInfo,
-                      active: data.active,
-                      activeLabel: data.activeLabel,
-                    });
-                  }
                 } catch {
                   /* ignore */
                 }

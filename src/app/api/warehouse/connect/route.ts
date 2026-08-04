@@ -6,7 +6,8 @@ import { saveConnection } from "@/lib/warehouse/persist-env";
 import { inferRelationships } from "@/lib/warehouse/infer-relationships";
 import { warehouseSourceKey, warehouseTablesFingerprint } from "@/lib/warehouse/schema-fingerprint";
 import { resolveWithCache } from "@/lib/schema-cache";
-import type { WarehouseConnectionConfig, WarehouseTableSchema } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import { parseBody, WarehouseConnectionConfigSchema } from "@/lib/api-schemas";
 
 export const maxDuration = 120;

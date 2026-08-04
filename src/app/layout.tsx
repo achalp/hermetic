@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { STORAGE_KEYS } from "@/lib/constants";
+import { THEME_IDS } from "@/lib/theme-config";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/lib/theme-context";
 import "./globals.css";
@@ -28,7 +30,14 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("gud-theme");if(t&&["vanilla","stamen","iib","pentagram"].includes(t))d.setAttribute("data-theme",t);var m=localStorage.getItem("gud-mode");if(m==="dark")d.setAttribute("data-mode","dark");else if(m==="light")d.setAttribute("data-mode","light")}catch(e){}})()`,
+            // No-FOUC bootstrap, generated from the same constants the theme
+            // provider uses — the keys and allow-list can no longer drift from
+            // lib/theme-context (modularization M1-1d).
+            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem(${JSON.stringify(
+              STORAGE_KEYS.theme
+            )});if(t&&${JSON.stringify(THEME_IDS)}.includes(t))d.setAttribute("data-theme",t);var m=localStorage.getItem(${JSON.stringify(
+              STORAGE_KEYS.mode
+            )});if(m==="dark")d.setAttribute("data-mode","dark");else if(m==="light")d.setAttribute("data-mode","light")}catch(e){}})()`,
           }}
         />
       </head>

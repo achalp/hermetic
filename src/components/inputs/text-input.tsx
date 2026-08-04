@@ -1,6 +1,6 @@
 "use client";
 
-import { useBoundProp } from "@json-render/react";
+import { useBoundProp } from "@/spec/react";
 
 interface TextInputProps {
   label: string;

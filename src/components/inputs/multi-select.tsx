@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
-import { useBoundProp } from "@json-render/react";
+import { useBoundProp } from "@/spec/react";
 
 interface MultiSelectProps {
   label: string;

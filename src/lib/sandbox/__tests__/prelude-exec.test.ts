@@ -1,6 +1,6 @@
 /**
  * Executed-Python prelude tests. prelude.test.ts only regex-pins that the
- * PYTHON_NAN_PRELUDE *contains* the expected defs — nothing ever RAN the
+ * pythonNanPrelude() *contains* the expected defs — nothing ever RAN the
  * Python, so a runtime bug (bad escaping, a syntax error, broken NaN
  * coercion) would reach production only at user query time.
  *
@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox";
+import { pythonNanPrelude } from "@/lib/sandbox/prelude";
 import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 
 const havePython = (() => {
@@ -37,7 +37,7 @@ function runPreludeRaw(fixture: string): string {
       `import builtins as _b\n` +
       `def open(path, *a, **kw):\n` +
       `    return _b.open(${JSON.stringify(outPath)} if path == '/data/output.json' else path, *a, **kw)\n`;
-    const script = PYTHON_NAN_PRELUDE + "\n" + shim + "\n" + fixture;
+    const script = pythonNanPrelude() + "\n" + shim + "\n" + fixture;
     const scriptPath = join(dir, "script.py");
     writeFileSync(scriptPath, script);
     const proc = spawnSync("python3", [scriptPath], { encoding: "utf-8" });
@@ -55,7 +55,7 @@ function runPrelude(fixture: string): Record<string, unknown> {
   return JSON.parse(runPreludeRaw(fixture));
 }
 
-describe.skipIf(!havePython)("PYTHON_NAN_PRELUDE — executed", () => {
+describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
   it("the prelude itself is valid Python (no template-escaping breakage)", () => {
     const out = runPrelude(`write_output(results={'ok': 1})`);
     expect(out.results).toEqual({ ok: 1 });

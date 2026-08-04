@@ -8,7 +8,7 @@ import type {
   ColumnMeta,
   DataDomain,
   ColumnCorrelation,
-} from "@/lib/types";
+} from "@/lib/contracts/data-schema";
 import type { ParsedCSV } from "./parser";
 import { MAX_SAMPLE_ROWS, MAX_PREVIEW_ROWS } from "@/lib/constants";
 

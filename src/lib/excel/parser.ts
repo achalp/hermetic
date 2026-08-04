@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import Papa from "papaparse";
-import type { SheetInfo } from "@/lib/types";
+import type { SheetInfo } from "@/lib/contracts/data-schema";
 
 export interface ExcelMeta {
   sheets: SheetInfo[];

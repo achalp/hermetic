@@ -63,7 +63,7 @@ describe("docker executeSandbox", () => {
   });
 
   it("bind-mounts a local path read-only and skips the stdin CSV write", async () => {
-    await executeSandbox("", "code", null, undefined, "/Users/me/data");
+    await executeSandbox("", "code", { localMountPath: "/Users/me/data" });
     const create = createCall();
     const vIdx = create.indexOf("-v");
     expect(vIdx).toBeGreaterThan(-1);
@@ -74,7 +74,7 @@ describe("docker executeSandbox", () => {
   });
 
   it("docker-cps a materialized parquet into the container", async () => {
-    await executeSandbox("", "code", null, undefined, undefined, "/tmp/m.parquet");
+    await executeSandbox("", "code", { inputParquetPath: "/tmp/m.parquet" });
     const cp = calls().find((a) => a[0] === "cp");
     expect(cp).toBeDefined();
     expect(cp![1]).toBe("/tmp/m.parquet");

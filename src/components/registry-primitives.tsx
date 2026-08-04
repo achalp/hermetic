@@ -6,7 +6,7 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { useBoundProp } from "@json-render/react";
+import { useBoundProp } from "@/spec/react";
 import { useStatCardTheme, useInsightTheme, useAnnotationTheme } from "@/lib/theme-config";
 
 // ── Constants ──────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { detectRelationships } from "@/lib/excel/relationships";
-import type { SheetInfo } from "@/lib/types";
+import type { SheetInfo } from "@/lib/contracts/data-schema";
 
 function makeSheet(name: string, headers: string[], sampleRows: string[][] = []): SheetInfo {
   return {

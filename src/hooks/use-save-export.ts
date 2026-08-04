@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import {
   downloadDashboardAsPdf,
   downloadDashboardAsDocx,

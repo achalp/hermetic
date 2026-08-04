@@ -8,8 +8,8 @@ import type {
   BooleanMeta,
   WorkbookManifest,
   DataDomain,
-  ConversationTurn,
-} from "@/lib/types";
+} from "@/lib/contracts/data-schema";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { activateSkills } from "@/lib/skills/registry";

@@ -1,4 +1,4 @@
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 /**
  * Produces a deterministic fingerprint from a schema's column names + dtypes.

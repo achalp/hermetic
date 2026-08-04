@@ -1,0 +1,5 @@
+{
+  "//": "Shared between src/lib/constants.ts and scripts/server-timeouts.mjs. The HTTP requestTimeout must exceed the large-data sandbox budget or long streams die at the socket with no application error.",
+  "largeDataTimeoutMs": 1200000,
+  "requestTimeoutMarginMs": 300000
+}

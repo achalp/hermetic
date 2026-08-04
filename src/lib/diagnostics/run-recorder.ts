@@ -1,8 +1,9 @@
-import "server-only";
 import { mkdir, writeFile, appendFile, readdir, stat, rm } from "fs/promises";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
+import { envConfig } from "@/lib/harness-slot";
+import { hermeticPaths } from "@/lib/paths";
 
 /**
  * Incremental, best-effort forensic trail for a run.
@@ -20,13 +21,13 @@ import { logger } from "@/lib/logger";
  * thread it; outside a run scope every function is a no-op.
  */
 
-const RUNS_DIR = join(process.cwd(), "data", "runs");
+const RUNS_DIR = hermeticPaths.runsDir();
 const DEFAULT_MAX_RUNS = 200;
 /** Cap a single recorded artifact so a huge output can't bloat disk. */
 const MAX_ARTIFACT_BYTES = 512 * 1024;
 
 function maxRuns(): number {
-  const raw = Number(process.env.HERMETIC_MAX_RUN_RECORDS);
+  const raw = Number(envConfig().HERMETIC_MAX_RUN_RECORDS);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_RUNS;
 }
 

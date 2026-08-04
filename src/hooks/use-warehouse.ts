@@ -1,12 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type {
-  WarehouseConnectionConfig,
-  WarehouseTableInfo,
-  WarehouseTableSchema,
-  WarehouseType,
-} from "@/lib/types";
+import type { WarehouseConnectionConfig, WarehouseType } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import {
   connectWarehouse as apiConnect,
   disconnectWarehouse,

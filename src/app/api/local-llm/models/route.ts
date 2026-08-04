@@ -1,6 +1,8 @@
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import { readdirSync, statSync, mkdirSync } from "fs";
 import { join } from "path";
+import { hermeticPaths } from "@/lib/paths";
 import { execSync } from "child_process";
 
 /** Find a Python that has huggingface_hub */
@@ -41,6 +43,7 @@ function listCachedMlxModels(): { name: string; size: number; modified_at: strin
       if (!py) return [];
       const script = `
 import json
+import { hermeticPaths } from "@/lib/paths";
 from huggingface_hub import scan_cache_dir
 info = scan_cache_dir()
 repos = [{"repo_id": r.repo_id, "repo_type": r.repo_type, "size_on_disk": r.size_on_disk, "last_accessed": r.last_accessed} for r in info.repos]
@@ -69,7 +72,7 @@ print(json.dumps({"repos": repos}))
 
 /** Scan data/models/gguf/ for downloaded GGUF files */
 function listCachedGgufModels(): { name: string; size: number; modified_at: string }[] {
-  const dir = join(process.cwd(), "data", "models", "gguf");
+  const dir = hermeticPaths.ggufModelsDir();
   try {
     // Ensure directory exists
     mkdirSync(dir, { recursive: true });
@@ -106,7 +109,7 @@ export async function GET(request: Request) {
 
   if (backend === "ollama") {
     const rc = getRuntimeConfig();
-    const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
+    const baseUrl = rc.ollama?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama;
     try {
       const res = await fetch(`${baseUrl}/api/tags`);
       if (!res.ok) return Response.json({ error: "Failed to list models" }, { status: 502 });

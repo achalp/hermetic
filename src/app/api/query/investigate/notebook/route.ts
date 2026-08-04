@@ -5,7 +5,7 @@
  */
 
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { NotebookLayout, NotebookLayoutCell } from "@/lib/pipeline/investigation-trace";
+import type { NotebookLayout, NotebookLayoutCell } from "@/lib/contracts/investigation";
 import { logger } from "@/lib/logger";
 import { apiError } from "@/lib/api-error";
 

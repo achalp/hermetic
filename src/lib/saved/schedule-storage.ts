@@ -14,9 +14,9 @@
  * Status tracking: lastRunAt, lastStatus ("success" | "error"), lastError.
  */
 
-import "server-only";
-import { mkdir, readFile, writeFile, stat } from "fs/promises";
-import { join, dirname } from "path";
+import { mkdir, readFile, writeFile } from "fs/promises";
+import { dirname } from "path";
+import { hermeticPaths } from "@/lib/paths";
 
 export type ScheduleCadence =
   | "hourly"
@@ -42,7 +42,7 @@ export interface ScheduleEntry {
   nextRunAt: number | null;
 }
 
-const SCHEDULES_PATH = join(process.cwd(), "data", "schedules.json");
+const SCHEDULES_PATH = hermeticPaths.schedulesFile();
 
 let cache: Map<string, ScheduleEntry> | null = null;
 

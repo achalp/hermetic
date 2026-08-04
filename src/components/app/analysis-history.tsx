@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 
 interface HistoryEntry {
   question: string;

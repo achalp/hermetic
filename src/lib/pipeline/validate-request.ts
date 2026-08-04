@@ -32,30 +32,32 @@ import {
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 
-export interface QueryRequestContext {
-  csv_id?: string;
-  warehouse_id?: string;
-  question?: string;
-  code_gen_model?: string;
-  ui_compose_model?: string;
-  sandbox_runtime?: string;
-}
+import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
+/** @deprecated alias — use AnalysisRequestContext (modularization M1-1c). */
+export type QueryRequestContext = AnalysisRequestContext;
 
 export interface WarehouseState {
   warehouse: NonNullable<ReturnType<typeof getStoredWarehouse>>;
   connector: NonNullable<ReturnType<typeof getWarehouseConnector>>;
 }
 
-function errorResponse(error: string, status: number): Response {
-  return new Response(JSON.stringify({ error }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+/**
+ * Typed validation failure (modularization M3-3c) — this module previously
+ * built HTTP Response objects, putting transport concerns in the library
+ * layer (any non-HTTP harness got Responses it couldn't use). Callers map
+ * {status, error} to their transport.
+ */
+export interface ValidationFailure {
+  ok: false;
+  status: number;
+  error: string;
 }
+
+const fail = (error: string, status: number): ValidationFailure => ({ ok: false, status, error });
 
 export type QueryIds =
   | { ok: true; csvId: string | undefined; warehouseId: string | undefined; question: string }
-  | { ok: false; response: Response };
+  | ValidationFailure;
 
 /** Step 1 — the syntactic 400s: ids present, question present. */
 export function validateQueryIds(context: QueryRequestContext, prompt?: string): QueryIds {
@@ -64,13 +66,10 @@ export function validateQueryIds(context: QueryRequestContext, prompt?: string):
   const question = (context.question ?? prompt ?? "").trim();
 
   if (!csvId && !warehouseId) {
-    return {
-      ok: false,
-      response: errorResponse("csv_id or warehouse_id is required in context", 400),
-    };
+    return fail("csv_id or warehouse_id is required in context", 400);
   }
   if (!question) {
-    return { ok: false, response: errorResponse("question is required", 400) };
+    return fail("question is required", 400);
   }
   return { ok: true, csvId, warehouseId, question };
 }
@@ -83,7 +82,7 @@ export type ResolvedQuerySources =
       uiComposeModel: string;
       sandboxRuntime: SandboxRuntimeId;
     }
-  | { ok: false; response: Response };
+  | ValidationFailure;
 
 /** Step 2 — resource 404s (warehouse/CSV) + model/runtime resolution. */
 export function resolveQuerySources(
@@ -106,18 +105,15 @@ export function resolveQuerySources(
   if (lookupWarehouse) {
     const warehouse = getStoredWarehouse(warehouseId);
     if (!warehouse) {
-      return {
-        ok: false,
-        response: errorResponse("Warehouse not found or expired. Please reconnect.", 404),
-      };
+      return fail("Warehouse not found or expired. Please reconnect.", 404);
     }
     const connector = getWarehouseConnector(warehouseId);
     if (!connector) {
-      return { ok: false, response: errorResponse("Warehouse connector not found", 404) };
+      return fail("Warehouse connector not found", 404);
     }
     warehouseState = { warehouse, connector };
   } else if (opts.requireStoredCsv && !getStoredCSV(csvId!)) {
-    return { ok: false, response: errorResponse("CSV not found or expired", 404) };
+    return fail("CSV not found or expired", 404);
   }
 
   const codeGenModel =

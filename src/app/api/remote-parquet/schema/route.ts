@@ -12,7 +12,7 @@ import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { recordRecentSource } from "@/lib/sources/recent-sources";
-import type { RemoteCreds } from "@/lib/types";
+import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import { apiError } from "@/lib/api-error";
 
 export const maxDuration = 300; // remote reads over the network can be slow

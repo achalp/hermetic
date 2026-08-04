@@ -1,10 +1,10 @@
 import { createClient, type ClickHouseClient } from "@clickhouse/client";
+import type { ClickHouseConnectionConfig } from "@/lib/contracts/connection-configs";
 import type {
-  ClickHouseConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
   WarehouseColumnInfo,
-} from "@/lib/types";
+} from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
 
 export function createClickHouseConnector(config: ClickHouseConnectionConfig): WarehouseConnector {

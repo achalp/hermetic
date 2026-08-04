@@ -10,14 +10,14 @@
  */
 
 import snowflake from "snowflake-sdk";
+import type { SnowflakeConnectionConfig } from "@/lib/contracts/connection-configs";
 import type {
-  SnowflakeConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
   WarehouseColumnInfo,
-} from "@/lib/types";
+} from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue, rowsToCsv } from "./csv-util";
+import { rowsToCsv } from "./csv-util";
 
 interface SnowflakeRow {
   [key: string]: unknown;

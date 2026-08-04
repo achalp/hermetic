@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useCSVUpload } from "@/hooks/use-csv-upload";
-import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 
 afterEach(() => {
   cleanup();

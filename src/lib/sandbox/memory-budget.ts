@@ -1,7 +1,7 @@
-import "server-only";
 import { run } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { DEFAULT_SANDBOX_MEMORY_FRACTION } from "@/lib/constants";
+import { envConfig } from "@/lib/harness-slot";
 
 /**
  * Per-container memory budget, derived at runtime from the Docker daemon's own
@@ -18,7 +18,7 @@ import { DEFAULT_SANDBOX_MEMORY_FRACTION } from "@/lib/constants";
 
 /** Policy fraction of daemon memory a container may use (env-overridable). */
 function memoryFraction(): number {
-  const raw = Number(process.env.SANDBOX_MEMORY_FRACTION);
+  const raw = Number(envConfig().SANDBOX_MEMORY_FRACTION);
   return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : DEFAULT_SANDBOX_MEMORY_FRACTION;
 }
 

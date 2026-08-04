@@ -13,8 +13,8 @@ import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import { saveHistoryEntry } from "@/lib/history/storage";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { SandboxExecutionResult } from "@/lib/types";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 
@@ -91,15 +91,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const savedSchema = extractSchema(savedParsed, csvId, csvFilename);
       storeLocalFileRef(csvId, savedSchema, localPath, info.mtimeMs, isFolder);
 
-      const execResult = await executeSandbox(
-        "",
-        savedViz.generatedCode,
+      const execResult = await executeSandbox("", savedViz.generatedCode, {
         runtime,
-        undefined,
-        undefined,
-        csvId,
-        localMountPath
-      );
+        csvId: csvId,
+        localMountPath: localMountPath,
+      });
 
       if (!execResult.success) {
         return NextResponse.json(
@@ -158,15 +154,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     // 4. Re-execute the saved code
-    const execResult = await executeSandbox(
-      normalizedCsv,
-      savedViz.generatedCode,
+    const execResult = await executeSandbox(normalizedCsv, savedViz.generatedCode, {
       runtime,
-      undefined, // geojson
-      undefined, // additional files
       csvId,
-      localMountPath
-    );
+      localMountPath,
+    });
 
     if (!execResult.success) {
       return NextResponse.json(

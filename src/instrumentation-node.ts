@@ -94,3 +94,33 @@ export async function raiseServerTimeouts(): Promise<void> {
     (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.() ?? [];
   for (const h of handles) raise(h as { requestTimeout?: number });
 }
+
+/**
+ * LLM record/replay bootstrap (modularization M0-0a). Harness boot is where
+ * env is read and pushed into lib as explicit config — lib itself never
+ * touches process.env (ratchet-enforced). Lives here (not instrumentation.ts)
+ * because node:path must stay out of the Edge bundle.
+ */
+export async function installBootConfig(): Promise<void> {
+  const { installEnvConfig } = await import("./harness/env-config");
+  installEnvConfig("snapshot");
+  // Env validation is an explicit boot step, not an import side effect
+  // (previously ran at config.ts module load — modularization M2-B1).
+  const { validateEnv, EnvError } = await import("./lib/config");
+  try {
+    validateEnv();
+  } catch (e) {
+    if (e instanceof EnvError) console.error(`[config] ${e.message}`);
+    else throw e;
+  }
+}
+
+export async function configureLLMReplayFromEnv(): Promise<void> {
+  const mode = process.env.HERMETIC_LLM_MODE;
+  if (mode !== "record" && mode !== "replay") return;
+  const { configureLLMReplay } = await import("./lib/llm/replay");
+  const { resolve } = await import("node:path");
+  const dir = process.env.HERMETIC_LLM_FIXTURES ?? "test-fixtures/llm";
+  configureLLMReplay({ mode, dir: resolve(dir) });
+  console.log(`[llm-replay] ${mode} mode, fixtures: ${dir}`);
+}

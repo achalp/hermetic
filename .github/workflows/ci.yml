@@ -39,6 +39,12 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      - name: Modularization ratchet
+        run: pnpm run ratchet
+
+      - name: Package isolation check
+        run: pnpm run isolation
+
       - name: Format check
         run: pnpm run format:check
 
@@ -71,3 +77,78 @@ jobs:
 
       - name: Run tests with coverage
         run: pnpm test:coverage
+
+  # Golden transcripts: replay-mode server + journey runner, fully offline
+  # (LLM responses come from committed fixtures in test-fixtures/llm/;
+  # scripts/golden/run-journeys.mjs header documents the recording flow).
+  golden-transcripts:
+    name: Golden Transcripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build sandbox image
+        run: docker build -t hermetic-sandbox ./docker/sandbox/
+
+      - name: Build app
+        run: pnpm run build
+        env:
+          ANTHROPIC_API_KEY: test-key-replay-only
+
+      - name: Start server (replay mode) and check journeys
+        env:
+          HERMETIC_LLM_MODE: replay
+          ANTHROPIC_API_KEY: test-key-replay-only
+        run: |
+          pnpm start &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/api/providers >/dev/null && break
+            sleep 2
+          done
+          node scripts/golden/run-journeys.mjs check
+
+      - name: CLI harness proof (offline, no server)
+        env:
+          HERMETIC_LLM_MODE: replay
+          ANTHROPIC_API_KEY: test-key-replay-only
+        run: |
+          # The libraries must be drivable with no Next server in-process
+          # (Phase 1 exit criterion #1). Filename must match the recorded
+          # fixture (the journey runner uploads as fixture.csv).
+          cp test-specs/data/01-saas-mrr.csv /tmp/fixture.csv
+          pnpm cli ask "What is the MRR trend over time?" /tmp/fixture.csv --out /tmp/cli-spec.ndjson
+          grep -q '"path":"/root"' /tmp/cli-spec.ndjson
+          ! grep -q '"value":"error"' /tmp/cli-spec.ndjson
+
+      - name: Harness stays framework-free
+        run: |
+          # The CLI + harness layers must never import Next (lib is
+          # lint-enforced; this guards the harness files themselves).
+          ! grep -rE 'from "next(/|")' src/cli src/harness
+
+      # On a replay miss the middleware writes <hash>.miss.json next to the
+      # fixtures (the attempted params). Upload those plus the received
+      # transcripts so a CI-only divergence can be diffed against the
+      # recorded fixtures without reproducing the runner environment.
+      - name: Upload miss diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-miss-diagnostics
+          path: |
+            test-fixtures/llm/*.miss.json
+            test-fixtures/golden/*.received.ndjson
+          if-no-files-found: ignore

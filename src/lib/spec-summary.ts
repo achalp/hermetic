@@ -1,4 +1,4 @@
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/lib/contracts/spec";
 
 interface UIElementLike {
   type: string;

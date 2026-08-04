@@ -1,5 +1,7 @@
 "use client";
 
+import type { CostInfo } from "@/lib/contracts/stream-state";
+
 /**
  * Thin always-mounted strip at the bottom of the page showing the cost of the
  * last analysis and the running session total, with a link to the full /cost
@@ -7,14 +9,9 @@
  * of each analysis). Hidden until the first analysis completes.
  */
 
-/** Shape of the spec.state.__cost the server emits (a subset of CostSummary). */
-export interface CostInfo {
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  llmCalls: number;
-}
+// CostInfo lives in the stream-state contract (M1-1b); re-exported for
+// existing importers.
+export type { CostInfo };
 
 function fmtUsd(n: number): string {
   if (n <= 0) return "$0";

@@ -8,8 +8,8 @@ import {
   downloadCodeAsFile,
   sanitizeFilename,
 } from "@/lib/export-utils";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
+import type { InvestigationTrace, TraceStep } from "@/lib/contracts/investigation";
 import { CodeEditor } from "./code-editor";
 import { rerunCode, ApiError } from "@/lib/api";
 

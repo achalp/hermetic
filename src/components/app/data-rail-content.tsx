@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { getWarehouseSample } from "@/lib/api";
 import { CollapsibleSection } from "@/components/app/collapsible-section";
 import { SchemaSection } from "@/components/app/data-explorer/schema-section";
 import { ProfileSection } from "@/components/app/data-explorer/profile-section";
@@ -106,22 +107,20 @@ export function DataRailContent({
   // Fetch sample data when warehouse table selection changes
   const fetchKey = shouldFetchSample ? `${warehouseId}:${selectedTable}` : "";
   useEffect(() => {
-    if (!fetchKey) return;
-    const controller = new AbortController();
-    const [wId, tbl] = fetchKey.split(":");
-    fetch(`/api/warehouse/sample?warehouse_id=${wId}&table=${encodeURIComponent(tbl)}`, {
-      signal: controller.signal,
-    })
-      .then((res) => res.json())
+    if (!shouldFetchSample || !warehouseId || !selectedTable) return;
+    let cancelled = false;
+    getWarehouseSample(warehouseId, selectedTable)
       .then((data) => {
-        if (!controller.signal.aborted) {
+        if (!cancelled) {
           setWhSampleData({ columns: data.headers ?? [], rows: data.rows ?? [] });
           setSampleFetchKey(fetchKey);
         }
       })
       .catch(() => {});
-    return () => controller.abort();
-  }, [fetchKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldFetchSample, warehouseId, selectedTable, fetchKey]);
 
   // Derive schema/profile for the selected warehouse table
   const whTableData = useMemo(() => {

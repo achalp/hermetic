@@ -1,0 +1,455 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785805288",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785805288"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "{\"op\":\"add\",\"path\":\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "root\",\"value\":\"root\"}\n{\"op\":\"add\",\"path\":\"/elements/root\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":20},\"children\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "[\"title\",\"exec_summary\",\"step1-break\",\"step1-kpis\",\"step1-charts-row\",\"step1-insight\",\"step2-break\",\"step2-kpis\",\"step2-trend\",\"step2-insight\",\"step"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "3-break\",\"step3-kpis\",\"step3-charts-row\",\"step3-insight\",\"conclusion\"]}}\n{\"op\":\"add\",\"path\":\"/elements/title\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Investigate what drives"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " churn in this data\",\"variant\":\"heading\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/exec_summary\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Churn is most concentrated in the $result:step"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "_1_highest_churn_plan plan, which averages $result:step_1_highest_avg_churn_mrr_usd in churn M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "RR and bleeds $result:step_1_churn_pct_of_total_mrr_pct% of that segment's own gross MRR ("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "Step 1). Across all months, churn tracks growth almost perfectly — Pearson r of $result:"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "step_2_pearson_r_churn_vs_growth — meaning it is a structural loss rate applied to an"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " expanding base, not an accelerating crisis (Step 2). The root mechanism is customer"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " volume, not ARPU: volume explains $result:step_3_r"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "2_customers_model of churn variance versus $result:step_3_r2_arpu_model for ARPU alone, confir"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "ming the lever is onboarding and early retention at scale (Step 3).\",\"variant\":\"insight\"},\"children"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step1-break\",\"value\":{\"type\":\"SectionBreak\",\"props\":{\"variant\":\"line\",\"label\":\"Step 1 — Which plan tier concent"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "rates the most churn?\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step1-kpis\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":12},\"children\":[\"step1"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "-stat-plan\",\"step1-stat-churn\",\"step1-stat-pct\"]}}\n{\"op\":\"add\",\"path\":\"/elements/step1-stat-plan\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Highest-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "Churn Plan\",\"value\":{\"$result\":\"step_1_highest_churn_plan\"},\"description\":\"Plan segment with greatest"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " avg churn MRR\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step1-stat-churn\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "Avg Churn MRR (top plan)\",\"value\":{\"$result\":\"step_1_highest_avg_churn_mrr_usd\"},\"format\":\"currency\",\"precision\":0,\"trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\":\"down\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step1-stat-pct\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Churn % of Plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " Gross MRR\",\"value\":{\"$result\":\"step_1_churn_pct_of_total_mrr_pct\"},\"format\":\"percent\",\"trend\":\"down\"},\"children\":[]}}\n{\"op\":\"add"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\",\"path\":\"/elements/step1-charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16,\"align\":\"stretch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\"},\"children\":[\"step1-bar-components\",\"step1-bar-pct\"]}}\n{\"op\":\"add\",\"path\":\"/elements/step1-bar-components\",\"value\":{\"type\":\"BarChart\",\"props\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "{\"title\":\"Avg MRR Components by Plan\",\"data\":{\"$chartData\":\"step_1_avg_mrr_components_by_plan\"},\"x_key\":\"plan\",\"y_keys\":[\"avg_churn_mrr\",\"avg_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "new_mrr\",\"avg_expansion_mrr\"],\"color_map\":{\"avg_churn_mrr\":\"rose\",\"avg_new_mrr\":\"emerald\",\"avg_expansion_mrr\":\"indigo\"}},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "op\":\"add\",\"path\":\"/elements/step1-bar-pct\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Churn as % of Gross MRR by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " Plan\",\"data\":{\"$chartData\":\"step_1_churn_pct_by_plan\"},\"x_key\":\"plan\",\"y_keys\":[\"churn_pct_of_total_mrr\"],\"color_map\":{\"churn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "_pct_of_total_mrr\":\"rose\"},\"selects\":{\"column\":\"plan\",\"bindTo\":\"/filters/plan\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step1-insight\",\"value\":{\"type"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\":\"TextBlock\",\"props\":{\"content\":\"The $result:step_1_highest_churn_plan plan has the highest average churn MRR at $result:step_1_highest_avg_churn_mrr_usd"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " — $result:step_1_churn_pct_of_total_mrr_pct% of that tier's total gross MRR — suggesting"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " disproportionate attrition relative to the other plan tiers visible in the component breakdown"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": ". (Step 1)\",\"variant\":\"insight\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step2-break\",\"value\":{\"type\":\"SectionBreak\",\"props\":{\"variant\":\"line\",\"label\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "Step 2 — Does churn simply scale with growth, or is it worsening independently"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "?\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step2-kpis\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":12},\"children\":[\"step2-stat-pearson"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\",\"step2-stat-rsq\",\"step2-stat-pct-growth\"]}}\n{\"op\":\"add\",\"path\":\"/elements/step2-stat-pearson\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Pearson r — Churn vs Growth\",\"value\":{\"$result\":\"step_2_pearson_r_churn_vs_growth\"},\"format"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\":\"number\",\"precision\":3,\"description\":\"Near-perfect co-movement\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step2-stat-rsq\",\"value"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\":{\"type\":\"StatCard\",\"props\":{\"label\":\"R² (Churn ~ Growth)\",\"value\":{\"$result\":\"step_2_r_squared\"},\"format\":\"number\",\"precision\":3,\"description\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "Growth explains this share of churn variance\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step2-stat-pct-growth"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Avg Churn as % of Monthly Growth\",\"value\":{\"$result\":\"step_2_avg_churn_pct_of"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "_growth\"},\"format\":\"percent\",\"description\":\"Churn consistently consumes this fraction of new growth\"},\"children\":[]}}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\n{\"op\":\"add\",\"path\":\"/elements/step2-trend\",\"value\":{\"type\":\"DualAxisChart\",\"props\":{\"title\":\"Monthly Churn MRR vs Growth MRR\",\"data\":{\"$chartData\":\"step_2_ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "urn_vs_growth_trend\"},\"x_key\":\"month\",\"left_series\":[{\"key\":\"churn_mrr\",\"type\":\"bar\",\"label\":\"Churn MRR\"}],\"right_series\":[{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "key\":\"growth_mrr\",\"type\":\"line\",\"label\":\"Growth MRR\"}],\"left_label\":\"Churn MRR ($)\",\"right_label\":\"Growth MRR ($)\"},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "op\":\"add\",\"path\":\"/elements/step2-insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Step 1 showed churn is largest in absolute"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " terms in the highest-tier plan; Step 2 tests whether the overall churn trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " is a business-health signal or just a growth ar"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "tefact — and it is the latter: Pearson r = $result:step_2_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "pearson_r_churn_vs_growth with R² = $result:step_2_r_squared means growth accounts for nearly all"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " monthly churn variance. Churn peaks in $result:step_2_max_churn_month at $result:step_2_max_churn_mrr,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " and on average offsets $result:step_2_avg_churn_pct_of_growth% of each month's incoming"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " growth. (Step 2)\",\"variant\":\"insight\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step3-break\",\"value\":{\"type\":\"SectionBreak\",\"props\":{\"variant\":\"line\",\"label\":\"Step 3 "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "— Volume or ARPU: which is the root mechanism of churn?\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "3-kpis\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":12},\"children\":[\"step3-stat-stronger\",\"step3-stat-r2cust\",\"step3-stat-r2arpu"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\"]}}\n{\"op\":\"add\",\"path\":\"/elements/step3-stat-stronger\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Dominant Churn Predictor\",\"value\":{\"$result\":\"step_3"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "_stronger_predictor\"},\"description\":\"Outperforms the alternative by $result:step_3_margin_pct ppts\"},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "op\":\"add\",\"path\":\"/elements/step3-stat-r2cust\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"R² — Customer Volume Model\",\"value\":{\"$result\":\"step_3_r2_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "customers_model\"},\"format\":\"number\",\"precision\":3},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step3-stat-r2arpu\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"R² —"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " ARPU Model\",\"value\":{\"$result\":\"step_3_r2_arpu_model\"},\"format\":\"number\",\"precision\":3},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/step3-charts-row\",\"value"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16,\"align\":\"stretch\"},\"children\":[\"step3-predictor-bar\",\"step3-forest\"]}}\n{\"op\":\"add\",\"path\":\"/elements/step3-predictor-bar\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Predictor Strength: Volume vs ARPU\",\"data\":{\"$chartData\":\"step_3_predictor_comparison\"},\"x_key\":\"predictor\",\"y_keys\":[\"pear"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "son_r_abs\",\"r_squared\",\"spearman_r_abs\"],\"color_map\":{\"pearson_r_abs\":\"indigo\",\"r_squared\":\"violet\",\"spearman_r_abs\":\"cyan\"}},\"children\":[]}}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\n{\"op\":\"add\",\"path\":\"/elements/step3-forest\",\"value\":{\"type\":\"ForestPlot\",\"props\":{\"title\":\"Pearson r with 95% CI — Predictors of"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " Churn MRR\",\"data\":{\"$chartData\":\"step_3_forest_pearson_r\"},\"reference_value\":0,\"x_label\":\"Pearson r (churn MRR)\"},\"children\":[]}}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "\n{\"op\":\"add\",\"path\":\"/elements/step3-insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Step 2 established that churn scales with growth momentum"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": ", raising the question of whether that link is mediated by adding more customers or higher-ARPU ones; Step 3 sett"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "les it in favour of $result:step_3_stronger_predictor, which leads by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " $result:step_3_margin_pct percentage points (R² $result:step_3_r2_customers_model vs $result:step_3_r"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "2_arpu_model). Standardised betas confirm volume as the dominant coefficient"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " in the combined model, leaving ARPU as a secondary signal. (Steps 2, 3)\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "variant\":\"insight\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/conclusion\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Churn is a structural,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " volume-driven loss rate — not a pricing problem or a signal of product"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "-market misfit. Reducing net revenue churn requires improving"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " early-lifecycle retention in the $result:step_1_highest_churn_plan plan where"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " attrition is both largest in absolute terms and disproportionate as a share"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " of that segment's MRR. Recommended next steps: (1) survival"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " analysis by acquisition cohort to detect whether newer cohorts churn faster, (2) qualitative investigation of $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": "result:step_1_highest_churn_plan cancellation reasons, and (3) A/B testing onboarding interventions targeted"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805288",
+      "delta": " at high-volume low-tenure accounts.\",\"variant\":\"body\"},\"children\":[]}}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785805288",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785805288"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 27806,
+          "noCache": 22201,
+          "cacheRead": 5605
+        },
+        "outputTokens": {
+          "total": 10453,
+          "text": 10453,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 27806,
+          "input_tokens_details": {
+            "cached_tokens": 5605
+          },
+          "output_tokens": 10453
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

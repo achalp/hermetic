@@ -1,38 +1,47 @@
 "use client";
 
-import { createContext, useContext, type MutableRefObject } from "react";
-import type { DrillDownParams } from "@/lib/types";
+import { createContext, useContext } from "react";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 import type { ClickedRecord } from "@/lib/drill-resolve";
 
-type DrillDownCallback = ((params: DrillDownParams) => void) | null;
-
 /**
- * Module-level ref for the drill-down callback.
- * Used by the registry action (non-React code) to invoke drill-downs.
- * ResponsePanel sets this via useEffect on mount.
+ * Drill-down plumbing (modularization M5-5b).
+ *
+ * Two contexts, both provided per-<SpecView> (components/spec-view.tsx):
+ *
+ * - DrillClickContext — the clicked mark's dimension values. Charts can't
+ *   resolve json-render `{"$item": ...}` bindings (they aren't list/repeater
+ *   contexts), so each chart records its click here and the drill dispatch
+ *   resolves the binding against it.
+ * - DrillDownDispatchContext — the drill trigger. Chart clicks reach it via
+ *   the registry's drillDown action; PivotTable cells and the selection bar
+ *   call it directly with concrete (already-resolved) params.
+ *
+ * Previously TWO module-level mutable refs wired this: a second mounted
+ * panel overwrote the first's callback, and unmount nulled it for both.
+ * Multiple mounted panels are now legal.
  */
-export const drillDownCallbackRef: { current: DrillDownCallback } = {
-  current: null,
-};
 
-/**
- * The dimension values of the most recently clicked chart mark, keyed by real
- * dataset column (plus the {@link CLICK_PRIMARY} sentinel for the primary
- * value). Charts can't resolve json-render `{"$item": ...}` bindings — they
- * aren't list/repeater contexts — so a drill action's `filter_value` would
- * otherwise stay unresolved. The chart sets this on click; the drill callback
- * passes it to `resolveDrillValues`. Reset to null after each drill.
- */
-export const drillClickValueRef: { current: ClickedRecord } = { current: null };
+export interface DrillClickRef {
+  current: ClickedRecord;
+}
 
-/**
- * Context that holds a ref to the drill-down callback.
- * React components use this via useDrillDownCallback() hook.
- */
-export const DrillDownContext = createContext<MutableRefObject<DrillDownCallback>>({
-  current: null,
-});
+// Shared fallback for charts rendered outside a <SpecView> (tests) — one
+// shared slot, exactly the pre-M5 behavior.
+const fallbackClickRef: DrillClickRef = { current: null };
 
-export function useDrillDownCallback(): MutableRefObject<DrillDownCallback> {
-  return useContext(DrillDownContext);
+export const DrillClickContext = createContext<DrillClickRef>(fallbackClickRef);
+
+/** The click-record slot of the nearest <SpecView>. Charts write; dispatch reads. */
+export function useDrillClickRef(): DrillClickRef {
+  return useContext(DrillClickContext);
+}
+
+export type DrillDispatch = ((params: DrillDownParams) => void) | null;
+
+export const DrillDownDispatchContext = createContext<DrillDispatch>(null);
+
+/** The nearest <SpecView>'s drill trigger — null when drill-down isn't wired. */
+export function useDrillDispatch(): DrillDispatch {
+  return useContext(DrillDownDispatchContext);
 }

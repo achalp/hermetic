@@ -1,8 +1,5 @@
-import type {
-  WarehouseConnectionConfig,
-  WarehouseTableInfo,
-  WarehouseTableSchema,
-} from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import { createPostgresConnector } from "./postgres";
 import { createBigQueryConnector } from "./bigquery";
 import { createClickHouseConnector } from "./clickhouse";

@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-haiku-4-5-20251001",
+  "modelId": "claude-haiku-4-5-20251001",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analysis planner. Given a user's question and a dataset schema, decompose the question into the FEWEST, most penetrating sub-questions that together answer the original. Favor sharp, insightful questions that directly answer what was asked over broad coverage — never pad for breadth. The user prompt specifies the target count for this request; treat it as a ceiling, not a quota.\\n\\nEach sub-question should:\\n- Be answerable by ONE Python data-analysis script (groupBy, aggregation, simple chart, statistical test, etc.)\\n- Reference real columns from the schema\\n- Have a clear analytical purpose distinct from the others\\n- Not duplicate work across sub-questions\\n\\nDeclare dependencies as `depends_on`: an array of prior sub-question indices (0-based) whose results this one needs. Use `[]` (empty array) for sub-questions that can run independently — those execute in parallel. Use `[N]` when the sub-question needs ONE prior result (e.g. \\\"Now drill into the top region from step 1\\\"). Use `[N, M]` when it genuinely needs BOTH (e.g. \\\"Compare the top region from step 1 with the bottom region from step 2\\\"). Cap dependencies at 3 priors per sub-question. All indices in `depends_on` MUST be less than the sub-question's own index.\\n\\nPick decomposition styles that fit the question:\\n- Investigate-an-anomaly: trend → segments → time-of-onset → correlated factors → recommendation\\n- Compare-two-things: each side's metrics (independent) → side-by-side comparison (depends_on both) → drivers of difference\\n- Profile-a-segment: descriptives → distribution → outliers → context vs. rest of population\\n- Trend-analysis: overall trend → by-segment trend → seasonality → outliers → year-over-year\\n\\nOutput STRICT JSON matching this schema:\\n{\\n  \\\"approach\\\": \\\"1-2 sentence approach summary\\\",\\n  \\\"subQuestions\\\": [\\n    {\\n      \\\"question\\\": \\\"single focused question\\\",\\n      \\\"rationa",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "```json\n{\n  \"approach\": \"Identify churn drivers across business segment (plan type), timeline (monthly trends), and root mechanism (customer quality vs. volume).\",\n  \"subQuestions\": [\n    {\n      \"question\": \"Which plan type has the highest average churn_mrr, and what is churn as a percentage of that plan's total MRR?\",\n      \"rationale\": \"Identifies the highest-risk customer segment and reveals whether churn is proportional to plan size or concentrated in a specific tier.\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"How does churn_mrr trend across months, and is it correlated with business growth (new_mrr + expansion_mrr)?\",\n      \"rationale\": \"Reveals temporal patterns and tests the counterintuitive 0.95 correlation between growth and churn, explaining whether churn scales with business momentum.\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"Which is a stronger predictor of churn: customer volume (customers count) or customer quality (ARPU)?\",\n      \"rationale\": \"Isolates the root mechanism of churn—whether it's inevitable as the business scales or preventable through customer quality improvements.\",\n      \"depends_on\": []\n    }\n  ]\n}\n```",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1785805241"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 11872,
+        "noCache": 6256,
+        "cacheRead": 5616
+      },
+      "outputTokens": {
+        "total": 5210,
+        "text": 5210,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 11872,
+        "input_tokens_details": {
+          "cached_tokens": 5616
+        },
+        "output_tokens": 5210
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1785805241"
+      }
+    },
+    "warnings": []
+  }
+}

@@ -1,29 +1,13 @@
-import type { InvestigationTrace } from "@/lib/pipeline/investigation-trace";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
+export type { CachedArtifacts };
 import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { stateNamespace } from "@/lib/state-store";
 
 // SLIDING idle TTL (time since last read, not since it was cached) — every open
 // of the artifacts panel / follow-up / recompose slides it forward, and an
 // in-flight run pins it (see lib/store-ttl.ts). Was a 10-minute absolute window,
 // which expired a result the user was still following up on.
 const ARTIFACTS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour idle
-
-export interface CachedArtifacts {
-  code: string;
-  question: string;
-  results: Record<string, unknown>;
-  chart_data: Record<string, unknown>;
-  datasets: Record<string, Record<string, unknown>[]>;
-  execution_ms: number;
-  /** SQL query generated for warehouse data sources */
-  sql?: string;
-  /**
-   * Full audit trail for an Investigate run: every sub-question's code +
-   * result, the re-planner's decisions, and the narrative grounding verdict.
-   * Absent for single-shot Ask. When present, the artifacts panel renders a
-   * per-step, re-runnable trail in addition to the top-level code/data tabs.
-   */
-  investigation?: InvestigationTrace;
-}
 
 interface CacheEntry extends CachedArtifacts {
   cachedAt: number;
@@ -32,13 +16,7 @@ interface CacheEntry extends CachedArtifacts {
   ownerRunId?: string;
 }
 
-const globalCache = globalThis as unknown as {
-  __artifactsCache?: Map<string, CacheEntry>;
-};
-if (!globalCache.__artifactsCache) {
-  globalCache.__artifactsCache = new Map();
-}
-const cache = globalCache.__artifactsCache;
+const cache = stateNamespace<CacheEntry>("artifacts-cache");
 
 export function cacheArtifacts(csvId: string, artifacts: CachedArtifacts): void {
   cache.set(csvId, { ...artifacts, cachedAt: Date.now() });

@@ -5,7 +5,7 @@ import { ResponsivePie } from "@nivo/pie";
 import { resolveColors, useChartColors, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
 import { useThemeConfig } from "@/lib/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
-import { drillClickValueRef } from "@/lib/drill-down-context";
+import { useDrillClickRef } from "@/lib/drill-down-context";
 import { CLICK_PRIMARY } from "@/lib/drill-resolve";
 import { ChartEmptyState } from "./chart-empty-state";
 
@@ -38,6 +38,7 @@ export function PieChartComponent({
   selectedValues?: string[];
   onSelect?: (value: string) => void;
 }) {
+  const drillClickValueRef = useDrillClickRef();
   const isSelectable = !!onSelect;
   const clickHandle = on?.("click");
   const isDrillable = !isSelectable && (clickHandle?.bound ?? false);

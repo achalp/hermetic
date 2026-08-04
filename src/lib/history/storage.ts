@@ -1,12 +1,17 @@
-import "server-only";
-import { mkdir, writeFile, readFile, readdir, rm } from "fs/promises";
-import { join } from "path";
 import { v4 as uuidv4 } from "uuid";
-import type { HistoryMeta, CSVSchema, WarehouseType } from "@/lib/types";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { HistoryMeta } from "@/lib/contracts/storage-types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { WarehouseType } from "@/lib/contracts/connection-configs";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
+import { envConfig } from "@/lib/harness-slot";
+import { hermeticPaths } from "@/lib/paths";
+import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
+import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
+import { validateSpec } from "@/lib/catalog";
+import { logger } from "@/lib/logger";
 
-const HISTORY_DIR = join(process.cwd(), "data", "history");
+const store = new RecordDirStore(hermeticPaths.historyDir());
 
 /**
  * Cap on persisted history entries (API-9). Every run writes
@@ -18,21 +23,8 @@ const HISTORY_DIR = join(process.cwd(), "data", "history");
 const DEFAULT_MAX_HISTORY_ENTRIES = 200;
 
 function maxHistoryEntries(): number {
-  const raw = Number(process.env.HERMETIC_MAX_HISTORY_ENTRIES);
+  const raw = Number(envConfig().HERMETIC_MAX_HISTORY_ENTRIES);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_HISTORY_ENTRIES;
-}
-
-let dirCreated = false;
-async function ensureDir(subdir?: string) {
-  const dir = subdir ? join(HISTORY_DIR, subdir) : HISTORY_DIR;
-  if (!dirCreated) {
-    await mkdir(HISTORY_DIR, { recursive: true });
-    dirCreated = true;
-  }
-  if (subdir) {
-    await mkdir(dir, { recursive: true });
-  }
-  return dir;
 }
 
 // ── Chart type extraction ─────────────────────────────────────
@@ -96,7 +88,6 @@ export interface HistorySaveInput {
 
 export async function saveHistoryEntry(input: HistorySaveInput): Promise<HistoryMeta> {
   const id = uuidv4();
-  const dir = await ensureDir(id);
   const now = Date.now();
 
   const meta: HistoryMeta = {
@@ -116,23 +107,32 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
     description: extractDescription(input.spec),
   };
 
-  const writes = [
-    writeFile(join(dir, "meta.json"), JSON.stringify(meta, null, 2), "utf-8"),
-    writeFile(join(dir, "spec.json"), JSON.stringify(input.spec, null, 2), "utf-8"),
-    writeFile(join(dir, "code.py"), input.generatedCode, "utf-8"),
-    writeFile(join(dir, "schema.json"), JSON.stringify(input.schema, null, 2), "utf-8"),
-  ];
-
-  if (input.artifacts) {
-    writes.push(writeFile(join(dir, "artifacts.json"), JSON.stringify(input.artifacts), "utf-8"));
+  // Warn-only spec validation (WS2): surfaces composer regressions in logs
+  // without ever blocking a save the user is depending on.
+  const check = validateSpec(input.spec);
+  if (!check.success) {
+    logger.warn("Persisting spec that fails catalog validation", {
+      id,
+      error: check.error?.slice(0, 300),
+    });
   }
 
+  const files: Record<string, string> = {
+    [RECORD_FILES.meta]: JSON.stringify(meta, null, 2),
+    [RECORD_FILES.spec]: JSON.stringify(
+      { ...input.spec, hermeticSpecVersion: HERMETIC_SPEC_VERSION },
+      null,
+      2
+    ),
+    [RECORD_FILES.code]: input.generatedCode,
+    [RECORD_FILES.schema]: JSON.stringify(input.schema, null, 2),
+  };
+  if (input.artifacts) files[RECORD_FILES.artifacts] = JSON.stringify(input.artifacts);
   // Only store CSV content for uploaded files (local files are on disk, warehouse data is in artifacts)
   if (input.csvContent && input.sourceType === "upload") {
-    writes.push(writeFile(join(dir, "source.csv"), input.csvContent, "utf-8"));
+    files[RECORD_FILES.source] = input.csvContent;
   }
-
-  await Promise.all(writes);
+  await store.writeFiles(id, files);
 
   // Cap enforcement — best-effort: a prune failure must not fail the save
   // that triggered it (the new entry is already on disk at this point).
@@ -166,25 +166,8 @@ export async function pruneHistory(max = maxHistoryEntries()): Promise<number> {
 }
 
 export async function listHistory(): Promise<HistoryMeta[]> {
-  try {
-    await ensureDir();
-    const entries = await readdir(HISTORY_DIR, { withFileTypes: true });
-    const metas: HistoryMeta[] = [];
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      try {
-        const raw = await readFile(join(HISTORY_DIR, entry.name, "meta.json"), "utf-8");
-        metas.push(JSON.parse(raw));
-      } catch {
-        // Skip corrupted entries
-      }
-    }
-
-    return metas.sort((a, b) => b.timestamp - a.timestamp);
-  } catch {
-    return [];
-  }
+  const metas = await store.listMetas<HistoryMeta>();
+  return metas.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 export interface LoadedHistoryEntry {
@@ -197,44 +180,19 @@ export interface LoadedHistoryEntry {
 }
 
 export async function loadHistoryEntry(id: string): Promise<LoadedHistoryEntry> {
-  validateId(id);
-  const dir = join(HISTORY_DIR, id);
-
-  const [metaRaw, specRaw, code, schemaRaw] = await Promise.all([
-    readFile(join(dir, "meta.json"), "utf-8"),
-    readFile(join(dir, "spec.json"), "utf-8"),
-    readFile(join(dir, "code.py"), "utf-8"),
-    readFile(join(dir, "schema.json"), "utf-8"),
+  const [meta, spec, generatedCode, schema, artifacts, csvContent] = await Promise.all([
+    store.readRequiredJson<HistoryMeta>(id, RECORD_FILES.meta),
+    store.readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
+    store.readRequiredText(id, RECORD_FILES.code),
+    store.readRequiredJson<CSVSchema>(id, RECORD_FILES.schema),
+    store.readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
+    store.readOptionalText(id, RECORD_FILES.source),
   ]);
-
-  let artifacts: CachedArtifacts | undefined;
-  try {
-    const raw = await readFile(join(dir, "artifacts.json"), "utf-8");
-    artifacts = JSON.parse(raw);
-  } catch {
-    // May not exist
-  }
-
-  let csvContent: string | undefined;
-  try {
-    csvContent = await readFile(join(dir, "source.csv"), "utf-8");
-  } catch {
-    // Only exists for uploaded files
-  }
-
-  return {
-    meta: JSON.parse(metaRaw),
-    spec: JSON.parse(specRaw),
-    generatedCode: code,
-    schema: JSON.parse(schemaRaw),
-    artifacts,
-    csvContent,
-  };
+  return { meta, spec, generatedCode, schema, artifacts, csvContent };
 }
 
 export async function deleteHistoryEntry(id: string): Promise<void> {
-  validateId(id);
-  await rm(join(HISTORY_DIR, id), { recursive: true, force: true });
+  await store.delete(id);
 }
 
 /**
@@ -257,12 +215,7 @@ export async function findHistoryIdByCsvId(csvId: string): Promise<string | null
 export async function loadArtifactsByCsvId(csvId: string): Promise<CachedArtifacts | undefined> {
   const id = await findHistoryIdByCsvId(csvId);
   if (!id) return undefined;
-  try {
-    const raw = await readFile(join(HISTORY_DIR, id, "artifacts.json"), "utf-8");
-    return JSON.parse(raw) as CachedArtifacts;
-  } catch {
-    return undefined;
-  }
+  return store.readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts);
 }
 
 /**
@@ -278,15 +231,9 @@ export async function updateArtifactsByCsvId(
   const id = await findHistoryIdByCsvId(csvId);
   if (!id) return false;
   try {
-    await writeFile(join(HISTORY_DIR, id, "artifacts.json"), JSON.stringify(artifacts), "utf-8");
+    await store.writeFiles(id, { [RECORD_FILES.artifacts]: JSON.stringify(artifacts) });
     return true;
   } catch {
     return false;
-  }
-}
-
-function validateId(id: string): void {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-    throw new Error("Invalid history entry ID");
   }
 }

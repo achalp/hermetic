@@ -70,6 +70,128 @@ export interface PatchStream {
   emittedLines: string[];
 }
 
+/** Where emitted lines go — a Response controller, stdout, a file. */
+export interface PatchSink {
+  /** Write one raw line. Throwing marks the sink closed (client gone). */
+  write(data: string): void;
+}
+
+/**
+ * Transport-agnostic patch-stream core (modularization M6-6a/WS5): run
+ * correlation, run registry + hub channel, emit/progress semantics,
+ * keepalive + wake-lock lifecycle, guaranteed cleanup. patchStreamResponse
+ * wraps it in a Response for the Next routes; the CLI harness drives it
+ * with a stdout sink.
+ */
+export async function runPatchStream(
+  route: string,
+  sink: PatchSink,
+  handler: (stream: PatchStream) => Promise<void>,
+  onSettled?: (stream: PatchStream) => Promise<void>
+): Promise<void> {
+  // Run correlation: every logger line, diagnostics record, and cost row
+  // inside the handler carries this run's id (see lib/run-context.ts). The
+  // emit/stream machinery lives INSIDE this scope because it binds to the
+  // run's hub channel — whose id is the runId assigned here.
+  await runWithRunId(async () => {
+    const runId = getRunId()!;
+    // Register the run so the stop endpoint can abort it and the sandbox
+    // runner can subscribe to its signal + stream execution progress.
+    registerRun(runId, emitExecProgress);
+    // Open the run's output channel; its buffer IS emittedLines (single
+    // source of truth — replayed to a reconnecting client, and read by the
+    // disconnect history-save). See run-stream-hub.
+    const emittedLines = openRunChannel(runId, { route });
+
+    let closed = false;
+    const emit = (data: string) => {
+      // Buffer + multicast to reconnect subscribers, THEN feed this
+      // request's own stream. A dropped original connection (closed) never
+      // stops the buffering, so a reattaching client still gets everything.
+      publishRunLine(runId, data);
+      if (closed) return;
+      try {
+        sink.write(data);
+      } catch {
+        closed = true;
+      }
+    };
+
+    let stateInitialized = false;
+    const emitProgress = (stage: string, step: number, total: number) => {
+      // Also record the transition in the run's diagnostics JSONL — the
+      // stream patches vanish with the client, so after a disconnect or
+      // crash the server otherwise had no record of which stage a run
+      // reached (the disconnect log gives elapsedMs but not stage).
+      diagEvent("stage", { stage, step, total });
+      const patch = stateInitialized
+        ? { op: "replace", path: "/state/__progress", value: { stage, step, total } }
+        : // The FIRST state patch also carries __runId so the client knows
+          // which run to POST to /api/query/stop (the cancel button).
+          {
+            op: "add",
+            path: "/state",
+            value: { __progress: { stage, step, total }, __runId: runId },
+          };
+      stateInitialized = true;
+      emit(JSON.stringify(patch) + "\n");
+    };
+
+    // Detailed execution progress from the sandbox (phase/fraction/rows/
+    // elapsed) — distinct from the coarse stage above. Fired via the
+    // run-control registry so the sandbox runner needs no param threading.
+    function emitExecProgress(p: SandboxProgress) {
+      // The one-time up-front estimate lives under __estimate so it persists
+      // as a banner; live heartbeats update __exec. Both under /state, which
+      // the first emitProgress creates before execution — guard anyway.
+      const key = p.phase === "estimate" ? "__estimate" : "__exec";
+      if (!stateInitialized) {
+        stateInitialized = true;
+        emit(JSON.stringify({ op: "add", path: "/state", value: { [key]: p } }) + "\n");
+      } else {
+        emit(JSON.stringify({ op: "add", path: `/state/${key}`, value: p }) + "\n");
+      }
+    }
+
+    const stream: PatchStream = {
+      emit,
+      emitProgress,
+      isClosed: () => closed,
+      setMeta: (meta) => setRunChannelMeta(runId, meta),
+      emittedLines,
+    };
+
+    const keepalive = setInterval(() => emit(": keepalive\n"), KEEPALIVE_INTERVAL_MS);
+    // Keep the machine awake for the WHOLE run, not just sandbox execution:
+    // an idle-sleep during the long LLM code-gen phase drops the client's
+    // stream (observed as "TypeError: network error"). Ref-counted, so the
+    // sandbox/warehouse holds nest under this one caffeinate process.
+    const releaseWakeLock = acquireWakeLock(`run:${runId}`);
+
+    logger.info("Run started", { route });
+    try {
+      await handler(stream);
+    } finally {
+      releaseWakeLock();
+      endRun(runId);
+      clearInterval(keepalive);
+      // Signal reconnect subscribers that the run ended (they close their
+      // streams), and retain the buffer briefly for a late reconnect.
+      closeRunChannel(runId);
+      if (onSettled) {
+        try {
+          await onSettled(stream);
+        } catch (err) {
+          logger.warn("Patch-stream onSettled hook failed", {
+            route,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+  });
+}
+
 /**
  * Build the streaming Response for a query route. Owns the scaffold:
  * abort diagnostics, keepalive lifecycle, progress-patch semantics, header
@@ -110,114 +232,24 @@ export function patchStreamResponse(
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
-      // Run correlation: every logger line, diagnostics record, and cost row
-      // inside the handler carries this run's id (see lib/run-context.ts). The
-      // emit/stream machinery lives INSIDE this scope because it binds to the
-      // run's hub channel — whose id is the runId assigned here.
-      await runWithRunId(async () => {
-        const runId = getRunId()!;
-        // Register the run so the stop endpoint can abort it and the sandbox
-        // runner can subscribe to its signal + stream execution progress.
-        registerRun(runId, emitExecProgress);
-        // Open the run's output channel; its buffer IS emittedLines (single
-        // source of truth — replayed to a reconnecting client, and read by the
-        // disconnect history-save). See run-stream-hub.
-        const emittedLines = openRunChannel(runId, { route });
-
-        let closed = false;
-        const emit = (data: string) => {
-          // Buffer + multicast to reconnect subscribers, THEN feed this
-          // request's own stream. A dropped original connection (closed) never
-          // stops the buffering, so a reattaching client still gets everything.
-          publishRunLine(runId, data);
-          if (closed) return;
+      let controllerClosed = false;
+      const sink: PatchSink = {
+        write(data) {
+          controller.enqueue(encoder.encode(data)); // throws once client is gone
+        },
+      };
+      try {
+        await runPatchStream(route, sink, handler, onSettled);
+      } finally {
+        if (!controllerClosed) {
           try {
-            controller.enqueue(encoder.encode(data));
+            controller.close();
+            controllerClosed = true;
           } catch {
-            closed = true;
-          }
-        };
-
-        let stateInitialized = false;
-        const emitProgress = (stage: string, step: number, total: number) => {
-          // Also record the transition in the run's diagnostics JSONL — the
-          // stream patches vanish with the client, so after a disconnect or
-          // crash the server otherwise had no record of which stage a run
-          // reached (the disconnect log gives elapsedMs but not stage).
-          diagEvent("stage", { stage, step, total });
-          const patch = stateInitialized
-            ? { op: "replace", path: "/state/__progress", value: { stage, step, total } }
-            : // The FIRST state patch also carries __runId so the client knows
-              // which run to POST to /api/query/stop (the cancel button).
-              {
-                op: "add",
-                path: "/state",
-                value: { __progress: { stage, step, total }, __runId: runId },
-              };
-          stateInitialized = true;
-          emit(JSON.stringify(patch) + "\n");
-        };
-
-        // Detailed execution progress from the sandbox (phase/fraction/rows/
-        // elapsed) — distinct from the coarse stage above. Fired via the
-        // run-control registry so the sandbox runner needs no param threading.
-        function emitExecProgress(p: SandboxProgress) {
-          // The one-time up-front estimate lives under __estimate so it persists
-          // as a banner; live heartbeats update __exec. Both under /state, which
-          // the first emitProgress creates before execution — guard anyway.
-          const key = p.phase === "estimate" ? "__estimate" : "__exec";
-          if (!stateInitialized) {
-            stateInitialized = true;
-            emit(JSON.stringify({ op: "add", path: "/state", value: { [key]: p } }) + "\n");
-          } else {
-            emit(JSON.stringify({ op: "add", path: `/state/${key}`, value: p }) + "\n");
+            // already closed
           }
         }
-
-        const stream: PatchStream = {
-          emit,
-          emitProgress,
-          isClosed: () => closed,
-          setMeta: (meta) => setRunChannelMeta(runId, meta),
-          emittedLines,
-        };
-
-        const keepalive = setInterval(() => emit(": keepalive\n"), KEEPALIVE_INTERVAL_MS);
-        // Keep the machine awake for the WHOLE run, not just sandbox execution:
-        // an idle-sleep during the long LLM code-gen phase drops the client's
-        // stream (observed as "TypeError: network error"). Ref-counted, so the
-        // sandbox/warehouse holds nest under this one caffeinate process.
-        const releaseWakeLock = acquireWakeLock(`run:${runId}`);
-
-        logger.info("Run started", { route });
-        try {
-          await handler(stream);
-        } finally {
-          releaseWakeLock();
-          endRun(runId);
-          clearInterval(keepalive);
-          // Signal reconnect subscribers that the run ended (they close their
-          // streams), and retain the buffer briefly for a late reconnect.
-          closeRunChannel(runId);
-          if (onSettled) {
-            try {
-              await onSettled(stream);
-            } catch (err) {
-              logger.warn("Patch-stream onSettled hook failed", {
-                route,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-          }
-          if (!closed) {
-            try {
-              controller.close();
-            } catch {
-              // already closed
-            }
-          }
-        }
-      });
+      }
     },
     cancel() {
       // Client aborted — best-effort: subsequent emits become no-ops.

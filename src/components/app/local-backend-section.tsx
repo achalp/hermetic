@@ -7,27 +7,20 @@ import {
   RECOMMENDED_OLLAMA_MODELS,
 } from "@/lib/constants";
 import type { LocalBackendId, RecommendedModel } from "@/lib/constants";
-
-interface BackendModel {
-  name: string;
-  size: number;
-  modified_at: string;
-}
-
-interface LlmfitModel {
-  name: string;
-  provider: string;
-  score: number;
-  best_quant: string;
-  fit_level: string;
-  memory_required_gb: number;
-  estimated_tps: number;
-  parameter_count: string;
-  use_case: string;
-  category: string;
-  context_length: number;
-  gguf_sources: Array<{ provider: string; repo: string }>;
-}
+import {
+  ApiError,
+  deleteLocalLlmModel,
+  downloadLocalLlmModel,
+  getLocalLlmModels,
+  getLocalLlmRecommendations,
+  getLocalLlmStatus,
+  putLocalLlmConfig,
+  startLocalLlmServer,
+  stopLocalLlmServer,
+  type LocalBackendModel as BackendModel,
+  type LlmfitModel,
+  type LocalLlmStatus,
+} from "@/lib/api";
 
 interface LocalBackendSectionProps {
   backend: LocalBackendId;
@@ -62,18 +55,7 @@ export function LocalBackendSection({
   isActive,
   activeModel,
 }: LocalBackendSectionProps) {
-  const [status, setStatus] = useState<{
-    running: boolean;
-    status?: string;
-    version?: string;
-    baseUrl?: string;
-    activeModel?: string;
-    pid?: number;
-    managed?: boolean;
-    systemRamGb?: number;
-    logs?: string[];
-    downloads?: Array<{ model: string; progress: number; status: string }>;
-  } | null>(null);
+  const [status, setStatus] = useState<LocalLlmStatus | null>(null);
   const [models, setModels] = useState<BackendModel[]>([]);
   const [pulling, setPulling] = useState<string | null>(null);
   const [pullProgress, setPullProgress] = useState(0);
@@ -94,11 +76,8 @@ export function LocalBackendSection({
 
   const fetchModels = useCallback(async () => {
     try {
-      const res = await fetch(`/api/local-llm/models?backend=${backend}`);
-      if (res.ok) {
-        const data = await res.json();
-        setModels(data.models ?? []);
-      }
+      const data = await getLocalLlmModels(backend);
+      setModels(data.models ?? []);
     } catch {
       // ignore
     }
@@ -106,16 +85,13 @@ export function LocalBackendSection({
 
   const checkStatus = useCallback(async () => {
     try {
-      const res = await fetch(`/api/local-llm/status?backend=${backend}`);
-      if (!res.ok) {
-        // Rate-limited or server error — don't overwrite valid status with error response
-        return;
-      }
-      const data = await res.json();
+      const data = await getLocalLlmStatus(backend);
       setStatus(data);
       // Always fetch models (managed backends can list cached models even when off)
       fetchModels();
-    } catch {
+    } catch (err) {
+      // Rate-limited or server error — don't overwrite valid status with error response
+      if (err instanceof ApiError) return;
       setStatus({ running: false });
     }
   }, [backend, fetchModels]);
@@ -142,8 +118,7 @@ export function LocalBackendSection({
     if (llmfitFetched.current) return;
     llmfitFetched.current = true;
     setLlmfitLoading(true);
-    fetch(`/api/local-llm/recommend?backend=${backend}&limit=8`)
-      .then((res) => res.json())
+    getLocalLlmRecommendations(backend, 8)
       .then((data) => setLlmfitModels(data.models ?? []))
       .catch(() => {})
       .finally(() => setLlmfitLoading(false));
@@ -165,12 +140,7 @@ export function LocalBackendSection({
 
   /** Save model config without starting server — used after server is already running */
   const saveModelConfig = async (modelName: string) => {
-    const res = await fetch("/api/local-llm/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ backend, enabled: true, activeModel: modelName }),
-    });
-    if (!res.ok) throw new Error("Failed to save config");
+    await putLocalLlmConfig({ backend, enabled: true, activeModel: modelName });
     onProviderChange(backend, modelName);
   };
 
@@ -192,11 +162,7 @@ export function LocalBackendSection({
   const deactivate = async () => {
     setError(null);
     try {
-      await fetch("/api/local-llm/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, enabled: false, activeModel: "" }),
-      });
+      await putLocalLlmConfig({ backend, enabled: false, activeModel: "" });
       onProviderChange(backend, "");
     } catch {
       setError("Failed to deactivate");
@@ -227,17 +193,13 @@ export function LocalBackendSection({
     setStartProgress(null);
     setStartLogs([]);
     try {
-      const res = await fetch("/api/local-llm/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await startLocalLlmServer(
+        {
           backend,
           model: modelName || (backend === "ollama" ? "default" : recommended[0]?.id || "default"),
-        }),
-        signal: abortController.signal,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to start server");
+        },
+        abortController.signal
+      );
 
       // Poll status until ready (model loading can take minutes for MLX/llama.cpp)
       setStartingStatus("Waiting for server...");
@@ -250,19 +212,14 @@ export function LocalBackendSection({
         await new Promise((r) => setTimeout(r, 2000));
         if (abortController.signal.aborted) return;
 
-        let statusData;
+        let statusData: LocalLlmStatus;
         try {
-          const statusRes = await fetch(`/api/local-llm/status?backend=${backend}`, {
-            signal: abortController.signal,
-          });
-          if (!statusRes.ok) {
-            // Rate-limited or server error — skip this poll cycle, don't fail
-            continue;
-          }
-          statusData = await statusRes.json();
+          statusData = await getLocalLlmStatus(backend, abortController.signal);
         } catch (fetchErr) {
           // If aborted, exit silently
           if (abortController.signal.aborted) return;
+          // Rate-limited or server error — skip this poll cycle, don't fail
+          if (fetchErr instanceof ApiError) continue;
           throw fetchErr;
         }
 
@@ -347,11 +304,7 @@ export function LocalBackendSection({
       // Only kill the process if we spawned it. External services
       // (e.g. Ollama running as a system service) should just be deactivated.
       if (status?.managed !== false) {
-        await fetch("/api/local-llm/stop", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ backend }),
-        });
+        await stopLocalLlmServer(backend);
       }
       await deactivate();
       await checkStatus();
@@ -369,13 +322,7 @@ export function LocalBackendSection({
     setPullStatus("Starting download...");
 
     try {
-      const res = await fetch("/api/local-llm/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, model: modelName }),
-      });
-
-      if (!res.ok) throw new Error("Failed to start download");
+      const res = await downloadLocalLlmModel({ backend, model: modelName });
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");
@@ -433,15 +380,7 @@ export function LocalBackendSection({
     }
     setError(null);
     try {
-      const res = await fetch("/api/local-llm/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, model: modelName }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to delete model");
-      }
+      await deleteLocalLlmModel({ backend, model: modelName });
       await fetchModels();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete model");

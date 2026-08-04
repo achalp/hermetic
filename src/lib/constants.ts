@@ -1,3 +1,5 @@
+import { envConfig } from "@/lib/harness-slot";
+import timeouts from "../../config/timeouts.json";
 export const ALLOWED_LOCAL_EXTENSIONS = [".parquet", ".csv", ".xlsx", ".geojson", ".json"] as const;
 export const LOCAL_MOUNT_PATH = "/data/local"; // mount point inside sandbox container
 
@@ -30,7 +32,10 @@ export const SANDBOX_TIMEOUT_MS = 30_000; // 30 seconds
 // Large local Parquet and remote cloud datasets (e.g. Overture buildings, 2.5B
 // rows read over S3) legitimately need minutes to scan — not a bug, just big.
 // Give those executions a generous budget rather than sampling the data.
-export const LARGE_DATA_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+// Sourced from config/timeouts.json so scripts/server-timeouts.mjs (the HTTP
+// requestTimeout preload) derives from the SAME number — previously two
+// unlinked literals where raising this one silently broke long streams.
+export const LARGE_DATA_TIMEOUT_MS = timeouts.largeDataTimeoutMs;
 // Hard cap on a single warehouse query's execution. Warehouses default to
 // enormous limits (BigQuery kills a job only at 6 HOURS) — so a runaway
 // query (e.g. an O(n²) spatial self-join whose grid cells explode in dense
@@ -150,7 +155,7 @@ export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"];
 
 /** Static fallback — prefer getActiveSandboxRuntime() which checks runtime config */
 export const DEFAULT_SANDBOX_RUNTIME: SandboxRuntimeId =
-  (process.env.SANDBOX_RUNTIME as SandboxRuntimeId) || "docker";
+  (envConfig().SANDBOX_RUNTIME as SandboxRuntimeId) || "docker";
 
 export function isValidRuntimeId(id: string): id is SandboxRuntimeId {
   return AVAILABLE_RUNTIMES.some((r) => r.id === id);
@@ -369,3 +374,35 @@ export const RECOMMENDED_LLAMACPP_MODELS: readonly RecommendedModel[] = [
     minRam: 24,
   },
 ] as const;
+
+/** DOM event fired when the recent-sources list changes (settings section → page). */
+export const RECENTS_CHANGED_EVENT = "hermetic:recents-changed";
+
+// ── Modularization M1-1d: named constants for former magic strings ──────────
+
+/** Docker container name prefix — producer (docker-executor) and orphan
+ *  reaper (run-control) must agree; two harnesses sharing a host would
+ *  otherwise reap each other's containers. */
+export const SANDBOX_CONTAINER_PREFIX = "hermetic-sandbox-";
+
+/** Every localStorage key the app writes. The `gud-` prefix is a legacy
+ *  product name kept for existing users' persisted settings. */
+export const STORAGE_KEYS = {
+  theme: "gud-theme",
+  mode: "gud-mode",
+  codeGenModel: "gud-code-gen-model",
+  uiComposeModel: "gud-ui-compose-model",
+  sandboxRuntime: "gud-sandbox-runtime",
+  investigateView: "hermetic-investigate-view",
+} as const;
+
+/** Default endpoints for local LLM backends (overridable via runtime config). */
+export const DEFAULT_LOCAL_LLM_ENDPOINTS = {
+  ollama: "http://localhost:11434",
+  mlx: "http://localhost:8080",
+  "llama-cpp": "http://localhost:8081",
+} as const;
+
+// External map/export assets live in a leaf module so Edge-compiled
+// middleware can derive its CSP host list without evaluating this file.
+export { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS, REVEALJS_CDN_URL } from "@/lib/basemap-constants";

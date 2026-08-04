@@ -11,7 +11,7 @@ import { sanitizeSheetName } from "@/lib/llm/prompts";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { AdditionalFile } from "@/lib/sandbox";
-import type { WorkbookManifest } from "@/lib/types";
+import type { WorkbookManifest } from "@/lib/contracts/data-schema";
 
 export async function POST(request: Request) {
   try {

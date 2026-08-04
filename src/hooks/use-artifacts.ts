@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { getArtifacts } from "@/lib/api";
 
 interface UseArtifactsOptions {

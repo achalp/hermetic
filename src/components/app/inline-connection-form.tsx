@@ -1,24 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import type { WarehouseConnectionConfig } from "@/lib/types";
+import type { WarehouseConnectionConfig, WarehouseType } from "@/lib/contracts/connection-configs";
+import { ENGINES, type EngineFieldSpec } from "@/lib/warehouse/engine-descriptor";
 
+/**
+ * Warehouse connection form, rendered FROM the engine descriptor
+ * (modularization M5-5g). Previously 17 useState hooks plus a hand-written
+ * per-engine field switch — the audit's "engine fields enumerated in five
+ * places" seam. Adding an engine is now one ENGINES entry; this form and the
+ * config coercion derive from its `fields`.
+ */
 interface InlineConnectionFormProps {
   visible: boolean;
   onConnect: (config: WarehouseConnectionConfig, force?: boolean) => void;
 }
 
-const dbTypes = [
-  { value: "postgresql", label: "\u{1F418} PostgreSQL" },
-  { value: "bigquery", label: "\u{1F4CA} BigQuery" },
-  { value: "clickhouse", label: "\u26A1 ClickHouse" },
-  { value: "trino", label: "\u{1F537} Trino" },
-  { value: "hive", label: "\u{1F41D} Hive" },
-  { value: "snowflake", label: "\u2744\uFE0F Snowflake" },
-  { value: "databricks", label: "\u{1F9F1} Databricks" },
-] as const;
-
-type DbType = (typeof dbTypes)[number]["value"];
+const dbTypes: { value: WarehouseType; emoji: string }[] = [
+  { value: "postgresql", emoji: "\u{1F418}" },
+  { value: "bigquery", emoji: "\u{1F4CA}" },
+  { value: "clickhouse", emoji: "⚡" },
+  { value: "trino", emoji: "\u{1F537}" },
+  { value: "hive", emoji: "\u{1F41D}" },
+  { value: "snowflake", emoji: "❄️" },
+  { value: "databricks", emoji: "\u{1F9F1}" },
+];
 
 const inputStyle: React.CSSProperties = {
   background: "var(--color-surface-input)",
@@ -51,268 +57,123 @@ const connectBtnStyle: React.CSSProperties = {
   marginTop: 4,
 };
 
-export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFormProps) {
-  const [selectedType, setSelectedType] = useState<DbType | null>(null);
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("");
-  const [database, setDatabase] = useState("");
-  const [user, setUser] = useState("");
-  const [password, setPassword] = useState("");
-  const [ssl, setSsl] = useState(false);
-  const [schema, setSchema] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [dataset, setDataset] = useState("");
-  const [credentialsJson, setCredentialsJson] = useState("");
-  const [catalog, setCatalog] = useState("");
-  const [auth, setAuth] = useState("NONE");
-  // Snowflake-specific
-  const [account, setAccount] = useState("");
-  const [warehouse, setWarehouse] = useState("");
-  const [role, setRole] = useState("");
-  // Databricks-specific
-  const [serverHostname, setServerHostname] = useState("");
-  const [httpPath, setHttpPath] = useState("");
-  const [token, setToken] = useState("");
-  // "Ignore cache / re-read schema" — bypass the cached introspection.
-  const [ignoreCache, setIgnoreCache] = useState(false);
+type FieldValues = Record<string, string | boolean>;
 
-  if (!visible) return null;
+function coerceField(spec: EngineFieldSpec, raw: string | boolean | undefined): unknown {
+  if (spec.input === "checkbox") return raw === true;
+  const v = typeof raw === "string" ? raw : "";
+  switch (spec.coerce) {
+    case "number":
+      return Number(v) || spec.fallback;
+    case "optional":
+      return v.trim() || undefined;
+    case "fallback":
+      return v || spec.fallback;
+    default:
+      return v;
+  }
+}
 
-  const resetFields = () => {
-    setHost("");
-    setPort("");
-    setDatabase("");
-    setUser("");
-    setPassword("");
-    setSsl(false);
-    setSchema("");
-    setProjectId("");
-    setDataset("");
-    setCredentialsJson("");
-    setCatalog("");
-    setAuth("NONE");
-    setAccount("");
-    setWarehouse("");
-    setRole("");
-    setServerHostname("");
-    setHttpPath("");
-    setToken("");
-  };
+function buildConfig(type: WarehouseType, values: FieldValues): WarehouseConnectionConfig {
+  const config: Record<string, unknown> = { type };
+  for (const spec of ENGINES[type].fields) {
+    config[spec.key] = coerceField(spec, values[spec.key]);
+  }
+  // Descriptor-driven assembly can't be statically proven against the config
+  // union; the server's zod boundary (api-schemas) is the real validator.
+  return config as unknown as WarehouseConnectionConfig; // ratchet-allow: api-boundary-casts
+}
 
-  const selectType = (t: DbType) => {
-    resetFields();
-    setSelectedType(t);
-  };
+function defaultValues(type: WarehouseType): FieldValues {
+  const values: FieldValues = {};
+  for (const spec of ENGINES[type].fields) {
+    if (spec.input === "checkbox") values[spec.key] = false;
+    else if (spec.input === "select") values[spec.key] = spec.options?.[0] ?? "";
+    else values[spec.key] = "";
+  }
+  return values;
+}
 
-  const orUndef = (v: string) => v.trim() || undefined;
-
-  // "Ignore cache / re-read schema" — re-introspect instead of using the cache.
-  const doConnect = (config: WarehouseConnectionConfig) => onConnect(config, ignoreCache);
-
-  const handleConnect = () => {
-    if (!selectedType) return;
-    switch (selectedType) {
-      case "postgresql":
-        return doConnect({
-          type: "postgresql",
-          host,
-          port: Number(port) || 5432,
-          database,
-          user,
-          password,
-          ssl,
-          schema: orUndef(schema) as string | undefined,
-        });
-      case "bigquery":
-        return doConnect({ type: "bigquery", projectId, dataset, credentialsJson });
-      case "clickhouse":
-        return doConnect({
-          type: "clickhouse",
-          host,
-          port: Number(port) || 8123,
-          database,
-          user,
-          password,
-          ssl,
-        });
-      case "trino":
-        return doConnect({
-          type: "trino",
-          host,
-          port: Number(port) || 8080,
-          user,
-          catalog,
-          schema: schema || "default",
-          password: orUndef(password),
-          ssl,
-        });
-      case "hive":
-        return doConnect({
-          type: "hive",
-          host,
-          port: Number(port) || 10000,
-          database: database || "default",
-          user,
-          password: orUndef(password),
-          auth: auth as "NONE" | "NOSASL" | "LDAP" | "KERBEROS",
-        });
-      case "snowflake":
-        return doConnect({
-          type: "snowflake",
-          account,
-          user,
-          password,
-          database,
-          schema: orUndef(schema),
-          warehouse: orUndef(warehouse),
-          role: orUndef(role),
-        });
-      case "databricks":
-        return doConnect({
-          type: "databricks",
-          serverHostname,
-          httpPath,
-          token,
-          catalog,
-          schema: orUndef(schema),
-        });
-    }
-  };
-
-  const inp = (
-    type: string,
-    placeholder: string,
-    value: string,
-    onChange: (v: string) => void,
-    required = true
-  ) => (
+function Field({
+  spec,
+  value,
+  onChange,
+}: {
+  spec: EngineFieldSpec;
+  value: string | boolean;
+  onChange: (v: string | boolean) => void;
+}) {
+  if (spec.input === "checkbox") {
+    return (
+      <label style={checkboxLabelStyle}>
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => onChange(e.target.checked)}
+        />{" "}
+        {spec.placeholder}
+      </label>
+    );
+  }
+  if (spec.input === "select") {
+    return (
+      <select
+        value={String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+        className="focus:border-[var(--color-accent)]"
+        aria-label={spec.placeholder}
+      >
+        {spec.options?.map((opt) => (
+          <option key={opt} value={opt}>
+            {spec.placeholder}: {opt}
+            {opt === spec.options?.[0] ? " (plain)" : ""}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (spec.input === "textarea") {
+    return (
+      <textarea
+        placeholder={spec.placeholder}
+        value={String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        required={spec.required !== false}
+        style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+        className="focus:border-[var(--color-accent)]"
+      />
+    );
+  }
+  return (
     <input
-      type={type}
-      placeholder={placeholder}
-      value={value}
-      required={required}
+      type={spec.input}
+      placeholder={spec.placeholder}
+      value={String(value)}
+      required={spec.required !== false}
       onChange={(e) => onChange(e.target.value)}
       style={inputStyle}
       className="focus:border-[var(--color-accent)]"
     />
   );
+}
 
-  const check = (label: string, checked: boolean, onChange: (v: boolean) => void) => (
-    <label style={checkboxLabelStyle}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />{" "}
-      {label}
-    </label>
-  );
+export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFormProps) {
+  const [selectedType, setSelectedType] = useState<WarehouseType | null>(null);
+  const [values, setValues] = useState<FieldValues>({});
+  // "Ignore cache / re-read schema" — bypass the cached introspection.
+  const [ignoreCache, setIgnoreCache] = useState(false);
 
-  const renderFields = () => {
-    switch (selectedType) {
-      case "postgresql":
-        return (
-          <>
-            {inp("text", "Host (e.g. localhost)", host, setHost)}
-            {inp("number", "Port (default 5432)", port || "", setPort, false)}
-            {inp("text", "Database (e.g. mydb)", database, setDatabase)}
-            {inp("text", "User (e.g. postgres)", user, setUser)}
-            {inp("password", "Password", password, setPassword)}
-            {check("SSL (check for cloud databases)", ssl, setSsl)}
-            {inp("text", "Schema (optional, default 'public')", schema, setSchema, false)}
-          </>
-        );
-      case "bigquery":
-        return (
-          <>
-            {inp("text", "Project ID (e.g. my-gcp-project)", projectId, setProjectId)}
-            {inp(
-              "text",
-              "Dataset (e.g. analytics or bigquery-public-data.stackoverflow)",
-              dataset,
-              setDataset
-            )}
-            <textarea
-              placeholder="Service Account JSON (paste full key file contents)"
-              value={credentialsJson}
-              onChange={(e) => setCredentialsJson(e.target.value)}
-              required
-              style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
-              className="focus:border-[var(--color-accent)]"
-            />
-          </>
-        );
-      case "clickhouse":
-        return (
-          <>
-            {inp("text", "Host (e.g. play.clickhouse.com)", host, setHost)}
-            {inp("number", "Port (8123 for HTTP, 443 for HTTPS)", port || "", setPort, false)}
-            {inp("text", "Database (e.g. default)", database, setDatabase)}
-            {inp("text", "User (e.g. default or play)", user, setUser)}
-            {inp("password", "Password (empty for playground)", password, setPassword, false)}
-            {check("SSL (required for port 443)", ssl, setSsl)}
-          </>
-        );
-      case "trino":
-        return (
-          <>
-            {inp("text", "Host (e.g. localhost)", host, setHost)}
-            {inp("number", "Port (default 8080)", port || "", setPort, false)}
-            {inp("text", "User (e.g. trino)", user, setUser)}
-            {inp("text", "Catalog (e.g. hive)", catalog, setCatalog)}
-            {inp("text", "Schema (default 'default')", schema, setSchema, false)}
-            {inp("password", "Password (optional)", password, setPassword, false)}
-            {check("SSL", ssl, setSsl)}
-          </>
-        );
-      case "hive":
-        return (
-          <>
-            {inp("text", "Host (e.g. hiveserver2.example.com)", host, setHost)}
-            {inp("number", "Port (default 10000)", port || "", setPort, false)}
-            {inp("text", "Database (default 'default')", database, setDatabase, false)}
-            {inp("text", "User (e.g. hive)", user, setUser)}
-            {inp("password", "Password (optional)", password, setPassword, false)}
-            <select
-              value={auth}
-              onChange={(e) => setAuth(e.target.value)}
-              style={inputStyle}
-              className="focus:border-[var(--color-accent)]"
-              aria-label="Auth method"
-            >
-              <option value="NONE">Auth method: NONE (plain)</option>
-              <option value="NOSASL">Auth method: NOSASL</option>
-              <option value="LDAP">Auth method: LDAP</option>
-              <option value="KERBEROS">Auth method: KERBEROS</option>
-            </select>
-          </>
-        );
-      case "snowflake":
-        return (
-          <>
-            {inp("text", "Account (e.g. abc12345.us-east-1)", account, setAccount)}
-            {inp("text", "User", user, setUser)}
-            {inp("password", "Password", password, setPassword)}
-            {inp("text", "Database (e.g. SNOWFLAKE_SAMPLE_DATA)", database, setDatabase)}
-            {inp("text", "Schema (optional, default 'PUBLIC')", schema, setSchema, false)}
-            {inp("text", "Warehouse (optional, e.g. COMPUTE_WH)", warehouse, setWarehouse, false)}
-            {inp("text", "Role (optional, e.g. ANALYST)", role, setRole, false)}
-          </>
-        );
-      case "databricks":
-        return (
-          <>
-            {inp(
-              "text",
-              "Server hostname (e.g. abc-123.cloud.databricks.com)",
-              serverHostname,
-              setServerHostname
-            )}
-            {inp("text", "HTTP path (e.g. /sql/1.0/warehouses/abc123)", httpPath, setHttpPath)}
-            {inp("password", "Personal Access Token (dapi...)", token, setToken)}
-            {inp("text", "Catalog (Unity Catalog, e.g. samples)", catalog, setCatalog)}
-            {inp("text", "Schema (optional, default 'default')", schema, setSchema, false)}
-          </>
-        );
-      default:
-        return null;
-    }
+  if (!visible) return null;
+
+  const selectType = (t: WarehouseType) => {
+    setSelectedType(t);
+    setValues(defaultValues(t));
+  };
+
+  const handleConnect = () => {
+    if (!selectedType) return;
+    onConnect(buildConfig(selectedType, values), ignoreCache);
   };
 
   return (
@@ -345,14 +206,28 @@ export function InlineConnectionForm({ visible, onConnect }: InlineConnectionFor
               color: selectedType === db.value ? "var(--color-accent)" : "inherit",
             }}
           >
-            {db.label}
+            {db.emoji} {ENGINES[db.value].displayName}
           </button>
         ))}
       </div>
       {selectedType && (
         <div className="flex flex-col" style={{ gap: 8, marginTop: 12 }}>
-          {renderFields()}
-          {check("Ignore cached schema — re-introspect the warehouse", ignoreCache, setIgnoreCache)}
+          {ENGINES[selectedType].fields.map((spec) => (
+            <Field
+              key={spec.key}
+              spec={spec}
+              value={values[spec.key] ?? (spec.input === "checkbox" ? false : "")}
+              onChange={(v) => setValues((prev) => ({ ...prev, [spec.key]: v }))}
+            />
+          ))}
+          <label style={checkboxLabelStyle}>
+            <input
+              type="checkbox"
+              checked={ignoreCache}
+              onChange={(e) => setIgnoreCache(e.target.checked)}
+            />{" "}
+            Ignore cached schema — re-introspect the warehouse
+          </label>
           <button onClick={handleConnect} style={connectBtnStyle}>
             Connect
           </button>

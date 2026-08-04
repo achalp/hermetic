@@ -1,20 +1,11 @@
-import type { StoredWarehouse } from "@/lib/types";
+import type { StoredWarehouse } from "@/lib/contracts/storage-types";
 import { CSV_TTL_MS } from "@/lib/constants";
 import { isIdleExpired, touch } from "@/lib/store-ttl";
 import type { WarehouseConnector } from "./connector";
+import { stateNamespace } from "@/lib/state-store";
 
-const globalStore = globalThis as unknown as {
-  __warehouseStore?: Map<string, StoredWarehouse>;
-  __warehouseConnectors?: Map<string, WarehouseConnector>;
-};
-if (!globalStore.__warehouseStore) {
-  globalStore.__warehouseStore = new Map();
-}
-if (!globalStore.__warehouseConnectors) {
-  globalStore.__warehouseConnectors = new Map();
-}
-const store = globalStore.__warehouseStore;
-const connectors = globalStore.__warehouseConnectors;
+const store = stateNamespace<StoredWarehouse>("warehouse");
+const connectors = stateNamespace<WarehouseConnector>("warehouse-connectors");
 
 export function storeWarehouse(warehouse: StoredWarehouse, connector: WarehouseConnector): void {
   store.set(warehouse.warehouseId, warehouse);

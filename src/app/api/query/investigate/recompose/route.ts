@@ -11,14 +11,14 @@
  * Returns the assembled spec as JSON (one composer call — no need to stream).
  */
 
-import { applySpecPatch, parseSpecStreamLine, type Spec } from "@json-render/core";
+import { applySpecPatch, parseSpecStreamLine, type Spec } from "@/spec/core";
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getStoredCSV } from "@/lib/csv/storage";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { trackRouteCost } from "@/lib/cost/epilogue";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
-import type { TraceStep } from "@/lib/pipeline/investigation-trace";
+import type { TraceStep } from "@/lib/contracts/investigation";
 import { isValidModelId, UI_COMPOSE_MODEL } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 import { apiError } from "@/lib/api-error";

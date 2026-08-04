@@ -1,6 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { clientLazy } from "@/components/lazy-client";
 import type { Data, Layout, Config } from "plotly.js";
 import { usePlotlyLayout } from "@/lib/chart-theme";
 
@@ -8,7 +8,7 @@ import { usePlotlyLayout } from "@/lib/chart-theme";
 // finance prebuilt bundle, so we assemble a minimal custom bundle from
 // plotly.js/lib/core + the polar trace modules. Dynamically imported, so the
 // extra weight only loads when a polar chart actually renders.
-const PlotlyPlot = dynamic(
+const PlotlyPlot = clientLazy(
   async () => {
     // lib/* modules are CommonJS (module.exports = ...), so unwrap .default
     // defensively to stay correct under either interop mode.
@@ -22,14 +22,9 @@ const PlotlyPlot = dynamic(
     const createPlotlyComponent = (await import("react-plotly.js/factory")).default;
     return createPlotlyComponent(Plotly);
   },
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-[400px] w-full items-center justify-center rounded-lg bg-surface-2">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
-      </div>
-    ),
-  }
+  <div className="flex h-[400px] w-full items-center justify-center rounded-lg bg-surface-2">
+    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
+  </div>
 );
 
 const PLOTLY_CONFIG: Partial<Config> = {

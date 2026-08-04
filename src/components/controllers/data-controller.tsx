@@ -1,6 +1,6 @@
 "use client";
 
-import { useStateStore, useStateValue } from "@json-render/react";
+import { useStateStore, useStateValue } from "@/spec/react";
 import { useState, useMemo, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   applyFilter,
@@ -13,7 +13,7 @@ import {
   type FilterDef,
   type PipelineStep,
   type OutputDef,
-} from "@/lib/pipeline/client-pipeline";
+} from "@/lib/data-transforms/client-pipeline";
 
 type Row = Record<string, unknown>;
 

@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useStateStore, useStateValue } from "@json-render/react";
-import { drillDownCallbackRef } from "@/lib/drill-down-context";
+import { useStateStore, useStateValue } from "@/spec/react";
+import { useDrillDispatch } from "@/lib/drill-down-context";
 import { formatFilterValue } from "@/lib/drill-resolve";
-import type { DrillDownParams, FilterValue } from "@/lib/types";
+import type { DrillDownParams, FilterValue } from "@/lib/contracts/spec-types";
 
 /**
  * Shared "Investigate this selection" action bar for both Ask and Investigate
@@ -45,6 +45,7 @@ function toSelection(value: unknown): FilterValue | null {
 }
 
 export function SelectionDrillBar() {
+  const drillDispatch = useDrillDispatch();
   const store = useStateStore();
   const filters = useStateValue<Record<string, unknown> | undefined>("/filters");
   // Portal to document.body so the bar floats over the viewport regardless of
@@ -70,7 +71,7 @@ export function SelectionDrillBar() {
     .join(", ");
 
   const handleClick = () => {
-    if (active.length === 0 || !drillDownCallbackRef.current) return;
+    if (active.length === 0 || !drillDispatch) return;
     const [primary, ...rest] = active;
     const params: DrillDownParams = {
       segment_label: active.map((f) => formatFilterValue(f.value)).join(" · "),
@@ -89,7 +90,7 @@ export function SelectionDrillBar() {
     // Clear the selection before dispatching so the drilled view starts clean
     // (the captured params are unaffected).
     for (const f of active) store.set(`/filters/${f.column}`, "All");
-    drillDownCallbackRef.current(params);
+    drillDispatch(params);
   };
 
   return createPortal(

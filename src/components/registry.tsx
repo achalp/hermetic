@@ -1,10 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { defineRegistry, type Components } from "@json-render/react";
+import { clientLazy } from "@/components/lazy-client";
+import { defineRegistry, type Components } from "@/spec/react";
 import { catalog } from "@/lib/catalog";
-import type { DrillDownParams } from "@/lib/types";
-import { drillDownCallbackRef } from "@/lib/drill-down-context";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 import {
   StatCardComponent,
   TextBlockComponent,
@@ -31,7 +30,7 @@ import { RangeSliderComponent } from "./inputs/range-slider";
 import { DataTableComponent } from "./data-table";
 import { DefinitionListComponent } from "./definition-list";
 import { PivotTableComponent } from "./pivot-table";
-import { RendererErrorBoundary } from "./app/renderer-error-boundary";
+import { RendererErrorBoundary } from "./renderer-error-boundary";
 import { memo } from "react";
 import type { ReactNode, ComponentType } from "react";
 
@@ -90,7 +89,7 @@ function wrapAll(components: Components<typeof catalog>): Components<typeof cata
 // - Everything else (selectedValues arrays etc.) compares by reference.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function lazyChart(loader: () => Promise<ComponentType<any>>): ComponentType<any> {
-  const Dynamic = dynamic(loader, { ssr: false });
+  const Dynamic = clientLazy(loader);
   return memo(Dynamic, (prev: any, next: any) => {
     for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
       const a = prev[key];
@@ -147,9 +146,9 @@ const Surface3DChartComponent = lazyChart(() =>
 const Globe3DComponent = lazyChart(() =>
   import("./charts/globe-view").then((m) => m.Globe3DComponent)
 );
-const Map3DComponent = dynamic(() => import("./charts/map3d-view").then((m) => m.Map3DComponent), {
-  ssr: false,
-});
+const Map3DComponent = clientLazy(() =>
+  import("./charts/map3d-view").then((m) => m.Map3DComponent)
+);
 const CandlestickChartComponent = lazyChart(() =>
   import("./charts/candlestick-chart").then((m) => m.CandlestickChartComponent)
 );
@@ -700,12 +699,54 @@ const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
   }),
   actions: {
     drillDown: async (params) => {
-      if (params && drillDownCallbackRef.current) {
-        drillDownCallbackRef.current(params as DrillDownParams);
+      if (params && activeDrillDispatch.current) {
+        activeDrillDispatch.current(params as DrillDownParams);
       }
     },
   },
 });
+
+/**
+ * The drill dispatch the generated drillDown action forwards to. The registry
+ * table is a module-level singleton (defineRegistry runs once), so the action
+ * closure can't be per-SpecView — instead SpecView points this slot at ITS
+ * dispatch while rendering its subtree via makeRegistryActionHandlers. The
+ * slot is written by the ActionProvider handler wrapper at dispatch time (the
+ * wrapper knows which SpecView's handler ran), so concurrent panels stay
+ * correctly routed.
+ */
+const activeDrillDispatch: { current: ((p: DrillDownParams) => void) | null } = {
+  current: null,
+};
+
+/**
+ * Build ActionProvider handlers wired to a specific SpecView's dispatch
+ * (modularization M5-5b — replaces the module-level drillDownCallbackRef).
+ * json-render's generated handlers take no extra context, so each handler is
+ * wrapped to point the module slot at THIS SpecView's dispatch for exactly
+ * the (synchronous) dispatch window — concurrent panels stay correctly
+ * routed because the action body reads the slot at entry.
+ */
+export function makeRegistryActionHandlers(
+  dispatch: ((params: DrillDownParams) => void) | null
+): typeof registryActionHandlers {
+  const base = createRegistryHandlers(
+    () => () => {},
+    () => ({})
+  );
+  const wrapped = {} as typeof registryActionHandlers;
+  for (const [name, fn] of Object.entries(base) as [string, (...a: unknown[]) => unknown][]) {
+    (wrapped as Record<string, unknown>)[name] = async (...args: unknown[]) => {
+      activeDrillDispatch.current = dispatch;
+      try {
+        return await fn(...args);
+      } finally {
+        activeDrillDispatch.current = null;
+      }
+    };
+  }
+  return wrapped;
+}
 
 /**
  * ActionProvider-compatible handlers for the registry's custom actions
@@ -716,8 +757,9 @@ const { registry, handlers: createRegistryHandlers } = defineRegistry(catalog, {
  * IMPORTANT: json-render's generated handler wraps each action as
  *   async (params) => { const setState = getSetState(); if (setState) await action(params, setState, state); }
  * so `getSetState` MUST return a truthy function or the action is silently
- * skipped (guard fails). drillDown reads the module-level drillDownCallbackRef
- * and never touches state, so a no-op setState satisfies the guard.
+ * skipped (guard fails). drillDown never touches state, so a no-op setState
+ * satisfies the guard. This bare export has NO drill dispatch — use
+ * makeRegistryActionHandlers (via <SpecView onDrillDown>) to wire drilling.
  */
 export const registryActionHandlers = createRegistryHandlers(
   () => () => {},

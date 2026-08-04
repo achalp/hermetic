@@ -17,14 +17,15 @@
  * appendFile — no read-modify-write, so no races, no loss. Output:
  * data/diagnostics/<date>.jsonl (one run per line). Strictly best-effort.
  */
-import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, appendFile } from "fs/promises";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
+import { envConfig } from "@/lib/harness-slot";
+import { hermeticPaths } from "@/lib/paths";
 
-const DIAG_DIR = join(process.cwd(), "data", "diagnostics");
+const DIAG_DIR = hermeticPaths.diagnosticsDir();
 
 export interface DiagEvent {
   type: string;
@@ -227,7 +228,7 @@ export async function writeRunDiagnostics(meta: {
   costUsd?: number;
   llmCalls?: number;
 }): Promise<void> {
-  if (process.env.VITEST || process.env.NODE_ENV === "test") return;
+  if (envConfig().VITEST || envConfig().NODE_ENV === "test") return;
   const events = getDiagEvents();
   if (!events) return;
   try {

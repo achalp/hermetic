@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSQLHistorySection } from "@/lib/warehouse/sql-generation";
-import type { ConversationTurn } from "@/lib/types";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
 
 function turn(question: string, sql?: string): ConversationTurn {
   return {

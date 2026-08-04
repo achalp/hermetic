@@ -1,0 +1,190 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785805032",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785805032"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"layout-root\"}\n{\"op\":\"add\",\"path\":\"/elements/layout-root\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":20},\"children\":[\"finding-annotation\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "headline-grid\",\"main-charts-row\",\"context-charts-row\",\"methodology\"]}}\n{\"op\":\"add\",\"path\":\"/elements/finding-annotation\",\"value\":{\"type\":\"Annotation\",\"props\":{\"icon\":\"trend\",\"title\":\"Biggest MRR Jump Identified\",\"content\":\"One month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": " recorded an outsized net MRR increase relative to every other month in the dataset. The waterfall breakdown and driver cards below explain exactly what caused it — new customers, expansion, or reduced"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": " churn.\",\"severity\":\"success\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/headline-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":4,\"gap\":12},\"children\":[\"stat-jump-month\",\"stat"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "-mrr-jump\",\"stat-mrr-before\",\"stat-mrr-after\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-jump-month\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Jump Month\",\"value\":\"$result:biggest_jump_month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "\",\"description\":\"largest MoM increase\"},\"children\":[]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "\":\"add\",\"path\":\"/elements/stat-mrr-jump\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Net MRR Jump\",\"value\":\"$result:net_mrr_jump_usd\",\"format\":\"currency\",\"trend\":\"up\"},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "op\":\"add\",\"path\":\"/elements/stat-mrr-before\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"MRR — Prior Month\",\"value\":\"$result:net_mrr_before_usd\",\"format\":\"currency\",\"description\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "baseline\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-mrr-after\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"MRR — Jump Month\",\"value\":\"$result:net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "_mrr_after_usd\",\"format\":\"currency\",\"description\":\"after jump\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/main-charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16,\"align\":\"start\"},\"children\":[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "waterfall-chart\",\"driver-col\"]}}\n{\"op\":\"add\",\"path\":\"/elements/waterfall-chart\",\"value\":{\"type\":\"WaterfallChart\",\"props\":{\"title\":\"MRR Jump Driver Breakdown\",\"data\":{\"$state\":\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "computed/waterfall\"},\"orientation\":\"vertical\",\"increasing_color\":\"emerald\",\"decreasing_color\":\"rose\",\"total_color\":\"indigo\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/driver-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "\":12},\"children\":[\"stat-new-contrib\",\"stat-exp-contrib\",\"stat-churn-contrib\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-new-contrib\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"New MRR\",\"value\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "$result:new_mrr_contribution_usd\",\"format\":\"currency\",\"description\":\"revenue from new customers\",\"trend\":\"up\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-exp-contrib"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Expansion MRR\",\"value\":\"$result:expansion_mrr_contribution_usd\",\"format\":\"currency\",\"description\":\"upgrades from existing customers\",\"trend\":\"up\"},\"children\":[]}}\n{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "op\":\"add\",\"path\":\"/elements/stat-churn-contrib\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Churn Improvement\",\"value\":\"$result:churn_improvement_contribution_usd\",\"format\":\"currency\",\"description\":\"reduced revenue lost to churn\",\"trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "\":\"up\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed\",\"value\":{}}\n{\"op\":\"add\",\"path\":\"/state/computed/waterfall\",\"value\":\"$chartData:jump_month_waterfall\"}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "add\",\"path\":\"/elements/context-charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16},\"children\":[\"mom-chart\",\"plan-chart\"]}}\n{\"op\":\"add\",\"path\":\"/elements/mom-chart"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Net MRR Change by Month\",\"data\":{\"$state\":\"/computed/mom_changes\"},\"x_key\":\"month\",\"y_keys\":[\"net_mrr_change\"],\"orientation\":\"vertical\",\"color_map\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "{\"net_mrr_change\":\"indigo\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/plan-chart\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Net MRR by Plan: Prior vs Jump Month\",\"data\":{\"$state\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "\"/computed/plan_comparison\"},\"x_key\":\"plan\",\"y_keys\":[\"2024-02\",\"2024-03\"],\"orientation\":\"vertical\",\"color_map\":{\"2024-02\":\"violet\",\"2024-03\":\"emerald\"}},\"children\":[]}}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "add\",\"path\":\"/elements/methodology\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"This analysis compared net MRR month-over-month across all plan tiers. The month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": " with the largest single-step increase was identified and its gain was split into three components: revenue from new customers acquired that"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": " month, expansion revenue from existing customers moving to higher-value plans, and churn improvement (how much less revenue was lost compared to the prior period). The plan-tier chart shows which subscription tier drove the bulk"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": " of the surge.\",\"variant\":\"body\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/mom_changes\",\"value\":\"$chartData:mom_net_mrr_changes\"}\n{\"op\":\"add\",\"path\":\"/state/computed/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805032",
+      "delta": "plan_comparison\",\"value\":\"$chartData:plan_net_mrr_comparison\"}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785805032",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785805032"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 25175,
+          "noCache": 22872,
+          "cacheRead": 2303
+        },
+        "outputTokens": {
+          "total": 10568,
+          "text": 10568,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 25175,
+          "input_tokens_details": {
+            "cached_tokens": 2303
+          },
+          "output_tokens": 10568
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import type { WarehouseTableSchema } from "@/lib/types";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 /**
  * Infer foreign key relationships from column naming conventions.

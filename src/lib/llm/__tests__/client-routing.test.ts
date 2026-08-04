@@ -141,10 +141,12 @@ describe("getModel routing", () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant";
     const adaptive = getModel("claude-opus-4-8") as unknown as { middleware: unknown };
     const sampled = getModel("claude-sonnet-4-6") as unknown as { middleware: unknown };
-    // Adaptive-only → [stripSampling, usage]; sampled models → usage only.
+    // Adaptive-only → [stripSampling, usage, replay]; sampled → [usage, replay]
+    // (replay is the always-attached passthrough recorder, lib/llm/replay.ts).
     expect(Array.isArray(adaptive.middleware)).toBe(true);
-    expect((adaptive.middleware as unknown[]).length).toBe(2);
-    expect(Array.isArray(sampled.middleware)).toBe(false);
+    expect((adaptive.middleware as unknown[]).length).toBe(3);
+    expect(Array.isArray(sampled.middleware)).toBe(true);
+    expect((sampled.middleware as unknown[]).length).toBe(2);
   });
 
   it("openai-compatible: requires OPENAI_MODEL and uses it for every call", () => {
@@ -174,10 +176,11 @@ describe("getModel routing", () => {
   it("claude-cli: maps the internal id to the real Claude model and does not strip sampling", () => {
     process.env.LLM_PROVIDER = "claude-cli";
     // Adaptive-only model would strip sampling on cloud Anthropic; via the CLI
-    // our fetch ignores sampling, so it stays a single-middleware (usage) wrap.
+    // our fetch ignores sampling, so no stripSampling — just [usage, replay].
     const wrapped = getModel("claude-opus-4-8") as unknown as { middleware: unknown };
     expect(openaiClient).toHaveBeenCalledWith("claude-opus-4-8");
-    expect(Array.isArray(wrapped.middleware)).toBe(false);
+    expect(Array.isArray(wrapped.middleware)).toBe(true);
+    expect((wrapped.middleware as unknown[]).length).toBe(2);
     // The client was built pointing at the claude-cli dummy base URL.
     const cfg = vi.mocked(createOpenAI).mock.calls.at(-1)![0] as { baseURL?: string };
     expect(cfg.baseURL).toBe("http://claude-cli.local/v1");
@@ -186,11 +189,12 @@ describe("getModel routing", () => {
   it("claude-cli prices usage at the equivalent API rate (internal model id cost key)", async () => {
     process.env.LLM_PROVIDER = "claude-cli";
     const wrapped = getModel("claude-opus-4-8") as unknown as {
-      middleware: {
+      middleware: Array<{
         wrapGenerate: (o: { doGenerate: () => Promise<{ usage: unknown }> }) => Promise<unknown>;
-      };
+      }>;
     };
-    await wrapped.middleware.wrapGenerate({
+    // Usage middleware is outermost (index 0); replay passthrough sits inner.
+    await wrapped.middleware[0].wrapGenerate({
       doGenerate: async () => ({
         usage: { inputTokens: { total: 100 }, outputTokens: { total: 20 } },
       }),

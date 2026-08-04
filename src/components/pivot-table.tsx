@@ -3,7 +3,7 @@
 import { useMemo, useCallback, useState } from "react";
 import { downloadTableAsCsv, downloadTableAsXlsx, sanitizeFilename } from "@/lib/export-utils";
 import { useThemeConfig } from "@/lib/theme-config";
-import { drillDownCallbackRef } from "@/lib/drill-down-context";
+import { useDrillDispatch } from "@/lib/drill-down-context";
 
 export type PivotAggregator = "sum" | "count" | "mean" | "min" | "max";
 
@@ -361,6 +361,7 @@ export function PivotTableComponent({
   onSelectRow,
   onSelectCol,
 }: PivotTableComponentProps) {
+  const drillDispatch = useDrillDispatch();
   const { table: tableConfig } = useThemeConfig();
 
   // Local state — interactivity that doesn't round-trip to the server
@@ -416,7 +417,7 @@ export function PivotTableComponent({
 
   // Drill-down enabled when the spec bound an on.click handler. Per-cell
   // params are computed at click time and dispatched directly via the
-  // module-level drillDownCallbackRef (the static emit/on machinery
+  // SpecView's drill dispatch (the static emit/on machinery
   // doesn't carry dynamic per-cell params).
   const drillDownEnabled = on?.("click")?.bound ?? false;
 
@@ -487,12 +488,12 @@ export function PivotTableComponent({
   // ── Cell click → drill-down (if bound) ──
   const handleCellClick = useCallback(
     (rk: string, ck: string) => {
-      if (!drillDownEnabled || !drillDownCallbackRef.current) {
+      if (!drillDownEnabled || !drillDispatch) {
         // No drill-down bound → fall through to drill-through
         setDrillThroughCell({ rowKey: rk, colKey: ck });
         return;
       }
-      drillDownCallbackRef.current({
+      drillDispatch({
         segment_label: `${rk} × ${ck}`,
         segment_value: rk,
         chart_title: props.caption ?? null,

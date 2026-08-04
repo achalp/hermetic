@@ -11,7 +11,7 @@
  * adapter.
  */
 import { z } from "zod";
-import type { ExecutionResult } from "@/lib/types";
+import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { SkillFailureHint } from "@/lib/skills/types";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { logger } from "@/lib/logger";

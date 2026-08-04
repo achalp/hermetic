@@ -45,18 +45,10 @@ export interface ExtractedNumber {
   scale: number;
 }
 
-export interface GroundingReport {
-  /** True when every data-like narrative number traced to a computed value. */
-  ok: boolean;
-  /** Count of data-like numbers we checked. */
-  checkedCount: number;
-  /** Raw tokens that could not be traced to any computed value. */
-  ungrounded: string[];
-  /** 1-based step numbers the narrative explicitly referenced. */
-  citedSteps: number[];
-  /** Successful steps whose data was never referenced in the narrative. */
-  uncitedSuccessfulSteps: number[];
-}
+// GroundingReport lives in contracts (stream-state carries it across the
+// API boundary); re-exported here for existing consumers.
+export type { GroundingReport } from "@/lib/contracts/grounding";
+import type { GroundingReport } from "@/lib/contracts/grounding";
 
 // ── Collecting the grounded value set ─────────────────────────────────
 

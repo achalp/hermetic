@@ -7,7 +7,7 @@ vi.mock("@/lib/logger", () => ({
 
 import { activateSkills, BUILTIN_SKILLS } from "@/lib/skills/registry";
 import { logger } from "@/lib/logger";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 function schemaWith(cols: string[], extra: Partial<CSVSchema> = {}): CSVSchema {
   return {

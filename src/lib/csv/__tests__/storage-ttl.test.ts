@@ -3,7 +3,7 @@ import { storeCSV, storeLocalFileRef, getStoredCSV, sweepExpiredCSVStore } from 
 import { registerRun, endRun } from "@/lib/pipeline/run-control";
 import { runWithRunId, getRunId } from "@/lib/run-context";
 import { CSV_TTL_MS } from "@/lib/constants";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const schema = { filename: "x.csv", row_count: 1, columns: [] } as unknown as CSVSchema;
 

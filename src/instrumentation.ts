@@ -7,8 +7,13 @@
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  const { raiseServerTimeouts, installConnectionErrorGuard } =
-    await import("./instrumentation-node");
+  const {
+    raiseServerTimeouts,
+    installConnectionErrorGuard,
+    configureLLMReplayFromEnv,
+    installBootConfig,
+  } = await import("./instrumentation-node");
+  await installBootConfig();
   await raiseServerTimeouts();
   // A client leaving mid-stream (reload / tab close / laptop sleep) must not
   // read as a server fault or risk a worker — downgrade those to debug.
@@ -18,4 +23,6 @@ export async function register(): Promise<void> {
   // warehouse connector pools) leaked. See lib/store-sweeper.ts.
   const { startStoreSweeper } = await import("./lib/store-sweeper");
   startStoreSweeper();
+  // LLM record/replay (modularization M0-0a) — see instrumentation-node.ts.
+  await configureLLMReplayFromEnv();
 }

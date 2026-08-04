@@ -1,12 +1,11 @@
-import "server-only";
 import { randomUUID } from "node:crypto";
 import { dirname, basename } from "node:path";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import { run } from "@/lib/sandbox/docker-utils";
 import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
-import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
+import { pythonNanPrelude } from "@/lib/sandbox/prelude";
 import { friendlyParquetError } from "@/lib/parquet/friendly-error";
 import {
   buildSchemaScript,
@@ -40,7 +39,7 @@ async function runSchemaExtraction(args: {
     await run("docker", runArgs, { timeoutMs: 15_000 });
 
     await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
-      input: PYTHON_NAN_PRELUDE + "\n" + args.script,
+      input: pythonNanPrelude() + "\n" + args.script,
       timeoutMs: 15_000,
     });
 
@@ -206,7 +205,7 @@ export async function computeRemoteParquetFingerprint(
     });
     await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
       input:
-        PYTHON_NAN_PRELUDE +
+        pythonNanPrelude() +
         "\n" +
         buildParquetFingerprintScript(readUrl, duckdbRemoteAuthSql(creds)),
       timeoutMs: 15_000,

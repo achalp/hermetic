@@ -26,6 +26,10 @@
     "start": "NODE_OPTIONS='--import ./scripts/server-timeouts.mjs' next start",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
+    "ratchet": "node scripts/ratchet.mjs",
+    "isolation": "node scripts/isolation-check.mjs",
+    "golden:record": "node scripts/golden/run-journeys.mjs record",
+    "golden:check": "node scripts/golden/run-journeys.mjs check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "type-check": "tsc --noEmit",
@@ -33,7 +37,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "analyze": "ANALYZE=true next build",
-    "prepare": "husky"
+    "prepare": "husky",
+    "cli": "tsx src/cli/main.ts"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -61,9 +66,6 @@
     "@deck.gl/react": "^9.2.9",
     "@e2b/code-interpreter": "^2.3.3",
     "@google-cloud/bigquery": "^8.1.1",
-    "@json-render/core": "0.8.0",
-    "@json-render/react": "0.8.0",
-    "@json-render/shadcn": "0.8.0",
     "@nivo/bar": "^0.99.0",
     "@nivo/bump": "^0.99.0",
     "@nivo/calendar": "^0.99.0",
@@ -133,6 +135,7 @@
     "lint-staged": "^16.3.1",
     "prettier": "^3.8.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.5",
     "typescript": "^5",
     "vitest": "^4.0.18"
   },

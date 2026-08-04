@@ -51,13 +51,10 @@ import {
   PLANNER_MODEL,
   WAREHOUSE_MAX_ROWS,
 } from "@/lib/constants";
-import type {
-  CSVSchema,
-  ConversationTurn,
-  WarehouseTableSchema,
-  WarehouseType,
-  AnalysisWindow,
-} from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
+import type { WarehouseTableSchema, AnalysisWindow } from "@/lib/contracts/warehouse-schema";
+import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";

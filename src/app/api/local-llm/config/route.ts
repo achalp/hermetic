@@ -1,4 +1,5 @@
 import { getRuntimeConfig, setRuntimeConfig, clearRuntimeConfigCache } from "@/lib/runtime-config";
+import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import { clearEnvConfigCache } from "@/lib/config";
 import { stopServer } from "@/lib/llm/process-manager";
 
@@ -10,11 +11,15 @@ export async function GET(request: Request) {
   // No backend param: return all backend configs (used by page.tsx on init)
   if (!backend) {
     return Response.json({
-      ollama: rc.ollama ?? { enabled: false, baseUrl: "http://localhost:11434", activeModel: "" },
-      mlx: rc.mlx ?? { enabled: false, baseUrl: "http://localhost:8080", activeModel: "" },
+      ollama: rc.ollama ?? {
+        enabled: false,
+        baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS.ollama,
+        activeModel: "",
+      },
+      mlx: rc.mlx ?? { enabled: false, baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS.mlx, activeModel: "" },
       llamaCpp: rc.llamaCpp ?? {
         enabled: false,
-        baseUrl: "http://localhost:8081",
+        baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS["llama-cpp"],
         activeModel: "",
       },
     });
@@ -22,17 +27,29 @@ export async function GET(request: Request) {
 
   if (backend === "ollama") {
     return Response.json({
-      config: rc.ollama ?? { enabled: false, baseUrl: "http://localhost:11434", activeModel: "" },
+      config: rc.ollama ?? {
+        enabled: false,
+        baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS.ollama,
+        activeModel: "",
+      },
     });
   }
   if (backend === "mlx") {
     return Response.json({
-      config: rc.mlx ?? { enabled: false, baseUrl: "http://localhost:8080", activeModel: "" },
+      config: rc.mlx ?? {
+        enabled: false,
+        baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS.mlx,
+        activeModel: "",
+      },
     });
   }
   if (backend === "llama-cpp") {
     return Response.json({
-      config: rc.llamaCpp ?? { enabled: false, baseUrl: "http://localhost:8081", activeModel: "" },
+      config: rc.llamaCpp ?? {
+        enabled: false,
+        baseUrl: DEFAULT_LOCAL_LLM_ENDPOINTS["llama-cpp"],
+        activeModel: "",
+      },
     });
   }
   return Response.json({ error: "Unknown backend" }, { status: 400 });
@@ -52,7 +69,7 @@ export async function PUT(request: Request) {
       const updated = setRuntimeConfig({
         ollama: {
           enabled: enabled ?? false,
-          baseUrl: baseUrl || "http://localhost:11434",
+          baseUrl: baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama,
           activeModel: activeModel || "",
         },
       });
@@ -65,7 +82,7 @@ export async function PUT(request: Request) {
       const updated = setRuntimeConfig({
         mlx: {
           enabled: enabled ?? false,
-          baseUrl: baseUrl || "http://localhost:8080",
+          baseUrl: baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.mlx,
           activeModel: activeModel || "",
         },
       });
@@ -78,7 +95,7 @@ export async function PUT(request: Request) {
       const updated = setRuntimeConfig({
         llamaCpp: {
           enabled: enabled ?? false,
-          baseUrl: baseUrl || "http://localhost:8081",
+          baseUrl: baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS["llama-cpp"],
           activeModel: activeModel || "",
         },
       });

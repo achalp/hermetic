@@ -6,7 +6,7 @@ import {
   CLICK_PRIMARY,
   type ClickedRecord,
 } from "@/lib/drill-resolve";
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
 // The composer emits {"$item": col} bindings the type system can't express
 // (filter_value is typed string | number). Build params loosely then cast.

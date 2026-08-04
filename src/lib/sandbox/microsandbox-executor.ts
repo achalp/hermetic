@@ -1,11 +1,12 @@
-import "server-only";
 import { PythonSandbox } from "microsandbox";
 import { randomUUID } from "node:crypto";
-import type { ExecutionResult } from "@/lib/types";
-import { type AdditionalFile, PYTHON_NAN_PRELUDE } from "./index";
+import type { ExecutionResult } from "@/lib/contracts/execution";
+import type { AdditionalFile } from "@/lib/contracts/execution";
+import { pythonNanPrelude } from "./prelude";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { parseSandboxOutput } from "./parse-output";
 import { logger } from "@/lib/logger";
+import { envConfig } from "@/lib/harness-slot";
 
 const SANDBOX_NAME = "hermetic";
 
@@ -39,10 +40,10 @@ async function rawRpc(
   method: string,
   params: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const url = process.env.MICROSANDBOX_URL || "http://127.0.0.1:5555";
+  const url = envConfig().MICROSANDBOX_URL || "http://127.0.0.1:5555";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (process.env.MICROSANDBOX_API_KEY) {
-    headers["Authorization"] = `Bearer ${process.env.MICROSANDBOX_API_KEY}`;
+  if (envConfig().MICROSANDBOX_API_KEY) {
+    headers["Authorization"] = `Bearer ${envConfig().MICROSANDBOX_API_KEY}`;
   }
   const res = await fetch(`${url}/api/v1/rpc`, {
     method: "POST",
@@ -118,7 +119,7 @@ async function createSandboxOnce(): Promise<PythonSandbox> {
   }
 
   // Check if the microsandbox server is reachable before attempting to create
-  const msbUrl = process.env.MICROSANDBOX_URL || "http://127.0.0.1:5555";
+  const msbUrl = envConfig().MICROSANDBOX_URL || "http://127.0.0.1:5555";
   try {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 5000);
@@ -134,9 +135,9 @@ async function createSandboxOnce(): Promise<PythonSandbox> {
   logger.debug("Creating persistent microsandbox...");
   const sboxOpts = {
     name: SANDBOX_NAME,
-    ...(process.env.MICROSANDBOX_IMAGE && { image: process.env.MICROSANDBOX_IMAGE }),
-    ...(process.env.MICROSANDBOX_URL && { serverUrl: process.env.MICROSANDBOX_URL }),
-    ...(process.env.MICROSANDBOX_API_KEY && { apiKey: process.env.MICROSANDBOX_API_KEY }),
+    ...(envConfig().MICROSANDBOX_IMAGE && { image: envConfig().MICROSANDBOX_IMAGE }),
+    ...(envConfig().MICROSANDBOX_URL && { serverUrl: envConfig().MICROSANDBOX_URL }),
+    ...(envConfig().MICROSANDBOX_API_KEY && { apiKey: envConfig().MICROSANDBOX_API_KEY }),
   };
 
   const sandbox = await createHealthySandbox(sboxOpts);
@@ -214,9 +215,13 @@ async function createSandboxOnce(): Promise<PythonSandbox> {
 export async function executeSandbox(
   csvContent: string,
   code: string,
-  geojsonContent?: string | null,
-  additionalFiles?: AdditionalFile[]
+  opts: {
+    geojsonContent?: string | null;
+    additionalFiles?: AdditionalFile[];
+    hooks?: import("@/lib/contracts/execution").SandboxRunHooks;
+  } = {}
 ): Promise<ExecutionResult> {
+  const { geojsonContent, additionalFiles } = opts;
   const start = Date.now();
   // Per-query working directory for isolation
   const queryId = randomUUID().slice(0, 8);
@@ -267,7 +272,7 @@ export async function executeSandbox(
 
     // Write the script — rewrite /data paths to per-query paths. The rewrite
     // includes the prelude, so write_output()'s /data/output.json maps correctly.
-    const patchedCode = (PYTHON_NAN_PRELUDE + code).replace(/\/data\//g, `${workDir}/`);
+    const patchedCode = (pythonNanPrelude() + code).replace(/\/data\//g, `${workDir}/`);
     const scriptErr = await writeChunkedFile(sandbox, `${workDir}/script.py`, patchedCode);
     if (scriptErr) return fail("script", scriptErr);
 

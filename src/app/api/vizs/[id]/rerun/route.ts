@@ -16,8 +16,9 @@ import { sanitizeSheetName } from "@/lib/llm/prompts";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { isValidRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
-import type { CSVSchema, SandboxExecutionResult, WorkbookManifest } from "@/lib/types";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
+import type { SandboxExecutionResult } from "@/lib/contracts/execution";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { rehydrateSpec } from "@/lib/saved/rehydrate-spec";
 import type { ParsedCSV } from "@/lib/csv/parser";
 
@@ -91,14 +92,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     // 6. Compatible path — re-execute saved code with new data
-    const execResult = await executeSandbox(
-      normalizedCsv,
-      savedViz.generatedCode,
+    const execResult = await executeSandbox(normalizedCsv, savedViz.generatedCode, {
       runtime,
-      geojsonText,
-      undefined,
-      newCsvId
-    );
+      geojsonContent: geojsonText,
+      csvId: newCsvId,
+    });
 
     if (!execResult.success) {
       // Code failed on new data — fall back to incompatible path

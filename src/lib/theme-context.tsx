@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { STORAGE_KEYS } from "@/lib/constants";
 
 export type ThemeId = "vanilla" | "stamen" | "iib" | "pentagram";
 export type ColorMode = "light" | "dark" | "system";
@@ -12,8 +13,8 @@ export const THEMES: { id: ThemeId; label: string; description: string }[] = [
   { id: "pentagram", label: "Pentagram", description: "Reductive authority" },
 ];
 
-const THEME_KEY = "gud-theme";
-const MODE_KEY = "gud-mode";
+const THEME_KEY = STORAGE_KEYS.theme;
+const MODE_KEY = STORAGE_KEYS.mode;
 
 function getStoredTheme(): ThemeId {
   if (typeof window === "undefined") return "vanilla";

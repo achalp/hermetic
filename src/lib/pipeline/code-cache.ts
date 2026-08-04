@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { stateNamespace } from "@/lib/state-store";
 const CODE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 interface CachedCode {
@@ -7,13 +8,7 @@ interface CachedCode {
   cachedAt: number;
 }
 
-const globalCache = globalThis as unknown as {
-  __codeCache?: Map<string, CachedCode>;
-};
-if (!globalCache.__codeCache) {
-  globalCache.__codeCache = new Map();
-}
-const cache = globalCache.__codeCache;
+const cache = stateNamespace<CachedCode>("code-cache");
 
 export function cacheGeneratedCode(csvId: string, code: string, question: string): void {
   cache.set(csvId, { code, question, cachedAt: Date.now() });

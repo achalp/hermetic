@@ -1,8 +1,9 @@
 import { logger } from "@/lib/logger";
-import type { ConversationTurn } from "@/lib/types";
+import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { CachedArtifacts } from "./artifacts-cache";
 import { summarizeSpec } from "@/lib/spec-summary";
 import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { stateNamespace } from "@/lib/state-store";
 
 // SLIDING idle window (see lib/store-ttl.ts): refreshed on every read AND every
 // appended turn, and pinned during an in-flight run — so a follow-up after a
@@ -17,22 +18,12 @@ interface SessionEntry {
   ownerRunId?: string;
 }
 
-const globalCache = globalThis as unknown as {
-  __conversationCache?: Map<string, SessionEntry>;
-  __conversationAliases?: Map<string, string>;
-};
-if (!globalCache.__conversationCache) {
-  globalCache.__conversationCache = new Map();
-}
-if (!globalCache.__conversationAliases) {
-  globalCache.__conversationAliases = new Map();
-}
-const cache = globalCache.__conversationCache;
+const cache = stateNamespace<SessionEntry>("conversation-cache");
 // Snapshot id → stable conversation key. Warehouse turns key by warehouseId
 // (stable across questions), but several consumers (history persist, suggest)
 // only know the per-question materialized snapshot csvId — the alias lets
 // their lookups land on the same conversation.
-const aliases = globalCache.__conversationAliases;
+const aliases = stateNamespace<string>("conversation-aliases");
 const MAX_ALIASES = 500;
 
 /** Map a per-question snapshot id onto the stable conversation key. */

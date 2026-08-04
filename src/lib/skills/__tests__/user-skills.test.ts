@@ -11,7 +11,7 @@ vi.mock("@/lib/logger", () => ({
 import { loadUserSkills, resetUserSkillCacheForTests } from "@/lib/skills/user-skills";
 import { activateSkills } from "@/lib/skills/registry";
 import { logger } from "@/lib/logger";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const VALID = `---
 name: warehouse-costing

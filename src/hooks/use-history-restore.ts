@@ -11,9 +11,9 @@
  * mount-time warehouse/runtime values — hence the empty dep lists.
  */
 import { useEffect } from "react";
-import type { Spec } from "@json-render/react";
-import type { CSVSchema } from "@/lib/types";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { Spec } from "@/spec/react";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";
 import { loadHistoryEntry, refreshHistoryEntry } from "@/lib/api";
@@ -41,12 +41,12 @@ export function useHistoryRestore(args: {
     loadHistoryEntry(restoreId)
       .then((data) => {
         if (data.csvId) {
-          handleUpload(data.csvId, data.schema as unknown as CSVSchema);
+          handleUpload(data.csvId, data.schema);
         }
         dispatch({
           type: "LOAD_VIZ_SUCCESS",
           question: data.meta.question,
-          spec: data.spec as unknown as Spec,
+          spec: data.spec,
           artifacts: (data.artifacts as unknown as CachedArtifacts) ?? null,
         });
       })
@@ -79,22 +79,22 @@ export function useHistoryRestore(args: {
           dispatch({ type: "REFRESH_STAGE", stage: "executing" });
           const result = await refreshHistoryEntry(rerunId, warehouseId, sandboxRuntime);
           dispatch({ type: "REFRESH_STAGE", stage: "composing" });
-          handleUpload(result.csvId, result.schema as unknown as CSVSchema);
+          handleUpload(result.csvId, result.schema);
           // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
           dispatch({
             type: "RERUN_FAST_SUCCESS",
-            spec: result.spec as unknown as Spec,
+            spec: result.spec,
             artifacts: (result.artifacts as unknown as CachedArtifacts) ?? null,
           });
         } else {
           // Warehouse without active connection — just restore
           if (data.csvId) {
-            handleUpload(data.csvId, data.schema as unknown as CSVSchema);
+            handleUpload(data.csvId, data.schema);
           }
           dispatch({
             type: "LOAD_VIZ_SUCCESS",
             question: data.meta.question,
-            spec: data.spec as unknown as Spec,
+            spec: data.spec,
             artifacts: (data.artifacts as unknown as CachedArtifacts) ?? null,
           });
         }

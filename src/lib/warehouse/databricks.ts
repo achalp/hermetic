@@ -10,14 +10,14 @@
  */
 
 import { DBSQLClient } from "@databricks/sql";
+import type { DatabricksConnectionConfig } from "@/lib/contracts/connection-configs";
 import type {
-  DatabricksConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
   WarehouseColumnInfo,
-} from "@/lib/types";
+} from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue, rowsToCsv } from "./csv-util";
+import { rowsToCsv } from "./csv-util";
 
 type Row = Record<string, unknown>;
 

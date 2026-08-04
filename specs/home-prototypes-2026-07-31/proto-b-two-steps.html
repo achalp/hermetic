@@ -1,218 +1,630 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hermetic — Prototype B: Two steps, one door</title>
-<style>
-  :root {
-    color-scheme: light;
-    --bg: #faf9f7; --surface: #ffffff; --surface-2: #f4f2ef;
-    --ink: #1b1a18; --ink-2: #52514e; --ink-3: #6e6d69;
-    --border: #e5e3df; --border-strong: #cfccc6;
-    --accent: #b42318; --accent-ink: #8e1b12; --accent-subtle: #fbeae8;
-    --ok: #1a7f37; --ok-subtle: #e6f4ea;
-    --radius: 14px; --shadow: 0 1px 2px rgba(27,26,24,.05), 0 8px 24px rgba(27,26,24,.06);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) {
-      color-scheme: dark;
-      --bg: #141413; --surface: #1e1d1c; --surface-2: #262523;
-      --ink: #f4f3f0; --ink-2: #c3c2b7; --ink-3: #98968e;
-      --border: #34322f; --border-strong: #4a4843;
-      --accent: #e66757; --accent-ink: #f0897c; --accent-subtle: #3a201c;
-      --ok: #4ac26b; --ok-subtle: #1c2f22;
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
-    }
-  }
-  * { box-sizing: border-box; margin: 0; }
-  body { background: var(--bg); color: var(--ink); min-height: 100vh; display: flex; flex-direction: column;
-         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  button { font: inherit; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hermetic — Prototype B: Two steps, one door</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #faf9f7;
+        --surface: #ffffff;
+        --surface-2: #f4f2ef;
+        --ink: #1b1a18;
+        --ink-2: #52514e;
+        --ink-3: #6e6d69;
+        --border: #e5e3df;
+        --border-strong: #cfccc6;
+        --accent: #b42318;
+        --accent-ink: #8e1b12;
+        --accent-subtle: #fbeae8;
+        --ok: #1a7f37;
+        --ok-subtle: #e6f4ea;
+        --radius: 14px;
+        --shadow: 0 1px 2px rgba(27, 26, 24, 0.05), 0 8px 24px rgba(27, 26, 24, 0.06);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:where(:not([data-theme="light"])) {
+          color-scheme: dark;
+          --bg: #141413;
+          --surface: #1e1d1c;
+          --surface-2: #262523;
+          --ink: #f4f3f0;
+          --ink-2: #c3c2b7;
+          --ink-3: #98968e;
+          --border: #34322f;
+          --border-strong: #4a4843;
+          --accent: #e66757;
+          --accent-ink: #f0897c;
+          --accent-subtle: #3a201c;
+          --ok: #4ac26b;
+          --ok-subtle: #1c2f22;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+        }
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        font:
+          16px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      button {
+        font: inherit;
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        border-radius: 6px;
+      }
 
-  header { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; height: 56px;
-           border-bottom: 1px solid var(--border); background: var(--surface); }
-  .logo { font-weight: 700; font-size: 18px; color: var(--accent); letter-spacing: -.3px; }
-  .iconbtn { width: 40px; height: 40px; border: none; background: none; border-radius: 10px; color: var(--ink-2);
-             cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-  .iconbtn:hover { background: var(--surface-2); }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        height: 56px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .logo {
+        font-weight: 700;
+        font-size: 18px;
+        color: var(--accent);
+        letter-spacing: -0.3px;
+      }
+      .iconbtn {
+        width: 40px;
+        height: 40px;
+        border: none;
+        background: none;
+        border-radius: 10px;
+        color: var(--ink-2);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .iconbtn:hover {
+        background: var(--surface-2);
+      }
 
-  main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: clamp(28px, 6vh, 60px) 20px 48px; }
-  .hero { text-align: center; margin-bottom: 34px; }
-  h1 { font-size: clamp(28px, 4.2vw, 40px); letter-spacing: -1px; line-height: 1.08; }
-  .sub { color: var(--ink-2); margin-top: 8px; font-size: 16.5px; }
+      main {
+        flex: 1;
+        width: 100%;
+        max-width: 760px;
+        margin: 0 auto;
+        padding: clamp(28px, 6vh, 60px) 20px 48px;
+      }
+      .hero {
+        text-align: center;
+        margin-bottom: 34px;
+      }
+      h1 {
+        font-size: clamp(28px, 4.2vw, 40px);
+        letter-spacing: -1px;
+        line-height: 1.08;
+      }
+      .sub {
+        color: var(--ink-2);
+        margin-top: 8px;
+        font-size: 16.5px;
+      }
 
-  /* ── Step rail ───────────────────────────────────────── */
-  .step { display: grid; grid-template-columns: 44px 1fr; gap: 0 18px; }
-  .stepnum {
-    width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 15px; background: var(--accent); color: #fff; position: relative; z-index: 1;
-  }
-  .step.done .stepnum { background: var(--ok); }
-  .step.locked .stepnum { background: var(--surface-2); color: var(--ink-3); border: 1.5px solid var(--border-strong); }
-  .rail { grid-column: 1; justify-self: center; width: 2px; flex: 1; background: var(--border-strong); min-height: 28px; }
-  .steptitle { font-size: 19px; font-weight: 700; align-self: center; }
-  .steptitle small { display: block; font-size: 13.5px; font-weight: 400; color: var(--ink-3); }
-  .stepbody { grid-column: 2; padding: 14px 0 30px; }
+      /* ── Step rail ───────────────────────────────────────── */
+      .step {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 0 18px;
+      }
+      .stepnum {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 15px;
+        background: var(--accent);
+        color: #fff;
+        position: relative;
+        z-index: 1;
+      }
+      .step.done .stepnum {
+        background: var(--ok);
+      }
+      .step.locked .stepnum {
+        background: var(--surface-2);
+        color: var(--ink-3);
+        border: 1.5px solid var(--border-strong);
+      }
+      .rail {
+        grid-column: 1;
+        justify-self: center;
+        width: 2px;
+        flex: 1;
+        background: var(--border-strong);
+        min-height: 28px;
+      }
+      .steptitle {
+        font-size: 19px;
+        font-weight: 700;
+        align-self: center;
+      }
+      .steptitle small {
+        display: block;
+        font-size: 13.5px;
+        font-weight: 400;
+        color: var(--ink-3);
+      }
+      .stepbody {
+        grid-column: 2;
+        padding: 14px 0 30px;
+      }
 
-  /* ── Step 1: ONE door ────────────────────────────────── */
-  .drop {
-    display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%;
-    padding: 38px 24px; cursor: pointer; text-align: center;
-    background: var(--surface); border: 2px dashed var(--border-strong); border-radius: var(--radius);
-    transition: border-color .15s, background .15s; color: inherit;
-  }
-  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-subtle); }
-  .drop .big { font-size: 17px; font-weight: 700; }
-  .drop .fmt { font-size: 13px; color: var(--ink-3); }
-  .dropicon { width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: #fff;
-              display: flex; align-items: center; justify-content: center; }
-  .drop.done { border-style: solid; border-color: var(--ok); background: var(--ok-subtle); cursor: default; }
+      /* ── Step 1: ONE door ────────────────────────────────── */
+      .drop {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 38px 24px;
+        cursor: pointer;
+        text-align: center;
+        background: var(--surface);
+        border: 2px dashed var(--border-strong);
+        border-radius: var(--radius);
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+        color: inherit;
+      }
+      .drop:hover,
+      .drop.over {
+        border-color: var(--accent);
+        background: var(--accent-subtle);
+      }
+      .drop .big {
+        font-size: 17px;
+        font-weight: 700;
+      }
+      .drop .fmt {
+        font-size: 13px;
+        color: var(--ink-3);
+      }
+      .dropicon {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .drop.done {
+        border-style: solid;
+        border-color: var(--ok);
+        background: var(--ok-subtle);
+        cursor: default;
+      }
 
-  .alts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .alt {
-    flex: 1; min-width: 150px; min-height: 44px; padding: 9px 14px; cursor: pointer; text-align: left;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 11px; color: var(--ink-2); font-size: 14px;
-    display: flex; align-items: center; gap: 9px;
-  }
-  .alt:hover { border-color: var(--accent); color: var(--accent-ink); }
-  .alt b { color: var(--ink); font-weight: 600; }
-  .alt:hover b { color: var(--accent-ink); }
-  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #f2a33c; flex-shrink: 0; }
+      .alts {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .alt {
+        flex: 1;
+        min-width: 150px;
+        min-height: 44px;
+        padding: 9px 14px;
+        cursor: pointer;
+        text-align: left;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 11px;
+        color: var(--ink-2);
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .alt:hover {
+        border-color: var(--accent);
+        color: var(--accent-ink);
+      }
+      .alt b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .alt:hover b {
+        color: var(--accent-ink);
+      }
+      .conn-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #f2a33c;
+        flex-shrink: 0;
+      }
 
-  .filechip { display: none; align-items: center; gap: 10px; font-weight: 600; color: var(--ok); font-size: 15px; }
-  .drop.done .filechip { display: flex; }
-  .drop.done .idle { display: none; }
-  .swap { border: none; background: none; color: var(--ink-3); font-size: 13px; cursor: pointer; text-decoration: underline; min-height: 24px; }
+      .filechip {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        color: var(--ok);
+        font-size: 15px;
+      }
+      .drop.done .filechip {
+        display: flex;
+      }
+      .drop.done .idle {
+        display: none;
+      }
+      .swap {
+        border: none;
+        background: none;
+        color: var(--ink-3);
+        font-size: 13px;
+        cursor: pointer;
+        text-decoration: underline;
+        min-height: 24px;
+      }
 
-  /* ── Step 2: Ask (visible from the start, locked) ────── */
-  .askcard { background: var(--surface); border: 1.5px solid var(--border-strong); border-radius: var(--radius);
-             box-shadow: var(--shadow); transition: opacity .2s; }
-  .locked .askcard { opacity: .55; }
-  .askcard textarea { width: 100%; border: none; background: none; resize: none; color: var(--ink);
-                      padding: 16px 18px 6px; font-size: 16.5px; min-height: 64px; outline: none; }
-  .askcard textarea::placeholder { color: var(--ink-3); }
-  .askrow { display: flex; align-items: center; gap: 8px; padding: 8px 12px 12px; }
-  .lockmsg { color: var(--ink-3); font-size: 13.5px; display: flex; align-items: center; gap: 7px; }
-  .go { margin-left: auto; min-height: 44px; padding: 0 22px; border: none; border-radius: 11px;
-        background: var(--accent); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; }
-  .go:disabled { opacity: .45; cursor: not-allowed; }
-  .sugg { display: none; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  .sugg.on { display: flex; }
-  .sugg button { min-height: 40px; padding: 8px 15px; border-radius: 99px; border: 1px solid var(--border);
-                 background: var(--surface); color: var(--ink-2); font-size: 13.5px; cursor: pointer; }
-  .sugg button:hover { border-color: var(--accent); color: var(--accent-ink); }
+      /* ── Step 2: Ask (visible from the start, locked) ────── */
+      .askcard {
+        background: var(--surface);
+        border: 1.5px solid var(--border-strong);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        transition: opacity 0.2s;
+      }
+      .locked .askcard {
+        opacity: 0.55;
+      }
+      .askcard textarea {
+        width: 100%;
+        border: none;
+        background: none;
+        resize: none;
+        color: var(--ink);
+        padding: 16px 18px 6px;
+        font-size: 16.5px;
+        min-height: 64px;
+        outline: none;
+      }
+      .askcard textarea::placeholder {
+        color: var(--ink-3);
+      }
+      .askrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px 12px;
+      }
+      .lockmsg {
+        color: var(--ink-3);
+        font-size: 13.5px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .go {
+        margin-left: auto;
+        min-height: 44px;
+        padding: 0 22px;
+        border: none;
+        border-radius: 11px;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 700;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      .go:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .sugg {
+        display: none;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      .sugg.on {
+        display: flex;
+      }
+      .sugg button {
+        min-height: 40px;
+        padding: 8px 15px;
+        border-radius: 99px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--ink-2);
+        font-size: 13.5px;
+        cursor: pointer;
+      }
+      .sugg button:hover {
+        border-color: var(--accent);
+        color: var(--accent-ink);
+      }
 
-  footer { padding: 18px 20px 26px; text-align: center; color: var(--ink-3); font-size: 13.5px;
-           display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-  footer b { color: var(--ink-2); font-weight: 600; }
+      footer {
+        padding: 18px 20px 26px;
+        text-align: center;
+        color: var(--ink-3);
+        font-size: 13.5px;
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      footer b {
+        color: var(--ink-2);
+        font-weight: 600;
+      }
 
-  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
-           background: var(--ink); color: var(--bg); padding: 11px 18px; border-radius: 10px; font-size: 14px;
-           opacity: 0; transition: .25s; pointer-events: none; z-index: 50; }
-  .toast.on { opacity: 1; transform: translateX(-50%); }
-</style>
-</head>
-<body>
-  <header>
-    <span class="logo">hermetic</span>
-    <nav style="display:flex; gap:4px" aria-label="App">
-      <button class="iconbtn" aria-label="Saved dashboards"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
-      <button class="iconbtn" aria-label="Settings"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.4 2.6a7 7 0 00-2 1.2l-2.5-1-2 3.4 2.1 1.6a7 7 0 000 2.4L3 14.8l2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.4-2.6a7 7 0 002-1.2l2.5 1 2-3.4-2.1-1.6c.1-.4.2-.8.2-1.2z"/></svg></button>
-    </nav>
-  </header>
-
-  <main>
-    <div class="hero">
-      <h1>Two steps to an answer.</h1>
-      <p class="sub">Point at your data, ask in plain English. The model writes code — it never sees your rows.</p>
-    </div>
-
-    <!-- STEP 1 — one primary door; everything else demoted to quiet alternatives -->
-    <section class="step" id="step1" aria-labelledby="s1title">
-      <div class="stepnum" aria-hidden="true" id="s1num">1</div>
-      <h2 class="steptitle" id="s1title">Point at your data<small>Nothing uploads anywhere — it stays on your machine.</small></h2>
-      <div class="rail" aria-hidden="true"></div>
-      <div class="stepbody">
-        <button class="drop" id="drop">
-          <span class="idle dropicon" aria-hidden="true">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
-          </span>
-          <span class="idle big">Drop any file or folder here</span>
-          <span class="idle fmt">CSV · Excel · JSON · GeoJSON · Parquet (local, S3, or HTTPS) — or click to browse</span>
-          <span class="filechip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M4 12l5 5L20 6"/></svg><span id="fname">sales.csv</span> · 475 rows × 9 columns</span>
-          <span class="swap" id="swap" hidden>use different data</span>
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 26px;
+        transform: translateX(-50%) translateY(8px);
+        background: var(--ink);
+        color: var(--bg);
+        padding: 11px 18px;
+        border-radius: 10px;
+        font-size: 14px;
+        opacity: 0;
+        transition: 0.25s;
+        pointer-events: none;
+        z-index: 50;
+      }
+      .toast.on {
+        opacity: 1;
+        transform: translateX(-50%);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="logo">hermetic</span>
+      <nav style="display: flex; gap: 4px" aria-label="App">
+        <button class="iconbtn" aria-label="Saved dashboards">
+          <svg
+            width="19"
+            height="19"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M6 3h12v18l-6-4-6 4z" />
+          </svg>
         </button>
-        <div class="alts">
-          <button class="alt" id="wh"><span class="conn-dot" aria-hidden="true"></span><span><b>Warehouse</b> — reconnect <b>play.clickhouse.com</b> or add new</span></button>
-          <button class="alt" id="sample"><span aria-hidden="true">✨</span><span><b>No data handy?</b> Use the sample sales dataset</span></button>
-        </div>
-      </div>
-    </section>
+        <button class="iconbtn" aria-label="Settings">
+          <svg
+            width="19"
+            height="19"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 3h-4l-.4 2.6a7 7 0 00-2 1.2l-2.5-1-2 3.4 2.1 1.6a7 7 0 000 2.4L3 14.8l2 3.4 2.4-1a7 7 0 002 1.2L10 21h4l.4-2.6a7 7 0 002-1.2l2.5 1 2-3.4-2.1-1.6c.1-.4.2-.8.2-1.2z"
+            />
+          </svg>
+        </button>
+      </nav>
+    </header>
 
-    <!-- STEP 2 — always visible so the destination is never a mystery; unlocks on data -->
-    <section class="step locked" id="step2" aria-labelledby="s2title">
-      <div class="stepnum" aria-hidden="true" id="s2num">2</div>
-      <h2 class="steptitle" id="s2title">Ask your question<small id="s2small">Unlocks the moment your data is in.</small></h2>
-      <div class="stepbody">
-        <div class="askcard">
-          <label for="q" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)">Your question</label>
-          <textarea id="q" rows="2" placeholder="e.g. What changed last quarter, and why?" disabled></textarea>
-          <div class="askrow">
-            <span class="lockmsg" id="lockmsg">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
-              Waiting for data (step 1)
+    <main>
+      <div class="hero">
+        <h1>Two steps to an answer.</h1>
+        <p class="sub">
+          Point at your data, ask in plain English. The model writes code — it never sees your rows.
+        </p>
+      </div>
+
+      <!-- STEP 1 — one primary door; everything else demoted to quiet alternatives -->
+      <section class="step" id="step1" aria-labelledby="s1title">
+        <div class="stepnum" aria-hidden="true" id="s1num">1</div>
+        <h2 class="steptitle" id="s1title">
+          Point at your data<small>Nothing uploads anywhere — it stays on your machine.</small>
+        </h2>
+        <div class="rail" aria-hidden="true"></div>
+        <div class="stepbody">
+          <button class="drop" id="drop">
+            <span class="idle dropicon" aria-hidden="true">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+              >
+                <path d="M12 16V4m0 0l-4 4m4-4l4 4" />
+                <path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2" />
+              </svg>
             </span>
-            <button class="go" id="go" disabled>Analyze <span aria-hidden>→</span></button>
+            <span class="idle big">Drop any file or folder here</span>
+            <span class="idle fmt"
+              >CSV · Excel · JSON · GeoJSON · Parquet (local, S3, or HTTPS) — or click to
+              browse</span
+            >
+            <span class="filechip"
+              ><svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+              >
+                <path d="M4 12l5 5L20 6" /></svg
+              ><span id="fname">sales.csv</span> · 475 rows × 9 columns</span
+            >
+            <span class="swap" id="swap" hidden>use different data</span>
+          </button>
+          <div class="alts">
+            <button class="alt" id="wh">
+              <span class="conn-dot" aria-hidden="true"></span
+              ><span><b>Warehouse</b> — reconnect <b>play.clickhouse.com</b> or add new</span>
+            </button>
+            <button class="alt" id="sample">
+              <span aria-hidden="true">✨</span
+              ><span><b>No data handy?</b> Use the sample sales dataset</span>
+            </button>
           </div>
         </div>
-        <div class="sugg" id="sugg" aria-label="Suggested questions">
-          <button>Monthly revenue trend — anything unusual?</button>
-          <button>Top 10 products by closed-won revenue</button>
-          <button>Win rate by region and segment</button>
+      </section>
+
+      <!-- STEP 2 — always visible so the destination is never a mystery; unlocks on data -->
+      <section class="step locked" id="step2" aria-labelledby="s2title">
+        <div class="stepnum" aria-hidden="true" id="s2num">2</div>
+        <h2 class="steptitle" id="s2title">
+          Ask your question<small id="s2small">Unlocks the moment your data is in.</small>
+        </h2>
+        <div class="stepbody">
+          <div class="askcard">
+            <label
+              for="q"
+              style="
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                overflow: hidden;
+                clip: rect(0 0 0 0);
+              "
+              >Your question</label
+            >
+            <textarea
+              id="q"
+              rows="2"
+              placeholder="e.g. What changed last quarter, and why?"
+              disabled
+            ></textarea>
+            <div class="askrow">
+              <span class="lockmsg" id="lockmsg">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="5" y="11" width="14" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 018 0v4" />
+                </svg>
+                Waiting for data (step 1)
+              </span>
+              <button class="go" id="go" disabled>Analyze <span aria-hidden>→</span></button>
+            </div>
+          </div>
+          <div class="sugg" id="sugg" aria-label="Suggested questions">
+            <button>Monthly revenue trend — anything unusual?</button>
+            <button>Top 10 products by closed-won revenue</button>
+            <button>Win rate by region and segment</button>
+          </div>
         </div>
-      </div>
-    </section>
-  </main>
+      </section>
+    </main>
 
-  <footer>
-    <span>🔒 <b>Sealed</b> — your data stays local</span><span aria-hidden>·</span>
-    <span>Local models or your own API key</span><span aria-hidden>·</span>
-    <span>Sandboxed execution</span>
-  </footer>
+    <footer>
+      <span>🔒 <b>Sealed</b> — your data stays local</span><span aria-hidden>·</span>
+      <span>Local models or your own API key</span><span aria-hidden>·</span>
+      <span>Sandboxed execution</span>
+    </footer>
 
-  <div class="toast" id="toast" role="status"></div>
+    <div class="toast" id="toast" role="status"></div>
 
-<script>
-  const $ = (s) => document.querySelector(s);
-  const drop = $('#drop'), toast = $('#toast'), q = $('#q'), go = $('#go');
+    <script>
+      const $ = (s) => document.querySelector(s);
+      const drop = $("#drop"),
+        toast = $("#toast"),
+        q = $("#q"),
+        go = $("#go");
 
-  function say(m){ toast.textContent = m; toast.classList.add('on');
-    clearTimeout(say.t); say.t = setTimeout(() => toast.classList.remove('on'), 2600); }
+      function say(m) {
+        toast.textContent = m;
+        toast.classList.add("on");
+        clearTimeout(say.t);
+        say.t = setTimeout(() => toast.classList.remove("on"), 2600);
+      }
 
-  function dataReady(name){
-    $('#fname').textContent = name;
-    drop.classList.add('done'); $('#swap').hidden = false;
-    $('#step1').classList.add('done'); $('#s1num').textContent = '✓';
-    const s2 = $('#step2'); s2.classList.remove('locked');
-    $('#s2small').textContent = 'Schema read locally — suggestions below are generated from it.';
-    $('#lockmsg').innerHTML = '<span style="color:var(--ok); font-weight:600">✓ ' + name + '</span>';
-    q.disabled = false; $('#sugg').classList.add('on'); update(); q.focus();
-    say('Prototype: data connected — step 2 unlocked');
-  }
-  function update(){ go.disabled = q.disabled || q.value.trim().length < 3; }
+      function dataReady(name) {
+        $("#fname").textContent = name;
+        drop.classList.add("done");
+        $("#swap").hidden = false;
+        $("#step1").classList.add("done");
+        $("#s1num").textContent = "✓";
+        const s2 = $("#step2");
+        s2.classList.remove("locked");
+        $("#s2small").textContent =
+          "Schema read locally — suggestions below are generated from it.";
+        $("#lockmsg").innerHTML =
+          '<span style="color:var(--ok); font-weight:600">✓ ' + name + "</span>";
+        q.disabled = false;
+        $("#sugg").classList.add("on");
+        update();
+        q.focus();
+        say("Prototype: data connected — step 2 unlocked");
+      }
+      function update() {
+        go.disabled = q.disabled || q.value.trim().length < 3;
+      }
 
-  drop.addEventListener('click', () => { if (!drop.classList.contains('done')) dataReady('quarterly_deals.xlsx'); });
-  ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
-  ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over');
-    if (ev === 'drop') dataReady(e.dataTransfer.files?.[0]?.name ?? 'dropped file'); }));
-  $('#swap').addEventListener('click', (e) => { e.stopPropagation(); location.reload(); });
-  $('#wh').addEventListener('click', () => dataReady('ClickHouse · play.clickhouse.com'));
-  $('#sample').addEventListener('click', () => dataReady('Sample — sales.csv'));
-  document.querySelectorAll('#sugg button').forEach(b => b.addEventListener('click', () => { q.value = b.textContent; update(); go.focus(); }));
-  q.addEventListener('input', update);
-  go.addEventListener('click', () => say('Prototype: this would run the analysis and stream the dashboard in'));
-</script>
-</body>
+      drop.addEventListener("click", () => {
+        if (!drop.classList.contains("done")) dataReady("quarterly_deals.xlsx");
+      });
+      ["dragover", "dragenter"].forEach((ev) =>
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          drop.classList.add("over");
+        })
+      );
+      ["dragleave", "drop"].forEach((ev) =>
+        drop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          drop.classList.remove("over");
+          if (ev === "drop") dataReady(e.dataTransfer.files?.[0]?.name ?? "dropped file");
+        })
+      );
+      $("#swap").addEventListener("click", (e) => {
+        e.stopPropagation();
+        location.reload();
+      });
+      $("#wh").addEventListener("click", () => dataReady("ClickHouse · play.clickhouse.com"));
+      $("#sample").addEventListener("click", () => dataReady("Sample — sales.csv"));
+      document.querySelectorAll("#sugg button").forEach((b) =>
+        b.addEventListener("click", () => {
+          q.value = b.textContent;
+          update();
+          go.focus();
+        })
+      );
+      q.addEventListener("input", update);
+      go.addEventListener("click", () =>
+        say("Prototype: this would run the analysis and stream the dashboard in")
+      );
+    </script>
+  </body>
 </html>

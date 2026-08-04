@@ -1,6 +1,6 @@
 "use client";
 
-import { useStateStore, useStateValue } from "@json-render/react";
+import { useStateStore, useStateValue } from "@/spec/react";
 import { useCallback, type ReactNode } from "react";
 
 interface SelectsConfig {

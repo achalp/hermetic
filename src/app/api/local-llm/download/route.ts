@@ -1,7 +1,9 @@
 import { spawn, execSync } from "child_process";
+import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import type { ChildProcess } from "child_process";
 import { apiError } from "@/lib/api-error";
 import { logger } from "@/lib/logger";
+import { hermeticPaths } from "@/lib/paths";
 
 // ── Active download tracker ─────────────────────────────────────
 // Tracks spawned download processes so the UI can detect ongoing downloads
@@ -215,7 +217,7 @@ export async function POST(request: Request) {
     // Proxy to Ollama pull
     const { getRuntimeConfig } = await import("@/lib/runtime-config");
     const rc = getRuntimeConfig();
-    const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
+    const baseUrl = rc.ollama?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama;
     try {
       const res = await fetch(`${baseUrl}/api/pull`, {
         method: "POST",
@@ -398,7 +400,7 @@ export async function POST(request: Request) {
     }
 
     // Ensure GGUF directory exists before downloading
-    const localDir = `${process.cwd()}/data/models/gguf`;
+    const localDir = hermeticPaths.ggufModelsDir();
     try {
       const { mkdirSync } = await import("fs");
       mkdirSync(localDir, { recursive: true });
@@ -472,6 +474,7 @@ export async function POST(request: Request) {
           // Fallback: inline snapshot_download — use allow_patterns for single quant
           const script = `
 import sys
+import { hermeticPaths } from "@/lib/paths";
 from huggingface_hub import snapshot_download
 path = snapshot_download(sys.argv[1], allow_patterns=["${quantPattern}"], local_dir=sys.argv[2])
 print(path)

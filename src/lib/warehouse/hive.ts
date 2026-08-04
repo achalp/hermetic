@@ -1,10 +1,10 @@
 import { HiveClient, thrift, auth, connections } from "hive-driver";
+import type { HiveConnectionConfig } from "@/lib/contracts/connection-configs";
 import type {
-  HiveConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
   WarehouseColumnInfo,
-} from "@/lib/types";
+} from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
 import { csvValue } from "./csv-util";
 

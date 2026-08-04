@@ -10,7 +10,7 @@ import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { CODE_GEN_MODEL } from "@/lib/constants";
-import type { WarehouseTableSchema } from "@/lib/types";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 export interface MaterializationScope {
   /** Bare table name (as the connector's metadata expects). */

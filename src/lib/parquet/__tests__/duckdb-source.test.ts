@@ -11,7 +11,8 @@ import {
   DUCKDB_CLOUD_PRELUDE,
   duckdbCloudPreludePy,
 } from "@/lib/parquet/duckdb-source";
-import type { StoredCSV, CSVSchema } from "@/lib/types";
+import type { StoredCSV } from "@/lib/contracts/storage-types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 function storedWith(over: Partial<StoredCSV> & { row_count?: number }): StoredCSV {
   const schema = { row_count: over.row_count ?? 1000 } as CSVSchema;

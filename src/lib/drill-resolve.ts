@@ -1,4 +1,4 @@
-import type { DrillDownParams, FilterValue } from "@/lib/types";
+import type { DrillDownParams, FilterValue } from "@/lib/contracts/spec-types";
 
 /** Human-readable label for a filter value (multi-select joins with ", "). */
 export function formatFilterValue(v: FilterValue): string {

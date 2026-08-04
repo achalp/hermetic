@@ -36,7 +36,7 @@ import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateReplan } from "@/lib/llm/investigate-planner";
 import { gapCheckComposer } from "@/lib/llm/investigate-composer";
 import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const mockedRunPipeline = vi.mocked(runPipeline);
 const mockedGenerateReplan = vi.mocked(generateReplan);

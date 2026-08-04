@@ -1,3 +1,5 @@
+import { BASEMAP_TILE_URLS } from "@/lib/constants";
+
 /**
  * Dependency-free color-ramp + basemap helpers for the deck.gl maps. Kept out of
  * the deck.gl component files (which pull WebGL) so they stay unit-testable.
@@ -5,8 +7,8 @@
 
 /** Carto basemaps — free, keyless. Retina (@2x) for crisp labels. */
 export const BASEMAP_TILES: Record<"dark" | "light", string> = {
-  dark: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-  light: "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+  dark: BASEMAP_TILE_URLS.dark,
+  light: BASEMAP_TILE_URLS.light,
 };
 
 /**

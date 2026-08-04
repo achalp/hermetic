@@ -11,7 +11,6 @@
  * client bundle transitively), so this module registers a provider with it —
  * dependency inversion keeps the node-only import on the server side.
  */
-import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { setRunIdProvider } from "@/lib/logger";

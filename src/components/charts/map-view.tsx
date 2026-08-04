@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { BASEMAP_STYLE_URL } from "@/lib/constants";
 import MapGL, {
   Source,
   Layer,
@@ -12,7 +13,7 @@ import MapGL, {
 import "maplibre-gl/dist/maplibre-gl.css";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
-import { drillClickValueRef } from "@/lib/drill-down-context";
+import { useDrillClickRef } from "@/lib/drill-down-context";
 import { featureClickRecord } from "@/lib/drill-resolve";
 
 interface MarkerItem {
@@ -70,7 +71,7 @@ interface EventHandle {
   shouldPreventDefault: boolean;
 }
 
-const BASEMAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const BASEMAP_STYLE = BASEMAP_STYLE_URL;
 
 function computeBounds(
   markers: MarkerItem[] | null | undefined,
@@ -218,6 +219,7 @@ export function MapViewComponent({
   emit?: (event: string) => void;
   on?: (event: string) => EventHandle;
 }) {
+  const drillClickValueRef = useDrillClickRef();
   const clickHandle = on?.("click");
   const isDrillable = clickHandle?.bound ?? false;
   const chartColors = useChartColors();

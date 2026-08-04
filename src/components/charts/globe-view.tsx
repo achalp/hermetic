@@ -1,17 +1,15 @@
 "use client";
 
 import { useRef, useEffect, useMemo, useSyncExternalStore, useState } from "react";
-import dynamic from "next/dynamic";
+import { clientLazy } from "@/components/lazy-client";
 import { resolveColor, useChartColors } from "@/lib/chart-theme";
 
-const Globe = dynamic(() => import("react-globe.gl").then((m) => m.default), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-[500px] w-full items-center justify-center rounded-lg bg-surface-2">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
-    </div>
-  ),
-});
+const Globe = clientLazy(
+  () => import("react-globe.gl").then((m) => m.default),
+  <div className="flex h-[500px] w-full items-center justify-center rounded-lg bg-surface-2">
+    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
+  </div>
+);
 
 interface GlobePoint {
   lat: number;

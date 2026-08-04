@@ -39,6 +39,125 @@ const eslintConfig = defineConfig([
       "react/use": "off",
     },
   },
+  // ── Modularization layer boundaries (ERROR severity — Phase 1 complete) ───
+  // Target layering: specs/modularization-2026-08-01.md §3.3. All groups run
+  // at "error"; suppressions are counted by the ratchet (scripts/ratchet.mjs)
+  // and must stay at zero.
+  {
+    files: ["src/lib/**/*.{ts,tsx}"],
+    ignores: ["src/lib/**/__tests__/**", "src/lib/**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/app/*", "@/components/*", "@/hooks/*"],
+              message:
+                "lib is below the app layer and must not import from it (modularization WS1).",
+            },
+            {
+              group: ["next", "next/*"],
+              message:
+                "lib must stay framework-free; Next belongs to the harness (modularization WS1).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/lib/sandbox/**/*.ts"],
+    ignores: ["src/lib/sandbox/**/__tests__/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/app/*", "@/components/*", "@/hooks/*"],
+              message:
+                "lib is below the app layer and must not import from it (modularization WS1).",
+            },
+            {
+              group: ["next", "next/*"],
+              message:
+                "lib must stay framework-free; Next belongs to the harness (modularization WS1).",
+            },
+            {
+              group: ["@/lib/pipeline/*"],
+              message:
+                "sandbox sits below orchestration; take AbortSignal/onProgress as inputs instead (modularization WS6).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: [
+      "src/components/charts/**/*.{ts,tsx}",
+      "src/components/controllers/**/*.{ts,tsx}",
+      "src/components/inputs/**/*.{ts,tsx}",
+      "src/components/registry.tsx",
+      "src/components/registry-primitives.tsx",
+      "src/components/spec-view.tsx",
+      "src/components/lazy-client.tsx",
+      "src/components/data-table.tsx",
+      "src/components/definition-list.tsx",
+      "src/components/pivot-table.tsx",
+      "src/components/renderer-error-boundary.tsx",
+    ],
+    ignores: ["src/components/charts/**/__tests__/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/hooks/*", "@/lib/api", "@/components/app/*"],
+              message:
+                "the renderer closure must stay free of app state and transport (modularization WS7).",
+            },
+            {
+              group: ["next", "next/*"],
+              message:
+                "the renderer must be framework-free; use React.lazy instead of next/dynamic (modularization WS7).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/spec/**/*.{ts,tsx}"],
+    ignores: ["src/spec/**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "@/app/*",
+                "@/components/*",
+                "@/hooks/*",
+                "@/lib/*",
+                "@/harness/*",
+                "@/cli/*",
+              ],
+              message:
+                "the vendored spec fork is the bottom of the stack — it imports nothing of hermetic's (exit audit F4; Phase 2 ships it as @hermetic/spec).",
+            },
+            {
+              group: ["next", "next/*"],
+              message: "the spec fork must be framework-free (exit audit F4).",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

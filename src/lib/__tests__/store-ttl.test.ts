@@ -13,7 +13,7 @@ import {
   getCachedArtifacts,
   sweepExpiredArtifacts,
 } from "@/lib/pipeline/artifacts-cache";
-import type { StoredWarehouse } from "@/lib/types";
+import type { StoredWarehouse } from "@/lib/contracts/storage-types";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 
 let now = 0;

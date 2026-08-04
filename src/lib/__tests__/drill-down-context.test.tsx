@@ -1,69 +1,49 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
 import { renderHook, cleanup } from "@testing-library/react";
-import React, { useRef } from "react";
+import React from "react";
 import {
-  DrillDownContext,
-  drillDownCallbackRef,
-  useDrillDownCallback,
+  DrillClickContext,
+  DrillDownDispatchContext,
+  useDrillClickRef,
+  useDrillDispatch,
+  type DrillClickRef,
 } from "@/lib/drill-down-context";
-import type { DrillDownParams } from "@/lib/types";
+import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
-afterEach(() => {
-  cleanup();
-  drillDownCallbackRef.current = null;
-});
+afterEach(() => cleanup());
 
-describe("drillDownCallbackRef", () => {
-  it("starts as null", () => {
-    expect(drillDownCallbackRef.current).toBeNull();
+describe("drill contexts (M5-5b)", () => {
+  it("useDrillDispatch is null outside a SpecView (drill not wired)", () => {
+    const { result } = renderHook(() => useDrillDispatch());
+    expect(result.current).toBeNull();
   });
 
-  it("can be set and invoked", () => {
-    let captured: DrillDownParams | null = null;
-    drillDownCallbackRef.current = (params) => {
-      captured = params;
-    };
-
-    const params: DrillDownParams = {
-      filter_column: "region",
-      filter_value: "West",
-      segment_label: "West Region",
-      segment_value: "West",
-      chart_title: "Sales by Region",
-      x_key: "region",
-      y_key: "sales",
-    };
-    drillDownCallbackRef.current!(params);
-
-    expect(captured).toEqual(params);
+  it("useDrillDispatch returns the provided dispatch", () => {
+    const calls: DrillDownParams[] = [];
+    const dispatch = (p: DrillDownParams) => calls.push(p);
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <DrillDownDispatchContext.Provider value={dispatch}>
+        {children}
+      </DrillDownDispatchContext.Provider>
+    );
+    const { result } = renderHook(() => useDrillDispatch(), { wrapper });
+    result.current?.({ filter_column: "c" } as DrillDownParams);
+    expect(calls).toHaveLength(1);
   });
 
-  it("can be cleared", () => {
-    drillDownCallbackRef.current = () => {};
-    drillDownCallbackRef.current = null;
-    expect(drillDownCallbackRef.current).toBeNull();
-  });
-});
-
-describe("useDrillDownCallback", () => {
-  it("returns the default context value when no provider is present", () => {
-    const { result } = renderHook(() => useDrillDownCallback());
-    expect(result.current.current).toBeNull();
-  });
-
-  it("returns provided ref from DrillDownContext.Provider", () => {
-    const callback = (_p: DrillDownParams) => {};
-
-    function Wrapper({ children }: { children: React.ReactNode }) {
-      const ref = useRef<((params: DrillDownParams) => void) | null>(callback);
-      return <DrillDownContext.Provider value={ref}>{children}</DrillDownContext.Provider>;
-    }
-
-    const { result } = renderHook(() => useDrillDownCallback(), {
-      wrapper: Wrapper,
-    });
-
-    expect(result.current.current).toBe(callback);
+  it("useDrillClickRef isolates click records per provider instance", () => {
+    const refA: DrillClickRef = { current: null };
+    const refB: DrillClickRef = { current: null };
+    const wrap = (ref: DrillClickRef) =>
+      function Wrapper({ children }: { children: React.ReactNode }) {
+        return <DrillClickContext.Provider value={ref}>{children}</DrillClickContext.Provider>;
+      };
+    const a = renderHook(() => useDrillClickRef(), { wrapper: wrap(refA) });
+    const b = renderHook(() => useDrillClickRef(), { wrapper: wrap(refB) });
+    a.result.current.current = { region: "West" };
+    expect(refA.current).toEqual({ region: "West" });
+    expect(refB.current).toBeNull();
+    expect(b.result.current.current).toBeNull();
   });
 });

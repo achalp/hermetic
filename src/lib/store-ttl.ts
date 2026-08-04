@@ -1,6 +1,5 @@
-import "server-only";
 import { getRunId } from "@/lib/run-context";
-import { isRunActive } from "@/lib/pipeline/run-control";
+import { stateBox } from "@/lib/state-store";
 
 /**
  * Shared expiry policy for the in-memory session stores (uploaded CSV, warehouse
@@ -19,6 +18,21 @@ import { isRunActive } from "@/lib/pipeline/run-control";
  * Local/bind-mounted data (which lives on disk) opts out of expiry entirely and
  * doesn't go through here.
  */
+/**
+ * Liveness probe, INJECTED by the harness at boot (modularization M2-C4).
+ * store-ttl sits below orchestration; importing run-control directly made
+ * every store drag the run registry (audit §2.3). Unwired, no entry is
+ * pinned — entries just expire on the sliding window.
+ */
+const livenessProbe = stateBox<((runId: string) => boolean) | null>(
+  "store-ttl-liveness-probe",
+  () => null
+);
+
+export function registerRunLivenessProbe(probe: (runId: string) => boolean): void {
+  livenessProbe.set(probe);
+}
+
 export interface TtlFields {
   /** Last read (ms). Undefined until first touch → falls back to the base time. */
   lastAccessedAt?: number;
@@ -32,7 +46,8 @@ export interface TtlFields {
  * never expire.
  */
 export function isIdleExpired(entry: TtlFields, base: number, ttlMs: number, now: number): boolean {
-  if (entry.ownerRunId && isRunActive(entry.ownerRunId)) return false;
+  const probe = livenessProbe.get();
+  if (entry.ownerRunId && probe && probe(entry.ownerRunId)) return false;
   return now - (entry.lastAccessedAt ?? base) > ttlMs;
 }
 

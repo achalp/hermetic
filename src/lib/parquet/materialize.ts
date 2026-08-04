@@ -1,16 +1,15 @@
-import "server-only";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { mkdir, stat } from "node:fs/promises";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import { run } from "@/lib/sandbox/docker-utils";
 import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
-import { PYTHON_NAN_PRELUDE } from "@/lib/sandbox/index";
+import { pythonNanPrelude } from "@/lib/sandbox/prelude";
 import { buildSchemaScript } from "./schema-script";
 import { logger } from "@/lib/logger";
+import { hermeticPaths } from "@/lib/paths";
 
 /**
  * Host dir holding materialized Parquet files, bind-mounted into analysis
@@ -19,7 +18,7 @@ import { logger } from "@/lib/logger";
  * and read_parquet finds nothing. The home dir (/Users/...) is shared by default
  * (it's where the working local-files mounts live), so we anchor here.
  */
-export const PARQUET_DIR = join(homedir(), ".hermetic", "parquet");
+export const PARQUET_DIR = hermeticPaths.parquetCacheDir();
 
 /**
  * Convert CSV text into a Parquet file on the host AND extract its schema, in a
@@ -56,7 +55,7 @@ _con = _ddb.connect()
 _con.execute("COPY (SELECT * FROM read_csv_auto('/data/input.csv', header=true)) TO '${LOCAL_MOUNT_PATH}/output.parquet' (FORMAT PARQUET)")
 _con.close()
 `;
-  const script = PYTHON_NAN_PRELUDE + conversionPrefix + buildSchemaScript("output.parquet", false);
+  const script = pythonNanPrelude() + conversionPrefix + buildSchemaScript("output.parquet", false);
 
   try {
     await run(

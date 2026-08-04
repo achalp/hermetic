@@ -1,9 +1,8 @@
-import "server-only";
 import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { join, extname } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { RemoteCreds } from "@/lib/types";
+import type { RemoteCreds } from "@/lib/contracts/storage-types";
+import { hermeticPaths } from "@/lib/paths";
 
 /**
  * Recent data sources — the file/cloud analogue of the saved warehouse
@@ -37,7 +36,7 @@ export interface RecentSource {
   useCount: number;
 }
 
-const DIR = join(homedir(), ".hermetic");
+const DIR = hermeticPaths.userDir();
 const INDEX_PATH = join(DIR, "recent-sources.json");
 const SOURCES_DIR = join(DIR, "sources");
 const MAX_ENTRIES = 24;

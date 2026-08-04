@@ -10,7 +10,7 @@ import { InferenceSection } from "./settings/inference-section";
 // Schedule UI moved out of Settings to the dashboard toolbar + Saved Vizs panel.
 import { AnalysisDefaultsSection } from "./settings/analysis-defaults-section";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
-import type { SchemaMode } from "@/lib/types";
+import type { SchemaMode } from "@/lib/contracts/data-schema";
 
 interface SettingsDrawerProps {
   open: boolean;

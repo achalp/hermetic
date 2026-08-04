@@ -1,8 +1,8 @@
-import "server-only";
 import { mkdir, readFile, writeFile, unlink } from "fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "path";
 import { logger } from "@/lib/logger";
+import { hermeticPaths } from "@/lib/paths";
 
 /**
  * Generic, source-agnostic schema cache.
@@ -25,7 +25,7 @@ import { logger } from "@/lib/logger";
  * degrades to a normal extraction, never an error.
  */
 
-const CACHE_DIR = join(process.cwd(), "data", "schema-cache");
+const CACHE_DIR = hermeticPaths.schemaCacheDir();
 
 export type CacheStatus = "hit" | "miss" | "stale" | "forced" | "bypass";
 

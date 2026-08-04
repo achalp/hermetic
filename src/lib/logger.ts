@@ -13,6 +13,8 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 };
 
 const MIN_LEVEL: LogLevel =
+  // Pre-boot infra: the logger loads before harness boot, so it reads the
+  // environment directly (documented envConfig() exception).
   (process.env.LOG_LEVEL as LogLevel) || (process.env.NODE_ENV === "production" ? "info" : "debug");
 
 const isProd = process.env.NODE_ENV === "production";

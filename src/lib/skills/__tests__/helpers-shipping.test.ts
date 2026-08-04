@@ -12,7 +12,7 @@ vi.mock("@/lib/logger", () => ({
 import { activateSkills } from "@/lib/skills/registry";
 import { planetScaleSuperlative } from "@/lib/skills/builtin/planet-scale-superlative";
 import { resetUserSkillCacheForTests } from "@/lib/skills/user-skills";
-import type { CSVSchema } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 function schemaWith(cols: string[]): CSVSchema {
   return {

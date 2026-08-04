@@ -1,8 +1,10 @@
-import "server-only";
+import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 import { execFile } from "node:child_process";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 import type { SkillFailureHint } from "@/lib/skills/types";
+import { stateNamespace } from "@/lib/state-store";
+import { registerRunLivenessProbe } from "@/lib/store-ttl";
 
 /**
  * Per-run control registry — the single mechanism behind "stop on demand" and
@@ -26,26 +28,8 @@ import type { SkillFailureHint } from "@/lib/skills/types";
  * stores.
  */
 
-/**
- * Source-agnostic progress event streamed to the client. Field names match the
- * on-the-wire shape the sandbox prelude's progress() emits (snake_case), so it
- * passes through untransformed.
- */
-export interface SandboxProgress {
-  /** Coarse phase: starting | scanning | analyzing | hydrating | composing | … */
-  phase: string;
-  /** Human-readable detail ("scanning California buildings"). */
-  detail?: string;
-  /** 0..1 completion when the phase can report it (e.g. a DuckDB scan). */
-  fraction?: number;
-  /** Rows processed so far / expected, when known. */
-  rows?: number;
-  total_rows?: number;
-  /** Milliseconds since the run started. */
-  elapsed_ms?: number;
-  /** Extra fields the analysis code passes to progress(**fields). */
-  [k: string]: unknown;
-}
+import type { SandboxProgress, SandboxRunHooks } from "@/lib/contracts/execution";
+export type { SandboxProgress };
 
 interface RunControl {
   controller: AbortController;
@@ -59,12 +43,12 @@ interface RunControl {
   stopped: boolean;
 }
 
-const g = globalThis as unknown as {
-  __hermeticRunControl?: Map<string, RunControl>;
-  __hermeticContainerOwner?: Map<string, string>;
-};
-g.__hermeticRunControl ??= new Map<string, RunControl>();
-const runs = g.__hermeticRunControl;
+const runs = stateNamespace<RunControl>("run-control");
+
+// Provide the store-ttl active-run pin (M2-C4). The import points DOWNWARD
+// (orchestration -> lib util) — the old coupling was store-ttl importing this
+// registry, dragging it into every session store.
+registerRunLivenessProbe(isRunActive);
 
 /** Every sandbox container id ever registered → the runId that owns it. Lets the
  *  sweeper tell a live container from a crash orphan without scanning each run.
@@ -74,8 +58,7 @@ const runs = g.__hermeticRunControl;
  *  instance while the sweeper reads another (empty) one and reaps every LIVE
  *  container on its tick as an "orphan" (observed: 11 mid-scan kills across
  *  three runs, all exactly on the 30-min sweep tick, misdiagnosed as OOM). */
-g.__hermeticContainerOwner ??= new Map<string, string>();
-const containerOwner = g.__hermeticContainerOwner;
+const containerOwner = stateNamespace<string>("run-container-owner");
 
 /**
  * Register the current run. Returns the AbortController whose signal all of the
@@ -226,7 +209,7 @@ export async function reapOrphanSandboxContainers(): Promise<number> {
   const names = await new Promise<string[]>((resolve) => {
     execFile(
       "docker",
-      ["ps", "--filter", "name=hermetic-sandbox-", "--format", "{{.Names}}"],
+      ["ps", "--filter", `name=${SANDBOX_CONTAINER_PREFIX}`, "--format", "{{.Names}}"],
       (err: unknown, stdout: string) => {
         resolve(err ? [] : String(stdout).trim().split("\n").filter(Boolean));
       }
@@ -272,4 +255,20 @@ export function endRun(runId: string): void {
   const rc = runs.get(runId);
   if (rc) for (const id of rc.containers) containerOwner.delete(id);
   runs.delete(runId);
+}
+
+/**
+ * The orchestration layer's standard SandboxRunHooks (modularization M4-4c):
+ * this registry's ambient lookups, packaged as the injected capabilities the
+ * executors take. Executors never import this module — callers inside
+ * pipeline/ build hooks here and pass them down.
+ */
+export function ambientSandboxHooks(): SandboxRunHooks {
+  return {
+    signal: getRunSignal(),
+    onProgress: reportProgress,
+    onContainerStart: registerContainer,
+    onContainerEnd: unregisterContainer,
+    failureHints: getRunFailureHints,
+  };
 }

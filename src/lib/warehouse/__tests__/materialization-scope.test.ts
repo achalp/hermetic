@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { WarehouseTableSchema } from "@/lib/types";
+import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 const generateTextMock = vi.fn();
 vi.mock("ai", () => ({ generateText: (...a: unknown[]) => generateTextMock(...a) }));

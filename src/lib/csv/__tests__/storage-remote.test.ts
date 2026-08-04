@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { storeRemoteParquetRef, isRemoteFile, isLocalFile, getStoredCSV } from "@/lib/csv/storage";
-import type { CSVSchema, RemoteCreds } from "@/lib/types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { RemoteCreds } from "@/lib/contracts/storage-types";
 
 const schema = { row_count: 100, columns: [] } as unknown as CSVSchema;
 

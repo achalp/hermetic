@@ -8,8 +8,8 @@
  * flow needs.
  */
 import { useCallback, useEffect, useRef } from "react";
-import type { Spec } from "@json-render/react";
-import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/types";
+import type { Spec } from "@/spec/react";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";
 import { loadViz, refreshViz, rerunViz, saveViz } from "@/lib/api";
@@ -70,7 +70,7 @@ export function useVizActions(args: {
         dispatch({
           type: "LOAD_VIZ_SUCCESS",
           question: data.meta.question,
-          spec: data.spec as unknown as Spec,
+          spec: data.spec,
           artifacts: data.artifacts ?? null,
           vizId,
         });
@@ -97,11 +97,11 @@ export function useVizActions(args: {
       dispatch({ type: "RERUN_START" });
       try {
         const result = await rerunViz(vizId, file, sandboxRuntime);
-        if (result.schemaMatch) {
+        if (result.schemaMatch && result.spec) {
           handleUpload(result.csvId, result.schema);
           dispatch({
             type: "RERUN_FAST_SUCCESS",
-            spec: result.spec as unknown as Spec,
+            spec: result.spec,
             artifacts: result.artifacts ?? null,
             vizId,
           });
@@ -137,7 +137,7 @@ export function useVizActions(args: {
         // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
         dispatch({
           type: "RERUN_FAST_SUCCESS",
-          spec: result.spec as unknown as Spec,
+          spec: result.spec,
           artifacts: result.artifacts ?? null,
           vizId,
         });

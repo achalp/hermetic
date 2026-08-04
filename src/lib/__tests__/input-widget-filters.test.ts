@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { applyFilter, type FilterDef } from "@/lib/pipeline/client-pipeline";
+import { applyFilter, type FilterDef } from "@/lib/data-transforms/client-pipeline";
 
 const fakeFilterDef = (col: string): FilterDef => ({
   key: col,

@@ -1,35 +1,15 @@
-import type { ExecutionResult } from "@/lib/types";
-import type { AdditionalFile } from "./index";
+import type { ExecutionResult } from "@/lib/contracts/execution";
+import type { AdditionalFile } from "@/lib/contracts/execution";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
+import { stateNamespace, stateBox } from "@/lib/state-store";
 
-// ── WarmSandboxBackend interface ─────────────────────────────────────
-
-export interface WarmSandboxBackend {
-  /** Create sandbox, install packages */
-  warmup(): Promise<void>;
-  /** Write data files into the sandbox */
-  loadData(
-    csvId: string,
-    csvContent: string,
-    geojsonContent?: string | null,
-    additionalFiles?: AdditionalFile[]
-  ): Promise<void>;
-  /** Write script + run (data already loaded) */
-  executeScript(code: string): Promise<ExecutionResult>;
-  /** Fallback: full execution (warmup + load + execute) */
-  executeFull(
-    csvContent: string,
-    code: string,
-    geojsonContent?: string | null,
-    additionalFiles?: AdditionalFile[]
-  ): Promise<ExecutionResult>;
-  /** Container/sandbox alive? */
-  isHealthy(): Promise<boolean>;
-  /** Tear down */
-  destroy(): Promise<void>;
-}
+// Backend SPI lives in ./warm-backend (leaf module) so implementations can
+// import it without a cycle back through this file; re-exported for existing
+// consumers.
+export type { WarmSandboxBackend } from "./warm-backend";
+import type { WarmSandboxBackend } from "./warm-backend";
 
 // ── WarmSandboxManager ───────────────────────────────────────────────
 
@@ -120,9 +100,13 @@ export class WarmSandboxManager {
     csvId: string,
     csvContent: string,
     code: string,
-    geojsonContent?: string | null,
-    additionalFiles?: AdditionalFile[]
+    opts: {
+      geojsonContent?: string | null;
+      additionalFiles?: AdditionalFile[];
+      hooks?: import("@/lib/contracts/execution").SandboxRunHooks;
+    } = {}
   ): Promise<ExecutionResult> {
+    const { geojsonContent, additionalFiles } = opts;
     return this.withLock(async () => {
       try {
         await this.ensureWarm();
@@ -165,18 +149,15 @@ export class WarmSandboxManager {
 // still-running container via its health check, so there's no re-warm cost.
 const REGISTRY_VERSION = 2;
 
-const globalRegistry = globalThis as unknown as {
-  __warmSandboxManagers?: Map<SandboxRuntimeId, WarmSandboxManager>;
-  __warmSandboxRegistryVersion?: number;
-};
-if (
-  !globalRegistry.__warmSandboxManagers ||
-  globalRegistry.__warmSandboxRegistryVersion !== REGISTRY_VERSION
-) {
-  globalRegistry.__warmSandboxManagers = new Map();
-  globalRegistry.__warmSandboxRegistryVersion = REGISTRY_VERSION;
+const managers = stateNamespace<WarmSandboxManager>("warm-sandbox-managers") as Map<
+  SandboxRuntimeId,
+  WarmSandboxManager
+>;
+const registryVersion = stateBox<number>("warm-sandbox-registry-version", () => REGISTRY_VERSION);
+if (registryVersion.get() !== REGISTRY_VERSION) {
+  managers.clear();
+  registryVersion.set(REGISTRY_VERSION);
 }
-const managers = globalRegistry.__warmSandboxManagers;
 
 export function registerWarmManager(
   runtime: SandboxRuntimeId,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { WarmSandboxManager, type WarmSandboxBackend } from "@/lib/sandbox/warm-sandbox";
-import type { ExecutionResult } from "@/lib/types";
+import type { ExecutionResult } from "@/lib/contracts/execution";
 
 /**
  * The warm Docker backend shares ONE container + /data paths. Investigate runs

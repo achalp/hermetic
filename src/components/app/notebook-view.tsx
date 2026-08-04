@@ -17,25 +17,26 @@
  *     code, datasets, provenance, and timing once artifacts are loaded.
  */
 
+import {
+  readStreamState,
+  type SynthesisState,
+  type GroundingReport,
+} from "@/lib/contracts/stream-state";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Renderer, StateProvider, ActionProvider, VisibilityProvider } from "@json-render/react";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import { registry } from "@/components/registry";
 import { renderWithCitations } from "@/components/registry-primitives";
-import { RendererErrorBoundary } from "@/components/app/renderer-error-boundary";
+import { RendererErrorBoundary } from "@/components/renderer-error-boundary";
 import { CodeEditor } from "@/components/app/code-editor";
 import { Markdown } from "@/components/app/markdown";
 import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
 import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
 import { downloadAsSlides } from "@/lib/slides-export";
 import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/lib/export-utils";
-import { rerunInvestigateStep, saveNotebookLayout } from "@/lib/api";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type {
-  TraceStep,
-  TraceDecision,
-  NotebookLayoutCell,
-} from "@/lib/pipeline/investigation-trace";
+import { rerunInvestigateStep, saveNotebookLayout, composeNotebookCells } from "@/lib/api";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
+import type { TraceStep, TraceDecision, NotebookLayoutCell } from "@/lib/contracts/investigation";
+import { SpecView } from "@/components/spec-view";
 
 type CellStatus = "pending" | "running" | "done" | "degraded" | "failed" | "removed";
 
@@ -67,22 +68,6 @@ export interface NotebookCellModel {
   source?: "replanner" | "composer";
 }
 
-interface PlanStepState {
-  index: number;
-  question: string;
-  rationale?: string;
-  status?: string;
-  degradedReason?: string;
-  error?: string;
-  addedByReplanner?: boolean;
-  addedByComposer?: boolean;
-}
-
-interface CellState {
-  status?: string;
-  cellSpec?: Spec;
-}
-
 function normalizeStatus(raw: string | undefined): CellStatus {
   switch (raw) {
     case "running":
@@ -106,9 +91,9 @@ export function buildNotebookCells(
   spec: Spec | null,
   artifacts: CachedArtifacts | null | undefined
 ): NotebookCellModel[] {
-  const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
-  const plan = state.__plan as { steps?: PlanStepState[] } | undefined;
-  const cellsState = (state.__cells as Record<string, CellState> | undefined) ?? {};
+  const state = readStreamState(spec);
+  const plan = state.__plan;
+  const cellsState = state.__cells ?? {};
   const trace = artifacts?.investigation;
   const traceByIndex = new Map<number, TraceStep>(trace?.steps.map((s) => [s.index, s]) ?? []);
 
@@ -202,17 +187,7 @@ function Disclosure({
 }
 
 function CellOutput({ cellSpec }: { cellSpec: Spec }) {
-  return (
-    <StateProvider initialState={cellSpec.state ?? {}}>
-      <ActionProvider>
-        <VisibilityProvider>
-          <RendererErrorBoundary>
-            <Renderer spec={cellSpec} registry={registry} />
-          </RendererErrorBoundary>
-        </VisibilityProvider>
-      </ActionProvider>
-    </StateProvider>
-  );
+  return <SpecView spec={cellSpec} />;
 }
 
 function NotebookCell({
@@ -441,17 +416,6 @@ function NotebookCell({
   );
 }
 
-interface SynthesisState {
-  summary?: string;
-  conclusion?: string;
-}
-
-interface GroundingLike {
-  ok?: boolean;
-  checkedCount?: number;
-  ungrounded?: string[];
-}
-
 function decisionLabel(d: TraceDecision): string {
   if (d.kind === "composer_dispatch") return "Composer dispatch";
   return `Re-planner: ${d.action ?? "decision"}`;
@@ -468,7 +432,7 @@ function SynthesisCell({
   decisions,
 }: {
   synthesis: SynthesisState;
-  grounding?: GroundingLike;
+  grounding?: GroundingReport;
   decisions?: TraceDecision[];
 }) {
   return (
@@ -836,8 +800,8 @@ export function NotebookView({
     };
   });
   const rerunEnabled = Boolean(csvId) && !isStreaming;
-  const state = (spec?.state as Record<string, unknown> | undefined) ?? {};
-  const plan = state.__plan as { approach?: string } | undefined;
+  const state = readStreamState(spec);
+  const plan = state.__plan;
   const approach = plan?.approach ?? artifacts?.investigation?.approach;
 
   // Lazy cell composition: when the run skipped eager composes (submitted from
@@ -865,34 +829,28 @@ export function NotebookView({
     need.forEach((c) => lazyFetchedRef.current.add(c.index));
     (async () => {
       try {
-        const res = await fetch("/api/query/investigate/compose-cell", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            original_question: originalQuestion,
-            approach,
-            // So the server can persist the composed cells back onto the trail
-            // (cache + history) — a reopened notebook then renders them without
-            // recomposing.
-            csv_id: csvId,
-            steps: need.map((c) => ({
-              index: c.index,
-              stepNo: c.stepNo,
-              question: c.question,
-              rationale: c.rationale ?? "",
-              results: c.trace?.results ?? {},
-              chart_data: c.trace?.chart_data ?? {},
-              degraded: c.status === "degraded",
-              degradedReason: c.degradedReason,
-            })),
-          }),
+        const cells = await composeNotebookCells({
+          original_question: originalQuestion,
+          approach,
+          // So the server can persist the composed cells back onto the trail
+          // (cache + history) — a reopened notebook then renders them without
+          // recomposing.
+          csv_id: csvId,
+          steps: need.map((c) => ({
+            index: c.index,
+            stepNo: c.stepNo,
+            question: c.question,
+            rationale: c.rationale ?? "",
+            results: c.trace?.results ?? {},
+            chart_data: c.trace?.chart_data ?? {},
+            degraded: c.status === "degraded",
+            degradedReason: c.degradedReason,
+          })),
         });
-        if (!res.ok) return;
-        const data = (await res.json()) as { cells?: Record<string, Spec> };
-        if (!mountedRef.current || !data.cells) return;
+        if (!mountedRef.current || Object.keys(cells).length === 0) return;
         setLazyCells((prev) => {
           const next = new Map(prev);
-          for (const [k, v] of Object.entries(data.cells!)) next.set(Number(k), v);
+          for (const [k, v] of Object.entries(cells)) next.set(Number(k), v);
           return next;
         });
       } catch {
@@ -902,10 +860,9 @@ export function NotebookView({
     })();
   }, [derivedCells, isStreaming, approach, artifacts, lazyCells, overrides, csvId]);
   // Stable identity so the export useCallback dep doesn't change every render.
-  const synthesisRaw = state.__synthesis as SynthesisState | undefined;
+  const synthesisRaw = state.__synthesis;
   const synthesis = useMemo<SynthesisState>(() => synthesisRaw ?? {}, [synthesisRaw]);
-  const grounding =
-    (state.__grounding as GroundingLike | undefined) ?? artifacts?.investigation?.grounding;
+  const grounding = state.__grounding ?? artifacts?.investigation?.grounding;
   const decisions = artifacts?.investigation?.decisions;
   const hasSynthesis = Boolean(synthesis.summary || synthesis.conclusion);
 

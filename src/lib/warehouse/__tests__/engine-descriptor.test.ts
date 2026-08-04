@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { ENGINES, connectionLabel } from "@/lib/warehouse/engine-descriptor";
-import type { WarehouseConnectionConfig } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 
 describe("ENGINES quoting", () => {
   it("renders prompt table names with each engine's convention", () => {

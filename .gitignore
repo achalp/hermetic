@@ -56,3 +56,5 @@ next-env.d.ts
 # python bytecode (hermetic_runtime, skill helpers)
 __pycache__/
 *.pyc
+test-fixtures/golden/*.received.ndjson
+test-fixtures/llm/*.miss.json

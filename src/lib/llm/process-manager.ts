@@ -3,31 +3,22 @@
  * Manages subprocess lifecycle: start, stop, health check.
  * Persists PIDs to runtime config so processes survive Next.js hot reloads.
  */
-import "server-only";
 import { spawn, execSync, type ChildProcess } from "child_process";
 import { existsSync, readdirSync } from "fs";
 import { join, isAbsolute } from "path";
 import { getRuntimeConfig, setRuntimeConfig } from "@/lib/runtime-config";
 import { LOCAL_CTX_SIZE } from "@/lib/constants";
 import { logger } from "@/lib/logger";
+import { hermeticPaths } from "@/lib/paths";
+import { stateNamespace } from "@/lib/state-store";
 
 const MAX_LOG_LINES = 200;
 
 // Use globalThis to survive Next.js HMR — prevents orphan processes
-const g = globalThis as unknown as {
-  __llmProcesses?: Map<string, ChildProcess>;
-  __llmServerLogs?: Map<string, string[]>;
-  __llmStartLocks?: Map<string, boolean>;
-  __llmStartTimestamps?: Map<string, number>;
-};
-if (!g.__llmProcesses) g.__llmProcesses = new Map();
-if (!g.__llmServerLogs) g.__llmServerLogs = new Map();
-if (!g.__llmStartLocks) g.__llmStartLocks = new Map();
-if (!g.__llmStartTimestamps) g.__llmStartTimestamps = new Map();
-const processes = g.__llmProcesses;
-const serverLogs = g.__llmServerLogs;
-const startLocks = g.__llmStartLocks;
-const startTimestamps = g.__llmStartTimestamps;
+const processes = stateNamespace<ChildProcess>("llm-processes");
+const serverLogs = stateNamespace<string[]>("llm-server-logs");
+const startLocks = stateNamespace<boolean>("llm-start-locks");
+const startTimestamps = stateNamespace<number>("llm-start-timestamps");
 
 const DEFAULT_PORTS: Record<string, number> = {
   mlx: 8080,
@@ -149,7 +140,7 @@ export function isStarting(backend: string): boolean {
 }
 
 /** GGUF model directory */
-const GGUF_DIR = join(process.cwd(), "data", "models", "gguf");
+const GGUF_DIR = hermeticPaths.ggufModelsDir();
 
 /**
  * Resolve the llama-server binary path. Checks multiple locations:
@@ -179,7 +170,7 @@ function resolveLlamaServerBinary(binaryPath?: string): string {
   }
 
   // Check bundled location
-  const bundled = join(process.cwd(), "data", "bin", "llama-server");
+  const bundled = join(hermeticPaths.bundledBinDir(), "llama-server");
   if (existsSync(bundled)) return bundled;
 
   throw new Error(
@@ -350,6 +341,9 @@ export async function startServer(
       proc = spawn("ollama", ["serve"], {
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
+        // Full-env passthrough to a spawned child (PATH, HOME, proxy vars) is a
+        // process concern, not hermetic config — envConfig() deliberately does
+        // not cover it. Counted in the ratchet lib-process-env baseline.
         env: { ...process.env, OLLAMA_HOST: `127.0.0.1:${port}` },
       });
     } else if (backend === "mlx") {
@@ -380,8 +374,12 @@ export async function startServer(
       // respects the MLX_METAL_CACHE_LIMIT env var (bytes) to cap GPU
       // memory usage. Without this, large models consume all unified
       // memory and get SIGABRT'd by macOS jetsam.
+      // Full-env passthrough to the child (see ollama spawn above) — counted
+      // in the ratchet lib-process-env baseline.
       const mlxEnv = { ...process.env };
+      // MLX is Apple-Silicon-only; hw.memsize is a macOS sysctl.
       try {
+        if (process.platform !== "darwin") throw new Error("non-darwin");
         const memBytes = parseInt(
           execSync("sysctl -n hw.memsize", { encoding: "utf-8", timeout: 3000 }).trim(),
           10

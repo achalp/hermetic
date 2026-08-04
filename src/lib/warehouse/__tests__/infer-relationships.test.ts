@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { inferRelationships } from "@/lib/warehouse/infer-relationships";
-import type { WarehouseTableSchema, WarehouseColumnInfo } from "@/lib/types";
+import type { WarehouseTableSchema, WarehouseColumnInfo } from "@/lib/contracts/warehouse-schema";
 
 function col(name: string): WarehouseColumnInfo {
   return { name, type: "string", nullable: true };

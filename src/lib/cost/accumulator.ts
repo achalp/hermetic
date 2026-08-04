@@ -10,7 +10,6 @@
  * (uncached + cache-read + cache-write); the breakdown is in `inputTokenDetails`.
  * We price each bucket at its own Anthropic rate.
  */
-import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { MODEL_PRICING } from "@/lib/constants";
 

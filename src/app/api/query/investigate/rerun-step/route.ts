@@ -22,11 +22,8 @@ import {
 } from "@/lib/csv/storage";
 import { runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import {
-  capDatasets,
-  transitiveDependents,
-  type TraceStep,
-} from "@/lib/pipeline/investigation-trace";
+import { type TraceStep } from "@/lib/contracts/investigation";
+import { capDatasets, transitiveDependents } from "@/lib/pipeline/investigation-trace";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import {
   buildStepFrames,

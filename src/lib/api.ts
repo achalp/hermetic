@@ -3,18 +3,12 @@
  * Replaces raw fetch() scattered across components.
  */
 
-import type {
-  CSVSchema,
-  HistoryMeta,
-  SavedVizMeta,
-  SheetInfo,
-  SheetRelationship,
-  WarehouseConnectionConfig,
-  WarehouseTableInfo,
-  WarehouseTableSchema,
-} from "@/lib/types";
+import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
+import type { HistoryMeta, SavedVizMeta } from "@/lib/contracts/storage-types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
+import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import type { TraceStep, NotebookLayout } from "@/lib/pipeline/investigation-trace";
-import type { Spec } from "@json-render/core";
+import type { Spec } from "@/lib/contracts/spec";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -60,6 +54,60 @@ export async function getProviders(signal?: AbortSignal): Promise<ProviderInfo> 
 export async function getRuntimes(signal?: AbortSignal): Promise<RuntimeStatus[]> {
   const res = await fetch("/api/runtimes", { signal });
   return json<RuntimeStatus[]>(res);
+}
+
+/** Persist the server-side active sandbox runtime selection. Best-effort. */
+export async function setActiveSandboxRuntime(sandboxRuntime: string): Promise<void> {
+  await fetch("/api/runtimes", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sandboxRuntime }),
+  });
+}
+
+/** Switch the active LLM provider (Settings). */
+export async function setActiveProvider(
+  provider: string
+): Promise<{ active: string; activeLabel: string }> {
+  const res = await fetch("/api/providers", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider }),
+  });
+  return json<{ active: string; activeLabel: string }>(res);
+}
+
+// ── Notebook lazy cell compose ─────────────────────────────
+
+export interface ComposeCellStep {
+  index: number;
+  stepNo: number;
+  question: string;
+  rationale: string;
+  results: Record<string, unknown>;
+  chart_data: Record<string, unknown>;
+  degraded: boolean;
+  degradedReason?: string;
+}
+
+/** Compose notebook cells lazily on Notebook-open (investigate route). */
+export async function composeNotebookCells(
+  body: {
+    original_question: string;
+    approach?: string;
+    csv_id?: string | null;
+    steps: ComposeCellStep[];
+  },
+  signal?: AbortSignal
+): Promise<Record<string, Spec>> {
+  const res = await fetch("/api/query/investigate/compose-cell", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const data = await json<{ cells?: Record<string, Spec> }>(res);
+  return data.cells ?? {};
 }
 
 // ── Upload ─────────────────────────────────────────────────────
@@ -117,7 +165,7 @@ export interface LoadedVizWorkbook {
 
 export interface LoadedViz {
   meta: SavedVizMeta;
-  spec: Record<string, unknown>;
+  spec: Spec;
   csvId: string;
   schema: CSVSchema;
   artifacts?: CachedArtifacts;
@@ -159,7 +207,7 @@ export async function saveViz(
 
 export interface RerunResult {
   schemaMatch: boolean;
-  spec?: Record<string, unknown>;
+  spec?: Spec;
   artifacts?: CachedArtifacts;
   meta?: SavedVizMeta;
   csvId: string;
@@ -186,7 +234,7 @@ export async function rerunViz(
 // ── Refresh (re-run without LLM) ─────────────────────────────
 
 export interface RefreshResult {
-  spec: Record<string, unknown>;
+  spec: Spec;
   artifacts: CachedArtifacts;
   csvId: string;
   schema: CSVSchema;
@@ -353,9 +401,9 @@ export async function getCostRows(signal?: AbortSignal): Promise<Record<string, 
 
 export interface LoadedHistory {
   meta: HistoryMeta;
-  spec: Record<string, unknown>;
+  spec: Spec;
   artifacts?: Record<string, unknown>;
-  schema: Record<string, unknown>;
+  schema: CSVSchema;
   csvId?: string;
 }
 
@@ -852,4 +900,147 @@ export async function renameSavedConnection(id: string, name: string): Promise<v
     const data = await res.json().catch(() => ({}));
     throw new ApiError(data.error ?? "Rename failed", res.status);
   }
+}
+
+// ── Local LLM backends (Settings) ──────────────────────────────
+
+export interface LocalLlmStatus {
+  running: boolean;
+  status?: string;
+  version?: string;
+  baseUrl?: string;
+  activeModel?: string;
+  pid?: number;
+  managed?: boolean;
+  systemRamGb?: number;
+  logs?: string[];
+  downloads?: Array<{ model: string; progress: number; status: string }>;
+}
+
+export interface LocalBackendModel {
+  name: string;
+  size: number;
+  modified_at: string;
+}
+
+export interface LlmfitModel {
+  name: string;
+  provider: string;
+  score: number;
+  best_quant: string;
+  fit_level: string;
+  memory_required_gb: number;
+  estimated_tps: number;
+  parameter_count: string;
+  use_case: string;
+  category: string;
+  context_length: number;
+  gguf_sources: Array<{ provider: string; repo: string }>;
+}
+
+export async function getLocalLlmStatus(
+  backend: string,
+  signal?: AbortSignal
+): Promise<LocalLlmStatus> {
+  const res = await fetch(`/api/local-llm/status?backend=${encodeURIComponent(backend)}`, {
+    signal,
+  });
+  return json<LocalLlmStatus>(res);
+}
+
+export async function getLocalLlmModels(
+  backend: string
+): Promise<{ models?: LocalBackendModel[] }> {
+  const res = await fetch(`/api/local-llm/models?backend=${encodeURIComponent(backend)}`);
+  return json<{ models?: LocalBackendModel[] }>(res);
+}
+
+export async function getLocalLlmRecommendations(
+  backend: string,
+  limit: number
+): Promise<{ models?: LlmfitModel[] }> {
+  const res = await fetch(
+    `/api/local-llm/recommend?backend=${encodeURIComponent(backend)}&limit=${limit}`
+  );
+  return json<{ models?: LlmfitModel[] }>(res);
+}
+
+export async function getLocalLlmPlatform(
+  signal?: AbortSignal
+): Promise<{ os: string; arch: string }> {
+  const res = await fetch("/api/local-llm/platform", { signal });
+  return json<{ os: string; arch: string }>(res);
+}
+
+export async function putLocalLlmConfig(config: {
+  backend: string;
+  enabled: boolean;
+  activeModel: string;
+}): Promise<void> {
+  const res = await fetch("/api/local-llm/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Failed to save config", res.status);
+  }
+}
+
+export async function startLocalLlmServer(
+  body: { backend: string; model: string },
+  signal?: AbortSignal
+): Promise<unknown> {
+  const res = await fetch("/api/local-llm/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  return json<unknown>(res);
+}
+
+/** Best-effort: the caller deactivates + re-polls regardless of outcome. */
+export async function stopLocalLlmServer(backend: string): Promise<void> {
+  await fetch("/api/local-llm/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ backend }),
+  });
+}
+
+/** Returns the raw Response: the body is an NDJSON progress stream. */
+export async function downloadLocalLlmModel(body: {
+  backend: string;
+  model: string;
+}): Promise<Response> {
+  const res = await fetch("/api/local-llm/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new ApiError("Failed to start download", res.status);
+  return res;
+}
+
+export async function deleteLocalLlmModel(body: { backend: string; model: string }): Promise<void> {
+  const res = await fetch("/api/local-llm/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "Failed to delete model", res.status);
+  }
+}
+
+// ── Static assets ──────────────────────────────────────────────
+
+/** Fetch a same-origin static asset (e.g. the bundled sample dataset). */
+export async function fetchStaticAsset(path: string): Promise<Blob> {
+  const res = await fetch(path);
+  if (!res.ok) throw new ApiError(`Failed to fetch ${path}`, res.status);
+  return res.blob();
 }

@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":8000,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches righ",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":16},\"children\":[\"stat-grid\",\"plan-chart\",\"insight-text\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":2,\"gap\":12},\"children\":[\"card-plan\",\"card-churn-pct\"]}}\n{\"op\":\"add\",\"path\":\"/elements/card-plan\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Highest Churn Plan\",\"value\":\"$result:highest_churn_plan\",\"description\":\"Plan tier with greatest avg churn MRR\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/card-churn-pct\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Churn % of Plan MRR\",\"value\":\"$result:churn_pct_of_total_mrr_pct\",\"format\":\"percent\",\"trend\":\"down\",\"description\":\"Top plan churn as share of its gross MRR\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/plan-chart\",\"value\":{\"type\":\"BarChart\",\"props\":{\"data\":\"$chartData:avg_mrr_components_by_plan\",\"x_key\":\"plan\",\"y_keys\":[\"avg_churn_mrr\",\"avg_new_mrr\",\"avg_expansion_mrr\"],\"stacked\":true,\"color_map\":{\"avg_churn_mrr\":\"rose\",\"avg_new_mrr\":\"emerald\",\"avg_expansion_mrr\":\"indigo\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight-text\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"The $result:highest_churn_plan plan leads in average churn MRR at $result:highest_avg_churn_mrr_usd, absorbing $result:churn_pct_of_total_mrr_pct% of its own gross MRR — suggesting churn is structurally concentrated in this tier rather than distributed proportionally across the book.\",\"variant\":\"insight\"},\"children\":[]}}",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1785805302"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 20399,
+        "noCache": 18096,
+        "cacheRead": 2303
+      },
+      "outputTokens": {
+        "total": 2473,
+        "text": 2473,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 20399,
+        "input_tokens_details": {
+          "cached_tokens": 2303
+        },
+        "output_tokens": 2473
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1785805302"
+      }
+    },
+    "warnings": []
+  }
+}

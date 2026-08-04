@@ -7,7 +7,7 @@
 // like a display label — the Seattle "top 20" bug).
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
-import { StateProvider, useStateValue } from "@json-render/react";
+import { StateProvider, useStateValue } from "@/spec/react";
 import { DataControllerComponent } from "@/components/controllers/data-controller";
 
 afterEach(cleanup);

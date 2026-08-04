@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createConnector, type WarehouseConnector } from "@/lib/warehouse/connector";
-import type { WarehouseConnectionConfig } from "@/lib/types";
+import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 
 /**
  * These tests exercise only the factory dispatch in `createConnector`.

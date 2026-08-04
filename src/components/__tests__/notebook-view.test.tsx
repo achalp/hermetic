@@ -3,10 +3,10 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React from "react";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Spec } from "@json-render/react";
+import type { Spec } from "@/spec/react";
 import { NotebookView, buildNotebookCells } from "@/components/app/notebook-view";
-import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
+import type { InvestigationTrace, TraceStep } from "@/lib/contracts/investigation";
 import { rerunInvestigateStep } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({

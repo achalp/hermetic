@@ -13,12 +13,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { logger } from "@/lib/logger";
-import type { AdditionalFile } from "./index";
+import type { AdditionalFile } from "@/lib/contracts/execution";
+import { hermeticPaths } from "@/lib/paths";
 
 const RUNTIME_MODULES = ["__init__.py", "coerce.py", "frames.py", "guards.py", "output.py"];
 
 function runtimeDir(): string {
-  return path.join(process.cwd(), "docker", "sandbox", "hermetic_runtime");
+  return hermeticPaths.sandboxRuntimeAssetsDir();
 }
 
 let cachedFiles: AdditionalFile[] | null = null;

@@ -17,7 +17,7 @@ vi.mock("@/lib/theme-config", () => ({
 }));
 
 // Mock useBoundProp to act like useState
-vi.mock("@json-render/react", () => ({
+vi.mock("@/spec/react", () => ({
   useBoundProp: <T,>(initial: T) => {
     const [val, setVal] = React.useState(initial);
     return [val, setVal] as const;

@@ -4,10 +4,11 @@ import type { SystemModelMessage, TextPart, LanguageModelMiddleware } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
-import { LOCAL_CTX_SIZE } from "@/lib/constants";
+import { LOCAL_CTX_SIZE, DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { recordCall, currentPhase } from "@/lib/cost/accumulator";
+import { llmReplayMiddleware } from "@/lib/llm/replay";
 import {
   responsesJSON,
   responsesSSE,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/llm/local-transport";
 import { claudeCliFetch, isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { logger } from "@/lib/logger";
+import { envConfig } from "@/lib/harness-slot";
 
 /**
  * Custom fetch for Ollama: intercepts SDK requests (Responses API or
@@ -436,54 +438,66 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
  * 2. Auto-detect from available credentials
  * 3. Error if nothing configured
  */
-export function getActiveProvider(): LLMProviderId {
-  const validProviders = [
-    "anthropic",
-    "claude-cli",
-    "bedrock",
-    "vertex",
-    "openai-compatible",
-    "mlx",
-    "llama-cpp",
-    "ollama",
-  ];
+export const VALID_PROVIDERS = [
+  "anthropic",
+  "claude-cli",
+  "bedrock",
+  "vertex",
+  "openai-compatible",
+  "mlx",
+  "llama-cpp",
+  "ollama",
+] as const;
 
-  // Check runtime config for user-selected provider (from Settings UI).
-  // This takes priority over env vars so the UI dropdown actually works.
+/**
+ * THE provider-detection path (modularization M2-B2) — the only
+ * implementation; config.ts validateEnv/detectProvider delegate here.
+ * Returns undefined instead of throwing so probes can ask "is anything
+ * configured?"; getActiveProvider() wraps it with the user-facing errors.
+ *
+ * Order: Settings-UI selection → explicit LLM_PROVIDER → UI-enabled local
+ * backends → credential auto-detect → authenticated `claude` CLI fallback.
+ */
+export function detectActiveProvider(): LLMProviderId | undefined {
   const rc = getRuntimeConfig();
-  if (rc.activeProvider) {
-    if (validProviders.includes(rc.activeProvider)) {
-      return rc.activeProvider as LLMProviderId;
-    }
+  if (rc.activeProvider && (VALID_PROVIDERS as readonly string[]).includes(rc.activeProvider)) {
+    return rc.activeProvider as LLMProviderId;
   }
 
-  // Explicit LLM_PROVIDER env var (used as default before user picks in UI)
-  const explicit = process.env.LLM_PROVIDER;
+  const explicit = envConfig().LLM_PROVIDER;
   if (explicit) {
     const normalized = explicit.toLowerCase() as LLMProviderId;
-    if (!validProviders.includes(normalized)) {
-      throw new Error(
-        `Invalid LLM_PROVIDER "${explicit}". Must be one of: ${validProviders.join(", ")}`
-      );
-    }
-    return normalized;
+    // Invalid explicit selection is terminal (no silent fallback) — the
+    // caller surfaces the error.
+    return (VALID_PROVIDERS as readonly string[]).includes(normalized) ? normalized : undefined;
   }
 
-  // Check runtime config for local backends — user explicitly enabled in UI
   if (rc.mlx?.enabled && rc.mlx.activeModel) return "mlx";
   if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
   if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
 
-  // Auto-detect from credentials
-  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  if (process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return "bedrock";
-  if (process.env.GOOGLE_VERTEX_PROJECT) return "vertex";
-  if (process.env.OPENAI_BASE_URL) return "openai-compatible";
+  if (envConfig().ANTHROPIC_API_KEY) return "anthropic";
+  if (envConfig().AWS_ACCESS_KEY_ID || envConfig().AWS_PROFILE) return "bedrock";
+  if (envConfig().GOOGLE_VERTEX_PROJECT) return "vertex";
+  if (envConfig().OPENAI_BASE_URL) return "openai-compatible";
 
-  // Last-resort fallback: no API credentials, but the `claude` CLI is installed
-  // and authenticated with the user's own login. Checked last so a configured
-  // API key always wins over shelling out.
+  // Last resort: no API credentials, but the `claude` CLI is installed and
+  // authenticated. Checked last so a configured key always wins.
   if (isClaudeCliAvailable(rc.claudeCli?.binaryPath)) return "claude-cli";
+
+  return undefined;
+}
+
+export function getActiveProvider(): LLMProviderId {
+  const detected = detectActiveProvider();
+  if (detected) return detected;
+
+  const explicit = envConfig().LLM_PROVIDER;
+  if (explicit && !(VALID_PROVIDERS as readonly string[]).includes(explicit.toLowerCase())) {
+    throw new Error(
+      `Invalid LLM_PROVIDER "${explicit}". Must be one of: ${VALID_PROVIDERS.join(", ")}`
+    );
+  }
 
   throw new Error(
     "No LLM provider configured. Set one of:\n" +
@@ -499,7 +513,7 @@ export function getActiveProvider(): LLMProviderId {
 function createProviderClient(provider: LLMProviderId) {
   switch (provider) {
     case "anthropic":
-      return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      return createAnthropic({ apiKey: envConfig().ANTHROPIC_API_KEY });
     case "claude-cli": {
       const rc = getRuntimeConfig();
       // Dummy base URL — every request is intercepted by claudeCliFetch, which
@@ -513,21 +527,21 @@ function createProviderClient(provider: LLMProviderId) {
     }
     case "bedrock":
       return createAmazonBedrock({
-        region: process.env.AWS_REGION ?? "us-east-1",
+        region: envConfig().AWS_REGION ?? "us-east-1",
       });
     case "vertex":
       return createVertex({
-        project: process.env.GOOGLE_VERTEX_PROJECT,
-        location: process.env.GOOGLE_VERTEX_LOCATION ?? "us-east5",
+        project: envConfig().GOOGLE_VERTEX_PROJECT,
+        location: envConfig().GOOGLE_VERTEX_LOCATION ?? "us-east5",
       });
     case "openai-compatible":
       return createOpenAI({
-        baseURL: process.env.OPENAI_BASE_URL,
-        apiKey: process.env.OPENAI_API_KEY ?? "",
+        baseURL: envConfig().OPENAI_BASE_URL,
+        apiKey: envConfig().OPENAI_API_KEY ?? "",
       });
     case "mlx": {
       const rc = getRuntimeConfig();
-      const baseUrl = rc.mlx?.baseUrl || "http://localhost:8080";
+      const baseUrl = rc.mlx?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.mlx;
       return createOpenAI({
         baseURL: `${baseUrl}/v1`,
         apiKey: "mlx-local",
@@ -536,7 +550,7 @@ function createProviderClient(provider: LLMProviderId) {
     }
     case "llama-cpp": {
       const rc = getRuntimeConfig();
-      const baseUrl = rc.llamaCpp?.baseUrl || "http://localhost:8081";
+      const baseUrl = rc.llamaCpp?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS["llama-cpp"];
       return createOpenAI({
         baseURL: `${baseUrl}/v1`,
         apiKey: "llama-cpp-local",
@@ -545,7 +559,7 @@ function createProviderClient(provider: LLMProviderId) {
     }
     case "ollama": {
       const rc = getRuntimeConfig();
-      const baseUrl = rc.ollama?.baseUrl || "http://localhost:11434";
+      const baseUrl = rc.ollama?.baseUrl || DEFAULT_LOCAL_LLM_ENDPOINTS.ollama;
       return createOpenAI({
         baseURL: `${baseUrl}/v1`,
         apiKey: "ollama",
@@ -666,11 +680,15 @@ const stripSamplingMiddleware: LanguageModelMiddleware = {
 type ProviderModel = Parameters<typeof wrapLanguageModel>[0]["model"];
 
 function track(model: ProviderModel, costKey: string, stripSampling = false): ProviderModel {
+  // Order matters: replay sits INNERMOST (last) so usage middleware still
+  // observes replayed results and cost attribution works in replay mode.
+  // The replay middleware is a passthrough until the harness configures it
+  // (see lib/llm/replay.ts).
   return wrapLanguageModel({
     model,
     middleware: stripSampling
-      ? [stripSamplingMiddleware, usageMiddleware(costKey)]
-      : usageMiddleware(costKey),
+      ? [stripSamplingMiddleware, usageMiddleware(costKey), llmReplayMiddleware(costKey)]
+      : [usageMiddleware(costKey), llmReplayMiddleware(costKey)],
   });
 }
 
@@ -715,7 +733,7 @@ export function getModel(internalModelId: string) {
 
   // OpenAI-compatible uses a single user-configured model for all calls
   if (provider === "openai-compatible") {
-    const model = process.env.OPENAI_MODEL;
+    const model = envConfig().OPENAI_MODEL;
     if (!model) {
       throw new Error("OPENAI_MODEL is required when using the openai-compatible provider.");
     }

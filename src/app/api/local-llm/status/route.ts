@@ -13,6 +13,11 @@ import { getActiveDownloads } from "@/app/api/local-llm/download/route";
 let cachedRamGb: number | null = null;
 function getSystemRamGb(): number {
   if (cachedRamGb !== null) return cachedRamGb;
+  if (process.platform !== "darwin") {
+    // hw.memsize is macOS-only; Linux gets a conservative default.
+    cachedRamGb = 16;
+    return cachedRamGb;
+  }
   try {
     const bytes = parseInt(
       execSync("sysctl -n hw.memsize", { encoding: "utf-8", timeout: 3000 }).trim(),

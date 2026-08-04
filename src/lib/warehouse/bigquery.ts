@@ -1,10 +1,10 @@
 import { BigQuery } from "@google-cloud/bigquery";
+import type { BigQueryConnectionConfig } from "@/lib/contracts/connection-configs";
 import type {
-  BigQueryConnectionConfig,
   WarehouseTableInfo,
   WarehouseTableSchema,
   WarehouseColumnInfo,
-} from "@/lib/types";
+} from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector, ScanWindow } from "./connector";
 import { extractDateEpoch, parsePartitionId, sizeScanWindow } from "./scan-window";
 

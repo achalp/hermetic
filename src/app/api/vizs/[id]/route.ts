@@ -10,7 +10,7 @@ import { sanitizeSheetName } from "@/lib/llm/prompts";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
-import type { WorkbookManifest, SheetInfo, SheetRelationship } from "@/lib/types";
+import type { WorkbookManifest, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import { appendConversationTurn, buildTurnFromArtifacts } from "@/lib/pipeline/conversation-cache";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {

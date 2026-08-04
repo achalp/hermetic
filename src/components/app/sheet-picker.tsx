@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { SheetInfo, CSVSchema, SheetRelationship } from "@/lib/types";
+import type { SheetInfo, CSVSchema, SheetRelationship } from "@/lib/contracts/data-schema";
 import { SheetTable } from "./sheet-table";
 import { selectSheet, selectWorkbook } from "@/lib/api";
 
