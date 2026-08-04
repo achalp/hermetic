@@ -7,10 +7,10 @@
     "content": [
       {
         "type": "text",
-        "text": "```json\n{\n  \"approach\": \"Identify which plan segment experiences the most churn, then determine whether churn is driven by customer volume or customer health (ARPU).\",\n  \"subQuestions\": [\n    {\n      \"question\": \"By plan, what are the average churn_mrr, customer count, and ARPU? Which plan has the highest churn_mrr?\",\n      \"rationale\": \"Segment the churn problem by plan type to identify which customer segment is most affected and whether it correlates with low ARPU.\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"Does churn_mrr correlate more strongly with customer count (volume) or ARPU (customer health)?\",\n      \"rationale\": \"Determine whether churn is driven by absolute customer loss from larger cohorts (volume-driven) or by the value/health of departing customers (health-driven).\",\n      \"depends_on\": []\n    }\n  ]\n}\n```",
+        "text": "```json\n{\n  \"approach\": \"Identify churn drivers across business segment (plan type), timeline (monthly trends), and root mechanism (customer quality vs. volume).\",\n  \"subQuestions\": [\n    {\n      \"question\": \"Which plan type has the highest average churn_mrr, and what is churn as a percentage of that plan's total MRR?\",\n      \"rationale\": \"Identifies the highest-risk customer segment and reveals whether churn is proportional to plan size or concentrated in a specific tier.\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"How does churn_mrr trend across months, and is it correlated with business growth (new_mrr + expansion_mrr)?\",\n      \"rationale\": \"Reveals temporal patterns and tests the counterintuitive 0.95 correlation between growth and churn, explaining whether churn scales with business momentum.\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"Which is a stronger predictor of churn: customer volume (customers count) or customer quality (ARPU)?\",\n      \"rationale\": \"Isolates the root mechanism of churn—whether it's inevitable as the business scales or preventable through customer quality improvements.\",\n      \"depends_on\": []\n    }\n  ]\n}\n```",
         "providerMetadata": {
           "openai": {
-            "itemId": "msg_1785777340"
+            "itemId": "msg_1785805241"
           }
         }
       }
@@ -20,23 +20,26 @@
     },
     "usage": {
       "inputTokens": {
-        "total": 8238,
-        "noCache": 8238,
-        "cacheRead": 0
+        "total": 11872,
+        "noCache": 6256,
+        "cacheRead": 5616
       },
       "outputTokens": {
-        "total": 5126,
-        "text": 5126,
+        "total": 5210,
+        "text": 5210,
         "reasoning": 0
       },
       "raw": {
-        "input_tokens": 8238,
-        "output_tokens": 5126
+        "input_tokens": 11872,
+        "input_tokens_details": {
+          "cached_tokens": 5616
+        },
+        "output_tokens": 5210
       }
     },
     "providerMetadata": {
       "openai": {
-        "responseId": "resp_1785777340"
+        "responseId": "resp_1785805241"
       }
     },
     "warnings": []

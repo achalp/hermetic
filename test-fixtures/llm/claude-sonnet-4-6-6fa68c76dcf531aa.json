@@ -7,10 +7,10 @@
     "content": [
       {
         "type": "text",
-        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":16},\"children\":[\"stats-grid\",\"bar-chart\",\"insight-text\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stats-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":2,\"gap\":12},\"children\":[\"stat-customers-r\",\"stat-arpu-r\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-customers-r\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Customer Count → Churn MRR (Pearson r)\",\"value\":\"$result:churn_vs_customers_pearson_r\",\"description\":\"$result:churn_vs_customers_strength\",\"format\":\"number\",\"precision\":3},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-arpu-r\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"ARPU → Churn MRR (Pearson r)\",\"value\":\"$result:churn_vs_arpu_pearson_r\",\"description\":\"$result:churn_vs_arpu_strength\",\"format\":\"number\",\"precision\":3},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/bar-chart\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Correlation Strength Comparison: Customer Count vs. ARPU\",\"data\":\"$chartData:correlation_comparison\",\"x_key\":\"predictor\",\"y_keys\":[\"pearson_r\",\"r_squared\",\"spearman_rho\"],\"orientation\":\"vertical\",\"color_map\":{\"pearson_r\":\"indigo\",\"r_squared\":\"cyan\",\"spearman_rho\":\"violet\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight-text\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"$result:interpretation\",\"variant\":\"insight\"},\"children\":[]}}",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":16},\"children\":[\"stat-grid\",\"trend-chart\",\"insight-block\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":2,\"gap\":12},\"children\":[\"stat-pearson\",\"stat-churn-pct\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-pearson\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Pearson r (churn vs growth)\",\"value\":\"$result:pearson_r_churn_vs_growth\",\"format\":\"number\",\"precision\":2},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-churn-pct\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Avg Churn % of Growth\",\"value\":\"$result:avg_churn_pct_of_growth\",\"format\":\"percent\",\"precision\":1},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/trend-chart\",\"value\":{\"type\":\"DualAxisChart\",\"props\":{\"data\":\"$chartData:churn_vs_growth_trend\",\"x_key\":\"month\",\"left_series\":[{\"key\":\"churn_mrr\",\"type\":\"line\",\"label\":\"Churn MRR\"}],\"right_series\":[{\"key\":\"growth_mrr\",\"type\":\"bar\",\"label\":\"Growth MRR\"}],\"left_label\":\"Churn MRR ($)\",\"right_label\":\"Growth MRR ($)\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight-block\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Churn MRR peaked in $result:max_churn_month at $result:max_churn_mrr and tracks tightly with growth MRR (Pearson r = $result:pearson_r_churn_vs_growth), consuming roughly $result:avg_churn_pct_of_growth% of growth each month — churn is scaling with business momentum, not worsening retention, so the absolute dollar rise is a size effect rather than a signal of deteriorating customer health.\",\"variant\":\"insight\"},\"children\":[]}}",
         "providerMetadata": {
           "openai": {
-            "itemId": "msg_1785777401"
+            "itemId": "msg_1785805332"
           }
         }
       }
@@ -20,26 +20,26 @@
     },
     "usage": {
       "inputTokens": {
-        "total": 20818,
-        "noCache": 18515,
+        "total": 20666,
+        "noCache": 18363,
         "cacheRead": 2303
       },
       "outputTokens": {
-        "total": 1947,
-        "text": 1947,
+        "total": 2902,
+        "text": 2902,
         "reasoning": 0
       },
       "raw": {
-        "input_tokens": 20818,
+        "input_tokens": 20666,
         "input_tokens_details": {
           "cached_tokens": 2303
         },
-        "output_tokens": 1947
+        "output_tokens": 2902
       }
     },
     "providerMetadata": {
       "openai": {
-        "responseId": "resp_1785777401"
+        "responseId": "resp_1785805332"
       }
     },
     "warnings": []

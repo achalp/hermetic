@@ -7,10 +7,10 @@
     "content": [
       {
         "type": "text",
-        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":16},\"children\":[\"bar-chart\",\"plan-table\",\"insight\"]}}\n{\"op\":\"add\",\"path\":\"/elements/bar-chart\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Avg Churn MRR by Plan\",\"data\":\"$chartData:avg_churn_mrr_by_plan\",\"x_key\":\"plan\",\"y_keys\":[\"avg_churn_mrr_usd\"],\"orientation\":\"horizontal\",\"color_map\":{\"avg_churn_mrr_usd\":\"rose\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/plan-table\",\"value\":{\"type\":\"DataTable\",\"props\":{\"columns\":[{\"key\":\"plan\",\"header\":\"Plan\"},{\"key\":\"avg_churn_mrr_usd\",\"header\":\"Avg Churn MRR ($)\"},{\"key\":\"avg_customers\",\"header\":\"Avg Customers\"},{\"key\":\"avg_arpu_usd\",\"header\":\"Avg ARPU ($)\"}],\"rows\":\"$chartData:plan_summary_table\",\"highlight_max\":true},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"insight\",\"content\":\"The $result:highest_churn_mrr_plan plan leads churn MRR at $$$result:highest_churn_mrr_usd — Enterprise ARPU of $$$result:enterprise_avg_arpu_usd signals high-value accounts at risk, making this segment the primary lever for reducing churned revenue.\"},\"children\":[]}}",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":16},\"children\":[\"stat-grid\",\"plan-chart\",\"insight-text\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":2,\"gap\":12},\"children\":[\"card-plan\",\"card-churn-pct\"]}}\n{\"op\":\"add\",\"path\":\"/elements/card-plan\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Highest Churn Plan\",\"value\":\"$result:highest_churn_plan\",\"description\":\"Plan tier with greatest avg churn MRR\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/card-churn-pct\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Churn % of Plan MRR\",\"value\":\"$result:churn_pct_of_total_mrr_pct\",\"format\":\"percent\",\"trend\":\"down\",\"description\":\"Top plan churn as share of its gross MRR\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/plan-chart\",\"value\":{\"type\":\"BarChart\",\"props\":{\"data\":\"$chartData:avg_mrr_components_by_plan\",\"x_key\":\"plan\",\"y_keys\":[\"avg_churn_mrr\",\"avg_new_mrr\",\"avg_expansion_mrr\"],\"stacked\":true,\"color_map\":{\"avg_churn_mrr\":\"rose\",\"avg_new_mrr\":\"emerald\",\"avg_expansion_mrr\":\"indigo\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight-text\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"The $result:highest_churn_plan plan leads in average churn MRR at $result:highest_avg_churn_mrr_usd, absorbing $result:churn_pct_of_total_mrr_pct% of its own gross MRR — suggesting churn is structurally concentrated in this tier rather than distributed proportionally across the book.\",\"variant\":\"insight\"},\"children\":[]}}",
         "providerMetadata": {
           "openai": {
-            "itemId": "msg_1785777387"
+            "itemId": "msg_1785805302"
           }
         }
       }
@@ -20,26 +20,26 @@
     },
     "usage": {
       "inputTokens": {
-        "total": 20541,
-        "noCache": 18238,
+        "total": 20399,
+        "noCache": 18096,
         "cacheRead": 2303
       },
       "outputTokens": {
-        "total": 1816,
-        "text": 1816,
+        "total": 2473,
+        "text": 2473,
         "reasoning": 0
       },
       "raw": {
-        "input_tokens": 20541,
+        "input_tokens": 20399,
         "input_tokens_details": {
           "cached_tokens": 2303
         },
-        "output_tokens": 1816
+        "output_tokens": 2473
       }
     },
     "providerMetadata": {
       "openai": {
-        "responseId": "resp_1785777387"
+        "responseId": "resp_1785805302"
       }
     },
     "warnings": []

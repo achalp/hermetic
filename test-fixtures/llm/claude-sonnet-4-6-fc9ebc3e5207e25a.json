@@ -1,0 +1,235 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785804766",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785804766"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":24},\"children\":[\"title\",\"controller"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "\",\"methodology\"]}}\n{\"op\":\"add\",\"path\":\"/elements/title\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"MRR Trend Over Time\",\"variant\":\"heading\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/controller\",\"value\":{\"type"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "\":\"DataController\",\"props\":{\"source\":{\"statePath\":\"/datasets/main\"},\"filters\":[{\"key\":\"plan\",\"column\":\"plan\",\"bindTo\":\"/filters/plan\",\"label\":\"Plan\",\"allowAll\":true}],\"pipeline\":[{\"op\":\"filter\"}],\"outputs\":[{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "statePath\":\"/computed/stats\",\"format\":\"stats\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[],\"aggregations\":[{\"column\":\"net_mrr\",\"fn\":\"sum\",\"as\":\"total_net_mrr\"},{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "total_new_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"total_churn_mrr\"}]}]},{\"statePath\":\"/computed/mrr_by_month\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"month\"],\"aggregations"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "\":[{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\"as\":\"expansion_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"churn_mrr\"},{\"column\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "net_mrr\",\"fn\":\"sum\",\"as\":\"net_mrr\"}]},{\"op\":\"sort\",\"column\":\"month\",\"direction\":\"asc\"}]},{\"statePath\":\"/computed/plan_totals\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"plan\"],\"aggregations\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": ":[{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\"as\":\"expansion_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"churn_mrr\"},{\"column\":\"net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "_mrr\",\"fn\":\"sum\",\"as\":\"net_mrr\"}]}]}]},\"children\":[\"dashboard\"]}}\n{\"op\":\"add\",\"path\":\"/state/filters\",\"value\":{}}\n{\"op\":\"add\",\"path\":\"/state/filters/plan\",\"value\":\"All\"}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "\":\"add\",\"path\":\"/state/computed\",\"value\":{}}\n{\"op\":\"add\",\"path\":\"/elements/dashboard\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":24},\"children\":[\"kpi-grid\",\"chart-net-mrr\",\"mid-grid\",\"bot"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "-grid\",\"annotation-insight\"]}}\n{\"op\":\"add\",\"path\":\"/elements/kpi-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":4,\"gap\":16},\"children\":[\"stat-net\",\"stat-cumulative\",\"stat-mom\",\"stat"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "-churn\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-net\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Total Net MRR\",\"value\":{\"$state\":\"/computed/stats/total_net_mrr\"},\"format\":\"currency\"},\"children"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-cumulative\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Cumulative MRR (End of Period)\",\"value\":\"$result:cumulative_mrr_end"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "_of_period_usd\",\"format\":\"currency\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-mom\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Avg MoM Growth\",\"value\":\"$result:avg_mom_growth"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "_pct\",\"format\":\"percent\",\"trend\":\"up\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-churn\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Avg Churn Rate\",\"value\":\"$result:avg_churn_rate"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "_pct\",\"format\":\"percent\",\"trend\":\"down\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/stats\",\"value\":{}}\n{\"op\":\"add\",\"path\":\"/elements/chart-net-mrr\",\"value\":{\"type\":\"LineChart\",\"props\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "{\"title\":\"Net MRR Trend\",\"data\":{\"$state\":\"/computed/mrr_by_month\"},\"x_key\":\"month\",\"y_keys\":[\"net_mrr\"],\"color_map\":{\"net_mrr\":\"indigo\"},\"curve\":\"monotone\",\"show"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "_dots\":true},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/mrr_by_month\",\"value\":\"$chartData:mrr_components_over_time\"}\n{\"op\":\"add\",\"path\":\"/elements/mid-grid\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":2,\"gap\":16},\"children\":[\"chart-components\",\"chart-cumulative\"]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-components\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "RR Components by Month\",\"data\":{\"$state\":\"/computed/mrr_by_month\"},\"x_key\":\"month\",\"y_keys\":[\"new_mrr\",\"expansion_mrr\",\"churn_mrr\"],\"stacked\":true,\"orientation"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "\":\"vertical\",\"color_map\":{\"new_mrr\":\"emerald\",\"expansion_mrr\":\"cyan\",\"churn_mrr\":\"rose\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-cumulative\",\"value\":{\"type\":\"AreaChart\",\"props\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "{\"title\":\"Cumulative MRR\",\"data\":{\"$state\":\"/computed/cumulative_mrr\"},\"x_key\":\"month\",\"y_keys\":[\"cumulative_mrr\"],\"color_map\":{\"cumulative_mrr\":\"violet\"},\"opacity\":0.25"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": ",\"stacked\":false},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/cumulative_mrr\",\"value\":\"$chartData:cumulative_mrr\"}\n{\"op\":\"add\",\"path\":\"/elements/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "bot-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":2,\"gap\":16},\"children\":[\"chart-plan\",\"table-plan\"]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-plan\",\"value\":{\"type\":\"BarChart\",\"props\":{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "title\":\"Net MRR by Plan\",\"data\":{\"$state\":\"/computed/plan_by_time\"},\"x_key\":\"month\",\"y_keys\":[\"Enterprise\",\"Pro\",\"Starter\"],\"stacked\":true,\"color_map\":{\"Enterprise\":\"indigo\",\"Pro\":\"amber\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "Starter\":\"emerald\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/plan_by_time\",\"value\":\"$chartData:net_mrr_by_plan_over_time\"}\n{\"op\":\"add\",\"path\":\"/elements/table-plan\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "value\":{\"type\":\"DataTable\",\"props\":{\"columns\":[{\"key\":\"plan\",\"label\":\"Plan\"},{\"key\":\"new_mrr\",\"label\":\"New MRR ($)\"},{\"key\":\"expansion_mrr\",\"label\":\"Expansion MRR ($)\"},{\"key\":\"churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "mrr\",\"label\":\"Churn MRR ($)\"},{\"key\":\"net_mrr\",\"label\":\"Net MRR ($)\"}],\"rows\":{\"$state\":\"/computed/plan_totals\"},\"caption\":\"Period Totals by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": " Plan\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/plan_totals\",\"value\":\"$chartData:plan_mrr_totals\"}\n{\"op\":\"add\",\"path\":\"/elements/annotation-insight\",\"value\":{\"type\":\"Annotation\",\"props\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "{\"icon\":\"trend\",\"title\":\"MRR Composition\",\"content\":\"Net MRR each month is driven by the balance of new subscriptions and expansion revenue against ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "urn. Use the Plan filter above to isolate individual tier performance across all charts.\",\"severity\":\"info\"},\"children\":[]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": "}}\n{\"op\":\"add\",\"path\":\"/elements/methodology\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"This analysis covers 36 records spanning 12 months across three subscription plans:"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": " Enterprise, Pro, and Starter. Net MRR each month is the sum of new subscription revenue and expansion revenue minus churned revenue. MRR components"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": " were aggregated by month for trend and waterfall charts, and by plan for the summary table. Cumulative MRR tracks the running total of net MRR added over the full period. All figures"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785804766",
+      "delta": " are in USD.\",\"variant\":\"body\"},\"children\":[]}}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785804766",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785804766"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 25078,
+          "noCache": 22775,
+          "cacheRead": 2303
+        },
+        "outputTokens": {
+          "total": 17841,
+          "text": 17841,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 25078,
+          "input_tokens_details": {
+            "cached_tokens": 2303
+          },
+          "output_tokens": 17841
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

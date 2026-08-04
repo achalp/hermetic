@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":8000,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches righ",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":16},\"children\":[\"stat-grid\",\"predictor-chart\",\"insight-text\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":2,\"gap\":12},\"children\":[\"stat-r2-customers\",\"stat-r2-arpu\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-r2-customers\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"R² — Customer Volume\",\"value\":\"$result:r2_customers_model\",\"format\":\"number\",\"precision\":3,\"description\":\"Customers count model\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-r2-arpu\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"R² — ARPU\",\"value\":\"$result:r2_arpu_model\",\"format\":\"number\",\"precision\":3,\"description\":\"Customer quality model\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/predictor-chart\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Predictor Strength: Absolute Correlation & Variance Explained\",\"data\":\"$chartData:predictor_comparison\",\"x_key\":\"predictor\",\"y_keys\":[\"pearson_r_abs\",\"r_squared\",\"spearman_r_abs\"],\"color_map\":{\"pearson_r_abs\":\"indigo\",\"r_squared\":\"emerald\",\"spearman_r_abs\":\"amber\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight-text\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"$result:stronger_predictor is the stronger churn predictor — its standardized beta ($result:std_beta_arpu) exceeds that of customer volume ($result:std_beta_customers) by $result:margin_pct percentage points, indicating churn is more tightly coupled to customer quality than to scale. The combined model (R² = $result:r2_combined_model) adds only marginal lift over the ARPU-only model (R² = $result:r2_arpu_model), confirming ARPU dominates.\",\"variant\":\"insight\"},\"children\":[]}}",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1785805320"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 24412,
+        "noCache": 18807,
+        "cacheRead": 5605
+      },
+      "outputTokens": {
+        "total": 2556,
+        "text": 2556,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 24412,
+        "input_tokens_details": {
+          "cached_tokens": 5605
+        },
+        "output_tokens": 2556
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1785805320"
+      }
+    },
+    "warnings": []
+  }
+}

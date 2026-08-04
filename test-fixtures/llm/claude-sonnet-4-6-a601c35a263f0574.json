@@ -1,0 +1,200 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the CSV from \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. Emits the result by calling the preloaded helper write_output(...) — do NOT build the\\n   JSON or call json.dump yourself:\\n       write_output(\\n           results={ ... },        # computed values, aggregations, statistics\\n           chart_data={ ... },      # objects/arrays formatted for chart components\\n           datasets={\\\"main\\\": df},   # the working DataFrame (capped to 5000 rows for you)\\n           images={ ... },          # optional base64 matplotlib/seaborn PNGs\\n       )\\n   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion and always writes all four\\n   keys, so the output is never silently empty. results and chart_data must EACH contain at\\n   least one entry. (It writes \\\"/data/output.json\\\".)\\n\\nRules:\\n- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.\\n- Column metadata (types, statistics, distributions, patterns) is provided instead of sample data. Use this metadata to understand value ranges, formats, and data characteristics.\\n- Use pandas for all data manipulation.\\n- For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.\\n- For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.\\n- For box plots: return ra",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1785805241",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785805241"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "import pandas as pd\nimport numpy as np\n\ndf = pd.read_csv(\"/data/input"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": ".csv\")\n\nfor col in [\"new_mrr\", \"expansion_mrr\", \"churn_mrr\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": " \"customers\", \"arpu\"]:\n    df[col] = pd.to_numeric(df[col], errors=\"coerce\")\n\nplan_agg = df.groupby(\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "plan\").agg(\n    avg_new_mrr=(\"new_mrr\", \"mean\"),\n    avg_expansion_mrr=(\"expansion_mrr\", \"mean\"),\n    avg_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "churn_mrr=(\"churn_mrr\", \"mean\"),\n    total_new_mrr=(\"new_mrr\", \"sum\"),\n    total_expansion_mrr=(\"expansion_mrr\", \"sum\"),\n    total_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "churn_mrr=(\"churn_mrr\", \"sum\"),\n    months=(\"month\", \"count\"),\n).reset_index()\n\nplan_agg[\"total"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "_gross_mrr\"] = plan_agg[\"total_new_mrr\"] + plan_agg[\"total_expansion_mrr\"] + plan_agg[\"total_churn_mrr\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\nplan_agg[\"churn_pct_of_total_mrr\"] = (plan_agg[\"total_churn_mrr\"] / plan_agg[\"total_gross_mrr\"] * "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "100).round(2)\n\ntop_plan_row = plan_agg.loc[plan_agg[\"avg_churn_mrr\"].idxmax()]\ntop"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "_plan = top_plan_row[\"plan\"]\ntop_avg_churn = round(float(top_plan_row[\"avg_churn_mrr\"]), 2)\ntop"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "_churn_pct = round(float(top_plan_row[\"churn_pct_of_total_mrr\"]), 2)\ntop_total_gross_mrr = round(float"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "(top_plan_row[\"total_gross_mrr\"]), 2)\ntop_total_churn_mrr = round(float(top_plan_row[\"total_churn_mrr\"]), 2)"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\n\nbar_chart_rows = []\nfor _, row in plan_agg.iterrows():\n    bar_chart_rows.append({\n        \"plan\": row[\"plan\"],\n        "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\"avg_churn_mrr\": round(float(row[\"avg_churn_mrr\"]), 2),\n        \"avg_new_mrr\": round(float(row[\"avg_new_mrr\"]), "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "2),\n        \"avg_expansion_mrr\": round(float(row[\"avg_expansion_mrr\"]), 2),\n        \"churn_pct_of_total_mrr\": round(float(row"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "[\"churn_pct_of_total_mrr\"]), 2),\n    })\n\nchurn_pct_bar_rows = ["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\n    {\"plan\": row[\"plan\"], \"churn_pct_of_total_mrr\": round(float(row[\"churn_pct_of_total_mrr\"]), 2)}\n    "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "for _, row in plan_agg.iterrows()\n]\n\nwrite_output(\n    results={\n        \"highest"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "_churn_plan\": top_plan,\n        \"highest_avg_churn_mrr_usd\": top_avg_churn,\n        \"churn_pct_of_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "total_mrr_pct\": top_churn_pct,\n        \"top_plan_total_gross_mrr_usd\": top_total_gross_mrr,\n        \""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "top_plan_total_churn_mrr_usd\": top_total_churn_mrr,\n        \"plan_summary\": [\n            {\n                \"plan\": row[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "plan\"],\n                \"avg_churn_mrr_usd\": round(float(row[\"avg_churn_mrr\"]), 2),\n                \"churn_pct_of_total_mrr_pct"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\": round(float(row[\"churn_pct_of_total_mrr\"]), 2),\n            }\n            for _, row in plan_agg.iterrows()\n        ],\n    },\n    chart_data={"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\n        \"avg_mrr_components_by_plan\": {\n            \"rows\": bar_chart_rows,\n            "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\"x_key\": \"plan\",\n            \"y_keys\": [\"avg_new_mrr\", \"avg_expansion_mrr\", \"avg_churn_mrr\"],"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\n        },\n        \"churn_pct_by_plan\": {\n            \"rows\": churn_pct_bar_rows,\n            \"x_key\": \"plan\",\n            \""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "y_keys\": [\"churn_pct_of_total_mrr\"],\n        },\n    },\n    datasets={\"main"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1785805241",
+      "delta": "\": df},\n    images={},\n)"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1785805241",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1785805241"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 18491,
+          "noCache": 12886,
+          "cacheRead": 5605
+        },
+        "outputTokens": {
+          "total": 1732,
+          "text": 1732,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 18491,
+          "input_tokens_details": {
+            "cached_tokens": 5605
+          },
+          "output_tokens": 1732
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}
