@@ -32,14 +32,21 @@ HERMETIC_LLM_MODE=replay pnpm cli ask "What is the MRR trend over time?" /tmp/fi
 repo's dev dependencies installed — it is not yet a standalone binary
 (packaging is Phase 2).
 
-## Commands and options
+## Command reference
 
-| Command / option              | Meaning                                                                                                                 |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `ask "<question>" <data.csv>` | Run the full ask pipeline: ingest the CSV, generate + execute analysis code in the sandbox, compose the dashboard spec. |
-| `--out <file.ndjson>`         | Also write the complete patch stream to a file (stdout still gets every line).                                          |
+The complete surface today is one command, two positional arguments, and one
+flag:
 
-Anything else prints the usage line and exits with code `2`.
+| Item         | Kind             | Required | Valid values                                                                                                                         | Example                                                       |
+| ------------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `ask`        | command          | yes      | The only command. Runs the full pipeline: ingest CSV → generate + execute analysis code in the sandbox → compose the dashboard spec. | `pnpm cli ask "What drives churn?" ./data.csv`                |
+| `<question>` | positional arg 1 | yes      | Any natural-language question, quoted.                                                                                               | `"What is the MRR trend over time?"`                          |
+| `<data.csv>` | positional arg 2 | yes      | Path to a readable CSV file (UTF-8). Other formats (Excel, Parquet, warehouse) are web-harness-only for now.                         | `./data/sales.csv`                                            |
+| `--out`      | flag             | no       | A writable file path; receives the complete NDJSON patch stream (stdout still gets every line). Conventionally `.ndjson`.            | `pnpm cli ask "Top customers" ./data.csv --out result.ndjson` |
+
+Anything else — unknown command, missing arguments — prints the usage line and
+exits with code `2`. There is no `--help` flag yet; the usage line doubles as
+help.
 
 ## Environment variables
 
