@@ -91,6 +91,20 @@ const spec = JSON.parse(readFileSync(join(entryDir, "spec.json"), "utf-8"));
 if (!spec.root || spec.hermeticSpecVersion !== 1) fail("persisted spec malformed");
 console.error(`✔ history entry on disk with hermeticSpecVersion=1`);
 
+// 5b. The dashboard link is served by the EMBEDDED viewer (M3): fetch the
+// page and the spec through the link the host would click.
+const viewerUrl = new URL(analysis.dashboard_url);
+if (viewerUrl.port === "3000") fail("dashboard_url still points at the web app, not the viewer");
+const page = await fetch(`${viewerUrl.origin}/`);
+if (!page.ok) fail(`viewer page not served: ${page.status}`);
+const pageText = await page.text();
+if (!pageText.includes("viewer.js")) fail("viewer shell missing bundle reference");
+const specRes = await fetch(`${viewerUrl.origin}/api/spec/${analysis.history_id}`);
+if (!specRes.ok) fail(`viewer /api/spec failed: ${specRes.status}`);
+const served = await specRes.json();
+if (served.spec.root !== spec.root) fail("viewer served a different spec than persisted");
+console.error(`✔ embedded viewer serves the dashboard at ${viewerUrl.origin}`);
+
 // 6. Audit trail exists and mentions the calls
 const auditFile = join(ROOT, "data", "mcp-audit.jsonl");
 if (!existsSync(auditFile)) fail("audit log missing");

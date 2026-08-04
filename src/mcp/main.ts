@@ -41,9 +41,37 @@ async function main(): Promise<void> {
   const { buildMcpServer } = await import("./server");
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
 
+  // Embedded viewer: dashboard links resolve without the web harness.
+  // HERMETIC_MCP_VIEWER=off disables (links fall back to localhost:3000).
+  let viewerHandle: { port: number; close(): Promise<void> } | null = null;
+  if (process.env.HERMETIC_MCP_VIEWER !== "off") {
+    const { startViewerServer } = await import("./viewer/server");
+    const { setViewUrlBase } = await import("./view-url");
+    const preferred = Number(process.env.HERMETIC_MCP_VIEWER_PORT ?? 4848);
+    try {
+      viewerHandle = await startViewerServer(preferred);
+      setViewUrlBase(`http://127.0.0.1:${viewerHandle.port}`);
+      console.error(`[hermetic-mcp] viewer on http://127.0.0.1:${viewerHandle.port}`);
+    } catch (err) {
+      console.error(
+        "[hermetic-mcp] viewer failed to start (links fall back to the web app):",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   const server = buildMcpServer(realDeps(), fileAuditSink());
   await server.connect(new StdioServerTransport());
   console.error("[hermetic-mcp] serving on stdio");
+
+  // Lifecycle: the viewer's HTTP listener keeps the event loop alive, so the
+  // process would outlive its host after the stdio channel closes (holding
+  // inherited pipes open). When the client disconnects, shut down.
+  process.stdin.on("end", () => {
+    console.error("[hermetic-mcp] stdio closed — shutting down");
+    void viewerHandle?.close().finally(() => process.exit(0));
+    if (!viewerHandle) process.exit(0);
+  });
 }
 
 main().catch((err) => {

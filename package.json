@@ -39,7 +39,8 @@
     "analyze": "ANALYZE=true next build",
     "prepare": "husky",
     "cli": "tsx src/cli/main.ts",
-    "mcp": "tsx src/mcp/main.ts"
+    "mcp": "tsx src/mcp/main.ts",
+    "mcp:build-viewer": "node scripts/build-mcp-viewer.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -129,6 +130,7 @@
     "@types/uuid": "^11.0.0",
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/coverage-v8": "4.1.9",
+    "esbuild": "0.28.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "eslint-config-prettier": "^10.1.8",

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Build artifacts (gitignored): the MCP embedded-viewer bundle.
+    "src/mcp/viewer/dist/**",
   ]),
   {
     // React Compiler / strict-React rules added in eslint-plugin-react-hooks
