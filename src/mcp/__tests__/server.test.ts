@@ -19,6 +19,7 @@ import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
+import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
 import { setPathRoots } from "@/lib/paths";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 
@@ -91,6 +92,17 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       meta: { id: "hist-123" } as never,
     })) as unknown as McpDeps["persistHistoryEntry"],
     getActiveSandboxRuntime: vi.fn(() => "docker") as unknown as McpDeps["getActiveSandboxRuntime"],
+    getCSVContent: vi.fn(async () => CSV_TEXT) as unknown as McpDeps["getCSVContent"],
+    executeSandbox: vi.fn(async () => ({
+      success: true as const,
+      results: { total_revenue: 600 },
+      chart_data: { by_month: Array.from({ length: 300 }, (_, i) => ({ i })) },
+      images: {},
+      execution_ms: 42,
+      datasets: { raw: [{ month: "Jan", revenue: 100 }] },
+    })) as unknown as McpDeps["executeSandbox"],
+    collectGroundedValues, // real: pure
+    verifyGrounding, // real: pure — the engine under test
     models: { codeGen: "model-a", uiCompose: "model-b" },
   };
 }
@@ -132,7 +144,9 @@ describe("mcp server (in-memory transport, fake deps)", () => {
       "connect_source",
       "get_schema",
       "list_sources",
+      "run_analysis",
       "run_sql",
+      "verify_narrative",
     ]);
   });
 
@@ -315,6 +329,100 @@ describe("analyze (fake pipeline)", () => {
     );
     expect(deps.storeWarehouse).toHaveBeenCalled();
     expect(result.history_id).toBe("hist-123");
+  });
+});
+
+describe("run_analysis (fake sandbox)", () => {
+  async function csvSource(deps: McpDeps) {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+    return { client, source_id };
+  }
+
+  it("forces network-deny docker execution and withholds datasets", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const { client, source_id } = await csvSource(deps);
+    const result = parseToolJson(
+      await client.callTool({
+        name: "run_analysis",
+        arguments: { source_id, python: "results['x']=1" },
+      })
+    );
+    expect(deps.executeSandbox).toHaveBeenCalledWith(
+      CSV_TEXT,
+      "results['x']=1",
+      expect.objectContaining({ runtime: "docker", network: "deny" })
+    );
+    expect((result.results as Record<string, unknown>).total_revenue).toBe(600);
+    // Row-level datasets never cross the boundary: no datasets key, and the
+    // row values themselves are absent from the payload.
+    expect(result.datasets).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain('"month":"Jan"');
+    // chart_data capped at 200 rows with the truncated key reported.
+    expect((result.chart_data as { by_month: unknown[] }).by_month).toHaveLength(200);
+    expect(result.chart_data_truncated_keys).toEqual(["by_month"]);
+  });
+
+  it("surfaces sandbox failure kind in the error", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    deps.executeSandbox = vi.fn(async () => ({
+      success: false as const,
+      error: "killed",
+      errorKind: "oom" as const,
+      execution_ms: 5,
+    })) as unknown as McpDeps["executeSandbox"];
+    const { client, source_id } = await csvSource(deps);
+    const result = await client.callTool({
+      name: "run_analysis",
+      arguments: { source_id, python: "x" },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(String(parseToolJson(result).error)).toContain("(oom)");
+  });
+});
+
+describe("verify_narrative (real grounding engine)", () => {
+  it("passes grounded prose and flags fabricated figures", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+
+    const good = parseToolJson(
+      await client.callTool({
+        name: "verify_narrative",
+        arguments: {
+          prose: "Total revenue reached 600 this quarter.",
+          results: { total_revenue: 600 },
+        },
+      })
+    );
+    expect(good.ok).toBe(true);
+
+    const bad = parseToolJson(
+      await client.callTool({
+        name: "verify_narrative",
+        arguments: {
+          prose: "Revenue hit $4.7M, up 312.5% year over year.",
+          results: { total_revenue: 600 },
+        },
+      })
+    );
+    expect(bad.ok).toBe(false);
+    expect((bad.ungrounded as string[]).length).toBeGreaterThan(0);
+  });
+
+  it("requires computed outputs", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const result = await client.callTool({
+      name: "verify_narrative",
+      arguments: { prose: "Revenue is 5." },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
   });
 });
 

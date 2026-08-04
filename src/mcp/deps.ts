@@ -9,7 +9,7 @@
  */
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
-import { storeCSV } from "@/lib/csv/storage";
+import { storeCSV, getCSVContent } from "@/lib/csv/storage";
 import { createConnector } from "@/lib/warehouse/connector";
 import { loadConnections } from "@/lib/warehouse/persist-env";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
@@ -19,6 +19,8 @@ import { runAskQuery } from "@/lib/pipeline/run-ask-query";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { persistHistoryEntry } from "@/lib/history/persist";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { executeSandbox } from "@/lib/sandbox";
+import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL } from "@/lib/constants";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
 
@@ -37,6 +39,10 @@ export interface McpDeps {
   assembleSpecFromPatches: typeof assembleSpecFromPatches;
   persistHistoryEntry: typeof persistHistoryEntry;
   getActiveSandboxRuntime: typeof getActiveSandboxRuntime;
+  getCSVContent: typeof getCSVContent;
+  executeSandbox: typeof executeSandbox;
+  collectGroundedValues: typeof collectGroundedValues;
+  verifyGrounding: typeof verifyGrounding;
   models: { codeGen: string; uiCompose: string };
 }
 
@@ -59,6 +65,10 @@ export function realDeps(): McpDeps {
     assembleSpecFromPatches,
     persistHistoryEntry,
     getActiveSandboxRuntime,
+    getCSVContent,
+    executeSandbox,
+    collectGroundedValues,
+    verifyGrounding,
     models: { codeGen: CODE_GEN_MODEL, uiCompose: UI_COMPOSE_MODEL },
   };
 }

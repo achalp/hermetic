@@ -31,6 +31,16 @@ export interface SandboxExecOptions {
    * supplies these (run-control's ambientSandboxHooks() inside pipeline/).
    */
   hooks?: SandboxRunHooks;
+  /**
+   * Network policy (MCP M4). "auto" (default): the Docker path grants an
+   * ephemeral networked container only when codeDoesRemoteIo() says the code
+   * reads remote data; everything else runs under --network none. "deny":
+   * NO network regardless of what the code looks like — for code authored by
+   * an untrusted/external model, where the heuristic is an exfiltration
+   * vector, not a convenience. Docker-only: other runtimes cannot enforce
+   * it here and are rejected rather than silently degraded.
+   */
+  network?: "auto" | "deny";
 }
 
 type SandboxExecutor = (
@@ -55,7 +65,18 @@ export function executeSandbox(
   opts: SandboxExecOptions = {}
 ): Promise<ExecutionResult> {
   const { geojsonContent, csvId, localMountPath, inputParquetPath, hooks } = opts;
+  const network = opts.network ?? "auto";
   const rt = opts.runtime ?? getActiveSandboxRuntime();
+
+  if (network === "deny" && rt !== "docker") {
+    return Promise.resolve({
+      success: false,
+      error:
+        "network='deny' is only enforceable with the Docker sandbox runtime (--network none). " +
+        "Refusing to run rather than silently degrade the isolation.",
+      execution_ms: 0,
+    });
+  }
   // Every run carries the hermetic runtime package (tested helper sources the
   // prelude imports, overriding its inline copies). Injected HERE — the single
   // dispatch point — so all runtimes and the warm paths get it identically.
@@ -78,6 +99,7 @@ export function executeSandbox(
       localMountPath,
       inputParquetPath,
       hooks,
+      network,
     });
   }
 
@@ -99,7 +121,9 @@ export function executeSandbox(
   // The warm Docker container runs with --network none (shared, created
   // before any code is known). Code that reads remote data gets a fresh
   // ephemeral container with network instead of the warm path.
-  if (rt === "docker" && codeNeedsNetwork(code)) {
+  // Under "deny" this branch must not fire: network-looking code still runs,
+  // but with no network — reads fail inside the jail instead of escaping it.
+  if (rt === "docker" && network !== "deny" && codeNeedsNetwork(code)) {
     return dockerExecutor(csvContent, code, { geojsonContent, additionalFiles, hooks });
   }
 
@@ -116,6 +140,7 @@ export function executeSandbox(
     geojsonContent,
     additionalFiles,
     hooks,
+    ...(rt === "docker" ? { network } : {}),
   });
 }
 

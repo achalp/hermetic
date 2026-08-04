@@ -17,6 +17,8 @@ import { connectSource, connectSourceInput } from "./tools/connect-source";
 import { getSchema, getSchemaInput } from "./tools/get-schema";
 import { runSql, runSqlInput } from "./tools/run-sql";
 import { analyze, analyzeInput } from "./tools/analyze";
+import { runAnalysis, runAnalysisInput } from "./tools/run-analysis";
+import { verifyNarrative, verifyNarrativeInput } from "./tools/verify-narrative";
 import { listSources } from "./sources";
 
 export const MCP_SERVER_NAME = "hermetic";
@@ -124,6 +126,31 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
       inputSchema: analyzeInput,
     },
     withAudit(audit, "analyze", (args) => analyze(deps, args))
+  );
+
+  server.registerTool(
+    "run_analysis",
+    {
+      description:
+        "Execute YOUR OWN Python analysis code against a CSV source in hermetic's Docker " +
+        "sandbox — no network access, no host filesystem. Populate results{} (scalars) and " +
+        "chart_data{} (row lists) per the hermetic runtime contract. Returns computed " +
+        "aggregates only. Prefer analyze for open-ended questions.",
+      inputSchema: runAnalysisInput,
+    },
+    withAudit(audit, "run_analysis", (args) => runAnalysis(deps, args))
+  );
+
+  server.registerTool(
+    "verify_narrative",
+    {
+      description:
+        "Check every data-like number in a draft narrative against the computed results it " +
+        "is based on (from run_analysis or analyze). Returns the untraceable numbers so you " +
+        "can correct or caveat them before presenting. Use before showing figures to the user.",
+      inputSchema: verifyNarrativeInput,
+    },
+    withAudit(audit, "verify_narrative", (args) => verifyNarrative(deps, args))
   );
 
   server.registerTool(

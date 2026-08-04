@@ -23,6 +23,9 @@ export interface DockerExecOptions {
   localMountPath?: string;
   inputParquetPath?: string;
   hooks?: SandboxRunHooks;
+  /** "deny" forces --network none even when the code looks like remote IO
+   *  (see SandboxExecOptions.network — untrusted-author policy, MCP M4). */
+  network?: "auto" | "deny";
 }
 
 export async function executeSandbox(
@@ -50,7 +53,7 @@ export async function executeSandbox(
     // makes the sandbox isolation claim true for local-data analyses. The
     // image pre-bundles the DuckDB httpfs/spatial extensions, so offline
     // INSTALL/LOAD still works under --network none.
-    const withNetwork = codeNeedsNetwork(code);
+    const withNetwork = opts.network === "deny" ? false : codeNeedsNetwork(code);
     if (!withNetwork) {
       runArgs.push("--network", "none");
     }
