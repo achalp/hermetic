@@ -1,0 +1,53 @@
+/**
+ * persist_dashboard — persist a HOST-AUTHORED spec as a viewable history
+ * entry (mcp-server spec §3, pillar: artifact; §4 M5 hardening).
+ *
+ * Validation is ENFORCING here, not warn-only: everywhere else hermetic
+ * persists specs its own pipeline composed (warn-only protects the user's
+ * save), but an MCP host is an untrusted spec author — the exact case the
+ * Phase 2a trust model names. An invalid spec is rejected with the zod
+ * error so the host can correct it; nothing is persisted.
+ */
+import { z } from "zod";
+import type { McpDeps } from "../deps";
+import { getSource } from "../sources";
+import { viewUrl } from "../view-url";
+
+export const persistDashboardInput = {
+  source_id: z.string().describe("The source the dashboard was computed from."),
+  spec: z
+    .record(z.string(), z.unknown())
+    .describe(
+      "A hermetic dashboard spec: { root, elements: { key: { type, props, children } } }. " +
+        "Must validate against the component catalog — invalid specs are rejected."
+    ),
+  title: z.string().describe("Title/question shown with the dashboard."),
+};
+
+export async function persistDashboard(
+  deps: McpDeps,
+  args: { source_id: string; spec: Record<string, unknown>; title: string }
+): Promise<Record<string, unknown>> {
+  const source = getSource(args.source_id);
+  if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
+  if (source.kind !== "csv") {
+    throw new Error(
+      "persist_dashboard currently supports CSV sources (warehouse analyses persist through analyze)."
+    );
+  }
+
+  const check = deps.validateSpec(args.spec);
+  if (!check.success) {
+    throw new Error(`Spec rejected by catalog validation: ${check.error?.slice(0, 800)}`);
+  }
+
+  const persisted = await deps.persistHistoryEntry(source.csvId, args.spec, args.title);
+  if (!persisted.saved) {
+    throw new Error(`Could not persist: ${persisted.reason}`);
+  }
+  return {
+    source_id: source.id,
+    history_id: persisted.meta.id,
+    dashboard_url: viewUrl(persisted.meta.id),
+  };
+}

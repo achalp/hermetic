@@ -21,6 +21,7 @@ import { persistHistoryEntry } from "@/lib/history/persist";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { executeSandbox } from "@/lib/sandbox";
 import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
+import { validateSpec } from "@/lib/catalog";
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL } from "@/lib/constants";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
 
@@ -43,6 +44,7 @@ export interface McpDeps {
   executeSandbox: typeof executeSandbox;
   collectGroundedValues: typeof collectGroundedValues;
   verifyGrounding: typeof verifyGrounding;
+  validateSpec: typeof validateSpec;
   models: { codeGen: string; uiCompose: string };
 }
 
@@ -69,6 +71,7 @@ export function realDeps(): McpDeps {
     executeSandbox,
     collectGroundedValues,
     verifyGrounding,
+    validateSpec,
     models: { codeGen: CODE_GEN_MODEL, uiCompose: UI_COMPOSE_MODEL },
   };
 }

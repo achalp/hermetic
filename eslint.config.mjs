@@ -160,6 +160,51 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  {
+    files: ["src/mcp/**/*.ts"],
+    ignores: ["src/mcp/**/__tests__/**", "src/mcp/viewer/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/app/*", "@/components/*", "@/hooks/*"],
+              message:
+                "the MCP harness composes lib functions only — UI layers stay out (mcp-server spec §4).",
+            },
+            {
+              group: ["next", "next/*"],
+              message: "harnesses must stay framework-free (mcp-server spec §4).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The viewer ENTRY is a browser bundle of the renderer closure — it may
+    // use React + the renderer, never Next or app state/transport.
+    files: ["src/mcp/viewer/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/app/*", "@/hooks/*", "@/lib/api", "@/components/app/*"],
+              message:
+                "the MCP viewer mounts the renderer closure only (mcp-server spec §4 M3).",
+            },
+            {
+              group: ["next", "next/*"],
+              message: "the MCP viewer is framework-free (mcp-server spec §4 M3).",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

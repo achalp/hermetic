@@ -20,6 +20,7 @@ import { extractSchema } from "@/lib/csv/schema";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
+import { validateSpec } from "@/lib/catalog";
 import { setPathRoots } from "@/lib/paths";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 
@@ -103,6 +104,7 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     })) as unknown as McpDeps["executeSandbox"],
     collectGroundedValues, // real: pure
     verifyGrounding, // real: pure — the engine under test
+    validateSpec, // real: the enforcing gate under test
     models: { codeGen: "model-a", uiCompose: "model-b" },
   };
 }
@@ -144,6 +146,7 @@ describe("mcp server (in-memory transport, fake deps)", () => {
       "connect_source",
       "get_schema",
       "list_sources",
+      "persist_dashboard",
       "run_analysis",
       "run_sql",
       "verify_narrative",
@@ -423,6 +426,64 @@ describe("verify_narrative (real grounding engine)", () => {
       arguments: { prose: "Revenue is 5." },
     });
     expect((result as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+describe("persist_dashboard (real catalog validation — ENFORCING)", () => {
+  async function csvClient(deps: McpDeps) {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+    return { client, source_id };
+  }
+
+  it("rejects an invalid spec with the validation reason; persists nothing", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const { client, source_id } = await csvClient(deps);
+    const result = await client.callTool({
+      name: "persist_dashboard",
+      arguments: {
+        source_id,
+        title: "bad",
+        spec: { root: "x", elements: { x: { type: "NoSuchComponent", props: {} } } },
+      },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(String(parseToolJson(result).error)).toContain("rejected by catalog validation");
+    expect(deps.persistHistoryEntry).not.toHaveBeenCalled();
+  });
+
+  it("persists a valid spec and returns the viewer link", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const { client, source_id } = await csvClient(deps);
+    const result = parseToolJson(
+      await client.callTool({
+        name: "persist_dashboard",
+        arguments: {
+          source_id,
+          title: "Revenue overview",
+          // A REAL catalog component with its canonical sample props — the
+          // enforcing validator accepts only genuine catalog specs.
+          spec: {
+            root: "root",
+            elements: {
+              root: {
+                type: "TextBlock",
+                props: (await import("@/lib/__tests__/fixtures/catalog-samples"))
+                  .ALL_CATALOG_SAMPLES.TextBlock,
+                children: [],
+              },
+            },
+          },
+        },
+      })
+    );
+    expect(result.history_id).toBe("hist-123");
+    expect(String(result.dashboard_url)).toContain("restore=hist-123");
   });
 });
 

@@ -19,6 +19,7 @@ import { runSql, runSqlInput } from "./tools/run-sql";
 import { analyze, analyzeInput } from "./tools/analyze";
 import { runAnalysis, runAnalysisInput } from "./tools/run-analysis";
 import { verifyNarrative, verifyNarrativeInput } from "./tools/verify-narrative";
+import { persistDashboard, persistDashboardInput } from "./tools/persist-dashboard";
 import { listSources } from "./sources";
 
 export const MCP_SERVER_NAME = "hermetic";
@@ -151,6 +152,19 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
       inputSchema: verifyNarrativeInput,
     },
     withAudit(audit, "verify_narrative", (args) => verifyNarrative(deps, args))
+  );
+
+  server.registerTool(
+    "persist_dashboard",
+    {
+      description:
+        "Persist a dashboard spec YOU authored as a permanent, viewable analysis (returns the " +
+        "link). The spec must validate against hermetic's component catalog — invalid specs " +
+        "are rejected with the reason. Prefer analyze unless you are deliberately composing " +
+        "the dashboard yourself.",
+      inputSchema: persistDashboardInput,
+    },
+    withAudit(audit, "persist_dashboard", (args) => persistDashboard(deps, args))
   );
 
   server.registerTool(
