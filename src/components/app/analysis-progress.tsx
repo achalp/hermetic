@@ -78,6 +78,7 @@ export function PipelineProgress({
             <span
               key={i}
               className="inline-block h-2 w-2 rounded-full bg-accent"
+              data-motion="essential"
               style={{
                 animation: "pulse 1.2s ease-in-out infinite",
                 animationDelay: `${i * 0.2}s`,
