@@ -45,15 +45,8 @@ vi.mock("@deck.gl/core", () => deckClassStub());
 vi.mock("@deck.gl/aggregation-layers", () => deckClassStub());
 vi.mock("@deck.gl/geo-layers", () => deckClassStub());
 
-import {
-  StateProvider,
-  ActionProvider,
-  VisibilityProvider,
-  Renderer,
-  type Spec,
-} from "@/spec/react";
-import { registry, registryActionHandlers } from "@/components/registry";
-import { RendererErrorBoundary } from "@/components/renderer-error-boundary";
+import { type Spec } from "@/spec/react";
+import { SpecView } from "@/components/spec-view";
 import { catalogComponents, validateSpec } from "@/lib/catalog";
 import { ALL_CATALOG_SAMPLES } from "@/lib/__tests__/fixtures/catalog-samples";
 import dataControllerSpec from "../../../test-specs/data-controller-test.json";
@@ -102,22 +95,10 @@ afterEach(() => {
   cleanup();
 });
 
-function SpecHarness({ spec }: { spec: Spec }) {
-  return (
-    <StateProvider initialState={spec.state ?? {}}>
-      <ActionProvider handlers={registryActionHandlers}>
-        <VisibilityProvider>
-          <RendererErrorBoundary>
-            <Renderer spec={spec} registry={registry} />
-          </RendererErrorBoundary>
-        </VisibilityProvider>
-      </ActionProvider>
-    </StateProvider>
-  );
-}
-
 async function renderAndSettle(spec: Spec) {
-  const view = render(<SpecHarness spec={spec} />);
+  // F9: mount through the REAL renderer entry point — SpecView owns the
+  // provider stack, so the smoke harness can never diverge from production.
+  const view = render(<SpecView spec={spec} />);
   // Wait for every lazy chart to resolve (or fail — which surfaces below).
   await waitFor(() => expect(view.queryAllByTestId("lazy-loading")).toHaveLength(0), {
     timeout: 15000,
