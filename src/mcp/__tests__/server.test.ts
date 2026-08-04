@@ -1,0 +1,221 @@
+/**
+ * MCP M1 tests: end-to-end through the SDK's in-memory transport with fully
+ * injected fakes (no network, no docker, no LLM), plus the boundary rules
+ * that ARE the product: no raw rows in schema responses, read-only SQL
+ * enforced before execution, audit line per call with sanitized args.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { buildMcpServer } from "../server";
+import type { McpDeps } from "../deps";
+import { clearSources } from "../sources";
+import type { AuditEntry } from "../audit";
+import { sanitizeArgs } from "../audit";
+import { parseCSV } from "@/lib/csv/parser";
+import { extractSchema } from "@/lib/csv/schema";
+import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
+import { setPathRoots } from "@/lib/paths";
+import type { WarehouseConnector } from "@/lib/warehouse/connector";
+
+const CSV_TEXT = "month,revenue\nJan,100\nFeb,200\nMar,300\n";
+
+function fakeConnector(resultCsv: string): WarehouseConnector {
+  return {
+    testConnection: vi.fn(async () => undefined),
+    listTables: vi.fn(async () => []),
+    introspectAllTables: vi.fn(async () => [
+      {
+        schema: "public",
+        name: "orders",
+        row_count_estimate: 2_500_000_000,
+        columns: [
+          { name: "id", type: "bigint" },
+          { name: "amount", type: "numeric" },
+        ],
+      },
+    ]),
+    executeSQL: vi.fn(async () => resultCsv),
+    close: vi.fn(async () => undefined),
+  } as unknown as WarehouseConnector;
+}
+
+function fakeDeps(connector: WarehouseConnector): McpDeps {
+  return {
+    parseCSV, // real: pure
+    extractSchema, // real: pure
+    storeCSV: vi.fn(async () => undefined) as unknown as McpDeps["storeCSV"],
+    createConnector: vi.fn(() => connector),
+    loadConnections: vi.fn(async () => [
+      {
+        id: "conn-1",
+        label: "PostgreSQL: prod",
+        config: {
+          type: "postgresql",
+          host: "h",
+          port: 5432,
+          database: "d",
+          user: "u",
+          password: "p",
+        },
+        createdAt: "2026-01-01T00:00:00Z",
+      },
+    ]) as unknown as McpDeps["loadConnections"],
+    assertReadOnlySql, // real: the gate under test
+  };
+}
+
+async function connectedClient(deps: McpDeps, audit: AuditEntry[]) {
+  const server = buildMcpServer(deps, (e) => audit.push(e));
+  const client = new Client({ name: "test-client", version: "0.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  return client;
+}
+
+function parseToolJson(result: unknown): Record<string, unknown> {
+  const content = (result as { content: Array<{ type: string; text: string }> }).content;
+  return JSON.parse(content[0].text);
+}
+
+let dir: string;
+let audit: AuditEntry[];
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "mcp-test-"));
+  setPathRoots({ dataRoot: dir, scratchRoot: join(dir, "scratch"), userRoot: join(dir, "user") });
+  clearSources();
+  audit = [];
+});
+afterEach(() => {
+  setPathRoots({});
+  rmSync(dir, { recursive: true, force: true });
+});
+
+describe("mcp server (in-memory transport, fake deps)", () => {
+  it("lists the v1 tool surface", async () => {
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "connect_source",
+      "get_schema",
+      "list_sources",
+      "run_sql",
+    ]);
+  });
+
+  it("connect_source(csv) returns schema WITHOUT raw rows; get_schema matches", async () => {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const connected = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    );
+
+    expect(connected.source_id).toBeTruthy();
+    expect(connected.kind).toBe("csv");
+    const schema = connected.schema as Record<string, unknown>;
+    expect(schema.row_count).toBe(3);
+    // THE boundary invariant: row-linked samples never appear anywhere.
+    expect(JSON.stringify(connected)).not.toContain("sample_rows");
+
+    const got = parseToolJson(
+      await client.callTool({ name: "get_schema", arguments: { source_id: connected.source_id } })
+    );
+    expect((got.schema as Record<string, unknown>).row_count).toBe(3);
+  });
+
+  it("connect_source(connection) returns table summaries, never credentials", async () => {
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const connected = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    );
+    expect(connected.kind).toBe("warehouse");
+    expect(connected.table_count).toBe(1);
+    const text = JSON.stringify(connected);
+    expect(text).not.toContain("password");
+    expect(text).not.toContain('"p"');
+  });
+
+  it("run_sql executes read-only SELECT with a row cap", async () => {
+    const bigCsv = "n\n" + Array.from({ length: 500 }, (_, i) => i).join("\n") + "\n";
+    const connector = fakeConnector(bigCsv);
+    const client = await connectedClient(fakeDeps(connector), audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    ) as { source_id: string };
+
+    const result = parseToolJson(
+      await client.callTool({
+        name: "run_sql",
+        arguments: { source_id, sql: "SELECT n FROM t", max_rows: 10 },
+      })
+    );
+    expect(result.row_count_returned).toBe(10);
+    expect(result.truncated).toBe(true);
+    expect(connector.executeSQL).toHaveBeenCalledWith("SELECT n FROM t");
+  });
+
+  it("run_sql rejects non-SELECT BEFORE the connector is touched", async () => {
+    const connector = fakeConnector("x\n1\n");
+    const client = await connectedClient(fakeDeps(connector), audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    ) as { source_id: string };
+
+    const result = await client.callTool({
+      name: "run_sql",
+      arguments: { source_id, sql: "DROP TABLE orders" },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(connector.executeSQL).not.toHaveBeenCalled();
+  });
+
+  it("run_sql refuses csv sources with a redirect message", async () => {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+
+    const result = parseToolJson(
+      await client.callTool({ name: "run_sql", arguments: { source_id, sql: "SELECT 1" } })
+    );
+    expect(String(result.error)).toContain("run_analysis");
+  });
+
+  it("audits every call with outcome and duration; errors audited too", async () => {
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    await client.callTool({ name: "list_sources", arguments: {} });
+    await client.callTool({ name: "get_schema", arguments: { source_id: "nope" } });
+
+    expect(audit).toHaveLength(2);
+    expect(audit[0]).toMatchObject({ tool: "list_sources", outcome: "ok" });
+    expect(audit[1]).toMatchObject({ tool: "get_schema", outcome: "error" });
+    expect(audit[1].error).toContain("Unknown source_id");
+    for (const e of audit) expect(e.durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("sanitizeArgs", () => {
+  it("truncates code/sql previews and replaces objects", () => {
+    const out = sanitizeArgs({
+      sql: "SELECT " + "x".repeat(300),
+      source_id: "abc",
+      spec: { root: "r", elements: {} },
+      max_rows: 5,
+    });
+    expect((out.sql as string).length).toBeLessThanOrEqual(201);
+    expect(out.spec).toBe("<object>");
+    expect(out.max_rows).toBe(5);
+    expect(out.source_id).toBe("abc");
+  });
+});

@@ -38,7 +38,8 @@
     "test:coverage": "vitest run --coverage",
     "analyze": "ANALYZE=true next build",
     "prepare": "husky",
-    "cli": "tsx src/cli/main.ts"
+    "cli": "tsx src/cli/main.ts",
+    "mcp": "tsx src/mcp/main.ts"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -66,6 +67,7 @@
     "@deck.gl/react": "^9.2.9",
     "@e2b/code-interpreter": "^2.3.3",
     "@google-cloud/bigquery": "^8.1.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@nivo/bar": "^0.99.0",
     "@nivo/bump": "^0.99.0",
     "@nivo/calendar": "^0.99.0",
