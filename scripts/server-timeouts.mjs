@@ -22,13 +22,18 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 const timeouts = JSON.parse(
-  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "config", "timeouts.json"), "utf8")
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "config", "timeouts.json"),
+    "utf8"
+  )
 );
 // Derived from the SAME source as LARGE_DATA_TIMEOUT_MS (config/timeouts.json).
 const REQUEST_TIMEOUT_MS = timeouts.largeDataTimeoutMs + timeouts.requestTimeoutMarginMs;
 
 // eslint-disable-next-line no-console
-console.error(`[server-timeouts] preload active (pid ${process.pid}) — requestTimeout → ${Math.round(REQUEST_TIMEOUT_MS / 60000)}m`);
+console.error(
+  `[server-timeouts] preload active (pid ${process.pid}) — requestTimeout → ${Math.round(REQUEST_TIMEOUT_MS / 60000)}m`
+);
 
 function patch(mod) {
   const original = mod.createServer.bind(mod);

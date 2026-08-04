@@ -138,3 +138,17 @@ jobs:
           # The CLI + harness layers must never import Next (lib is
           # lint-enforced; this guards the harness files themselves).
           ! grep -rE 'from "next(/|")' src/cli src/harness
+
+      # On a replay miss the middleware writes <hash>.miss.json next to the
+      # fixtures (the attempted params). Upload those plus the received
+      # transcripts so a CI-only divergence can be diffed against the
+      # recorded fixtures without reproducing the runner environment.
+      - name: Upload miss diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-miss-diagnostics
+          path: |
+            test-fixtures/llm/*.miss.json
+            test-fixtures/golden/*.received.ndjson
+          if-no-files-found: ignore

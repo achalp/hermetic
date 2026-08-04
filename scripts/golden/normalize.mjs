@@ -50,4 +50,3 @@ function normalizeValue(value, uuidMap, keyHint = "") {
   }
   return value;
 }
-

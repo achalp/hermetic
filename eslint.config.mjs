@@ -138,14 +138,20 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: ["@/app/*", "@/components/*", "@/hooks/*", "@/lib/*", "@/harness/*", "@/cli/*"],
+              group: [
+                "@/app/*",
+                "@/components/*",
+                "@/hooks/*",
+                "@/lib/*",
+                "@/harness/*",
+                "@/cli/*",
+              ],
               message:
                 "the vendored spec fork is the bottom of the stack — it imports nothing of hermetic's (exit audit F4; Phase 2 ships it as @hermetic/spec).",
             },
             {
               group: ["next", "next/*"],
-              message:
-                "the spec fork must be framework-free (exit audit F4).",
+              message: "the spec fork must be framework-free (exit audit F4).",
             },
           ],
         },

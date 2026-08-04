@@ -73,7 +73,10 @@ const METRICS = [
     // Counts CASTS of protocol keys (`.__plan as`, `["__plan"]`, `"__plan" in`)
     // — typed access through readStreamState()/StreamState is the sanctioned
     // path and does not match.
-    pattern: new RegExp(`(?:\\.__(?:${STREAM_KEYS})\\s+as\\s)|(?:\\["'"'"']__(?:${STREAM_KEYS}))|(?:"__(?:${STREAM_KEYS})" in\\s)`, "g"),
+    pattern: new RegExp(
+      `(?:\\.__(?:${STREAM_KEYS})\\s+as\\s)|(?:\\["'"'"']__(?:${STREAM_KEYS}))|(?:"__(?:${STREAM_KEYS})" in\\s)`,
+      "g"
+    ),
   },
   {
     id: "boundary-lint-suppressions",
@@ -140,9 +143,7 @@ if (update) {
   console.log(`Baseline written to ${relative(ROOT, BASELINE_PATH)}`);
 }
 
-const baseline = existsSync(BASELINE_PATH)
-  ? JSON.parse(readFileSync(BASELINE_PATH, "utf8"))
-  : null;
+const baseline = existsSync(BASELINE_PATH) ? JSON.parse(readFileSync(BASELINE_PATH, "utf8")) : null;
 
 if (!baseline) {
   console.error("No baseline found. Run: node scripts/ratchet.mjs --update");
@@ -168,9 +169,7 @@ for (const r of results) {
   console.log(`${pad(r.metric.id, 30)} ${pad(base ?? "—", 9)} ${pad(r.count, 6)} ${status}`);
   if ((verbose || r.count > (base ?? Infinity)) && r.perFile.size) {
     for (const [file, n] of [...r.perFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
-      console.log(`    ${n
-        .toString()
-        .padStart(4)}  ${file}`);
+      console.log(`    ${n.toString().padStart(4)}  ${file}`);
     }
   }
 }
