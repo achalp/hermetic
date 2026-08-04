@@ -115,13 +115,12 @@ never mixed into results.
 ## 4. v1 implementation plan (against the real seams)
 
 Harness pattern mirrors `src/cli/main.ts`: boot `installEnvConfig("snapshot")`
-
-- default `hermeticPaths` roots + optional `configureLLMReplay`, then call lib
-  functions. New dependency: `@modelcontextprotocol/sdk` (stdio transport for
-  Claude Desktop/Code). New directory: `src/mcp/` (joins `src/cli/`, `src/harness/`
-  in the framework-free grep + ESLint groups; add to the CI "harness stays
-  framework-free" step and, if it imports beyond the allowed set, the isolation
-  check).
+with default `hermeticPaths` roots and optional `configureLLMReplay`, then call
+lib functions. New dependency: `@modelcontextprotocol/sdk` (stdio transport for
+Claude Desktop/Code). New directory: `src/mcp/` (joins `src/cli/`, `src/harness/`
+in the framework-free grep + ESLint groups; add to the CI "harness stays
+framework-free" step and, if it imports beyond the allowed set, the isolation
+check).
 
 **M1 — server skeleton + read tools (days).**
 `src/mcp/main.ts`: boot, register `connect_source` / `get_schema` / `run_sql`.
