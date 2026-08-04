@@ -72,6 +72,26 @@ are replayed. Docker (or another configured runtime) must be available.
 - **stderr** — human-readable progress (`[ingest] …`, `[llm-replay] …`,
   `[out] …`) and cost logging, kept off stdout so the stream stays parseable.
 
+## Viewing the result in the web app
+
+Every successful `ask` also persists a **history entry** (spec, generated
+code, schema, source data, artifacts) under the shared data root and prints
+a restore link:
+
+```
+[history] saved 5f2c9c1e-…
+[view] http://localhost:3000/?restore=5f2c9c1e-…
+```
+
+Run the web harness from the same directory (`pnpm dev`) and open the link —
+the dashboard renders fully interactive, with the artifacts panel available.
+The entry also appears in the app's History page. This is the intended path
+from CLI output to a visual/exportable result: restore in the browser, then
+use the Export menu (PDF/DOCX/PPTX/Slides).
+
+The NDJSON on stdout is the machine-readable stream (embedding, diffing,
+piping); it is not itself importable through the web UI.
+
 ## Exit codes
 
 | Code | Meaning                                                                                                   |
@@ -91,6 +111,9 @@ spec — plus a grep proving `src/cli` and `src/harness` never import Next.
 - `ask` is the only command; investigate mode, warehouse sources, and Excel
   ingestion are exercised through the web harness or the golden journey
   runner (`scripts/golden/run-journeys.mjs`) for now.
+- No direct spec→PDF/HTML compile: visual output goes through the web app
+  (see "Viewing the result in the web app"); a `hermetic render` command is
+  a Phase 2 candidate.
 - CSV input only (the ingest path is `parseCSV` → `extractSchema` → `storeCSV`).
 - Runs from the repo checkout via `tsx`; standalone packaging is a Phase 2
   deliverable.

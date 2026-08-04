@@ -90,6 +90,40 @@ async function main(): Promise<number> {
     writeFileSync(outFile, lines.join(""));
     console.error(`[out] ${outFile} (${lines.length} lines)`);
   }
+
+  // ── Persist to history so the web app can render the result ──
+  // The routes get this via the client (after render) or the disconnect
+  // hook; the CLI has neither, so it persists directly with the same lib
+  // calls. Shares the dataRoot with a web harness run from the same
+  // directory — open the printed URL to view the dashboard.
+  if (exitCode === 0) {
+    const { assembleSpecFromPatches } = await import("@/lib/pipeline/assemble-spec");
+    const { persistHistoryEntry } = await import("@/lib/history/persist");
+    const patches = lines
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith(":"))
+      .flatMap((l) => {
+        try {
+          return [JSON.parse(l)];
+        } catch {
+          return []; // progress noise
+        }
+      });
+    const assembled = assembleSpecFromPatches(patches);
+    if (assembled) {
+      const persisted = await persistHistoryEntry(
+        csvId,
+        assembled as unknown as Record<string, unknown>,
+        question
+      );
+      if (persisted.saved) {
+        console.error(`[history] saved ${persisted.meta.id}`);
+        console.error(`[view] http://localhost:3000/?restore=${persisted.meta.id}`);
+      } else {
+        console.error(`[history] not saved: ${persisted.reason}`);
+      }
+    }
+  }
   return exitCode;
 }
 
