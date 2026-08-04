@@ -347,15 +347,13 @@ was either fixed in the M7 remediation commit or dispositioned below. Suite:
   shim + fixture-per-version test is the FIRST task of any version bump.
 - **D4 — validation asymmetry**: history persist validates (warn-only);
   saved-viz create/update and the refresh route stamp but do not validate.
-  Also: the fork ships its own structural `validateSpec` (zero app consumers)
-  alongside the zod one in `catalog.ts` — a name-collision trap. Follow-up F5.
+  Also: the fork shipped its own structural `validateSpec` — pruned in F5. CLOSED by F5/F7.
 - **D5 — sandbox `executeSandbox` options-bag** documents 19 named fields with
   a single caller; the positional-params hazard the audit flagged no longer
   exists.
 - **D6 — upstream prompt rule** from json-render `c731a9c` ("REQUIRED FIELDS
   children") deliberately NOT adopted with the zod fix — adopting it changes
-  every prompt hash and requires a golden re-record. Adopt in one planned
-  pass (F6).
+  every prompt hash and requires a golden re-record. Adopted in F6 (2026-08-04) with full fixture + golden re-record. CLOSED.
 - **D7 — `envConfig()` before boot** warns once (server-side) and returns an
   empty snapshot rather than throwing: routes must not 500 on a misordered
   import during dev HMR. Documented at the seam.
@@ -363,7 +361,7 @@ was either fixed in the M7 remediation commit or dispositioned below. Suite:
   CLI, curl, and same-origin GETs carry no Origin header; browsers always
   send one cross-origin.
 
-### 9.3 Follow-up register (F1–F4 RESOLVED 2026-08-03; F5+ open)
+### 9.3 Follow-up register (ALL RESOLVED — F1–F4 2026-08-03, F5–F9 2026-08-04)
 
 1. **F1 ✓** `page.tsx` decomposed 1,386 → 476: behavior in seven hooks
    (model-settings, recents-list, home-composer, reattach,
@@ -385,18 +383,22 @@ was either fixed in the M7 remediation commit or dispositioned below. Suite:
    `contracts/harness-boot` (harness-slot no longer drags paths/replay into
    every graph), renderer-error-boundary + data-table/definition-list/
    pivot-table annexed into the guarded renderer closure.
-5. **F5** Resolve fork `validateSpec` name collision (rename to
-   `validateSpecStructure` or adopt it); prune or adopt dead vendored surface
-   (`useJsonRenderMessage`, core `buildUserPrompt`, JSONL element-tree path).
-6. **F6** Adopt upstream prompt rule (D6) in a dedicated pass with golden
-   re-record.
-7. **F7** Validate on saved-viz persist/update + refresh paths (close D4
-   asymmetry).
-8. **F8** local-llm routes still resolve gguf paths off `cwd` directly —
-   route them through `hermeticPaths` (harness-side residue).
-9. **F9** Smoke-test `SpecHarness` duplicates SpecView's provider stack;
-   have the test import a SpecView-exported stack (or mount SpecView) so
-   they cannot diverge silently.
+5. **F5 ✓** Dead vendored surface pruned (`core/spec-validator.ts`,
+   `core/prompt.ts`, `useJsonRenderMessage`, deprecated `elementTree*`
+   aliases) — the `validateSpec` collision is gone because the fork no
+   longer exports one; divergence recorded in `src/spec/NOTICE.md`.
+6. **F6 ✓** Upstream "REQUIRED FIELDS children" prompt rule adopted (D6
+   closed); prompt snapshot updated; full fixture set re-recorded live and
+   canonical goldens regenerated in replay mode; CLI proof green offline.
+7. **F7 ✓** Saved-viz create/update now run warn-only `validateSpec`
+   (same policy as history persist); refresh persists via
+   `saveHistoryEntry`, so every persist path validates at the storage
+   layer (D4 closed).
+8. **F8 ✓** local-llm models/download/delete/platform routes resolve the
+   GGUF store and bundled binary via
+   `hermeticPaths.ggufModelsDir()`/`bundledBinDir()`.
+9. **F9 ✓** Smoke tests mount `<SpecView>` itself — the hand-copied
+   provider stack (which had already drifted) is deleted.
 
 **Phase 1 verdict: complete.** The architecture holds under adversarial
 re-audit; the two partial criteria are app-layer size/hygiene targets (F1,
