@@ -2,6 +2,7 @@ import { rmSync } from "fs";
 import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import { join } from "path";
 import { apiError } from "@/lib/api-error";
+import { hermeticPaths } from "@/lib/paths";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
     // GGUF files in data/models/gguf/
     // The model name might be a bare filename ("model.gguf") or a relative path
     // from a HF download ("subdir/model.gguf")
-    const ggufDir = join(process.cwd(), "data", "models", "gguf");
+    const ggufDir = hermeticPaths.ggufModelsDir();
     const fullPath = join(ggufDir, model);
 
     try {

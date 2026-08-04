@@ -1,4 +1,6 @@
 import { execSync } from "child_process";
+import { join } from "path";
+import { hermeticPaths } from "@/lib/paths";
 
 function checkCommand(cmd: string): boolean {
   try {
@@ -30,7 +32,8 @@ export async function GET() {
     hasPython: checkCommand("python3"),
     hasMlxLm: isAppleSilicon ? checkPythonModule("mlx_lm") || checkCommand("mlx_lm.server") : false,
     hasLlamaServer:
-      checkCommand("llama-server") || checkCommand(`${process.cwd()}/data/bin/llama-server`),
+      checkCommand("llama-server") ||
+      checkCommand(join(hermeticPaths.bundledBinDir(), "llama-server")),
     hasOllama: checkCommand("ollama"),
     hasHfCli: checkPythonModule("huggingface_hub"),
   });
