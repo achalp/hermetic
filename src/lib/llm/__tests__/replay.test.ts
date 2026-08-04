@@ -157,4 +157,42 @@ describe("llmReplayMiddleware", () => {
     } as never);
     expect(readdirSync(dir)).toHaveLength(2);
   });
+
+  it("hash ignores anthropic cacheControl — fixtures are provider-portable (PR #94)", async () => {
+    const { requestHash } = (await import("@/lib/llm/replay")).__testing;
+    const plain = {
+      maxOutputTokens: 100,
+      prompt: [
+        { role: "system", content: "sys" },
+        { role: "user", content: [{ type: "text", text: "hello" }] },
+      ],
+    };
+    const withCache = {
+      maxOutputTokens: 100,
+      prompt: [
+        {
+          role: "system",
+          content: "sys",
+          providerOptions: { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } },
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "hello",
+              providerOptions: { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } },
+            },
+          ],
+        },
+      ],
+    };
+    expect(requestHash("m", withCache)).toBe(requestHash("m", plain));
+    // Non-caching provider options still count toward identity.
+    const withThinking = {
+      ...plain,
+      providerOptions: { anthropic: { thinking: { type: "enabled", budgetTokens: 1 } } },
+    };
+    expect(requestHash("m", withThinking)).not.toBe(requestHash("m", plain));
+  });
 });

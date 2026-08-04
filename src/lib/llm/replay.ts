@@ -56,11 +56,41 @@ function stableStringify(value: unknown): string {
  * AI SDK's user-agent (e.g. "ai/6.0.116"), so hashing it invalidated every
  * generate-kind fixture on a routine dependency bump — prompt content is
  * the identity, transport is not.
+ *
+ * `cacheControl` under providerOptions.anthropic is stripped for the same
+ * reason: cachedSystem/cachedText (lib/llm/client.ts) inject prompt-caching
+ * directives ONLY when the active provider is "anthropic", so the same
+ * semantic request hashes differently per provider — fixtures recorded via
+ * the claude-cli transport missed on every call in CI, where the dummy
+ * ANTHROPIC_API_KEY selects the API provider (exit-audit follow-through,
+ * PR #94). Caching directives change billing, not content.
  */
+function stripCacheControl(val: unknown): unknown {
+  if (Array.isArray(val)) return val.map(stripCacheControl);
+  if (val && typeof val === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      if (k === "providerOptions" && v && typeof v === "object") {
+        const po = { ...(v as Record<string, unknown>) };
+        if (po.anthropic && typeof po.anthropic === "object") {
+          const { cacheControl: _cc, ...anthropicRest } = po.anthropic as Record<string, unknown>;
+          if (Object.keys(anthropicRest).length > 0) po.anthropic = anthropicRest;
+          else delete po.anthropic;
+        }
+        if (Object.keys(po).length > 0) out[k] = stripCacheControl(po);
+        continue; // empty providerOptions is dropped entirely
+      }
+      out[k] = stripCacheControl(v);
+    }
+    return out;
+  }
+  return val;
+}
+
 function hashableParams(params: unknown): unknown {
   if (params && typeof params === "object" && !Array.isArray(params)) {
     const { headers: _headers, ...rest } = params as Record<string, unknown>;
-    return rest;
+    return stripCacheControl(rest);
   }
   return params;
 }
@@ -217,3 +247,6 @@ export function llmReplayMiddleware(costKey: string): LanguageModelMiddleware {
     },
   };
 }
+
+/** Test-only surface (hash portability tests exercise the exclusions). */
+export const __testing = { requestHash, hashableParams };
