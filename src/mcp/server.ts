@@ -16,6 +16,7 @@ import { sanitizeArgs, type AuditSink } from "./audit";
 import { connectSource, connectSourceInput } from "./tools/connect-source";
 import { getSchema, getSchemaInput } from "./tools/get-schema";
 import { runSql, runSqlInput } from "./tools/run-sql";
+import { analyze, analyzeInput } from "./tools/analyze";
 import { listSources } from "./sources";
 
 export const MCP_SERVER_NAME = "hermetic";
@@ -110,6 +111,19 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
       inputSchema: runSqlInput,
     },
     withAudit(audit, "run_sql", (args) => runSql(deps, args))
+  );
+
+  server.registerTool(
+    "analyze",
+    {
+      description:
+        "Run hermetic's full analysis pipeline on a source: generates and executes analysis " +
+        "code in a sandbox, composes an interactive dashboard, persists it, and returns a " +
+        "summary + a link to view it. The flagship tool — prefer this over hand-rolling " +
+        "SQL/code for open-ended questions. Takes seconds to minutes; cost is reported.",
+      inputSchema: analyzeInput,
+    },
+    withAudit(audit, "analyze", (args) => analyze(deps, args))
   );
 
   server.registerTool(

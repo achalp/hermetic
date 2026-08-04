@@ -73,6 +73,7 @@ export async function connectSource(
     const connector = deps.createConnector(saved.config);
     await connector.testConnection();
     const tables = await connector.introspectAllTables();
+    const tableInfos = await connector.listTables();
     source = registerSource({
       kind: "warehouse",
       label: args.label ?? saved.name ?? saved.label,
@@ -81,6 +82,19 @@ export async function connectSource(
       connector,
       tables,
     });
+    // Also register in the shared warehouse store under the source id, so
+    // analyze() can hand runAskQuery the same {warehouse, connector} state
+    // the web harness assembles (validate-request.ts).
+    deps.storeWarehouse(
+      {
+        warehouseId: source.id,
+        config: saved.config,
+        tables: tableInfos,
+        tableSchemas: tables,
+        createdAt: Date.now(),
+      },
+      connector
+    );
   }
 
   return { source_id: source.id, ...summarizeSource(source) };

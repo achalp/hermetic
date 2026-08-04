@@ -18,6 +18,7 @@ import { sanitizeArgs } from "../audit";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
+import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { setPathRoots } from "@/lib/paths";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 
@@ -65,6 +66,32 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       },
     ]) as unknown as McpDeps["loadConnections"],
     assertReadOnlySql, // real: the gate under test
+    storeWarehouse: vi.fn(),
+    getWarehouseState: vi.fn(() => undefined),
+    // Minimal orchestration fakes: runPatchStream routes handler writes into
+    // the sink; runAskQuery is set per-test.
+    runPatchStream: (async (
+      _route: string,
+      sink: { write: (d: string) => void },
+      handler: (stream: unknown) => Promise<void>
+    ) => {
+      await handler({ push: (line: string) => sink.write(line) });
+    }) as unknown as McpDeps["runPatchStream"],
+    runAskQuery: vi.fn(async ({ stream }: { stream: unknown }) => {
+      const push = (stream as { push: (l: string) => void }).push;
+      push('{"op":"add","path":"/root","value":"main"}\n');
+      push(
+        '{"op":"add","path":"/elements/summary","value":{"type":"Markdown","props":{"content":"Revenue grew 3x."}}}\n'
+      );
+      push('{"op":"add","path":"/state/__cost","value":{"costUsd":0.12}}\n');
+    }) as unknown as McpDeps["runAskQuery"],
+    assembleSpecFromPatches,
+    persistHistoryEntry: vi.fn(async () => ({
+      saved: true as const,
+      meta: { id: "hist-123" } as never,
+    })) as unknown as McpDeps["persistHistoryEntry"],
+    getActiveSandboxRuntime: vi.fn(() => "docker") as unknown as McpDeps["getActiveSandboxRuntime"],
+    models: { codeGen: "model-a", uiCompose: "model-b" },
   };
 }
 
@@ -101,6 +128,7 @@ describe("mcp server (in-memory transport, fake deps)", () => {
     const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "analyze",
       "connect_source",
       "get_schema",
       "list_sources",
@@ -202,6 +230,91 @@ describe("mcp server (in-memory transport, fake deps)", () => {
     expect(audit[1]).toMatchObject({ tool: "get_schema", outcome: "error" });
     expect(audit[1].error).toContain("Unknown source_id");
     for (const e of audit) expect(e.durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("analyze (fake pipeline)", () => {
+  it("returns summary, cost, and the dashboard link from the persisted id", async () => {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+
+    const result = parseToolJson(
+      await client.callTool({
+        name: "analyze",
+        arguments: { source_id, question: "How is revenue trending?" },
+      })
+    );
+    expect(result.summary).toContain("Revenue grew 3x.");
+    expect(result.history_id).toBe("hist-123");
+    expect(String(result.dashboard_url)).toContain("restore=hist-123");
+    expect((result.cost as { costUsd: number }).costUsd).toBe(0.12);
+    expect(result.element_count).toBe(1);
+  });
+
+  it("surfaces pipeline errors as tool errors (no persist)", async () => {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const deps = fakeDeps(fakeConnector(""));
+    deps.runAskQuery = (async ({ stream }: { stream: unknown }) => {
+      (stream as { push: (l: string) => void }).push(
+        '{"op":"add","path":"/state/__error","value":"sandbox exploded"}\n'
+      );
+    }) as unknown as McpDeps["runAskQuery"];
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+
+    const result = await client.callTool({
+      name: "analyze",
+      arguments: { source_id, question: "?" },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(deps.persistHistoryEntry).not.toHaveBeenCalled();
+    const payload = parseToolJson(result);
+    expect(String(payload.error)).toContain("sandbox exploded");
+  });
+
+  it("warehouse analyze passes the stored warehouse state and persists under the materialized csvId", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    deps.getWarehouseState = vi.fn(() => ({ warehouse: {}, connector: {} }) as never);
+    deps.runAskQuery = (async ({
+      stream,
+      runState,
+      warehouseState,
+    }: {
+      stream: unknown;
+      runState: { csvId?: string };
+      warehouseState: unknown;
+    }) => {
+      expect(warehouseState).toBeTruthy();
+      runState.csvId = "materialized-42";
+      const push = (stream as { push: (l: string) => void }).push;
+      push('{"op":"add","path":"/root","value":"main"}\n');
+      push('{"op":"add","path":"/elements/a","value":{"type":"Text","props":{"content":"hi"}}}\n');
+    }) as unknown as McpDeps["runAskQuery"];
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    ) as { source_id: string };
+
+    const result = parseToolJson(
+      await client.callTool({ name: "analyze", arguments: { source_id, question: "q" } })
+    );
+    expect(deps.persistHistoryEntry).toHaveBeenCalledWith(
+      "materialized-42",
+      expect.anything(),
+      "q"
+    );
+    expect(deps.storeWarehouse).toHaveBeenCalled();
+    expect(result.history_id).toBe("hist-123");
   });
 });
 
