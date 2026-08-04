@@ -43,7 +43,7 @@
     "mcp:build-viewer": "node scripts/build-mcp-viewer.mjs"
   },
   "lint-staged": {
-    "*.{ts,tsx}": [
+    "*.{ts,tsx,mjs}": [
       "eslint --fix",
       "prettier --write"
     ],

@@ -193,8 +193,7 @@ const eslintConfig = defineConfig([
           patterns: [
             {
               group: ["@/app/*", "@/hooks/*", "@/lib/api", "@/components/app/*"],
-              message:
-                "the MCP viewer mounts the renderer closure only (mcp-server spec §4 M3).",
+              message: "the MCP viewer mounts the renderer closure only (mcp-server spec §4 M3).",
             },
             {
               group: ["next", "next/*"],

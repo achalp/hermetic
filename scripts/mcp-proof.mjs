@@ -55,7 +55,9 @@ for (const required of ["connect_source", "get_schema", "run_sql", "analyze"]) {
 console.error(`✔ tools: ${names.join(", ")}`);
 
 // 2. Connect + boundary invariant
-const connected = parse(await client.callTool({ name: "connect_source", arguments: { path: csvPath } }));
+const connected = parse(
+  await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+);
 if (!connected.source_id) fail("connect_source returned no source_id");
 if (JSON.stringify(connected).includes("sample_rows")) fail("raw rows leaked in connect_source");
 console.error(`✔ connect_source: ${connected.source_id} (${connected.schema.row_count} rows)`);
@@ -108,7 +110,10 @@ console.error(`✔ embedded viewer serves the dashboard at ${viewerUrl.origin}`)
 // 6. Audit trail exists and mentions the calls
 const auditFile = join(ROOT, "data", "mcp-audit.jsonl");
 if (!existsSync(auditFile)) fail("audit log missing");
-const auditLines = readFileSync(auditFile, "utf-8").trim().split("\n").map((l) => JSON.parse(l));
+const auditLines = readFileSync(auditFile, "utf-8")
+  .trim()
+  .split("\n")
+  .map((l) => JSON.parse(l));
 const audited = auditLines.slice(-4).map((e) => e.tool);
 if (!audited.includes("analyze")) fail("analyze not audited");
 console.error(`✔ audit log: ${auditLines.length} entries`);
