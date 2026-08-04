@@ -79,13 +79,11 @@ jobs:
         run: pnpm test:coverage
 
   # Golden transcripts: replay-mode server + journey runner, fully offline
-  # (LLM responses come from committed fixtures in test-fixtures/llm/).
-  # Activates automatically once goldens are recorded and committed
-  # (scripts/golden/run-journeys.mjs header documents the recording flow).
+  # (LLM responses come from committed fixtures in test-fixtures/llm/;
+  # scripts/golden/run-journeys.mjs header documents the recording flow).
   golden-transcripts:
     name: Golden Transcripts
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('test-fixtures/golden/*.ndjson') != '' }}
 
     steps:
       - uses: actions/checkout@v5
