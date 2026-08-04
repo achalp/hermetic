@@ -102,11 +102,3 @@ export type ReactSpec<TCatalog> = typeof schema extends {
 }
   ? S
   : never;
-
-// Backward compatibility aliases
-/** @deprecated Use `schema` instead */
-export const elementTreeSchema = schema;
-/** @deprecated Use `ReactSchema` instead */
-export type ElementTreeSchema = ReactSchema;
-/** @deprecated Use `ReactSpec` instead */
-export type ElementTreeSpec<T> = ReactSpec<T>;

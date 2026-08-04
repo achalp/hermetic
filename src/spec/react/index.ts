@@ -48,9 +48,6 @@ export {
   type ReactSchema,
   type ReactSpec,
   // Backward compatibility
-  elementTreeSchema,
-  type ElementTreeSchema,
-  type ElementTreeSpec,
 } from "./schema";
 
 // Core types (re-exported for convenience)
@@ -96,7 +93,6 @@ export {
   flatToTree,
   buildSpecFromParts,
   getTextFromParts,
-  useJsonRenderMessage,
   type UseUIStreamOptions,
   type UseUIStreamReturn,
   type UseChatUIOptions,

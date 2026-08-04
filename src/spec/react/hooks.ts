@@ -562,68 +562,6 @@ export function getTextFromParts(parts: DataPart[]): string {
 }
 
 // =============================================================================
-// useJsonRenderMessage — extract spec + text from message parts
-// =============================================================================
-
-/**
- * Hook that extracts both the json-render spec and text content from a
- * message's parts array. Combines `buildSpecFromParts` and `getTextFromParts`
- * into a single call with memoized results.
- *
- * **Memoization behavior:** Results are recomputed only when the `parts` array
- * reference changes **and** either the length differs or the last element is a
- * different object. This is optimized for the typical AI SDK streaming pattern
- * where parts are appended incrementally. Mid-array edits (e.g. replacing an
- * earlier part without appending) may not trigger recomputation. If you need to
- * force a recompute after such edits, pass a new array reference with a
- * different last element.
- *
- * @example
- * ```tsx
- * import { useJsonRenderMessage } from "@/spec/react";
- *
- * function MessageBubble({ message }) {
- *   const { spec, text, hasSpec } = useJsonRenderMessage(message.parts);
- *
- *   return (
- *     <div>
- *       {text && <Markdown>{text}</Markdown>}
- *       {hasSpec && <MyRenderer spec={spec} />}
- *     </div>
- *   );
- * }
- * ```
- */
-export function useJsonRenderMessage(parts: DataPart[]) {
-  const prevPartsRef = useRef<DataPart[]>([]);
-  const prevResultRef = useRef<{ spec: Spec | null; text: string }>({
-    spec: null,
-    text: "",
-  });
-
-  // Recompute only when parts actually change (by length + last element identity).
-  // AI SDK typically appends to the parts array during streaming, so checking
-  // length and the last element covers both "new array reference with same
-  // content" (no recompute) and "new part appended" (recompute).
-  const partsChanged =
-    parts !== prevPartsRef.current &&
-    (parts.length !== prevPartsRef.current.length ||
-      parts[parts.length - 1] !== prevPartsRef.current[prevPartsRef.current.length - 1]);
-
-  if (partsChanged || prevPartsRef.current.length === 0) {
-    prevPartsRef.current = parts;
-    prevResultRef.current = {
-      spec: buildSpecFromParts(parts),
-      text: getTextFromParts(parts),
-    };
-  }
-
-  const { spec, text } = prevResultRef.current;
-  const hasSpec = spec !== null && Object.keys(spec.elements || {}).length > 0;
-  return { spec, text, hasSpec };
-}
-
-// =============================================================================
 // useChatUI — Chat + GenUI hook
 // =============================================================================
 

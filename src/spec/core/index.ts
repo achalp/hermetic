@@ -121,16 +121,6 @@ export {
   check,
 } from "./validation";
 
-// Spec Structural Validation
-export type {
-  SpecIssueSeverity,
-  SpecIssue,
-  SpecValidationIssues,
-  ValidateSpecOptions,
-} from "./spec-validator";
-
-export { validateSpec, autoFixSpec, formatSpecIssues } from "./spec-validator";
-
 // Schema — defines the grammar (how specs and catalogs are structured)
 export type {
   SchemaBuilder,
@@ -159,8 +149,3 @@ export type {
 } from "./schema";
 
 export { defineCatalog } from "./schema";
-
-// User Prompt Builder
-export type { UserPromptOptions } from "./prompt";
-
-export { buildUserPrompt } from "./prompt";
