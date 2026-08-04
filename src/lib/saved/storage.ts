@@ -6,6 +6,8 @@ import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { hermeticPaths } from "@/lib/paths";
 import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
 import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
+import { validateSpec } from "@/lib/catalog";
+import { logger } from "@/lib/logger";
 
 /** Persisted workbook data — all sheets' CSV content + UI metadata */
 export interface SavedWorkbook {
@@ -47,6 +49,16 @@ export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta>
     localPath: input.localPath,
     sql: input.sql,
   };
+
+  // Warn-only spec validation (F7 — same policy as history persist): surfaces
+  // composer regressions in logs without ever blocking a save the user is
+  // depending on.
+  const check = validateSpec(input.spec);
+  if (!check.success) {
+    logger.warn("Persisting saved viz whose spec fails catalog validation", {
+      error: check.error?.slice(0, 300),
+    });
+  }
 
   const files: Record<string, string> = {
     [RECORD_FILES.meta]: JSON.stringify(meta, null, 2),
@@ -106,6 +118,16 @@ export async function saveNewVersion(
     localPath: input.localPath ?? meta.localPath,
     sql: input.sql ?? meta.sql,
   };
+
+  // Warn-only spec validation (F7 — same policy as history persist): surfaces
+  // composer regressions in logs without ever blocking a save the user is
+  // depending on.
+  const check = validateSpec(input.spec);
+  if (!check.success) {
+    logger.warn("Persisting saved viz whose spec fails catalog validation", {
+      error: check.error?.slice(0, 300),
+    });
+  }
 
   const files: Record<string, string> = {
     [RECORD_FILES.meta]: JSON.stringify(updatedMeta, null, 2),
