@@ -71,12 +71,19 @@ export function AddDataMenu({
       {recents.length > 0 && (
         <>
           <GroupHeading>Recent</GroupHeading>
-          <ScrollGroup rows={VISIBLE_ROWS} rowHeight={42}>
+          <ScrollGroup rows={VISIBLE_ROWS} rowHeight={46}>
             {recents.map((item) => (
               <MenuItem key={`${item.kind}:${item.id}`} onClick={pick(() => onOpenRecent(item))}>
                 <KindDot brandColor={item.brandColor} kind={item.kind} />
-                <span className="min-w-0 flex-1 truncate text-left font-medium text-t-primary text-sm">
-                  {item.name}
+                {/* Name + where: same-named files from different locations
+                    (exports, copies, tmp dirs) must be tellable apart. */}
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate font-medium text-t-primary text-sm">
+                    {item.name}
+                  </span>
+                  <span className="block truncate text-t-tertiary" style={{ fontSize: 11 }}>
+                    {item.subtitle}
+                  </span>
                 </span>
                 {item.meta && <Meta>{item.meta}</Meta>}
               </MenuItem>

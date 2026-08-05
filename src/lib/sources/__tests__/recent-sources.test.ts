@@ -90,11 +90,16 @@ describe("recent sources store", () => {
   });
 
   it("renames a source, keeping its identity", async () => {
+    // Path must EXIST — load-time pruning drops dead path-backed entries.
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir(join(TEST_HOME, "data"), { recursive: true });
+    const rawPath = join(TEST_HOME, "data", "raw.parquet");
+    await writeFile(rawPath, "x");
     await recordRecentSource({
       kind: "local-file",
       name: "raw.parquet",
-      subtitle: "/data/raw.parquet",
-      path: "/data/raw.parquet",
+      subtitle: rawPath,
+      path: rawPath,
     });
     const [before] = await loadRecentSources();
     await renameRecentSource(before.id, "Q3 raw");
@@ -108,11 +113,13 @@ describe("recent sources store", () => {
     try {
       for (let i = 0; i < 30; i++) {
         vi.setSystemTime(1_600_000_000_000 + i * 1000); // monotonic lastUsedAt
+        // URL-backed kind: exempt from existence pruning, so the cap is
+        // what this test actually exercises.
         await recordRecentSource({
-          kind: "local-file",
+          kind: "remote-parquet",
           name: `f${i}`,
-          subtitle: `/data/f${i}`,
-          path: `/data/f${i}`,
+          subtitle: `s3://bucket/f${i}`,
+          url: `s3://bucket/f${i}`,
         });
       }
     } finally {
@@ -137,5 +144,58 @@ describe("recent sources store", () => {
     await clearRecentSources();
     expect(await loadRecentSources()).toHaveLength(0);
     expect(await exists(entry.path!)).toBe(false);
+  });
+});
+
+describe("hygiene (found live: proof-run fixtures polluting the menu)", () => {
+  it("prunes path-backed entries whose file no longer exists, and persists the prune", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const liveDir = join(TEST_HOME, "live");
+    await mkdir(liveDir, { recursive: true });
+    const livePath = join(liveDir, "kept.csv");
+    await writeFile(livePath, "a\n1\n");
+
+    await recordRecentSource({
+      kind: "local-file",
+      name: "kept.csv",
+      subtitle: livePath,
+      path: livePath,
+    });
+    await recordRecentSource({
+      kind: "local-file",
+      name: "fixture.csv",
+      subtitle: "/tmp/mcp-proof-dead/fixture.csv",
+      path: join(TEST_HOME, "gone", "fixture.csv"),
+    });
+    await recordRecentSource({
+      kind: "remote-parquet",
+      name: "buildings",
+      subtitle: "s3://x/y",
+      url: "s3://x/y",
+    });
+
+    const list = await loadRecentSources();
+    expect(list.map((e) => e.name).sort()).toEqual(["buildings", "kept.csv"]);
+    // The prune persisted: a re-read (raw file) no longer contains the dead row.
+    const raw = JSON.parse(
+      await readFile(join(TEST_HOME, ".hermetic", "recent-sources.json"), "utf-8")
+    );
+    expect(raw).toHaveLength(2);
+  });
+
+  it("does not record while LLM replay mode is active (CI proofs must not write user state)", async () => {
+    const { configureLLMReplay } = await import("@/lib/llm/replay");
+    configureLLMReplay({ mode: "replay", dir: "/tmp/none" });
+    try {
+      await recordRecentSource({
+        kind: "remote-parquet",
+        name: "should-not-exist",
+        subtitle: "s3://x",
+        url: "s3://x",
+      });
+      expect(await loadRecentSources()).toHaveLength(0);
+    } finally {
+      configureLLMReplay(null);
+    }
   });
 });

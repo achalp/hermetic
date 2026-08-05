@@ -1,8 +1,10 @@
 import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, extname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import { hermeticPaths } from "@/lib/paths";
+import { llmReplayConfig } from "@/lib/llm/replay";
 
 /**
  * Recent data sources — the file/cloud analogue of the saved warehouse
@@ -57,11 +59,28 @@ function keyOf(s: Pick<RecentSource, "kind" | "url" | "path" | "name">): string 
   return dedupKey(s.kind, s.path ?? "");
 }
 
+/**
+ * Path-backed kinds self-prune: an entry whose file/folder no longer exists
+ * (deleted tmp dirs, unmounted drives, cleaned uploads) cannot be re-opened,
+ * so keeping it only produces dead identical-looking rows in the Add-data
+ * menu (found live: proof-run fixtures in mkdtemp dirs). Remote URLs are
+ * never probed — existence there means a network call.
+ */
+function isOpenable(e: RecentSource): boolean {
+  if (e.kind === "remote-parquet") return true;
+  return !e.path || existsSync(e.path);
+}
+
 export async function loadRecentSources(): Promise<RecentSource[]> {
   try {
     const raw = await readFile(indexPath(), "utf-8");
     const list = JSON.parse(raw) as RecentSource[];
-    return list.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+    const live = list.filter(isOpenable);
+    if (live.length !== list.length) {
+      // Best-effort persist of the prune so the dead rows don't reappear.
+      await write(live).catch(() => {});
+    }
+    return live.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
   } catch {
     return [];
   }
@@ -99,6 +118,11 @@ export interface RecordInput {
  */
 export async function recordRecentSource(input: RecordInput): Promise<void> {
   try {
+    // Replay-mode runs are tests (CI proofs, golden journeys) driving the
+    // real server with fixture files in throwaway dirs — recording those
+    // would pollute the user's actual recents (found live: five
+    // /tmp/mcp-proof-*/fixture.csv rows in the Add-data menu).
+    if (llmReplayConfig()?.mode === "replay") return;
     const list = await loadRecentSources();
     const now = new Date().toISOString();
     const key = keyOf(input);
