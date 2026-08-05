@@ -9,30 +9,60 @@ import type { WarehouseConnector } from "./connector";
 
 export function createClickHouseConnector(config: ClickHouseConnectionConfig): WarehouseConnector {
   const protocol = config.ssl ? "https" : "http";
-  const client: ClickHouseClient = createClient({
-    url: `${protocol}://${config.host}:${config.port}`,
-    username: config.user,
-    password: config.password,
-    database: config.database,
-    // Large materialization pulls (up to WAREHOUSE_MAX_ROWS) can take a while to
-    // scan + transfer; 120s was aborting them mid-stream ("socket closed before
-    // response fully read").
-    request_timeout: 300_000,
-    // Server-side write rejection — defense in depth behind assertReadOnlySql,
-    // whose first-keyword check was bypassable via DML-in-CTE
-    // (code-quality-hardening review). readonly=2 (not 1) so per-request
-    // settings still work; the readonly setting itself cannot be unset at 2.
-    clickhouse_settings: { readonly: "2" },
-  });
+  const makeClient = (requestReadonly: boolean): ClickHouseClient =>
+    createClient({
+      url: `${protocol}://${config.host}:${config.port}`,
+      username: config.user,
+      password: config.password,
+      database: config.database,
+      // Large materialization pulls (up to WAREHOUSE_MAX_ROWS) can take a while to
+      // scan + transfer; 120s was aborting them mid-stream ("socket closed before
+      // response fully read").
+      request_timeout: 300_000,
+      // Server-side write rejection — defense in depth behind assertReadOnlySql,
+      // whose first-keyword check was bypassable via DML-in-CTE
+      // (code-quality-hardening review). readonly=2 (not 1) so per-request
+      // settings still work; the readonly setting itself cannot be unset at 2.
+      ...(requestReadonly ? { clickhouse_settings: { readonly: "2" as const } } : {}),
+    });
+
+  let client: ClickHouseClient = makeClient(true);
+  let fellBack = false;
+
+  /**
+   * A user whose profile is ALREADY readonly=1 cannot have ANY setting
+   * modified per-request — including tightening `readonly` itself — so the
+   * defense-in-depth setting breaks exactly the servers that need no defense
+   * (found live against play.clickhouse.com). On that specific refusal, fall
+   * back once to a client that doesn't send the setting: the server's own
+   * readonly enforcement is strictly stronger than what we were asking for.
+   */
+  async function run<T>(fn: (c: ClickHouseClient) => Promise<T>): Promise<T> {
+    try {
+      return await fn(client);
+    } catch (err) {
+      const readonlyRefusal =
+        !fellBack &&
+        err instanceof Error &&
+        (err as { type?: string }).type === "READONLY" &&
+        /modify 'readonly' setting/i.test(err.message);
+      if (!readonlyRefusal) throw err;
+      fellBack = true;
+      void client.close().catch(() => {});
+      client = makeClient(false);
+      return await fn(client);
+    }
+  }
 
   return {
     async testConnection() {
-      await client.ping();
+      await run((c) => c.ping());
     },
 
     async listTables(): Promise<WarehouseTableInfo[]> {
-      const result = await client.query({
-        query: `SELECT t.name, t.total_rows, count(c.name) AS col_count
+      const result = await run((c) =>
+        c.query({
+          query: `SELECT t.name, t.total_rows, count(c.name) AS col_count
                 FROM system.tables t
                 LEFT JOIN system.columns c ON c.database = t.database AND c.table = t.name
                 WHERE t.database = currentDatabase()
@@ -40,8 +70,9 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
                   AND t.name NOT LIKE '.%'
                 GROUP BY t.name, t.total_rows
                 ORDER BY t.name`,
-        format: "JSONEachRow",
-      });
+          format: "JSONEachRow",
+        })
+      );
       const rows = await result.json<{ name: string; total_rows: string; col_count: string }>();
       return rows.map((r) => ({
         schema: config.database,
@@ -53,14 +84,16 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
 
     async introspectAllTables(): Promise<WarehouseTableSchema[]> {
       // First get the list of real tables (not views, system tables, etc.)
-      const tableResult = await client.query({
-        query: `SELECT name, total_rows
+      const tableResult = await run((c) =>
+        c.query({
+          query: `SELECT name, total_rows
                 FROM system.tables
                 WHERE database = currentDatabase()
                   AND engine NOT IN ('View', 'MaterializedView', 'Dictionary', 'SystemLog')
                   AND name NOT LIKE '.%'`,
-        format: "JSONEachRow",
-      });
+          format: "JSONEachRow",
+        })
+      );
       const tableRows = await tableResult.json<{ name: string; total_rows: string }>();
       const tableNames = new Set(tableRows.map((r) => r.name));
       const rowCounts = new Map(tableRows.map((r) => [r.name, Number(r.total_rows)]));
@@ -70,8 +103,9 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
       }
 
       // Get columns only for real tables
-      const colResult = await client.query({
-        query: `SELECT table, name, type
+      const colResult = await run((c) =>
+        c.query({
+          query: `SELECT table, name, type
                 FROM system.columns
                 WHERE database = currentDatabase()
                   AND table IN (
@@ -81,8 +115,9 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
                       AND name NOT LIKE '.%'
                   )
                 ORDER BY table, position`,
-        format: "JSONEachRow",
-      });
+          format: "JSONEachRow",
+        })
+      );
       const colRows = await colResult.json<{ table: string; name: string; type: string }>();
 
       // Group columns by table
@@ -112,10 +147,12 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
     },
 
     async executeSQL(sql: string): Promise<string> {
-      const result = await client.query({
-        query: sql,
-        format: "CSVWithNames",
-      });
+      const result = await run((c) =>
+        c.query({
+          query: sql,
+          format: "CSVWithNames",
+        })
+      );
       return await result.text();
     },
 
@@ -136,31 +173,37 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
       let range: { minT: number; maxT: number; total: number } | null = null;
       let isDateOnly = false;
       try {
-        const skResult = await client.query({
-          query: `SELECT sorting_key FROM system.tables
+        const skResult = await run((c) =>
+          c.query({
+            query: `SELECT sorting_key FROM system.tables
                   WHERE database = currentDatabase() AND name = {tbl:String}`,
-          query_params: { tbl },
-          format: "JSONEachRow",
-        });
+            query_params: { tbl },
+            format: "JSONEachRow",
+          })
+        );
         const sortingKey = (await skResult.json<{ sorting_key: string }>())[0]?.sorting_key ?? "";
         const firstKey = sortingKey.split(",")[0]?.trim().replace(/`/g, "");
         if (firstKey === dateColumn) {
-          const typeResult = await client.query({
-            query: `SELECT type FROM system.columns
+          const typeResult = await run((c) =>
+            c.query({
+              query: `SELECT type FROM system.columns
                     WHERE database = currentDatabase() AND table = {tbl:String} AND name = {col:String}`,
-            query_params: { tbl, col: dateColumn },
-            format: "JSONEachRow",
-          });
+              query_params: { tbl, col: dateColumn },
+              format: "JSONEachRow",
+            })
+          );
           const colType = (await typeResult.json<{ type: string }>())[0]?.type ?? "";
           // Date / Date32 (incl. Nullable/LowCardinality wrappers) — but NOT DateTime.
           isDateOnly = /\bDate(32)?\b/.test(colType) && !/DateTime/.test(colType);
-          const result = await client.query({
-            query: `SELECT toUnixTimestamp(min(\`${dateColumn}\`)) AS min_t,
+          const result = await run((c) =>
+            c.query({
+              query: `SELECT toUnixTimestamp(min(\`${dateColumn}\`)) AS min_t,
                            toUnixTimestamp(max(\`${dateColumn}\`)) AS max_t,
                            count() AS total
                     FROM \`${tbl}\``,
-            format: "JSONEachRow",
-          });
+              format: "JSONEachRow",
+            })
+          );
           const r = (await result.json<{ min_t: number; max_t: number; total: number }>())[0];
           const minT = Number(r?.min_t),
             maxT = Number(r?.max_t),
