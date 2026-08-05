@@ -19,6 +19,114 @@ export type SpecLike = Pick<Spec, never> & {
   elements?: unknown;
 };
 
+// ── Shared prose walker ──────────────────────────────────────────────
+
+/** One piece of narrative text lifted from a spec element. */
+export interface ProseItem {
+  /** Component type the text came from (e.g. "TextBlock", "Annotation"). */
+  type: string;
+  /** TextBlock variant when declared (the catalog default is "body"). */
+  variant?: string;
+  /** Annotation-style title, when present. */
+  title?: string;
+  /** The prose body alone (trimmed, without the title). */
+  content: string;
+  /** Display text: "title: content" when both are present, else whichever is. */
+  text: string;
+}
+
+export interface ExtractProseOpts {
+  /**
+   * Component types to lift prose from. Default: TextBlock + Annotation —
+   * the catalog's text-bearing components. Names that do not exist in the
+   * catalog silently extract nothing.
+   */
+  proseTypes?: readonly string[];
+  /** Also collect StatCard label/value pairs whose value is a LITERAL (state bindings are skipped — those live in `results`). */
+  statCards?: boolean;
+}
+
+export interface ExtractedProse {
+  prose: ProseItem[];
+  /** Headline figures from StatCards ([] unless opts.statCards). */
+  stats: Array<{ label: string; value: number | string }>;
+}
+
+const DEFAULT_PROSE_TYPES: readonly string[] = ["TextBlock", "Annotation"];
+
+/**
+ * Yield the spec's elements in document order (a walk from the root), then
+ * any elements unreachable from the root in insertion order — so narrative
+ * text is never dropped just because a patch left an orphan. Handles the
+ * no-root case (everything in insertion order) and cycles (visited set).
+ */
+function* iterateElements(spec: SpecLike): Generator<UIElementLike> {
+  const elements = spec.elements as Record<string, UIElementLike> | undefined;
+  if (!elements) return;
+  const visited = new Set<string>();
+  const walk = function* (key: string): Generator<UIElementLike> {
+    if (visited.has(key)) return;
+    visited.add(key);
+    const el = elements[key];
+    if (!el || typeof el.type !== "string") return;
+    yield el;
+    for (const child of el.children ?? []) yield* walk(child);
+  };
+  if (typeof spec.root === "string" && spec.root) yield* walk(spec.root);
+  for (const [key, el] of Object.entries(elements)) {
+    if (visited.has(key)) continue;
+    visited.add(key);
+    if (el && typeof el.type === "string") yield el;
+  }
+}
+
+/**
+ * THE spec prose walker. Every consumer that needs "the narrative text of a
+ * spec" — history summaries, notebook export, (eventually) the MCP result
+ * summary — extracts through this one function, so the set of text-bearing
+ * component types lives in exactly ONE place. The alternative — each caller
+ * enumerating types in its own switch — is the walker-goes-stale failure
+ * mode extractLabel's comment documents (ARCH-11): a new catalog component
+ * renders fine but silently vanishes from every summary.
+ *
+ * Prose comes from the text-bearing components' `content` (with a `text`
+ * prop fallback); Annotation-style titles are kept with their body as
+ * "title: content". Only string props are lifted — a {"$state": ...}
+ * binding must not stringify to noise.
+ */
+export function extractProse(spec: SpecLike, opts: ExtractProseOpts = {}): ExtractedProse {
+  const proseTypes = new Set(opts.proseTypes ?? DEFAULT_PROSE_TYPES);
+  const prose: ProseItem[] = [];
+  const stats: Array<{ label: string; value: number | string }> = [];
+
+  for (const el of iterateElements(spec)) {
+    const props = el.props ?? {};
+    if (opts.statCards && el.type === "StatCard") {
+      const label = typeof props.label === "string" ? props.label : null;
+      const value = props.value;
+      if (label && (typeof value === "number" || typeof value === "string")) {
+        stats.push({ label, value });
+      }
+      continue;
+    }
+    if (!proseTypes.has(el.type)) continue;
+    const raw = props.content ?? props.text;
+    const content = typeof raw === "string" ? raw.trim() : "";
+    const title =
+      typeof props.title === "string" && props.title.trim() ? props.title.trim() : undefined;
+    if (!content && !title) continue;
+    prose.push({
+      type: el.type,
+      variant: typeof props.variant === "string" ? props.variant : undefined,
+      title,
+      content,
+      text: title ? (content ? `${title}: ${content}` : title) : content,
+    });
+  }
+
+  return { prose, stats };
+}
+
 /**
  * Produce a compact text summary of a spec for conversation context.
  * Much smaller than sending the full JSON to the LLM.
@@ -108,27 +216,12 @@ export function extractSpecComponentTypes(spec: SpecLike): string[] {
  * Falls back to concatenating all body-variant TextBlocks if only one exists.
  */
 export function extractDescription(spec: SpecLike): string {
-  const elements = spec.elements as Record<string, UIElementLike>;
-  if (!elements || typeof spec.root !== "string") return "";
-
-  // Collect body-variant TextBlocks in document order by walking the tree
-  const bodyTexts: string[] = [];
-  const walkForBody = (key: string) => {
-    const el = elements[key];
-    if (!el) return;
-    if (el.type === "TextBlock") {
-      const variant = el.props?.variant ?? "body";
-      if (variant === "body" && el.props?.content) {
-        bodyTexts.push(String(el.props.content));
-      }
-    }
-    if (el.children) {
-      for (const child of el.children) walkForBody(child);
-    }
-  };
-  walkForBody(spec.root);
+  // Body-variant TextBlocks in document order, via the shared prose walker.
+  const bodyTexts = extractProse(spec, { proseTypes: ["TextBlock"] }).prose.filter(
+    (p) => (p.variant ?? "body") === "body"
+  );
 
   // The methodology is typically the last body TextBlock
-  if (bodyTexts.length > 0) return bodyTexts[bodyTexts.length - 1];
+  if (bodyTexts.length > 0) return bodyTexts[bodyTexts.length - 1].content;
   return "";
 }

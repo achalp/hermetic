@@ -87,11 +87,27 @@ registerSweepable("csv", async () => {
   return { csvExpired: expired, csvOrphans: orphans };
 });
 
-export async function storeCSV(csvId: string, csvText: string, schema: CSVSchema): Promise<void> {
+/**
+ * `local` attaches the on-disk origin (bind-mount execution + TTL exemption)
+ * AT store time — callers used to patch localPath onto the returned entry
+ * after the fact, which left the ref invisible to this module's invariants.
+ */
+export async function storeCSV(
+  csvId: string,
+  csvText: string,
+  schema: CSVSchema,
+  local?: { path: string; mtime: number }
+): Promise<void> {
   await ensureDir();
   const filePath = join(csvDir(), `${csvId}.csv`);
   await writeFile(filePath, csvText, "utf-8");
-  store.set(csvId, { schema, filePath, createdAt: Date.now() });
+  store.set(csvId, {
+    schema,
+    filePath,
+    createdAt: Date.now(),
+    localPath: local?.path,
+    localMtime: local?.mtime,
+  });
 }
 
 export function getStoredCSV(csvId: string): StoredCSV | undefined {

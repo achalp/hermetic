@@ -15,6 +15,12 @@ import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { McpToolError, unknownSource } from "../errors";
 
+/** The McpDeps slice run_sql consumes (see LivenessDeps for the pattern). */
+export type RunSqlDeps = Pick<
+  McpDeps,
+  "assertReadOnlySql" | "parseCSV" | "getWarehouseState" | "getStoredCSV"
+>;
+
 export const runSqlInput = {
   source_id: z.string().describe("A warehouse source_id from connect_source."),
   sql: z.string().describe("A single read-only SELECT statement (engine dialect)."),
@@ -30,7 +36,7 @@ export const runSqlInput = {
 const DEFAULT_MAX_ROWS = 200;
 
 export async function runSql(
-  deps: McpDeps,
+  deps: RunSqlDeps,
   args: { source_id: string; sql: string; max_rows?: number }
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);

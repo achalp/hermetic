@@ -28,7 +28,7 @@ import {
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import type { PatchStream } from "@/lib/pipeline/patch-stream";
 import { logger, serializeError } from "@/lib/logger";
-import type { WarehouseState } from "@/lib/pipeline/validate-request";
+import type { ResolvedAnalysisSource } from "@/lib/pipeline/validate-request";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 
@@ -54,8 +54,12 @@ export interface AskRunState {
 export interface RunAskQueryArgs {
   context: AnalysisRequestContext;
   question: string;
-  warehouseId: string | undefined;
-  warehouseState: WarehouseState | null | undefined;
+  /**
+   * Discriminated source from validate-request: a stored CSV (upload/local/
+   * remote ref) or a live warehouse connection. Narrowing `kind` once here
+   * replaced the csvId!/warehouseState! assertions this file carried.
+   */
+  source: ResolvedAnalysisSource;
   codeGenModel: string;
   uiComposeModel: string;
   sandboxRuntime: SandboxRuntimeId;
@@ -67,8 +71,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
   const {
     context,
     question,
-    warehouseId,
-    warehouseState,
+    source,
     codeGenModel,
     uiComposeModel,
     sandboxRuntime,
@@ -96,21 +99,21 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
   const editedSql: string | undefined =
     typeof context.sql === "string" && context.sql.trim().length > 0 ? context.sql : undefined;
 
-  const isWarehouse = !!warehouseState;
+  const isWarehouse = source.kind === "warehouse";
   const totalSteps = isWarehouse ? 5 : 3;
 
   // Conversation turns must key by a STABLE id. Files: csvId (constant per
   // upload). Warehouse: warehouseId — each warehouse question materializes a
   // NEW snapshot csvId, so keying those turns by csvId stored them under ids
   // that were never read again (warehouse follow-ups silently had no context).
-  const conversationKey = isWarehouse ? warehouseId : runState.csvId;
+  const conversationKey = source.kind === "warehouse" ? source.warehouseId : source.csvId;
 
   let warehouseSQL: string | undefined;
   // Set when a large warehouse pull was materialized to Parquet: the host
   // file to copy into the sandbox and the DuckDB read instructions.
   let warehouseParquetFile: string | undefined;
   let warehouseParquetContext: string | undefined;
-  let datasetLabel = runState.csvId ?? warehouseId ?? "dataset";
+  let datasetLabel = runState.csvId ?? conversationKey;
 
   const emit = stream.emit;
   const closed = () => stream.isClosed();
@@ -127,11 +130,16 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // Follow-up context — read once, BEFORE SQL generation, so a
         // warehouse follow-up's SQL inherits the prior turns' questions
         // and SQL (population continuity), not just the Python stage.
-        const priorTurns = conversationKey ? getConversationTurns(conversationKey) : [];
+        const priorTurns = getConversationTurns(conversationKey);
+
+        // The analysis' data id: the csv source directly, or the snapshot a
+        // warehouse run materializes below. Guaranteed a string past this
+        // block — downstream stages previously asserted `csvId!` per read.
+        let csvId: string;
 
         // ── Warehouse path: generate SQL → execute → store as CSV ──
-        if (warehouseState) {
-          const { warehouse, connector } = warehouseState;
+        if (source.kind === "warehouse") {
+          const { warehouse, connector } = source.warehouseState;
 
           // Step 1/5 + 2/5: Generate + execute SQL — or use the edited SQL
           // if the user supplied one via Edit-and-Rerun.
@@ -217,21 +225,22 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             sandboxRuntime,
             emit,
           });
-          runState.csvId = storedResult.csvId;
+          csvId = storedResult.csvId;
+          runState.csvId = csvId;
           warehouseParquetFile = storedResult.parquetFile;
           warehouseParquetContext = storedResult.parquetContext;
           // Warehouse csvId now known — make the run discoverable by it,
           // and alias this snapshot onto the stable conversation key so
           // csvId-keyed consumers (history persist, suggest) find the
           // warehouse conversation.
-          stream.setMeta({ csvId: runState.csvId });
-          if (conversationKey) aliasConversationKey(runState.csvId, conversationKey);
+          stream.setMeta({ csvId });
+          aliasConversationKey(csvId, conversationKey);
+        } else {
+          csvId = source.csvId;
         }
 
-        const csvId = runState.csvId;
-
         // ── Load CSV (file upload or warehouse result) ──────────
-        const stored = getStoredCSV(csvId!);
+        const stored = getStoredCSV(csvId);
         if (!stored) {
           throw new Error("CSV not found or expired. Please re-upload.");
         }
@@ -239,8 +248,8 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
 
         // Determine if this is a local file (bind-mount path) or a remote
         // cloud Parquet source (DuckDB reads the URL directly, no mount).
-        const isLocal = isLocalFile(csvId!);
-        const isRemote = isRemoteFile(csvId!);
+        const isLocal = isLocalFile(csvId);
+        const isRemote = isRemoteFile(csvId);
         let localMountPath: string | undefined;
 
         if (isLocal) {
@@ -255,8 +264,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           if (stored.localMtime) {
             try {
               const { stat } = await import("node:fs/promises");
-              const pathToCheck = stored.localFolderPath || stored.localPath!;
-              const info = await stat(pathToCheck);
+              const info = await stat(hostPath);
               if (info.mtimeMs !== stored.localMtime) {
                 throw new Error(
                   "Source file has been modified since schema was extracted. Please re-select the file."
@@ -278,7 +286,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // URL) the analysis reads Parquet directly — never load the
         // (large) CSV into memory.
         const csvContent =
-          isLocal || isRemote || warehouseParquetFile ? "" : await getCSVContent(csvId!);
+          isLocal || isRemote || warehouseParquetFile ? "" : await getCSVContent(csvId);
         if (!isLocal && !isRemote && !warehouseParquetFile && !csvContent) {
           if (stored.schema.source_type === "warehouse") {
             throw new Error(
@@ -289,10 +297,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         }
 
         // Fetch GeoJSON sidecar if the upload was GeoJSON
-        const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
+        const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId) : null;
 
         // Check for workbook manifest (multi-sheet analysis)
-        const manifest = getWorkbookManifest(csvId!);
+        const manifest = getWorkbookManifest(csvId);
         let additionalFiles: AdditionalFile[] | undefined;
         let workbookContext: string | undefined;
 
@@ -382,7 +390,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // nothing behind (run 16ac725e, 2026-07-09).
 
         // Cache the generated code for save functionality
-        cacheGeneratedCode(csvId!, pipelineResult.generatedCode, question);
+        cacheGeneratedCode(csvId, pipelineResult.generatedCode, question);
 
         // Cache artifacts for the artifacts viewer
         const { executionResult } = pipelineResult;
@@ -395,17 +403,17 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           execution_ms: executionResult.execution_ms ?? 0,
           sql: warehouseSQL,
         };
-        cacheArtifacts(csvId!, cachedArtifactData);
+        cacheArtifacts(csvId, cachedArtifactData);
 
         // Append this turn to the conversation cache for follow-up context.
         // specSummary is empty here because the UI spec hasn't been streamed yet —
         // it will be populated by the client via the update endpoint after rendering.
         // The analysisSummary (resultKeys + chartDataShapes) is the critical part
         // that tells the code gen LLM what was computed.
-        if (conversationKey) {
-          const turn = buildTurnFromArtifacts(question, cachedArtifactData, {});
-          appendConversationTurn(conversationKey, turn);
-        }
+        appendConversationTurn(
+          conversationKey,
+          buildTurnFromArtifacts(question, cachedArtifactData, {})
+        );
         // Compose + stream the dashboard. Shared with the Investigate lookup
         // fast-path (see lib/pipeline/dashboard-compose.ts) so both produce an
         // identical single-shot dashboard from one execution result.

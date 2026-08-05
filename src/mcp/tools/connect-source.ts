@@ -11,6 +11,14 @@
  *                   Hive-partitioned prefix, read over the network by DuckDB.
  *   connection_id — saved warehouse connection (created in the hermetic app).
  *
+ * The `path` branch is the shared ingestion pipeline (lib/sources/ingest.ts)
+ * — the SAME dispatch/parse/validate/store the web upload and local-files
+ * routes use, so MCP sources get large-CSV Parquet materialization,
+ * warm-sandbox prep, and Recents recording too. The `connection_id` branch
+ * uses the shared cached introspection (lib/warehouse/introspect.ts), so
+ * reconnects hit the schema cache and tables carry inferred relationships,
+ * identical to the web connect route.
+ *
  * The response never carries credentials, raw rows, or file contents — only
  * the id, label, and the same schema summary get_schema returns.
  *
@@ -21,17 +29,17 @@
  * connections saved once in the web app. That policy is also why there is no
  * "new warehouse connection" input here.
  */
-import { readFileSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { McpDeps } from "../deps";
-import { registerSource, type McpSource, type SourceOrigin } from "../sources";
+import { ingestFromDeps, type McpDeps } from "../deps";
+import { registerSource, type McpSource } from "../sources";
 import { McpToolError } from "../errors";
 import { summarizeSource } from "./get-schema";
+import { IngestError, type IngestResult } from "@/lib/sources/ingest";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
+import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 export const connectSourceInput = {
   path: z
@@ -60,9 +68,6 @@ export const connectSourceInput = {
   label: z.string().optional().describe("Optional display label for the source."),
 };
 
-/** Refuse to slurp arbitrarily large text files into memory. */
-const MAX_TEXT_BYTES = 200 * 1024 * 1024;
-
 /** Private-bucket auth from the SERVER environment (never tool args). */
 export function envRemoteCreds(env: NodeJS.ProcessEnv = process.env): RemoteCreds | undefined {
   const creds: RemoteCreds = {};
@@ -80,17 +85,6 @@ function filenameFromUrl(url: string): string {
     return u.pathname.split("/").filter(Boolean).pop() || u.hostname;
   } catch {
     return url.split("/").filter(Boolean).pop() || url;
-  }
-}
-
-function guardSize(abs: string): void {
-  const size = statSync(abs).size;
-  if (size > MAX_TEXT_BYTES) {
-    throw new McpToolError(
-      "invalid_input",
-      `File is ${Math.round(size / (1024 * 1024))}MB — over the ${MAX_TEXT_BYTES / (1024 * 1024)}MB limit for ` +
-        "in-memory formats. Convert to Parquet or use a warehouse connection."
-    );
   }
 }
 
@@ -125,82 +119,37 @@ async function connectUrl(deps: McpDeps, url: string, label?: string): Promise<M
   });
 }
 
-async function connectCsvText(
-  deps: McpDeps,
-  csvText: string,
-  filename: string,
-  label: string | undefined,
-  geojsonText?: string,
-  origin?: SourceOrigin
-): Promise<McpSource> {
-  const parsed = deps.parseCSV(csvText);
-  if (parsed.headers.length === 0)
-    throw new McpToolError("invalid_input", `${filename}: no columns found.`);
-  if (parsed.rowCount === 0) throw new McpToolError("invalid_input", `${filename}: no data rows.`);
-  const csvId = randomUUID();
-  const schema = deps.extractSchema(parsed, csvId, filename);
-  if (geojsonText) {
-    schema.has_geojson = true;
-    schema.geojson_geometry_type = deps.parseGeoJSON(geojsonText).geometryType;
-  }
-  const normalized = deps.toCSVText(parsed);
-  await deps.storeCSV(csvId, normalized, schema);
-  if (geojsonText) await deps.storeGeoJSON(csvId, geojsonText);
-  return registerSource({ kind: "csv", label: label ?? filename, csvId, schema, origin });
-}
-
-async function connectParquetPath(
-  deps: McpDeps,
-  abs: string,
-  isFolder: boolean,
-  label?: string
-): Promise<McpSource> {
-  const info = await deps.getFileInfo(abs);
-  const isHive = isFolder ? (info.isHivePartitioned ?? false) : undefined;
-  const csvId = randomUUID();
-  const schema = await deps.extractParquetSchema(
-    abs,
-    csvId,
-    basename(abs),
-    isFolder,
-    deps.getActiveSandboxRuntime(),
-    isHive
-  );
-  deps.storeLocalFileRef(csvId, schema, abs, info.mtime, isFolder, isHive);
-  return registerSource({
-    kind: "csv",
-    label: label ?? basename(abs),
-    csvId,
-    schema,
-    pathBased: true,
-    origin: { via: "path", path: abs },
-  });
-}
-
-interface ExcelSheetListing {
-  needs_sheet: true;
-  path: string;
-  sheets: Array<{ name: string; row_count: number; column_count: number }>;
-  hint: string;
-}
-
-async function connectExcel(
+async function connectPath(
   deps: McpDeps,
   abs: string,
   sheet: string | undefined,
-  label?: string
-): Promise<McpSource | ExcelSheetListing> {
-  guardSize(abs);
-  const buffer = await readFile(abs);
-  const { sheets, workbook } = await deps.parseExcelMeta(buffer);
-  if (sheets.length === 0) throw new McpToolError("invalid_input", "Excel file has no sheets.");
+  label: string | undefined
+): Promise<McpSource | Record<string, unknown>> {
+  let result: IngestResult;
+  try {
+    result = await ingestFromDeps(deps)(
+      { path: abs, sheet },
+      // MCP opts into the web routes' conveniences: large-CSV Parquet
+      // materialization (docker-only — the same gate the upload route uses,
+      // enforced inside ingest), warm-sandbox prep (cheap: fire-and-forget,
+      // it only pre-loads data into an already-managed warm container so
+      // analyze/run_analysis start faster), and Recents recording (the same
+      // "re-open in one click" value the web Recents list gets —
+      // list_sources-adjacent).
+      { materializeLargeCsv: true, warmSandbox: true, recordRecent: true }
+    );
+  } catch (err) {
+    // Ingest raises plain, actionable IngestErrors; the mapping into the MCP
+    // error taxonomy (src/mcp/errors.ts) lives at THIS boundary.
+    if (err instanceof IngestError) throw new McpToolError("invalid_input", err.message);
+    throw err;
+  }
 
-  const pick = sheet ?? (sheets.length === 1 ? sheets[0].name : undefined);
-  if (!pick) {
+  if (result.kind === "sheet_picker") {
     return {
       needs_sheet: true,
       path: abs,
-      sheets: sheets.map((sh) => ({
+      sheets: result.sheets.map((sh) => ({
         name: sh.name,
         row_count: sh.rowCount,
         column_count: sh.columnCount,
@@ -208,41 +157,83 @@ async function connectExcel(
       hint: "Multiple sheets — call connect_source again with the same path and a `sheet`.",
     };
   }
-  if (!sheets.some((sh) => sh.name === pick)) {
-    throw new McpToolError(
-      "invalid_input",
-      `No sheet named '${pick}'. Sheets: ${sheets.map((sh) => sh.name).join(", ")}`
-    );
-  }
-  const csvText = deps.sheetToCSV(workbook, pick);
-  const filename = `${basename(abs)} (${pick})`;
-  return connectCsvText(deps, csvText, filename, label, undefined, {
-    via: "path",
-    path: abs,
-    sheet: pick,
+
+  return registerSource({
+    kind: "csv",
+    label: label ?? result.schema.filename,
+    csvId: result.csvId,
+    schema: result.schema,
+    // Parquet refs AND materialized large CSVs are bind-mounted, not stored
+    // CSV text — run_analysis redirects those to analyze.
+    pathBased: result.pathBased || undefined,
+    origin: { via: "path", path: abs, sheet: result.sheet },
   });
 }
 
-async function connectGeoJson(deps: McpDeps, abs: string, label?: string): Promise<McpSource> {
-  guardSize(abs);
-  const text = readFileSync(abs, "utf-8");
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(text);
-  } catch {
-    throw new McpToolError("invalid_input", `${basename(abs)}: not valid JSON.`);
-  }
-  if (!deps.isGeoJSONObject(parsedJson)) {
+async function connectWarehouse(
+  deps: McpDeps,
+  connectionId: string,
+  label: string | undefined
+): Promise<McpSource> {
+  const connections = await deps.loadConnections();
+  const saved = connections.find((c) => c.id === connectionId);
+  if (!saved) {
+    const known = connections.map((c) => c.id).join(", ") || "(none)";
     throw new McpToolError(
       "invalid_input",
-      `${basename(abs)}: JSON but not GeoJSON — only GeoJSON .json is supported.`
+      `No saved connection '${connectionId}'. Known ids: ${known}`
     );
   }
-  const geo = deps.parseGeoJSON(text);
-  if (geo.headers.length === 0)
-    throw new McpToolError("invalid_input", `${basename(abs)}: GeoJSON has no properties.`);
-  const csvText = deps.toCSVText(geo);
-  return connectCsvText(deps, csvText, basename(abs), label, text, { via: "path", path: abs });
+  const connector = deps.createConnector(saved.config);
+  await connector.testConnection();
+
+  // Cached, relationship-enriched introspection — the SAME path the web
+  // connect route uses (lib/warehouse/introspect.ts): schema-cache keyed by
+  // warehouseSourceKey, fingerprint-gated on the cheap table listing, with
+  // inferRelationships baked into the cached artifact. The raw fallback
+  // serves fake-deps suites that predate the seam.
+  let tableInfos: WarehouseTableInfo[];
+  let tableSchemas: WarehouseTableSchema[];
+  if (deps.introspectWithCache) {
+    ({ tables: tableInfos, tableSchemas } = await deps.introspectWithCache(
+      connector,
+      saved.config
+    ));
+  } else {
+    tableSchemas = await connector.introspectAllTables();
+    tableInfos = await connector.listTables();
+  }
+
+  // Flatten per-table FKs (native + inferred) into one join list — on the
+  // source so get_schema can surface it, and on the connect response now.
+  const relationships = tableSchemas.flatMap((t) =>
+    (t.foreign_keys ?? []).map((fk) => ({ table: t.name, ...fk }))
+  );
+
+  const source = registerSource({
+    kind: "warehouse",
+    label: label ?? saved.name ?? saved.label,
+    connectionId: saved.id,
+    warehouseType: saved.config.type,
+    connector,
+    tables: tableSchemas,
+    relationships: relationships.length > 0 ? relationships : undefined,
+    origin: { via: "connection_id", connection_id: saved.id },
+  });
+  // Also register in the shared warehouse store under the source id, so
+  // analyze() can hand runAskQuery the same {warehouse, connector} state
+  // the web harness assembles (validate-request.ts).
+  deps.storeWarehouse(
+    {
+      warehouseId: source.id,
+      config: saved.config,
+      tables: tableInfos,
+      tableSchemas,
+      createdAt: Date.now(),
+    },
+    connector
+  );
+  return source;
 }
 
 export async function connectSource(
@@ -268,80 +259,20 @@ export async function connectSource(
   if (args.url) {
     source = await connectUrl(deps, args.url.trim(), args.label);
   } else if (args.path) {
-    const abs = resolve(args.path);
-    const st = statSync(abs);
-    if (st.isDirectory()) {
-      source = await connectParquetPath(deps, abs, true, args.label);
-    } else {
-      const ext = extname(abs).toLowerCase();
-      if (ext === ".parquet") {
-        source = await connectParquetPath(deps, abs, false, args.label);
-      } else if (ext === ".xlsx") {
-        const result = await connectExcel(deps, abs, args.sheet, args.label);
-        if ("needs_sheet" in result) return result as unknown as Record<string, unknown>;
-        source = result;
-      } else if (ext === ".geojson" || ext === ".json") {
-        source = await connectGeoJson(deps, abs, args.label);
-      } else if (ext === ".csv") {
-        guardSize(abs);
-        source = await connectCsvText(
-          deps,
-          readFileSync(abs, "utf-8"),
-          basename(abs),
-          args.label,
-          undefined,
-          {
-            via: "path",
-            path: abs,
-          }
-        );
-      } else {
-        throw new McpToolError(
-          "invalid_input",
-          `Unsupported file type '${ext}'. Supported: .csv, .xlsx, .geojson/.json (GeoJSON), ` +
-            ".parquet, or a Parquet folder."
-        );
-      }
-    }
+    const connected = await connectPath(deps, resolve(args.path), args.sheet, args.label);
+    if ("needs_sheet" in connected) return connected as Record<string, unknown>;
+    source = connected as McpSource;
   } else {
-    const connections = await deps.loadConnections();
-    const saved = connections.find((c) => c.id === args.connection_id);
-    if (!saved) {
-      const known = connections.map((c) => c.id).join(", ") || "(none)";
-      throw new McpToolError(
-        "invalid_input",
-        `No saved connection '${args.connection_id}'. Known ids: ${known}`
-      );
-    }
-    const connector = deps.createConnector(saved.config);
-    await connector.testConnection();
-    const tables = await connector.introspectAllTables();
-    const tableInfos = await connector.listTables();
-    source = registerSource({
-      kind: "warehouse",
-      label: args.label ?? saved.name ?? saved.label,
-      connectionId: saved.id,
-      warehouseType: saved.config.type,
-      connector,
-      tables,
-      origin: { via: "connection_id", connection_id: saved.id },
-    });
-    // Also register in the shared warehouse store under the source id, so
-    // analyze() can hand runAskQuery the same {warehouse, connector} state
-    // the web harness assembles (validate-request.ts).
-    deps.storeWarehouse(
-      {
-        warehouseId: source.id,
-        config: saved.config,
-        tables: tableInfos,
-        tableSchemas: tables,
-        createdAt: Date.now(),
-      },
-      connector
-    );
+    source = await connectWarehouse(deps, args.connection_id!, args.label);
   }
 
-  return { source_id: source.id, ...summarizeSource(source) };
+  const summary: Record<string, unknown> = { source_id: source.id, ...summarizeSource(source) };
+  // Additive: the join graph rides the connect response too, so a host can
+  // plan SQL without a second call.
+  if (source.kind === "warehouse" && source.relationships) {
+    summary.relationships = source.relationships;
+  }
+  return summary;
 }
 
 export type { CSVSchema };

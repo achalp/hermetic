@@ -53,6 +53,14 @@ export interface CsvSource {
   pathBased?: boolean;
 }
 
+/** One join edge, flattened from a table's (native or inferred) FKs. */
+export interface WarehouseRelationship {
+  table: string;
+  column: string;
+  references_table: string;
+  references_column: string;
+}
+
 export interface WarehouseSource {
   id: string;
   kind: "warehouse";
@@ -63,6 +71,8 @@ export interface WarehouseSource {
   connector: WarehouseConnector;
   /** Introspected once at connect; refreshed only by reconnecting. */
   tables: WarehouseTableSchema[];
+  /** Flattened join graph, set at connect — for get_schema to surface. */
+  relationships?: WarehouseRelationship[];
 }
 
 export type McpSource = CsvSource | WarehouseSource;

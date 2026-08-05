@@ -48,7 +48,7 @@ const METRICS = [
   {
     id: "app-raw-fetch",
     why: "app-layer network calls must go through the typed client in app/lib/api.ts",
-    dirs: ["src/components/app", "src/hooks", "src/app"],
+    dirs: ["src/hooks", "src/app"],
     // app/lib IS the sanctioned fetch site (the typed client + the keepalive
     // client-log bridge live there since the lib→app move) — its internals are
     // the seam, not violations of it.
@@ -58,7 +58,7 @@ const METRICS = [
   {
     id: "api-boundary-casts",
     why: "double-casts standing in for shared request/response types",
-    dirs: ["src/components/app", "src/hooks", "src/app"],
+    dirs: ["src/hooks", "src/app"],
     excludeDirs: ["src/app/api"],
     pattern: /as unknown as/g,
   },

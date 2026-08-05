@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/warehouse/materialization-scope", () => ({ pickMaterializationScope: vi.fn() }));
-vi.mock("@/lib/warehouse/sql-generation", () => ({ generateSQLWithRepair: vi.fn() }));
+vi.mock("@/lib/sqlgen/materialization-scope", () => ({ pickMaterializationScope: vi.fn() }));
+vi.mock("@/lib/sqlgen/sql-generation", () => ({ generateSQLWithRepair: vi.fn() }));
 
 import { runWarehouseQuery, scanWindowHint } from "@/lib/warehouse/run-query";
-import { pickMaterializationScope } from "@/lib/warehouse/materialization-scope";
-import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
+import { pickMaterializationScope } from "@/lib/sqlgen/materialization-scope";
+import { generateSQLWithRepair } from "@/lib/sqlgen/sql-generation";
 
 const mockedScope = vi.mocked(pickMaterializationScope);
 const mockedRepair = vi.mocked(generateSQLWithRepair);

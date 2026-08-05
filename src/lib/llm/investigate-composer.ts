@@ -19,6 +19,12 @@
 import { streamText, generateText } from "ai";
 import { withPhase, withPhaseSync } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
+import { truncateValue } from "@/lib/llm/truncate-value";
+import {
+  noLiteralNumberRule,
+  resultPlaceholderLine,
+  chartDataPlaceholderLine,
+} from "@/lib/llm/prompt-fragments";
 import { catalog } from "@/lib/catalog";
 import { UI_COMPOSE_MODEL, GAP_CHECK_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt, resolvePurpose } from "@/lib/purpose-prompts";
@@ -77,39 +83,6 @@ export function describeResultsSchema(obj: Record<string, unknown>): Record<stri
     }
   }
   return schema;
-}
-
-function truncateValue(val: unknown, maxChars: number): unknown {
-  if (Array.isArray(val)) {
-    for (let limit = Math.min(val.length, 50); limit >= 5; limit = Math.floor(limit / 2)) {
-      const sliced = val.slice(0, limit);
-      const json = JSON.stringify(sliced);
-      if (json.length <= maxChars) {
-        if (limit < val.length) return { _truncated: true, _total: val.length, _sample: sliced };
-        return sliced;
-      }
-    }
-    return { _truncated: true, _total: val.length, _sample: val.slice(0, 3) };
-  }
-  const json = JSON.stringify(val);
-  if (json.length <= maxChars) return val;
-  if (typeof val === "object" && val !== null) {
-    const entries = Object.entries(val as Record<string, unknown>);
-    const trimmed: Record<string, unknown> = {};
-    let remaining = maxChars - 50;
-    for (const [k, v] of entries) {
-      const s = JSON.stringify(v);
-      if (s.length <= remaining) {
-        trimmed[k] = v;
-        remaining -= s.length;
-      } else {
-        trimmed[k] = truncateValue(v, Math.max(remaining, 200));
-        break;
-      }
-    }
-    return trimmed;
-  }
-  return String(val).slice(0, maxChars);
 }
 
 // ── Per-step namespace + flatten ──────────────────────────────────────
@@ -236,7 +209,12 @@ ${sectionStructure}
 - Keep total component count to about 20 — a focused dashboard reads better and composes faster than an exhaustive one. Favor a few high-signal components per step over many low-value ones.
 
 ## Grounding & citations (STRICT — a wrong number stated confidently is the worst failure)
-- NEVER write a literal number in prose. Every figure MUST be a $result:step_N_<key> placeholder so it resolves from a value the analysis actually computed. If you cannot express a number as a placeholder, do not state the number.
+- ${noLiteralNumberRule({
+    figure: "figure",
+    placeholder: "$result:step_N_<key>",
+    clause: " so it resolves from a value the analysis actually computed",
+    fallback: "If you cannot express a number as a placeholder, do not state the number.",
+  })}
 - Do NOT invent derived figures (growth %, ratios, differences) unless a sub-question computed them and exposed a key for them. If the derived value wasn't computed, describe the direction qualitatively ("rose", "roughly doubled") instead of fabricating a precise figure.
 - SCOPE DISCLOSURE: if any step's results include an \`analysis_scope\` value (the SQL bounded that step to less than the question asked, to fit cost limits), surface it as an Annotation (severity: info) near that step and reflect it in the executive summary — do NOT present a scoped finding as global/complete.
 ${citationRule}
@@ -308,12 +286,15 @@ ${stepBlocks}
 ## Results Schema (across all steps)
 ${JSON.stringify(resultsSchema)}
 
-Use "$result:<key>" for scalar values in StatCard / TextBlock / TrendIndicator. Keys are prefixed with step_N_.
+${resultPlaceholderLine({
+  components: " in StatCard / TextBlock / TrendIndicator",
+  keyNote: " Keys are prefixed with step_N_.",
+})}
 
 ## Chart Data Shapes (across all steps)
 ${JSON.stringify(chartDataShape, null, 2)}
 
-Use "$chartData:<key>" for chart data props. Keys are prefixed with step_N_.
+${chartDataPlaceholderLine({ keyNote: " Keys are prefixed with step_N_." })}
 
 Compose the unified investigation dashboard following the rules in the system prompt. Output ONLY raw JSONL patches.`;
 }

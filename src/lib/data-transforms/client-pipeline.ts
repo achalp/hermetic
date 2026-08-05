@@ -252,7 +252,7 @@ export function filterSankeyData(
   return { ...data, nodes: filteredNodes, links: filteredLinks };
 }
 
-export function applyGroupBy(data: Row[], columns: string[], aggregations: Aggregation[]): Row[] {
+function applyGroupBy(data: Row[], columns: string[], aggregations: Aggregation[]): Row[] {
   const groups = new Map<string, Row[]>();
 
   for (const row of data) {
@@ -278,15 +278,15 @@ export function applyGroupBy(data: Row[], columns: string[], aggregations: Aggre
   return result;
 }
 
-export function applySort(data: Row[], column: string, direction: "asc" | "desc"): Row[] {
+function applySort(data: Row[], column: string, direction: "asc" | "desc"): Row[] {
   return [...data].sort((a, b) => compare(a[column], b[column], direction));
 }
 
-export function applyLimit(data: Row[], count: number): Row[] {
+function applyLimit(data: Row[], count: number): Row[] {
   return data.slice(0, count);
 }
 
-export function applyPivot(
+function applyPivot(
   data: Row[],
   rowKey: string,
   columnKey: string,
@@ -317,7 +317,7 @@ export function applyPivot(
   return result;
 }
 
-export function applyCompute(data: Row[], column: string, expression: string): Row[] {
+function applyCompute(data: Row[], column: string, expression: string): Row[] {
   // Parse expression: percent(a, b), diff(a, b), ratio(a, b), round(col, decimals)
   const match = expression.match(/^(\w+)\((.+)\)$/);
   if (!match) return data;
@@ -370,12 +370,7 @@ export function applyCompute(data: Row[], column: string, expression: string): R
   });
 }
 
-export function applyTopN(
-  data: Row[],
-  column: string,
-  n: number,
-  direction: "asc" | "desc"
-): Row[] {
+function applyTopN(data: Row[], column: string, n: number, direction: "asc" | "desc"): Row[] {
   return applyLimit(applySort(data, column, direction), n);
 }
 

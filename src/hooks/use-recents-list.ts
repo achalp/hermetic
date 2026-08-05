@@ -8,7 +8,7 @@
  * unified "Recent" list.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { RecentItem } from "@/components/app/recent-sources";
+import type { RecentItem } from "@/app/components/recent-sources";
 import { getRecentSources, type RecentSourceInfo } from "@/app/lib/api";
 import { RECENTS_CHANGED_EVENT } from "@/lib/constants";
 import { relTimeAgo } from "@/lib/rel-time";

@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
-import type { PatchLike } from "@/lib/pipeline/computed-key-audit";
+import type { PatchLine } from "@/lib/contracts/stream-state";
 
 describe("assembleSpecFromPatches", () => {
   it("assembles root, elements, and state from a patch stream", () => {
-    const patches: PatchLike[] = [
+    const patches: PatchLine[] = [
       { op: "add", path: "/root", value: "col" },
       { op: "add", path: "/elements/col", value: { type: "LayoutColumn", children: ["bar"] } },
       { op: "add", path: "/elements/bar", value: { type: "BarChart", props: { x_key: "a" } } },

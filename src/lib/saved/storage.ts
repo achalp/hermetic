@@ -4,7 +4,7 @@ import type { SavedVizMeta } from "@/lib/contracts/storage-types";
 import type { SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { hermeticPaths } from "@/lib/paths";
-import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
+import { RecordDirStore, RECORD_FILES, RecordCorruptError } from "@/lib/record-store";
 import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
 import { validateSpec } from "@/lib/catalog";
 import { logger } from "@/lib/logger";
@@ -172,15 +172,29 @@ interface LoadedVisualization {
 }
 
 export async function loadSavedVisualization(id: string): Promise<LoadedVisualization> {
-  const [meta, spec, generatedCode, csvContent, artifacts, workbook] = await Promise.all([
-    store().readRequiredJson<SavedVizMeta>(id, RECORD_FILES.meta),
-    store().readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
-    store().readRequiredText(id, RECORD_FILES.code),
-    store().readRequiredText(id, RECORD_FILES.source),
-    store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
-    store().readOptionalJson<SavedWorkbook>(id, RECORD_FILES.workbook),
-  ]);
-  return { meta, spec, generatedCode, csvContent, artifacts, workbook };
+  try {
+    const [meta, spec, generatedCode, csvContent, artifacts, workbook] = await Promise.all([
+      store().readRequiredJson<SavedVizMeta>(id, RECORD_FILES.meta),
+      store().readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
+      store().readRequiredText(id, RECORD_FILES.code),
+      store().readRequiredText(id, RECORD_FILES.source),
+      store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
+      store().readOptionalJson<SavedWorkbook>(id, RECORD_FILES.workbook),
+    ]);
+    return { meta, spec, generatedCode, csvContent, artifacts, workbook };
+  } catch (err) {
+    // Corrupt ≠ missing: a RecordCorruptError means the viz EXISTS but a
+    // required file is unreadable/unparsable — surface which file and why,
+    // so a broken record isn't diagnosed as "viz not found".
+    if (err instanceof RecordCorruptError) {
+      logger.warn("Saved viz is corrupt (not missing)", {
+        id: err.recordId,
+        file: err.file,
+        reason: err.reason,
+      });
+    }
+    throw err;
+  }
 }
 
 export async function deleteSavedVisualization(id: string): Promise<void> {

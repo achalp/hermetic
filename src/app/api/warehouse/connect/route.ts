@@ -3,9 +3,7 @@ import { apiError } from "@/app/lib/api-error";
 import { createConnector } from "@/lib/warehouse/connector";
 import { storeWarehouse } from "@/lib/warehouse/storage";
 import { saveConnection } from "@/lib/warehouse/persist-env";
-import { inferRelationships } from "@/lib/warehouse/infer-relationships";
-import { warehouseSourceKey, warehouseTablesFingerprint } from "@/lib/warehouse/schema-fingerprint";
-import { resolveWithCache } from "@/lib/schema-cache";
+import { introspectWithCache } from "@/lib/warehouse/introspect";
 import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import { parseBody, WarehouseConnectionConfigSchema } from "@/lib/api-schemas";
@@ -46,20 +44,13 @@ export async function POST(request: Request) {
     }
 
     // Introspect all table schemas (columns, PKs, FKs) — the expensive step.
-    // Cached by source identity, gated on a cheap fingerprint over the table
-    // listing we just fetched (structural: table set + column counts). `force`
-    // is the "ignore cache / re-read" control. inferRelationships runs inside
-    // the extract so the cached artifact is the finished, relationship-enriched
-    // schema.
+    // Shared with MCP connect_source (lib/warehouse/introspect.ts): cached by
+    // source identity, gated on a cheap fingerprint over the table listing we
+    // just fetched, with inferRelationships baked into the cached artifact.
+    // `force` is the "ignore cache / re-read" control.
     let tableSchemas: WarehouseTableSchema[];
     try {
-      const resolved = await resolveWithCache<WarehouseTableSchema[]>({
-        sourceKey: warehouseSourceKey(config),
-        force,
-        fingerprint: async () => warehouseTablesFingerprint(tables),
-        extract: async () => inferRelationships(await connector.introspectAllTables()),
-      });
-      tableSchemas = resolved.artifact;
+      ({ tableSchemas } = await introspectWithCache(connector, config, { force, tables }));
     } catch (err) {
       await connector.close();
       const msg = err instanceof Error ? err.message : "Failed to introspect tables";

@@ -36,8 +36,7 @@ describe("runAskQuery failure path", () => {
         await runAskQuery({
           context: {},
           question: "q",
-          warehouseId: undefined,
-          warehouseState: undefined,
+          source: { kind: "csv", csvId: "missing-csv-id" },
           codeGenModel: "m",
           uiComposeModel: "m",
           sandboxRuntime: "docker",

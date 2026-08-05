@@ -34,7 +34,7 @@ vi.mock("@/lib/pipeline/grounding", () => ({
   extractCitedSteps: vi.fn(),
   extractPlaceholderCitedSteps: vi.fn(),
 }));
-vi.mock("@/lib/warehouse/sql-generation", () => ({ generateSQLWithRepair: vi.fn() }));
+vi.mock("@/lib/sqlgen/sql-generation", () => ({ generateSQLWithRepair: vi.fn() }));
 
 // CSV storage — getStoredCSV drives one of the 404 branches. Default: not found.
 const getStoredCSV = vi.fn(() => null);

@@ -33,9 +33,7 @@ function unitTitle(el: HTMLElement): string | undefined {
 }
 
 /** Capture each section of the rendered result as a slide image. */
-export async function captureSlides(
-  rootEl: HTMLElement
-): Promise<{ title?: string; img: string }[]> {
+async function captureSlides(rootEl: HTMLElement): Promise<{ title?: string; img: string }[]> {
   const units = slideUnits(rootEl);
   const slides: { title?: string; img: string }[] = [];
   for (const unit of units) {

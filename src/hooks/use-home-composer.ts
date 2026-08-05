@@ -9,10 +9,10 @@
  * zero extra clicks.
  */
 import { useCallback, useMemo, useState, type RefObject } from "react";
-import type { QueryMode } from "@/components/app/query-input";
-import type { RecentItem } from "@/components/app/recent-sources";
-import type { SavedConnectionItem } from "@/components/app/home/add-data-menu";
-import type { ExampleRun } from "@/components/app/home/example-cards";
+import type { QueryMode } from "@/app/components/query-input";
+import type { RecentItem } from "@/app/components/recent-sources";
+import type { SavedConnectionItem } from "@/app/components/home/add-data-menu";
+import type { ExampleRun } from "@/app/components/home/example-cards";
 import { usePendingAsk } from "@/hooks/use-pending-ask";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 import type { useWarehouse } from "@/hooks/use-warehouse";

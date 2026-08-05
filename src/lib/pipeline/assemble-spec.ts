@@ -13,23 +13,32 @@
  * covered by the vendored suite and the patch-stream protocol tests.
  */
 import { applySpecPatch, type Spec, type SpecStreamLine } from "@/spec/core";
-import type { PatchLike } from "./computed-key-audit";
+import type { PatchLine } from "@/lib/contracts/stream-state";
 
-export interface AssembledSpec {
+/**
+ * A type ALIAS (not an interface) on purpose: aliases carry an implicit
+ * index signature, so an AssembledSpec passes directly where persistence
+ * takes a `Record<string, unknown>` (history/persist) — the `as unknown as`
+ * bridges that every consumer repeated are gone.
+ */
+export type AssembledSpec = {
   root: string;
   elements: Record<string, unknown>;
   state?: Record<string, unknown>;
-}
+};
 
 /**
  * Apply the finalized patch stream into a spec. Returns null if no `/root` was
  * ever set (i.e. nothing renderable was composed — not worth persisting).
  */
-export function assembleSpecFromPatches(patches: PatchLike[]): AssembledSpec | null {
+export function assembleSpecFromPatches(patches: PatchLine[]): AssembledSpec | null {
   const spec: Spec = { root: "", elements: {} };
   for (const p of patches) {
-    if (!p || typeof p.path !== "string") continue;
+    if (!p || typeof p.path !== "string" || typeof p.op !== "string") continue;
+    // The wire carries `op: string` (anything can be parsed off NDJSON);
+    // applySpecPatch no-ops on ops outside the RFC 6902 set, so the narrow
+    // to SpecStreamLine is a boundary formality, not a hidden assumption.
     applySpecPatch(spec, p as SpecStreamLine);
   }
-  return spec.root ? (spec as unknown as AssembledSpec) : null;
+  return spec.root ? spec : null;
 }

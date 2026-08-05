@@ -38,11 +38,11 @@ export async function POST(request: Request) {
     // uses, so the two routes can't drift again). ──
     const ids = validateQueryIds(context ?? {}, prompt);
     if (!ids.ok) return validationErrorResponse(ids);
-    const { warehouseId, question } = ids;
+    const { question } = ids;
 
     const sources = resolveQuerySources(ids, context ?? {}, { skipModelValidation });
     if (!sources.ok) return validationErrorResponse(sources);
-    const { warehouseState, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
+    const { source, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
 
     // Shared mutable run state: a warehouse run learns its materialized csvId
     // mid-stream, and the disconnect handler must see the updated id.
@@ -55,8 +55,7 @@ export async function POST(request: Request) {
         runAskQuery({
           context: context ?? {},
           question,
-          warehouseId,
-          warehouseState,
+          source,
           codeGenModel,
           uiComposeModel,
           sandboxRuntime,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { QueryMode } from "@/components/app/query-input";
+import type { QueryMode } from "@/app/components/query-input";
 
 export interface PendingAsk {
   question: string;

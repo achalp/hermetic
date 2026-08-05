@@ -474,7 +474,6 @@ export async function POST(request: Request) {
           // Fallback: inline snapshot_download — use allow_patterns for single quant
           const script = `
 import sys
-import { hermeticPaths } from "@/lib/paths";
 from huggingface_hub import snapshot_download
 path = snapshot_download(sys.argv[1], allow_patterns=["${quantPattern}"], local_dir=sys.argv[2])
 print(path)

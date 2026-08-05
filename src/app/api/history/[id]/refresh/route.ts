@@ -6,6 +6,7 @@ import { dirname } from "path";
 import { loadHistoryEntry, saveHistoryEntry } from "@/lib/history/storage";
 import { rehydrateSpec } from "@/lib/saved/rehydrate-spec";
 import { executeSandbox } from "@/lib/sandbox";
+import { getRunId } from "@/lib/run-context";
 import { ensureWarmSandboxReady } from "@/lib/sandbox/warm-sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getWarehouseConnector } from "@/lib/warehouse/storage";
@@ -84,7 +85,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const execResult = await executeSandbox(
         "", // no CSV content needed — code reads from bind-mount
         entry.generatedCode,
-        { runtime, csvId, localMountPath }
+        // runId: container attribution label (WS-D) — injected here because
+        // the sandbox layer never reads run-context itself.
+        { runtime, csvId, localMountPath, runId: getRunId() }
       );
 
       if (!execResult.success) {
@@ -156,6 +159,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       runtime,
       csvId,
       localMountPath,
+      // Container attribution label (WS-D) — see above.
+      runId: getRunId(),
     });
 
     if (!execResult.success) {

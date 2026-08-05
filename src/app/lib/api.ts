@@ -399,6 +399,13 @@ export async function getCostRows(signal?: AbortSignal): Promise<Record<string, 
   return data.rows ?? [];
 }
 
+/** Per-run diagnostics records (newest first, capped server-side at 500). */
+export async function getDiagnosticsRuns<T>(signal?: AbortSignal): Promise<T[]> {
+  const res = await fetch("/api/diagnostics?limit=500", { signal });
+  const data = await json<{ runs?: T[] }>(res);
+  return data.runs ?? [];
+}
+
 export interface LoadedHistory {
   meta: HistoryMeta;
   spec: Spec;

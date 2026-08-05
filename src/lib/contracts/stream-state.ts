@@ -25,6 +25,22 @@ import type { GroundingReport } from "./grounding";
 
 export type { GroundingReport };
 
+/**
+ * One parsed NDJSON line of the patch stream — the unit every harness-side
+ * consumer (CLI, MCP analyze, disconnect history-save) reads back. Fields
+ * are optional because a parsed line is only *probably* a patch (the stream
+ * also carries keepalives and progress noise): consumers narrow with
+ * `typeof`/`===` checks rather than assert. The strict producer-side shape
+ * is spec/core's SpecStreamLine; this is the tolerant consumer-side read.
+ * Owned here so patch-lines / assemble-spec / the MCP tools share ONE
+ * definition instead of three drifting locals bridged with `as never`.
+ */
+export interface PatchLine {
+  op?: string;
+  path?: string;
+  value?: unknown;
+}
+
 /** `/state/__progress` — coarse pipeline phase (Ask) or wave counter (Investigate). */
 export interface ProgressMeta {
   stage?: string;

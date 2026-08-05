@@ -7,7 +7,7 @@
  * same inputs — the current question/spec refs and the save pipeline.
  */
 import { useCallback, type RefObject } from "react";
-import type { QueryMode } from "@/components/app/query-input";
+import type { QueryMode } from "@/app/components/query-input";
 import { useSaveExport } from "@/hooks/use-save-export";
 import { useSchedulePopover } from "@/hooks/use-schedule-popover";
 import type { useCurrentAnalysis } from "@/hooks/use-current-analysis";

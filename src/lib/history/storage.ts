@@ -6,7 +6,7 @@ import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
-import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
+import { RecordDirStore, RECORD_FILES, RecordCorruptError } from "@/lib/record-store";
 import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
 import { validateSpec } from "@/lib/catalog";
 import { logger } from "@/lib/logger";
@@ -192,15 +192,29 @@ export interface LoadedHistoryEntry {
 }
 
 export async function loadHistoryEntry(id: string): Promise<LoadedHistoryEntry> {
-  const [meta, spec, generatedCode, schema, artifacts, csvContent] = await Promise.all([
-    store().readRequiredJson<HistoryMeta>(id, RECORD_FILES.meta),
-    store().readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
-    store().readRequiredText(id, RECORD_FILES.code),
-    store().readRequiredJson<CSVSchema>(id, RECORD_FILES.schema),
-    store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
-    store().readOptionalText(id, RECORD_FILES.source),
-  ]);
-  return { meta, spec, generatedCode, schema, artifacts, csvContent };
+  try {
+    const [meta, spec, generatedCode, schema, artifacts, csvContent] = await Promise.all([
+      store().readRequiredJson<HistoryMeta>(id, RECORD_FILES.meta),
+      store().readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
+      store().readRequiredText(id, RECORD_FILES.code),
+      store().readRequiredJson<CSVSchema>(id, RECORD_FILES.schema),
+      store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
+      store().readOptionalText(id, RECORD_FILES.source),
+    ]);
+    return { meta, spec, generatedCode, schema, artifacts, csvContent };
+  } catch (err) {
+    // Corrupt ≠ missing: a RecordCorruptError means the entry EXISTS but a
+    // required file is unreadable/unparsable — surface which file and why,
+    // so a broken record isn't diagnosed as "entry not found".
+    if (err instanceof RecordCorruptError) {
+      logger.warn("History entry is corrupt (not missing)", {
+        id: err.recordId,
+        file: err.file,
+        reason: err.reason,
+      });
+    }
+    throw err;
+  }
 }
 
 export async function deleteHistoryEntry(id: string): Promise<void> {

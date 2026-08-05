@@ -17,7 +17,14 @@ import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
+import { CHART_ROW_CAP } from "../caps";
 import { McpToolError, unknownSource } from "../errors";
+
+/** The McpDeps slice run_analysis consumes (see LivenessDeps for the pattern). */
+export type RunAnalysisDeps = Pick<
+  McpDeps,
+  "getCSVContent" | "getGeoJSONContent" | "executeSandbox" | "getWarehouseState" | "getStoredCSV"
+>;
 
 export const runAnalysisInput = {
   source_id: z.string().describe("A CSV source_id from connect_source."),
@@ -33,7 +40,7 @@ export const runAnalysisInput = {
     ),
 };
 
-const CHART_ROW_CAP = 100; // same cap as analyze (review S15)
+// CHART_ROW_CAP is shared with analyze (../caps) — one boundary cap, no drift.
 /** Sandbox stderr is unbounded and can quote data — never relay it whole. */
 const MAX_ERROR_CHARS = 600;
 /** results{} is host-shaped; bound the whole object, not just nested arrays. */
@@ -74,7 +81,7 @@ function capChartData(chartData: Record<string, unknown>): {
 }
 
 export async function runAnalysis(
-  deps: McpDeps,
+  deps: RunAnalysisDeps,
   args: { source_id: string; python: string }
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);

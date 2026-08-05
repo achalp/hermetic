@@ -7,6 +7,7 @@ import { storeCSV, storeGeoJSON, storeWorkbookManifest } from "@/lib/csv/storage
 import { loadSavedVisualization, saveNewVersion } from "@/lib/saved/storage";
 import { schemasCompatible, schemaFingerprint } from "@/lib/saved/schema-compat";
 import { executeSandbox } from "@/lib/sandbox";
+import { getRunId } from "@/lib/run-context";
 import { ensureWarmSandboxReady } from "@/lib/sandbox/warm-sandbox";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
@@ -96,6 +97,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       runtime,
       geojsonContent: geojsonText,
       csvId: newCsvId,
+      // Container attribution label (WS-D) — injected here because the
+      // sandbox layer never reads run-context itself.
+      runId: getRunId(),
     });
 
     if (!execResult.success) {

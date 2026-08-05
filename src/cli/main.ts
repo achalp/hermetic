@@ -85,8 +85,7 @@ async function main(): Promise<number> {
       await runAskQuery({
         context: {},
         question,
-        warehouseId: undefined,
-        warehouseState: undefined,
+        source: { kind: "csv", csvId },
         codeGenModel: CODE_GEN_MODEL,
         uiComposeModel: UI_COMPOSE_MODEL,
         sandboxRuntime: getActiveSandboxRuntime(),
@@ -120,11 +119,7 @@ async function main(): Promise<number> {
     const { persistHistoryEntry } = await import("@/lib/history/persist");
     const assembled = assembleSpecFromPatches(patches);
     if (assembled) {
-      const persisted = await persistHistoryEntry(
-        csvId,
-        assembled as unknown as Record<string, unknown>,
-        question
-      );
+      const persisted = await persistHistoryEntry(csvId, assembled, question);
       if (persisted.saved) {
         console.error(`[history] saved ${persisted.meta.id}`);
         console.error(`[view] http://localhost:3000/?restore=${persisted.meta.id}`);

@@ -30,6 +30,8 @@ import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { toCSVText } from "@/lib/csv/parser";
 import { setPathRoots } from "@/lib/paths";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
+import type { WarehouseState } from "@/lib/pipeline/validate-request";
+import type { HistoryMeta } from "@/lib/contracts/storage-types";
 
 const CSV_TEXT = "month,revenue\nJan,100\nFeb,200\nMar,300\n";
 
@@ -53,6 +55,14 @@ function fakeConnector(resultCsv: string): WarehouseConnector {
   } as unknown as WarehouseConnector;
 }
 
+/**
+ * A stream-shaped fake for the runAskQuery seam: tests push NDJSON lines the
+ * way the real pipeline emits them. Structurally narrower than PatchStream,
+ * so the runPatchStream fake below carries the one genuine cast.
+ */
+type FakeStream = { push: (line: string) => void };
+const pushOf = (stream: unknown) => (stream as FakeStream).push;
+
 function fakeDeps(connector: WarehouseConnector): McpDeps {
   // The artifacts cache records the question it was computed for; the fake
   // mirrors that so the S8 mismatch guard is exercised honestly.
@@ -60,14 +70,14 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
   return {
     parseCSV, // real: pure
     extractSchema, // real: pure
-    storeCSV: vi.fn(async () => undefined) as unknown as McpDeps["storeCSV"],
+    storeCSV: vi.fn(async () => undefined),
     createConnector: vi.fn(() => connector),
     loadConnections: vi.fn(async () => [
       {
         id: "conn-1",
         label: "PostgreSQL: prod",
         config: {
-          type: "postgresql",
+          type: "postgresql" as const,
           host: "h",
           port: 5432,
           database: "d",
@@ -76,26 +86,29 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
         },
         createdAt: "2026-01-01T00:00:00Z",
       },
-    ]) as unknown as McpDeps["loadConnections"],
+    ]),
     assertReadOnlySql, // real: the gate under test
     storeWarehouse: vi.fn(),
     // connect_source registers the warehouse in the shared store, so the
     // default fake reports it live; expiry tests flip this to undefined.
-    getWarehouseState: vi.fn(() => ({ warehouse: {}, connector: {} }) as never),
+    // Cast: partial WarehouseState — the tools only check truthiness for
+    // liveness / thread it opaquely into runAskQuery (itself a fake here).
+    getWarehouseState: vi.fn(() => ({ warehouse: {}, connector: {} }) as unknown as WarehouseState),
     // Minimal orchestration fakes: runPatchStream routes handler writes into
-    // the sink; runAskQuery is set per-test.
+    // the sink; runAskQuery is set per-test. Cast: the fake hands handlers a
+    // FakeStream, not a real PatchStream (no emitProgress/setMeta/isClosed).
     runPatchStream: (async (
       _route: string,
       sink: { write: (d: string) => void },
       handler: (stream: unknown) => Promise<void>
     ) => {
-      await handler({ push: (line: string) => sink.write(line) });
+      await handler({ push: (line: string) => sink.write(line) } satisfies FakeStream);
       // The real runPatchStream returns the run's correlation id.
       return "run-test-1";
     }) as unknown as McpDeps["runPatchStream"],
     runAskQuery: vi.fn(async ({ stream, question }: { stream: unknown; question: string }) => {
       lastRun.question = question;
-      const push = (stream as { push: (l: string) => void }).push;
+      const push = pushOf(stream);
       push('{"op":"add","path":"/root","value":"main"}\n');
       push(
         '{"op":"add","path":"/elements/summary","value":{"type":"TextBlock","props":{"content":"Revenue grew 3x."}}}\n'
@@ -109,7 +122,7 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
         '{"op":"add","path":"/elements/kpi","value":{"type":"StatCard","props":{"label":"Total","value":600}}}\n'
       );
       push('{"op":"add","path":"/state/__cost","value":{"costUsd":0.12}}\n');
-    }) as unknown as McpDeps["runAskQuery"],
+    }),
     assembleSpecFromPatches,
     getCachedArtifacts: vi.fn(() => ({
       code: "c",
@@ -118,20 +131,25 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       chart_data: { by_month: Array.from({ length: 250 }, (_, i) => ({ m: i, v: i * 2 })) },
       datasets: { raw: [{ secret_row: "should-never-appear" }] },
       execution_ms: 10,
-    })) as unknown as McpDeps["getCachedArtifacts"],
+    })),
     persistHistoryEntry: vi.fn(async () => ({
       saved: true as const,
-      meta: { id: "hist-123" } as never,
-    })) as unknown as McpDeps["persistHistoryEntry"],
-    getActiveSandboxRuntime: vi.fn(() => "docker") as unknown as McpDeps["getActiveSandboxRuntime"],
-    getCSVContent: vi.fn(async () => CSV_TEXT) as unknown as McpDeps["getCSVContent"],
+      // Cast: partial HistoryMeta — the tools read only .id.
+      meta: { id: "hist-123" } as HistoryMeta,
+    })),
+    getActiveSandboxRuntime: vi.fn(() => "docker" as const),
+    getCSVContent: vi.fn(async () => CSV_TEXT),
     // Live by default; individual tests flip it to exercise expiry.
-    getStoredCSV: vi.fn(() => ({
-      schema: {},
-      filePath: "",
-      createdAt: Date.now(),
-    })) as unknown as McpDeps["getStoredCSV"],
-    getGeoJSONContent: vi.fn(async () => null) as unknown as McpDeps["getGeoJSONContent"],
+    // Cast: partial StoredCSV — liveness only checks truthiness.
+    getStoredCSV: vi.fn(
+      () =>
+        ({
+          schema: {},
+          filePath: "",
+          createdAt: Date.now(),
+        }) as unknown as NonNullable<ReturnType<McpDeps["getStoredCSV"]>>
+    ),
+    getGeoJSONContent: vi.fn(async () => null),
     executeSandbox: vi.fn(async () => ({
       success: true as const,
       results: { total_revenue: 600 },
@@ -139,7 +157,7 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       images: {},
       execution_ms: 42,
       datasets: { raw: [{ month: "Jan", revenue: 100 }] },
-    })) as unknown as McpDeps["executeSandbox"],
+    })),
     collectGroundedValues, // real: pure
     verifyGrounding, // real: pure — the engine under test
     validateSpec, // real: the enforcing gate under test
@@ -151,14 +169,12 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     normalizeRemoteParquetUrl,
     extractRemoteParquetSchema: vi.fn(async (_url: string, csvId: string, filename: string) =>
       extractSchema(parseCSV(CSV_TEXT), csvId, filename)
-    ) as unknown as McpDeps["extractRemoteParquetSchema"],
-    storeRemoteParquetRef: vi.fn(
-      storeRemoteParquetRef
-    ) as unknown as McpDeps["storeRemoteParquetRef"],
+    ),
+    storeRemoteParquetRef: vi.fn(storeRemoteParquetRef),
     extractParquetSchema: vi.fn(async (_p: string, csvId: string, filename: string) =>
       extractSchema(parseCSV(CSV_TEXT), csvId, filename)
-    ) as unknown as McpDeps["extractParquetSchema"],
-    storeLocalFileRef: vi.fn(storeLocalFileRef) as unknown as McpDeps["storeLocalFileRef"],
+    ),
+    storeLocalFileRef: vi.fn(storeLocalFileRef),
     getFileInfo, // real: fs
     parseExcelMeta, // real: pure over a buffer
     sheetToCSV, // real: pure
@@ -168,6 +184,19 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     toCSVText, // real: pure
     models: { codeGen: "model-a", uiCompose: "model-b" },
   };
+}
+
+/**
+ * Test factory (review FIX 3): a complete McpDeps from the defaults above
+ * with typed overrides — Partial<McpDeps> gives per-test fakes contextual
+ * typing against the REAL member types, which is what removed the
+ * `as unknown as McpDeps[...]` double-casts this file carried.
+ */
+function makeTestDeps(
+  overrides: Partial<McpDeps> = {},
+  connector: WarehouseConnector = fakeConnector("")
+): McpDeps {
+  return { ...fakeDeps(connector), ...overrides };
 }
 
 async function connectedClient(deps: McpDeps, audit: AuditEntry[]) {
@@ -353,16 +382,17 @@ describe("analyze (fake pipeline)", () => {
     const csvPath = join(dir, "rev.csv");
     const { writeFileSync } = await import("node:fs");
     writeFileSync(csvPath, CSV_TEXT);
-    const deps = fakeDeps(fakeConnector(""));
     // Simulate another run having overwritten the csvId-keyed cache.
-    deps.getCachedArtifacts = vi.fn(() => ({
-      code: "c",
-      question: "a completely different question",
-      results: { someone_elses: 999 },
-      chart_data: {},
-      datasets: {},
-      execution_ms: 1,
-    })) as unknown as McpDeps["getCachedArtifacts"];
+    const deps = makeTestDeps({
+      getCachedArtifacts: vi.fn(() => ({
+        code: "c",
+        question: "a completely different question",
+        results: { someone_elses: 999 },
+        chart_data: {},
+        datasets: {},
+        execution_ms: 1,
+      })),
+    });
     const client = await connectedClient(deps, audit);
     const { source_id } = parseToolJson(
       await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
@@ -380,14 +410,15 @@ describe("analyze (fake pipeline)", () => {
     const csvPath = join(dir, "rev.csv");
     const { writeFileSync } = await import("node:fs");
     writeFileSync(csvPath, CSV_TEXT);
-    const deps = fakeDeps(fakeConnector(""));
     // What a failing Ask run actually emits since the error-channel unify:
     // the typed `/state/__error` message PLUS the UI error spec.
-    deps.runAskQuery = (async ({ stream }: { stream: unknown }) => {
-      const push = (stream as { push: (l: string) => void }).push;
-      push('{"op":"add","path":"/state/__error","value":"sandbox exploded"}\n');
-      push('{"op":"add","path":"/root","value":"error"}\n');
-    }) as unknown as McpDeps["runAskQuery"];
+    const deps = makeTestDeps({
+      runAskQuery: async ({ stream }: { stream: unknown }) => {
+        const push = pushOf(stream);
+        push('{"op":"add","path":"/state/__error","value":"sandbox exploded"}\n');
+        push('{"op":"add","path":"/root","value":"error"}\n');
+      },
+    });
     const client = await connectedClient(deps, audit);
     const { source_id } = parseToolJson(
       await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
@@ -405,26 +436,29 @@ describe("analyze (fake pipeline)", () => {
     expect(String(payload.error)).not.toContain("pipeline error");
   });
 
-  it("warehouse analyze passes the stored warehouse state and persists under the materialized csvId", async () => {
-    const deps = fakeDeps(fakeConnector(""));
-    deps.getWarehouseState = vi.fn(() => ({ warehouse: {}, connector: {} }) as never);
-    deps.runAskQuery = (async ({
-      stream,
-      runState,
-      warehouseState,
-    }: {
-      stream: unknown;
-      runState: { csvId?: string };
-      warehouseState: unknown;
-    }) => {
-      expect(warehouseState).toBeTruthy();
-      runState.csvId = "materialized-42";
-      const push = (stream as { push: (l: string) => void }).push;
-      push('{"op":"add","path":"/root","value":"main"}\n');
-      push(
-        '{"op":"add","path":"/elements/a","value":{"type":"TextBlock","props":{"content":"hi"}}}\n'
-      );
-    }) as unknown as McpDeps["runAskQuery"];
+  it("warehouse analyze passes the discriminated warehouse source and persists under the materialized csvId", async () => {
+    const deps = makeTestDeps({
+      runAskQuery: async ({
+        stream,
+        runState,
+        source,
+      }: {
+        stream: unknown;
+        runState: { csvId?: string };
+        source: { kind: string; warehouseState?: unknown };
+      }) => {
+        // The union discriminates: a warehouse run arrives as kind
+        // "warehouse" with the live state attached, no null field to probe.
+        expect(source.kind).toBe("warehouse");
+        expect(source.warehouseState).toBeTruthy();
+        runState.csvId = "materialized-42";
+        const push = pushOf(stream);
+        push('{"op":"add","path":"/root","value":"main"}\n');
+        push(
+          '{"op":"add","path":"/elements/a","value":{"type":"TextBlock","props":{"content":"hi"}}}\n'
+        );
+      },
+    });
     const client = await connectedClient(deps, audit);
     const { source_id } = parseToolJson(
       await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
@@ -480,13 +514,14 @@ describe("run_analysis (fake sandbox)", () => {
   });
 
   it("surfaces sandbox failure kind in the error", async () => {
-    const deps = fakeDeps(fakeConnector(""));
-    deps.executeSandbox = vi.fn(async () => ({
-      success: false as const,
-      error: "killed",
-      errorKind: "oom" as const,
-      execution_ms: 5,
-    })) as unknown as McpDeps["executeSandbox"];
+    const deps = makeTestDeps({
+      executeSandbox: vi.fn(async () => ({
+        success: false as const,
+        error: "killed",
+        errorKind: "oom" as const,
+        execution_ms: 5,
+      })),
+    });
     const { client, source_id } = await csvSource(deps);
     const result = await client.callTool({
       name: "run_analysis",
@@ -690,7 +725,7 @@ describe("expired sources fail with an actionable message (reliability #1)", () 
       await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
     ) as { source_id: string };
     // The underlying store entry idles out while the registry still holds it.
-    deps.getStoredCSV = vi.fn(() => undefined) as unknown as McpDeps["getStoredCSV"];
+    deps.getStoredCSV = vi.fn(() => undefined);
     return { client, source_id, csvPath, deps };
   }
 
@@ -796,21 +831,22 @@ describe("progress reporting for long runs", () => {
     const csvPath = join(dir, "rev.csv");
     const { writeFileSync } = await import("node:fs");
     writeFileSync(csvPath, CSV_TEXT);
-    const deps = fakeDeps(fakeConnector(""));
     // A pipeline that reports two stages before finishing.
-    deps.runAskQuery = (async ({ stream, question }: { stream: unknown; question: string }) => {
-      const push = (stream as { push: (l: string) => void }).push;
-      push(
-        '{"op":"add","path":"/state/__progress","value":{"stage":"code_gen","step":1,"total":3}}\n'
-      );
-      push('{"op":"add","path":"/state/__exec","value":{"phase":"executing","fraction":0.5}}\n');
-      push('{"op":"add","path":"/root","value":"main"}\n');
-      push(
-        '{"op":"add","path":"/elements/s","value":{"type":"TextBlock","props":{"content":"Done. ' +
-          question +
-          '"}}}\n'
-      );
-    }) as unknown as McpDeps["runAskQuery"];
+    const deps = makeTestDeps({
+      runAskQuery: async ({ stream, question }: { stream: unknown; question: string }) => {
+        const push = pushOf(stream);
+        push(
+          '{"op":"add","path":"/state/__progress","value":{"stage":"code_gen","step":1,"total":3}}\n'
+        );
+        push('{"op":"add","path":"/state/__exec","value":{"phase":"executing","fraction":0.5}}\n');
+        push('{"op":"add","path":"/root","value":"main"}\n');
+        push(
+          '{"op":"add","path":"/elements/s","value":{"type":"TextBlock","props":{"content":"Done. ' +
+            question +
+            '"}}}\n'
+        );
+      },
+    });
 
     const server = buildMcpServer(deps, (e) => audit.push(e));
     const client = new Client({ name: "progress-test", version: "0.0.0" });

@@ -15,6 +15,16 @@ import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
 import { McpToolError, unknownSource } from "../errors";
 
+/** The McpDeps slice persist_dashboard consumes (see LivenessDeps for the pattern). */
+export type PersistDashboardDeps = Pick<
+  McpDeps,
+  | "validateSpec"
+  | "catalogComponentNames"
+  | "persistHistoryEntry"
+  | "getWarehouseState"
+  | "getStoredCSV"
+>;
+
 export const persistDashboardInput = {
   source_id: z.string().describe("The source the dashboard was computed from."),
   spec: z
@@ -27,7 +37,7 @@ export const persistDashboardInput = {
 };
 
 export async function persistDashboard(
-  deps: McpDeps,
+  deps: PersistDashboardDeps,
   args: { source_id: string; spec: Record<string, unknown>; title: string }
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);

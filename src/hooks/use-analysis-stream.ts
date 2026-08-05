@@ -6,7 +6,7 @@ import type { Spec } from "@/lib/contracts/spec";
 import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
 import { readStreamState, type CostInfo } from "@/lib/contracts/stream-state";
-import { buildInvestigateScope } from "@/components/app/spec-insights";
+import { buildInvestigateScope } from "@/app/components/spec-insights";
 import { logClient } from "@/app/lib/client-log";
 
 /**
