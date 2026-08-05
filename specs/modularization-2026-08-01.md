@@ -1,7 +1,7 @@
 # Hermetic Modularization — Audit & Phased Plan
 
 **Date:** 2026-08-01 (v2 — full-scope revision)
-**Status:** Phase 1 complete (exit audit §9, 2026-08-03) — Phase 2 gated on a named consumer
+**Status:** Phase 1 complete (exit audit §9, 2026-08-03) — Phase 2 gated on a named consumer; readiness reassessed 2026-08-05 (§10): most of 2a's hard work has since shipped as side effects of the MCP server and the single-file export — the residual is npm mechanics + four named items
 **Scope:** Refactor Hermetic into a set of libraries with owned, explicit contracts, composed by interchangeable harnesses (Next.js today, CLI next, third-party later), followed by externalization of selected libraries as public packages.
 
 ---
@@ -404,3 +404,78 @@ was either fixed in the M7 remediation commit or dispositioned below. Suite:
 re-audit; the two partial criteria are app-layer size/hygiene targets (F1,
 F2), not library-boundary violations — no library imports a harness, all
 config flows through the seams, and the CLI harness proves it in CI.
+
+---
+
+## 10. Phase 2 readiness reassessment (2026-08-05)
+
+The gate (§5: a named external consumer) remains formally unmet — but the
+distance to Phase 2a shrank substantially between 08-03 and 08-05, mostly as
+side effects of product work (MCP server v1, PRs #95/#96 hardening, the
+single-file dashboard export). Recorded so the eventual Phase 2 kickoff
+starts from reality, not from this spec's 08-01 assumptions.
+
+### 10.1 The gate itself has softened in practice
+
+`specs/mcp-server-proposal-2026-08-04.md` §7 predicted the MCP server would
+resolve the gate paradox by making every MCP host a consumer of the
+libraries as they are — that is now true in production, and the single-file
+export (`specs/dashboard-distribution-2026-08-05.md`) added a second
+non-npm distribution channel. Hermetic already distributes its renderer —
+as artifacts, not packages. The sharpened gate question: who concretely
+needs `@hermetic/spec` / `@hermetic/renderer` as PACKAGES (likeliest
+profile: embedding `<SpecView>` inline in their own app) rather than as the
+MCP surface or an exported file?
+
+### 10.2 Retired from the 2a list since exit (mostly by accident)
+
+- **Boundaries → real.** "A git mv if lint held" now holds: React fully out
+  of lib, `components/app` → `app/components` (one directory = one layer),
+  llm/warehouse cycles broken, and the isolation check proves the closures
+  BY their future package names on every push (spec → @hermetic/spec: 27
+  files; renderer → @hermetic/renderer: 131 files, zero leakage).
+- **Framework independence → proven twice, in shipped artifacts.** The MCP
+  embedded viewer and the single-file export are two production esbuild
+  builds of `<SpecView>` + themes + charts with zero Next — the packaging
+  claim is demonstrated, not asserted.
+- **CSS decision → de-risked by practice.** The viewer/export pipeline
+  compiles `globals.css` through the Tailwind engine standalone and inlines
+  fonts as data URIs, exercised daily. The compiled-stylesheet option won
+  by usage; the decision still needs a paragraph in the packaging docs.
+- **Package-weight split → exists as architecture.** The export profiles
+  (standard = core+nivo+cartesian 2.8MB / full 10.6MB, stub plugin, and a
+  metafile proof that FAILS THE BUILD if a heavy lib leaks into core) are
+  the "core / plotly / maps / export entry points" bullet, with numbers.
+- **Untrusted-spec hardening → partially banked.** Enforcing
+  `validateSpec` runs on the MCP host-authored path (the exact unknown-spec
+  author 2a was written about) and is exercised by real hosts.
+
+### 10.3 The genuine residual (Phase 2a when gated open)
+
+1. **npm mechanics** — workspace split, publishing CI, semver + changelog,
+   READMEs, examples repo consuming only published packages. Pure
+   distribution; boundaries already lint-held → ~1–2 focused weeks.
+2. **D1 (theme API)** — ThemeProvider is still context+localStorage; a
+   published renderer wants props-driven `<SpecView theme=…>`. Urgency
+   LOWERED by evidence (viewer + export both reuse the current mechanism
+   successfully) but it remains the one genuine API-design item.
+3. **D2 (deckgl-init)** — moved to `components/charts` in the hardening
+   pass but still an import-side-effect module; explicit entry point on
+   packaging.
+4. **Untrusted-spec residue** — safe-by-default policies for
+   `form-controller` endpoints / `chart-image` sources on unknown specs +
+   the security review. Priority slightly RAISED by the export: exported
+   files are specs that travel.
+5. **Chart test coverage** — still the weakest line item vs the
+   "publishable levels" bar (render-smoke covers mounting; per-chart
+   behavior tests remain thin).
+6. **Credentials → OS keychain** — untouched; plaintext-in-datadir stands
+   on its documented Phase-1 acceptance.
+
+### 10.4 Posture
+
+Until a package consumer is named: keep distributing through artifacts (MCP
+
+- export) and let the gate do its job. When one appears, the runway is
+  ~2–3 weeks: mechanics + the theme decision + the security review — with
+  the §5 exit criteria unchanged.
