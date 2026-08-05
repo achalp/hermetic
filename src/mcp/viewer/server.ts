@@ -49,6 +49,12 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
       res.end(body);
     };
     try {
+      // Loopback-only by bind, but a rebinding page could still target us by
+      // name; require a loopback Host (review S16).
+      const host = (req.headers.host ?? "").split(":")[0];
+      if (host && host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") {
+        return send(403, JSON.stringify({ error: "local access only" }));
+      }
       const url = new URL(req.url ?? "/", "http://localhost");
       const path = url.pathname;
 
@@ -105,27 +111,37 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
   });
 
   return new Promise((resolvePromise, reject) => {
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        // Preferred port taken (another MCP session?) — take any free port;
-        // the link we hand out always carries the real one.
-        server.listen(0, "127.0.0.1");
-        server.once("listening", () => {
-          const addr = server.address();
-          if (addr && typeof addr === "object") {
-            resolvePromise({ port: addr.port, close: () => closeServer(server) });
-          } else reject(new Error("viewer server: no address"));
-        });
-      } else {
-        reject(err);
-      }
-    });
-    server.listen(preferredPort, "127.0.0.1", () => {
+    let settled = false;
+    let retriedEphemeral = false;
+
+    const settleListening = () => {
       const addr = server.address();
+      if (settled) return;
       if (addr && typeof addr === "object") {
+        settled = true;
         resolvePromise({ port: addr.port, close: () => closeServer(server) });
-      } else reject(new Error("viewer server: no address"));
+      } else {
+        settled = true;
+        reject(new Error("viewer server: no address"));
+      }
+    };
+
+    // ONE error path (review S16): the preferred port being taken triggers a
+    // single ephemeral retry; anything else — including a failed retry —
+    // rejects. Never leaves the promise pending or throws unhandled.
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (settled) return;
+      if (err.code === "EADDRINUSE" && !retriedEphemeral) {
+        retriedEphemeral = true;
+        server.listen(0, "127.0.0.1");
+        return;
+      }
+      settled = true;
+      reject(err);
     });
+
+    server.on("listening", settleListening);
+    server.listen(preferredPort, "127.0.0.1");
   });
 }
 

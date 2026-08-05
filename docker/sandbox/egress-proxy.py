@@ -29,10 +29,16 @@ def allowed(host):
     return host.lower() in ALLOW_HOSTS
 
 
+# A billions-row remote scan can go minutes without a byte on the socket
+# (DuckDB planning, server-side work), so a short idle cut would surface as an
+# opaque read failure. Only a genuinely dead tunnel is reaped.
+IDLE_TIMEOUT_S = int(os.environ.get("PROXY_IDLE_TIMEOUT_S", "1800"))
+
+
 def pump(a, b):
     try:
         while True:
-            r, _, _ = select.select([a, b], [], [], 60)
+            r, _, _ = select.select([a, b], [], [], IDLE_TIMEOUT_S)
             if not r:
                 break
             for s in r:

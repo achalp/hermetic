@@ -59,8 +59,77 @@ export function getSource(id: string): McpSource | undefined {
   return sources().get(id);
 }
 
-export function listSources(): Array<{ id: string; kind: string; label: string }> {
-  return [...sources().values()].map((s) => ({ id: s.id, kind: s.kind, label: s.label }));
+/**
+ * What each source can actually be used with (review S1/S2). Without this the
+ * host cannot distinguish a local CSV from a cloud URL — both report
+ * kind:"csv" — and discovers the difference only by calling a tool and being
+ * refused, sometimes pointed at a second tool that also refuses.
+ */
+export interface SourceCapabilities {
+  /** Concrete flavor, not just the storage kind. */
+  source_type: "csv" | "cloud-parquet" | "local-parquet" | "warehouse";
+  supported_tools: string[];
+  /** Tools that will refuse, with the reason — so the host never has to probe. */
+  unsupported_tools: Record<string, string>;
+}
+
+export function capabilitiesOf(source: McpSource): SourceCapabilities {
+  if (source.kind === "warehouse") {
+    return {
+      source_type: "warehouse",
+      supported_tools: ["get_schema", "run_sql", "analyze"],
+      unsupported_tools: {
+        run_analysis:
+          "warehouse data is not materialized locally — use run_sql (pushdown) or analyze",
+        persist_dashboard: "host-authored dashboards over warehouse sources are not supported yet",
+        verify_narrative:
+          "no server-side artifacts for warehouse runs — pass results/chart_data explicitly",
+      },
+    };
+  }
+  if (source.remote) {
+    return {
+      source_type: "cloud-parquet",
+      supported_tools: ["get_schema", "analyze", "verify_narrative", "persist_dashboard"],
+      unsupported_tools: {
+        run_analysis:
+          "cloud reads need network; host-authored code runs with networking denied — use analyze",
+        run_sql: "run_sql targets warehouse connections — use analyze for cloud Parquet",
+      },
+    };
+  }
+  if (source.pathBased) {
+    return {
+      source_type: "local-parquet",
+      supported_tools: ["get_schema", "analyze", "verify_narrative", "persist_dashboard"],
+      unsupported_tools: {
+        run_analysis: "Parquet is bind-mounted, not loaded as CSV text — use analyze",
+        run_sql: "run_sql targets warehouse connections — use analyze for Parquet files",
+      },
+    };
+  }
+  return {
+    source_type: "csv",
+    supported_tools: [
+      "get_schema",
+      "analyze",
+      "run_analysis",
+      "verify_narrative",
+      "persist_dashboard",
+    ],
+    unsupported_tools: {
+      run_sql: "run_sql targets warehouse connections — use run_analysis or analyze",
+    },
+  };
+}
+
+export function listSources(): Array<Record<string, unknown>> {
+  return [...sources().values()].map((s) => ({
+    id: s.id,
+    kind: s.kind,
+    label: s.label,
+    ...capabilitiesOf(s),
+  }));
 }
 
 /** Test hook: drop all sources (and close nothing — callers own connectors). */

@@ -9,7 +9,13 @@
  */
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
-import { storeCSV, getCSVContent, storeLocalFileRef, storeGeoJSON } from "@/lib/csv/storage";
+import {
+  storeCSV,
+  getCSVContent,
+  getGeoJSONContent,
+  storeLocalFileRef,
+  storeGeoJSON,
+} from "@/lib/csv/storage";
 import { createConnector } from "@/lib/warehouse/connector";
 import { loadConnections } from "@/lib/warehouse/persist-env";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
@@ -18,10 +24,11 @@ import { runPatchStream } from "@/lib/pipeline/patch-stream";
 import { runAskQuery } from "@/lib/pipeline/run-ask-query";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { persistHistoryEntry } from "@/lib/history/persist";
+import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { executeSandbox } from "@/lib/sandbox";
 import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
-import { validateSpec } from "@/lib/catalog";
+import { validateSpec, catalogComponents } from "@/lib/catalog";
 import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { extractRemoteParquetSchema, extractParquetSchema } from "@/lib/parquet/schema-extractor";
@@ -48,12 +55,15 @@ export interface McpDeps {
   runAskQuery: typeof runAskQuery;
   assembleSpecFromPatches: typeof assembleSpecFromPatches;
   persistHistoryEntry: typeof persistHistoryEntry;
+  getCachedArtifacts: typeof getCachedArtifacts;
   getActiveSandboxRuntime: typeof getActiveSandboxRuntime;
   getCSVContent: typeof getCSVContent;
+  getGeoJSONContent: typeof getGeoJSONContent;
   executeSandbox: typeof executeSandbox;
   collectGroundedValues: typeof collectGroundedValues;
   verifyGrounding: typeof verifyGrounding;
   validateSpec: typeof validateSpec;
+  catalogComponentNames: () => string[];
   isSafeParquetUrl: typeof isSafeParquetUrl;
   normalizeRemoteParquetUrl: typeof normalizeRemoteParquetUrl;
   extractRemoteParquetSchema: typeof extractRemoteParquetSchema;
@@ -88,12 +98,15 @@ export function realDeps(): McpDeps {
     runAskQuery,
     assembleSpecFromPatches,
     persistHistoryEntry,
+    getCachedArtifacts,
     getActiveSandboxRuntime,
     getCSVContent,
+    getGeoJSONContent,
     executeSandbox,
     collectGroundedValues,
     verifyGrounding,
     validateSpec,
+    catalogComponentNames: () => Object.keys(catalogComponents),
     isSafeParquetUrl,
     normalizeRemoteParquetUrl,
     extractRemoteParquetSchema,

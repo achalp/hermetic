@@ -10,7 +10,7 @@
  */
 import { z } from "zod";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
-import { getSource, type McpSource } from "../sources";
+import { getSource, capabilitiesOf, type McpSource } from "../sources";
 
 export const getSchemaInput = {
   source_id: z.string().describe("A source_id returned by connect_source."),
@@ -38,8 +38,16 @@ function summarizeCsvSchema(schema: CSVSchema) {
 }
 
 export function summarizeSource(source: McpSource): Record<string, unknown> {
+  // Capabilities travel with EVERY source summary so the host can pick its
+  // next tool without probing (review S1/S2).
+  const caps = capabilitiesOf(source);
   if (source.kind === "csv") {
-    return { kind: "csv", label: source.label, schema: summarizeCsvSchema(source.schema) };
+    return {
+      kind: "csv",
+      label: source.label,
+      ...caps,
+      schema: summarizeCsvSchema(source.schema),
+    };
   }
   const tables = source.tables.slice(0, MAX_TABLES).map((t) => ({
     schema: t.schema,
@@ -51,6 +59,7 @@ export function summarizeSource(source: McpSource): Record<string, unknown> {
   return {
     kind: "warehouse",
     label: source.label,
+    ...caps,
     warehouse_type: source.warehouseType,
     table_count: source.tables.length,
     tables,

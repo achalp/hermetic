@@ -82,8 +82,53 @@ if (!analysis.element_count || analysis.element_count < 3) {
   fail(`suspiciously small dashboard: ${analysis.element_count} elements`);
 }
 if (!analysis.summary || analysis.summary.length < 40) fail("summary missing/too short");
+// The summary must be FINDINGS, not chart labels: every element's `title`
+// prop is a label, and none of them may appear as summary prose.
+if (!Array.isArray(analysis.headline_stats) || analysis.headline_stats.length === 0) {
+  fail("analyze returned no headline_stats — the host gets prose but no figures");
+}
 console.error(
   `✔ analyze: ${analysis.element_count} elements, history ${analysis.history_id}, url ${analysis.dashboard_url}`
+);
+
+// 4b. analyze returns the COMPUTED VALUES, so a follow-up number needs no
+// recomputation and verify_narrative has something to check (the flow-
+// coherence fix — without this the host must redundantly re-run the work).
+if (!analysis.results || typeof analysis.results !== "object") {
+  fail("analyze returned no `results` — host would have to recompute");
+}
+if (!analysis.chart_data || Object.keys(analysis.chart_data).length === 0) {
+  fail("analyze returned no `chart_data`");
+}
+if (JSON.stringify(analysis).includes('"datasets"')) fail("row-level datasets leaked from analyze");
+console.error(
+  `✔ analyze artifacts: ${Object.keys(analysis.results).length} results, ` +
+    `${Object.keys(analysis.chart_data).length} chart series (datasets withheld)`
+);
+
+// 4c. verify_narrative anchored SERVER-SIDE: a fabricated figure must be
+// caught even though the host supplies no values of its own — this is the
+// trust pillar, so a vacuous "0 numbers checked" pass is not acceptable.
+const fabricated = parse(
+  await client.callTool({
+    name: "verify_narrative",
+    arguments: {
+      source_id: connected.source_id,
+      prose: "Revenue reached $9,847,321 this quarter, up 412.7% year over year.",
+    },
+  })
+);
+if (fabricated.error) fail(`verify_narrative (server anchor) failed: ${fabricated.error}`);
+if (fabricated.anchor !== "server") fail(`expected server anchor, got ${fabricated.anchor}`);
+if (fabricated.checked_count < 2) {
+  fail(`grounding checked ${fabricated.checked_count} numbers — it is not actually reading prose`);
+}
+if (fabricated.ok || fabricated.ungrounded.length === 0) {
+  fail("fabricated figures were NOT flagged — verify_narrative is vacuous");
+}
+console.error(
+  `✔ verify_narrative (server-anchored): flagged ${fabricated.ungrounded.length} fabricated ` +
+    `of ${fabricated.checked_count} checked, against ${fabricated.grounded_value_count} real values`
 );
 
 // 5. The persisted entry is real on disk

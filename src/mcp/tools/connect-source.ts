@@ -86,7 +86,7 @@ function guardSize(abs: string): void {
   const size = statSync(abs).size;
   if (size > MAX_TEXT_BYTES) {
     throw new Error(
-      `File is ${Math.round(size / 1e6)}MB — over the ${MAX_TEXT_BYTES / 1e6}MB limit for ` +
+      `File is ${Math.round(size / (1024 * 1024))}MB — over the ${MAX_TEXT_BYTES / (1024 * 1024)}MB limit for ` +
         "in-memory formats. Convert to Parquet or use a warehouse connection."
     );
   }
@@ -234,6 +234,12 @@ export async function connectSource(
   const given = [args.path, args.url, args.connection_id].filter(Boolean).length;
   if (given !== 1) {
     throw new Error("Provide exactly one of `path`, `url`, or `connection_id`.");
+  }
+
+  if (args.sheet && !(args.path ?? "").toLowerCase().endsWith(".xlsx")) {
+    throw new Error(
+      "`sheet` applies only to .xlsx paths — remove it or point `path` at a workbook."
+    );
   }
 
   let source: McpSource;

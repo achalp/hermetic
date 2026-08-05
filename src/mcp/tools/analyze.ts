@@ -13,6 +13,28 @@ import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { viewUrl } from "../view-url";
 
+/**
+ * One analyze at a time per source (review S8). The artifacts cache is keyed
+ * by csvId and written mid-pipeline, so two concurrent runs on one source
+ * would let the slower run read the faster run's numbers — returning run A's
+ * narrative beside run B's figures, which then poisons verify_narrative.
+ * Hosts dispatch tool calls concurrently, so this is reachable in normal use.
+ */
+const inFlight = new Map<string, Promise<unknown>>();
+
+function serializedBySource<T>(sourceId: string, fn: () => Promise<T>): Promise<T> {
+  const prior = inFlight.get(sourceId) ?? Promise.resolve();
+  // Run whether or not the previous run succeeded.
+  const next = prior.then(fn, fn);
+  const tracked = next.catch(() => {});
+  inFlight.set(sourceId, tracked);
+  void tracked.then(() => {
+    // Only the tail of the chain clears the entry.
+    if (inFlight.get(sourceId) === tracked) inFlight.delete(sourceId);
+  });
+  return next;
+}
+
 export const analyzeInput = {
   source_id: z.string().describe("A source_id from connect_source (csv or warehouse)."),
   question: z.string().describe("The analysis question, in natural language."),
@@ -28,19 +50,106 @@ interface PatchLine {
   value?: unknown;
 }
 
-/** Pull the human-readable narrative out of a composed spec, capped. */
-export function extractSummary(spec: { elements: Record<string, unknown> }, cap = 1500): string {
-  const parts: string[] = [];
-  for (const el of Object.values(spec.elements)) {
-    const props = (el as { props?: Record<string, unknown> }).props;
-    if (!props) continue;
-    for (const key of ["content", "text", "title", "value"]) {
-      const v = props[key];
-      if (typeof v === "string" && v.trim().length > 0) parts.push(v.trim());
+/**
+ * Cap chart_data row lists so the computed values come back usable without
+ * flooding host context. Row-level `datasets` are never returned (boundary
+ * invariant) — these are the aggregates the dashboard itself charts.
+ */
+const CHART_ROW_CAP = 100;
+
+export function capArtifacts(artifacts: {
+  results?: Record<string, unknown>;
+  chart_data?: Record<string, unknown>;
+  sql?: string;
+}): Record<string, unknown> {
+  const chart: Record<string, unknown> = {};
+  const truncated: string[] = [];
+  for (const [k, v] of Object.entries(artifacts.chart_data ?? {})) {
+    if (Array.isArray(v) && v.length > CHART_ROW_CAP) {
+      chart[k] = v.slice(0, CHART_ROW_CAP);
+      truncated.push(k);
+    } else {
+      chart[k] = v;
     }
   }
-  const joined = parts.join("\n");
-  return joined.length > cap ? joined.slice(0, cap) + "…" : joined;
+  return {
+    results: artifacts.results ?? {},
+    chart_data: chart,
+    chart_data_truncated_keys: truncated,
+    ...(artifacts.sql ? { sql: artifacts.sql } : {}),
+  };
+}
+
+/**
+ * Pipeline errors are phrased for the WEB app ("Please re-upload", "re-select
+ * the file") — an MCP host has no upload button or file picker (review S14).
+ * Rewrite the affordance, keep the cause.
+ */
+export function mcpifyError(message: string): string {
+  return message
+    .replace(/Please re-upload\.?/gi, "Call connect_source again to re-attach the source.")
+    .replace(
+      /Please re-select the file\.?/gi,
+      "Call connect_source again with the same path to re-attach it."
+    )
+    .replace(
+      /Please connect to the warehouse first,? then ask your question\.?/gi,
+      "Call connect_source with the warehouse connection_id first."
+    );
+}
+
+/**
+ * What the host should READ from a composed dashboard: the narrative prose
+ * and the headline figures — not the chart labels.
+ *
+ * A naive "collect every string prop" summary is dominated by titles
+ * ("MRR Trend Over Time", "Net MRR by Plan"), which tells the host nothing
+ * and leaves verify_narrative with no numbers to check. So: prose comes from
+ * the text-bearing components (TextBlock/Markdown/Annotation `content`), and
+ * headline numbers come from StatCards as "label: value" — skipping values
+ * that are state bindings rather than literals (those live in `results`).
+ */
+// Real catalog components only (lib/catalog.ts): TextBlock carries prose,
+// Annotation carries an insight with a title. Names that do not exist in the
+// catalog silently extract nothing.
+const PROSE_TYPES = new Set(["TextBlock", "Annotation"]);
+
+export function extractSummary(
+  spec: { elements: Record<string, unknown> },
+  cap = 1500
+): { summary: string; headline_stats: Array<{ label: string; value: number | string }> } {
+  const prose: string[] = [];
+  const stats: Array<{ label: string; value: number | string }> = [];
+
+  for (const el of Object.values(spec.elements)) {
+    const node = el as { type?: string; props?: Record<string, unknown> };
+    const props = node.props;
+    if (!props) continue;
+
+    if (node.type === "StatCard") {
+      const label = typeof props.label === "string" ? props.label : null;
+      const value = props.value;
+      if (label && (typeof value === "number" || typeof value === "string")) {
+        stats.push({ label, value });
+      }
+      continue;
+    }
+    if (node.type && PROSE_TYPES.has(node.type)) {
+      const content = props.content ?? props.text;
+      if (typeof content === "string" && content.trim()) {
+        // Annotation's title names the insight — keep it with its body.
+        const title =
+          node.type === "Annotation" && typeof props.title === "string" ? props.title : null;
+        prose.push(title ? `${title}: ${content.trim()}` : content.trim());
+      }
+    }
+  }
+
+  const joined = prose.join("\n\n");
+  return {
+    summary: joined.length > cap ? joined.slice(0, cap) + "…" : joined,
+    headline_stats: stats,
+  };
 }
 
 export async function analyze(
@@ -49,6 +158,14 @@ export async function analyze(
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
   if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
+  return serializedBySource(source.id, () => runAnalyze(deps, args));
+}
+
+async function runAnalyze(
+  deps: McpDeps,
+  args: { source_id: string; question: string; purpose?: string }
+): Promise<Record<string, unknown>> {
+  const source = getSource(args.source_id)!;
 
   const lines: string[] = [];
   // Mutable by contract: warehouse runs materialize under a NEW csvId
@@ -90,9 +207,8 @@ export async function analyze(
   const errorPatch = patches.find((p) => p.path === "/state/__error");
   const rootError = patches.some((p) => p.path === "/root" && p.value === "error");
   if (errorPatch || rootError) {
-    throw new Error(
-      `Analysis failed: ${typeof errorPatch?.value === "string" ? errorPatch.value : "pipeline error"}`
-    );
+    const raw = typeof errorPatch?.value === "string" ? errorPatch.value : "pipeline error";
+    throw new Error(`Analysis failed: ${mcpifyError(raw)}`);
   }
 
   const spec = deps.assembleSpecFromPatches(patches as never[]);
@@ -102,6 +218,7 @@ export async function analyze(
 
   let dashboardUrl: string | null = null;
   let historyId: string | null = null;
+  let persistError: string | null = null;
   if (runState.csvId) {
     const persisted = await deps.persistHistoryEntry(
       runState.csvId,
@@ -111,16 +228,35 @@ export async function analyze(
     if (persisted.saved) {
       historyId = persisted.meta.id;
       dashboardUrl = viewUrl(historyId);
+    } else {
+      // Never a silent null: the host must be able to tell "no link" from
+      // "analysis lost" (review S10).
+      persistError = persisted.reason;
     }
+  } else {
+    persistError = "no csvId for this run — nothing to persist";
   }
+
+  // The COMPUTED VALUES behind the dashboard — so a follow-up question about
+  // a specific number needs no recomputation, and verify_narrative has
+  // something to check prose against (they are the same values the dashboard
+  // charts). Row-level datasets stay withheld.
+  const cachedRaw = runState.csvId ? deps.getCachedArtifacts(runState.csvId) : undefined;
+  // Belt and braces beside the per-source lock: the cache records the question
+  // it was computed for, so a mismatch means these are someone else's numbers
+  // and must NOT be returned as this run's (review S8).
+  const cached =
+    cachedRaw && cachedRaw.question && cachedRaw.question !== args.question ? undefined : cachedRaw;
 
   return {
     source_id: source.id,
     question: args.question,
-    summary: extractSummary(spec as never),
+    ...extractSummary(spec as never),
     dashboard_url: dashboardUrl,
     history_id: historyId,
     element_count: Object.keys((spec as { elements: Record<string, unknown> }).elements).length,
     cost,
+    ...(persistError ? { persist_error: persistError } : {}),
+    ...(cached ? capArtifacts(cached) : {}),
   };
 }

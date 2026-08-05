@@ -99,9 +99,11 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
     "get_schema",
     {
       description:
-        "Rich schema for a connected source: column types with aggregate stats (ranges, " +
-        "means, distinct/top values), detected domain, and notable correlations. Use this " +
-        "instead of sampling the data — it is cheaper and never exposes rows.",
+        "Schema for a connected source, plus which tools that source supports. FILE/CLOUD " +
+        "sources return aggregate stats (ranges, means, distinct/top values), detected " +
+        "domain, and correlations — use it instead of sampling rows. WAREHOUSE sources " +
+        "return table and column names/types only (no stats); to characterize warehouse " +
+        "data, aggregate it with run_sql rather than SELECTing rows.",
       inputSchema: getSchemaInput,
     },
     withAudit(audit, "get_schema", (args) => getSchema(args))
@@ -150,9 +152,11 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
     "verify_narrative",
     {
       description:
-        "Check every data-like number in a draft narrative against the computed results it " +
-        "is based on (from run_analysis or analyze). Returns the untraceable numbers so you " +
-        "can correct or caveat them before presenting. Use before showing figures to the user.",
+        "Check every data-like number in a draft narrative against real computed values. " +
+        "Pass `source_id` to verify against HERMETIC's own artifacts (server-side truth — " +
+        "preferred); passing results/chart_data yourself only checks your prose against " +
+        "numbers you supplied. Returns untraceable figures so you can correct or caveat " +
+        "them before presenting.",
       inputSchema: verifyNarrativeInput,
     },
     withAudit(audit, "verify_narrative", (args) => verifyNarrative(deps, args))

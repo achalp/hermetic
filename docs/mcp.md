@@ -43,6 +43,26 @@ pnpm mcp:build-viewer
 | `persist_dashboard` | Persist a host-authored spec as a viewable analysis                                                                                                                                                                                                    | **Enforcing** catalog validation — invalid specs rejected                         |
 | `list_sources`      | Sources connected this session                                                                                                                                                                                                                         | —                                                                                 |
 
+## Knowing what a source supports
+
+`connect_source`, `get_schema`, and `list_sources` all return a capability
+block, so the host never has to discover restrictions by being refused:
+
+```json
+{
+  "source_type": "cloud-parquet",
+  "supported_tools": ["get_schema", "analyze", "verify_narrative", "persist_dashboard"],
+  "unsupported_tools": {
+    "run_analysis": "cloud reads need network; host-authored code runs with networking denied — use analyze",
+    "run_sql": "run_sql targets warehouse connections — use analyze for cloud Parquet"
+  }
+}
+```
+
+`source_type` is the meaningful flavor (`csv`, `cloud-parquet`,
+`local-parquet`, `warehouse`); `kind` is only the storage class, so three
+different source types report `kind: "csv"`.
+
 ## The dashboard link
 
 `analyze`/`persist_dashboard` return a `dashboard_url` served by an **embedded
@@ -80,8 +100,16 @@ app, then use `connection_id`.
 
 ## Security model
 
-- **Data boundary**: tool responses carry schema, statistics, and computed
-  aggregates. Raw rows and warehouse credentials never enter host context.
+- **Data boundary**: responses carry schema, statistics, and computed
+  aggregates — never row-level `datasets`, never credentials. The ONE
+  deliberate exception is `run_sql`, whose purpose is returning query results:
+  it is row-capped (default 200, max 1000), so aggregate in SQL rather than
+  SELECTing raw rows. `analyze`/`run_analysis` cap chart series at 100 rows
+  per key and bound `results`, and sandbox stderr is truncated before it
+  reaches the host (it can quote data values).
+- **Audit redaction**: presigned-URL query strings (`X-Amz-Signature`,
+  `X-Amz-Credential`) are stripped before anything is written to
+  `data/mcp-audit.jsonl`.
 - **Execution — deny by authorship, not by source.** Three regimes:
   hermetic's fixed template scripts (schema extraction over a validated URL)
   run with network, but nothing model-authored executes; hermetic-generated
@@ -160,10 +188,18 @@ Run locally: `HERMETIC_LLM_MODE=replay node scripts/mcp-proof.mjs`.
   connect_source.
 - New warehouse connections cannot be created via MCP (by credential policy —
   see above); local Parquet/cloud URLs require the Docker runtime.
-- `run_analysis` targets in-memory sources (CSV/Excel-sheet/GeoJSON);
-  Parquet/cloud/warehouse sources analyze through `analyze` (mounted or
-  scan-budgeted network reads the deny policy can't grant).
-- `persist_dashboard` targets non-warehouse sources.
+- `run_analysis` targets in-memory sources (CSV/Excel-sheet/GeoJSON — GeoJSON
+  geometry is staged alongside the CSV); Parquet/cloud/warehouse sources
+  analyze through `analyze` (mounted or scan-budgeted network reads the deny
+  policy can't grant).
+- `persist_dashboard` targets CSV-backed sources. The component catalog is not
+  yet exposed as an MCP resource (deferred with the untrusted-spec hardening),
+  so a rejected spec lists the valid component names in its error — but
+  `analyze` remains the reliable way to produce a dashboard.
+- `run_sql` results feed `verify_narrative` but cannot be charted or persisted
+  directly; charting warehouse data goes through `analyze`.
+- Concurrent `analyze` calls on ONE source are serialized (their computed
+  artifacts share a per-source cache); different sources run in parallel.
 - One session's `source_id`s live in-process — reconnect after a server
   restart.
 - The catalog-as-resource (teaching the host to author specs natively) is

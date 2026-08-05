@@ -20,7 +20,7 @@ import { extractSchema } from "@/lib/csv/schema";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
-import { validateSpec } from "@/lib/catalog";
+import { validateSpec, catalogComponents } from "@/lib/catalog";
 import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef, storeLocalFileRef, storeGeoJSON } from "@/lib/csv/storage";
@@ -54,6 +54,9 @@ function fakeConnector(resultCsv: string): WarehouseConnector {
 }
 
 function fakeDeps(connector: WarehouseConnector): McpDeps {
+  // The artifacts cache records the question it was computed for; the fake
+  // mirrors that so the S8 mismatch guard is exercised honestly.
+  const lastRun = { question: "" };
   return {
     parseCSV, // real: pure
     extractSchema, // real: pure
@@ -86,21 +89,39 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     ) => {
       await handler({ push: (line: string) => sink.write(line) });
     }) as unknown as McpDeps["runPatchStream"],
-    runAskQuery: vi.fn(async ({ stream }: { stream: unknown }) => {
+    runAskQuery: vi.fn(async ({ stream, question }: { stream: unknown; question: string }) => {
+      lastRun.question = question;
       const push = (stream as { push: (l: string) => void }).push;
       push('{"op":"add","path":"/root","value":"main"}\n');
       push(
-        '{"op":"add","path":"/elements/summary","value":{"type":"Markdown","props":{"content":"Revenue grew 3x."}}}\n'
+        '{"op":"add","path":"/elements/summary","value":{"type":"TextBlock","props":{"content":"Revenue grew 3x."}}}\n'
+      );
+      // A chart TITLE must not pollute the summary; a StatCard must surface
+      // as a headline stat, not as prose.
+      push(
+        '{"op":"add","path":"/elements/chart","value":{"type":"BarChart","props":{"title":"Revenue by Month"}}}\n'
+      );
+      push(
+        '{"op":"add","path":"/elements/kpi","value":{"type":"StatCard","props":{"label":"Total","value":600}}}\n'
       );
       push('{"op":"add","path":"/state/__cost","value":{"costUsd":0.12}}\n');
     }) as unknown as McpDeps["runAskQuery"],
     assembleSpecFromPatches,
+    getCachedArtifacts: vi.fn(() => ({
+      code: "c",
+      question: lastRun.question,
+      results: { total_revenue: 600, growth_pct: 12.5 },
+      chart_data: { by_month: Array.from({ length: 250 }, (_, i) => ({ m: i, v: i * 2 })) },
+      datasets: { raw: [{ secret_row: "should-never-appear" }] },
+      execution_ms: 10,
+    })) as unknown as McpDeps["getCachedArtifacts"],
     persistHistoryEntry: vi.fn(async () => ({
       saved: true as const,
       meta: { id: "hist-123" } as never,
     })) as unknown as McpDeps["persistHistoryEntry"],
     getActiveSandboxRuntime: vi.fn(() => "docker") as unknown as McpDeps["getActiveSandboxRuntime"],
     getCSVContent: vi.fn(async () => CSV_TEXT) as unknown as McpDeps["getCSVContent"],
+    getGeoJSONContent: vi.fn(async () => null) as unknown as McpDeps["getGeoJSONContent"],
     executeSandbox: vi.fn(async () => ({
       success: true as const,
       results: { total_revenue: 600 },
@@ -112,6 +133,7 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     collectGroundedValues, // real: pure
     verifyGrounding, // real: pure — the engine under test
     validateSpec, // real: the enforcing gate under test
+    catalogComponentNames: () => Object.keys(catalogComponents),
     // Remote/local parquet: validation+normalization real (pure); the
     // extractors are faked (they run docker); the ref stores are real
     // (in-memory maps under the test path roots).
@@ -300,7 +322,44 @@ describe("analyze (fake pipeline)", () => {
     expect(result.history_id).toBe("hist-123");
     expect(String(result.dashboard_url)).toContain("restore=hist-123");
     expect((result.cost as { costUsd: number }).costUsd).toBe(0.12);
-    expect(result.element_count).toBe(1);
+    expect(result.element_count).toBe(3);
+    // Chart titles are labels, not findings — they must not appear as prose.
+    expect(result.summary).not.toContain("Revenue by Month");
+    expect(result.headline_stats).toEqual([{ label: "Total", value: 600 }]);
+    // The computed values come back — no recomputation needed for a
+    // follow-up number, and verify_narrative has something to check.
+    expect((result.results as Record<string, number>).total_revenue).toBe(600);
+    expect((result.chart_data as { by_month: unknown[] }).by_month).toHaveLength(100);
+    expect(result.chart_data_truncated_keys).toEqual(["by_month"]);
+    // Row-level datasets still never cross the boundary.
+    expect(JSON.stringify(result)).not.toContain("should-never-appear");
+  });
+
+  it("does NOT return artifacts computed for a DIFFERENT question (concurrency guard)", async () => {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const deps = fakeDeps(fakeConnector(""));
+    // Simulate another run having overwritten the csvId-keyed cache.
+    deps.getCachedArtifacts = vi.fn(() => ({
+      code: "c",
+      question: "a completely different question",
+      results: { someone_elses: 999 },
+      chart_data: {},
+      datasets: {},
+      execution_ms: 1,
+    })) as unknown as McpDeps["getCachedArtifacts"];
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+
+    const result = parseToolJson(
+      await client.callTool({ name: "analyze", arguments: { source_id, question: "my question" } })
+    );
+    // The narrative is this run's; the other run's numbers must NOT ride along.
+    expect(result.summary).toContain("Revenue grew 3x.");
+    expect(JSON.stringify(result)).not.toContain("someone_elses");
   });
 
   it("surfaces pipeline errors as tool errors (no persist)", async () => {
@@ -344,7 +403,9 @@ describe("analyze (fake pipeline)", () => {
       runState.csvId = "materialized-42";
       const push = (stream as { push: (l: string) => void }).push;
       push('{"op":"add","path":"/root","value":"main"}\n');
-      push('{"op":"add","path":"/elements/a","value":{"type":"Text","props":{"content":"hi"}}}\n');
+      push(
+        '{"op":"add","path":"/elements/a","value":{"type":"TextBlock","props":{"content":"hi"}}}\n'
+      );
     }) as unknown as McpDeps["runAskQuery"];
     const client = await connectedClient(deps, audit);
     const { source_id } = parseToolJson(
@@ -396,7 +457,7 @@ describe("run_analysis (fake sandbox)", () => {
     expect(result.datasets).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('"month":"Jan"');
     // chart_data capped at 200 rows with the truncated key reported.
-    expect((result.chart_data as { by_month: unknown[] }).by_month).toHaveLength(200);
+    expect((result.chart_data as { by_month: unknown[] }).by_month).toHaveLength(100);
     expect(result.chart_data_truncated_keys).toEqual(["by_month"]);
   });
 
@@ -600,6 +661,72 @@ describe("connect_source: cloud URLs, parquet paths, excel, geojson", () => {
   });
 });
 
+describe("host-facing coherence (review fixes)", () => {
+  it("advertises per-source capabilities so the host never has to probe", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const wh = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    );
+    expect(wh.source_type).toBe("warehouse");
+    expect(wh.supported_tools).toContain("run_sql");
+    expect(Object.keys(wh.unsupported_tools as object)).toContain("run_analysis");
+
+    const url = parseToolJson(
+      await client.callTool({
+        name: "connect_source",
+        arguments: { url: "s3://b/x.parquet" },
+      })
+    );
+    // A cloud source reports kind "csv" for storage reasons — the capability
+    // block is what tells the host it is NOT run_analysis-able.
+    expect(url.kind).toBe("csv");
+    expect(url.source_type).toBe("cloud-parquet");
+    expect(Object.keys(url.unsupported_tools as object)).toContain("run_analysis");
+
+    const listed = parseToolJson(await client.callTool({ name: "list_sources", arguments: {} }));
+    expect((listed.sources as Array<{ source_type: string }>).map((x) => x.source_type)).toEqual([
+      "warehouse",
+      "cloud-parquet",
+    ]);
+  });
+
+  it("rewrites web-app error phrasing into MCP affordances", async () => {
+    const { mcpifyError } = await import("../tools/analyze");
+    expect(mcpifyError("CSV not found or expired. Please re-upload.")).toContain("connect_source");
+    expect(mcpifyError("Source file has been modified. Please re-select the file.")).toContain(
+      "connect_source"
+    );
+    expect(mcpifyError("some other failure")).toBe("some other failure");
+  });
+
+  it("audit redacts presigned-URL query strings", async () => {
+    const { redactUrl } = await import("../audit");
+    expect(redactUrl("https://b.s3.amazonaws.com/x.parquet?X-Amz-Signature=deadbeef")).toBe(
+      "https://b.s3.amazonaws.com/x.parquet?<query-redacted>"
+    );
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    await client.callTool({
+      name: "connect_source",
+      arguments: { url: "s3://b/x.parquet?X-Amz-Credential=SECRETKEY" },
+    });
+    expect(JSON.stringify(audit)).not.toContain("SECRETKEY");
+  });
+
+  it("rejects `sheet` on a non-xlsx path instead of ignoring it", async () => {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const res = await client.callTool({
+      name: "connect_source",
+      arguments: { path: csvPath, sheet: "Q3" },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
 describe("persist_dashboard (real catalog validation — ENFORCING)", () => {
   async function csvClient(deps: McpDeps) {
     const csvPath = join(dir, "rev.csv");
@@ -624,7 +751,11 @@ describe("persist_dashboard (real catalog validation — ENFORCING)", () => {
       },
     });
     expect((result as { isError?: boolean }).isError).toBe(true);
-    expect(String(parseToolJson(result).error)).toContain("rejected by catalog validation");
+    const msg = String(parseToolJson(result).error);
+    expect(msg).toContain("rejected by catalog validation");
+    // The host must not have to guess component names (review S4).
+    expect(msg).toContain("Valid component types:");
+    expect(msg).toContain("StatCard");
     expect(deps.persistHistoryEntry).not.toHaveBeenCalled();
   });
 

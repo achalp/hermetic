@@ -38,10 +38,23 @@ export async function persistDashboard(
 
   const check = deps.validateSpec(args.spec);
   if (!check.success) {
-    throw new Error(`Spec rejected by catalog validation: ${check.error?.slice(0, 800)}`);
+    // The catalog is not yet exposed as an MCP resource, so a bare zod error
+    // leaves the host guessing ~90 component names (review S4). Name them.
+    const names = deps.catalogComponentNames().join(", ");
+    throw new Error(
+      `Spec rejected by catalog validation: ${check.error?.slice(0, 600)}\n\n` +
+        `Valid component types: ${names}\n` +
+        "Every element needs { type, props, children: [] }. If this is fighting you, " +
+        "use analyze instead — it composes a validated dashboard for you."
+    );
   }
 
-  const persisted = await deps.persistHistoryEntry(source.csvId, args.spec, args.title);
+  // withoutCachedRun: this spec is the HOST's, not a hermetic pipeline run —
+  // inheriting the csvId's cached code/artifacts would pair the dashboard with
+  // an unrelated run (review S9).
+  const persisted = await deps.persistHistoryEntry(source.csvId, args.spec, args.title, {
+    withoutCachedRun: true,
+  });
   if (!persisted.saved) {
     throw new Error(`Could not persist: ${persisted.reason}`);
   }

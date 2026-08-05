@@ -31,7 +31,28 @@ export const runAnalysisInput = {
     ),
 };
 
-const CHART_ROW_CAP = 200;
+const CHART_ROW_CAP = 100; // same cap as analyze (review S15)
+/** Sandbox stderr is unbounded and can quote data — never relay it whole. */
+const MAX_ERROR_CHARS = 600;
+/** results{} is host-shaped; bound the whole object, not just nested arrays. */
+const MAX_RESULTS_CHARS = 20_000;
+
+function capResults(results: Record<string, unknown>): {
+  results: Record<string, unknown>;
+  results_truncated: boolean;
+} {
+  const json = JSON.stringify(results);
+  if (json.length <= MAX_RESULTS_CHARS) return { results, results_truncated: false };
+  const out: Record<string, unknown> = {};
+  let used = 0;
+  for (const [k, v] of Object.entries(results)) {
+    const size = JSON.stringify(v)?.length ?? 0;
+    if (used + size > MAX_RESULTS_CHARS) continue;
+    out[k] = v;
+    used += size;
+  }
+  return { results: out, results_truncated: true };
+}
 
 function capChartData(chartData: Record<string, unknown>): {
   capped: Record<string, unknown>;
@@ -80,22 +101,34 @@ export async function runAnalysis(
     throw new Error("Source data expired from the store — call connect_source again.");
   }
 
+  // GeoJSON sources advertise geometry in get_schema; without this the one
+  // tool that could use it never receives it (review S11).
+  const geojsonContent = source.schema.has_geojson
+    ? await deps.getGeoJSONContent(source.csvId)
+    : null;
+
   const result = await deps.executeSandbox(csvText, args.python, {
     runtime: "docker",
     network: "deny",
     csvId: source.csvId,
+    geojsonContent,
   });
 
   if (!result.success) {
+    // Truncate: sandbox stderr is raw and can quote data values (review S6).
+    const detail = result.error.slice(0, MAX_ERROR_CHARS);
     throw new Error(
-      `Execution failed${result.errorKind ? ` (${result.errorKind})` : ""}: ${result.error}`
+      `Execution failed${result.errorKind ? ` (${result.errorKind})` : ""}: ${detail}` +
+        (result.error.length > MAX_ERROR_CHARS ? "… (truncated)" : "")
     );
   }
 
   const { capped, truncatedKeys } = capChartData(result.chart_data ?? {});
+  const { results, results_truncated } = capResults(result.results ?? {});
   return {
     source_id: source.id,
-    results: result.results ?? {},
+    results,
+    results_truncated,
     chart_data: capped,
     chart_data_truncated_keys: truncatedKeys,
     execution_ms: result.execution_ms,

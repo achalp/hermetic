@@ -25,11 +25,28 @@ export interface AuditEntry {
 
 const PREVIEW_KEYS = new Set(["sql", "python", "question", "prose", "title"]);
 const MAX_PREVIEW = 200;
+/** Keys whose values are URLs — query strings can carry signed credentials. */
+const URL_KEYS = new Set(["url"]);
+
+/**
+ * A presigned S3/GCS URL carries X-Amz-Credential / X-Amz-Signature (or a
+ * GCS token) in its query string. Logging it verbatim would write live
+ * credentials into an append-only file with no rotation, so the query is
+ * dropped and only its presence recorded.
+ */
+export function redactUrl(value: string): string {
+  const q = value.indexOf("?");
+  return q === -1 ? value : `${value.slice(0, q)}?<query-redacted>`;
+}
 
 export function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args)) {
     if (typeof v === "string") {
+      if (URL_KEYS.has(k)) {
+        out[k] = redactUrl(v);
+        continue;
+      }
       out[k] = PREVIEW_KEYS.has(k) && v.length > MAX_PREVIEW ? `${v.slice(0, MAX_PREVIEW)}…` : v;
       if (!PREVIEW_KEYS.has(k) && typeof out[k] === "string" && (out[k] as string).length > 500) {
         out[k] = `${(out[k] as string).slice(0, 500)}…`;
