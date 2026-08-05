@@ -129,6 +129,23 @@ app, then use `connection_id`.
 - Deliberately absent: shell access, package installation, filesystem
   browsing.
 
+## Watching what the server is doing
+
+| What                                                             | Where                                                                                           |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Every tool call (sanitized args, outcome, duration, errors)      | `data/mcp-audit.jsonl` — `tail -f data/mcp-audit.jsonl \| jq -c '{ts,tool,outcome,durationMs}'` |
+| Live sandbox execution                                           | `docker ps \| grep hermetic-sandbox` (a container exists only while code runs)                  |
+| Egress decisions during a cloud-source run                       | `docker logs <hermetic-egress-gw-…>` — one line per allowed/denied host                         |
+| Server stderr (startup, replay mode, viewer port, pipeline logs) | the host's MCP logs: Claude Desktop → `~/.config/Claude/logs/`; Claude Code → `/mcp`            |
+| Per-run diagnostics (generated code, attempts, failures)         | `data/runs/<runId>/`                                                                            |
+| Finished analyses                                                | `data/history/` — or the History page in the web app                                            |
+| Viewer alive?                                                    | `curl -s http://127.0.0.1:4848/api/health`                                                      |
+
+A long `analyze` is normal: multi-minute runs are the pipeline generating
+code, executing it in the sandbox, and composing the dashboard. The audit
+line is written when the call finishes (with its duration); `docker ps` is
+how you confirm it is working rather than hung.
+
 ## Offline proof
 
 CI drives the real server over stdio with replay fixtures

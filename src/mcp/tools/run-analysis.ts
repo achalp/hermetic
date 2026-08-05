@@ -22,9 +22,12 @@ export const runAnalysisInput = {
   python: z
     .string()
     .describe(
-      "Python analysis code (pandas/duckdb available). Populate results{} with scalar " +
-        "findings and chart_data{} with chart-shaped row lists — same contract as the " +
-        "hermetic runtime. No network access is available."
+      "Python analysis code. CONTRACT: (1) load the data yourself — it is a CSV at " +
+        "/data/input.csv, e.g. `import pandas as pd; df = pd.read_csv('/data/input.csv')` " +
+        "(no `df` is pre-defined); (2) put scalar findings in results{} and chart-shaped " +
+        "row lists in chart_data{}; (3) call write_output(results, chart_data) at the end. " +
+        "pandas, numpy, duckdb, scipy, matplotlib are installed. No network access. " +
+        "Undefined names are rejected before execution, so import everything you use."
     ),
 };
 

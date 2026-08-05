@@ -137,9 +137,10 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
     {
       description:
         "Execute YOUR OWN Python analysis code against a CSV source in hermetic's Docker " +
-        "sandbox — no network access, no host filesystem. Populate results{} (scalars) and " +
-        "chart_data{} (row lists) per the hermetic runtime contract. Returns computed " +
-        "aggregates only. Prefer analyze for open-ended questions.",
+        "sandbox — no network access, no host filesystem. Read the data from " +
+        "/data/input.csv (nothing is pre-loaded), fill results{}/chart_data{}, and end " +
+        "with write_output(results, chart_data). Returns computed aggregates only. " +
+        "Prefer analyze for open-ended questions.",
       inputSchema: runAnalysisInput,
     },
     withAudit(audit, "run_analysis", (args) => runAnalysis(deps, args))
