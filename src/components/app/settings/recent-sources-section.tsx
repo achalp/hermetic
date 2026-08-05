@@ -7,7 +7,7 @@ import {
   renameRecentSource,
   clearRecentSources,
   type RecentSourceInfo,
-} from "@/lib/api";
+} from "@/app/lib/api";
 import { relTimeAgo } from "@/lib/rel-time";
 
 /**

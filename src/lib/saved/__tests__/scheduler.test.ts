@@ -101,18 +101,19 @@ describe("runScheduleNow", () => {
       csvContent: "a\n1\n",
       meta: { question: "q" },
     } as never);
-    // Dataset with a comma-carrying value → must be quoted.
+    // Comma-bearing COLUMN NAME + quote-bearing value → both must be quoted
+    // (the pre-consolidation local serializer joined headers unquoted).
     mockedRun.mockResolvedValue({
       ...okResult(),
       executionResult: {
         ...okResult().executionResult,
-        datasets: { main: [{ name: 'Acme, "Inc"', v: 1 }] },
+        datasets: { main: [{ "name, legal": 'Acme, "Inc"', v: 1 }] },
       },
     } as never);
     const out = await runScheduleNow(entry({ autoExport: ["csv"] as never }));
     expect(out.ok).toBe(true);
     const csv = mockedWrite.mock.calls.find(([p]) => String(p).endsWith(".csv"))?.[1] as string;
-    expect(csv).toContain('"Acme, ""Inc"""');
+    expect(csv).toBe('"name, legal",v\n"Acme, ""Inc""",1\n');
 
     // Export failure must not fail the run.
     mockedWrite.mockRejectedValueOnce(new Error("disk full"));

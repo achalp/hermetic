@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { createConnector } from "@/lib/warehouse/connector";
 import { storeWarehouse } from "@/lib/warehouse/storage";
 import { saveConnection } from "@/lib/warehouse/persist-env";

@@ -33,7 +33,7 @@ import { MiniTable, recordsToTable } from "@/components/app/artifacts-viewer";
 import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
 import { downloadAsSlides } from "@/lib/slides-export";
 import { downloadCodeAsFile, downloadDashboardAsPdf, sanitizeFilename } from "@/lib/export-utils";
-import { rerunInvestigateStep, saveNotebookLayout, composeNotebookCells } from "@/lib/api";
+import { rerunInvestigateStep, saveNotebookLayout, composeNotebookCells } from "@/app/lib/api";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { TraceStep, TraceDecision, NotebookLayoutCell } from "@/lib/contracts/investigation";
 import { SpecView } from "@/components/spec-view";

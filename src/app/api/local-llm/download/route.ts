@@ -1,7 +1,7 @@
 import { spawn, execSync } from "child_process";
 import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import type { ChildProcess } from "child_process";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { logger } from "@/lib/logger";
 import { hermeticPaths } from "@/lib/paths";
 

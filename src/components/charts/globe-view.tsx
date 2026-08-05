@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useMemo, useSyncExternalStore, useState } from "react";
 import { clientLazy } from "@/components/lazy-client";
-import { resolveColor, useChartColors } from "@/lib/chart-theme";
+import { resolveColor, useChartColors } from "@/components/theme/chart-theme";
 
 const Globe = clientLazy(
   () => import("react-globe.gl").then((m) => m.default),

@@ -11,7 +11,7 @@
  * aggregated RESULTS (scalars, chart data shapes), never raw rows.
  */
 
-import { apiError, validationErrorResponse } from "@/lib/api-error";
+import { apiError, validationErrorResponse } from "@/app/lib/api-error";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";

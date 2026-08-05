@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { validateLocalOrigin } from "@/lib/local-files/security";
 import { stopRun } from "@/lib/pipeline/run-control";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 /**
  * Stop an in-flight analysis on demand — the user's cancel button. A SEPARATE

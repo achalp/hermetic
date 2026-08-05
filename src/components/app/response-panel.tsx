@@ -4,7 +4,7 @@ import type { Spec } from "@/spec/react";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { SpecView } from "@/components/spec-view";
 import { CitationNavigateContext } from "@/components/registry-primitives";
-import { logClient } from "@/lib/client-log";
+import { logClient } from "@/app/lib/client-log";
 import { resolveDrillValues, formatFilterValue, type ClickedRecord } from "@/lib/drill-resolve";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
@@ -12,7 +12,7 @@ import type { SchemaMode } from "@/lib/contracts/data-schema";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { TraceStep } from "@/lib/contracts/investigation";
-import { getArtifacts, recomposeInvestigation } from "@/lib/api";
+import { getArtifacts, recomposeInvestigation } from "@/app/lib/api";
 import { ArtifactsViewer } from "@/components/app/artifacts-viewer";
 import { NotebookView, type NotebookExportApi } from "@/components/app/notebook-view";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
@@ -32,8 +32,8 @@ import {
   InvestigateProgress,
   InvestigationCaveats,
   SpinnerIcon,
-  truncate,
 } from "@/components/app/analysis-progress";
+import { truncate } from "@/lib/format";
 
 const VIEW_MODE_STORAGE_KEY = STORAGE_KEYS.investigateView;
 
@@ -176,6 +176,7 @@ export function ResponsePanel({
     setPreviousSpec,
     currentSpecRef,
     currentQuestionRef,
+    liveRunIdRef,
   } = useAnalysisStream({
     mode,
     questionSeq,
@@ -346,7 +347,8 @@ export function ResponsePanel({
           "[ResponsePanel] UNMOUNTED WHILE STREAMING — aborts the in-flight query",
           {
             elapsedMs: streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null,
-          }
+          },
+          liveRunIdRef.current ?? undefined
         );
       }
     };

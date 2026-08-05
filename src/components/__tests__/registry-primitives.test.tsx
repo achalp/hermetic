@@ -4,7 +4,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
-vi.mock("@/lib/theme-config", () => ({
+vi.mock("@/components/theme/theme-config", () => ({
   useStatCardTheme: () => ({
     align: "center",
     valueClass: "text-xl",

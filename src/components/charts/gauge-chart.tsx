@@ -2,8 +2,8 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
-import { useChartColors, resolveColor } from "@/lib/chart-theme";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useChartColors, resolveColor } from "@/components/theme/chart-theme";
+import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface GaugeRange {

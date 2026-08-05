@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getCostRows } from "@/lib/api";
+import { getCostRows } from "@/app/lib/api";
 
 type Row = Record<string, string>;
 

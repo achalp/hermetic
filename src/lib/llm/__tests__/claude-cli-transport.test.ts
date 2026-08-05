@@ -14,8 +14,8 @@ vi.mock("node:fs", () => ({ existsSync: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   serializeError: (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }),
-  // run-context (pulled in transitively via run-control, imported by the
-  // transport for getRunSignal) calls this at module load.
+  // Kept for any transitive run-context import; the transport itself no
+  // longer pulls in run-control (the stop signal is per-request init.signal).
   setRunIdProvider: vi.fn(),
 }));
 

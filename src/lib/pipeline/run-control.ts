@@ -1,6 +1,8 @@
-import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
-import { execFile } from "node:child_process";
 import { getRunId } from "@/lib/run-context";
+// Container kill/reap mechanics live in the sandbox layer (a DOWNWARD import;
+// the submodule directly, so the stop endpoint's graph doesn't drag in the
+// executors). This module keeps only the registry logic.
+import { killContainer, reapOrphanContainers } from "@/lib/sandbox/lifecycle";
 import { logger } from "@/lib/logger";
 import type { SkillFailureHint } from "@/lib/skills/types";
 import { stateNamespace } from "@/lib/state-store";
@@ -164,14 +166,7 @@ export async function stopRun(runId: string): Promise<boolean> {
   rc.controller.abort();
   const ids = [...rc.containers];
   logger.info("Run stop requested", { runId, containers: ids.length });
-  await Promise.all(
-    ids.map(
-      (id) =>
-        new Promise<void>((resolve) => {
-          execFile("docker", ["rm", "-f", id], () => resolve());
-        })
-    )
-  );
+  await Promise.all(ids.map((id) => killContainer(id)));
   return true;
 }
 
@@ -186,68 +181,17 @@ export function activeSandboxContainerIds(): Set<string> {
 }
 
 /**
- * Reap orphaned analysis containers — the ONLY cleanup path for a
- * `sleep infinity` container whose run died without its finally (a crash, or a
- * server restart that emptied this registry). Removes any running
- * `hermetic-sandbox-*` container NOT registered to a live run. Scoped to that
- * prefix so the short-lived schema/fingerprint containers (which self-clean and
- * are never registered) are never touched. Safe against the create→register
- * window: registerContainer runs synchronously right after `docker run`
- * resolves, with no await between, so a container that exists is either
- * registered or a true orphan. Called by the store sweeper.
- *
- * Defense in depth: a container younger than ORPHAN_MIN_AGE_MS is SPARED even
- * when unregistered, and its name logged at warn — a true orphan (crash /
- * server restart) is by definition old news by the next tick, while an
- * unregistered-but-young container means the registration path is broken again
- * (the split-brain containerOwner bug killed live runs mid-scan for days
- * because the only trace was an anonymous count).
+ * Reap orphaned analysis containers — a straggler whose run died without its
+ * finally (a crash, or a server restart that emptied this registry). This
+ * module contributes what only IT knows — which containers belong to live
+ * runs — and the sandbox layer does the docker work (listing, min-age spare,
+ * removal: see sandbox/lifecycle.ts reapOrphanContainers). Safe against the
+ * create→register window: registerContainer runs synchronously right after
+ * `docker run` resolves, with no await between, so a container that exists is
+ * either registered or a true orphan. Called by the store sweeper.
  */
-const ORPHAN_MIN_AGE_MS = 30 * 60 * 1000;
-
-export async function reapOrphanSandboxContainers(): Promise<number> {
-  const names = await new Promise<string[]>((resolve) => {
-    execFile(
-      "docker",
-      ["ps", "--filter", `name=${SANDBOX_CONTAINER_PREFIX}`, "--format", "{{.Names}}"],
-      (err: unknown, stdout: string) => {
-        resolve(err ? [] : String(stdout).trim().split("\n").filter(Boolean));
-      }
-    );
-  });
-  const active = activeSandboxContainerIds();
-  const candidates = names.filter((n) => !active.has(n));
-  const orphans: string[] = [];
-  const spared: string[] = [];
-  await Promise.all(
-    candidates.map(async (n) => {
-      const createdIso = await new Promise<string | null>((resolve) => {
-        execFile("docker", ["inspect", "--format", "{{.Created}}", n], (err, stdout) =>
-          resolve(err ? null : String(stdout).trim())
-        );
-      });
-      // Unparseable/missing Created (container already gone, odd daemon) → treat
-      // as reapable; `rm -f` on a vanished container is a harmless no-op.
-      const createdMs = createdIso ? Date.parse(createdIso) : NaN;
-      if (Number.isFinite(createdMs) && Date.now() - createdMs < ORPHAN_MIN_AGE_MS) {
-        spared.push(n);
-      } else {
-        orphans.push(n);
-      }
-    })
-  );
-  await Promise.all(
-    orphans.map((n) => new Promise<void>((res) => execFile("docker", ["rm", "-f", n], () => res())))
-  );
-  if (spared.length) {
-    logger.warn("Sweeper spared unregistered-but-young sandbox containers — registration broken?", {
-      names: spared,
-    });
-  }
-  if (orphans.length) {
-    logger.info("Reaped orphan sandbox containers", { count: orphans.length, names: orphans });
-  }
-  return orphans.length;
+export function reapOrphanSandboxContainers(): Promise<number> {
+  return reapOrphanContainers(activeSandboxContainerIds());
 }
 
 /** Tear down a run's registry entry once its stream concludes. */

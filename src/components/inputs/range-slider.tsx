@@ -1,6 +1,7 @@
 "use client";
 
 import { useBoundProp } from "@/spec/react";
+import { formatSliderValue } from "@/lib/format";
 
 interface RangeSliderProps {
   label: string;
@@ -15,17 +16,6 @@ interface RangeSliderProps {
 interface RangeSliderComponentProps {
   props: RangeSliderProps;
   bindings?: Record<string, string>;
-}
-
-function formatValue(v: number, format: RangeSliderProps["format"]): string {
-  switch (format) {
-    case "currency":
-      return `$${v.toLocaleString()}`;
-    case "percent":
-      return `${v}%`;
-    default:
-      return v.toLocaleString();
-  }
 }
 
 /**
@@ -60,7 +50,7 @@ export function RangeSliderComponent({ props, bindings }: RangeSliderComponentPr
       <div className="flex items-center justify-between">
         <label className="text-sm font-medium text-t-secondary">{props.label}</label>
         <span className="text-sm tabular-nums text-t-primary">
-          {formatValue(low, props.format)} – {formatValue(high, props.format)}
+          {formatSliderValue(low, props.format)} – {formatSliderValue(high, props.format)}
         </span>
       </div>
       <div style={{ position: "relative", height: 24 }}>
@@ -159,8 +149,8 @@ export function RangeSliderComponent({ props, bindings }: RangeSliderComponentPr
         `}</style>
       </div>
       <div className="flex justify-between text-xs text-t-tertiary">
-        <span>{formatValue(props.min, props.format)}</span>
-        <span>{formatValue(props.max, props.format)}</span>
+        <span>{formatSliderValue(props.min, props.format)}</span>
+        <span>{formatSliderValue(props.max, props.format)}</span>
       </div>
     </div>
   );

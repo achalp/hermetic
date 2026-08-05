@@ -1,7 +1,7 @@
 "use client";
 
 // Must be imported before any @deck.gl/* to force WebGL2
-import "@/lib/deckgl-init";
+import "@/components/charts/deckgl-init";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import DeckGL from "@deck.gl/react";
@@ -10,7 +10,7 @@ import { ScatterplotLayer, ArcLayer, ColumnLayer } from "@deck.gl/layers";
 import { HexagonLayer, HeatmapLayer } from "@deck.gl/aggregation-layers";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
-import { resolveColor, useChartColors } from "@/lib/chart-theme";
+import { resolveColor, useChartColors } from "@/components/theme/chart-theme";
 import { BASEMAP_TILES, rampColor, numericRange } from "@/components/charts/map-color-ramp";
 
 interface Map3DInnerProps {

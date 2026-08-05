@@ -38,7 +38,7 @@ import { usePanels } from "@/hooks/use-panels";
 import { useHomeComposer } from "@/hooks/use-home-composer";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
-import { saveHistoryEntry } from "@/lib/api";
+import { saveHistoryEntry } from "@/app/lib/api";
 
 export default function Home() {
   // ── Source & page state ─────────────────────────────────────

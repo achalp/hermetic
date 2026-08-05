@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { getWarehouseSample } from "@/lib/api";
+import { getWarehouseSample } from "@/app/lib/api";
 import { CollapsibleSection } from "@/components/app/collapsible-section";
 import { SchemaSection } from "@/components/app/data-explorer/schema-section";
 import { ProfileSection } from "@/components/app/data-explorer/profile-section";

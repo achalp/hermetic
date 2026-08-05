@@ -24,7 +24,7 @@ import { UI_COMPOSE_MODEL, GAP_CHECK_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/
 import { getPurposePrompt, resolvePurpose } from "@/lib/purpose-prompts";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { AnalysisWindow } from "@/lib/contracts/warehouse-schema";
-import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
+import type { SubQuestionResult } from "@/lib/contracts/investigation";
 import type { InvestigationPlan, PlannedSubQuestion } from "@/lib/llm/investigate-planner";
 import { logger } from "@/lib/logger";
 

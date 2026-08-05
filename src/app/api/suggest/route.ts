@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { SUGGEST_MODEL } from "@/lib/constants";
 import { trackRouteCost } from "@/lib/cost/epilogue";

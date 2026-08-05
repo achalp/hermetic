@@ -18,14 +18,16 @@
  * data/diagnostics/<date>.jsonl (one run per line). Strictly best-effort.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { mkdir, appendFile } from "fs/promises";
+import { mkdir, appendFile, readdir, unlink } from "fs/promises";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
 
-const DIAG_DIR = hermeticPaths.diagnosticsDir();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const diagDir = () => hermeticPaths.diagnosticsDir();
 
 export interface DiagEvent {
   type: string;
@@ -233,12 +235,15 @@ export async function writeRunDiagnostics(meta: {
   if (!events) return;
   try {
     const record = buildRunDiagnostics(events, { ...meta, runId: getRunId() });
-    await mkdir(DIAG_DIR, { recursive: true });
+    await mkdir(diagDir(), { recursive: true });
     await appendFile(
-      join(DIAG_DIR, `${record.date}.jsonl`),
+      join(diagDir(), `${record.date}.jsonl`),
       JSON.stringify(record) + "\n",
       "utf-8"
     );
+    // Fire-and-forget: retention must never delay or fail the write that
+    // triggered it (run-recorder's prune-on-write policy).
+    void pruneOldDiagnosticsFiles();
   } catch (err) {
     // warn, not debug: if the diagnostics writes silently break, the record
     // that explains escalations/retries/degradations disappears and nobody
@@ -246,6 +251,34 @@ export async function writeRunDiagnostics(meta: {
     logger.warn("writeRunDiagnostics failed (best-effort)", {
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+}
+
+/** Keep day files this long; older ones are dropped on write. */
+const DIAGNOSTICS_RETENTION_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Delete day files past the retention window — day files were append-only
+ * with no pruning at all, i.e. unbounded growth. Age comes from the filename
+ * (files are date-named), so the match is strict: anything else in the dir is
+ * never touched. Best-effort; never throws. Exported for tests only
+ * (writeRunDiagnostics, the production caller, is disabled under vitest).
+ */
+export async function pruneOldDiagnosticsFiles(): Promise<void> {
+  try {
+    const dir = diagDir();
+    const cutoff = Date.now() - DIAGNOSTICS_RETENTION_DAYS * DAY_MS;
+    for (const f of await readdir(dir)) {
+      const m = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(f);
+      if (!m) continue;
+      const dayMs = Date.parse(m[1]);
+      if (Number.isFinite(dayMs) && dayMs < cutoff) {
+        await unlink(join(dir, f)).catch(() => {});
+      }
+    }
+  } catch {
+    // dir may not exist yet
   }
 }
 
@@ -258,7 +291,7 @@ export async function listRunDiagnostics(limit = 100): Promise<RunDiagnostics[]>
   const { readdir, readFile } = await import("fs/promises");
   let files: string[];
   try {
-    files = (await readdir(DIAG_DIR)).filter((f) => f.endsWith(".jsonl")).sort();
+    files = (await readdir(diagDir())).filter((f) => f.endsWith(".jsonl")).sort();
   } catch {
     return []; // dir doesn't exist yet
   }
@@ -266,7 +299,7 @@ export async function listRunDiagnostics(limit = 100): Promise<RunDiagnostics[]>
   // Newest day files first; within a file, later lines are later runs.
   for (const f of files.reverse()) {
     try {
-      const lines = (await readFile(join(DIAG_DIR, f), "utf-8")).trim().split("\n").reverse();
+      const lines = (await readFile(join(diagDir(), f), "utf-8")).trim().split("\n").reverse();
       for (const line of lines) {
         try {
           records.push(JSON.parse(line) as RunDiagnostics);

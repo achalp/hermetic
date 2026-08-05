@@ -37,7 +37,7 @@ vi.mock("react-map-gl/maplibre", () => {
 });
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 vi.mock("react-globe.gl", () => ({ default: stubComponent("globe") }));
-vi.mock("@/lib/deckgl-init", () => ({}));
+vi.mock("@/components/charts/deckgl-init", () => ({}));
 vi.mock("@deck.gl/react", () => ({ default: stubComponent("deckgl") }));
 const deckClassStub = () => new Proxy({}, { get: () => class Stub {} }) as Record<string, unknown>;
 vi.mock("@deck.gl/layers", () => deckClassStub());

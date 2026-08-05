@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS } from "@/lib/basemap-constants";
+import { logger } from "@/lib/logger";
 
 // CSP hosts derived from the SAME constants self-hosters override (leaf
 // module: Edge-safe, no envConfig evaluation) — a
@@ -87,6 +88,11 @@ export function middleware(request: NextRequest) {
       const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 
       if (isRateLimited(ip)) {
+        // A 429 was previously invisible server-side — a client hitting the
+        // limit just saw failing requests with nothing to debug from. The ip
+        // is the rate key (identifies the caller, not data — same policy as
+        // audit's file paths).
+        logger.warn("Rate limit exceeded", { path: pathname, ip });
         return NextResponse.json(
           { error: "Too many requests. Please try again later." },
           { status: 429 }

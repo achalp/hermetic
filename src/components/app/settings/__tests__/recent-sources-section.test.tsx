@@ -3,9 +3,9 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import type { RecentSourceInfo } from "@/lib/api";
+import type { RecentSourceInfo } from "@/app/lib/api";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/app/lib/api", () => ({
   getRecentSources: vi.fn(),
   removeRecentSource: vi.fn().mockResolvedValue(undefined),
   renameRecentSource: vi.fn().mockResolvedValue(undefined),
@@ -17,7 +17,7 @@ import {
   removeRecentSource,
   renameRecentSource,
   clearRecentSources,
-} from "@/lib/api";
+} from "@/app/lib/api";
 import { RecentSourcesSection } from "@/components/app/settings/recent-sources-section";
 import { RECENTS_CHANGED_EVENT } from "@/lib/constants";
 

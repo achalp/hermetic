@@ -17,7 +17,19 @@ export interface SavedWorkbook {
   relationships: SheetRelationship[];
 }
 
-const store = new RecordDirStore(hermeticPaths.savedVizsDir());
+// Constructed lazily and rebuilt on a root change — a module-scope
+// `new RecordDirStore(...)` froze the pre-boot default root before the harness
+// could call setPathRoots (the seam in lib/paths.ts).
+let store_: RecordDirStore | undefined;
+let storeRoot: string | undefined;
+function store(): RecordDirStore {
+  const root = hermeticPaths.savedVizsDir();
+  if (!store_ || storeRoot !== root) {
+    store_ = new RecordDirStore(root);
+    storeRoot = root;
+  }
+  return store_;
+}
 
 export interface SaveInput {
   question: string;
@@ -72,7 +84,7 @@ export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta>
   };
   if (input.artifacts) files[RECORD_FILES.artifacts] = JSON.stringify(input.artifacts);
   if (input.workbook) files[RECORD_FILES.workbook] = JSON.stringify(input.workbook);
-  await store.writeFiles(vizId, files);
+  await store().writeFiles(vizId, files);
 
   return meta;
 }
@@ -97,14 +109,14 @@ export async function saveNewVersion(
   vizId: string,
   input: SaveVersionInput
 ): Promise<SavedVizMeta> {
-  const meta = await store.readRequiredJson<SavedVizMeta>(vizId, RECORD_FILES.meta);
+  const meta = await store().readRequiredJson<SavedVizMeta>(vizId, RECORD_FILES.meta);
 
   const oldTimestamp = meta.latestVersionTs ?? meta.createdAt;
   // Archive every record file except meta.json (which is updated in place) —
   // derived from THE layout, so a new record file can't be silently dropped
   // from versioning again.
   const filesToArchive = Object.values(RECORD_FILES).filter((f) => f !== RECORD_FILES.meta);
-  await store.archiveFiles(vizId, filesToArchive, join("history", String(oldTimestamp)));
+  await store().archiveFiles(vizId, filesToArchive, join("history", String(oldTimestamp)));
 
   const now = Date.now();
   const updatedMeta: SavedVizMeta = {
@@ -140,13 +152,13 @@ export async function saveNewVersion(
     [RECORD_FILES.source]: input.csvContent,
   };
   if (input.artifacts) files[RECORD_FILES.artifacts] = JSON.stringify(input.artifacts);
-  await store.writeFiles(vizId, files);
+  await store().writeFiles(vizId, files);
 
   return updatedMeta;
 }
 
 export async function listSavedVisualizations(): Promise<SavedVizMeta[]> {
-  const metas = await store.listMetas<SavedVizMeta>();
+  const metas = await store().listMetas<SavedVizMeta>();
   return metas.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -161,16 +173,16 @@ interface LoadedVisualization {
 
 export async function loadSavedVisualization(id: string): Promise<LoadedVisualization> {
   const [meta, spec, generatedCode, csvContent, artifacts, workbook] = await Promise.all([
-    store.readRequiredJson<SavedVizMeta>(id, RECORD_FILES.meta),
-    store.readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
-    store.readRequiredText(id, RECORD_FILES.code),
-    store.readRequiredText(id, RECORD_FILES.source),
-    store.readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
-    store.readOptionalJson<SavedWorkbook>(id, RECORD_FILES.workbook),
+    store().readRequiredJson<SavedVizMeta>(id, RECORD_FILES.meta),
+    store().readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
+    store().readRequiredText(id, RECORD_FILES.code),
+    store().readRequiredText(id, RECORD_FILES.source),
+    store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
+    store().readOptionalJson<SavedWorkbook>(id, RECORD_FILES.workbook),
   ]);
   return { meta, spec, generatedCode, csvContent, artifacts, workbook };
 }
 
 export async function deleteSavedVisualization(id: string): Promise<void> {
-  await store.delete(id);
+  await store().delete(id);
 }

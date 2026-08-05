@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { browseLocalFiles, type LocalFileEntry, type RemoteParquetCreds } from "@/lib/api";
+import { browseLocalFiles, type LocalFileEntry, type RemoteParquetCreds } from "@/app/lib/api";
+import { formatBytes } from "@/lib/format";
 
 interface LocalFileBrowserProps {
   open: boolean;
@@ -10,14 +11,6 @@ interface LocalFileBrowserProps {
   /** Load a remote cloud Parquet URL (s3:// or https://). Anon unless creds given. */
   onSelectRemote: (url: string, creds?: RemoteParquetCreds, force?: boolean) => Promise<void>;
   isExtracting?: boolean;
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return "";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const value = bytes / Math.pow(1024, i);
-  return `${value.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
 /* File-type badge palette (categorical data colors, like chart palettes — not themed) */
@@ -530,7 +523,7 @@ export function LocalFileBrowser({
                             textAlign: "right",
                           }}
                         >
-                          {formatSize(entry.size)}
+                          {formatBytes(entry.size)}
                         </span>
                       )}
                     </button>

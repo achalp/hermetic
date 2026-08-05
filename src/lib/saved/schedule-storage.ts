@@ -14,9 +14,10 @@
  * Status tracking: lastRunAt, lastStatus ("success" | "error"), lastError.
  */
 
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile, rename } from "fs/promises";
 import { dirname } from "path";
 import { hermeticPaths } from "@/lib/paths";
+import { logger } from "@/lib/logger";
 
 export type ScheduleCadence =
   | "hourly"
@@ -42,31 +43,56 @@ export interface ScheduleEntry {
   nextRunAt: number | null;
 }
 
-const SCHEDULES_PATH = hermeticPaths.schedulesFile();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const schedulesPath = () => hermeticPaths.schedulesFile();
 
 let cache: Map<string, ScheduleEntry> | null = null;
 
 async function ensureDir() {
-  await mkdir(dirname(SCHEDULES_PATH), { recursive: true });
+  await mkdir(dirname(schedulesPath()), { recursive: true });
 }
 
 /** Load schedules from disk; cached in memory after first read. */
 export async function loadSchedules(): Promise<Map<string, ScheduleEntry>> {
   if (cache) return cache;
+  const path = schedulesPath();
+  let failure: unknown;
   try {
-    const raw = await readFile(SCHEDULES_PATH, "utf-8");
+    const raw = await readFile(path, "utf-8");
     const arr = JSON.parse(raw) as ScheduleEntry[];
     cache = new Map(arr.map((s) => [s.vizId, s]));
-  } catch {
-    cache = new Map();
+    return cache;
+  } catch (err) {
+    // Missing ≠ corrupt (record-store's RecordCorruptError distinction):
+    // ENOENT is the normal empty state; a parse/read failure falls through
+    // to the backup below so persist() can't destroy the only copy.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      cache = new Map();
+      return cache;
+    }
+    failure = err;
   }
+  // Corrupt (or unreadable) file: preserve it before the next persist()
+  // overwrites it — losing every schedule the user ever configured.
+  const backupPath = `${path}.corrupt-${Date.now()}`;
+  const backedUp = await rename(path, backupPath).then(
+    () => true,
+    () => false
+  );
+  logger.warn("schedules.json unreadable — starting fresh", {
+    path,
+    backupPath: backedUp ? backupPath : undefined,
+    error: failure instanceof Error ? failure.message : String(failure),
+  });
+  cache = new Map();
   return cache;
 }
 
 async function persist() {
   if (!cache) return;
   await ensureDir();
-  await writeFile(SCHEDULES_PATH, JSON.stringify([...cache.values()], null, 2), "utf-8");
+  await writeFile(schedulesPath(), JSON.stringify([...cache.values()], null, 2), "utf-8");
 }
 
 /**
@@ -196,5 +222,5 @@ export function __setScheduleCacheForTesting(map: Map<string, ScheduleEntry>) {
 
 /** Resolve the schedules.json path for tests that want to inspect it. */
 export function __getSchedulesPath() {
-  return SCHEDULES_PATH;
+  return schedulesPath();
 }

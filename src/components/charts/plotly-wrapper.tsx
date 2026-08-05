@@ -1,72 +1,20 @@
 "use client";
 
-import { clientLazy } from "@/components/lazy-client";
-import type { Data, Layout, Config } from "plotly.js";
-import { usePlotlyLayout } from "@/lib/chart-theme";
-import { useRef, useEffect } from "react";
+import type { Layout } from "plotly.js";
+import { makePlotlyWrapper } from "./make-plotly-wrapper";
+import { usePlotlyLayout } from "@/components/theme/chart-theme";
 
-const PlotlyPlot = clientLazy(
-  async () => {
-    const Plotly = await import("plotly.js-cartesian-dist");
-    const createPlotlyComponent = (await import("react-plotly.js/factory")).default;
-    return createPlotlyComponent(Plotly);
-  },
-  <div
-    className="flex h-[350px] w-full items-center justify-center bg-surface-2"
-    style={{ borderRadius: "var(--radius-card)" }}
-  >
-    <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
-  </div>
-);
-
-const PLOTLY_CONFIG: Partial<Config> = {
-  displayModeBar: "hover",
-  modeBarButtonsToRemove: ["lasso2d", "select2d", "toImage"],
-  displaylogo: false,
-  responsive: true,
-};
-
-export function PlotlyChart({
-  data,
-  layout,
-  height,
-}: {
-  data: Data[];
-  layout?: Partial<Layout>;
-  height?: number;
-}) {
-  const baseLayout = usePlotlyLayout();
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Observe the container for size changes. When inside a CSS grid cell,
-  // Plotly can render at 0-width before the grid assigns track sizes,
-  // leaving charts (especially heatmaps) blank. ResizeObserver catches
-  // the grid settling and forces Plotly to recalculate.
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    let disposed = false;
-    const ro = new ResizeObserver(() => {
-      if (disposed) return;
-      const plotDiv = el.querySelector(".js-plotly-plot") as HTMLElement | null;
-      if (!plotDiv) return;
-      import("plotly.js-cartesian-dist").then((Plotly) => {
-        if (disposed || !plotDiv.isConnected) return;
-        try {
-          Plotly.Plots.resize(plotDiv);
-        } catch {
-          /* element detached */
-        }
-      });
-    });
-    ro.observe(el);
-    return () => {
-      disposed = true;
-      ro.disconnect();
-    };
-  }, []);
-
-  const mergedLayout: Partial<Layout> = {
+export const PlotlyChart = makePlotlyWrapper(() => import("plotly.js-cartesian-dist"), {
+  fallback: (
+    <div
+      className="flex h-[350px] w-full items-center justify-center bg-surface-2"
+      style={{ borderRadius: "var(--radius-card)" }}
+    >
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-border-default border-t-accent" />
+    </div>
+  ),
+  useBaseLayout: usePlotlyLayout,
+  mergeLayout: (baseLayout, layout) => ({
     ...(baseLayout as Partial<Layout>),
     ...layout,
     autosize: true,
@@ -78,17 +26,6 @@ export function PlotlyChart({
       ...(baseLayout.yaxis as Partial<Layout["yaxis"]>),
       ...(layout?.yaxis as Partial<Layout["yaxis"]>),
     },
-  };
-
-  return (
-    <div ref={containerRef} style={{ height: height ?? "100%", minWidth: 0, width: "100%" }}>
-      <PlotlyPlot
-        data={data}
-        layout={mergedLayout}
-        config={PLOTLY_CONFIG}
-        useResizeHandler
-        style={{ width: "100%", height: "100%" }}
-      />
-    </div>
-  );
-}
+  }),
+  containerStyle: { minWidth: 0, width: "100%" },
+});

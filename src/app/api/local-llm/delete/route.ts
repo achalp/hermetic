@@ -1,7 +1,7 @@
 import { rmSync } from "fs";
 import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import { join } from "path";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { hermeticPaths } from "@/lib/paths";
 
 export async function POST(request: Request) {

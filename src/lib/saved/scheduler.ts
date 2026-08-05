@@ -29,6 +29,7 @@ import {
 import { loadSavedVisualization } from "./storage";
 import { runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { rowsToCsv } from "@/lib/csv/csv-util";
 import { logger } from "@/lib/logger";
 
 const TICK_MS = 60_000;
@@ -67,27 +68,15 @@ async function autoExportXlsx(vizId: string, datasets: Record<string, Record<str
 async function autoExportCsv(vizId: string, datasets: Record<string, Record<string, unknown>[]>) {
   const main = datasets.main ?? Object.values(datasets)[0];
   if (!main || !Array.isArray(main) || main.length === 0) return;
+  // Canonical serializer — a local copy here had drifted (unquoted headers,
+  // no \r handling; consolidation review).
   const headers = Object.keys(main[0]);
-  const lines = [headers.join(",")];
-  for (const row of main) {
-    lines.push(
-      headers
-        .map((h) => {
-          const v = row[h];
-          if (v === null || v === undefined) return "";
-          const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-          return s.includes(",") || s.includes('"') || s.includes("\n")
-            ? `"${s.replace(/"/g, '""')}"`
-            : s;
-        })
-        .join(",")
-    );
-  }
+  const csv = rowsToCsv(headers, main);
   const dir = join(EXPORT_ROOT, vizId);
   await mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const path = join(dir, `${stamp}.csv`);
-  await writeFile(path, lines.join("\n"));
+  await writeFile(path, csv);
   logger.info("Scheduled run wrote CSV", { vizId, path, rows: main.length });
 }
 

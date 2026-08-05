@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import React from "react";
 import { StateProvider } from "@/spec/react";
 import { SelectionDrillBar } from "@/components/app/selection-drill-bar";
-import { DrillDownDispatchContext } from "@/lib/drill-down-context";
+import { DrillDownDispatchContext } from "@/components/drill-down-context";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
 let dispatched: DrillDownParams[] = [];

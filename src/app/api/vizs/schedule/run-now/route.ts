@@ -8,7 +8,7 @@
 
 import { getSchedule } from "@/lib/saved/schedule-storage";
 import { runScheduleNow } from "@/lib/saved/scheduler";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 export const maxDuration = 300;
 

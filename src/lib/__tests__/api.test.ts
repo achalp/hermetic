@@ -9,7 +9,7 @@ import {
   selectSheet,
   selectWorkbook,
   ApiError,
-} from "@/lib/api";
+} from "@/app/lib/api";
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;

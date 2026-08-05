@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { bindDbtManifest, unbindDbtManifest, ApiError, type SavedConnectionInfo } from "@/lib/api";
+import {
+  bindDbtManifest,
+  unbindDbtManifest,
+  ApiError,
+  type SavedConnectionInfo,
+} from "@/app/lib/api";
 
 interface ConnectedSourcesSectionProps {
   isConnected: boolean;

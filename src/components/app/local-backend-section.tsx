@@ -7,6 +7,7 @@ import {
   RECOMMENDED_OLLAMA_MODELS,
 } from "@/lib/constants";
 import type { LocalBackendId, RecommendedModel } from "@/lib/constants";
+import { formatBytes } from "@/lib/format";
 import {
   ApiError,
   deleteLocalLlmModel,
@@ -20,7 +21,7 @@ import {
   type LocalBackendModel as BackendModel,
   type LlmfitModel,
   type LocalLlmStatus,
-} from "@/lib/api";
+} from "@/app/lib/api";
 
 interface LocalBackendSectionProps {
   backend: LocalBackendId;
@@ -40,14 +41,6 @@ const RECOMMENDED_MODELS: Record<LocalBackendId, readonly RecommendedModel[]> = 
   "llama-cpp": RECOMMENDED_LLAMACPP_MODELS,
   ollama: RECOMMENDED_OLLAMA_MODELS,
 };
-
-function formatSize(bytes: number): string {
-  if (!bytes) return "";
-  const gb = bytes / (1024 * 1024 * 1024);
-  if (gb >= 1) return `${gb.toFixed(1)} GB`;
-  const mb = bytes / (1024 * 1024);
-  return `${mb.toFixed(0)} MB`;
-}
 
 export function LocalBackendSection({
   backend,
@@ -585,8 +578,8 @@ export function LocalBackendSection({
                     <span className="text-xs font-medium text-t-primary break-all block">
                       {m.name}
                     </span>
-                    {formatSize(m.size) && (
-                      <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
+                    {!!m.size && (
+                      <span className="text-[11px] text-t-tertiary">{formatBytes(m.size)}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -825,8 +818,8 @@ export function LocalBackendSection({
                       {m.name}
                       {isCurrentActive && <span className="text-accent-text ml-1">(active)</span>}
                     </span>
-                    {formatSize(m.size) && (
-                      <span className="text-[11px] text-t-tertiary">{formatSize(m.size)}</span>
+                    {!!m.size && (
+                      <span className="text-[11px] text-t-tertiary">{formatBytes(m.size)}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">

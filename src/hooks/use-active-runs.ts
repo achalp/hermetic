@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getActiveRuns, type ActiveRun } from "@/lib/api";
+import { getActiveRuns, type ActiveRun } from "@/app/lib/api";
 
 /**
  * Discover analyses still running server-side (they survive a client drop —

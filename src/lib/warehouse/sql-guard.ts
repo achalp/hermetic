@@ -26,10 +26,26 @@ const AGG_FN =
  *
  * Rules: exactly ONE statement (no `;` followed by more SQL, judged after
  * blanking strings/comments) whose first keyword is read-only
- * (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN / VALUES). Throws with an
+ * (SELECT / WITH / SHOW / DESCRIBE / EXPLAIN / VALUES) — AND no write/DDL
+ * keyword anywhere in the statement. The first-keyword check alone was
+ * bypassable (code-quality-hardening review): Postgres runs DML inside a CTE
+ * (`WITH d AS (DELETE FROM orders RETURNING *) SELECT count(*) FROM d`) and
+ * EXPLAIN ANALYZE executes the statement it explains. Throws with an
  * actionable message — which feeds the SQL repair loop for generated queries.
  */
 const READ_ONLY_FIRST_KEYWORD = /^\s*(select|with|show|describe|desc|explain|values)\b/i;
+
+// Write/DDL keywords rejected at ANY word boundary of the noise-stripped SQL,
+// not just first position. Quoted strings/identifiers are already blanked by
+// stripNoise, so a column literally named "delete" passes only when quoted —
+// an UNQUOTED identifier colliding with one of these is vanishingly rare, and
+// failing closed is correct for a security gate.
+const WRITE_KEYWORD =
+  /\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|call|copy|vacuum|refresh)\b/i;
+
+// EXPLAIN ANALYZE (incl. the option-list form `EXPLAIN (ANALYZE, …)`) EXECUTES
+// the statement being explained; plain EXPLAIN only plans and stays allowed.
+const EXPLAIN_ANALYZE = /^explain\s*(analy[sz]e\b|\([^)]*\banaly[sz]e\b)/i;
 
 export function assertReadOnlySql(sql: string): void {
   const clean = stripNoise(sql).trim();
@@ -40,10 +56,27 @@ export function assertReadOnlySql(sql: string): void {
         `Only a single SELECT/WITH query is allowed against the warehouse.`
     );
   }
-  // A semicolon is only legal as a trailing terminator.
+  if (EXPLAIN_ANALYZE.test(clean)) {
+    throw new Error(
+      "Refusing to execute EXPLAIN ANALYZE — it actually RUNS the statement it explains. " +
+        "Use plain EXPLAIN for the plan, or run the SELECT itself."
+    );
+  }
+  // A semicolon is only legal as a trailing terminator. Checked before the
+  // keyword scan so a `SELECT …; DROP …` tail gets the multi-statement repair
+  // message, not the keyword one.
   const semi = clean.indexOf(";");
   if (semi !== -1 && clean.slice(semi + 1).trim().length > 0) {
     throw new Error("Refusing to execute multi-statement SQL. Send exactly one SELECT/WITH query.");
+  }
+  const write = WRITE_KEYWORD.exec(clean);
+  if (write) {
+    throw new Error(
+      `Refusing to execute non-read-only SQL (contains "${write[1].toUpperCase()}"). ` +
+        `Only a single SELECT/WITH query is allowed against the warehouse — write/DDL ` +
+        `keywords are rejected anywhere in the statement, including inside a CTE. ` +
+        `If you referenced a column whose name collides with a SQL keyword, quote the identifier.`
+    );
   }
 }
 

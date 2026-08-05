@@ -11,7 +11,7 @@ import {
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { InvestigationTrace, TraceStep } from "@/lib/contracts/investigation";
 import { CodeEditor } from "./code-editor";
-import { rerunCode, ApiError } from "@/lib/api";
+import { rerunCode, ApiError } from "@/app/lib/api";
 
 interface ArtifactsViewerProps {
   artifacts: CachedArtifacts;

@@ -37,6 +37,62 @@ describe("assertReadOnlySql", () => {
       assertReadOnlySql("SELECT * FROM t WHERE note = 'please DROP by; thanks'")
     ).not.toThrow();
   });
+
+  // First-keyword-only checking was bypassable (code-quality-hardening review):
+  // Postgres executes DML inside a CTE, and EXPLAIN ANALYZE runs the statement.
+  it("rejects DML hidden inside a CTE (Postgres executes it)", () => {
+    expect(() =>
+      assertReadOnlySql("WITH d AS (DELETE FROM orders RETURNING *) SELECT count(*) FROM d")
+    ).toThrow(/read-only/i);
+    expect(() =>
+      assertReadOnlySql("WITH u AS (UPDATE t SET x = 1 RETURNING id) SELECT * FROM u")
+    ).toThrow(/read-only/i);
+    expect(() =>
+      assertReadOnlySql("WITH i AS (INSERT INTO t VALUES (1) RETURNING id) SELECT * FROM i")
+    ).toThrow(/read-only/i);
+  });
+
+  it("rejects EXPLAIN ANALYZE (executes the statement) but allows plain EXPLAIN", () => {
+    expect(() => assertReadOnlySql("EXPLAIN ANALYZE DELETE FROM orders")).toThrow();
+    expect(() => assertReadOnlySql("EXPLAIN ANALYZE SELECT * FROM t")).toThrow(/EXPLAIN ANALYZE/);
+    expect(() => assertReadOnlySql("EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM t")).toThrow(
+      /EXPLAIN ANALYZE/
+    );
+    expect(() => assertReadOnlySql("EXPLAIN SELECT * FROM t")).not.toThrow();
+    expect(() => assertReadOnlySql("EXPLAIN (FORMAT JSON) SELECT * FROM t")).not.toThrow();
+  });
+
+  it("rejects MERGE and other write keywords anywhere in the statement", () => {
+    expect(() =>
+      assertReadOnlySql("WITH s AS (SELECT 1) MERGE INTO t USING s ON t.id = s.id")
+    ).toThrow(/MERGE/);
+    expect(() => assertReadOnlySql("SELECT 1 FROM t WHERE f(x) > (VACUUM)")).toThrow(/read-only/i);
+  });
+
+  it("rejects a semicolon-free second write attempt smuggled after a SELECT", () => {
+    // No `;` — relies purely on keyword position, which the old guard ignored.
+    expect(() =>
+      assertReadOnlySql("SELECT 1 FROM t UNION ALL SELECT 1 FROM final\nDROP TABLE t")
+    ).toThrow(/DROP/);
+    expect(() =>
+      assertReadOnlySql("SELECT * INTO backup FROM orders CREATE INDEX i ON t (x)")
+    ).toThrow(/read-only/i);
+  });
+
+  it("still allows legitimate SELECT / WITH aggregates over the hardened guard", () => {
+    expect(() =>
+      assertReadOnlySql(
+        "WITH monthly AS (SELECT date_trunc('month', created_at) m, sum(rev) r FROM orders GROUP BY 1) " +
+          "SELECT m, r FROM monthly ORDER BY m"
+      )
+    ).not.toThrow();
+    // Quoted identifiers colliding with keywords are blanked by stripNoise.
+    expect(() => assertReadOnlySql('SELECT "delete", "update" FROM audit_log')).not.toThrow();
+    // Word-prefix collisions (created_at, updated_at) must not trip \b matching.
+    expect(() =>
+      assertReadOnlySql("SELECT created_at, updated_at, refreshed FROM t WHERE deleted = false")
+    ).not.toThrow();
+  });
 });
 
 const TABLES = [

@@ -1,0 +1,117 @@
+/**
+ * Per-runtime capability descriptor — the single registry of what each
+ * sandbox runtime can enforce, modeled on warehouse/engine-descriptor.ts
+ * (ARCH-12): an exhaustive Record, so adding a SandboxRuntimeId member
+ * without declaring its capabilities is a type error.
+ *
+ * Replaces the four hand-rolled `rt !== "docker"` / `rt !== "e2b"` checks
+ * that used to be scattered through the executeSandbox dispatcher, each with
+ * its own inline rejection — a new runtime (or a new docker-only feature)
+ * had to find and extend every one of them. Now: the dispatcher asks ONE
+ * gate, and the docker-only options previously documented only in comments
+ * are enforced by data.
+ */
+import type { SandboxRuntimeId } from "@/lib/constants";
+
+export interface RuntimeCapabilities {
+  /**
+   * Bind-mounted local files and copied-in Parquet (`localMountPath` /
+   * `inputParquetPath`) — needs host filesystem access to the container.
+   */
+  supportsMount: boolean;
+  /**
+   * `network: "deny"` — a HARD no-network guarantee (--network none). Only
+   * enforceable where we control the container's network namespace; on other
+   * runtimes we refuse rather than silently degrade the isolation.
+   */
+  supportsNetworkPolicy: boolean;
+  /**
+   * Remote cloud reads (s3://, https:// Parquet over httpfs) — needs the
+   * extended large-data execution budget that only the Docker path provides;
+   * elsewhere the same code just died at the default timeout and burned the
+   * retry budget with a spurious "timed out" that never named the real cause.
+   */
+  supportsRemoteIO: boolean;
+  /** Warm (reused) container fast path — E2B stays ephemeral. */
+  supportsWarm: boolean;
+}
+
+export const RUNTIME_CAPABILITIES: Record<SandboxRuntimeId, RuntimeCapabilities> = {
+  docker: {
+    supportsMount: true,
+    supportsNetworkPolicy: true,
+    supportsRemoteIO: true,
+    supportsWarm: true,
+  },
+  e2b: {
+    supportsMount: false,
+    supportsNetworkPolicy: false,
+    supportsRemoteIO: false,
+    supportsWarm: false,
+  },
+  microsandbox: {
+    supportsMount: false,
+    supportsNetworkPolicy: false,
+    supportsRemoteIO: false,
+    supportsWarm: true,
+  },
+};
+
+/** What a specific execution request needs from the runtime. */
+export interface CapabilityNeeds {
+  /** network: "deny" was requested. */
+  networkDeny?: boolean;
+  /** A bind-mount or copied-in Parquet is involved. */
+  mount?: boolean;
+  /** The code does remote cloud IO (codeDoesRemoteIo). */
+  remoteIo?: boolean;
+}
+
+/**
+ * Per-capability rejection messages. Kept actionable but harness-neutral —
+ * this layer serves the web app, the MCP server, and tests alike, so it names
+ * the required runtime rather than a UI navigation path.
+ */
+const CAPABILITY_ERRORS: {
+  need: keyof CapabilityNeeds;
+  has: keyof RuntimeCapabilities;
+  message: (rt: SandboxRuntimeId) => string;
+}[] = [
+  {
+    need: "networkDeny",
+    has: "supportsNetworkPolicy",
+    message: () =>
+      "network='deny' is only enforceable with the Docker sandbox runtime (--network none). " +
+      "Refusing to run rather than silently degrade the isolation.",
+  },
+  {
+    need: "mount",
+    has: "supportsMount",
+    message: () => "Parquet/local-file analysis is only supported with the Docker sandbox runtime.",
+  },
+  {
+    need: "remoteIo",
+    has: "supportsRemoteIO",
+    message: (rt) =>
+      "Remote cloud data reads (s3://, https:// Parquet over httpfs) are only supported with " +
+      "the Docker sandbox runtime — other runtimes cap execution at the default timeout, which " +
+      `remote scans exceed. This requires the docker runtime; the active runtime is "${rt}".`,
+  },
+];
+
+/**
+ * The one generic gate: the first capability the request needs but the
+ * runtime lacks yields its rejection message; null means the runtime can
+ * honor everything asked of it. Checked in declaration order, which preserves
+ * the dispatcher's historical precedence (deny → mount → remote IO).
+ */
+export function unsupportedCapabilityError(
+  rt: SandboxRuntimeId,
+  needs: CapabilityNeeds
+): string | null {
+  const caps = RUNTIME_CAPABILITIES[rt];
+  for (const { need, has, message } of CAPABILITY_ERRORS) {
+    if (needs[need] && !caps[has]) return message(rt);
+  }
+  return null;
+}

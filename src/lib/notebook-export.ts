@@ -10,6 +10,7 @@
 
 import type { Spec } from "@/spec/core";
 import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
+import { escapeHtml } from "@/lib/format";
 
 export interface NotebookSynthesis {
   summary?: string;
@@ -120,14 +121,6 @@ function orderedBlocks(trace: InvestigationTrace): { markdown?: string; step?: T
 }
 
 // ── HTML export ───────────────────────────────────────────────────────
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 /** Minimal inline markdown → HTML (bold, italic, code) on an escaped string. */
 function inlineMd(s: string): string {

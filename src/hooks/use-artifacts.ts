@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
-import { getArtifacts } from "@/lib/api";
+import { getArtifacts } from "@/app/lib/api";
 
 interface UseArtifactsOptions {
   csvId: string | null;

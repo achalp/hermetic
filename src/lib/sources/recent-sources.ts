@@ -36,13 +36,14 @@ export interface RecentSource {
   useCount: number;
 }
 
-const DIR = hermeticPaths.userDir();
-const INDEX_PATH = join(DIR, "recent-sources.json");
-const SOURCES_DIR = join(DIR, "sources");
+// Resolved per call, not at import — module-level consts froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const indexPath = () => hermeticPaths.recentSourcesFile();
+const sourcesDir = () => hermeticPaths.savedSourcesDir();
 const MAX_ENTRIES = 24;
 
 async function ensureDirs() {
-  await mkdir(SOURCES_DIR, { recursive: true });
+  await mkdir(sourcesDir(), { recursive: true });
 }
 
 function dedupKey(kind: RecentKind, target: string): string {
@@ -58,7 +59,7 @@ function keyOf(s: Pick<RecentSource, "kind" | "url" | "path" | "name">): string 
 
 export async function loadRecentSources(): Promise<RecentSource[]> {
   try {
-    const raw = await readFile(INDEX_PATH, "utf-8");
+    const raw = await readFile(indexPath(), "utf-8");
     const list = JSON.parse(raw) as RecentSource[];
     return list.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
   } catch {
@@ -68,7 +69,7 @@ export async function loadRecentSources(): Promise<RecentSource[]> {
 
 async function write(list: RecentSource[]): Promise<void> {
   await ensureDirs();
-  await writeFile(INDEX_PATH, JSON.stringify(list, null, 2), "utf-8");
+  await writeFile(indexPath(), JSON.stringify(list, null, 2), "utf-8");
 }
 
 /** Best-effort delete of an upload's managed byte copy. */
@@ -111,7 +112,7 @@ export async function recordRecentSource(input: RecordInput): Promise<void> {
       await ensureDirs();
       const id = existing?.id ?? randomUUID();
       const ext = extname(input.filename ?? input.name) || ".csv";
-      path = join(SOURCES_DIR, `${id}${ext}`);
+      path = join(sourcesDir(), `${id}${ext}`);
       await writeFile(path, input.bytes);
     }
 

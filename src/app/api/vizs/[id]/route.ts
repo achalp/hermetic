@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { loadSavedVisualization, deleteSavedVisualization } from "@/lib/saved/storage";
 import type { SavedWorkbook } from "@/lib/saved/storage";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";

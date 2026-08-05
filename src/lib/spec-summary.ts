@@ -1,4 +1,5 @@
 import type { Spec } from "@/lib/contracts/spec";
+import { truncate } from "@/lib/format";
 
 interface UIElementLike {
   type: string;
@@ -79,10 +80,6 @@ function extractLabel(component: string, props: Record<string, unknown>): string
   if (typeof props.title === "string" && props.title) return props.title;
   if (typeof props.label === "string" && props.label) return props.label;
   return "";
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + "\u2026" : s;
 }
 
 /**

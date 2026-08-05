@@ -1,5 +1,5 @@
 import { getRunId } from "@/lib/run-context";
-import { stateBox } from "@/lib/state-store";
+import { stateBox, stateNamespace } from "@/lib/state-store";
 
 /**
  * Shared expiry policy for the in-memory session stores (uploaded CSV, warehouse
@@ -56,4 +56,36 @@ export function touch(entry: TtlFields, now: number): void {
   entry.lastAccessedAt = now;
   const runId = getRunId();
   if (runId) entry.ownerRunId = runId;
+}
+
+// ── Sweep registry ──────────────────────────────────────────────────────────
+
+/** Evicted-entry counts: a bare number logs under the registered name; a
+ *  record logs each key as-is (for stores with multiple counters). */
+export type SweepResult = number | Record<string, number>;
+export type SweepFn = () => SweepResult | Promise<SweepResult>;
+
+// StateStore-backed (like the liveness probe) so dev HMR re-registration
+// replaces rather than duplicates an entry.
+const sweepables = stateNamespace<SweepFn>("sweepables");
+
+/**
+ * Enroll a store's expired-entry sweep. Called at the store's DEFINITION site
+ * (module scope), so a new store cannot be forgotten by a central roll call —
+ * the sweeper iterates this registry (lib/store-sweeper.ts, which also
+ * documents why a module-load list still exists there). Idempotent by name.
+ */
+export function registerSweepable(name: string, fn: SweepFn): void {
+  sweepables.set(name, fn);
+}
+
+/** Run every registered sweep, flattening counts for the sweeper's log line. */
+export async function runRegisteredSweeps(): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const [name, fn] of sweepables) {
+    const result = await fn();
+    if (typeof result === "number") counts[name] = result;
+    else Object.assign(counts, result);
+  }
+  return counts;
 }

@@ -1,4 +1,5 @@
 import { stateNamespace } from "@/lib/state-store";
+import { registerSweepable } from "@/lib/store-ttl";
 /**
  * Run output hub — lets a client that lost its connection (page reload, dev
  * HMR, navigation) REATTACH to an analysis that is still running server-side.
@@ -181,3 +182,7 @@ export function reapStaleRunChannels(now: number = Date.now()): number {
 export function __resetRunStreamHubForTests(): void {
   channels.clear();
 }
+
+// Sweep enrollment at the definition site (store-ttl registry) — a new
+// store cannot be forgotten by the sweeper's roll call.
+registerSweepable("runChannels", () => reapStaleRunChannels());

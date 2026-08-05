@@ -139,8 +139,10 @@ export function isStarting(backend: string): boolean {
   return startLocks.get(backend) === true;
 }
 
-/** GGUF model directory */
-const GGUF_DIR = hermeticPaths.ggufModelsDir();
+/** GGUF model directory — resolved per call, not at import: a module-level
+ *  const froze the pre-boot default before the harness could call setPathRoots
+ *  (the seam in lib/paths.ts). */
+const ggufDir = () => hermeticPaths.ggufModelsDir();
 
 /**
  * Resolve the llama-server binary path. Checks multiple locations:
@@ -183,8 +185,8 @@ function resolveLlamaServerBinary(binaryPath?: string): string {
 /**
  * Resolve a GGUF model path from various input formats:
  * - Absolute path → use directly
- * - Bare filename (e.g. "model-Q4_K_M.gguf") → look in GGUF_DIR
- * - HF repo ID (e.g. "bartowski/Llama-GGUF") → scan GGUF_DIR for matching files
+ * - Bare filename (e.g. "model-Q4_K_M.gguf") → look in the GGUF dir
+ * - HF repo ID (e.g. "bartowski/Llama-GGUF") → scan the GGUF dir for matching files
  *
  * When a repo has multiple GGUF files (different quant levels), picks the best one:
  * Q4_K_M > Q4_K_S > Q5_K_M > Q5_K_S > Q6_K > Q8_0 > any other
@@ -193,26 +195,26 @@ export function resolveGgufModelPath(model: string): string {
   // Absolute path — use directly
   if (isAbsolute(model)) return model;
 
-  // Bare filename — check in GGUF_DIR
+  // Bare filename — check the GGUF dir
   if (model.endsWith(".gguf")) {
-    const direct = join(GGUF_DIR, model);
+    const direct = join(ggufDir(), model);
     if (existsSync(direct)) return direct;
     // Search recursively for this filename
     return findGgufFile(model) || direct;
   }
 
   // HF repo ID like "bartowski/Llama-3.2-3B-Instruct-GGUF"
-  // The HF CLI downloads to GGUF_DIR with the original filenames.
+  // The HF CLI downloads to the GGUF dir with the original filenames.
   // We need to find the actual .gguf file(s) and pick the best quant.
   const ggufFile = findBestGgufForRepo(model);
   if (ggufFile) return ggufFile;
 
-  // Last resort — try the model string as-is in GGUF_DIR
-  const fallback = join(GGUF_DIR, model);
+  // Last resort — try the model string as-is in the GGUF dir
+  const fallback = join(ggufDir(), model);
   if (existsSync(fallback)) return fallback;
 
   // Return the path where we'd expect it — caller will check existsSync
-  return join(GGUF_DIR, model);
+  return join(ggufDir(), model);
 }
 
 /** Preferred GGUF quant levels for llama.cpp (best quality/speed tradeoff first) */
@@ -229,14 +231,14 @@ const QUANT_PREFERENCE = [
 ];
 
 /**
- * Search GGUF_DIR recursively for a specific filename.
+ * Search the GGUF dir recursively for a specific filename.
  */
 function findGgufFile(filename: string): string | null {
   try {
-    const files = readdirSync(GGUF_DIR, { recursive: true }) as string[];
+    const files = readdirSync(ggufDir(), { recursive: true }) as string[];
     for (const f of files) {
       if (typeof f === "string" && f.endsWith(filename)) {
-        return join(GGUF_DIR, f);
+        return join(ggufDir(), f);
       }
     }
   } catch {
@@ -247,13 +249,13 @@ function findGgufFile(filename: string): string | null {
 
 /**
  * Find the best GGUF file matching a HF repo ID.
- * Scans GGUF_DIR for files whose names match the repo's model pattern,
+ * Scans the GGUF dir for files whose names match the repo's model pattern,
  * then picks the best quantization level.
  */
 function findBestGgufForRepo(repoId: string): string | null {
   try {
-    if (!existsSync(GGUF_DIR)) return null;
-    const files = (readdirSync(GGUF_DIR, { recursive: true }) as string[]).filter(
+    if (!existsSync(ggufDir())) return null;
+    const files = (readdirSync(ggufDir(), { recursive: true }) as string[]).filter(
       (f) => typeof f === "string" && f.endsWith(".gguf")
     );
     if (files.length === 0) return null;
@@ -271,16 +273,16 @@ function findBestGgufForRepo(repoId: string): string | null {
     const candidates = matching.length > 0 ? matching : files;
 
     // If only one GGUF file, use it
-    if (candidates.length === 1) return join(GGUF_DIR, candidates[0]);
+    if (candidates.length === 1) return join(ggufDir(), candidates[0]);
 
     // Pick by quant preference
     for (const quant of QUANT_PREFERENCE) {
       const match = candidates.find((f) => f.toUpperCase().includes(quant));
-      if (match) return join(GGUF_DIR, match);
+      if (match) return join(ggufDir(), match);
     }
 
     // Fall back to first file
-    return join(GGUF_DIR, candidates[0]);
+    return join(ggufDir(), candidates[0]);
   } catch {
     return null;
   }

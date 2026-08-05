@@ -1,5 +1,5 @@
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
-import { apiError, validationErrorResponse } from "@/lib/api-error";
+import { apiError, validationErrorResponse } from "@/app/lib/api-error";
 import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { readJsonBody, parseBody, analysisRequestSchema } from "@/lib/api-schemas";

@@ -93,7 +93,7 @@
   --chart-bar-radius: 6px 6px 2px 2px;
   /* First three series colors as CSS tokens so SSR'd previews resolve via the
      cascade (no hydration mismatch). MUST mirror THEME_CHART_COLORS in
-     src/lib/chart-theme.ts — a test guards the sync. */
+     src/components/theme/chart-theme.ts — a test guards the sync. */
   --color-series-1: #6366f1;
   --color-series-2: #10b981;
   --color-series-3: #f59e0b;

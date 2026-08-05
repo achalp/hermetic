@@ -2,7 +2,7 @@
 
 import { Component, type ReactNode } from "react";
 import { clientLazy } from "@/components/lazy-client";
-import { unwrapChartData } from "@/lib/chart-theme";
+import { unwrapChartData } from "@/components/theme/chart-theme";
 import { ChartEmptyState } from "./chart-empty-state";
 import { ChartShell } from "./chart-shell";
 

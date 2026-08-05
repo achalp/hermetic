@@ -2,7 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyFinanceChart } from "./plotly-finance-wrapper";
-import { useTrendColors, unwrapChartData } from "@/lib/chart-theme";
+import { useTrendColors, unwrapChartData } from "@/components/theme/chart-theme";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface CandlestickChartProps {

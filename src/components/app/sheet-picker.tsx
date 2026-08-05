@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import type { SheetInfo, CSVSchema, SheetRelationship } from "@/lib/contracts/data-schema";
 import { SheetTable } from "./sheet-table";
-import { selectSheet, selectWorkbook } from "@/lib/api";
+import { selectSheet, selectWorkbook } from "@/app/lib/api";
 
 interface SheetPickerProps {
   excelId: string;

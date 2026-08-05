@@ -426,10 +426,26 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           onComposing: () => emitProgress("composing", stepOffset + 3),
         });
       } catch (pipelineErr) {
-        // Pipeline or LLM setup error — emit error annotation into the stream
+        const errMsg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
+        // Unconditional: after a disconnect the server log is the only
+        // record of the failure — gating it on the socket hid every error
+        // that happened once the client was gone.
+        logger.error("Pipeline error", serializeError(pipelineErr));
+        // Typed error channel (`/state/__error`, contracts/stream-state) —
+        // the harness contract Investigate already honors; the CLI and MCP
+        // read the real message here. Emitted regardless of closed(): the
+        // hub buffer keeps it for a reconnecting client and the disconnect
+        // history-save.
+        emit(
+          JSON.stringify({
+            op: "add",
+            path: "/state/__error",
+            value: errMsg,
+          }) + "\n"
+        );
+        // UI affordance (additive to the channel above) — only worth
+        // streaming while a client is attached.
         if (!closed()) {
-          const errMsg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
-          logger.error("Pipeline error", serializeError(pipelineErr));
           emit(
             JSON.stringify({
               op: "add",

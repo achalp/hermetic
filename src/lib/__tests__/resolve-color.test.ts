@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { resolveColor, resolveColors, CHART_COLORS, DEFAULT_CHART_COLORS } from "@/lib/chart-theme";
+import {
+  resolveColor,
+  resolveColors,
+  CHART_COLORS,
+  DEFAULT_CHART_COLORS,
+} from "@/components/theme/chart-theme";
 
 describe("resolveColor", () => {
   it("resolves named colors case-insensitively", () => {

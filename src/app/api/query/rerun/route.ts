@@ -21,7 +21,7 @@ import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cac
 import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { logger } from "@/lib/logger";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 
 export const maxDuration = 300;

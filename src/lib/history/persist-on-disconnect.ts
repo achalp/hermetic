@@ -12,7 +12,7 @@
  * and therefore more likely to hit a disconnect — lost its entire result.
  */
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
-import type { PatchLike } from "@/lib/pipeline/computed-key-audit";
+import { parsePatchLines } from "@/lib/pipeline/patch-lines";
 import { persistHistoryEntry } from "@/lib/history/persist";
 import type { PatchStream } from "@/lib/pipeline/patch-stream";
 import { logger } from "@/lib/logger";
@@ -26,17 +26,7 @@ export async function persistHistoryOnDisconnect(
   // double save.
   if (!stream.isClosed() || !csvId) return;
   try {
-    const patches: PatchLike[] = [];
-    for (const line of stream.emittedLines) {
-      const t = line.trim();
-      if (!t || t.startsWith(":")) continue; // keepalive comment
-      try {
-        patches.push(JSON.parse(t));
-      } catch {
-        // non-JSON line (progress noise) — skip
-      }
-    }
-    const spec = assembleSpecFromPatches(patches);
+    const spec = assembleSpecFromPatches(parsePatchLines(stream.emittedLines));
     if (spec) {
       await persistHistoryEntry(csvId, spec as unknown as Record<string, unknown>, question);
       logger.info("History saved server-side after client disconnect", { csvId });

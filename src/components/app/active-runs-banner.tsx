@@ -1,6 +1,6 @@
 "use client";
 
-import type { ActiveRun } from "@/lib/api";
+import type { ActiveRun } from "@/app/lib/api";
 
 /** "12m" / "45s" elapsed since a run started. */
 export function elapsedLabel(startedAt: number, now: number): string {

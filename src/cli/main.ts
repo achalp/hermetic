@@ -16,7 +16,18 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
+import { Console } from "node:console";
 import { installEnvConfig } from "@/harness/env-config";
+
+// stdout carries the NDJSON patch stream. hermetic's logger writes info/debug
+// via console to stdout, so rebind console to stderr BEFORE any lib module
+// logs — a logger.info mid-run otherwise interleaves into the patch lines and
+// corrupts the stream (same protocol protection as mcp/main.ts).
+const stderrConsole = new Console(process.stderr, process.stderr);
+console.log = stderrConsole.log.bind(stderrConsole);
+console.info = stderrConsole.info.bind(stderrConsole);
+console.debug = stderrConsole.debug.bind(stderrConsole);
+console.warn = stderrConsole.warn.bind(stderrConsole);
 
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -60,8 +71,8 @@ async function main(): Promise<number> {
   // ── Run, streaming NDJSON to stdout (and optionally a file) ──
   const { runPatchStream } = await import("@/lib/pipeline/patch-stream");
   const { runAskQuery } = await import("@/lib/pipeline/run-ask-query");
+  const { parsePatchLines, readRunError } = await import("@/lib/pipeline/patch-lines");
   const lines: string[] = [];
-  let exitCode = 0;
   await runPatchStream(
     "cli:ask",
     {
@@ -82,10 +93,18 @@ async function main(): Promise<number> {
         runState: { csvId, question },
         stream,
       });
-      // The error path emits a spec with root="error" — surface as exit code.
-      if (lines.some((l) => l.includes('"path":"/root","value":"error"'))) exitCode = 1;
     }
   );
+  // Pipeline failures land on the typed `/state/__error` channel (with a
+  // root="error" fallback) — previously detected by substring-matching
+  // serialized JSON key order, which any serializer change would break.
+  const patches = parsePatchLines(lines);
+  const runError = readRunError(patches);
+  let exitCode = 0;
+  if (runError) {
+    console.error(`[error] ${runError}`);
+    exitCode = 1;
+  }
   if (outFile) {
     writeFileSync(outFile, lines.join(""));
     console.error(`[out] ${outFile} (${lines.length} lines)`);
@@ -99,16 +118,6 @@ async function main(): Promise<number> {
   if (exitCode === 0) {
     const { assembleSpecFromPatches } = await import("@/lib/pipeline/assemble-spec");
     const { persistHistoryEntry } = await import("@/lib/history/persist");
-    const patches = lines
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith(":"))
-      .flatMap((l) => {
-        try {
-          return [JSON.parse(l)];
-        } catch {
-          return []; // progress noise
-        }
-      });
     const assembled = assembleSpecFromPatches(patches);
     if (assembled) {
       const persisted = await persistHistoryEntry(

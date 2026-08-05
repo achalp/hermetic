@@ -90,6 +90,8 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       handler: (stream: unknown) => Promise<void>
     ) => {
       await handler({ push: (line: string) => sink.write(line) });
+      // The real runPatchStream returns the run's correlation id.
+      return "run-test-1";
     }) as unknown as McpDeps["runPatchStream"],
     runAskQuery: vi.fn(async ({ stream, question }: { stream: unknown; question: string }) => {
       lastRun.question = question;
@@ -328,6 +330,10 @@ describe("analyze (fake pipeline)", () => {
     );
     expect(result.summary).toContain("Revenue grew 3x.");
     expect(result.history_id).toBe("hist-123");
+    // The run's correlation id joins the response to logs/diagnostics/cost
+    // rows, and withAudit stamps it into the audit line.
+    expect(result.run_id).toBe("run-test-1");
+    expect(audit.find((e) => e.tool === "analyze")?.runId).toBe("run-test-1");
     expect(String(result.dashboard_url)).toContain("restore=hist-123");
     expect((result.cost as { costUsd: number }).costUsd).toBe(0.12);
     expect(result.element_count).toBe(3);
@@ -375,10 +381,12 @@ describe("analyze (fake pipeline)", () => {
     const { writeFileSync } = await import("node:fs");
     writeFileSync(csvPath, CSV_TEXT);
     const deps = fakeDeps(fakeConnector(""));
+    // What a failing Ask run actually emits since the error-channel unify:
+    // the typed `/state/__error` message PLUS the UI error spec.
     deps.runAskQuery = (async ({ stream }: { stream: unknown }) => {
-      (stream as { push: (l: string) => void }).push(
-        '{"op":"add","path":"/state/__error","value":"sandbox exploded"}\n'
-      );
+      const push = (stream as { push: (l: string) => void }).push;
+      push('{"op":"add","path":"/state/__error","value":"sandbox exploded"}\n');
+      push('{"op":"add","path":"/root","value":"error"}\n');
     }) as unknown as McpDeps["runAskQuery"];
     const client = await connectedClient(deps, audit);
     const { source_id } = parseToolJson(
@@ -392,7 +400,9 @@ describe("analyze (fake pipeline)", () => {
     expect((result as { isError?: boolean }).isError).toBe(true);
     expect(deps.persistHistoryEntry).not.toHaveBeenCalled();
     const payload = parseToolJson(result);
+    // The REAL message, not the old literal "pipeline error" fallback.
     expect(String(payload.error)).toContain("sandbox exploded");
+    expect(String(payload.error)).not.toContain("pipeline error");
   });
 
   it("warehouse analyze passes the stored warehouse state and persists under the materialized csvId", async () => {
@@ -856,10 +866,31 @@ describe("host-facing coherence (review fixes)", () => {
   it("rewrites web-app error phrasing into MCP affordances", async () => {
     const { mcpifyError } = await import("../tools/analyze");
     expect(mcpifyError("CSV not found or expired. Please re-upload.")).toContain("connect_source");
+    // The exact prose run-ask-query emits — the earlier regex left
+    // " your data." dangling after the substitution.
+    expect(mcpifyError("CSV content not found. Please re-upload your data.")).toBe(
+      "CSV content not found. Call connect_source again to re-attach the source."
+    );
     expect(mcpifyError("Source file has been modified. Please re-select the file.")).toContain(
       "connect_source"
     );
     expect(mcpifyError("some other failure")).toBe("some other failure");
+  });
+
+  it("rotates mcp-audit.jsonl past the size cap (single .1 generation)", async () => {
+    const { fileAuditSink, AUDIT_ROTATE_BYTES } = await import("../audit");
+    const { hermeticPaths } = await import("@/lib/paths");
+    const { writeFileSync, statSync, readFileSync, mkdirSync } = await import("node:fs");
+    const { dirname } = await import("node:path");
+    const file = hermeticPaths.mcpAuditFile();
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, "x".repeat(AUDIT_ROTATE_BYTES + 1));
+    const sink = fileAuditSink();
+    sink({ ts: "t", tool: "analyze", args: {}, outcome: "ok", durationMs: 1 });
+    // Old contents moved aside, fresh file holds only the new entry.
+    expect(statSync(`${file}.1`).size).toBeGreaterThan(AUDIT_ROTATE_BYTES);
+    expect(readFileSync(file, "utf-8")).toContain('"tool":"analyze"');
+    expect(statSync(file).size).toBeLessThan(1000);
   });
 
   it("audit redacts presigned-URL query strings", async () => {

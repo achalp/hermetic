@@ -8,11 +8,19 @@ describe("primaryFrameCsv", () => {
         stepNo: 1,
         datasets: { main: [{ a: 1, b: 2 }], small: [] },
       })
-    ).toBe("a,b\n1,2");
+    ).toBe("a,b\n1,2\n");
   });
 
   it("returns null when there is no tabular output", () => {
     expect(primaryFrameCsv({ stepNo: 1, datasets: {} })).toBeNull();
+  });
+
+  it("round-trips a comma-bearing column name and a quote-bearing value (canonical csv-util)", () => {
+    const csv = primaryFrameCsv({
+      stepNo: 1,
+      datasets: { main: [{ "region, sub": "West", note: 'said "go"' }] },
+    });
+    expect(csv).toBe('"region, sub",note\nWest,"said ""go"""\n');
   });
 });
 
@@ -32,7 +40,7 @@ describe("buildStepFrames", () => {
     ]);
     expect(files).toHaveLength(1);
     expect(files[0].path).toBe(stepFramePath(2));
-    expect(files[0].content).toBe("region,revenue\nWest,100\nEast,200");
+    expect(files[0].content).toBe("region,revenue\nWest,100\nEast,200\n");
     expect(context).toContain("Step 2");
     expect(context).toContain("/data/step_2.csv");
     expect(context).toContain("region, revenue");
@@ -41,14 +49,14 @@ describe("buildStepFrames", () => {
   it("falls back to chart_data arrays when no datasets", () => {
     const { files } = buildStepFrames([{ stepNo: 1, chart_data: { bars: [{ x: "a", y: 1 }] } }]);
     expect(files).toHaveLength(1);
-    expect(files[0].content).toBe("x,y\na,1");
+    expect(files[0].content).toBe("x,y\na,1\n");
   });
 
   it("escapes commas, quotes, and newlines in cell values", () => {
     const { files } = buildStepFrames([
       { stepNo: 1, datasets: { main: [{ name: 'a,"b"\nc', n: 1 }] } },
     ]);
-    expect(files[0].content).toBe('name,n\n"a,""b""\nc",1');
+    expect(files[0].content).toBe('name,n\n"a,""b""\nc",1\n');
   });
 
   it("skips sources with no tabular output and returns empty when nothing usable", () => {

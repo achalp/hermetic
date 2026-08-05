@@ -7,7 +7,7 @@ import {
   downloadDashboardAsDocx,
   downloadDashboardAsPptx,
 } from "@/lib/export-utils";
-import { saveViz, ApiError } from "@/lib/api";
+import { saveViz, ApiError } from "@/app/lib/api";
 
 type ExportFormat = "pdf" | "docx" | "pptx";
 

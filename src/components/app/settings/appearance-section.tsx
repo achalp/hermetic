@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { useTheme, THEMES, type ColorMode } from "@/lib/theme-context";
+import { useTheme, THEMES, type ColorMode } from "@/components/theme/theme-context";
 
 const emptySubscribe = () => () => {};
 function useIsMounted() {

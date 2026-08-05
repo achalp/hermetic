@@ -9,6 +9,9 @@
  * computed dashboard lives in history; raw data stays home.
  */
 import { z } from "zod";
+// Pure leaf helpers (like the type-only contract imports other tools make) —
+// the orchestration seams still come through McpDeps.
+import { parsePatchLines, readRunError } from "@/lib/pipeline/patch-lines";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
@@ -85,11 +88,17 @@ export function capArtifacts(artifacts: {
 /**
  * Pipeline errors are phrased for the WEB app ("Please re-upload", "re-select
  * the file") — an MCP host has no upload button or file picker (review S14).
- * Rewrite the affordance, keep the cause.
+ * Rewrite the affordance, keep the cause. Patterns track the messages
+ * run-ask-query actually throws ("Please re-upload." AND "Please re-upload
+ * your data." — the earlier exact-suffix regex left the tail of the second
+ * one dangling after the substitution).
  */
 export function mcpifyError(message: string): string {
   return message
-    .replace(/Please re-upload\.?/gi, "Call connect_source again to re-attach the source.")
+    .replace(
+      /Please re-upload( your data)?\.?/gi,
+      "Call connect_source again to re-attach the source."
+    )
     .replace(
       /Please re-select the file\.?/gi,
       "Call connect_source again with the same path to re-attach it."
@@ -220,22 +229,18 @@ async function runAnalyze(
   };
 
   onProgress?.({ stage: "starting" });
-  await deps.runPatchStream(
+  // runPatchStream returns the runId — the join key for this run's server
+  // logs, diagnostics, and cost rows.
+  const runId = await deps.runPatchStream(
     "mcp:analyze",
     {
       write: (data: string) => {
         lines.push(data);
         if (!onProgress) return;
         // Stream-side reporting: parse each line as it arrives, not at the end.
-        for (const raw of data.split("\n")) {
-          const t = raw.trim();
-          if (!t || t.startsWith(":")) continue;
-          try {
-            const update = progressFromPatch(JSON.parse(t) as PatchLine);
-            if (update) onProgress(update);
-          } catch {
-            // non-JSON progress noise
-          }
+        for (const patch of parsePatchLines([data])) {
+          const update = progressFromPatch(patch);
+          if (update) onProgress(update);
         }
       },
     },
@@ -254,25 +259,16 @@ async function runAnalyze(
     }
   );
 
-  const patches: PatchLine[] = [];
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t || t.startsWith(":")) continue;
-    try {
-      patches.push(JSON.parse(t));
-    } catch {
-      // progress noise
-    }
+  const patches = parsePatchLines(lines);
+
+  // Both pipelines emit the real message on `/state/__error` (typed channel,
+  // contracts/stream-state); readRunError also covers a bare root="error".
+  const runError = readRunError(patches);
+  if (runError) {
+    throw new McpToolError("execution_failed", `Analysis failed: ${mcpifyError(runError)}`);
   }
 
-  const errorPatch = patches.find((p) => p.path === "/state/__error");
-  const rootError = patches.some((p) => p.path === "/root" && p.value === "error");
-  if (errorPatch || rootError) {
-    const raw = typeof errorPatch?.value === "string" ? errorPatch.value : "pipeline error";
-    throw new McpToolError("execution_failed", `Analysis failed: ${mcpifyError(raw)}`);
-  }
-
-  const spec = deps.assembleSpecFromPatches(patches as never[]);
+  const spec = deps.assembleSpecFromPatches(patches);
   if (!spec) throw new McpToolError("execution_failed", "Analysis produced no renderable result.");
 
   const cost = patches.find((p) => p.path === "/state/__cost")?.value ?? null;
@@ -312,6 +308,10 @@ async function runAnalyze(
   return {
     source_id: source.id,
     question: args.question,
+    // The run's correlation id — joins this response to the server-side
+    // logs/diagnostics/cost rows, and withAudit stamps it into the audit
+    // line. Conditional: a test fake for runPatchStream may return nothing.
+    ...(typeof runId === "string" ? { run_id: runId } : {}),
     ...extractSummary(spec as never),
     dashboard_url: dashboardUrl,
     history_id: historyId,

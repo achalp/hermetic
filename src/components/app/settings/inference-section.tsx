@@ -11,7 +11,7 @@ import {
   type ProviderInfo,
   type RuntimeStatus,
   setActiveProvider,
-} from "@/lib/api";
+} from "@/app/lib/api";
 
 interface InferenceSectionProps {
   codeGenModel: ModelId;

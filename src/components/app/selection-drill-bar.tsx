@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStateStore, useStateValue } from "@/spec/react";
-import { useDrillDispatch } from "@/lib/drill-down-context";
+import { useDrillDispatch } from "@/components/drill-down-context";
 import { formatFilterValue } from "@/lib/drill-resolve";
 import type { DrillDownParams, FilterValue } from "@/lib/contracts/spec-types";
 

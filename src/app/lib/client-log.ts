@@ -10,14 +10,20 @@
 export function logClient(
   level: "debug" | "info" | "warn" | "error",
   msg: string,
-  meta?: Record<string, unknown>
+  meta?: Record<string, unknown>,
+  /**
+   * The run this diagnostic belongs to (the `__runId` the first stream patch
+   * carries) — without it, an "UNMOUNTED WHILE STREAMING" line cannot be
+   * joined to the server-side run it interrupted.
+   */
+  runId?: string
 ): void {
   (console[level] ?? console.log)(msg, meta ?? "");
   try {
     void fetch("/api/client-log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ level, msg, meta }),
+      body: JSON.stringify({ level, msg, meta, ...(runId ? { runId } : {}) }),
       keepalive: true,
     }).catch(() => {});
   } catch {

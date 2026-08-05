@@ -42,4 +42,12 @@ describe("bigquery executeSQL", () => {
     queryMock.mockResolvedValueOnce([[]]);
     expect(await connector.executeSQL("SELECT 1 WHERE false")).toBe("");
   });
+
+  it("quotes comma-bearing COLUMN NAMES and quote-bearing values (canonical csv-util)", async () => {
+    // The pre-consolidation local serializer joined headers unquoted, so an
+    // aliased column like `revenue, net` corrupted the whole CSV.
+    queryMock.mockResolvedValueOnce([[{ "revenue, net": 100, note: 'said "go"' }]]);
+    const connector = createBigQueryConnector(config);
+    expect(await connector.executeSQL("SELECT 1")).toBe('"revenue, net",note\n100,"said ""go"""\n');
+  });
 });

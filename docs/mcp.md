@@ -162,6 +162,10 @@ signals, not prose to parse:
 - **Contract version** — the initialize handshake and `list_sources`
   report the surface's semver (`contract_version`), bumped MINOR for
   additive response fields, MAJOR for anything a host could break on.
+- **Joinable runs** — `analyze` returns the pipeline `run_id`, and the same
+  id is stamped into the call's audit line — the join key to
+  `data/runs/<run_id>/`, the diagnostics JSONL, the cost row, and the
+  server logs (every log line carries it). Contract 0.3.0.
 
 ### How the bucket-scoped allowlist works
 

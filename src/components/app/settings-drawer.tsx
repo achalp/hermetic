@@ -1,6 +1,6 @@
 "use client";
 
-import type { SavedConnectionInfo } from "@/lib/api";
+import type { SavedConnectionInfo } from "@/app/lib/api";
 import { Drawer } from "./drawer";
 import { CollapsibleSection } from "./collapsible-section";
 import { AppearanceSection } from "./settings/appearance-section";

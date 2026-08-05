@@ -16,7 +16,7 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";
-import { loadHistoryEntry, refreshHistoryEntry } from "@/lib/api";
+import { loadHistoryEntry, refreshHistoryEntry } from "@/app/lib/api";
 
 export function useHistoryRestore(args: {
   dispatch: PageDispatch;

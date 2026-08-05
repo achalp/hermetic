@@ -33,6 +33,7 @@ import {
   ambientSandboxHooks,
 } from "@/lib/pipeline/run-control";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
+import { getRunId } from "@/lib/run-context";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
 import {
@@ -44,43 +45,17 @@ import {
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
-import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import { logger } from "@/lib/logger";
 import {
   validateExecutionResult,
   formatSemanticVerdictForRetry,
 } from "@/lib/pipeline/result-validator";
 
-export interface PipelineResult {
-  executionResult: SandboxExecutionResult;
-  generatedCode: string;
-  question: string;
-  /**
-   * Per-step SQL: the warehouse query this step ran to fetch its data
-   * (Investigate over a warehouse, where each sub-question issues its own
-   * SQL). Absent for file-source steps and Python-only paths.
-   */
-  sql?: string;
-  /**
-   * csv_id under which this step's SQL result was stored, so the step's
-   * Python can be re-run against the same data later (notebook re-run).
-   */
-  stepCsvId?: string;
-  /**
-   * csv_id under which this step's FULL primary output frame was stored
-   * (uncapped). Lets a dependent's re-run consume the complete upstream
-   * output, independent of the trace's display-preview row cap.
-   */
-  outputCsvId?: string;
-  /**
-   * Set to true when the pipeline exhausted its retry budget on semantic
-   * failures (empty/NaN/zero-only results) but execution itself succeeded.
-   * The caller can surface this to the composer / UI as a warning.
-   */
-  degraded?: boolean;
-  /** When `degraded` is true, the most recent validator reason. */
-  degradedReason?: string;
-}
+// PipelineResult now lives in contracts (contracts/pipeline.ts) so llm/
+// modules can reference it without importing this pipeline module. Re-exported
+// here because existing consumers import it from the producer.
+import type { PipelineResult } from "@/lib/contracts/pipeline";
+export type { PipelineResult };
 
 export interface PipelineOptions {
   onStage?: (stage: string) => void;
@@ -298,7 +273,10 @@ export async function runPipeline(
         purpose,
         // Question-triggered skill guidance rides the un-cached question tail
         // (schema-triggered guidance is already inside the cached schema block).
-        questionGuidance || undefined
+        questionGuidance || undefined,
+        // llm/ never imports the run registry — the pipeline caller supplies
+        // the stop signal (same injection rule as ambientSandboxHooks).
+        { abortSignal: getRunSignal() }
       );
       break;
     } catch (err: unknown) {
@@ -372,6 +350,9 @@ export async function runPipeline(
     localMountPath,
     inputParquetPath,
     hooks: ambientSandboxHooks(),
+    // Container attribution label — like hooks, injected here because the
+    // sandbox layer never reads run-context itself.
+    runId: getRunId(),
   });
   recordAttemptOutcome(attemptIndex, {
     success: result.success,
@@ -498,6 +479,7 @@ export async function runPipeline(
       localMountPath,
       inputParquetPath,
       hooks: ambientSandboxHooks(),
+      runId: getRunId(),
     });
     recordAttemptOutcome(attemptIndex, {
       success: result.success,
@@ -620,6 +602,7 @@ export async function runPipelineWithCode(
     localMountPath: options.localMountPath,
     inputParquetPath: options.inputParquetPath,
     hooks: ambientSandboxHooks(),
+    runId: getRunId(),
   });
 
   if (!result.success) {

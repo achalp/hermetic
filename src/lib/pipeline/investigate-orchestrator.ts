@@ -108,24 +108,12 @@ import {
 import { gapCheckComposer } from "@/lib/llm/investigate-composer";
 import { logger } from "@/lib/logger";
 
-export interface SubQuestionResult {
-  index: number;
-  question: string;
-  rationale: string;
-  depends_on: number[];
-  /** Set on success. */
-  result?: PipelineResult;
-  /** True when the pipeline returned a result but the semantic validator flagged it (exhausted retries on degenerate output). */
-  degraded?: boolean;
-  /** When `degraded` is true, the validator's reason — useful for re-planner and composer. */
-  degradedReason?: string;
-  /** Set on hard failure (execution failed after all retries). */
-  error?: string;
-  /** True when the re-planner asked to drop this pending sub-question. */
-  removed?: boolean;
-  startedAt: number;
-  finishedAt: number;
-}
+// SubQuestionResult moved to contracts (contracts/investigation.ts) so
+// llm/investigate-composer stops importing this pipeline module. Re-exported
+// here because downstream consumers (investigation-trace, the recompose route)
+// import it from the producer.
+import type { SubQuestionResult } from "@/lib/contracts/investigation";
+export type { SubQuestionResult };
 
 export interface InvestigateProgressEvent {
   kind:

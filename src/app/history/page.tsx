@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { listHistory, deleteHistoryEntry } from "@/lib/api";
+import { listHistory, deleteHistoryEntry } from "@/app/lib/api";
 import type { HistoryMeta } from "@/lib/contracts/storage-types";
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {

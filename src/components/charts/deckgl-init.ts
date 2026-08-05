@@ -7,7 +7,7 @@
  * causing "Cannot read maxTextureDimension2D" errors.
  */
 // MUST be first: patches ResizeObserver before luma.gl constructs one.
-import "@/lib/patch-resize-observer";
+import "@/components/charts/patch-resize-observer";
 import { luma } from "@luma.gl/core";
 import { webgl2Adapter } from "@luma.gl/webgl";
 
@@ -26,7 +26,7 @@ luma.registerAdapters([webgl2Adapter]);
 // code), so all three layers are dev-gated.
 // Client bundle: NODE_ENV is inlined at build time — envConfig() has no browser harness.
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
-  // ResizeObserver is patched in "@/lib/patch-resize-observer" (imported first)
+  // ResizeObserver is patched in "@/components/charts/patch-resize-observer" (imported first)
   // to swallow the benign luma.gl race at its source. The listeners below are a
   // belt-and-suspenders backup for any path that still surfaces it.
   const origOnError = window.onerror;

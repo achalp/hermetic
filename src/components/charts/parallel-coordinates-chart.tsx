@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { useColorMap, useNivoTheme, unwrapChartData } from "@/lib/chart-theme";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useColorMap, useNivoTheme, unwrapChartData } from "@/components/theme/chart-theme";
+import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
 

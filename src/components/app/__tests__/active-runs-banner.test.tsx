@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ActiveRunsBanner, elapsedLabel } from "@/components/app/active-runs-banner";
-import type { ActiveRun } from "@/lib/api";
+import type { ActiveRun } from "@/app/lib/api";
 
 afterEach(() => cleanup());
 

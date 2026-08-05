@@ -21,7 +21,7 @@ import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator"
 import type { TraceStep } from "@/lib/contracts/investigation";
 import { isValidModelId, UI_COMPOSE_MODEL } from "@/lib/constants";
 import { logger } from "@/lib/logger";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 export const maxDuration = 300;
 

@@ -13,7 +13,7 @@ import {
   type ColumnResizeMode,
 } from "@tanstack/react-table";
 import { downloadTableAsCsv, downloadTableAsXlsx } from "@/lib/export-utils";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useThemeConfig } from "@/components/theme/theme-config";
 
 interface DataTableProps {
   // The LLM sends columns as plain strings OR {key,label} objects, and rows as

@@ -8,8 +8,10 @@ import { hermeticPaths } from "@/lib/paths";
 
 // Credentials live INSIDE the data dir (M2-C1) — previously a hidden file at
 // the repo root, invisible to backups/gitignore reasoning and unmovable.
-const CONNECTIONS_PATH = hermeticPaths.warehouseConnectionsFile();
-const LEGACY_CONNECTIONS_PATH = hermeticPaths.legacyWarehouseConnectionsFile();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const connectionsPath = () => hermeticPaths.warehouseConnectionsFile();
+const legacyConnectionsPath = () => hermeticPaths.legacyWarehouseConnectionsFile();
 
 export interface SavedConnection {
   id: string;
@@ -24,15 +26,15 @@ export interface SavedConnection {
 /** Read all saved connections */
 export async function loadConnections(): Promise<SavedConnection[]> {
   try {
-    const raw = await readFile(CONNECTIONS_PATH, "utf-8");
+    const raw = await readFile(connectionsPath(), "utf-8");
     return JSON.parse(raw) as SavedConnection[];
   } catch {
     // One-time migration from the pre-C1 repo-root location.
     try {
-      const legacyRaw = await readFile(LEGACY_CONNECTIONS_PATH, "utf-8");
+      const legacyRaw = await readFile(legacyConnectionsPath(), "utf-8");
       const parsed = JSON.parse(legacyRaw) as SavedConnection[];
-      await writeFile(CONNECTIONS_PATH, legacyRaw, "utf-8");
-      await unlink(LEGACY_CONNECTIONS_PATH).catch(() => {});
+      await writeFile(connectionsPath(), legacyRaw, "utf-8");
+      await unlink(legacyConnectionsPath()).catch(() => {});
       return parsed;
     } catch {
       // fall through to env-var migration
@@ -48,7 +50,7 @@ export async function loadConnections(): Promise<SavedConnection[]> {
           createdAt: new Date().toISOString(),
         },
       ];
-      await writeFile(CONNECTIONS_PATH, JSON.stringify(migrated, null, 2), "utf-8");
+      await writeFile(connectionsPath(), JSON.stringify(migrated, null, 2), "utf-8");
       return migrated;
     }
     return [];
@@ -72,7 +74,7 @@ export async function saveConnection(
     connections[existingIdx].label = label;
     if (name !== undefined) connections[existingIdx].name = name.trim() || undefined;
     connections[existingIdx].createdAt = new Date().toISOString();
-    await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
+    await writeFile(connectionsPath(), JSON.stringify(connections, null, 2), "utf-8");
     return connections[existingIdx];
   }
 
@@ -84,7 +86,7 @@ export async function saveConnection(
     createdAt: new Date().toISOString(),
   };
   connections.push(saved);
-  await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
+  await writeFile(connectionsPath(), JSON.stringify(connections, null, 2), "utf-8");
   return saved;
 }
 
@@ -94,7 +96,7 @@ export async function renameConnection(id: string, name: string): Promise<void> 
   const conn = connections.find((c) => c.id === id);
   if (!conn) return;
   conn.name = name.trim() || undefined;
-  await writeFile(CONNECTIONS_PATH, JSON.stringify(connections, null, 2), "utf-8");
+  await writeFile(connectionsPath(), JSON.stringify(connections, null, 2), "utf-8");
 }
 
 /** Remove a saved connection by id */
@@ -102,9 +104,9 @@ export async function removeConnection(id: string): Promise<void> {
   const connections = await loadConnections();
   const filtered = connections.filter((c) => c.id !== id);
   if (filtered.length === 0) {
-    await unlink(CONNECTIONS_PATH).catch(() => {});
+    await unlink(connectionsPath()).catch(() => {});
   } else {
-    await writeFile(CONNECTIONS_PATH, JSON.stringify(filtered, null, 2), "utf-8");
+    await writeFile(connectionsPath(), JSON.stringify(filtered, null, 2), "utf-8");
   }
 }
 

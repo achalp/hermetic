@@ -10,7 +10,7 @@ import {
   deleteSavedConnection,
   renameSavedConnection,
   type SavedConnectionInfo,
-} from "@/lib/api";
+} from "@/app/lib/api";
 
 interface WarehouseState {
   warehouseId: string | null;

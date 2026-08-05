@@ -14,7 +14,7 @@ import {
   type ScheduleCadence,
 } from "@/lib/saved/schedule-storage";
 import { ensureSchedulerStarted } from "@/lib/saved/scheduler";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 const VALID_CADENCES: ScheduleCadence[] = [
   "hourly",

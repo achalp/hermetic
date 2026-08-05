@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
 import {
   computeNextRunAt,
   setSchedule,
@@ -7,9 +10,13 @@ import {
   getSchedule,
   recordRunOutcome,
   findDueSchedules,
+  loadSchedules,
   __setScheduleCacheForTesting,
   __clearScheduleCache,
+  __getSchedulesPath,
 } from "@/lib/saved/schedule-storage";
+import { setPathRoots } from "@/lib/paths";
+import { logger } from "@/lib/logger";
 
 beforeEach(() => {
   // Use an in-memory cache so tests don't write to disk
@@ -142,7 +149,6 @@ describe("recordRunOutcome", () => {
 
   it("recomputes nextRunAt after a run", async () => {
     await setSchedule({ vizId: "a", cadence: "hourly", autoExport: [] });
-    const before = (await getSchedule("a"))?.nextRunAt;
     await new Promise((r) => setTimeout(r, 10));
     await recordRunOutcome("a", { status: "success" });
     const after = (await getSchedule("a"))?.nextRunAt;
@@ -221,5 +227,63 @@ describe("findDueSchedules", () => {
   });
 });
 
+describe("loadSchedules — corrupt file vs missing file", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "hermetic-schedules-"));
+    setPathRoots({ dataRoot: join(root, "data") });
+    __clearScheduleCache(); // force the next load to hit disk
+  });
+
+  afterEach(async () => {
+    setPathRoots({});
+    __clearScheduleCache();
+    vi.restoreAllMocks();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("missing file → empty map, no backup, no warn (ENOENT is the normal empty state)", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const map = await loadSchedules();
+    expect(map.size).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+    // No backup file was invented for a file that never existed.
+    await expect(readdir(dirname(__getSchedulesPath()))).rejects.toThrow();
+  });
+
+  it("corrupt JSON → warn, .corrupt-<ts> backup preserved, then empty map", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const path = __getSchedulesPath();
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "{ this is not json", "utf-8");
+
+    const map = await loadSchedules();
+    expect(map.size).toBe(0);
+    expect(warn).toHaveBeenCalledOnce();
+
+    const files = await readdir(dirname(path));
+    const backup = files.find((f) => /^schedules\.json\.corrupt-\d+$/.test(f));
+    expect(backup).toBeDefined();
+    // The only copy of the user's schedules survived, byte for byte.
+    expect(await readFile(join(dirname(path), backup!), "utf-8")).toBe("{ this is not json");
+  });
+
+  it("persist after a corrupt load writes fresh without touching the backup", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const path = __getSchedulesPath();
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "not json at all", "utf-8");
+
+    await loadSchedules();
+    await setSchedule({ vizId: "fresh", cadence: "hourly", autoExport: [] });
+
+    const files = await readdir(dirname(path));
+    expect(files.filter((f) => f.startsWith("schedules.json.corrupt-"))).toHaveLength(1);
+    const raw = await readFile(path, "utf-8");
+    expect(JSON.parse(raw)[0].vizId).toBe("fresh");
+  });
+});
+
 // Vitest's afterAll import (placed at bottom for clarity)
-import { afterAll } from "vitest";
+import { afterAll, afterEach } from "vitest";

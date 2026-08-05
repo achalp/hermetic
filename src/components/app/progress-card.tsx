@@ -2,7 +2,7 @@
 
 import type { ExecState, StreamState } from "@/lib/contracts/stream-state";
 import { useState, type ReactNode } from "react";
-import { stopAnalysis } from "@/lib/api";
+import { stopAnalysis } from "@/app/lib/api";
 
 export interface ProgressStep {
   /** The one-liner for this stage (the active-tense label while it runs). */

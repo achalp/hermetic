@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import type { SavedVizMeta } from "@/lib/contracts/storage-types";
-import { listVizs, deleteViz, listSchedules, type ScheduleEntry } from "@/lib/api";
+import { listVizs, deleteViz, listSchedules, type ScheduleEntry } from "@/app/lib/api";
 import { SchedulePopover, SchedulePill } from "./schedule-popover";
 
 interface SavedVizsPanelProps {

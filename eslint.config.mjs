@@ -117,7 +117,7 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: ["@/hooks/*", "@/lib/api", "@/components/app/*"],
+              group: ["@/hooks/*", "@/app/lib/api", "@/components/app/*"],
               message:
                 "the renderer closure must stay free of app state and transport (modularization WS7).",
             },
@@ -192,7 +192,7 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: ["@/app/*", "@/hooks/*", "@/lib/api", "@/components/app/*"],
+              group: ["@/app/*", "@/hooks/*", "@/app/lib/api", "@/components/app/*"],
               message: "the MCP viewer mounts the renderer closure only (mcp-server spec §4 M3).",
             },
             {

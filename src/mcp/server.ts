@@ -30,8 +30,9 @@ export const MCP_SERVER_NAME = "hermetic";
  * which contract it is talking to from tool space too. Bump MINOR for
  * additive response fields, MAJOR for anything a host could break on.
  * 0.2.0: error `code` taxonomy; `truncated_columns` flags.
+ * 0.3.0: analyze returns `run_id` (joins the audit line and server logs).
  */
-export const MCP_SERVER_VERSION = "0.2.0";
+export const MCP_SERVER_VERSION = "0.3.0";
 
 interface ToolTextResult {
   [key: string]: unknown;
@@ -112,7 +113,18 @@ function withAudit<A extends Record<string, unknown>>(
     };
     try {
       const result = await fn(args, extra);
-      audit({ ...base, outcome: "ok", durationMs: Date.now() - started });
+      // A tool that ran a pipeline reports its run_id in the result (analyze)
+      // — stamp it into the audit line so the call joins the run's logs.
+      const runId =
+        result && typeof (result as { run_id?: unknown }).run_id === "string"
+          ? ((result as { run_id: string }).run_id as string)
+          : undefined;
+      audit({
+        ...base,
+        ...(runId ? { runId } : {}),
+        outcome: "ok",
+        durationMs: Date.now() - started,
+      });
       return jsonResult(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

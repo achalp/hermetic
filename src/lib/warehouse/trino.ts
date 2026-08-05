@@ -6,7 +6,7 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue } from "./csv-util";
+import { csvValue } from "@/lib/csv/csv-util";
 
 /** Convert a value to a CSV-safe string */
 /** Escape a SQL string literal value (prevents injection via config values) */
@@ -26,6 +26,9 @@ export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseCo
     trinoConfig.auth = new BasicAuth(config.user, config.password);
   }
 
+  // No session-level read-only mode in Trino's client protocol (access control
+  // is server-side catalog config) — assertReadOnlySql is the only write gate
+  // on this connector.
   const trino = Trino.create(trinoConfig);
   const catalogName = config.catalog;
   const schemaName = config.schema;

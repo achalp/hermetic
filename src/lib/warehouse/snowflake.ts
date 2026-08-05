@@ -17,7 +17,7 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { rowsToCsv } from "./csv-util";
+import { rowsToCsv } from "@/lib/csv/csv-util";
 
 interface SnowflakeRow {
   [key: string]: unknown;
@@ -29,6 +29,9 @@ export function createSnowflakeConnector(config: SnowflakeConnectionConfig): War
   const schemaName = (config.schema ?? "PUBLIC").toUpperCase();
 
   // Single connection — Snowflake's Node SDK doesn't ship a pool primitive.
+  // No session-level read-only parameter in Snowflake (read-only is a matter
+  // of the granted role) — assertReadOnlySql is the only write gate on this
+  // connector.
   const connection = snowflake.createConnection({
     account: config.account,
     username: config.user,

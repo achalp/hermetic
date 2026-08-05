@@ -9,6 +9,31 @@
 import type { Spec } from "@/lib/contracts/spec";
 import type { FilterValue } from "@/lib/contracts/spec-types";
 import type { GroundingReport } from "./grounding";
+import type { PipelineResult } from "./pipeline";
+
+/**
+ * One sub-question's outcome in an Investigate run. Moved here from
+ * pipeline/investigate-orchestrator (its producer) so llm/investigate-composer
+ * (its consumer) imports a contract, not the pipeline layer above it.
+ */
+export interface SubQuestionResult {
+  index: number;
+  question: string;
+  rationale: string;
+  depends_on: number[];
+  /** Set on success. */
+  result?: PipelineResult;
+  /** True when the pipeline returned a result but the semantic validator flagged it (exhausted retries on degenerate output). */
+  degraded?: boolean;
+  /** When `degraded` is true, the validator's reason — useful for re-planner and composer. */
+  degradedReason?: string;
+  /** Set on hard failure (execution failed after all retries). */
+  error?: string;
+  /** True when the re-planner asked to drop this pending sub-question. */
+  removed?: boolean;
+  startedAt: number;
+  finishedAt: number;
+}
 
 export type StepStatus = "success" | "degraded" | "failed" | "removed";
 

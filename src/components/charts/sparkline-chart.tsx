@@ -1,7 +1,12 @@
 "use client";
 
 import { useId } from "react";
-import { useChartColors, unwrapChartData, formatAxisNumber, resolveColor } from "@/lib/chart-theme";
+import {
+  useChartColors,
+  unwrapChartData,
+  formatAxisNumber,
+  resolveColor,
+} from "@/components/theme/chart-theme";
 
 interface SparklineProps {
   title?: string | null;

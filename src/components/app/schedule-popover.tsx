@@ -9,7 +9,8 @@ import {
   ApiError,
   type ScheduleEntry,
   type ScheduleCadence,
-} from "@/lib/api";
+} from "@/app/lib/api";
+import { relativeTime } from "@/lib/format";
 
 const CADENCE_LABELS: Record<ScheduleCadence, string> = {
   hourly: "Every hour",
@@ -38,17 +39,7 @@ interface SchedulePopoverProps {
 
 function formatRelative(ms: number | null): string {
   if (!ms) return "never";
-  const diff = ms - Date.now();
-  const abs = Math.abs(diff);
-  const mins = Math.round(abs / 60_000);
-  const hrs = Math.round(abs / 3_600_000);
-  const days = Math.round(abs / 86_400_000);
-  const future = diff > 0;
-  let out: string;
-  if (mins < 60) out = `${mins} min`;
-  else if (hrs < 48) out = `${hrs}h`;
-  else out = `${days}d`;
-  return future ? `in ${out}` : `${out} ago`;
+  return relativeTime(ms);
 }
 
 /**

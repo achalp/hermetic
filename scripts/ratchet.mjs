@@ -47,9 +47,12 @@ const METRICS = [
   },
   {
     id: "app-raw-fetch",
-    why: "app-layer network calls must go through the typed client in lib/api.ts",
+    why: "app-layer network calls must go through the typed client in app/lib/api.ts",
     dirs: ["src/components/app", "src/hooks", "src/app"],
-    excludeDirs: ["src/app/api"],
+    // app/lib IS the sanctioned fetch site (the typed client + the keepalive
+    // client-log bridge live there since the lib→app move) — its internals are
+    // the seam, not violations of it.
+    excludeDirs: ["src/app/api", "src/app/lib"],
     pattern: /\bfetch\(/g,
   },
   {

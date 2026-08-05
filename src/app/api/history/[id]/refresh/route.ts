@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { stat } from "fs/promises";
 import { dirname } from "path";
 import { loadHistoryEntry, saveHistoryEntry } from "@/lib/history/storage";

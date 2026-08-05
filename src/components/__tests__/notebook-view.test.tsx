@@ -7,9 +7,9 @@ import type { Spec } from "@/spec/react";
 import { NotebookView, buildNotebookCells } from "@/components/app/notebook-view";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { InvestigationTrace, TraceStep } from "@/lib/contracts/investigation";
-import { rerunInvestigateStep } from "@/lib/api";
+import { rerunInvestigateStep } from "@/app/lib/api";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/app/lib/api", () => ({
   rerunInvestigateStep: vi.fn(),
 }));
 

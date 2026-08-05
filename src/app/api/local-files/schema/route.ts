@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { stat, readFile } from "node:fs/promises";
 import { resolve, basename, extname } from "node:path";
 import {

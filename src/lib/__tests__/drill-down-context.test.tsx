@@ -8,7 +8,7 @@ import {
   useDrillClickRef,
   useDrillDispatch,
   type DrillClickRef,
-} from "@/lib/drill-down-context";
+} from "@/components/drill-down-context";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
 
 afterEach(() => cleanup());
