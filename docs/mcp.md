@@ -7,8 +7,22 @@ outlives the chat.** Design and rationale:
 
 ## Setup
 
+One command — detects Claude Desktop / Claude Code, asks, writes the config
+(JSON-merged with a backup; other servers preserved), builds the viewer:
+
+```bash
+./scripts/install-mcp.sh
+```
+
+`./start.sh` offers the same step automatically when it detects a Claude
+install. Claude Code needs nothing even without the installer: this repo
+ships a project-scoped `.mcp.json`, so opening `claude` in the checkout
+prompts to enable the server.
+
+Manual config, if you prefer:
+
 ```jsonc
-// Claude Desktop (claude_desktop_config.json) or Claude Code (.mcp.json)
+// Claude Desktop (claude_desktop_config.json) or Claude Code user scope
 {
   "mcpServers": {
     "hermetic": {

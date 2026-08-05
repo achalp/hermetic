@@ -2,8 +2,7 @@
   "mcpServers": {
     "hermetic": {
       "command": "pnpm",
-      "args": ["mcp"],
-      "cwd": "/home/achal/dev/hermetic"
+      "args": ["mcp"]
     }
   }
 }

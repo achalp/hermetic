@@ -315,6 +315,8 @@ cd hermetic
 
 The setup script checks prerequisites, installs dependencies, sets up your chosen sandbox runtime, and starts the dev server. It will prompt you for an API key and let you choose between Docker and Microsandbox.
 
+It also offers to connect hermetic to **Claude Desktop / Claude Code as an MCP server** — your agent gets `analyze`, `run_sql`, and friends as tools while your data stays on your machine (see [docs/mcp.md](docs/mcp.md)). Standalone: `./scripts/install-mcp.sh`. Claude Code users need nothing: the repo's `.mcp.json` auto-prompts when you open `claude` here.
+
 ### Manual Setup
 
 1. **Install dependencies**

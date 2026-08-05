@@ -1110,7 +1110,27 @@ elif [ "$RUNTIME" = "microsandbox" ]; then
   ok "Sandbox will be warmed up after server starts"
 fi
 
-# ── 10. Launch ────────────────────────────────────────────
+# ── 10. Claude integration (MCP) ─────────────────────────
+# Hermetic doubles as an MCP server: Claude Desktop / Claude Code drive the
+# same libraries as tools ("the analysis room for your agent" — docs/mcp.md).
+# Everything the server needs is already set up by the steps above; the
+# installer only writes client configs (with consent) + builds the viewer.
+if [ -d "$HOME/Library/Application Support/Claude" ] ||
+   [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/Claude" ] ||
+   command -v claude &>/dev/null; then
+  step "Claude integration (MCP)"
+  echo -e "    ${DIM}Claude Desktop/Code detected — hermetic can register as an MCP server.${RESET}"
+  echo -en "    Set it up now? [Y/n]: "
+  read -r MCP_ANSWER
+  if [ -z "$MCP_ANSWER" ] || [[ "$MCP_ANSWER" =~ ^[Yy] ]]; then
+    # Never let MCP-installer problems break the app launch.
+    bash ./scripts/install-mcp.sh || warn "MCP setup failed — re-run later: ./scripts/install-mcp.sh"
+  else
+    ok "Skipped ${DIM}(anytime later: ./scripts/install-mcp.sh)${RESET}"
+  fi
+fi
+
+# ── 11. Launch ────────────────────────────────────────────
 step "Starting app"
 
 echo ""
