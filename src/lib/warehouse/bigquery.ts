@@ -7,6 +7,7 @@ import type {
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector, ScanWindow } from "./connector";
 import { extractDateEpoch, parsePartitionId, sizeScanWindow } from "./scan-window";
+import { rowsToCsv } from "@/lib/csv/csv-util";
 
 export function createBigQueryConnector(config: BigQueryConnectionConfig): WarehouseConnector {
   let credentials: Record<string, unknown>;
@@ -30,6 +31,9 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
     datasetName = parts[1];
   }
 
+  // No session-level read-only mode in the BigQuery API (write control is IAM
+  // roles; grant the service account read-only roles) — assertReadOnlySql is
+  // the only write gate on this connector.
   const bq = new BigQuery({
     projectId: config.projectId,
     credentials,
@@ -225,18 +229,11 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
 
       if (!rows || rows.length === 0) return "";
 
+      // Canonical serializer — the local copy joined headers UNQUOTED, which
+      // corrupted the CSV for comma-bearing column names (consolidation
+      // review; csv-util's docstring records the drift history).
       const headers = Object.keys(rows[0]);
-      const lines = [headers.join(",")];
-      for (const row of rows) {
-        const vals = headers.map((h) => {
-          const v = String(row[h] ?? "");
-          return v.includes(",") || v.includes('"') || v.includes("\n")
-            ? `"${v.replace(/"/g, '""')}"`
-            : v;
-        });
-        lines.push(vals.join(","));
-      }
-      return lines.join("\n") + "\n";
+      return rowsToCsv(headers, rows);
     },
 
     async close() {

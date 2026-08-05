@@ -17,7 +17,7 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { rowsToCsv } from "./csv-util";
+import { rowsToCsv } from "@/lib/csv/csv-util";
 
 type Row = Record<string, unknown>;
 
@@ -46,6 +46,9 @@ export function createDatabricksConnector(config: DatabricksConnectionConfig): W
   const catalog = config.catalog;
   const schemaName = config.schema ?? "default";
 
+  // No session-level read-only switch in the Databricks SQL protocol (write
+  // control is Unity Catalog grants) — assertReadOnlySql is the only write
+  // gate on this connector.
   const client = new DBSQLClient() as unknown as DbsqlClientLike;
 
   // Connect lazily on first use; keeps the constructor non-async.

@@ -15,7 +15,7 @@ import {
   fetchStaticAsset,
   uploadFile,
   type RemoteParquetCreds,
-} from "@/lib/api";
+} from "@/app/lib/api";
 
 export function useSourceSelect(args: {
   handleUpload: (csvId: string, schema: CSVSchema) => void;

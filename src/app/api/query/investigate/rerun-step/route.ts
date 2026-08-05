@@ -39,7 +39,7 @@ import { isValidRuntimeId, isValidModelId, LOCAL_MOUNT_PATH } from "@/lib/consta
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { trackRouteCost } from "@/lib/cost/epilogue";
 import path from "node:path";
 

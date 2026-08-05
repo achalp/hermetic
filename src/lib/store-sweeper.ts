@@ -14,6 +14,7 @@
  * lib/history/storage.ts, HERMETIC_MAX_HISTORY_ENTRIES; API-9).
  */
 import { logger } from "@/lib/logger";
+import { runRegisteredSweeps } from "@/lib/store-ttl";
 
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -25,32 +26,34 @@ export function startStoreSweeper(): void {
 
   const sweep = async () => {
     try {
-      // Dynamic imports keep this module import-cycle-free and lazy.
-      const [csv, warehouse, code, conversation, artifacts, excel, runControl, streamHub] =
-        await Promise.all([
-          import("@/lib/csv/storage"),
-          import("@/lib/warehouse/storage"),
-          import("@/lib/pipeline/code-cache"),
-          import("@/lib/pipeline/conversation-cache"),
-          import("@/lib/pipeline/artifacts-cache"),
-          import("@/lib/excel/storage"),
-          import("@/lib/pipeline/run-control"),
-          import("@/lib/pipeline/run-stream-hub"),
-        ]);
-      const csvResult = await csv.sweepExpiredCSVStore();
+      // Side-effect module loading, NOT enumeration: sweeps run from the
+      // registry (registerSweepable at each store's definition site — a new
+      // store enrolls itself and cannot be forgotten), but registration only
+      // fires when the store module is imported, and this sweeper may be a
+      // store's first importer. Dynamic imports keep the module
+      // import-cycle-free and lazy, exactly as before.
+      const [, , , , runControl] = await Promise.all([
+        // Loaded for their registerSweepable side effect (each store enrolls
+        // at its own definition site) — the sweeper may be a store's first
+        // importer, so this list's only remaining job is module loading; it
+        // can no longer silently miss a sweep function.
+        import("@/lib/warehouse/storage"),
+        import("@/lib/pipeline/code-cache"),
+        import("@/lib/pipeline/conversation-cache"),
+        import("@/lib/pipeline/artifacts-cache"),
+        import("@/lib/pipeline/run-control"),
+        import("@/lib/pipeline/run-stream-hub"),
+        import("@/lib/csv/storage"),
+        import("@/lib/excel/storage"),
+      ]);
+
       const counts = {
-        csvExpired: csvResult.expired,
-        csvOrphans: csvResult.orphans,
-        warehouses: warehouse.sweepExpiredWarehouses(),
-        code: code.sweepExpiredCodeCache(),
-        conversations: conversation.sweepExpiredConversations(),
-        artifacts: artifacts.sweepExpiredArtifacts(),
-        excel: excel.sweepExpiredExcel(),
+        ...(await runRegisteredSweeps()),
         // Orphaned `sleep infinity` analysis containers from a crashed/restarted
         // run — the only cleanup path now that we never self-kill on a timer.
+        // Not a store sweep, so deliberately outside the registry (pending the
+        // sandbox-layer move).
         sandboxOrphans: await runControl.reapOrphanSandboxContainers(),
-        // Finished run channels retained for late reconnects, past their grace.
-        runChannels: streamHub.reapStaleRunChannels(),
       };
       if (Object.values(counts).some((n) => n > 0)) {
         logger.debug("Store sweep", counts);

@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { isIdleExpired, touch } from "@/lib/store-ttl";
+import {
+  isIdleExpired,
+  touch,
+  registerSweepable,
+  runRegisteredSweeps,
+  type SweepFn,
+} from "@/lib/store-ttl";
+import { stateNamespace } from "@/lib/state-store";
 import { registerRun, endRun } from "@/lib/pipeline/run-control";
 import { runWithRunId, getRunId } from "@/lib/run-context";
 import {
@@ -97,6 +104,43 @@ describe("warehouse store — sliding + active-run pin", () => {
     expect(sweepExpiredWarehouses()).toBe(0);
     expect(getStoredWarehouse("wh-pin")).toBeTruthy();
     endRun(rid);
+  });
+});
+
+describe("sweep registry", () => {
+  const registry = stateNamespace<SweepFn>("sweepables");
+  afterEach(() => {
+    registry.delete("test-a");
+    registry.delete("test-b");
+  });
+
+  it("runs registered sweeps and flattens counts (number and record results)", async () => {
+    registerSweepable("test-a", () => 3);
+    registerSweepable("test-b", async () => ({ testBExpired: 1, testBOrphans: 2 }));
+    const counts = await runRegisteredSweeps();
+    expect(counts["test-a"]).toBe(3);
+    expect(counts.testBExpired).toBe(1);
+    expect(counts.testBOrphans).toBe(2);
+  });
+
+  it("re-registration by name replaces, never duplicates (HMR safety)", async () => {
+    let calls = 0;
+    registerSweepable("test-a", () => {
+      calls++;
+      return 0;
+    });
+    registerSweepable("test-a", () => {
+      calls += 10;
+      return 0;
+    });
+    await runRegisteredSweeps();
+    expect(calls).toBe(10); // only the latest registration ran, exactly once
+  });
+
+  it("csv and excel stores enroll themselves at import (registration-at-definition)", async () => {
+    await Promise.all([import("@/lib/csv/storage"), import("@/lib/excel/storage")]);
+    expect(registry.has("csv")).toBe(true);
+    expect(registry.has("excel")).toBe(true);
   });
 });
 

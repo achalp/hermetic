@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolve } from "node:path";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { getFileInfo } from "@/lib/local-files/browser";
 import {
   validateLocalOrigin,

@@ -55,7 +55,7 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { WarehouseTableSchema, AnalysisWindow } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseType } from "@/lib/contracts/connection-configs";
-import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
+import { generateSQLWithRepair } from "@/lib/sqlgen/sql-generation";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
@@ -108,24 +108,12 @@ import {
 import { gapCheckComposer } from "@/lib/llm/investigate-composer";
 import { logger } from "@/lib/logger";
 
-export interface SubQuestionResult {
-  index: number;
-  question: string;
-  rationale: string;
-  depends_on: number[];
-  /** Set on success. */
-  result?: PipelineResult;
-  /** True when the pipeline returned a result but the semantic validator flagged it (exhausted retries on degenerate output). */
-  degraded?: boolean;
-  /** When `degraded` is true, the validator's reason — useful for re-planner and composer. */
-  degradedReason?: string;
-  /** Set on hard failure (execution failed after all retries). */
-  error?: string;
-  /** True when the re-planner asked to drop this pending sub-question. */
-  removed?: boolean;
-  startedAt: number;
-  finishedAt: number;
-}
+// SubQuestionResult moved to contracts (contracts/investigation.ts) so
+// llm/investigate-composer stops importing this pipeline module. Re-exported
+// here because downstream consumers (investigation-trace, the recompose route)
+// import it from the producer.
+import type { SubQuestionResult } from "@/lib/contracts/investigation";
+export type { SubQuestionResult };
 
 export interface InvestigateProgressEvent {
   kind:
@@ -174,6 +162,21 @@ export interface InvestigateProgressEvent {
   composerRationale?: string;
 }
 
+/** Everything the per-step SQL path needs, grouped (see OrchestrateOptions.warehouse). */
+export interface WarehousePerStepOptions {
+  /** Warehouse table schemas (also given to the re-planner for cross-table sub-questions). */
+  tables: WarehouseTableSchema[];
+  warehouseType: WarehouseType;
+  /** Runs a SQL string against the warehouse and resolves with CSV content. */
+  executor: (sql: string) => Promise<string>;
+  /**
+   * The broad up-front pull's SQL. Given to each per-step query so it reuses
+   * the same time window instead of re-scanning the full (often enormous)
+   * table.
+   */
+  materializationSQL?: string;
+}
+
 interface OrchestrateOptions {
   schema: CSVSchema;
   csvContent: string;
@@ -198,24 +201,16 @@ interface OrchestrateOptions {
    * Defaults to INVESTIGATE_MAX_SUBQUESTIONS when unset.
    */
   maxSubQuestions?: number;
-  /** Warehouse table schemas, if this Investigate is over a warehouse (passed to the re-planner). */
-  warehouse?: WarehouseTableSchema[];
   /**
-   * Per-step SQL mode. When set (alongside `warehouse` + `warehouseType`),
-   * each sub-question generates and runs its OWN warehouse query, then
+   * Per-step SQL mode — present iff this Investigate is over a warehouse.
+   * Each sub-question generates and runs its OWN warehouse query, then
    * analyzes that result in Python — instead of every step sharing one
-   * up-front materialized CSV. This is the default for warehouse sources.
-   * The executor runs a SQL string against the warehouse and resolves with
-   * CSV content.
+   * up-front materialized CSV (CSV-snapshot analysis is only the fallback
+   * when SQL fails). Formerly four independent optionals whose "all present
+   * together" invariant runPerStepSQL re-asserted with `!` on every read;
+   * one object makes it a type-level fact.
    */
-  warehouseExecutor?: (sql: string) => Promise<string>;
-  warehouseType?: WarehouseType;
-  /**
-   * The broad up-front pull's SQL. Given to each per-step query so it reuses
-   * the same time window instead of re-scanning the full (often enormous)
-   * table.
-   */
-  materializationSQL?: string;
+  warehouse?: WarehousePerStepOptions;
   /**
    * Host path to the materialized Parquet, copied into the sandbox at
    * /data/input.parquet (via docker cp — no bind-mount). Read only by the
@@ -277,27 +272,28 @@ function runCsvSubQuestion(
 async function runPerStepSQL(
   sq: PlannedSubQuestion,
   options: OrchestrateOptions,
+  warehouse: WarehousePerStepOptions,
   priorTurns: ConversationTurn[],
   depFrames: { files: SandboxFile[]; context: string }
 ): Promise<PipelineResult> {
   const sqlQuestion =
     `Fetch exactly the data needed to answer this analytical question: ${sq.question}\n` +
     `Aggregate/filter/join server-side as appropriate. Return tidy rows ready for charting; LIMIT ${WAREHOUSE_MAX_ROWS}.` +
-    (options.materializationSQL
-      ? `\n\nIMPORTANT — keep the SAME time window as the dataset already materialized for this investigation; do NOT widen the date range (the source table is enormous and a wider scan is rejected with "rows to read exceeded"). LIMIT does NOT reduce rows scanned — only a bounded WHERE on the date/partition key does. That dataset was pulled with:\n${options.materializationSQL}`
+    (warehouse.materializationSQL
+      ? `\n\nIMPORTANT — keep the SAME time window as the dataset already materialized for this investigation; do NOT widen the date range (the source table is enormous and a wider scan is rejected with "rows to read exceeded"). LIMIT does NOT reduce rows scanned — only a bounded WHERE on the date/partition key does. That dataset was pulled with:\n${warehouse.materializationSQL}`
       : "");
 
   const outcome = await generateSQLWithRepair({
-    tables: options.warehouse!,
+    tables: warehouse.tables,
     question: sqlQuestion,
-    warehouseType: options.warehouseType!,
+    warehouseType: warehouse.warehouseType,
     model: options.model,
     // The window is already bounded, so a timeout/row/memory limit means the
     // query SHAPE is too expensive — repairs would just repeat the multi-minute
     // timeout. Bail fast; the caller keeps the already-computed CSV result.
     bailOnResourceError: true,
     execute: async (candidate) => {
-      const csv = await options.warehouseExecutor!(candidate);
+      const csv = await warehouse.executor(candidate);
       if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
       return csv;
     },
@@ -310,7 +306,7 @@ async function runPerStepSQL(
   const stepCsvId = randomUUID();
   const stepSchema = extractSchema(parsed, stepCsvId, "step_result");
   stepSchema.source_type = "warehouse";
-  stepSchema.warehouse_type = options.warehouseType;
+  stepSchema.warehouse_type = warehouse.warehouseType;
   // Inherit the warehouse table's domain rather than re-detecting it from the
   // small aggregated step result. This keeps the code-gen system prompt
   // byte-identical across every sub-question, so they all hit the system-prompt
@@ -354,11 +350,12 @@ async function runPerStepSQL(
 async function runWarehouseSubQuestion(
   sq: PlannedSubQuestion,
   options: OrchestrateOptions,
+  warehouse: WarehousePerStepOptions,
   priorTurns: ConversationTurn[],
   depFrames: { files: SandboxFile[]; context: string }
 ): Promise<PipelineResult> {
   try {
-    const result = await runPerStepSQL(sq, options, priorTurns, depFrames);
+    const result = await runPerStepSQL(sq, options, warehouse, priorTurns, depFrames);
     diagEvent("step_done", { step: sq.question, path: "per-step-sql" });
     return result;
   } catch (err) {
@@ -550,12 +547,11 @@ async function runOneSubQuestion(
   const depFrames = buildStepFrames(depSources);
 
   try {
-    // Per-step SQL when this is a warehouse investigation with an executor
-    // wired up; otherwise the standard file-source pipeline.
-    const usePerStepSQL =
-      !!options.warehouseExecutor && !!options.warehouse && !!options.warehouseType;
-    const result = usePerStepSQL
-      ? await runWarehouseSubQuestion(sq, options, priorTurns, depFrames)
+    // Per-step SQL when this is a warehouse investigation (the grouped
+    // options carry schema+type+executor together); otherwise the standard
+    // file-source pipeline.
+    const result = options.warehouse
+      ? await runWarehouseSubQuestion(sq, options, options.warehouse, priorTurns, depFrames)
       : await runCsvSubQuestion(sq, options, priorTurns, depFrames);
     slot.result = result;
     slot.finishedAt = Date.now();
@@ -848,7 +844,7 @@ export async function runInvestigation(
         completed: allSummaries,
         pendingIndices,
         schema: options.schema,
-        warehouse: options.warehouse,
+        warehouse: options.warehouse?.tables,
         hopCount,
         remainingHops,
         subQuestionsBudget: maxSubQuestions - subQuestions.length,

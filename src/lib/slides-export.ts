@@ -10,14 +10,8 @@
 
 import { toPng } from "html-to-image";
 import { REVEALJS_CDN_URL } from "@/lib/constants";
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import { escapeHtml as esc } from "@/lib/format";
+import { triggerDownload, sanitizeFilename, getBackgroundColor } from "@/lib/export-utils";
 
 /** Find the content root and return its top-level sections as slide units. */
 function slideUnits(rootEl: HTMLElement): HTMLElement[] {
@@ -39,15 +33,13 @@ function unitTitle(el: HTMLElement): string | undefined {
 }
 
 /** Capture each section of the rendered result as a slide image. */
-export async function captureSlides(
-  rootEl: HTMLElement
-): Promise<{ title?: string; img: string }[]> {
+async function captureSlides(rootEl: HTMLElement): Promise<{ title?: string; img: string }[]> {
   const units = slideUnits(rootEl);
   const slides: { title?: string; img: string }[] = [];
   for (const unit of units) {
     if (unit.offsetWidth === 0 || unit.offsetHeight === 0) continue;
     try {
-      const img = await toPng(unit, { backgroundColor: "#ffffff", pixelRatio: 2 });
+      const img = await toPng(unit, { backgroundColor: getBackgroundColor(), pixelRatio: 2 });
       slides.push({ title: unitTitle(unit), img });
     } catch {
       // Skip a section that can't be snapshotted; the rest still export.
@@ -103,14 +95,6 @@ export async function downloadAsSlides(rootEl: HTMLElement, title: string): Prom
   const html = buildRevealDeck(title || "Slides", slides);
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${
-    (title || "slides")
-      .replace(/[^a-z0-9]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase() || "slides"
-  }.html`;
-  a.click();
+  triggerDownload(url, `${sanitizeFilename(title || "slides") || "slides"}.html`);
   URL.revokeObjectURL(url);
 }

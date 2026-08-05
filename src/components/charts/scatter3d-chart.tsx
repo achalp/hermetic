@@ -2,7 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { Plotly3DChart } from "./plotly-3d-wrapper";
-import { useColorMap, useChartColors, unwrapChartData } from "@/lib/chart-theme";
+import { useColorMap, useChartColors, unwrapChartData } from "@/components/theme/chart-theme";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
 

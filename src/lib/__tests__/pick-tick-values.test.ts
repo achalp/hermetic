@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickTickValues, toNivoLineSeries } from "@/lib/chart-theme";
+import { pickTickValues, toNivoLineSeries } from "@/components/theme/chart-theme";
 
 describe("pickTickValues", () => {
   it("returns undefined when everything fits", () => {

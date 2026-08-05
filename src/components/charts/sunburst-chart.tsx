@@ -1,8 +1,8 @@
 "use client";
 
 import { ResponsiveSunburst } from "@nivo/sunburst";
-import { useNivoTheme, useChartColors, resolveColors } from "@/lib/chart-theme";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useNivoTheme, useChartColors, resolveColors } from "@/components/theme/chart-theme";
+import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface SunburstChartProps {

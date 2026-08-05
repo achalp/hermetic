@@ -16,7 +16,7 @@ import {
   DrillClickContext,
   DrillDownDispatchContext,
   type DrillClickRef,
-} from "@/lib/drill-down-context";
+} from "@/components/drill-down-context";
 
 /**
  * THE renderer entry point (modularization M5-5a). Before this component the

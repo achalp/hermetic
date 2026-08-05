@@ -354,7 +354,7 @@ describe("process-manager", () => {
       expect(resolveGgufModelPath("/absolute/path/model.gguf")).toBe("/absolute/path/model.gguf");
     });
 
-    it("resolves bare .gguf filename to GGUF_DIR", async () => {
+    it("resolves bare .gguf filename to ggufDir()", async () => {
       const { resolveGgufModelPath } = await import("../llm/process-manager");
       const result = resolveGgufModelPath("model-Q4_K_M.gguf");
       // Should resolve relative to data/models/gguf

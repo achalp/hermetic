@@ -3,7 +3,7 @@ import { join } from "path";
 import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
 import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";
 import { CSV_TTL_MS } from "@/lib/constants";
-import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { isIdleExpired, touch, registerSweepable } from "@/lib/store-ttl";
 import { hermeticPaths } from "@/lib/paths";
 import { stateNamespace } from "@/lib/state-store";
 
@@ -11,14 +11,19 @@ import { stateNamespace } from "@/lib/state-store";
 const store = stateNamespace<StoredCSV>("csv");
 const manifestStore = stateNamespace<WorkbookManifest>("workbook-manifests");
 
-const CSV_DIR = hermeticPaths.scratchDir();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const csvDir = () => hermeticPaths.scratchDir();
 
-let dirCreated = false;
-async function ensureDir() {
-  if (!dirCreated) {
-    await mkdir(CSV_DIR, { recursive: true });
-    dirCreated = true;
+// Memoized on the resolved path (not a boolean) so a root change re-creates.
+let createdDir: string | null = null;
+async function ensureDir(): Promise<string> {
+  const dir = csvDir();
+  if (createdDir !== dir) {
+    await mkdir(dir, { recursive: true });
+    createdDir = dir;
   }
+  return dir;
 }
 
 /** Local files live on disk and are bind-mounted — they never expire. */
@@ -50,7 +55,7 @@ export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans
       store.delete(csvId);
       manifestStore.delete(csvId);
       unlink(entry.filePath).catch(() => {});
-      unlink(join(CSV_DIR, `${csvId}.geojson`)).catch(() => {});
+      unlink(join(csvDir(), `${csvId}.geojson`)).catch(() => {});
       expired++;
     }
   }
@@ -59,10 +64,10 @@ export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans
   let orphans = 0;
   try {
     const { readdir, stat } = await import("fs/promises");
-    for (const name of await readdir(CSV_DIR)) {
+    for (const name of await readdir(csvDir())) {
       const id = name.replace(/\.(csv|geojson)$/, "");
       if (store.has(id)) continue;
-      const full = join(CSV_DIR, name);
+      const full = join(csvDir(), name);
       const info = await stat(full).catch(() => null);
       if (info && now - info.mtimeMs > CSV_TTL_MS) {
         await unlink(full).catch(() => {});
@@ -75,11 +80,34 @@ export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans
   return { expired, orphans };
 }
 
-export async function storeCSV(csvId: string, csvText: string, schema: CSVSchema): Promise<void> {
+// Registration-at-definition: the sweeper iterates the registry, so this store
+// cannot be silently missing from a central roll call.
+registerSweepable("csv", async () => {
+  const { expired, orphans } = await sweepExpiredCSVStore();
+  return { csvExpired: expired, csvOrphans: orphans };
+});
+
+/**
+ * `local` attaches the on-disk origin (bind-mount execution + TTL exemption)
+ * AT store time — callers used to patch localPath onto the returned entry
+ * after the fact, which left the ref invisible to this module's invariants.
+ */
+export async function storeCSV(
+  csvId: string,
+  csvText: string,
+  schema: CSVSchema,
+  local?: { path: string; mtime: number }
+): Promise<void> {
   await ensureDir();
-  const filePath = join(CSV_DIR, `${csvId}.csv`);
+  const filePath = join(csvDir(), `${csvId}.csv`);
   await writeFile(filePath, csvText, "utf-8");
-  store.set(csvId, { schema, filePath, createdAt: Date.now() });
+  store.set(csvId, {
+    schema,
+    filePath,
+    createdAt: Date.now(),
+    localPath: local?.path,
+    localMtime: local?.mtime,
+  });
 }
 
 export function getStoredCSV(csvId: string): StoredCSV | undefined {
@@ -90,7 +118,7 @@ export function getStoredCSV(csvId: string): StoredCSV | undefined {
     store.delete(csvId);
     unlink(entry.filePath).catch(() => {});
     // Also clean up sidecar GeoJSON file if present
-    unlink(join(CSV_DIR, `${csvId}.geojson`)).catch(() => {});
+    unlink(join(csvDir(), `${csvId}.geojson`)).catch(() => {});
     return undefined;
   }
   // Slide the idle window forward and pin to the reading run (if any).
@@ -111,13 +139,13 @@ export async function getCSVContent(csvId: string): Promise<string | null> {
 
 export async function storeGeoJSON(csvId: string, geojsonText: string): Promise<void> {
   await ensureDir();
-  const filePath = join(CSV_DIR, `${csvId}.geojson`);
+  const filePath = join(csvDir(), `${csvId}.geojson`);
   await writeFile(filePath, geojsonText, "utf-8");
 }
 
 export async function getGeoJSONContent(csvId: string): Promise<string | null> {
   try {
-    return await readFile(join(CSV_DIR, `${csvId}.geojson`), "utf-8");
+    return await readFile(join(csvDir(), `${csvId}.geojson`), "utf-8");
   } catch {
     return null;
   }

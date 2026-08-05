@@ -1,5 +1,5 @@
 import { loadConnections, removeConnection, renameConnection } from "@/lib/warehouse/persist-env";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 export async function GET() {
   const connections = await loadConnections();

@@ -7,7 +7,12 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useBoundProp } from "@/spec/react";
-import { useStatCardTheme, useInsightTheme, useAnnotationTheme } from "@/lib/theme-config";
+import { formatWithPrecision } from "@/lib/format";
+import {
+  useStatCardTheme,
+  useInsightTheme,
+  useAnnotationTheme,
+} from "@/components/theme/theme-config";
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -118,33 +123,6 @@ export interface ToggleSwitchProps {
 }
 
 // ── StatCard ───────────────────────────────────────────────────
-
-/** Format a numeric value with explicit format and precision control */
-function formatWithPrecision(
-  num: number,
-  format: StatCardProps["format"],
-  precision?: number | null
-): string {
-  switch (format) {
-    case "currency": {
-      const p = precision ?? 2;
-      return `$${num.toLocaleString(undefined, { minimumFractionDigits: p, maximumFractionDigits: p })}`;
-    }
-    case "percent": {
-      const p = precision ?? 1;
-      return `${num.toFixed(p)}%`;
-    }
-    case "number": {
-      const p = precision ?? undefined;
-      return num.toLocaleString(undefined, {
-        minimumFractionDigits: p,
-        maximumFractionDigits: p,
-      });
-    }
-    default:
-      return formatStatNumber(num);
-  }
-}
 
 export function StatCardComponent({ props }: { props: StatCardProps }) {
   const statCard = useStatCardTheme();

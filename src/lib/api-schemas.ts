@@ -90,7 +90,12 @@ export const RemoteParquetSchemaBody = z.object({
 
 const port = z.number().int().min(1).max(65535);
 
-export const WarehouseConnectionConfigSchema = z.discriminatedUnion("type", [
+// Declared as z.ZodType<WarehouseConnectionConfig> so any drift between this
+// union and the contracts interfaces fails compilation (same pattern as
+// analysisRequestSchema below; code-quality-hardening review).
+export const WarehouseConnectionConfigSchema: z.ZodType<
+  import("@/lib/contracts/connection-configs").WarehouseConnectionConfig
+> = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("postgresql"),
     host: z.string().min(1),

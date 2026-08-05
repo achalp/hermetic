@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
-import { v4 as uuidv4 } from "uuid";
-import { apiError } from "@/lib/api-error";
-import { parseCSV, toCSVText } from "@/lib/csv/parser";
-import { extractSchema } from "@/lib/csv/schema";
-import { storeCSV } from "@/lib/csv/storage";
-import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
+import { apiError } from "@/app/lib/api-error";
 import { getExcelBuffer, getStoredExcel } from "@/lib/excel/storage";
-import { prepareWarmSandbox } from "@/lib/sandbox";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { ingestFile, IngestError } from "@/lib/sources/ingest";
+
+/** Map shared-ingest error codes back onto this route's legacy wire messages. */
+function sheetErrorMessage(err: IngestError): string {
+  switch (err.code) {
+    case "empty_columns":
+      return "Selected sheet has no columns";
+    case "empty_rows":
+      return "Selected sheet has no data rows";
+    default:
+      // e.g. sheet_not_found — the shared message names the valid sheets.
+      return err.message;
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -34,26 +41,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const { workbook } = await parseExcelMeta(buffer);
-    const csvText = sheetToCSV(workbook, sheet_name);
-    const parsed = parseCSV(csvText);
-
-    if (parsed.headers.length === 0) {
-      return NextResponse.json({ error: "Selected sheet has no columns" }, { status: 400 });
+    // Sheet extraction is the shared pipeline (lib/sources/ingest); an
+    // explicit `sheet` yields the "<file> (<sheet>)" display name this route
+    // has always produced.
+    let result;
+    try {
+      result = await ingestFile(
+        { buffer, filename: stored.filename, sheet: sheet_name },
+        { warmSandbox: true }
+      );
+    } catch (err) {
+      if (err instanceof IngestError) {
+        return NextResponse.json({ error: sheetErrorMessage(err) }, { status: 400 });
+      }
+      throw err;
     }
 
-    if (parsed.rowCount === 0) {
-      return NextResponse.json({ error: "Selected sheet has no data rows" }, { status: 400 });
+    if (result.kind !== "dataset") {
+      // Unreachable — an explicit sheet never yields the picker.
+      return NextResponse.json({ error: "Missing excel_id or sheet_name" }, { status: 400 });
     }
 
-    const csvId = uuidv4();
-    const displayName = `${stored.filename} (${sheet_name})`;
-    const schema = extractSchema(parsed, csvId, displayName);
-    const csvContent = toCSVText(parsed);
-    await storeCSV(csvId, csvContent, schema);
-    prepareWarmSandbox(csvId, csvContent, getActiveSandboxRuntime());
-
-    return NextResponse.json({ csv_id: csvId, schema });
+    return NextResponse.json({ csv_id: result.csvId, schema: result.schema });
   } catch (err) {
     return apiError("/api/upload/select-sheet", err, "Sheet selection failed");
   }

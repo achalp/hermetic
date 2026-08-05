@@ -7,20 +7,20 @@
  * logic here, it probably belongs in one of the hooks below.
  */
 import { useState, useRef } from "react";
-import { SheetPicker } from "@/components/app/sheet-picker";
-import { type QueryMode } from "@/components/app/query-input";
-import { SavedVizsPanel } from "@/components/app/saved-vizs-panel";
-import { MainContent } from "@/components/app/main-content";
-import { LocalFileBrowser } from "@/components/app/local-file-browser";
-import { RefreshProgress } from "@/components/app/refresh-progress";
-import { CostFooter, type CostInfo } from "@/components/app/cost-footer";
-import { type HistoryEntry } from "@/components/app/analysis-history";
-import { HomeTopBar } from "@/components/app/results-toolbar";
-import { ResultsRegion } from "@/components/app/results-region";
-import { PageChrome } from "@/components/app/page-chrome";
-import { WarehouseConnecting, HomeHero, AskScreen } from "@/components/app/home/home-screens";
-import { buildDatasetLabel, buildSourceLabel } from "@/components/app/data-rail-derive";
-import type { NotebookExportApi } from "@/components/app/notebook-view";
+import { SheetPicker } from "@/app/components/sheet-picker";
+import { type QueryMode } from "@/app/components/query-input";
+import { SavedVizsPanel } from "@/app/components/saved-vizs-panel";
+import { MainContent } from "@/app/components/main-content";
+import { LocalFileBrowser } from "@/app/components/local-file-browser";
+import { RefreshProgress } from "@/app/components/refresh-progress";
+import { CostFooter, type CostInfo } from "@/app/components/cost-footer";
+import { type HistoryEntry } from "@/app/components/analysis-history";
+import { HomeTopBar } from "@/app/components/results-toolbar";
+import { ResultsRegion } from "@/app/components/results-region";
+import { PageChrome } from "@/app/components/page-chrome";
+import { WarehouseConnecting, HomeHero, AskScreen } from "@/app/components/home/home-screens";
+import { buildDatasetLabel, buildSourceLabel } from "@/app/components/data-rail-derive";
+import type { NotebookExportApi } from "@/app/components/notebook-view";
 import { useCSVUpload } from "@/hooks/use-csv-upload";
 import { useWarehouse } from "@/hooks/use-warehouse";
 import { usePageState } from "@/hooks/use-page-state";
@@ -38,7 +38,7 @@ import { usePanels } from "@/hooks/use-panels";
 import { useHomeComposer } from "@/hooks/use-home-composer";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
 import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
-import { saveHistoryEntry } from "@/lib/api";
+import { saveHistoryEntry } from "@/app/lib/api";
 
 export default function Home() {
   // ── Source & page state ─────────────────────────────────────

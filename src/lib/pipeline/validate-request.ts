@@ -74,10 +74,22 @@ export function validateQueryIds(context: QueryRequestContext, prompt?: string):
   return { ok: true, csvId, warehouseId, question };
 }
 
+/**
+ * The validated request's data source, discriminated. Step 1 guarantees
+ * "csv_id or warehouse_id present" but used to carry them as two independent
+ * optionals, so every consumer re-asserted the invariant by hand (~25
+ * `csvId!` / `warehouseState!` non-null assertions across run-ask-query,
+ * run-investigate-query, and the orchestrator). The union makes the invariant
+ * a type: narrow `kind` once and the fields each path needs are non-optional.
+ */
+export type ResolvedAnalysisSource =
+  | { kind: "csv"; csvId: string }
+  | { kind: "warehouse"; warehouseId: string; warehouseState: WarehouseState };
+
 export type ResolvedQuerySources =
   | {
       ok: true;
-      warehouseState: WarehouseState | null;
+      source: ResolvedAnalysisSource;
       codeGenModel: string;
       uiComposeModel: string;
       sandboxRuntime: SandboxRuntimeId;
@@ -100,9 +112,8 @@ export function resolveQuerySources(
   const { csvId, warehouseId } = ids;
 
   // Warehouse: validate the connection before streaming so failures are clean 404s.
-  let warehouseState: WarehouseState | null = null;
-  const lookupWarehouse = warehouseId && !(opts.preferCsvOverWarehouse && csvId);
-  if (lookupWarehouse) {
+  let source: ResolvedAnalysisSource;
+  if (warehouseId && !(opts.preferCsvOverWarehouse && csvId)) {
     const warehouse = getStoredWarehouse(warehouseId);
     if (!warehouse) {
       return fail("Warehouse not found or expired. Please reconnect.", 404);
@@ -111,9 +122,17 @@ export function resolveQuerySources(
     if (!connector) {
       return fail("Warehouse connector not found", 404);
     }
-    warehouseState = { warehouse, connector };
-  } else if (opts.requireStoredCsv && !getStoredCSV(csvId!)) {
-    return fail("CSV not found or expired", 404);
+    source = { kind: "warehouse", warehouseId, warehouseState: { warehouse, connector } };
+  } else if (csvId) {
+    if (opts.requireStoredCsv && !getStoredCSV(csvId)) {
+      return fail("CSV not found or expired", 404);
+    }
+    source = { kind: "csv", csvId };
+  } else {
+    // Unreachable when step 1 ran (it rejects "neither id"), but typed as a
+    // 400 rather than asserted so a caller that skips validateQueryIds gets
+    // the same clean failure instead of a crash on an assumed id.
+    return fail("csv_id or warehouse_id is required in context", 400);
   }
 
   const codeGenModel =
@@ -131,5 +150,5 @@ export function resolveQuerySources(
       ? context.sandbox_runtime
       : getActiveSandboxRuntime();
 
-  return { ok: true, warehouseState, codeGenModel, uiComposeModel, sandboxRuntime };
+  return { ok: true, source, codeGenModel, uiComposeModel, sandboxRuntime };
 }

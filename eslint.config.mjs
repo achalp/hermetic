@@ -63,14 +63,22 @@ const eslintConfig = defineConfig([
               message:
                 "lib must stay framework-free; Next belongs to the harness (modularization WS1).",
             },
+            {
+              // Anchored regex — a `react` group entry is gitignore-style and
+              // would also match the vendored @/spec/react/* path segment.
+              regex: "^(react|react-dom)(/|$)",
+              message:
+                "lib is the framework-free core; React modules live in src/components or src/app " +
+                "(hardening phase 2 — the theme/context/api modules already moved out).",
+            },
           ],
         },
       ],
     },
   },
   {
-    files: ["src/lib/sandbox/**/*.ts"],
-    ignores: ["src/lib/sandbox/**/__tests__/**"],
+    files: ["src/lib/sandbox/**/*.ts", "src/lib/llm/**/*.ts"],
+    ignores: ["src/lib/sandbox/**/__tests__/**", "src/lib/llm/**/__tests__/**"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -89,7 +97,33 @@ const eslintConfig = defineConfig([
             {
               group: ["@/lib/pipeline/*"],
               message:
-                "sandbox sits below orchestration; take AbortSignal/onProgress as inputs instead (modularization WS6).",
+                "sandbox and llm sit below orchestration; take AbortSignal/onProgress as inputs " +
+                "instead (modularization WS6; llm extended in hardening phase 1).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The harness layer: framework-free entry points composing lib. No Next,
+    // no React, no app/renderer imports — the CLI is the architecture canary
+    // and the MCP server must boot under plain Node.
+    files: ["src/cli/**/*.ts", "src/harness/**/*.ts", "src/mcp/**/*.ts"],
+    ignores: ["src/mcp/viewer/entry.tsx", "src/mcp/**/__tests__/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^(next|react|react-dom)(/|$)",
+              message:
+                "harnesses are framework-free (the viewer's browser entry is the one exception).",
+            },
+            {
+              group: ["@/app/*", "@/components/*", "@/hooks/*"],
+              message: "harnesses compose lib only; UI layers are not importable here.",
             },
           ],
         },
@@ -117,7 +151,7 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: ["@/hooks/*", "@/lib/api", "@/components/app/*"],
+              group: ["@/hooks/*", "@/app/*"],
               message:
                 "the renderer closure must stay free of app state and transport (modularization WS7).",
             },
@@ -192,7 +226,7 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: ["@/app/*", "@/hooks/*", "@/lib/api", "@/components/app/*"],
+              group: ["@/app/*", "@/hooks/*"],
               message: "the MCP viewer mounts the renderer closure only (mcp-server spec §4 M3).",
             },
             {

@@ -15,6 +15,9 @@ vi.mock("fs/promises", () => ({
     return files.get(p)!;
   },
   readdir: async () => [...files.keys()].map((p) => p.split("/").pop()!),
+  unlink: async (p: string) => {
+    if (!files.delete(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+  },
 }));
 
 import { appendCostRow, listCostRows } from "@/lib/cost/storage";
@@ -90,6 +93,26 @@ describe("cost storage round-trip", () => {
     expect(rows.map((r) => r.question).sort()).toEqual(
       Array.from({ length: 8 }, (_, i) => `q${i}`).sort()
     );
+  });
+
+  it("prunes day files past the retention window on write, keeps the rest", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const dateOf = (msAgo: number) => new Date(Date.now() - msAgo).toISOString().slice(0, 10);
+    const oldDate = dateOf(120 * day); // beyond the 90-day retention
+    const freshDate = dateOf(0);
+
+    // Learn the module's real dir from a fresh append, then seed an
+    // out-of-retention day file directly (appending to it would race with the
+    // append's own fire-and-forget prune).
+    await appendCostRow(row({ date: freshDate, question: "current" }));
+    const freshPath = [...files.keys()].find((p) => p.endsWith(`${freshDate}.csv`))!;
+    const oldPath = freshPath.replace(freshDate, oldDate);
+    files.set(oldPath, "timestamp\n2020-01-01T00:00:00.000Z\n");
+
+    await appendCostRow(row({ date: freshDate, question: "another" }));
+    // Prune is fire-and-forget after the append resolves — wait for it.
+    await vi.waitFor(() => expect(files.has(oldPath)).toBe(false));
+    expect(files.has(freshPath)).toBe(true);
   });
 
   it("migrates a day file with a stale header (pre-run_id) once, then appends", async () => {

@@ -17,7 +17,7 @@ import {
   isValidModelId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
-import { getLocalBackendConfig, setActiveSandboxRuntime } from "@/lib/api";
+import { getLocalBackendConfig, setActiveSandboxRuntime } from "@/app/lib/api";
 
 export function useModelSettings() {
   const [codeGenModel, setCodeGenModel] = useState<ModelId>(() => {

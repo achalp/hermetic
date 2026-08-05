@@ -34,7 +34,7 @@ vi.mock("@/lib/csv/storage", () => ({
   storeCSV: vi.fn(),
   isLocalFile: vi.fn(() => false),
 }));
-vi.mock("@/lib/warehouse/sql-generation", () => ({ generateSQL: vi.fn() }));
+vi.mock("@/lib/sqlgen/sql-generation", () => ({ generateSQL: vi.fn() }));
 vi.mock("@/lib/llm/prompts", () => ({
   buildWorkbookContext: vi.fn(),
   sanitizeSheetName: vi.fn(),

@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
+import { logger } from "@/lib/logger";
 
 export interface OllamaConfig {
   enabled: boolean;
@@ -41,17 +42,49 @@ export interface RuntimeConfig {
   activeProvider?: string;
 }
 
-const CONFIG_PATH = hermeticPaths.runtimeConfigFile();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const configPath = () => hermeticPaths.runtimeConfigFile();
 const CACHE_TTL_MS = 5_000;
 
 let cached: RuntimeConfig | null = null;
 let cacheTime = 0;
 
-function readFromDisk(): RuntimeConfig {
+/**
+ * Preserve an unparsable config before setRuntimeConfig's read-modify-write
+ * can overwrite the only copy (missing ≠ corrupt — the record-store
+ * RecordCorruptError distinction). Best-effort: the rename may itself fail
+ * (e.g. the read failed on permissions), but the warn always lands.
+ */
+function backupCorruptConfig(path: string, err: unknown): void {
+  const backupPath = `${path}.corrupt-${Date.now()}`;
+  let backedUp = true;
   try {
-    const raw = readFileSync(CONFIG_PATH, "utf-8");
-    return JSON.parse(raw) as RuntimeConfig;
+    renameSync(path, backupPath);
   } catch {
+    backedUp = false;
+  }
+  logger.warn("runtime-config.json unreadable — starting from an empty config", {
+    path,
+    backupPath: backedUp ? backupPath : undefined,
+    error: err instanceof Error ? err.message : String(err),
+  });
+}
+
+function readFromDisk(): RuntimeConfig {
+  const path = configPath();
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf-8");
+  } catch (err) {
+    // ENOENT is the normal first-run state; anything else is a real failure.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") backupCorruptConfig(path, err);
+    return {};
+  }
+  try {
+    return JSON.parse(raw) as RuntimeConfig;
+  } catch (err) {
+    backupCorruptConfig(path, err);
     return {};
   }
 }
@@ -92,11 +125,11 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
   }
 
   // Atomic write: write to tmp then rename
-  const dir = dirname(CONFIG_PATH);
-  mkdirSync(dir, { recursive: true });
-  const tmpPath = CONFIG_PATH + ".tmp";
+  const path = configPath();
+  mkdirSync(dirname(path), { recursive: true });
+  const tmpPath = path + ".tmp";
   writeFileSync(tmpPath, JSON.stringify(merged, null, 2), "utf-8");
-  renameSync(tmpPath, CONFIG_PATH);
+  renameSync(tmpPath, path);
 
   // Update cache immediately
   cached = merged;

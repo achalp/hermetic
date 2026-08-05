@@ -12,7 +12,7 @@ import type { Spec } from "@/spec/react";
 import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";
-import { loadViz, refreshViz, rerunViz, saveViz } from "@/lib/api";
+import { loadViz, refreshViz, rerunViz, saveViz } from "@/app/lib/api";
 
 export function useVizActions(args: {
   dispatch: PageDispatch;

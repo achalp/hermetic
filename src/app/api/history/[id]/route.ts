@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { stat } from "node:fs/promises";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { loadHistoryEntry, deleteHistoryEntry } from "@/lib/history/storage";
 import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import { parseCSV } from "@/lib/csv/parser";

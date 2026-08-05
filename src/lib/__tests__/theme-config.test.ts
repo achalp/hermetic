@@ -6,9 +6,9 @@ import {
   useInsightTheme,
   useAnnotationTheme,
   THEME_CONFIGS,
-} from "@/lib/theme-config";
+} from "@/components/theme/theme-config";
 
-vi.mock("@/lib/theme-context", () => ({
+vi.mock("@/components/theme/theme-context", () => ({
   useTheme: () => ({ theme: "vanilla", setTheme: vi.fn() }),
 }));
 

@@ -2,8 +2,8 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyPolarChart } from "./plotly-polar-wrapper";
-import { useColorMap, useChartColors, unwrapChartData } from "@/lib/chart-theme";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useColorMap, useChartColors, unwrapChartData } from "@/components/theme/chart-theme";
+import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
 interface WindRoseProps {

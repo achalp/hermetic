@@ -16,6 +16,7 @@
  */
 import { logger } from "@/lib/logger";
 import { runWithRunId, getRunId } from "@/lib/run-context";
+import { parsePatchLines, readRunError } from "@/lib/pipeline/patch-lines";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { registerRun, endRun, type SandboxProgress } from "@/lib/pipeline/run-control";
 import {
@@ -82,18 +83,22 @@ export interface PatchSink {
  * keepalive + wake-lock lifecycle, guaranteed cleanup. patchStreamResponse
  * wraps it in a Response for the Next routes; the CLI harness drives it
  * with a stdout sink.
+ *
+ * Returns the runId, so a non-HTTP caller (the MCP analyze tool) can join
+ * its own records to this run's logs/diagnostics/cost rows — the id was
+ * otherwise only reachable by fishing the `__runId` patch out of the lines.
  */
 export async function runPatchStream(
   route: string,
   sink: PatchSink,
   handler: (stream: PatchStream) => Promise<void>,
   onSettled?: (stream: PatchStream) => Promise<void>
-): Promise<void> {
+): Promise<string> {
   // Run correlation: every logger line, diagnostics record, and cost row
   // inside the handler carries this run's id (see lib/run-context.ts). The
   // emit/stream machinery lives INSIDE this scope because it binds to the
   // run's hub channel — whose id is the runId assigned here.
-  await runWithRunId(async () => {
+  return await runWithRunId(async () => {
     const runId = getRunId()!;
     // Register the run so the stop endpoint can abort it and the sandbox
     // runner can subscribe to its signal + stream execution progress.
@@ -169,8 +174,13 @@ export async function runPatchStream(
     const releaseWakeLock = acquireWakeLock(`run:${runId}`);
 
     logger.info("Run started", { route });
+    const started = Date.now();
+    let handlerFailed = false;
     try {
       await handler(stream);
+    } catch (err) {
+      handlerFailed = true;
+      throw err;
     } finally {
       releaseWakeLock();
       endRun(runId);
@@ -178,6 +188,19 @@ export async function runPatchStream(
       // Signal reconnect subscribers that the run ended (they close their
       // streams), and retain the buffer briefly for a late reconnect.
       closeRunChannel(runId);
+      // One terminal line per run (runId implicit via run context). The cost
+      // epilogue's "Cost by phase" only fires when an accumulator has LLM
+      // calls — a zero-LLM failure or disconnect previously ended with no
+      // record of how the run finished. Pipelines catch their own errors and
+      // emit `/state/__error`, so the outcome reads the stream too.
+      const outcome = handlerFailed
+        ? "error"
+        : readRunError(parsePatchLines(emittedLines))
+          ? "error"
+          : closed
+            ? "disconnected"
+            : "ok";
+      logger.info("Run finished", { route, outcome, durationMs: Date.now() - started });
       if (onSettled) {
         try {
           await onSettled(stream);
@@ -189,6 +212,7 @@ export async function runPatchStream(
         }
       }
     }
+    return runId;
   });
 }
 

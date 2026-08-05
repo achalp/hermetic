@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { CachedArtifacts } from "./artifacts-cache";
 import { summarizeSpec } from "@/lib/spec-summary";
-import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { isIdleExpired, touch, registerSweepable } from "@/lib/store-ttl";
 import { stateNamespace } from "@/lib/state-store";
 
 // SLIDING idle window (see lib/store-ttl.ts): refreshed on every read AND every
@@ -124,3 +124,7 @@ export function sweepExpiredConversations(): number {
   }
   return swept;
 }
+
+// Sweep enrollment at the definition site (store-ttl registry) — a new
+// store cannot be forgotten by the sweeper's roll call.
+registerSweepable("conversations", () => sweepExpiredConversations());

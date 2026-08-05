@@ -2,8 +2,8 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
-import { useChartColors, unwrapChartData } from "@/lib/chart-theme";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useChartColors, unwrapChartData } from "@/components/theme/chart-theme";
+import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { invNormalCDF, mean, stddev } from "@/lib/chart-stats";
 import { ChartEmptyState } from "./chart-empty-state";

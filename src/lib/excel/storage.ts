@@ -1,6 +1,7 @@
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { CSV_TTL_MS } from "@/lib/constants";
+import { registerSweepable } from "@/lib/store-ttl";
 import { hermeticPaths } from "@/lib/paths";
 import { stateNamespace } from "@/lib/state-store";
 
@@ -12,19 +13,24 @@ interface StoredExcel {
 
 const store = stateNamespace<StoredExcel>("excel");
 
-const EXCEL_DIR = hermeticPaths.excelTempDir();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const excelDir = () => hermeticPaths.excelTempDir();
 
-let dirCreated = false;
-async function ensureDir() {
-  if (!dirCreated) {
-    await mkdir(EXCEL_DIR, { recursive: true });
-    dirCreated = true;
+// Memoized on the resolved path (not a boolean) so a root change re-creates.
+let createdDir: string | null = null;
+async function ensureDir(): Promise<string> {
+  const dir = excelDir();
+  if (createdDir !== dir) {
+    await mkdir(dir, { recursive: true });
+    createdDir = dir;
   }
+  return dir;
 }
 
 export async function storeExcel(excelId: string, buffer: Buffer, filename: string): Promise<void> {
-  await ensureDir();
-  const filePath = join(EXCEL_DIR, `${excelId}.xlsx`);
+  const dir = await ensureDir();
+  const filePath = join(dir, `${excelId}.xlsx`);
   await writeFile(filePath, buffer);
   store.set(excelId, { filePath, filename, createdAt: Date.now() });
 }
@@ -72,3 +78,7 @@ export function sweepExpiredExcel(): number {
   }
   return swept;
 }
+
+// Registration-at-definition: the sweeper iterates the registry, so this store
+// cannot be silently missing from a central roll call.
+registerSweepable("excel", sweepExpiredExcel);

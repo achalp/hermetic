@@ -8,7 +8,7 @@
  * not its contents), everything else passes through only if it is a short
  * scalar.
  */
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { hermeticPaths } from "@/lib/paths";
 
@@ -16,6 +16,11 @@ export interface AuditEntry {
   ts: string;
   tool: string;
   sourceId?: string;
+  /**
+   * Pipeline run id, when the tool result carried one (analyze) — the join
+   * key to the run's server logs, diagnostics JSONL, and cost row.
+   */
+  runId?: string;
   args: Record<string, unknown>;
   outcome: "ok" | "error" | "rejected";
   /** Present only for outcome !== "ok"; message, never a stack. */
@@ -65,12 +70,24 @@ export function sanitizeArgs(args: Record<string, unknown>): Record<string, unkn
 
 export type AuditSink = (entry: AuditEntry) => void;
 
+/**
+ * Rotation threshold: the MCP process lives as long as its host app and the
+ * file was append-only with no bound. One prior generation (`.1`) keeps
+ * recent traceability without a log-management dependency.
+ */
+export const AUDIT_ROTATE_BYTES = 5 * 1024 * 1024;
+
 /** Default sink: JSONL under the data root (hermeticPaths owns the layout). */
 export function fileAuditSink(): AuditSink {
   return (entry) => {
     try {
       const file = hermeticPaths.mcpAuditFile();
       mkdirSync(dirname(file), { recursive: true });
+      try {
+        if (statSync(file).size > AUDIT_ROTATE_BYTES) renameSync(file, `${file}.1`);
+      } catch {
+        // ENOENT on first write, or a failed stat/rename — append regardless.
+      }
       appendFileSync(file, JSON.stringify(entry) + "\n");
     } catch {
       // Audit must never take the tool call down with it.

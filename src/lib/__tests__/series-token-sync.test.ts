@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { THEME_CHART_COLORS } from "@/lib/chart-theme";
+import { THEME_CHART_COLORS } from "@/components/theme/chart-theme";
 
 /**
  * The --color-series-1..3 CSS tokens in globals.css exist so SSR'd chart

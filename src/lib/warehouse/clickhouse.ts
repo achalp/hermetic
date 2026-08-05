@@ -18,6 +18,11 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
     // scan + transfer; 120s was aborting them mid-stream ("socket closed before
     // response fully read").
     request_timeout: 300_000,
+    // Server-side write rejection — defense in depth behind assertReadOnlySql,
+    // whose first-keyword check was bypassable via DML-in-CTE
+    // (code-quality-hardening review). readonly=2 (not 1) so per-request
+    // settings still work; the readonly setting itself cannot be unset at 2.
+    clickhouse_settings: { readonly: "2" },
   });
 
   return {

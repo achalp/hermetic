@@ -10,6 +10,8 @@
 
 import type { Spec } from "@/spec/core";
 import type { InvestigationTrace, TraceStep } from "@/lib/pipeline/investigation-trace";
+import { escapeHtml } from "@/lib/format";
+import { extractProse } from "@/lib/spec-summary";
 
 export interface NotebookSynthesis {
   summary?: string;
@@ -20,20 +22,10 @@ const MAX_TABLE_ROWS = 20;
 
 /** Lift the narrative text (TextBlock / Annotation content) from a cell spec. */
 function cellNarrative(spec: Spec | undefined): string[] {
-  if (!spec?.elements) return [];
-  const out: string[] = [];
-  for (const el of Object.values(spec.elements)) {
-    const node = el as { type?: string; props?: Record<string, unknown> };
-    if (node.type === "TextBlock" && typeof node.props?.content === "string") {
-      out.push(node.props.content);
-    } else if (node.type === "Annotation") {
-      const title = typeof node.props?.title === "string" ? node.props.title : "";
-      const content = typeof node.props?.content === "string" ? node.props.content : "";
-      const joined = [title, content].filter(Boolean).join(": ");
-      if (joined) out.push(`> ${joined}`);
-    }
-  }
-  return out;
+  if (!spec) return [];
+  // The shared walker owns the set of text-bearing types; only the Markdown
+  // blockquote framing of annotations is this exporter's concern.
+  return extractProse(spec).prose.map((p) => (p.type === "Annotation" ? `> ${p.text}` : p.text));
 }
 
 /** The step's primary tabular output (largest dataset, else chart_data array). */
@@ -120,14 +112,6 @@ function orderedBlocks(trace: InvestigationTrace): { markdown?: string; step?: T
 }
 
 // ── HTML export ───────────────────────────────────────────────────────
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 /** Minimal inline markdown → HTML (bold, italic, code) on an escaped string. */
 function inlineMd(s: string): string {

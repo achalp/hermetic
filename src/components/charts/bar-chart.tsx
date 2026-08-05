@@ -9,10 +9,10 @@ import {
   unwrapChartData,
   truncateLabel,
   legendItemWidth,
-} from "@/lib/chart-theme";
-import { useThemeConfig } from "@/lib/theme-config";
+} from "@/components/theme/chart-theme";
+import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
-import { useDrillClickRef } from "@/lib/drill-down-context";
+import { useDrillClickRef } from "@/components/drill-down-context";
 import { CLICK_PRIMARY } from "@/lib/drill-resolve";
 import { ChartEmptyState } from "./chart-empty-state";
 import { ChartShell } from "./chart-shell";

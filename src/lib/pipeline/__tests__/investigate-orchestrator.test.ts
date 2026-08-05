@@ -24,7 +24,7 @@ vi.mock("@/lib/llm/investigate-composer", () => ({
 }));
 // Per-step SQL deps: stub the warehouse SQL gen and CSV storage so the
 // per-step path is exercised without a real warehouse or disk writes.
-vi.mock("@/lib/warehouse/sql-generation", () => ({
+vi.mock("@/lib/sqlgen/sql-generation", () => ({
   generateSQLWithRepair: vi.fn(),
 }));
 vi.mock("@/lib/csv/storage", () => ({
@@ -35,7 +35,7 @@ import { runInvestigation } from "@/lib/pipeline/investigate-orchestrator";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { generateReplan } from "@/lib/llm/investigate-planner";
 import { gapCheckComposer } from "@/lib/llm/investigate-composer";
-import { generateSQLWithRepair } from "@/lib/warehouse/sql-generation";
+import { generateSQLWithRepair } from "@/lib/sqlgen/sql-generation";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const mockedRunPipeline = vi.mocked(runPipeline);
@@ -109,10 +109,14 @@ function sq(question: string, depends_on: number[]): PlannedSubQuestion {
   return { question, rationale: "", depends_on };
 }
 
+// Grouped per-step SQL options (schema+type+executor travel together — the
+// shape OrchestrateOptions.warehouse now requires as one object).
 const WAREHOUSE_OPTS = {
-  warehouse: [{ name: "t", schema: "s", columns: [], row_count_estimate: 1 }] as never,
-  warehouseType: "postgresql" as const,
-  warehouseExecutor: async () => "a,b\n1,2",
+  warehouse: {
+    tables: [{ name: "t", schema: "s", columns: [], row_count_estimate: 1 }] as never,
+    warehouseType: "postgresql" as const,
+    executor: async () => "a,b\n1,2",
+  },
 };
 
 describe("groupSubQuestionsIntoWaves", () => {
@@ -242,8 +246,10 @@ describe("runInvestigation — warehouse per-step SQL", () => {
       model: "test-model",
       originalQuestion: "test",
       approach: "test approach",
-      materializationSQL: "SELECT * FROM checks WHERE d >= '2024-01-01' AND d < '2024-04-01'",
-      ...WAREHOUSE_OPTS,
+      warehouse: {
+        ...WAREHOUSE_OPTS.warehouse,
+        materializationSQL: "SELECT * FROM checks WHERE d >= '2024-01-01' AND d < '2024-04-01'",
+      },
     });
 
     expect(mockedSQLRepair).toHaveBeenCalledTimes(1);

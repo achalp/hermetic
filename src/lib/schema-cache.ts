@@ -25,7 +25,9 @@ import { hermeticPaths } from "@/lib/paths";
  * degrades to a normal extraction, never an error.
  */
 
-const CACHE_DIR = hermeticPaths.schemaCacheDir();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const cacheDir = () => hermeticPaths.schemaCacheDir();
 
 export type CacheStatus = "hit" | "miss" | "stale" | "forced" | "bypass";
 
@@ -42,7 +44,7 @@ export interface SchemaCacheEntry<T> {
 /** Stable filename for a source key (sha256 → hex). */
 function cacheFile(sourceKey: string): string {
   const hash = createHash("sha256").update(sourceKey).digest("hex");
-  return join(CACHE_DIR, `${hash}.json`);
+  return join(cacheDir(), `${hash}.json`);
 }
 
 export async function readSchemaCache<T>(sourceKey: string): Promise<SchemaCacheEntry<T> | null> {
@@ -65,7 +67,7 @@ export async function writeSchemaCache<T>(
   artifact: T
 ): Promise<void> {
   try {
-    await mkdir(CACHE_DIR, { recursive: true });
+    await mkdir(cacheDir(), { recursive: true });
     const entry: SchemaCacheEntry<T> = { sourceKey, fingerprint, artifact, cachedAt: Date.now() };
     await writeFile(cacheFile(sourceKey), JSON.stringify(entry), "utf-8");
   } catch (err) {

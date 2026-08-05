@@ -25,6 +25,12 @@ import { getModel, cachedSystem } from "@/lib/llm/client";
 import { catalog } from "@/lib/catalog";
 import { describeShape, describeResultsSchema } from "@/lib/llm/investigate-composer";
 import { unwrapScalar } from "@/lib/llm/resolve-placeholders";
+import {
+  noLiteralNumberRule,
+  resultPlaceholderLine,
+  chartDataPlaceholderLine,
+  PLACEHOLDER_STRING_FORM_RULE,
+} from "@/lib/llm/prompt-fragments";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { UI_COMPOSE_MODEL } from "@/lib/constants";
 import { logger } from "@/lib/logger";
@@ -42,9 +48,13 @@ Output format: streaming JSONL patches that build a JSON-Render spec. Output ONL
 
 ## Data rules
 - Keys are UNPREFIXED — reference them exactly as given: "$result:<key>" for scalars, "$chartData:<key>" for chart data props.
-- Placeholders are JSON STRING values. Write "value": "$result:total_revenue" and "data": "$chartData:monthly_trend". NEVER use object form — {"$result": "total_revenue"} and {"$chartData": "monthly_trend"} are WRONG and will not resolve.
+- ${PLACEHOLDER_STRING_FORM_RULE}
 - Every key in the Results Schema is a SCALAR — safe for StatCard values and inline prose.
-- NEVER write a literal number in prose. Every figure in the insight MUST be a $result:<key> placeholder. If a number can't be expressed as a placeholder, describe it qualitatively instead.
+- ${noLiteralNumberRule({
+  figure: "figure in the insight",
+  placeholder: "$result:<key>",
+  fallback: "If a number can't be expressed as a placeholder, describe it qualitatively instead.",
+})}
 - No step citations — this cell IS the step.`;
 
 /**
@@ -125,12 +135,12 @@ Rationale: ${args.rationale}${degradedBlock}
 ## Results Schema
 ${JSON.stringify(describeResultsSchema(args.results))}
 
-Use "$result:<key>" for scalar values.
+${resultPlaceholderLine()}
 
 ## Chart Data Shapes
 ${JSON.stringify(chartDataShape, null, 2)}
 
-Use "$chartData:<key>" for chart data props.
+${chartDataPlaceholderLine()}
 
 Compose the cell. Output ONLY raw JSONL patches.`;
 }

@@ -6,13 +6,8 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { rowsToCsv } from "./csv-util";
+import { rowsToCsv } from "@/lib/csv/csv-util";
 
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-
-/** Convert a value to a CSV-safe string, handling nulls properly */
 export function createPostgresConnector(config: PostgresConnectionConfig): WarehouseConnector {
   // Use Pool instead of Client for automatic connection management,
   // reconnection on failure, and proper connection lifecycle handling.
@@ -29,7 +24,10 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
     // Server-side statement timeout: kills long-running queries on the PG server itself.
     // This is critical — the Node.js query_timeout only cancels the client-side wait,
     // but the query keeps running on the server. statement_timeout kills it server-side.
-    options: "-c statement_timeout=120000",
+    // default_transaction_read_only: server-side write rejection — defense in
+    // depth behind assertReadOnlySql, whose first-keyword check was bypassable
+    // via DML-in-CTE (code-quality-hardening review).
+    options: "-c statement_timeout=120000 -c default_transaction_read_only=on",
   });
 
   const schemaName = config.schema ?? "public";

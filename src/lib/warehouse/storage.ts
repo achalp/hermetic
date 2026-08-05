@@ -1,6 +1,6 @@
 import type { StoredWarehouse } from "@/lib/contracts/storage-types";
 import { CSV_TTL_MS } from "@/lib/constants";
-import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { isIdleExpired, touch, registerSweepable } from "@/lib/store-ttl";
 import type { WarehouseConnector } from "./connector";
 import { stateNamespace } from "@/lib/state-store";
 
@@ -95,3 +95,7 @@ export async function setDbtManifestPath(
   entry.dbtManifestPath = manifestPath;
   return { stored: entry, enrichedTableCount: enriched };
 }
+
+// Sweep enrollment at the definition site (store-ttl registry) — a new
+// store cannot be forgotten by the sweeper's roll call.
+registerSweepable("warehouses", () => sweepExpiredWarehouses());

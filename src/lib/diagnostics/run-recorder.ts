@@ -21,7 +21,9 @@ import { hermeticPaths } from "@/lib/paths";
  * thread it; outside a run scope every function is a no-op.
  */
 
-const RUNS_DIR = hermeticPaths.runsDir();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const runsDir = () => hermeticPaths.runsDir();
 const DEFAULT_MAX_RUNS = 200;
 /** Cap a single recorded artifact so a huge output can't bloat disk. */
 const MAX_ARTIFACT_BYTES = 512 * 1024;
@@ -32,7 +34,7 @@ function maxRuns(): number {
 }
 
 async function ensureRunDir(runId: string): Promise<string> {
-  const dir = join(RUNS_DIR, runId);
+  const dir = join(runsDir(), runId);
   await mkdir(dir, { recursive: true });
   return dir;
 }
@@ -140,14 +142,14 @@ export function recordAttemptOutcome(
 /** Keep only the newest `maxRuns` run directories; drop the rest. Best-effort. */
 async function pruneOldRuns(): Promise<void> {
   try {
-    const entries = await readdir(RUNS_DIR, { withFileTypes: true });
+    const entries = await readdir(runsDir(), { withFileTypes: true });
     const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
     const cap = maxRuns();
     if (dirs.length <= cap) return;
     const withMtime = await Promise.all(
       dirs.map(async (name) => {
         try {
-          const s = await stat(join(RUNS_DIR, name));
+          const s = await stat(join(runsDir(), name));
           return { name, mtime: s.mtimeMs };
         } catch {
           return { name, mtime: 0 };
@@ -156,9 +158,9 @@ async function pruneOldRuns(): Promise<void> {
     );
     withMtime.sort((a, b) => b.mtime - a.mtime); // newest first
     for (const { name } of withMtime.slice(cap)) {
-      await rm(join(RUNS_DIR, name), { recursive: true, force: true }).catch(() => {});
+      await rm(join(runsDir(), name), { recursive: true, force: true }).catch(() => {});
     }
   } catch {
-    // RUNS_DIR may not exist yet, or a concurrent prune already ran — ignore.
+    // The runs dir may not exist yet, or a concurrent prune already ran — ignore.
   }
 }

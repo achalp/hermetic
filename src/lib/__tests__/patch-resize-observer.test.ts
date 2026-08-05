@@ -24,7 +24,7 @@ describe("patch-resize-observer", () => {
   });
 
   it("swallows the benign luma.gl race thrown inside a callback", async () => {
-    await import("@/lib/patch-resize-observer");
+    await import("@/components/charts/patch-resize-observer");
     const Patched = (globalThis as unknown as { ResizeObserver: typeof FakeRO }).ResizeObserver;
     const ro = new Patched(() => {
       throw new TypeError(BENIGN);
@@ -33,7 +33,7 @@ describe("patch-resize-observer", () => {
   });
 
   it("re-throws any other error untouched", async () => {
-    await import("@/lib/patch-resize-observer");
+    await import("@/components/charts/patch-resize-observer");
     const Patched = (globalThis as unknown as { ResizeObserver: typeof FakeRO }).ResizeObserver;
     const ro = new Patched(() => {
       throw new Error("a real layout bug");

@@ -6,8 +6,8 @@ import type { Spec } from "@/lib/contracts/spec";
 import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
 import { readStreamState, type CostInfo } from "@/lib/contracts/stream-state";
-import { buildInvestigateScope } from "@/components/app/spec-insights";
-import { logClient } from "@/lib/client-log";
+import { buildInvestigateScope } from "@/app/components/spec-insights";
+import { logClient } from "@/app/lib/client-log";
 
 /**
  * The analysis stream lifecycle (modularization M5-5d), extracted from
@@ -92,6 +92,11 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
   // Diagnostics for the mid-stream abort: useUIStream aborts its fetch when the
   // panel unmounts, so a long query dies if anything tears the panel down.
   const streamStartedAtRef = useRef<number | null>(null);
+  // The server-side run behind the live stream (`__runId`, first state patch) —
+  // the join key that lets a client-side abort diagnostic name the run it
+  // interrupted instead of leaving timestamp archaeology. Captured from the
+  // streaming spec below (a ref, not state — reading it must never re-render).
+  const liveRunIdRef = useRef<string | null>(null);
 
   const { spec, isStreaming, error, send, clear } = useUIStream({
     api: apiUrl,
@@ -123,11 +128,16 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
       // Diagnostic: a mid-stream error is almost always an abort from the panel
       // unmounting (useUIStream aborts its fetch on unmount).
       const elapsed = streamStartedAtRef.current ? Date.now() - streamStartedAtRef.current : null;
-      logClient("warn", "[useAnalysisStream] stream error", {
-        elapsedMs: elapsed,
-        name: (err as { name?: string })?.name,
-        message: (err as { message?: string })?.message,
-      });
+      logClient(
+        "warn",
+        "[useAnalysisStream] stream error",
+        {
+          elapsedMs: elapsed,
+          name: (err as { name?: string })?.name,
+          message: (err as { message?: string })?.message,
+        },
+        liveRunIdRef.current ?? undefined
+      );
       setPreviousSpec(null);
       onStreamEnd?.();
       // A reattach that errored (e.g. the attach endpoint 404'd because the run
@@ -146,6 +156,14 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
   useEffect(() => {
     currentQuestionRef.current = question;
   }, [question]);
+
+  // Capture the run id off the streaming spec as soon as the first state patch
+  // lands (it never changes within a stream, so first-wins).
+  useEffect(() => {
+    if (liveRunIdRef.current) return;
+    const runId = readStreamState(spec).__runId;
+    if (runId) liveRunIdRef.current = runId;
+  }, [spec]);
 
   // Watch questionSeq changes to trigger initial queries and follow-ups
   useEffect(() => {
@@ -168,6 +186,7 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     }
     currentSpecRef.current = null;
     streamStartedAtRef.current = Date.now();
+    liveRunIdRef.current = null;
     onStreamStarting?.();
 
     // Reattach is handled by its own effect (keyed on reattachRunId), NOT here.
@@ -227,5 +246,6 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     setPreviousSpec,
     currentSpecRef: currentSpecRef as MutableRefObject<Spec | null>,
     currentQuestionRef: currentQuestionRef as MutableRefObject<string | null>,
+    liveRunIdRef: liveRunIdRef as MutableRefObject<string | null>,
   };
 }

@@ -2,7 +2,7 @@
 
 import type { Data, Layout } from "plotly.js";
 import { PlotlyChart } from "./plotly-wrapper";
-import { useThemeConfig } from "@/lib/theme-config";
+import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
 

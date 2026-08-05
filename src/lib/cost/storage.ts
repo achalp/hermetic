@@ -1,18 +1,22 @@
 /**
  * Persistent per-analysis cost log. One CSV per day under data/cost/, appended
  * with a row per analysis. Mirrors the on-disk convention of
- * src/lib/history/storage.ts (cwd-relative data dir, no TTL — rows persist).
+ * src/lib/history/storage.ts (cwd-relative data dir). Day files older than
+ * COST_RETENTION_DAYS are pruned on write — one file per active day is
+ * otherwise unbounded growth (the prune-on-write pattern of run-recorder.ts).
  *
  * Append is read-modify-write via the shared papaparse helpers so the free-text
  * question/dataset are quoted correctly. Single-user local tool, so the small
  * race on concurrent appends to the same day file is acceptable.
  */
-import { mkdir, readFile, writeFile, readdir, appendFile } from "fs/promises";
+import { mkdir, readFile, writeFile, readdir, appendFile, unlink } from "fs/promises";
 import { join } from "path";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { hermeticPaths } from "@/lib/paths";
 
-const COST_DIR = hermeticPaths.costDir();
+// Resolved per call, not at import — a module-level const froze the pre-boot
+// default before the harness could call setPathRoots (the seam in lib/paths.ts).
+const costDir = () => hermeticPaths.costDir();
 
 export const COST_HEADERS = [
   "timestamp",
@@ -83,17 +87,46 @@ function toStringRow(row: CostRow): Record<string, string> {
  */
 let appendChain: Promise<void> = Promise.resolve();
 
+/** Keep day files this long; older ones are dropped on write. */
+const COST_RETENTION_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** Append one analysis's cost to data/cost/<date>.csv (creates header if new). */
 export function appendCostRow(row: CostRow): Promise<void> {
   const next = appendChain.then(() => appendCostRowUnlocked(row));
   // The chain must survive a failed append; the caller still sees the rejection.
   appendChain = next.catch(() => {});
+  // Fire-and-forget, outside the append chain: retention must never delay or
+  // fail the append that triggered it (run-recorder's prune-on-write policy).
+  void next.then(pruneOldCostFiles, () => {});
   return next;
 }
 
+/**
+ * Delete day files past the retention window. Age comes from the filename
+ * (files are date-named), so the match is strict — anything else in the dir
+ * is never touched. Best-effort; never throws.
+ */
+async function pruneOldCostFiles(): Promise<void> {
+  try {
+    const dir = costDir();
+    const cutoff = Date.now() - COST_RETENTION_DAYS * DAY_MS;
+    for (const f of await readdir(dir)) {
+      const m = /^(\d{4}-\d{2}-\d{2})\.csv$/.exec(f);
+      if (!m) continue;
+      const dayMs = Date.parse(m[1]);
+      if (Number.isFinite(dayMs) && dayMs < cutoff) {
+        await unlink(join(dir, f)).catch(() => {});
+      }
+    }
+  } catch {
+    // dir may not exist yet
+  }
+}
+
 async function appendCostRowUnlocked(row: CostRow): Promise<void> {
-  await mkdir(COST_DIR, { recursive: true });
-  const file = join(COST_DIR, `${row.date}.csv`);
+  await mkdir(costDir(), { recursive: true });
+  const file = join(costDir(), `${row.date}.csv`);
 
   // Serialize exactly one data row (strip the header papaparse prepends) and
   // guarantee a trailing newline — toCSVText omits it, and two appended rows
@@ -131,14 +164,14 @@ async function appendCostRowUnlocked(row: CostRow): Promise<void> {
 export async function listCostRows(): Promise<Record<string, string>[]> {
   let files: string[];
   try {
-    files = (await readdir(COST_DIR)).filter((f) => f.endsWith(".csv"));
+    files = (await readdir(costDir())).filter((f) => f.endsWith(".csv"));
   } catch {
     return []; // dir doesn't exist yet
   }
   const rows: Record<string, string>[] = [];
   for (const f of files) {
     try {
-      rows.push(...parseCSV(await readFile(join(COST_DIR, f), "utf-8")).data);
+      rows.push(...parseCSV(await readFile(join(costDir(), f), "utf-8")).data);
     } catch {
       // Skip a corrupt/locked file rather than failing the whole list.
     }

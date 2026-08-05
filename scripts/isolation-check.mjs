@@ -66,22 +66,19 @@ const TARGETS = [
       "src/components/renderer-error-boundary.tsx",
       "src/components/lazy-client.tsx",
       "src/components/ui/",
+      "src/components/theme/", // theme system lives with the renderer (WS-E move out of lib)
+      "src/components/drill-down-context.tsx",
       "src/spec/",
       "src/lib/contracts/",
       "src/lib/catalog.ts",
       "src/lib/chart-stats.ts",
-      "src/lib/chart-theme.ts",
       "src/lib/constants.ts",
       "src/lib/basemap-constants.ts",
       "src/lib/data-transforms.ts",
       "src/lib/data-transforms/",
-      "src/lib/drill-down-context.tsx",
       "src/lib/drill-resolve.ts",
       "src/lib/export-utils.ts",
-      "src/lib/theme-config.ts",
-      "src/lib/theme-context.tsx", // D1: leaves the closure with theme detox (Phase 2a)
-      "src/lib/deckgl-init.ts", // D2: becomes an explicit entry point (Phase 2a)
-      "src/lib/patch-resize-observer.ts", // D2 companion
+      "src/lib/format.ts",
       "src/lib/utils.ts",
       "src/lib/logger.ts",
       "src/lib/harness-slot.ts", // constants.ts → envConfig seam (type-safe, globalThis only)

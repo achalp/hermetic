@@ -12,8 +12,8 @@ import MapGL, {
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { resolveColor, useChartColors } from "@/lib/chart-theme";
-import { useDrillClickRef } from "@/lib/drill-down-context";
+import { resolveColor, useChartColors } from "@/components/theme/chart-theme";
+import { useDrillClickRef } from "@/components/drill-down-context";
 import { featureClickRecord } from "@/lib/drill-resolve";
 
 interface MarkerItem {

@@ -1,9 +1,10 @@
 # Changelog
 
 Release history lives in [`release-notes/`](release-notes/) — dated write-ups
-of each feature wave (March, May, June: interactive dashboards, warehouse
-connectors, Investigate mode, notebook view, remote Parquet, …). Day-to-day
-history is the git log.
+of each feature wave (March through August: interactive dashboards, warehouse
+connectors, Investigate mode, notebook view, remote Parquet, skills,
+subscription-login transport, the MCP server, …). Day-to-day history is the
+git log.
 
 This file previously claimed Keep-a-Changelog/SemVer adherence with a single
 entry that was ~1.5 years stale while hundreds of commits went unrecorded — a

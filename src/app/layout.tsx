@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { STORAGE_KEYS } from "@/lib/constants";
-import { THEME_IDS } from "@/lib/theme-config";
+import { THEME_IDS } from "@/components/theme/theme-config";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ThemeProvider } from "@/lib/theme-context";
+import { ThemeProvider } from "@/components/theme/theme-context";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,7 +32,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             // No-FOUC bootstrap, generated from the same constants the theme
             // provider uses — the keys and allow-list can no longer drift from
-            // lib/theme-context (modularization M1-1d).
+            // components/theme/theme-context (modularization M1-1d).
             __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem(${JSON.stringify(
               STORAGE_KEYS.theme
             )});if(t&&${JSON.stringify(THEME_IDS)}.includes(t))d.setAttribute("data-theme",t);var m=localStorage.getItem(${JSON.stringify(

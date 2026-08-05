@@ -6,7 +6,7 @@ import {
   removeRecentSource,
   clearRecentSources,
 } from "@/lib/sources/recent-sources";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 /**
  * List recent file/cloud sources (most-recent first). Returns full entries

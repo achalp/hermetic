@@ -14,6 +14,7 @@
  */
 
 import type { AdditionalFile } from "@/lib/sandbox";
+import { rowsToCsv } from "@/lib/csv/csv-util";
 
 export interface StepFrameSource {
   /** 1-based step number (matches the notebook + step_N namespace). */
@@ -26,17 +27,11 @@ export function stepFramePath(stepNo: number): string {
   return `/data/step_${stepNo}.csv`;
 }
 
-function rowsToCsv(rows: Record<string, unknown>[]): string {
-  if (rows.length === 0) return "";
-  const cols = Object.keys(rows[0]);
-  const esc = (v: unknown): string => {
-    if (v === null || v === undefined) return "";
-    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const lines = [cols.join(",")];
-  for (const r of rows) lines.push(cols.map((c) => esc(r[c])).join(","));
-  return lines.join("\n");
+// CSV serialization is the canonical csv-util (a local copy here had dropped
+// \r handling and header quoting — consolidation review). primaryRows only
+// returns non-empty row sets, so rows[0] is always present.
+function frameCsv(rows: Record<string, unknown>[]): string {
+  return rowsToCsv(Object.keys(rows[0]), rows);
 }
 
 /**
@@ -71,7 +66,7 @@ function primaryRows(
  */
 export function primaryFrameCsv(source: StepFrameSource): string | null {
   const p = primaryRows(source);
-  return p ? rowsToCsv(p.rows) : null;
+  return p ? frameCsv(p.rows) : null;
 }
 
 /**
@@ -87,7 +82,7 @@ export function buildStepFrames(sources: StepFrameSource[]): {
   for (const src of sources) {
     const primary = primaryRows(src);
     if (!primary) continue;
-    files.push({ path: stepFramePath(src.stepNo), content: rowsToCsv(primary.rows) });
+    files.push({ path: stepFramePath(src.stepNo), content: frameCsv(primary.rows) });
     descs.push(
       `- Step ${src.stepNo} ("${primary.name}", ${primary.rows.length} rows) → ${stepFramePath(
         src.stepNo

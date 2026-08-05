@@ -46,10 +46,10 @@ import {
   isLocalFile,
   isRemoteFile,
 } from "@/lib/csv/storage";
-import { prewarmSQLGenCache } from "@/lib/warehouse/sql-generation";
+import { prewarmSQLGenCache } from "@/lib/sqlgen/sql-generation";
 import { logger, serializeError } from "@/lib/logger";
 import type { PatchStream } from "@/lib/pipeline/patch-stream";
-import type { WarehouseState } from "@/lib/pipeline/validate-request";
+import type { ResolvedAnalysisSource } from "@/lib/pipeline/validate-request";
 import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
 import type { SandboxRuntimeId } from "@/lib/constants";
 
@@ -72,8 +72,13 @@ export interface InvestigateRunState {
 export interface RunInvestigateQueryArgs {
   context: AnalysisRequestContext;
   question: string;
-  warehouseId: string | undefined;
-  warehouseState: WarehouseState | null | undefined;
+  /**
+   * Discriminated source from validate-request: a stored CSV (upload/local/
+   * remote — or an already-materialized warehouse pull on a follow-up) or a
+   * live warehouse connection. Narrowing `kind` once here replaced the
+   * csvId!/warehouseState! assertions this file carried.
+   */
+  source: ResolvedAnalysisSource;
   codeGenModel: string;
   uiComposeModel: string;
   sandboxRuntime: SandboxRuntimeId;
@@ -85,8 +90,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
   const {
     context,
     question,
-    warehouseId,
-    warehouseState,
+    source,
     codeGenModel,
     uiComposeModel,
     sandboxRuntime,
@@ -94,18 +98,21 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
     stream,
   } = args;
 
-  let csvId = runState.csvId;
+  // Narrowed once; a const so the closures below (per-step SQL executor,
+  // prewarm) see the non-null type without re-asserting.
+  const warehouseState = source.kind === "warehouse" ? source.warehouseState : null;
   // Compose notebook cells eagerly only when the client is in Notebook view;
   // otherwise they're composed lazily on Notebook-open (cost optimization).
   const composeCells = context.compose_cells !== false;
-  let datasetLabel = csvId ?? warehouseId ?? "dataset";
+  let datasetLabel =
+    runState.csvId ?? (source.kind === "warehouse" ? source.warehouseId : source.csvId);
   let analysisMode = "investigate";
 
   const emit = stream.emit;
   const closed = () => stream.isClosed();
   const emitProgress = stream.emitProgress;
   // Make this run discoverable by a reconnecting client (run-stream-hub).
-  stream.setMeta({ csvId: csvId ?? undefined, question });
+  stream.setMeta({ csvId: runState.csvId ?? undefined, question });
 
   await runWithCostTracking(() =>
     runWithDiagnostics(async () => {
@@ -129,8 +136,12 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // DuckDB read instructions for the analysis.
         let warehouseParquetFile: string | undefined;
         let warehouseParquetContext: string | undefined;
-        if (warehouseState) {
-          const { warehouse, connector } = warehouseState;
+        // The analysis' data id: the csv source directly, or the snapshot the
+        // warehouse pull materializes below. Guaranteed a string past this
+        // block — downstream stages previously asserted `csvId!` per read.
+        let csvId: string;
+        if (source.kind === "warehouse") {
+          const { warehouse, connector } = source.warehouseState;
           emitProgress("generating_sql", 1, 99);
 
           // Bound the scan + self-heal via the SHARED warehouse path —
@@ -187,23 +198,25 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           materializationSampled = storedResult.sampled;
           warehouseParquetFile = storedResult.parquetFile;
           warehouseParquetContext = storedResult.parquetContext;
+        } else {
+          csvId = source.csvId;
         }
 
         // ── Resolve the source (file upload, local mount, or the CSV
         //     just materialized from the warehouse) ──
-        const stored = getStoredCSV(csvId!);
+        const stored = getStoredCSV(csvId);
         if (!stored) {
           throw new Error("CSV not found or expired");
         }
         datasetLabel = stored.schema.filename;
-        const isLocal = isLocalFile(csvId!);
-        const isRemote = isRemoteFile(csvId!);
+        const isLocal = isLocalFile(csvId);
+        const isRemote = isRemoteFile(csvId);
         // In Parquet mode (local mount, materialized warehouse, or remote
         // URL) the analysis reads Parquet directly, so we never load the
         // (large) CSV into memory.
         const csvContent =
-          isLocal || isRemote || warehouseParquetFile ? "" : ((await getCSVContent(csvId!)) ?? "");
-        const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId!) : null;
+          isLocal || isRemote || warehouseParquetFile ? "" : ((await getCSVContent(csvId)) ?? "");
+        const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId) : null;
 
         // Mount path + code-gen "Data Location" context. A materialized
         // warehouse pull was docker-cp'd to /data/input.parquet (no mount);
@@ -235,7 +248,10 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         if (context.scope) {
           const scope = context.scope;
           const depth = await classifyFollowupDepth({ question, scope });
-          const budgetKey = csvId ?? warehouseId ?? "default";
+          // csvId is guaranteed by the source union (materialized above for
+          // warehouse runs) — the old `?? warehouseId ?? "default"` fallbacks
+          // were dead.
+          const budgetKey = csvId;
           const goDeep =
             depth === "deep" &&
             tryConsumeAutoInvestigation(budgetKey, MAX_AUTO_INVESTIGATIONS_PER_SESSION);
@@ -437,12 +453,14 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           // the small result (per-step SQL is the default; CSV-snapshot analysis
           // is only the fallback if SQL fails). The materialization SQL is passed
           // so each per-step query reuses the same time window. File
-          // investigations leave these undefined and run Python over the shared CSV.
-          warehouse: warehouseState?.warehouse.tableSchemas,
-          warehouseType: warehouseState?.warehouse.config.type,
-          materializationSQL: warehouseSQL,
-          warehouseExecutor: warehouseState
-            ? (sql: string) => warehouseState!.connector.executeSQL(sql)
+          // investigations leave this undefined and run Python over the shared CSV.
+          warehouse: warehouseState
+            ? {
+                tables: warehouseState.warehouse.tableSchemas,
+                warehouseType: warehouseState.warehouse.config.type,
+                materializationSQL: warehouseSQL,
+                executor: (sql: string) => warehouseState.connector.executeSQL(sql),
+              }
             : undefined,
           onProgress: (event) => {
             recorder.record(event);
@@ -593,7 +611,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // composer failure still leaves an inspectable trail; `trace.grounding`
         // is set below on the same object, so the cached entry sees it too.
         const lastSuccess = [...subResults].reverse().find((r) => r.result);
-        const prior = getCachedArtifacts(csvId!);
+        const prior = getCachedArtifacts(csvId);
         const topLevel = lastSuccess?.result
           ? {
               code: lastSuccess.result.generatedCode,
@@ -621,7 +639,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               execution_ms: prior?.execution_ms ?? 0,
               sql: warehouseSQL ?? prior?.sql,
             };
-        cacheArtifacts(csvId!, { ...topLevel, investigation: trace });
+        cacheArtifacts(csvId, { ...topLevel, investigation: trace });
 
         // Deterministic data-quality surfacing — guarantees degraded / failed
         // / dropped branches reach the user regardless of whether the composer

@@ -11,7 +11,7 @@
  * aggregated RESULTS (scalars, chart data shapes), never raw rows.
  */
 
-import { apiError, validationErrorResponse } from "@/lib/api-error";
+import { apiError, validationErrorResponse } from "@/app/lib/api-error";
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     // and the resource 404s, preserving the route's check order. ──
     const ids = validateQueryIds(context, body.prompt);
     if (!ids.ok) return validationErrorResponse(ids);
-    const { warehouseId, question } = ids;
+    const { question } = ids;
 
     // Investigate is a heavyweight cloud-LLM operation. Local backends are
     // gated at the UI level; refuse here as a safety net.
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       requireStoredCsv: true,
     });
     if (!sources.ok) return validationErrorResponse(sources);
-    const { warehouseState, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
+    const { source, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
 
     // Shared mutable run state — the disconnect handler must see the
     // warehouse-materialized csvId (see run-ask-query.ts).
@@ -84,8 +84,7 @@ export async function POST(request: Request) {
         runInvestigateQuery({
           context,
           question,
-          warehouseId,
-          warehouseState,
+          source,
           codeGenModel,
           uiComposeModel,
           sandboxRuntime,

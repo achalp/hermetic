@@ -38,6 +38,8 @@ import { getFileInfo } from "@/lib/local-files/browser";
 import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { toCSVText } from "@/lib/csv/parser";
+import { ingestFile, makeIngest, type IngestFn } from "@/lib/sources/ingest";
+import { introspectWithCache } from "@/lib/warehouse/introspect";
 
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL } from "@/lib/constants";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
@@ -80,7 +82,45 @@ export interface McpDeps {
   isGeoJSONObject: typeof isGeoJSONObject;
   storeGeoJSON: typeof storeGeoJSON;
   toCSVText: typeof toCSVText;
+  /**
+   * The shared file-ingestion pipeline (lib/sources/ingest.ts) and cached,
+   * relationship-enriched warehouse introspection (lib/warehouse/
+   * introspect.ts). Optional so fake-deps suites written before this seam
+   * keep compiling: realDeps() always supplies them, and connect_source
+   * falls back to assembling the ingest from the granular deps above
+   * (`ingestFromDeps`) / raw introspection when they are absent.
+   */
+  ingestFile?: IngestFn;
+  introspectWithCache?: typeof introspectWithCache;
   models: { codeGen: string; uiCompose: string };
+}
+
+/**
+ * The ingest connect_source uses: the injected one when present, else one
+ * assembled from the granular deps — so pre-existing fake-deps suites flow
+ * their fakes through the shared pipeline unchanged. Capability deps the
+ * granular seam does not carry (materialize / warm sandbox / recents) are
+ * simply absent in the fallback; their policy flags no-op.
+ */
+export function ingestFromDeps(deps: McpDeps): IngestFn {
+  return (
+    deps.ingestFile ??
+    makeIngest({
+      parseCSV: deps.parseCSV,
+      toCSVText: deps.toCSVText,
+      extractSchema: deps.extractSchema,
+      storeCSV: deps.storeCSV,
+      storeGeoJSON: deps.storeGeoJSON,
+      storeLocalFileRef: deps.storeLocalFileRef,
+      parseExcelMeta: deps.parseExcelMeta,
+      sheetToCSV: deps.sheetToCSV,
+      parseGeoJSON: deps.parseGeoJSON,
+      isGeoJSONObject: deps.isGeoJSONObject,
+      extractParquetSchema: deps.extractParquetSchema,
+      getFileInfo: deps.getFileInfo,
+      getActiveSandboxRuntime: deps.getActiveSandboxRuntime,
+    })
+  );
 }
 
 export function realDeps(): McpDeps {
@@ -124,6 +164,8 @@ export function realDeps(): McpDeps {
     isGeoJSONObject,
     storeGeoJSON,
     toCSVText,
+    ingestFile,
+    introspectWithCache,
     models: { codeGen: CODE_GEN_MODEL, uiCompose: UI_COMPOSE_MODEL },
   };
 }

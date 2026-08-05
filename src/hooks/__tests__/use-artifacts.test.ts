@@ -3,11 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useArtifacts } from "@/hooks/use-artifacts";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/app/lib/api", () => ({
   getArtifacts: vi.fn(),
 }));
 
-import { getArtifacts } from "@/lib/api";
+import { getArtifacts } from "@/app/lib/api";
 const mockGetArtifacts = getArtifacts as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {

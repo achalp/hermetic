@@ -16,9 +16,16 @@ import type { McpDeps } from "../deps";
 import { reattachHint, type McpSource } from "../sources";
 import { McpToolError } from "../errors";
 
+/**
+ * The McpDeps slice liveness needs. Every tool `Pick`s exactly what it uses
+ * (review fix: compile-checked narrowing at the consumption site) so test
+ * fakes only have to supply the members a tool actually reads.
+ */
+export type LivenessDeps = Pick<McpDeps, "getWarehouseState" | "getStoredCSV">;
+
 const IDLE_HOURS = Math.round(CSV_TTL_MS / (60 * 60 * 1000));
 
-export function assertSourceLive(deps: McpDeps, source: McpSource): void {
+export function assertSourceLive(deps: LivenessDeps, source: McpSource): void {
   const live =
     source.kind === "warehouse"
       ? !!deps.getWarehouseState(source.id)

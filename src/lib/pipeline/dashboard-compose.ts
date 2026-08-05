@@ -19,6 +19,13 @@ import { streamText } from "ai";
 import type { DrillDownContext } from "@/lib/contracts/analysis-request";
 export type { DrillDownContext };
 import { getModel, cachedSystem } from "@/lib/llm/client";
+import { truncateValue } from "@/lib/llm/truncate-value";
+import {
+  RESULT_PLACEHOLDER_USAGE,
+  CHART_DATA_STRING_USAGE,
+  CHART_DATA_PLACEHOLDER_RULE,
+  METADATA_PLACEHOLDER_RULES,
+} from "@/lib/llm/prompt-fragments";
 import { catalog } from "@/lib/catalog";
 import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
@@ -203,45 +210,6 @@ function describeResultsSchema(obj: Record<string, unknown>): Record<string, unk
   return out;
 }
 
-/**
- * Shrink an oversized value to fit `maxChars` of JSON — arrays get a marked
- * `_truncated` sample, objects keep whole leading entries, scalars are sliced.
- */
-function truncateValue(val: unknown, maxChars: number): unknown {
-  if (Array.isArray(val)) {
-    for (let limit = Math.min(val.length, 50); limit >= 5; limit = Math.floor(limit / 2)) {
-      const sliced = val.slice(0, limit);
-      const json = JSON.stringify(sliced);
-      if (json.length <= maxChars) {
-        if (limit < val.length) {
-          return { _truncated: true, _total: val.length, _sample: sliced };
-        }
-        return sliced;
-      }
-    }
-    return { _truncated: true, _total: val.length, _sample: val.slice(0, 3) };
-  }
-  const json = JSON.stringify(val);
-  if (json.length <= maxChars) return val;
-  if (typeof val === "object" && val !== null) {
-    const entries = Object.entries(val as Record<string, unknown>);
-    const trimmed: Record<string, unknown> = {};
-    let remaining = maxChars - 50;
-    for (const [k, v] of entries) {
-      const s = JSON.stringify(v);
-      if (s.length <= remaining) {
-        trimmed[k] = v;
-        remaining -= s.length;
-      } else {
-        trimmed[k] = truncateValue(v, Math.max(remaining, 200));
-        break;
-      }
-    }
-    return trimmed;
-  }
-  return String(val).slice(0, maxChars);
-}
-
 // ── Prompt section builders ──────────────────────────────────────────
 // Each returns a complete block (conditional ones include their own leading
 // blank lines and return "" when not applicable), so the assembler is a plain
@@ -269,7 +237,7 @@ function buildCorePrompt(
       ? `## Analysis Results Schema
 ${JSON.stringify(describeResultsSchema(compactResults as Record<string, unknown>))}
 
-Use "$result:<key>" placeholders for all scalar values in StatCard, TrendIndicator, and similar components. Example: {"value": "$result:total_sales"}. Supports dot-notation for nested keys: "$result:summary.avg_price".`
+${RESULT_PLACEHOLDER_USAGE}`
       : `## Analysis Results
 ${JSON.stringify(compactResults)}`;
 
@@ -293,7 +261,7 @@ ${
     ? `
 Use "$chartData:<key>" placeholders ONLY when pre-populating initial /computed/* state values so charts have data on first render. Charts themselves MUST use {"$state": "/computed/<name>"} for their data prop — never "$chartData:" in component props directly.`
     : `
-When referencing chart data in component props, use the string "$chartData:<key>" as the data value. It will be replaced with the actual array at render time. For example: "data": "$chartData:bar_data"
+${CHART_DATA_STRING_USAGE}
 For HeatMap z/x_labels/y_labels, use "$chartData:heatmap.z", "$chartData:heatmap.x_labels", etc.
 For Globe3D: use "$chartData:points" for the points prop and "$chartData:arcs" for the arcs prop. The Python code should output chart_data["points"] and chart_data["arcs"] as top-level keys.
 For Surface3D: use "$chartData:<key>.z", "$chartData:<key>.x_labels", "$chartData:<key>.y_labels".`
@@ -428,13 +396,7 @@ function buildComposeRules(args: {
   const { schema, schemaMode, purpose, useDataController, sampleNote } = args;
   return [
     ...domainUiRules(schema.detected_domain),
-    ...(schemaMode === "metadata"
-      ? [
-          'Use "$result:<key>" placeholders for ALL scalar values in StatCard value, TrendIndicator value/previous, and any other numeric display props. Never fabricate or guess specific numbers.',
-          "TextBlock content must be qualitative and descriptive — do NOT include specific numeric values. Describe trends, patterns, and relationships without citing exact figures.",
-          "Never hallucinate specific numeric values. If you need a number displayed, it MUST come from a $result:<key> placeholder.",
-        ]
-      : []),
+    ...(schemaMode === "metadata" ? METADATA_PLACEHOLDER_RULES : []),
     "Do NOT fabricate large data arrays (e.g. GeoJSON boundaries, coordinate tables) that are not in the chart_data or results. Small scalar values from results (for StatCard, TextBlock, etc.) are fine to inline.",
     getPurposePrompt(purpose),
     "Use StatCard for key metrics. Group them in a LayoutGrid (columns: 2-4).",
@@ -497,7 +459,7 @@ function buildComposeRules(args: {
           'CORRECTNESS: /datasets/main is often a truncated/sampled subset of the full data (capped at 5000 rows), so re-deriving a "top N / most / farthest / largest" ranking from it via a DataController output can DISAGREE with the headline StatCards/annotations (which are computed in Python over the FULL data). For any ranking/extreme table OR a MapView of points, bind DIRECTLY to the PRE-COMPUTED data the analysis emitted (available at /datasets/<chart_data_key>, e.g. rows: {"$state": "/datasets/top_20_isolated"}, markers: {"$state": "/datasets/buildings_map"}) — do NOT re-rank /datasets/main. That data is the server-computed truth and matches the headline. Use DataController /computed outputs only for aggregations that must react to the filters.',
         ]
       : [
-          'Reference chart data using "$chartData:<key>" placeholders in data props. Do NOT inline data arrays. Example: "data": "$chartData:bar_data". For nested fields like heatmap data, use "$chartData:heatmap.z", "$chartData:heatmap.x_labels", "$chartData:heatmap.y_labels".',
+          CHART_DATA_PLACEHOLDER_RULE,
           'For DataTable columns, use plain strings like ["Name", "Age"], NOT objects.',
           'For DataTable rows, use INLINED arrays of strings like [["Alice", "30"]] — NOT objects, and NOT a "$state" reference.',
         ]),

@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { parseCSV, toCSVText } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeGeoJSON, storeWorkbookManifest } from "@/lib/csv/storage";
 import { loadSavedVisualization, saveNewVersion } from "@/lib/saved/storage";
 import { schemasCompatible, schemaFingerprint } from "@/lib/saved/schema-compat";
 import { executeSandbox } from "@/lib/sandbox";
+import { getRunId } from "@/lib/run-context";
 import { ensureWarmSandboxReady } from "@/lib/sandbox/warm-sandbox";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
@@ -96,6 +97,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       runtime,
       geojsonContent: geojsonText,
       csvId: newCsvId,
+      // Container attribution label (WS-D) — injected here because the
+      // sandbox layer never reads run-context itself.
+      runId: getRunId(),
     });
 
     if (!execResult.success) {

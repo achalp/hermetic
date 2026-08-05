@@ -1,6 +1,5 @@
 import { generateText, streamText } from "ai";
 import { withPhase, withPhaseSync } from "@/lib/cost/accumulator";
-import { getRunSignal } from "@/lib/pipeline/run-control";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "./client";
 import {
   buildCodeGenSystemPrompt,
@@ -192,7 +191,17 @@ export async function generateAnalysisCode(
    * question (never the cached schema-block prefix) so a user skill keyed on
    * question keywords can't fragment the per-dataset prompt cache.
    */
-  extraGuidance?: string
+  extraGuidance?: string,
+  opts?: {
+    /**
+     * The run's stop signal, supplied by the pipeline caller (getRunSignal()
+     * at the call site). This module never imports the run registry — same
+     * layering rule as the sandbox executors ("executors never import the run
+     * registry — the caller supplies these", sandbox/index.ts). Absent (tests,
+     * out-of-run callers) → the stream just isn't externally abortable.
+     */
+    abortSignal?: AbortSignal;
+  }
 ): Promise<string> {
   const hasTurns = priorTurns && priorTurns.length > 0;
   // Cache the stable schema/context prefix; the question (and any chat history)
@@ -220,7 +229,7 @@ export async function generateAnalysisCode(
   // wall-clock timeout and NO stall detection — a hung backend burns the full
   // 10 min then hard-fails (observed: run f3bdc1b2). Streaming routes through
   // responsesSSE's stall timeout, so a stalled generation aborts in minutes, and
-  // the run's abortSignal (getRunSignal) lets /stop actually kill it mid-stream.
+  // the caller-supplied abortSignal lets /stop actually kill it mid-stream.
   // withPhaseSync because streamText kicks off the request eagerly and reports
   // usage during consumption (see cost/accumulator).
   const result = withPhaseSync("code_gen", () =>
@@ -234,7 +243,7 @@ export async function generateAnalysisCode(
       ],
       temperature: 0,
       maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-      abortSignal: getRunSignal(),
+      abortSignal: opts?.abortSignal,
     })
   );
   const generatedText = await result.text;

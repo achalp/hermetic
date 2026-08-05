@@ -16,6 +16,7 @@ import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 import { setupEgressNetwork, type EgressNetwork } from "./egress";
+import { SANDBOX_RUNID_LABEL } from "./lifecycle";
 import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 
 export interface DockerExecOptions {
@@ -31,6 +32,10 @@ export interface DockerExecOptions {
    *  exactly these hosts via an internal network + allowlist gateway
    *  (lib/sandbox/egress.ts). Empty/absent = today's open egress. */
   allowedEgressHosts?: string[];
+  /** Owning run id, stamped as a docker label (SANDBOX_RUNID_LABEL) so the
+   *  container is attributable to its run from `docker ps`/inspect. Supplied
+   *  by the pipeline caller — this layer never imports run-context. */
+  runId?: string;
 }
 
 export async function executeSandbox(
@@ -55,6 +60,8 @@ export async function executeSandbox(
     //    self-kill either; it's torn down in the finally (or by the store
     //    sweeper if the process died).
     const runArgs = ["run", "-d", "--name", id, ...(await sandboxMemoryRunArgs())];
+    // Attribute the container to its run (forensics / lifecycle tooling).
+    if (opts.runId) runArgs.push("--label", `${SANDBOX_RUNID_LABEL}=${opts.runId}`);
     // No network unless the code actually reads remote data — this is what
     // makes the sandbox isolation claim true for local-data analyses. The
     // image pre-bundles the DuckDB httpfs/spatial extensions, so offline

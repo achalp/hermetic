@@ -9,8 +9,8 @@
  */
 import { useCallback, useState } from "react";
 import { useActiveRuns } from "@/hooks/use-active-runs";
-import { getSchemaByCsvId, type ActiveRun } from "@/lib/api";
-import type { QueryMode } from "@/components/app/query-input";
+import { getSchemaByCsvId, type ActiveRun } from "@/app/lib/api";
+import type { QueryMode } from "@/app/components/query-input";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 interface UseReattachArgs {

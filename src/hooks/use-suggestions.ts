@@ -28,7 +28,7 @@ import {
   summarizeAnalysisResults,
 } from "@/lib/suggest-questions";
 import { extractSpecComponentTypes } from "@/lib/spec-summary";
-import { getArtifacts, getFollowUpSuggestions, getSuggestions } from "@/lib/api";
+import { getArtifacts, getFollowUpSuggestions, getSuggestions } from "@/app/lib/api";
 
 export function useSuggestions(args: {
   schema: CSVSchema | null;

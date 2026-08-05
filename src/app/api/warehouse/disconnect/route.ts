@@ -1,5 +1,5 @@
 import { removeWarehouse } from "@/lib/warehouse/storage";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 export async function POST(request: Request) {
   try {

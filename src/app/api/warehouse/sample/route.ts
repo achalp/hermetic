@@ -1,6 +1,6 @@
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);

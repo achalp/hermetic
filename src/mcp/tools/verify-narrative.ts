@@ -16,6 +16,16 @@ import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { McpToolError, unknownSource } from "../errors";
 
+/** The McpDeps slice verify_narrative consumes (see LivenessDeps for the pattern). */
+export type VerifyNarrativeDeps = Pick<
+  McpDeps,
+  | "getCachedArtifacts"
+  | "collectGroundedValues"
+  | "verifyGrounding"
+  | "getWarehouseState"
+  | "getStoredCSV"
+>;
+
 export const verifyNarrativeInput = {
   prose: z.string().describe("The narrative text to verify."),
   source_id: z
@@ -37,7 +47,7 @@ export const verifyNarrativeInput = {
 };
 
 export async function verifyNarrative(
-  deps: McpDeps,
+  deps: VerifyNarrativeDeps,
   args: {
     prose: string;
     source_id?: string;

@@ -1,7 +1,7 @@
 import { rmSync } from "fs";
 import { DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
-import { join } from "path";
-import { apiError } from "@/lib/api-error";
+import { join, sep } from "path";
+import { apiError } from "@/app/lib/api-error";
 import { hermeticPaths } from "@/lib/paths";
 
 export async function POST(request: Request) {
@@ -42,8 +42,9 @@ export async function POST(request: Request) {
     const fullPath = join(cacheDir, dirName);
 
     try {
-      // Verify the directory exists and is inside the cache
-      if (!fullPath.startsWith(cacheDir)) {
+      // Trailing-separator confinement (lib/local-files/security.ts pattern):
+      // a bare prefix check would pass sibling dirs like `${cacheDir}-evil`.
+      if (!fullPath.startsWith(cacheDir + sep)) {
         return Response.json({ error: "Invalid model path" }, { status: 400 });
       }
       rmSync(fullPath, { recursive: true, force: true });
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
     const fullPath = join(ggufDir, model);
 
     try {
-      if (!fullPath.startsWith(ggufDir)) {
+      if (!fullPath.startsWith(ggufDir + sep)) {
         return Response.json({ error: "Invalid model path" }, { status: 400 });
       }
       // Use recursive: true in case the model is in a subdirectory from HF download

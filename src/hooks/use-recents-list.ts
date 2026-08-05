@@ -8,13 +8,13 @@
  * unified "Recent" list.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { RecentItem } from "@/components/app/recent-sources";
-import { getRecentSources, type RecentSourceInfo } from "@/lib/api";
+import type { RecentItem } from "@/app/components/recent-sources";
+import { getRecentSources, type RecentSourceInfo } from "@/app/lib/api";
 import { RECENTS_CHANGED_EVENT } from "@/lib/constants";
 import { relTimeAgo } from "@/lib/rel-time";
 import { ENGINES } from "@/lib/warehouse/engine-descriptor";
 import type { useWarehouse } from "@/hooks/use-warehouse";
-import type { RemoteParquetCreds } from "@/lib/api";
+import type { RemoteParquetCreds } from "@/app/lib/api";
 
 /** Compact row count for a recent-source subtitle: 2547927232 → "2.5B". */
 function fmtRowCount(n: number): string {

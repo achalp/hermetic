@@ -6,7 +6,7 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue } from "./csv-util";
+import { csvValue } from "@/lib/csv/csv-util";
 
 const { TCLIService_types } = thrift;
 
@@ -27,6 +27,9 @@ interface HiveSession {
 
 /** Convert a value to a CSV-safe string */
 export function createHiveConnector(config: HiveConnectionConfig): WarehouseConnector {
+  // HiveServer2 has no session-level read-only switch (authorization lives in
+  // Ranger/SQL-standard auth server-side) — assertReadOnlySql is the only
+  // write gate on this connector.
   const client = new HiveClient(TCLIService_types, TCLIService_types);
   let session: HiveSession | null = null;
   let connected = false;

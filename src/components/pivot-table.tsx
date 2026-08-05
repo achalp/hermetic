@@ -2,8 +2,9 @@
 
 import { useMemo, useCallback, useState } from "react";
 import { downloadTableAsCsv, downloadTableAsXlsx, sanitizeFilename } from "@/lib/export-utils";
-import { useThemeConfig } from "@/lib/theme-config";
-import { useDrillDispatch } from "@/lib/drill-down-context";
+import { formatWithPrecision } from "@/lib/format";
+import { useThemeConfig } from "@/components/theme/theme-config";
+import { useDrillDispatch } from "@/components/drill-down-context";
 
 export type PivotAggregator = "sum" | "count" | "mean" | "min" | "max";
 
@@ -79,27 +80,7 @@ function formatNumber(
   precision?: number | null
 ): string {
   if (!isFinite(num)) return "";
-  switch (format) {
-    case "currency": {
-      const p = precision ?? 2;
-      return `$${num.toLocaleString(undefined, { minimumFractionDigits: p, maximumFractionDigits: p })}`;
-    }
-    case "percent": {
-      const p = precision ?? 1;
-      return `${num.toFixed(p)}%`;
-    }
-    case "number": {
-      const p = precision ?? undefined;
-      return num.toLocaleString(undefined, {
-        minimumFractionDigits: p,
-        maximumFractionDigits: p,
-      });
-    }
-    default: {
-      if (Number.isInteger(num)) return num.toLocaleString();
-      return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    }
-  }
+  return formatWithPrecision(num, format, precision);
 }
 
 interface MeasureResult {

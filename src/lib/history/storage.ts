@@ -6,12 +6,24 @@ import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { summarizeSpec, extractDescription } from "@/lib/spec-summary";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
-import { RecordDirStore, RECORD_FILES } from "@/lib/record-store";
+import { RecordDirStore, RECORD_FILES, RecordCorruptError } from "@/lib/record-store";
 import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
 import { validateSpec } from "@/lib/catalog";
 import { logger } from "@/lib/logger";
 
-const store = new RecordDirStore(hermeticPaths.historyDir());
+// Constructed lazily and rebuilt on a root change — a module-scope
+// `new RecordDirStore(...)` froze the pre-boot default root before the harness
+// could call setPathRoots (the seam in lib/paths.ts).
+let store_: RecordDirStore | undefined;
+let storeRoot: string | undefined;
+function store(): RecordDirStore {
+  const root = hermeticPaths.historyDir();
+  if (!store_ || storeRoot !== root) {
+    store_ = new RecordDirStore(root);
+    storeRoot = root;
+  }
+  return store_;
+}
 
 /**
  * Cap on persisted history entries (API-9). Every run writes
@@ -132,7 +144,7 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
   if (input.csvContent && input.sourceType === "upload") {
     files[RECORD_FILES.source] = input.csvContent;
   }
-  await store.writeFiles(id, files);
+  await store().writeFiles(id, files);
 
   // Cap enforcement — best-effort: a prune failure must not fail the save
   // that triggered it (the new entry is already on disk at this point).
@@ -166,7 +178,7 @@ export async function pruneHistory(max = maxHistoryEntries()): Promise<number> {
 }
 
 export async function listHistory(): Promise<HistoryMeta[]> {
-  const metas = await store.listMetas<HistoryMeta>();
+  const metas = await store().listMetas<HistoryMeta>();
   return metas.sort((a, b) => b.timestamp - a.timestamp);
 }
 
@@ -180,19 +192,33 @@ export interface LoadedHistoryEntry {
 }
 
 export async function loadHistoryEntry(id: string): Promise<LoadedHistoryEntry> {
-  const [meta, spec, generatedCode, schema, artifacts, csvContent] = await Promise.all([
-    store.readRequiredJson<HistoryMeta>(id, RECORD_FILES.meta),
-    store.readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
-    store.readRequiredText(id, RECORD_FILES.code),
-    store.readRequiredJson<CSVSchema>(id, RECORD_FILES.schema),
-    store.readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
-    store.readOptionalText(id, RECORD_FILES.source),
-  ]);
-  return { meta, spec, generatedCode, schema, artifacts, csvContent };
+  try {
+    const [meta, spec, generatedCode, schema, artifacts, csvContent] = await Promise.all([
+      store().readRequiredJson<HistoryMeta>(id, RECORD_FILES.meta),
+      store().readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
+      store().readRequiredText(id, RECORD_FILES.code),
+      store().readRequiredJson<CSVSchema>(id, RECORD_FILES.schema),
+      store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
+      store().readOptionalText(id, RECORD_FILES.source),
+    ]);
+    return { meta, spec, generatedCode, schema, artifacts, csvContent };
+  } catch (err) {
+    // Corrupt ≠ missing: a RecordCorruptError means the entry EXISTS but a
+    // required file is unreadable/unparsable — surface which file and why,
+    // so a broken record isn't diagnosed as "entry not found".
+    if (err instanceof RecordCorruptError) {
+      logger.warn("History entry is corrupt (not missing)", {
+        id: err.recordId,
+        file: err.file,
+        reason: err.reason,
+      });
+    }
+    throw err;
+  }
 }
 
 export async function deleteHistoryEntry(id: string): Promise<void> {
-  await store.delete(id);
+  await store().delete(id);
 }
 
 /**
@@ -215,7 +241,7 @@ export async function findHistoryIdByCsvId(csvId: string): Promise<string | null
 export async function loadArtifactsByCsvId(csvId: string): Promise<CachedArtifacts | undefined> {
   const id = await findHistoryIdByCsvId(csvId);
   if (!id) return undefined;
-  return store.readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts);
+  return store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts);
 }
 
 /**
@@ -231,7 +257,7 @@ export async function updateArtifactsByCsvId(
   const id = await findHistoryIdByCsvId(csvId);
   if (!id) return false;
   try {
-    await store.writeFiles(id, { [RECORD_FILES.artifacts]: JSON.stringify(artifacts) });
+    await store().writeFiles(id, { [RECORD_FILES.artifacts]: JSON.stringify(artifacts) });
     return true;
   } catch {
     return false;

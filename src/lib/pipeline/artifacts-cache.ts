@@ -1,6 +1,6 @@
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 export type { CachedArtifacts };
-import { isIdleExpired, touch } from "@/lib/store-ttl";
+import { isIdleExpired, touch, registerSweepable } from "@/lib/store-ttl";
 import { stateNamespace } from "@/lib/state-store";
 
 // SLIDING idle TTL (time since last read, not since it was cached) — every open
@@ -55,3 +55,7 @@ export function sweepExpiredArtifacts(): number {
   }
   return swept;
 }
+
+// Sweep enrollment at the definition site (store-ttl registry) — a new
+// store cannot be forgotten by the sweeper's roll call.
+registerSweepable("artifacts", () => sweepExpiredArtifacts());

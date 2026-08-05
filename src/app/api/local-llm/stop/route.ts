@@ -1,4 +1,4 @@
-import { apiError } from "@/lib/api-error";
+import { apiError } from "@/app/lib/api-error";
 import { stopServer } from "@/lib/llm/process-manager";
 
 export async function POST(request: Request) {

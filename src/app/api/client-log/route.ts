@@ -13,6 +13,9 @@ import { parseBody } from "@/lib/api-schemas";
 const ClientLogSchema = z.object({
   level: z.enum(["debug", "info", "warn", "error"]),
   msg: z.string().min(1).max(2000),
+  /** The pipeline run this diagnostic belongs to (the stream's `__runId`) —
+   *  stamped into the log meta so it joins the run's server-side lines. */
+  runId: z.string().max(64).optional(),
   meta: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -20,8 +23,8 @@ export async function POST(request: Request) {
   try {
     const parsed = parseBody(ClientLogSchema, await request.json());
     if (!parsed.ok) return parsed.response;
-    const { level, msg, meta } = parsed.data;
-    logger[level](`[client] ${msg}`, meta);
+    const { level, msg, meta, runId } = parsed.data;
+    logger[level](`[client] ${msg}`, runId ? { runId, ...meta } : meta);
     return new Response(null, { status: 204 });
   } catch {
     // A malformed/aborted body must never produce error noise of its own.

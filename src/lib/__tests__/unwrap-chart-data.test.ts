@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { unwrapChartData } from "@/lib/chart-theme";
+import { unwrapChartData } from "@/components/theme/chart-theme";
 
 describe("unwrapChartData", () => {
   const rows = [{ a: 1 }, { a: 2 }];

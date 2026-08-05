@@ -9,11 +9,34 @@
  * computed dashboard lives in history; raw data stays home.
  */
 import { z } from "zod";
+// Pure leaf helpers (like the type-only contract imports other tools make) —
+// the orchestration seams still come through McpDeps.
+import { parsePatchLines, readRunError } from "@/lib/pipeline/patch-lines";
+import type { PatchLine } from "@/lib/contracts/stream-state";
+import type { AssembledSpec } from "@/lib/pipeline/assemble-spec";
+import type { ResolvedAnalysisSource } from "@/lib/pipeline/validate-request";
+import { PURPOSE_MODES } from "@/lib/purpose-prompts";
+import { extractProse } from "@/lib/spec-summary";
 import type { McpDeps } from "../deps";
-import { getSource } from "../sources";
+import { getSource, reattachHint } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
+import { CHART_ROW_CAP } from "../caps";
 import { McpToolError, unknownSource } from "../errors";
+
+/** The McpDeps slice analyze consumes (see LivenessDeps for the pattern). */
+export type AnalyzeDeps = Pick<
+  McpDeps,
+  | "runPatchStream"
+  | "runAskQuery"
+  | "getWarehouseState"
+  | "getStoredCSV"
+  | "getActiveSandboxRuntime"
+  | "assembleSpecFromPatches"
+  | "persistHistoryEntry"
+  | "getCachedArtifacts"
+  | "models"
+>;
 
 /**
  * One analyze at a time per source (review S8). The artifacts cache is keyed
@@ -37,27 +60,26 @@ function serializedBySource<T>(sourceId: string, fn: () => Promise<T>): Promise<
   return next;
 }
 
+/**
+ * Purpose ids derived from the OWNING module (lib/purpose-prompts) so a new
+ * output style reaches MCP without hand-sync — this enum was a hardcoded
+ * copy. PURPOSE_MODES is a `Record<string, PurposeMode>` (its keys aren't
+ * literal types), so the non-empty-tuple cast is what z.enum needs; it is
+ * justified because the modes table is statically non-empty and legacy ids
+ * are aliases resolved server-side (resolvePurpose), not canonical keys.
+ */
+const PURPOSE_IDS = Object.keys(PURPOSE_MODES) as [string, ...string[]];
+
 export const analyzeInput = {
   source_id: z.string().describe("A source_id from connect_source (csv or warehouse)."),
   question: z.string().describe("The analysis question, in natural language."),
-  purpose: z
-    .enum(["dashboard", "brief", "report", "deep-dive"])
-    .optional()
-    .describe("Output style/breadth. Default: dashboard."),
+  purpose: z.enum(PURPOSE_IDS).optional().describe("Output style/breadth. Default: dashboard."),
 };
 
-interface PatchLine {
-  op?: string;
-  path?: string;
-  value?: unknown;
-}
-
-/**
- * Cap chart_data row lists so the computed values come back usable without
- * flooding host context. Row-level `datasets` are never returned (boundary
- * invariant) — these are the aggregates the dashboard itself charts.
- */
-const CHART_ROW_CAP = 100;
+// Chart rows come back capped (shared CHART_ROW_CAP, see ../caps) so the
+// computed values are usable without flooding host context. Row-level
+// `datasets` are never returned (boundary invariant) — these are the
+// aggregates the dashboard itself charts.
 
 export function capArtifacts(artifacts: {
   results?: Record<string, unknown>;
@@ -85,11 +107,17 @@ export function capArtifacts(artifacts: {
 /**
  * Pipeline errors are phrased for the WEB app ("Please re-upload", "re-select
  * the file") — an MCP host has no upload button or file picker (review S14).
- * Rewrite the affordance, keep the cause.
+ * Rewrite the affordance, keep the cause. Patterns track the messages
+ * run-ask-query actually throws ("Please re-upload." AND "Please re-upload
+ * your data." — the earlier exact-suffix regex left the tail of the second
+ * one dangling after the substitution).
  */
 export function mcpifyError(message: string): string {
   return message
-    .replace(/Please re-upload\.?/gi, "Call connect_source again to re-attach the source.")
+    .replace(
+      /Please re-upload( your data)?\.?/gi,
+      "Call connect_source again to re-attach the source."
+    )
     .replace(
       /Please re-select the file\.?/gi,
       "Call connect_source again with the same path to re-attach it."
@@ -111,43 +139,19 @@ export function mcpifyError(message: string): string {
  * headline numbers come from StatCards as "label: value" — skipping values
  * that are state bindings rather than literals (those live in `results`).
  */
-// Real catalog components only (lib/catalog.ts): TextBlock carries prose,
-// Annotation carries an insight with a title. Names that do not exist in the
-// catalog silently extract nothing.
-const PROSE_TYPES = new Set(["TextBlock", "Annotation"]);
-
 export function extractSummary(
-  spec: { elements: Record<string, unknown> },
+  spec: Pick<AssembledSpec, "elements">,
   cap = 1500
 ): { summary: string; headline_stats: Array<{ label: string; value: number | string }> } {
-  const prose: string[] = [];
-  const stats: Array<{ label: string; value: number | string }> = [];
-
-  for (const el of Object.values(spec.elements)) {
-    const node = el as { type?: string; props?: Record<string, unknown> };
-    const props = node.props;
-    if (!props) continue;
-
-    if (node.type === "StatCard") {
-      const label = typeof props.label === "string" ? props.label : null;
-      const value = props.value;
-      if (label && (typeof value === "number" || typeof value === "string")) {
-        stats.push({ label, value });
-      }
-      continue;
-    }
-    if (node.type && PROSE_TYPES.has(node.type)) {
-      const content = props.content ?? props.text;
-      if (typeof content === "string" && content.trim()) {
-        // Annotation's title names the insight — keep it with its body.
-        const title =
-          node.type === "Annotation" && typeof props.title === "string" ? props.title : null;
-        prose.push(title ? `${title}: ${content.trim()}` : content.trim());
-      }
-    }
-  }
-
-  const joined = prose.join("\n\n");
+  // Shared prose walker (lib/spec-summary) — same TextBlock/Annotation
+  // defaults and literal-only StatCards this function used to hand-roll.
+  // Title-only Annotations are dropped (empty content) to preserve this
+  // response's established shape.
+  const { prose, stats } = extractProse(spec, { statCards: true });
+  const joined = prose
+    .filter((p) => p.content !== "")
+    .map((p) => p.text)
+    .join("\n\n");
   return {
     summary: joined.length > cap ? joined.slice(0, cap) + "…" : joined,
     headline_stats: stats,
@@ -194,7 +198,7 @@ export function progressFromPatch(patch: PatchLine): AnalyzeProgress | null {
 }
 
 export async function analyze(
-  deps: McpDeps,
+  deps: AnalyzeDeps,
   args: { source_id: string; question: string; purpose?: string },
   onProgress?: ProgressReporter
 ): Promise<Record<string, unknown>> {
@@ -204,12 +208,30 @@ export async function analyze(
 }
 
 async function runAnalyze(
-  deps: McpDeps,
+  deps: AnalyzeDeps,
   args: { source_id: string; question: string; purpose?: string },
   onProgress?: ProgressReporter
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id)!;
   assertSourceLive(deps, source);
+
+  // Build the discriminated source runAskQuery takes (validate-request's
+  // union — the same narrowing the HTTP routes get from resolveQuerySources).
+  let analysisSource: ResolvedAnalysisSource;
+  if (source.kind === "warehouse") {
+    const warehouseState = deps.getWarehouseState(source.id);
+    if (!warehouseState) {
+      // assertSourceLive just proved liveness; a vanish between the two
+      // reads is the same expiry, reported the same actionable way.
+      throw new McpToolError(
+        "source_expired",
+        `The warehouse connection "${source.label}" closed. ${reattachHint(source.origin)}`
+      );
+    }
+    analysisSource = { kind: "warehouse", warehouseId: source.id, warehouseState };
+  } else {
+    analysisSource = { kind: "csv", csvId: source.csvId };
+  }
 
   const lines: string[] = [];
   // Mutable by contract: warehouse runs materialize under a NEW csvId
@@ -220,22 +242,18 @@ async function runAnalyze(
   };
 
   onProgress?.({ stage: "starting" });
-  await deps.runPatchStream(
+  // runPatchStream returns the runId — the join key for this run's server
+  // logs, diagnostics, and cost rows.
+  const runId = await deps.runPatchStream(
     "mcp:analyze",
     {
       write: (data: string) => {
         lines.push(data);
         if (!onProgress) return;
         // Stream-side reporting: parse each line as it arrives, not at the end.
-        for (const raw of data.split("\n")) {
-          const t = raw.trim();
-          if (!t || t.startsWith(":")) continue;
-          try {
-            const update = progressFromPatch(JSON.parse(t) as PatchLine);
-            if (update) onProgress(update);
-          } catch {
-            // non-JSON progress noise
-          }
+        for (const patch of parsePatchLines([data])) {
+          const update = progressFromPatch(patch);
+          if (update) onProgress(update);
         }
       },
     },
@@ -243,8 +261,7 @@ async function runAnalyze(
       await deps.runAskQuery({
         context: { purpose: args.purpose ?? "dashboard" },
         question: args.question,
-        warehouseId: source.kind === "warehouse" ? source.id : undefined,
-        warehouseState: source.kind === "warehouse" ? deps.getWarehouseState(source.id) : undefined,
+        source: analysisSource,
         codeGenModel: deps.models.codeGen,
         uiComposeModel: deps.models.uiCompose,
         sandboxRuntime: deps.getActiveSandboxRuntime(),
@@ -254,25 +271,16 @@ async function runAnalyze(
     }
   );
 
-  const patches: PatchLine[] = [];
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t || t.startsWith(":")) continue;
-    try {
-      patches.push(JSON.parse(t));
-    } catch {
-      // progress noise
-    }
+  const patches = parsePatchLines(lines);
+
+  // Both pipelines emit the real message on `/state/__error` (typed channel,
+  // contracts/stream-state); readRunError also covers a bare root="error".
+  const runError = readRunError(patches);
+  if (runError) {
+    throw new McpToolError("execution_failed", `Analysis failed: ${mcpifyError(runError)}`);
   }
 
-  const errorPatch = patches.find((p) => p.path === "/state/__error");
-  const rootError = patches.some((p) => p.path === "/root" && p.value === "error");
-  if (errorPatch || rootError) {
-    const raw = typeof errorPatch?.value === "string" ? errorPatch.value : "pipeline error";
-    throw new McpToolError("execution_failed", `Analysis failed: ${mcpifyError(raw)}`);
-  }
-
-  const spec = deps.assembleSpecFromPatches(patches as never[]);
+  const spec = deps.assembleSpecFromPatches(patches);
   if (!spec) throw new McpToolError("execution_failed", "Analysis produced no renderable result.");
 
   const cost = patches.find((p) => p.path === "/state/__cost")?.value ?? null;
@@ -281,11 +289,7 @@ async function runAnalyze(
   let historyId: string | null = null;
   let persistError: string | null = null;
   if (runState.csvId) {
-    const persisted = await deps.persistHistoryEntry(
-      runState.csvId,
-      spec as unknown as Record<string, unknown>,
-      args.question
-    );
+    const persisted = await deps.persistHistoryEntry(runState.csvId, spec, args.question);
     if (persisted.saved) {
       historyId = persisted.meta.id;
       dashboardUrl = viewUrl(historyId);
@@ -312,10 +316,14 @@ async function runAnalyze(
   return {
     source_id: source.id,
     question: args.question,
-    ...extractSummary(spec as never),
+    // The run's correlation id — joins this response to the server-side
+    // logs/diagnostics/cost rows, and withAudit stamps it into the audit
+    // line. Conditional: a test fake for runPatchStream may return nothing.
+    ...(typeof runId === "string" ? { run_id: runId } : {}),
+    ...extractSummary(spec),
     dashboard_url: dashboardUrl,
     history_id: historyId,
-    element_count: Object.keys((spec as { elements: Record<string, unknown> }).elements).length,
+    element_count: Object.keys(spec.elements).length,
     cost,
     ...(persistError ? { persist_error: persistError } : {}),
     ...(cached ? capArtifacts(cached) : {}),

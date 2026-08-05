@@ -22,8 +22,8 @@ import { createRoot } from "react-dom/client";
 import { SpecView } from "@/components/spec-view";
 import type { Spec } from "@/lib/contracts/spec";
 import { STORAGE_KEYS } from "@/lib/constants";
-import { THEME_IDS } from "@/lib/theme-config";
-import { ThemeProvider, useTheme, THEMES, type ColorMode } from "@/lib/theme-context";
+import { THEME_IDS } from "@/components/theme/theme-config";
+import { ThemeProvider, useTheme, THEMES, type ColorMode } from "@/components/theme/theme-context";
 // Geist via @fontsource-variable: esbuild bundles these into the entry css
 // with the woff2 files as hashed assets. app.css maps --font-geist-sans/mono
 // to these family names (scripts/build-mcp-viewer.mjs).

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { v4 as uuidv4 } from "uuid";
-import { apiError } from "@/lib/api-error";
-import { stat, readFile } from "node:fs/promises";
+import { apiError } from "@/app/lib/api-error";
+import { stat } from "node:fs/promises";
 import { resolve, basename, extname } from "node:path";
 import {
   validateLocalOrigin,
@@ -10,18 +9,29 @@ import {
   PATH_NOT_ALLOWED_ERROR,
 } from "@/lib/local-files/security";
 import { parseBody, LocalFileSelectSchema } from "@/lib/api-schemas";
-import { getFileInfo } from "@/lib/local-files/browser";
-import { extractParquetSchema } from "@/lib/parquet/schema-extractor";
-import { parseCSV, toCSVText } from "@/lib/csv/parser";
-import { extractSchema } from "@/lib/csv/schema";
-import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
-import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
-import { storeExcel } from "@/lib/excel/storage";
-import { detectRelationships } from "@/lib/excel/relationships";
-import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
-import { prepareWarmSandbox } from "@/lib/sandbox";
-import { recordRecentSource } from "@/lib/sources/recent-sources";
+import { ingestFile, IngestError } from "@/lib/sources/ingest";
+
+/** Map shared-ingest error codes back onto this route's legacy wire messages. */
+function localErrorMessage(err: IngestError, ext: string): string {
+  switch (err.code) {
+    case "empty_columns":
+      return ext === ".xlsx" ? "Sheet has no columns" : "CSV file has no columns";
+    case "empty_rows":
+      return ext === ".xlsx" ? "Sheet has no data rows" : "CSV file has no data rows";
+    case "invalid_json":
+    case "not_geojson":
+      return "JSON file is not valid GeoJSON";
+    case "geojson_no_properties":
+      return "GeoJSON file has no properties";
+    case "no_sheets":
+      return "Excel file has no sheets";
+    case "unsupported_type":
+      return `Unsupported file type: ${ext}`;
+    default:
+      // e.g. too_large — the shared message is already actionable.
+      return err.message;
+  }
+}
 
 export async function POST(request: Request) {
   if (!validateLocalOrigin(request)) {
@@ -42,161 +52,49 @@ export async function POST(request: Request) {
     const fileInfo = await stat(filePath);
     const filename = basename(filePath);
     const ext = extname(filePath).toLowerCase();
-    const runtime = getActiveSandboxRuntime();
-    const csvId = uuidv4();
 
-    // Remember this local file/folder so it re-opens without re-browsing.
-    const recordLocal = (rows?: number, hive?: boolean) =>
-      recordRecentSource({
-        kind: type === "folder" ? "local-folder" : "local-file",
-        name: filename,
-        subtitle: filePath,
-        path: filePath,
-        rows,
-        isHivePartitioned: hive,
-      }).catch(() => {});
-
-    // ── Parquet folder ─────────────────────────────────────────
     if (type === "folder") {
       if (!fileInfo.isDirectory()) {
         return NextResponse.json({ error: "Expected a directory" }, { status: 400 });
       }
-
-      // Detect Hive partitioning (subdirs like year=2024/month=1/)
-      const folderInfo = await getFileInfo(filePath);
-      const isHive = folderInfo.isHivePartitioned ?? false;
-
-      const schema = await extractParquetSchema(filePath, csvId, filename, true, runtime, isHive);
-
-      storeLocalFileRef(csvId, schema, filePath, fileInfo.mtimeMs, true, isHive);
-
-      recordLocal(schema.row_count, isHive);
-      return NextResponse.json({ csv_id: csvId, schema });
+    } else {
+      if (!fileInfo.isFile()) {
+        return NextResponse.json({ error: "Expected a file" }, { status: 400 });
+      }
+      if (!isAllowedExtension(filename)) {
+        return NextResponse.json({ error: `File type not supported: ${ext}` }, { status: 400 });
+      }
     }
 
-    // ── Single file ────────────────────────────────────────────
-    if (!fileInfo.isFile()) {
-      return NextResponse.json({ error: "Expected a file" }, { status: 400 });
+    // Past the security checks, everything is the shared pipeline
+    // (lib/sources/ingest): Parquet file/folder refs (Hive auto-detected),
+    // CSV with its bind-mount ref attached at store time (previously patched
+    // onto the stored entry post-hoc), GeoJSON stamping, and the Excel
+    // single-sheet/picker split — plus warm-sandbox prep and Recents.
+    let result;
+    try {
+      result = await ingestFile(
+        { path: filePath },
+        { warmSandbox: true, recordRecent: true, storeExcelForPicker: true, attachLocalRef: true }
+      );
+    } catch (err) {
+      if (err instanceof IngestError) {
+        return NextResponse.json({ error: localErrorMessage(err, ext) }, { status: 400 });
+      }
+      throw err;
     }
 
-    if (!isAllowedExtension(filename)) {
-      return NextResponse.json({ error: `File type not supported: ${ext}` }, { status: 400 });
-    }
-
-    // ── Parquet file ─────────────────────────────────────────
-    if (ext === ".parquet") {
-      const schema = await extractParquetSchema(filePath, csvId, filename, false, runtime);
-
-      storeLocalFileRef(csvId, schema, filePath, fileInfo.mtimeMs, false);
-
-      recordLocal(schema.row_count);
-      return NextResponse.json({ csv_id: csvId, schema });
-    }
-
-    // ── CSV file ─────────────────────────────────────────────
-    if (ext === ".csv") {
-      const text = await readFile(filePath, "utf-8");
-      const parsed = parseCSV(text);
-
-      if (parsed.headers.length === 0) {
-        return NextResponse.json({ error: "CSV file has no columns" }, { status: 400 });
-      }
-      if (parsed.rowCount === 0) {
-        return NextResponse.json({ error: "CSV file has no data rows" }, { status: 400 });
-      }
-
-      const schema = extractSchema(parsed, csvId, filename);
-      const csvText = toCSVText(parsed);
-      await storeCSV(csvId, csvText, schema);
-
-      // Also store local path for bind-mount execution
-      const stored = (await import("@/lib/csv/storage")).getStoredCSV(csvId);
-      if (stored) {
-        stored.localPath = filePath;
-        stored.localMtime = fileInfo.mtimeMs;
-      }
-
-      prepareWarmSandbox(csvId, csvText, runtime);
-      recordLocal(schema.row_count);
-      return NextResponse.json({ csv_id: csvId, schema });
-    }
-
-    // ── GeoJSON / JSON file ──────────────────────────────────
-    if (ext === ".geojson" || ext === ".json") {
-      const text = await readFile(filePath, "utf-8");
-
-      let isGeoJSON = ext === ".geojson";
-      if (ext === ".json") {
-        try {
-          isGeoJSON = isGeoJSONObject(JSON.parse(text));
-        } catch {
-          isGeoJSON = false;
-        }
-      }
-
-      if (!isGeoJSON) {
-        return NextResponse.json({ error: "JSON file is not valid GeoJSON" }, { status: 400 });
-      }
-
-      const parsed = parseGeoJSON(text);
-      if (parsed.headers.length === 0) {
-        return NextResponse.json({ error: "GeoJSON file has no properties" }, { status: 400 });
-      }
-
-      const schema = extractSchema(parsed, csvId, filename);
-      schema.has_geojson = true;
-      schema.geojson_geometry_type = parsed.geometryType;
-
-      const csvText = toCSVText(parsed);
-      await storeCSV(csvId, csvText, schema);
-      const { storeGeoJSON } = await import("@/lib/csv/storage");
-      await storeGeoJSON(csvId, text);
-
-      prepareWarmSandbox(csvId, csvText, runtime, text);
-      recordLocal(schema.row_count);
-      return NextResponse.json({ csv_id: csvId, schema });
-    }
-
-    // ── Excel file ───────────────────────────────────────────
-    if (ext === ".xlsx") {
-      const buffer = await readFile(filePath);
-      const { sheets, workbook } = await parseExcelMeta(buffer);
-
-      if (sheets.length === 0) {
-        return NextResponse.json({ error: "Excel file has no sheets" }, { status: 400 });
-      }
-
-      // Single sheet: auto-convert to CSV
-      if (sheets.length === 1) {
-        const csvText = sheetToCSV(workbook, sheets[0].name);
-        const parsed = parseCSV(csvText);
-
-        if (parsed.headers.length === 0) {
-          return NextResponse.json({ error: "Sheet has no columns" }, { status: 400 });
-        }
-
-        const schema = extractSchema(parsed, csvId, filename);
-        const csvText2 = toCSVText(parsed);
-        await storeCSV(csvId, csvText2, schema);
-        prepareWarmSandbox(csvId, csvText2, runtime);
-        recordLocal(schema.row_count);
-        return NextResponse.json({ csv_id: csvId, schema });
-      }
-
-      // Multiple sheets: return metadata for sheet picker
-      const excelId = uuidv4();
-      await storeExcel(excelId, buffer, filename);
-      const relationships = detectRelationships(sheets);
-
+    // Multiple sheets: return metadata for the sheet picker.
+    if (result.kind === "sheet_picker") {
       return NextResponse.json({
-        excel_id: excelId,
-        sheets,
-        filename,
-        relationships,
+        excel_id: result.excelId,
+        sheets: result.sheets,
+        filename: result.filename,
+        relationships: result.relationships,
       });
     }
 
-    return NextResponse.json({ error: `Unsupported file type: ${ext}` }, { status: 400 });
+    return NextResponse.json({ csv_id: result.csvId, schema: result.schema });
   } catch (err) {
     return apiError("/api/local-files/schema", err, "Failed to extract schema");
   }

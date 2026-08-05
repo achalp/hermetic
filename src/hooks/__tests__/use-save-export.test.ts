@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useSaveExport } from "@/hooks/use-save-export";
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/app/lib/api", () => ({
   saveViz: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number;
@@ -15,7 +15,7 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-import { saveViz, ApiError } from "@/lib/api";
+import { saveViz, ApiError } from "@/app/lib/api";
 const mockSaveViz = saveViz as ReturnType<typeof vi.fn>;
 
 function makeRefs() {

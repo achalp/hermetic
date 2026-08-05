@@ -2,6 +2,7 @@ import { executeSandbox as e2bExecutor } from "./executor";
 import { executeSandbox as dockerExecutor } from "./docker-executor";
 import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
 import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
+import { RUNTIME_CAPABILITIES, unsupportedCapabilityError } from "./capabilities";
 import { getWarmManager } from "./warm-sandbox";
 import type { ExecutionResult, AdditionalFile, SandboxRunHooks } from "@/lib/contracts/execution";
 export type { AdditionalFile };
@@ -33,6 +34,13 @@ export interface SandboxExecOptions {
    * supplies these (run-control's ambientSandboxHooks() inside pipeline/).
    */
   hooks?: SandboxRunHooks;
+  /**
+   * Owning run id, stamped on ephemeral Docker containers as a label
+   * (docker-executor's hermetic.runId) so `docker ps`/inspect can attribute a
+   * container to its run. Same injection rule as `hooks`: the sandbox layer
+   * never imports run-context — the pipeline caller passes getRunId().
+   */
+  runId?: string;
   /**
    * Network policy (MCP M4). "auto" (default): the Docker path grants an
    * ephemeral networked container only when codeDoesRemoteIo() says the code
@@ -77,14 +85,18 @@ export function executeSandbox(
   const network = opts.network ?? "auto";
   const rt = opts.runtime ?? getActiveSandboxRuntime();
 
-  if (network === "deny" && rt !== "docker") {
-    return Promise.resolve({
-      success: false,
-      error:
-        "network='deny' is only enforceable with the Docker sandbox runtime (--network none). " +
-        "Refusing to run rather than silently degrade the isolation.",
-      execution_ms: 0,
-    });
+  // ONE capability gate replaces the per-feature `rt !== "docker"` rejections
+  // this dispatcher used to scatter (see capabilities.ts): what the request
+  // needs vs. what the runtime declares. Rejecting (not degrading) is the
+  // point — a silently weaker sandbox is an isolation lie, and a silently
+  // shorter timeout burned the retry budget with spurious "timed out"s.
+  const capabilityError = unsupportedCapabilityError(rt, {
+    networkDeny: network === "deny",
+    mount: !!(localMountPath || inputParquetPath),
+    remoteIo: codeDoesRemoteIo(code),
+  });
+  if (capabilityError) {
+    return Promise.resolve({ success: false, error: capabilityError, execution_ms: 0 });
   }
   // Every run carries the hermetic runtime package (tested helper sources the
   // prelude imports, overriding its inline copies). Injected HERE — the single
@@ -94,14 +106,8 @@ export function executeSandbox(
   // Both a bind-mount (browsed local files) and a copied-in Parquet (materialized
   // data) need the ephemeral Docker path — the warm container can't take a volume,
   // and a per-run copied file shouldn't leak across the shared warm container.
+  // (The gate above guarantees rt === "docker" here.)
   if (localMountPath || inputParquetPath) {
-    if (rt !== "docker") {
-      return Promise.resolve({
-        success: false,
-        error: "Parquet/local-file analysis is only supported with the Docker sandbox runtime.",
-        execution_ms: 0,
-      });
-    }
     return dockerExecutor(csvContent, code, {
       geojsonContent,
       additionalFiles,
@@ -109,21 +115,7 @@ export function executeSandbox(
       inputParquetPath,
       hooks,
       network,
-    });
-  }
-
-  // Remote cloud reads (s3://, httpfs) need the extended large-data timeout,
-  // which only the Docker path budgets — on microsandbox/E2B the same code
-  // just died at the 30s default and burned the retry budget with a spurious
-  // "timed out" that never named the real cause. Reject with the cause.
-  if (rt !== "docker" && codeDoesRemoteIo(code)) {
-    return Promise.resolve({
-      success: false,
-      error:
-        "Remote cloud data reads (s3://, https:// Parquet over httpfs) are only supported with " +
-        "the Docker sandbox runtime — other runtimes cap execution at the default timeout, which " +
-        "remote scans exceed. Switch to Docker in Settings → Sandbox Runtime.",
-      execution_ms: 0,
+      runId: opts.runId,
     });
   }
 
@@ -149,11 +141,13 @@ export function executeSandbox(
       additionalFiles,
       hooks,
       allowedEgressHosts,
+      runId: opts.runId,
     });
   }
 
-  // Route through warm manager when available (not for E2B)
-  if (rt !== "e2b" && csvId) {
+  // Route through the warm manager when the runtime supports it (E2B stays
+  // ephemeral — see RUNTIME_CAPABILITIES).
+  if (RUNTIME_CAPABILITIES[rt].supportsWarm && csvId) {
     const manager = getWarmManager(rt);
     if (manager) {
       return manager.execute(csvId, csvContent, code, { geojsonContent, additionalFiles, hooks });
@@ -165,7 +159,7 @@ export function executeSandbox(
     geojsonContent,
     additionalFiles,
     hooks,
-    ...(rt === "docker" ? { network } : {}),
+    ...(rt === "docker" ? { network, runId: opts.runId } : {}),
   });
 }
 

@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { registerSweepable } from "@/lib/store-ttl";
 import { stateNamespace } from "@/lib/state-store";
 const CODE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -39,3 +40,7 @@ export function sweepExpiredCodeCache(): number {
   }
   return swept;
 }
+
+// Sweep enrollment at the definition site (store-ttl registry) — a new
+// store cannot be forgotten by the sweeper's roll call.
+registerSweepable("code", () => sweepExpiredCodeCache());

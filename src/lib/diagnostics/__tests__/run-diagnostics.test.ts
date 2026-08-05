@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { buildRunDiagnostics, type DiagEvent } from "@/lib/diagnostics/run-diagnostics";
+import { mkdtemp, mkdir, readdir, writeFile, rm } from "fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  buildRunDiagnostics,
+  pruneOldDiagnosticsFiles,
+  type DiagEvent,
+} from "@/lib/diagnostics/run-diagnostics";
+import { setPathRoots, hermeticPaths } from "@/lib/paths";
 
 const META = { timestamp: "2026-06-23T06:31:09.000Z", mode: "investigate", purpose: "dashboard" };
 
@@ -112,5 +120,45 @@ describe("buildRunDiagnostics", () => {
     const rec = buildRunDiagnostics([{ type: "step_done", step: "Q1", status: "ok" }], META);
     expect(rec.stages).toBeUndefined();
     expect(rec.failures).toBeUndefined();
+  });
+});
+
+describe("pruneOldDiagnosticsFiles", () => {
+  it("drops day files past retention, keeps recent ones and non-day files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hermetic-diag-prune-"));
+    setPathRoots({ dataRoot: join(root, "data") });
+    try {
+      const dir = hermeticPaths.diagnosticsDir();
+      await mkdir(dir, { recursive: true });
+      const day = 24 * 60 * 60 * 1000;
+      const dateOf = (msAgo: number) => new Date(Date.now() - msAgo).toISOString().slice(0, 10);
+      const oldFile = `${dateOf(120 * day)}.jsonl`; // beyond the 90-day retention
+      const freshFile = `${dateOf(0)}.jsonl`;
+      await writeFile(join(dir, oldFile), "{}\n", "utf-8");
+      await writeFile(join(dir, freshFile), "{}\n", "utf-8");
+      // Not date-named — retention must never touch it.
+      await writeFile(join(dir, "notes.jsonl"), "keep\n", "utf-8");
+
+      await pruneOldDiagnosticsFiles();
+
+      const left = await readdir(dir);
+      expect(left).not.toContain(oldFile);
+      expect(left).toContain(freshFile);
+      expect(left).toContain("notes.jsonl");
+    } finally {
+      setPathRoots({});
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("is a silent no-op when the diagnostics dir does not exist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hermetic-diag-none-"));
+    setPathRoots({ dataRoot: join(root, "data") });
+    try {
+      await expect(pruneOldDiagnosticsFiles()).resolves.toBeUndefined();
+    } finally {
+      setPathRoots({});
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

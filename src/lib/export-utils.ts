@@ -3,7 +3,7 @@ import Papa from "papaparse";
 
 const PIXEL_RATIO = 2;
 
-function getBackgroundColor(): string {
+export function getBackgroundColor(): string {
   if (typeof window === "undefined") return "#ffffff";
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "#111827" : "#ffffff";
 }
