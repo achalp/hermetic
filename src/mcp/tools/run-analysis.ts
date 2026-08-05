@@ -17,6 +17,7 @@ import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
+import { McpToolError, unknownSource } from "../errors";
 
 export const runAnalysisInput = {
   source_id: z.string().describe("A CSV source_id from connect_source."),
@@ -77,21 +78,24 @@ export async function runAnalysis(
   args: { source_id: string; python: string }
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
-  if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
+  if (!source) throw unknownSource(args.source_id);
   if (source.kind !== "csv") {
-    throw new Error(
+    throw new McpToolError(
+      "unsupported_source",
       "run_analysis targets CSV sources. For warehouse sources use run_sql (pushdown) or analyze."
     );
   }
   if (source.remote) {
-    throw new Error(
+    throw new McpToolError(
+      "unsupported_source",
       "run_analysis runs with networking disabled, and this source is a cloud URL that must " +
         "be read over the network. Use analyze — its pipeline reads remote sources under a " +
         "scan budget."
     );
   }
   if (source.pathBased) {
-    throw new Error(
+    throw new McpToolError(
+      "unsupported_source",
       "This source is a bind-mounted Parquet path with no CSV text in the store. Use " +
         "analyze — its pipeline mounts the path into the sandbox."
     );
@@ -100,7 +104,10 @@ export async function runAnalysis(
 
   const csvText = await deps.getCSVContent(source.csvId);
   if (!csvText) {
-    throw new Error("Source data expired from the store — call connect_source again.");
+    throw new McpToolError(
+      "source_expired",
+      "Source data expired from the store — call connect_source again."
+    );
   }
 
   // GeoJSON sources advertise geometry in get_schema; without this the one
@@ -119,7 +126,8 @@ export async function runAnalysis(
   if (!result.success) {
     // Truncate: sandbox stderr is raw and can quote data values (review S6).
     const detail = result.error.slice(0, MAX_ERROR_CHARS);
-    throw new Error(
+    throw new McpToolError(
+      "execution_failed",
       `Execution failed${result.errorKind ? ` (${result.errorKind})` : ""}: ${detail}` +
         (result.error.length > MAX_ERROR_CHARS ? "… (truncated)" : "")
     );

@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
+import { McpToolError, unknownSource } from "../errors";
 
 export const verifyNarrativeInput = {
   prose: z.string().describe("The narrative text to verify."),
@@ -52,9 +53,10 @@ export async function verifyNarrative(
   let anchor: "server" | "caller-supplied" = "caller-supplied";
   if (args.source_id) {
     const source = getSource(args.source_id);
-    if (!source) throw new Error(`Unknown source_id '${args.source_id}'.`);
+    if (!source) throw unknownSource(args.source_id);
     if (source.kind !== "csv") {
-      throw new Error(
+      throw new McpToolError(
+        "unsupported_source",
         "Server-side verification needs a source whose analysis hermetic computed " +
           "(non-warehouse). Pass results/chart_data explicitly for warehouse sources."
       );
@@ -62,7 +64,8 @@ export async function verifyNarrative(
     assertSourceLive(deps, source);
     const cached = deps.getCachedArtifacts(source.csvId);
     if (!cached) {
-      throw new Error(
+      throw new McpToolError(
+        "invalid_input",
         "No computed analysis is cached for this source — run analyze first, or pass " +
           "results/chart_data explicitly."
       );
@@ -72,7 +75,8 @@ export async function verifyNarrative(
     anchor = "server";
   }
   if (!results && !chartData) {
-    throw new Error(
+    throw new McpToolError(
+      "invalid_input",
       "Provide `source_id` (preferred — verifies against hermetic's own computed values) " +
         "or the computed outputs (`results` and/or `chart_data`) the narrative is based on."
     );

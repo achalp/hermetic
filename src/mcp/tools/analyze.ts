@@ -13,6 +13,7 @@ import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
+import { McpToolError, unknownSource } from "../errors";
 
 /**
  * One analyze at a time per source (review S8). The artifacts cache is keyed
@@ -198,7 +199,7 @@ export async function analyze(
   onProgress?: ProgressReporter
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
-  if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
+  if (!source) throw unknownSource(args.source_id);
   return serializedBySource(source.id, () => runAnalyze(deps, args, onProgress));
 }
 
@@ -268,11 +269,11 @@ async function runAnalyze(
   const rootError = patches.some((p) => p.path === "/root" && p.value === "error");
   if (errorPatch || rootError) {
     const raw = typeof errorPatch?.value === "string" ? errorPatch.value : "pipeline error";
-    throw new Error(`Analysis failed: ${mcpifyError(raw)}`);
+    throw new McpToolError("execution_failed", `Analysis failed: ${mcpifyError(raw)}`);
   }
 
   const spec = deps.assembleSpecFromPatches(patches as never[]);
-  if (!spec) throw new Error("Analysis produced no renderable result.");
+  if (!spec) throw new McpToolError("execution_failed", "Analysis produced no renderable result.");
 
   const cost = patches.find((p) => p.path === "/state/__cost")?.value ?? null;
 

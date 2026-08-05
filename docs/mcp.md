@@ -98,64 +98,83 @@ Public buckets (e.g. Overture) need nothing. The same policy is why new
 warehouse connections can't be created via MCP — save them once in the web
 app, then use `connection_id`.
 
-## Security model
+## Architecture: the host is a harness
 
-- **Data boundary**: responses carry schema, statistics, and computed
-  aggregates — never row-level `datasets`, never credentials. The ONE
-  deliberate exception is `run_sql`, whose purpose is returning query results:
-  it is row-capped (default 200, max 1000), so aggregate in SQL rather than
-  SELECTing raw rows. `analyze`/`run_analysis` cap chart series at 100 rows
-  per key and bound `results`, and sandbox stderr is truncated before it
-  reaches the host (it can quote data values).
-- **Audit redaction**: presigned-URL query strings (`X-Amz-Signature`,
-  `X-Amz-Credential`) are stripped before anything is written to
-  `data/mcp-audit.jsonl`.
-- **Execution — deny by authorship, not by source.** Three regimes:
-  hermetic's fixed template scripts (schema extraction over a validated URL)
-  run with network, but nothing model-authored executes; hermetic-generated
-  pipeline code (`analyze`) runs under "auto" — `--network none` for local
-  data, an ephemeral networked container only when the code manifestly reads
-  remote data; host-authored code (`run_analysis`) runs under absolute
-  "deny", and cloud/mounted sources are REFUSED for it rather than carved
-  out — Docker networking is all-or-nothing per container, and a
-  source-based exception would grant full egress to exactly the code
-  trusted least. Non-Docker runtimes are rejected rather than silently
-  degraded.
-- **Bucket-scoped egress (the former "known residual" — closed).** A
-  networked remote-source run no longer gets open internet: the analysis
-  container joins an INTERNAL Docker network with no outbound route, and its
-  only door is a hermetic-owned allowlist proxy (gateway container) that
-  forwards exclusively to the hosts derived from the source URL + creds
-  (`lib/sandbox/egress.ts`). HTTPS passes through as CONNECT tunnels, so
-  certificates still validate against the real host; DuckDB picks the proxy
-  up via the prelude's connect patch, Python via standard env vars — and
-  anything that misses the proxy fails closed against the routeless network.
-  Proven by `scripts/egress-proof.ts` (runs in CI on every push): allowed
-  origin readable, non-allowlisted origin 403'd, proxy bypass impossible,
-  plus a permanent **exfiltration canary** — an origin that must never
-  receive a request, with a positive control proving it is genuinely
-  reachable from an unrestricted container first, so silence means blocked
-  rather than unreachable. The canary is checked under both policies:
-  host-authored code (`network: "deny"`) and allowlisted networked code
-  reading its permitted origin (the prompt-injection path). Mutation-tested:
-  disabling the allowlist, and separately widening it to trust private-range
-  IPs, both fail the proof — the second is caught ONLY by the canary.
+Hermetic is a set of libraries composed by interchangeable harnesses — the
+Next.js app, the CLI, and now an MCP host. The tools are **RPC into those
+libraries**; the host model plays the role `page.tsx` plays for the web app or
+`main.ts` plays for the CLI: it decides what to call and in what order.
 
-  Matching granularity: exact hostname, case-insensitive; ports are not
-  restricted (bucket endpoints are distinguished by host, and a
-  port-restricted allowlist would break S3-compatible endpoints on
-  non-standard ports).
+That framing sets the trust model precisely. A harness is trusted to
+orchestrate — hermetic does not second-guess what data a harness asks for,
+here any more than it does for the browser. What differs is that this
+harness's _logic_ is an LLM's runtime decisions rather than audited code, and
+its context may carry injected instructions. So the guards sit on
+**authorship**, not on data:
 
-- **SQL**: single-statement read-only enforcement in code
-  (`lib/warehouse/sql-guard.ts`) before anything reaches a connector.
-- **Specs**: host-authored specs validate against the catalog **enforcing**
-  (`persist_dashboard`); hermetic-composed specs keep the app's warn-only
-  policy.
-- **Audit**: every tool call appends a sanitized JSONL line (tool, source id,
-  truncated arg previews, outcome, duration) to `data/mcp-audit.jsonl` —
-  on by default.
-- Deliberately absent: shell access, package installation, filesystem
-  browsing.
+- SQL the host writes passes `assertReadOnlySql` before any connector sees it.
+- Python the host writes runs under `network: "deny"` — no egress at all,
+  whatever the code looks like — while hermetic's own generated code gets the
+  heuristic "auto" policy (and, for cloud sources, a bucket-scoped allowlist).
+- Specs the host writes are validated ENFORCING; hermetic-composed specs keep
+  the app's warn-only policy.
+
+## What crosses the boundary — and what that means
+
+**The data plane stays local**: files, the sandbox, warehouse connections,
+persisted dashboards, and the viewer never leave your machine. **The control
+plane is the host** — and everything a tool returns crosses into it.
+
+If your host is a cloud assistant, that means analysis results — aggregates,
+the chart series behind them, and any rows you requested via `run_sql` or
+`run_analysis` — enter that provider's context. That is a property of
+connecting a cloud host to your data, not something hermetic can undo by
+withholding: a host that needs rows can always ask for them explicitly.
+Hermetic's job is to keep it bounded, visible, and honestly described.
+
+- **Bounded**: every row-bearing response is capped (`run_sql` 200 default /
+  1000 max; 100 rows per chart series; `results` 20k chars in `run_analysis`;
+  sandbox stderr 600 chars). Row-level `datasets` are never returned — they
+  exist for the dashboard, which renders locally.
+- **Visible**: every call is recorded in `data/mcp-audit.jsonl` with
+  sanitized arguments, so you can see exactly what was asked for and when.
+- **Never crossing, on any path**: credentials. Warehouse configs, AWS
+  environment, and presigned-URL query strings are stripped — including from
+  the audit log.
+
+For a stricter posture, run a local-model MCP client: nothing leaves the
+machine at all, and the libraries behave identically.
+
+### RPC hygiene
+
+An RPC surface owes its caller machine-readable failure and truncation
+signals, not prose to parse:
+
+- **Error codes** — every error response is `{ error, code }`, with `code`
+  from a closed set (`src/mcp/errors.ts`): `unknown_source`,
+  `source_expired`, `unsupported_source`, `invalid_input`, `sql_rejected`,
+  `spec_rejected`, `execution_failed`, `internal`. A host that sees
+  `source_expired` can re-attach and retry without a human reading the
+  message. The audit line carries the same code.
+- **Flagged truncation** — schema responses report `truncated_columns`
+  (and warehouses `truncated_tables`) alongside the true counts; nothing
+  is silently capped.
+- **Contract version** — the initialize handshake and `list_sources`
+  report the surface's semver (`contract_version`), bumped MINOR for
+  additive response fields, MAJOR for anything a host could break on.
+
+### How the bucket-scoped allowlist works
+
+A networked remote-source run never gets open internet: the analysis
+container joins an INTERNAL Docker network with no outbound route, and its
+only door is a hermetic-owned allowlist proxy that forwards exclusively to
+the hosts derived from the source URL + creds (`lib/sandbox/egress.ts`).
+HTTPS passes through as CONNECT tunnels, so certificates still validate
+against the real host; anything that misses the proxy fails closed against
+the routeless network. Matching is exact hostname, case-insensitive; ports
+are not restricted (bucket endpoints are distinguished by host, and a
+port-restricted allowlist would break S3-compatible endpoints on
+non-standard ports).
 
 ## Watching what the server is doing
 
@@ -184,6 +203,18 @@ CI drives the real server over stdio with replay fixtures
 (`scripts/mcp-proof.mjs`): connect → schema → `analyze` (real sandbox, no
 API key) → viewer serves the persisted dashboard → audit trail present.
 Run locally: `HERMETIC_LLM_MODE=replay node scripts/mcp-proof.mjs`.
+
+The egress allowlist is proven the same way (`scripts/egress-proof.ts`, in
+CI on every push): allowed origin readable, non-allowlisted origin 403'd,
+proxy bypass impossible — plus a permanent **exfiltration canary**, an
+origin that must never receive a request, with a positive control proving
+it is genuinely reachable from an unrestricted container first, so silence
+means blocked rather than unreachable. The canary is checked under both
+policies: host-authored code (`network: "deny"`) and allowlisted networked
+code reading its permitted origin (the prompt-injection path).
+Mutation-tested: disabling the allowlist, and separately widening it to
+trust private-range IPs, both fail the proof — the second is caught ONLY by
+the canary.
 
 ## Current limitations
 

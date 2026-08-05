@@ -13,6 +13,7 @@ import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
+import { McpToolError, unknownSource } from "../errors";
 
 export const persistDashboardInput = {
   source_id: z.string().describe("The source the dashboard was computed from."),
@@ -30,9 +31,10 @@ export async function persistDashboard(
   args: { source_id: string; spec: Record<string, unknown>; title: string }
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
-  if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
+  if (!source) throw unknownSource(args.source_id);
   if (source.kind !== "csv") {
-    throw new Error(
+    throw new McpToolError(
+      "unsupported_source",
       "persist_dashboard currently supports CSV sources (warehouse analyses persist through analyze)."
     );
   }
@@ -43,7 +45,8 @@ export async function persistDashboard(
     // The catalog is not yet exposed as an MCP resource, so a bare zod error
     // leaves the host guessing ~90 component names (review S4). Name them.
     const names = deps.catalogComponentNames().join(", ");
-    throw new Error(
+    throw new McpToolError(
+      "spec_rejected",
       `Spec rejected by catalog validation: ${check.error?.slice(0, 600)}\n\n` +
         `Valid component types: ${names}\n` +
         "Every element needs { type, props, children: [] }. If this is fighting you, " +

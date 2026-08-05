@@ -20,6 +20,8 @@ export interface AuditEntry {
   outcome: "ok" | "error" | "rejected";
   /** Present only for outcome !== "ok"; message, never a stack. */
   error?: string;
+  /** Taxonomy code for outcome "error" (src/mcp/errors.ts). */
+  code?: string;
   durationMs: number;
 }
 

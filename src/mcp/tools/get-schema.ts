@@ -11,6 +11,7 @@
 import { z } from "zod";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import { getSource, capabilitiesOf, type McpSource } from "../sources";
+import { unknownSource } from "../errors";
 
 export const getSchemaInput = {
   source_id: z.string().describe("A source_id returned by connect_source."),
@@ -32,6 +33,7 @@ function summarizeCsvSchema(schema: CSVSchema) {
       meta: c.meta,
     })),
     column_count: schema.columns.length,
+    truncated_columns: Math.max(0, schema.columns.length - MAX_COLUMNS),
     correlations: schema.correlations ?? [],
     has_geojson: schema.has_geojson ?? false,
   };
@@ -55,6 +57,7 @@ export function summarizeSource(source: McpSource): Record<string, unknown> {
     row_count_estimate: t.row_count_estimate ?? null,
     columns: t.columns.slice(0, MAX_COLUMNS).map((c) => ({ name: c.name, type: c.type })),
     column_count: t.columns.length,
+    truncated_columns: Math.max(0, t.columns.length - MAX_COLUMNS),
   }));
   return {
     kind: "warehouse",
@@ -69,6 +72,6 @@ export function summarizeSource(source: McpSource): Record<string, unknown> {
 
 export async function getSchema(args: { source_id: string }): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
-  if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
+  if (!source) throw unknownSource(args.source_id);
   return { source_id: source.id, ...summarizeSource(source) };
 }

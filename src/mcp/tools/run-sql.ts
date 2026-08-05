@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
+import { McpToolError, unknownSource } from "../errors";
 
 export const runSqlInput = {
   source_id: z.string().describe("A warehouse source_id from connect_source."),
@@ -33,9 +34,10 @@ export async function runSql(
   args: { source_id: string; sql: string; max_rows?: number }
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
-  if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
+  if (!source) throw unknownSource(args.source_id);
   if (source.kind !== "warehouse") {
-    throw new Error(
+    throw new McpToolError(
+      "unsupported_source",
       "run_sql targets warehouse sources. For CSV sources use analyze (full pipeline) " +
         "or run_analysis (sandboxed Python)."
     );
@@ -44,7 +46,11 @@ export async function runSql(
 
   // Throws with a descriptive message on anything but a single read-only
   // SELECT — the model gets the reason and can correct.
-  deps.assertReadOnlySql(args.sql);
+  try {
+    deps.assertReadOnlySql(args.sql);
+  } catch (err) {
+    throw new McpToolError("sql_rejected", err instanceof Error ? err.message : String(err));
+  }
 
   const cap = args.max_rows ?? DEFAULT_MAX_ROWS;
   const csv = await source.connector.executeSQL(args.sql);

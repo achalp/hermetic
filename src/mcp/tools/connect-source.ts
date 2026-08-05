@@ -28,6 +28,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { registerSource, type McpSource, type SourceOrigin } from "../sources";
+import { McpToolError } from "../errors";
 import { summarizeSource } from "./get-schema";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
@@ -85,7 +86,8 @@ function filenameFromUrl(url: string): string {
 function guardSize(abs: string): void {
   const size = statSync(abs).size;
   if (size > MAX_TEXT_BYTES) {
-    throw new Error(
+    throw new McpToolError(
+      "invalid_input",
       `File is ${Math.round(size / (1024 * 1024))}MB — over the ${MAX_TEXT_BYTES / (1024 * 1024)}MB limit for ` +
         "in-memory formats. Convert to Parquet or use a warehouse connection."
     );
@@ -94,7 +96,8 @@ function guardSize(abs: string): void {
 
 async function connectUrl(deps: McpDeps, url: string, label?: string): Promise<McpSource> {
   if (!deps.isSafeParquetUrl(url)) {
-    throw new Error(
+    throw new McpToolError(
+      "invalid_input",
       "Not a valid cloud Parquet URL — expected s3://, https://, or gs:// with no quotes " +
         "or shell characters."
     );
@@ -131,8 +134,9 @@ async function connectCsvText(
   origin?: SourceOrigin
 ): Promise<McpSource> {
   const parsed = deps.parseCSV(csvText);
-  if (parsed.headers.length === 0) throw new Error(`${filename}: no columns found.`);
-  if (parsed.rowCount === 0) throw new Error(`${filename}: no data rows.`);
+  if (parsed.headers.length === 0)
+    throw new McpToolError("invalid_input", `${filename}: no columns found.`);
+  if (parsed.rowCount === 0) throw new McpToolError("invalid_input", `${filename}: no data rows.`);
   const csvId = randomUUID();
   const schema = deps.extractSchema(parsed, csvId, filename);
   if (geojsonText) {
@@ -189,7 +193,7 @@ async function connectExcel(
   guardSize(abs);
   const buffer = await readFile(abs);
   const { sheets, workbook } = await deps.parseExcelMeta(buffer);
-  if (sheets.length === 0) throw new Error("Excel file has no sheets.");
+  if (sheets.length === 0) throw new McpToolError("invalid_input", "Excel file has no sheets.");
 
   const pick = sheet ?? (sheets.length === 1 ? sheets[0].name : undefined);
   if (!pick) {
@@ -205,7 +209,10 @@ async function connectExcel(
     };
   }
   if (!sheets.some((sh) => sh.name === pick)) {
-    throw new Error(`No sheet named '${pick}'. Sheets: ${sheets.map((sh) => sh.name).join(", ")}`);
+    throw new McpToolError(
+      "invalid_input",
+      `No sheet named '${pick}'. Sheets: ${sheets.map((sh) => sh.name).join(", ")}`
+    );
   }
   const csvText = deps.sheetToCSV(workbook, pick);
   const filename = `${basename(abs)} (${pick})`;
@@ -223,13 +230,17 @@ async function connectGeoJson(deps: McpDeps, abs: string, label?: string): Promi
   try {
     parsedJson = JSON.parse(text);
   } catch {
-    throw new Error(`${basename(abs)}: not valid JSON.`);
+    throw new McpToolError("invalid_input", `${basename(abs)}: not valid JSON.`);
   }
   if (!deps.isGeoJSONObject(parsedJson)) {
-    throw new Error(`${basename(abs)}: JSON but not GeoJSON — only GeoJSON .json is supported.`);
+    throw new McpToolError(
+      "invalid_input",
+      `${basename(abs)}: JSON but not GeoJSON — only GeoJSON .json is supported.`
+    );
   }
   const geo = deps.parseGeoJSON(text);
-  if (geo.headers.length === 0) throw new Error(`${basename(abs)}: GeoJSON has no properties.`);
+  if (geo.headers.length === 0)
+    throw new McpToolError("invalid_input", `${basename(abs)}: GeoJSON has no properties.`);
   const csvText = deps.toCSVText(geo);
   return connectCsvText(deps, csvText, basename(abs), label, text, { via: "path", path: abs });
 }
@@ -240,11 +251,15 @@ export async function connectSource(
 ): Promise<Record<string, unknown>> {
   const given = [args.path, args.url, args.connection_id].filter(Boolean).length;
   if (given !== 1) {
-    throw new Error("Provide exactly one of `path`, `url`, or `connection_id`.");
+    throw new McpToolError(
+      "invalid_input",
+      "Provide exactly one of `path`, `url`, or `connection_id`."
+    );
   }
 
   if (args.sheet && !(args.path ?? "").toLowerCase().endsWith(".xlsx")) {
-    throw new Error(
+    throw new McpToolError(
+      "invalid_input",
       "`sheet` applies only to .xlsx paths — remove it or point `path` at a workbook."
     );
   }
@@ -281,7 +296,8 @@ export async function connectSource(
           }
         );
       } else {
-        throw new Error(
+        throw new McpToolError(
+          "invalid_input",
           `Unsupported file type '${ext}'. Supported: .csv, .xlsx, .geojson/.json (GeoJSON), ` +
             ".parquet, or a Parquet folder."
         );
@@ -292,7 +308,10 @@ export async function connectSource(
     const saved = connections.find((c) => c.id === args.connection_id);
     if (!saved) {
       const known = connections.map((c) => c.id).join(", ") || "(none)";
-      throw new Error(`No saved connection '${args.connection_id}'. Known ids: ${known}`);
+      throw new McpToolError(
+        "invalid_input",
+        `No saved connection '${args.connection_id}'. Known ids: ${known}`
+      );
     }
     const connector = deps.createConnector(saved.config);
     await connector.testConnection();

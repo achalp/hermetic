@@ -14,6 +14,7 @@
 import { CSV_TTL_MS } from "@/lib/constants";
 import type { McpDeps } from "../deps";
 import { reattachHint, type McpSource } from "../sources";
+import { McpToolError } from "../errors";
 
 const IDLE_HOURS = Math.round(CSV_TTL_MS / (60 * 60 * 1000));
 
@@ -29,7 +30,8 @@ export function assertSourceLive(deps: McpDeps, source: McpSource): void {
       ? `The warehouse connection "${source.label}" was closed after ${IDLE_HOURS}h idle`
       : `The data for "${source.label}" expired from hermetic's store after ${IDLE_HOURS}h idle`;
 
-  throw new Error(
+  throw new McpToolError(
+    "source_expired",
     `${what}, so source_id ${source.id} is no longer usable. ${reattachHint(source.origin)} ` +
       "A re-attach produces a NEW source_id; the old one stays dead."
   );

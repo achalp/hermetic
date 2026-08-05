@@ -965,3 +965,70 @@ describe("sanitizeArgs", () => {
     expect(out.source_id).toBe("abc");
   });
 });
+
+describe("RPC hygiene (spec §8): error codes, truncation flags, contract version", () => {
+  it("errors carry a taxonomy code on the wire and in the audit line", async () => {
+    const connector = fakeConnector("x\n1\n");
+    const client = await connectedClient(fakeDeps(connector), audit);
+
+    const unknown = parseToolJson(
+      await client.callTool({ name: "get_schema", arguments: { source_id: "nope" } })
+    );
+    expect(unknown.code).toBe("unknown_source");
+
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    ) as { source_id: string };
+    const rejected = parseToolJson(
+      await client.callTool({ name: "run_sql", arguments: { source_id, sql: "DROP TABLE t" } })
+    );
+    expect(rejected.code).toBe("sql_rejected");
+
+    const errorEntries = audit.filter((e) => e.outcome === "error");
+    expect(errorEntries.map((e) => e.code)).toEqual(["unknown_source", "sql_rejected"]);
+  });
+
+  it("uncoded failures fall back to code 'internal'", async () => {
+    const connector = fakeConnector("");
+    (connector.executeSQL as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("driver exploded")
+    );
+    const client = await connectedClient(fakeDeps(connector), audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    ) as { source_id: string };
+    const res = parseToolJson(
+      await client.callTool({ name: "run_sql", arguments: { source_id, sql: "SELECT 1" } })
+    );
+    expect(res.code).toBe("internal");
+  });
+
+  it("get_schema flags column truncation instead of silently capping", async () => {
+    const wide =
+      Array.from({ length: 90 }, (_, i) => `c${i}`).join(",") +
+      "\n" +
+      Array.from({ length: 90 }, (_, i) => String(i)).join(",") +
+      "\n";
+    const csvPath = join(dir, "wide.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, wide);
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const res = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    );
+    const schema = res.schema as {
+      columns: unknown[];
+      column_count: number;
+      truncated_columns: number;
+    };
+    expect(schema.columns).toHaveLength(80);
+    expect(schema.column_count).toBe(90);
+    expect(schema.truncated_columns).toBe(10);
+  });
+
+  it("list_sources reports the contract version", async () => {
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const res = parseToolJson(await client.callTool({ name: "list_sources", arguments: {} }));
+    expect(res.contract_version).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});

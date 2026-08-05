@@ -12,6 +12,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpDeps } from "./deps";
+import { errorCodeOf, type McpErrorCode } from "./errors";
 import { sanitizeArgs, type AuditSink } from "./audit";
 import { connectSource, connectSourceInput } from "./tools/connect-source";
 import { getSchema, getSchemaInput } from "./tools/get-schema";
@@ -23,7 +24,14 @@ import { persistDashboard, persistDashboardInput } from "./tools/persist-dashboa
 import { listSources } from "./sources";
 
 export const MCP_SERVER_NAME = "hermetic";
-export const MCP_SERVER_VERSION = "0.1.0";
+/**
+ * The contract version of the tool surface (RPC hygiene, spec §8). Reported
+ * in the MCP initialize handshake and by list_sources, so a host can tell
+ * which contract it is talking to from tool space too. Bump MINOR for
+ * additive response fields, MAJOR for anything a host could break on.
+ * 0.2.0: error `code` taxonomy; `truncated_columns` flags.
+ */
+export const MCP_SERVER_VERSION = "0.2.0";
 
 interface ToolTextResult {
   [key: string]: unknown;
@@ -35,9 +43,9 @@ function jsonResult(value: unknown): ToolTextResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
 }
 
-function errorResult(message: string): ToolTextResult {
+function errorResult(message: string, code: McpErrorCode): ToolTextResult {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message, code }) }],
     isError: true,
   };
 }
@@ -108,13 +116,15 @@ function withAudit<A extends Record<string, unknown>>(
       return jsonResult(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const code = errorCodeOf(err);
       audit({
         ...base,
         outcome: "error",
         error: message.slice(0, 500),
+        code,
         durationMs: Date.now() - started,
       });
-      return errorResult(message);
+      return errorResult(message, code);
     }
   };
 }
@@ -220,7 +230,10 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
   server.registerTool(
     "list_sources",
     { description: "List sources connected in this session (id, kind, label)." },
-    withAudit(audit, "list_sources", async () => ({ sources: listSources() }))
+    withAudit(audit, "list_sources", async () => ({
+      contract_version: MCP_SERVER_VERSION,
+      sources: listSources(),
+    }))
   );
 
   return server;
