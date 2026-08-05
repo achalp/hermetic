@@ -19,7 +19,9 @@ install. Claude Code needs nothing even without the installer: this repo
 ships a project-scoped `.mcp.json`, so opening `claude` in the checkout
 prompts to enable the server.
 
-Manual config, if you prefer:
+Manual config, if you prefer (`pnpm -C` pins the working directory in the
+command itself — `claude mcp add-json` drops a `cwd` field, and Desktop
+support for one varies):
 
 ```jsonc
 // Claude Desktop (claude_desktop_config.json) or Claude Code user scope
@@ -27,8 +29,7 @@ Manual config, if you prefer:
   "mcpServers": {
     "hermetic": {
       "command": "pnpm",
-      "args": ["mcp"],
-      "cwd": "/path/to/hermetic",
+      "args": ["-C", "/path/to/hermetic", "mcp"],
     },
   },
 }

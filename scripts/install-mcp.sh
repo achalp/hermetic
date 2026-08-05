@@ -84,7 +84,10 @@ if [ -n "$DESKTOP_CONFIG" ] && [ -d "$(dirname "$DESKTOP_CONFIG")" ]; then
       }
       cfg.mcpServers = cfg.mcpServers || {};
       const already = JSON.stringify(cfg.mcpServers.hermetic);
-      cfg.mcpServers.hermetic = { command: "pnpm", args: ["mcp"], cwd: root };
+      // pnpm -C <root> pins the working directory in the COMMAND itself —
+      // `claude mcp add-json` drops a cwd field, and Desktop support for it
+      // varies; this form needs neither.
+      cfg.mcpServers.hermetic = { command: "pnpm", args: ["-C", root, "mcp"] };
       fs.mkdirSync(require("path").dirname(cfgPath), { recursive: true });
       fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
       console.log(already === JSON.stringify(cfg.mcpServers.hermetic) ? "UNCHANGED" : "WRITTEN");
@@ -106,21 +109,25 @@ else
 fi
 
 # ── Claude Code ───────────────────────────────────────────
+# User scope is the default on purpose: the analysis room matters most in
+# OTHER directories — where your data lives — and project scope evaporates
+# outside this checkout. The repo's .mcp.json still covers demo/dev use
+# here with zero config either way.
 if command -v claude &>/dev/null; then
   echo ""
-  echo -e "    ${DIM}Claude Code auto-prompts for this repo's .mcp.json when opened here.${RESET}"
-  echo -en "    Also register ${BOLD}user-wide${RESET} (usable from any directory)? [y/N]: "
+  echo -e "    ${DIM}Inside this checkout, Claude Code auto-prompts via the repo's .mcp.json.${RESET}"
+  echo -en "    Register ${BOLD}user-wide${RESET} so the tools work from ${BOLD}any${RESET} directory? [Y/n]: "
   read -r CODE_ANSWER || CODE_ANSWER="n"
-  if [[ "$CODE_ANSWER" =~ ^[Yy] ]]; then
+  if [ -z "$CODE_ANSWER" ] || [[ "$CODE_ANSWER" =~ ^[Yy] ]]; then
     if claude mcp add-json hermetic \
-        "{\"command\":\"pnpm\",\"args\":[\"mcp\"],\"cwd\":\"$ROOT\"}" \
+        "{\"command\":\"pnpm\",\"args\":[\"-C\",\"$ROOT\",\"mcp\"]}" \
         --scope user >/dev/null 2>&1; then
-      ok "Claude Code (user scope) configured"
+      ok "Claude Code (user scope) configured — available in every directory"
     else
-      warn "claude mcp add-json failed — register manually: claude mcp add-json hermetic '{\"command\":\"pnpm\",\"args\":[\"mcp\"],\"cwd\":\"$ROOT\"}' --scope user"
+      warn "claude mcp add-json failed — register manually: claude mcp add-json hermetic '{\"command\":\"pnpm\",\"args\":[\"-C\",\"$ROOT\",\"mcp\"]}' --scope user"
     fi
   else
-    ok "Claude Code: project-scoped .mcp.json is enough inside this checkout"
+    ok "Skipped — project scope still works inside this checkout"
   fi
   INSTALLED_ANY=true
 else
