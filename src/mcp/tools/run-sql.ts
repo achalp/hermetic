@@ -12,6 +12,7 @@
 import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
+import { assertSourceLive } from "./liveness";
 
 export const runSqlInput = {
   source_id: z.string().describe("A warehouse source_id from connect_source."),
@@ -39,6 +40,7 @@ export async function runSql(
         "or run_analysis (sandboxed Python)."
     );
   }
+  assertSourceLive(deps, source);
 
   // Throws with a descriptive message on anything but a single read-only
   // SELECT — the model gets the reason and can correct.

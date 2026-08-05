@@ -16,6 +16,7 @@
 import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
+import { assertSourceLive } from "./liveness";
 
 export const runAnalysisInput = {
   source_id: z.string().describe("A CSV source_id from connect_source."),
@@ -95,6 +96,7 @@ export async function runAnalysis(
         "analyze — its pipeline mounts the path into the sandbox."
     );
   }
+  assertSourceLive(deps, source);
 
   const csvText = await deps.getCSVContent(source.csvId);
   if (!csvText) {

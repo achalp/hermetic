@@ -79,7 +79,9 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     ]) as unknown as McpDeps["loadConnections"],
     assertReadOnlySql, // real: the gate under test
     storeWarehouse: vi.fn(),
-    getWarehouseState: vi.fn(() => undefined),
+    // connect_source registers the warehouse in the shared store, so the
+    // default fake reports it live; expiry tests flip this to undefined.
+    getWarehouseState: vi.fn(() => ({ warehouse: {}, connector: {} }) as never),
     // Minimal orchestration fakes: runPatchStream routes handler writes into
     // the sink; runAskQuery is set per-test.
     runPatchStream: (async (
@@ -121,6 +123,12 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     })) as unknown as McpDeps["persistHistoryEntry"],
     getActiveSandboxRuntime: vi.fn(() => "docker") as unknown as McpDeps["getActiveSandboxRuntime"],
     getCSVContent: vi.fn(async () => CSV_TEXT) as unknown as McpDeps["getCSVContent"],
+    // Live by default; individual tests flip it to exercise expiry.
+    getStoredCSV: vi.fn(() => ({
+      schema: {},
+      filePath: "",
+      createdAt: Date.now(),
+    })) as unknown as McpDeps["getStoredCSV"],
     getGeoJSONContent: vi.fn(async () => null) as unknown as McpDeps["getGeoJSONContent"],
     executeSandbox: vi.fn(async () => ({
       success: true as const,
@@ -658,6 +666,73 @@ describe("connect_source: cloud URLs, parquet paths, excel, geojson", () => {
       arguments: { path: plainPath },
     });
     expect((bad as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+describe("expired sources fail with an actionable message (reliability #1)", () => {
+  async function expiredCsvClient() {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+    // The underlying store entry idles out while the registry still holds it.
+    deps.getStoredCSV = vi.fn(() => undefined) as unknown as McpDeps["getStoredCSV"];
+    return { client, source_id, csvPath, deps };
+  }
+
+  it("analyze names the source, the cause, and the exact re-attach call", async () => {
+    const { client, source_id, csvPath } = await expiredCsvClient();
+    const res = await client.callTool({
+      name: "analyze",
+      arguments: { source_id, question: "q" },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    const msg = String(parseToolJson(res).error);
+    expect(msg).toContain("rev.csv");
+    expect(msg).toContain("expired");
+    expect(msg).toContain("connect_source");
+    expect(msg).toContain(csvPath); // the exact path to replay
+    expect(msg).toContain("NEW source_id");
+  });
+
+  it("run_analysis and persist_dashboard fail the same way, not with raw errors", async () => {
+    const { client, source_id } = await expiredCsvClient();
+    for (const call of [
+      { name: "run_analysis", arguments: { source_id, python: "x" } },
+      {
+        name: "persist_dashboard",
+        arguments: { source_id, title: "t", spec: { root: "r", elements: {} } },
+      },
+    ]) {
+      const res = await client.callTool(call);
+      expect((res as { isError?: boolean }).isError).toBe(true);
+      expect(String(parseToolJson(res).error)).toContain("connect_source");
+    }
+  });
+
+  it("a dead warehouse connection says how to reconnect instead of leaking a driver error", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    ) as { source_id: string };
+    // Sweeper closed the connector and dropped the store entry.
+    deps.getWarehouseState = vi.fn(() => undefined);
+
+    const res = await client.callTool({
+      name: "run_sql",
+      arguments: { source_id, sql: "SELECT 1" },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    const msg = String(parseToolJson(res).error);
+    expect(msg).toContain("closed");
+    expect(msg).toContain('connection_id: "conn-1"');
+    // The connector must never have been touched.
+    expect(vi.mocked(deps.createConnector).mock.results[0].value.executeSQL).not.toHaveBeenCalled();
   });
 });
 

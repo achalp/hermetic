@@ -205,7 +205,9 @@ Run locally: `HERMETIC_LLM_MODE=replay node scripts/mcp-proof.mjs`.
 - Concurrent `analyze` calls on ONE source are serialized (their computed
   artifacts share a per-source cache); different sources run in parallel.
 - One session's `source_id`s live in-process — reconnect after a server
-  restart.
+  restart. Underlying data also expires after ~3h idle; tools then fail with
+  a message naming the source, the cause, and the exact `connect_source` call
+  that re-attaches it (a re-attach yields a NEW `source_id`).
 - The catalog-as-resource (teaching the host to author specs natively) is
   deliberately deferred (spec §4, v3) behind the broader untrusted-spec
   hardening.

@@ -11,6 +11,7 @@
 import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
+import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
 
 export const persistDashboardInput = {
@@ -35,6 +36,7 @@ export async function persistDashboard(
       "persist_dashboard currently supports CSV sources (warehouse analyses persist through analyze)."
     );
   }
+  assertSourceLive(deps, source);
 
   const check = deps.validateSpec(args.spec);
   if (!check.success) {

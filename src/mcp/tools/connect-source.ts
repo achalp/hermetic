@@ -27,7 +27,7 @@ import { basename, extname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { McpDeps } from "../deps";
-import { registerSource, type McpSource } from "../sources";
+import { registerSource, type McpSource, type SourceOrigin } from "../sources";
 import { summarizeSource } from "./get-schema";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
@@ -118,6 +118,7 @@ async function connectUrl(deps: McpDeps, url: string, label?: string): Promise<M
     csvId,
     schema,
     remote: true,
+    origin: { via: "url", url },
   });
 }
 
@@ -126,7 +127,8 @@ async function connectCsvText(
   csvText: string,
   filename: string,
   label: string | undefined,
-  geojsonText?: string
+  geojsonText?: string,
+  origin?: SourceOrigin
 ): Promise<McpSource> {
   const parsed = deps.parseCSV(csvText);
   if (parsed.headers.length === 0) throw new Error(`${filename}: no columns found.`);
@@ -140,7 +142,7 @@ async function connectCsvText(
   const normalized = deps.toCSVText(parsed);
   await deps.storeCSV(csvId, normalized, schema);
   if (geojsonText) await deps.storeGeoJSON(csvId, geojsonText);
-  return registerSource({ kind: "csv", label: label ?? filename, csvId, schema });
+  return registerSource({ kind: "csv", label: label ?? filename, csvId, schema, origin });
 }
 
 async function connectParquetPath(
@@ -167,6 +169,7 @@ async function connectParquetPath(
     csvId,
     schema,
     pathBased: true,
+    origin: { via: "path", path: abs },
   });
 }
 
@@ -206,7 +209,11 @@ async function connectExcel(
   }
   const csvText = deps.sheetToCSV(workbook, pick);
   const filename = `${basename(abs)} (${pick})`;
-  return connectCsvText(deps, csvText, filename, label);
+  return connectCsvText(deps, csvText, filename, label, undefined, {
+    via: "path",
+    path: abs,
+    sheet: pick,
+  });
 }
 
 async function connectGeoJson(deps: McpDeps, abs: string, label?: string): Promise<McpSource> {
@@ -224,7 +231,7 @@ async function connectGeoJson(deps: McpDeps, abs: string, label?: string): Promi
   const geo = deps.parseGeoJSON(text);
   if (geo.headers.length === 0) throw new Error(`${basename(abs)}: GeoJSON has no properties.`);
   const csvText = deps.toCSVText(geo);
-  return connectCsvText(deps, csvText, basename(abs), label, text);
+  return connectCsvText(deps, csvText, basename(abs), label, text, { via: "path", path: abs });
 }
 
 export async function connectSource(
@@ -262,7 +269,17 @@ export async function connectSource(
         source = await connectGeoJson(deps, abs, args.label);
       } else if (ext === ".csv") {
         guardSize(abs);
-        source = await connectCsvText(deps, readFileSync(abs, "utf-8"), basename(abs), args.label);
+        source = await connectCsvText(
+          deps,
+          readFileSync(abs, "utf-8"),
+          basename(abs),
+          args.label,
+          undefined,
+          {
+            via: "path",
+            path: abs,
+          }
+        );
       } else {
         throw new Error(
           `Unsupported file type '${ext}'. Supported: .csv, .xlsx, .geojson/.json (GeoJSON), ` +
@@ -288,6 +305,7 @@ export async function connectSource(
       warehouseType: saved.config.type,
       connector,
       tables,
+      origin: { via: "connection_id", connection_id: saved.id },
     });
     // Also register in the shared warehouse store under the source id, so
     // analyze() can hand runAskQuery the same {warehouse, connector} state

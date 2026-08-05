@@ -16,10 +16,31 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 
+/**
+ * How this source was attached — replayed verbatim in the expiry message so
+ * the host can re-attach without guessing (the registry outlives the
+ * underlying stores, which expire on a sliding idle TTL).
+ */
+export type SourceOrigin =
+  | { via: "path"; path: string; sheet?: string }
+  | { via: "url"; url: string }
+  | { via: "connection_id"; connection_id: string };
+
+export function reattachHint(origin: SourceOrigin | undefined): string {
+  if (!origin) return "Call connect_source again to re-attach it.";
+  if (origin.via === "path") {
+    const sheet = origin.sheet ? `, sheet: "${origin.sheet}"` : "";
+    return `Re-attach with connect_source({ path: "${origin.path}"${sheet} }).`;
+  }
+  if (origin.via === "url") return `Re-attach with connect_source({ url: "${origin.url}" }).`;
+  return `Re-attach with connect_source({ connection_id: "${origin.connection_id}" }).`;
+}
+
 export interface CsvSource {
   id: string;
   kind: "csv";
   label: string;
+  origin?: SourceOrigin;
   csvId: string;
   schema: CSVSchema;
   /** True for cloud Parquet sources (s3://, https://, gs://) — reads need
@@ -36,6 +57,7 @@ export interface WarehouseSource {
   id: string;
   kind: "warehouse";
   label: string;
+  origin?: SourceOrigin;
   connectionId: string;
   warehouseType: string;
   connector: WarehouseConnector;

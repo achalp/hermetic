@@ -11,6 +11,7 @@
 import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
+import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
 
 /**
@@ -207,6 +208,7 @@ async function runAnalyze(
   onProgress?: ProgressReporter
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id)!;
+  assertSourceLive(deps, source);
 
   const lines: string[] = [];
   // Mutable by contract: warehouse runs materialize under a NEW csvId

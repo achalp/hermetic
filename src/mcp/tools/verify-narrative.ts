@@ -13,6 +13,7 @@
 import { z } from "zod";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
+import { assertSourceLive } from "./liveness";
 
 export const verifyNarrativeInput = {
   prose: z.string().describe("The narrative text to verify."),
@@ -58,6 +59,7 @@ export async function verifyNarrative(
           "(non-warehouse). Pass results/chart_data explicitly for warehouse sources."
       );
     }
+    assertSourceLive(deps, source);
     const cached = deps.getCachedArtifacts(source.csvId);
     if (!cached) {
       throw new Error(

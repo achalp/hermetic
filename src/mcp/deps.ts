@@ -13,6 +13,7 @@ import {
   storeCSV,
   getCSVContent,
   getGeoJSONContent,
+  getStoredCSV,
   storeLocalFileRef,
   storeGeoJSON,
 } from "@/lib/csv/storage";
@@ -58,6 +59,8 @@ export interface McpDeps {
   getCachedArtifacts: typeof getCachedArtifacts;
   getActiveSandboxRuntime: typeof getActiveSandboxRuntime;
   getCSVContent: typeof getCSVContent;
+  /** Liveness probe: undefined once the sliding idle TTL expired the entry. */
+  getStoredCSV: typeof getStoredCSV;
   getGeoJSONContent: typeof getGeoJSONContent;
   executeSandbox: typeof executeSandbox;
   collectGroundedValues: typeof collectGroundedValues;
@@ -101,6 +104,7 @@ export function realDeps(): McpDeps {
     getCachedArtifacts,
     getActiveSandboxRuntime,
     getCSVContent,
+    getStoredCSV,
     getGeoJSONContent,
     executeSandbox,
     collectGroundedValues,
