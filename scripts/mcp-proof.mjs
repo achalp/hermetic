@@ -69,12 +69,18 @@ const schema = parse(
 if (schema.schema.column_count < 2) fail("schema too thin");
 console.error(`✔ get_schema: ${schema.schema.column_count} columns`);
 
-// 4. analyze — full pipeline offline
+// 4. analyze — full pipeline offline, with progress. A real run takes
+// minutes; the host must not be blind, so the proof asserts updates arrive.
+const progressSeen = [];
 const analysis = parse(
-  await client.callTool({
-    name: "analyze",
-    arguments: { source_id: connected.source_id, question: "What is the MRR trend over time?" },
-  })
+  await client.callTool(
+    {
+      name: "analyze",
+      arguments: { source_id: connected.source_id, question: "What is the MRR trend over time?" },
+    },
+    undefined,
+    { onprogress: (p) => progressSeen.push(p.message ?? "") }
+  )
 );
 if (analysis.error) fail(`analyze failed: ${analysis.error}`);
 if (!analysis.history_id) fail("analyze did not persist a history entry");
@@ -87,6 +93,12 @@ if (!analysis.summary || analysis.summary.length < 40) fail("summary missing/too
 if (!Array.isArray(analysis.headline_stats) || analysis.headline_stats.length === 0) {
   fail("analyze returned no headline_stats — the host gets prose but no figures");
 }
+if (progressSeen.length < 2) {
+  fail(`analyze emitted ${progressSeen.length} progress updates — the host would be blind`);
+}
+console.error(
+  `✔ progress: ${progressSeen.length} updates (${progressSeen.slice(0, 3).join(", ")}…)`
+);
 console.error(
   `✔ analyze: ${analysis.element_count} elements, history ${analysis.history_id}, url ${analysis.dashboard_url}`
 );

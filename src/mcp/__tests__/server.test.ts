@@ -661,6 +661,93 @@ describe("connect_source: cloud URLs, parquet paths, excel, geojson", () => {
   });
 });
 
+describe("progress reporting for long runs", () => {
+  it("maps pipeline patches to host-facing progress updates", async () => {
+    const { progressFromPatch } = await import("../tools/analyze");
+    expect(
+      progressFromPatch({
+        path: "/state/__progress",
+        value: { stage: "code_gen", step: 1, total: 3 },
+      })
+    ).toEqual({
+      stage: "code_gen",
+      step: 1,
+      total: 3,
+    });
+    // Sandbox execution reports a fraction — surfaced as percent complete.
+    expect(
+      progressFromPatch({
+        path: "/state/__exec",
+        value: { phase: "scanning", detail: "12M rows", fraction: 0.5 },
+      })
+    ).toEqual({ stage: "executing: scanning", detail: "12M rows", step: 50, total: 100 });
+    // Non-progress patches are ignored.
+    expect(progressFromPatch({ path: "/root", value: "main" })).toBeNull();
+    expect(progressFromPatch({ path: "/state/__cost", value: {} })).toBeNull();
+  });
+
+  it("sends nothing when the host did not request progress", async () => {
+    const { progressReporterFor } = await import("../server");
+    expect(progressReporterFor(undefined)).toBeUndefined();
+    expect(progressReporterFor({ sendNotification: async () => {} })).toBeUndefined();
+    expect(progressReporterFor({ _meta: { progressToken: "t" } })).toBeUndefined();
+  });
+
+  it("advances monotonically when the pipeline reports no step/total", async () => {
+    const { progressReporterFor } = await import("../server");
+    const sent: Array<{ progress: number; message?: string }> = [];
+    const report = progressReporterFor({
+      _meta: { progressToken: "tok" },
+      sendNotification: async (n) => void sent.push(n.params),
+    })!;
+    report({ stage: "starting" });
+    report({ stage: "code_gen" });
+    report({ stage: "executing", detail: "scanning" });
+    expect(sent.map((x) => x.progress)).toEqual([1, 2, 3]);
+    expect(sent[2].message).toBe("executing — scanning");
+  });
+
+  it("delivers progress notifications to a real client during analyze", async () => {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const deps = fakeDeps(fakeConnector(""));
+    // A pipeline that reports two stages before finishing.
+    deps.runAskQuery = (async ({ stream, question }: { stream: unknown; question: string }) => {
+      const push = (stream as { push: (l: string) => void }).push;
+      push(
+        '{"op":"add","path":"/state/__progress","value":{"stage":"code_gen","step":1,"total":3}}\n'
+      );
+      push('{"op":"add","path":"/state/__exec","value":{"phase":"executing","fraction":0.5}}\n');
+      push('{"op":"add","path":"/root","value":"main"}\n');
+      push(
+        '{"op":"add","path":"/elements/s","value":{"type":"TextBlock","props":{"content":"Done. ' +
+          question +
+          '"}}}\n'
+      );
+    }) as unknown as McpDeps["runAskQuery"];
+
+    const server = buildMcpServer(deps, (e) => audit.push(e));
+    const client = new Client({ name: "progress-test", version: "0.0.0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    await client.connect(ct);
+
+    const seen: string[] = [];
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+
+    await client.callTool({ name: "analyze", arguments: { source_id, question: "q" } }, undefined, {
+      onprogress: (p: { message?: string }) => void seen.push(p.message ?? ""),
+    });
+
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen.join(" | ")).toContain("code_gen");
+    expect(seen.join(" | ")).toContain("executing");
+  });
+});
+
 describe("host-facing coherence (review fixes)", () => {
   it("advertises per-source capabilities so the host never has to probe", async () => {
     const deps = fakeDeps(fakeConnector(""));

@@ -170,9 +170,13 @@ app, then use `connection_id`.
 | Viewer alive?                                                    | `curl -s http://127.0.0.1:4848/api/health`                                                      |
 
 A long `analyze` is normal: multi-minute runs are the pipeline generating
-code, executing it in the sandbox, and composing the dashboard. The audit
-line is written when the call finishes (with its duration); `docker ps` is
-how you confirm it is working rather than hung.
+code, executing it in the sandbox, and composing the dashboard. `analyze`
+emits **MCP progress notifications** throughout (`starting` → `estimating` →
+`code_gen` → `executing: <phase>` with percent when the sandbox reports a
+fraction → compose), so a host that requests progress can show live status
+instead of a silent wait; hosts that don't request it pay nothing. The audit
+line is written when the call finishes (with its duration), and `docker ps`
+confirms live execution either way.
 
 ## Offline proof
 

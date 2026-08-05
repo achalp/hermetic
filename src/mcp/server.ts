@@ -43,15 +43,57 @@ function errorResult(message: string): ToolTextResult {
 }
 
 /**
+ * The SDK's per-request context: carries the caller's progressToken (when the
+ * host asked for progress) and the channel to push notifications on.
+ */
+interface RequestExtra {
+  _meta?: { progressToken?: string | number };
+  sendNotification?: (n: {
+    method: "notifications/progress";
+    params: {
+      progressToken: string | number;
+      progress: number;
+      total?: number;
+      message?: string;
+    };
+  }) => Promise<void>;
+}
+
+/**
+ * A progress reporter bound to one request, or undefined when the host did
+ * not request progress. Long tools (analyze runs for minutes) must not leave
+ * the host blind — and a host that never asked pays nothing.
+ */
+export function progressReporterFor(extra: RequestExtra | undefined) {
+  const token = extra?._meta?.progressToken;
+  const send = extra?.sendNotification;
+  if (token === undefined || !send) return undefined;
+  // Monotonic fallback so a host rendering a bar still advances when the
+  // pipeline reports stages without step/total.
+  let tick = 0;
+  return (p: { stage: string; detail?: string; step?: number; total?: number }) => {
+    const message = p.detail ? `${p.stage} — ${p.detail}` : p.stage;
+    const progress = typeof p.step === "number" ? p.step : ++tick;
+    const total = typeof p.total === "number" ? p.total : undefined;
+    void send({
+      method: "notifications/progress",
+      params: { progressToken: token, progress, total, message },
+    }).catch(() => {
+      // A host that stopped listening must never fail the tool call.
+    });
+  };
+}
+
+/**
  * Wrap a tool handler with the audit + error policy while preserving its
  * argument type, so the SDK's schema-derived inference still applies.
  */
 function withAudit<A extends Record<string, unknown>>(
   audit: AuditSink,
   name: string,
-  fn: (args: A) => Promise<unknown>
-): (args: A) => Promise<ToolTextResult> {
-  return async (args: A) => {
+  fn: (args: A, extra?: RequestExtra) => Promise<unknown>
+): (args: A, extra?: RequestExtra) => Promise<ToolTextResult> {
+  return async (args: A, extra?: RequestExtra) => {
     const started = Date.now();
     const sourceId = typeof args?.source_id === "string" ? args.source_id : undefined;
     const base = {
@@ -61,7 +103,7 @@ function withAudit<A extends Record<string, unknown>>(
       args: sanitizeArgs(args ?? {}),
     };
     try {
-      const result = await fn(args);
+      const result = await fn(args, extra);
       audit({ ...base, outcome: "ok", durationMs: Date.now() - started });
       return jsonResult(result);
     } catch (err) {
@@ -131,7 +173,7 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
         "SQL/code for open-ended questions. Takes seconds to minutes; cost is reported.",
       inputSchema: analyzeInput,
     },
-    withAudit(audit, "analyze", (args) => analyze(deps, args))
+    withAudit(audit, "analyze", (args, extra) => analyze(deps, args, progressReporterFor(extra)))
   );
 
   server.registerTool(

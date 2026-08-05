@@ -152,18 +152,59 @@ export function extractSummary(
   };
 }
 
+/** Coarse progress for the host: a stage name and, when known, step/total. */
+export interface AnalyzeProgress {
+  stage: string;
+  detail?: string;
+  step?: number;
+  total?: number;
+}
+
+export type ProgressReporter = (p: AnalyzeProgress) => void;
+
+/**
+ * Turn a patch line into a progress update. The pipeline already publishes
+ * `/state/__progress` (coarse phase) and `/state/__exec` (live sandbox phase
+ * with an optional fraction) — this maps them, so the host is not blind for
+ * the minutes a real analysis takes.
+ */
+export function progressFromPatch(patch: PatchLine): AnalyzeProgress | null {
+  if (patch.path === "/state/__progress") {
+    const v = patch.value as { stage?: string; step?: number; total?: number } | undefined;
+    if (!v?.stage) return null;
+    return { stage: v.stage, step: v.step, total: v.total };
+  }
+  if (patch.path === "/state/__exec") {
+    const v = patch.value as { phase?: string; detail?: string; fraction?: number } | undefined;
+    if (!v?.phase) return null;
+    return {
+      stage: `executing: ${v.phase}`,
+      detail: v.detail,
+      step: typeof v.fraction === "number" ? Math.round(v.fraction * 100) : undefined,
+      total: typeof v.fraction === "number" ? 100 : undefined,
+    };
+  }
+  if (patch.path === "/state/__estimate") {
+    const v = patch.value as { detail?: string } | undefined;
+    return v?.detail ? { stage: "estimating", detail: v.detail } : null;
+  }
+  return null;
+}
+
 export async function analyze(
   deps: McpDeps,
-  args: { source_id: string; question: string; purpose?: string }
+  args: { source_id: string; question: string; purpose?: string },
+  onProgress?: ProgressReporter
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
   if (!source) throw new Error(`Unknown source_id '${args.source_id}'. Call connect_source first.`);
-  return serializedBySource(source.id, () => runAnalyze(deps, args));
+  return serializedBySource(source.id, () => runAnalyze(deps, args, onProgress));
 }
 
 async function runAnalyze(
   deps: McpDeps,
-  args: { source_id: string; question: string; purpose?: string }
+  args: { source_id: string; question: string; purpose?: string },
+  onProgress?: ProgressReporter
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id)!;
 
@@ -175,9 +216,26 @@ async function runAnalyze(
     question: args.question,
   };
 
+  onProgress?.({ stage: "starting" });
   await deps.runPatchStream(
     "mcp:analyze",
-    { write: (data: string) => void lines.push(data) },
+    {
+      write: (data: string) => {
+        lines.push(data);
+        if (!onProgress) return;
+        // Stream-side reporting: parse each line as it arrives, not at the end.
+        for (const raw of data.split("\n")) {
+          const t = raw.trim();
+          if (!t || t.startsWith(":")) continue;
+          try {
+            const update = progressFromPatch(JSON.parse(t) as PatchLine);
+            if (update) onProgress(update);
+          } catch {
+            // non-JSON progress noise
+          }
+        }
+      },
+    },
     async (stream) => {
       await deps.runAskQuery({
         context: { purpose: args.purpose ?? "dashboard" },
