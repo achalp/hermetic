@@ -164,6 +164,30 @@ const served = await specRes.json();
 if (served.spec.root !== spec.root) fail("viewer served a different spec than persisted");
 console.error(`✔ embedded viewer serves the dashboard at ${viewerUrl.origin}`);
 
+// 5c. Single-file export (dashboard-distribution spec): the viewer's
+// /api/export/<id> must return a self-contained download whose inline spec
+// matches the persisted one, and analyze must advertise it as export_url.
+if (!analysis.export_url) fail("analyze response missing export_url");
+const exportRes = await fetch(analysis.export_url);
+if (!exportRes.ok) fail(`viewer /api/export failed: ${exportRes.status}`);
+const disposition = exportRes.headers.get("content-disposition") ?? "";
+if (!disposition.includes("attachment")) fail("export is not served as a download");
+const exportHtml = await exportRes.text();
+if (!exportHtml.includes('id="hermetic-spec"')) fail("export missing inline spec block");
+if (exportHtml.includes('href="/assets'))
+  fail("export references server assets — not self-contained");
+const embedded = JSON.parse(
+  exportHtml
+    .match(/<script type="application\/json" id="hermetic-spec">([\s\S]*?)<\/script>/)[1]
+    .replace(/<\\\//g, "</")
+);
+if (embedded.root !== spec.root) fail("export embedded a different spec than persisted");
+if (JSON.stringify(embedded).includes('"__cost"')) fail("export leaked __-internal state");
+console.error(
+  `✔ single-file export: ${(exportHtml.length / 1024 / 1024).toFixed(1)}MB, ` +
+    `bundle=${exportRes.headers.get("x-hermetic-export-bundle")}`
+);
+
 // 6. Audit trail exists and mentions the calls
 const auditFile = join(ROOT, "data", "mcp-audit.jsonl");
 if (!existsSync(auditFile)) fail("audit log missing");

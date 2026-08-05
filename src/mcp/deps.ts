@@ -25,6 +25,8 @@ import { runPatchStream } from "@/lib/pipeline/patch-stream";
 import { runAskQuery } from "@/lib/pipeline/run-ask-query";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { persistHistoryEntry } from "@/lib/history/persist";
+import { loadHistoryEntry } from "@/lib/history/storage";
+import { exportDashboardHtml } from "@/lib/export/html-export";
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { executeSandbox } from "@/lib/sandbox";
@@ -58,6 +60,8 @@ export interface McpDeps {
   runAskQuery: typeof runAskQuery;
   assembleSpecFromPatches: typeof assembleSpecFromPatches;
   persistHistoryEntry: typeof persistHistoryEntry;
+  loadHistoryEntry: typeof loadHistoryEntry;
+  exportDashboardHtml: typeof exportDashboardHtml;
   getCachedArtifacts: typeof getCachedArtifacts;
   getActiveSandboxRuntime: typeof getActiveSandboxRuntime;
   getCSVContent: typeof getCSVContent;
@@ -141,6 +145,8 @@ export function realDeps(): McpDeps {
     runAskQuery,
     assembleSpecFromPatches,
     persistHistoryEntry,
+    loadHistoryEntry,
+    exportDashboardHtml,
     getCachedArtifacts,
     getActiveSandboxRuntime,
     getCSVContent,

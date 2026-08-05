@@ -17,7 +17,7 @@
  * compiles alone, so a browser bundle of it needs no Next.
  */
 import { build } from "esbuild";
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, statSync, existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import postcss from "postcss";
@@ -100,3 +100,135 @@ ${cssLinks}
 `
 );
 console.error("viewer.html written");
+
+// ── 4. Single-file export bundles (specs/dashboard-distribution-2026-08-05.md) ──
+// Two IIFE profiles, no code-splitting (a single HTML file cannot load
+// chunks): STANDARD carries core + nivo + plotly-cartesian and stubs the
+// heavy families; FULL carries everything. Both stub the export-again
+// libraries (exceljs/jspdf/pptxgen/html-to-image) — a shared file doesn't
+// need to produce PowerPoints, and they'd cost ~3.5MB in every export.
+// The assembler (lib/export/html-export.ts) picks the profile by walking
+// the spec's component types against export-manifest.json.
+
+const CHART_STUB = join(ROOT, "src/mcp/viewer/export-stubs/unavailable-chart.tsx");
+const LIBS_STUB = join(ROOT, "src/mcp/viewer/export-stubs/no-export-libs.ts");
+
+/** esbuild plugin: redirect module paths matching `patterns` to a stub file. */
+function stubPlugin(name, patterns, stubFile) {
+  const re = new RegExp(patterns.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"));
+  return {
+    name,
+    setup(b) {
+      b.onResolve({ filter: re }, (args) => {
+        // Only redirect the real module, never the stub resolving itself.
+        if (args.importer.includes("export-stubs")) return null;
+        return { path: stubFile };
+      });
+    },
+  };
+}
+
+const HEAVY_CHART_MODULES = [
+  "plotly-3d-wrapper",
+  "plotly-finance-wrapper",
+  "plotly-polar-wrapper",
+  "charts/map-view",
+  "charts/map3d-view",
+  "charts/globe-view",
+];
+const EXPORT_AGAIN_LIBS = ["exceljs", "jspdf", "pptxgenjs", "html-to-image"];
+
+async function buildExportProfile(profile) {
+  const plugins = [stubPlugin("stub-export-libs", EXPORT_AGAIN_LIBS, LIBS_STUB)];
+  if (profile === "standard") {
+    plugins.push(stubPlugin("stub-heavy-charts", HEAVY_CHART_MODULES, CHART_STUB));
+  }
+  const res = await build({
+    entryPoints: [join(ROOT, "src/mcp/viewer/export-entry.tsx")],
+    outfile: join(OUT, `export-${profile}.js`),
+    bundle: true,
+    format: "iife",
+    splitting: false,
+    minify: true,
+    sourcemap: false,
+    metafile: true,
+    logLevel: "warning",
+    define: { "process.env.NODE_ENV": '"production"' },
+    // Everything inlines: fonts as data URIs (single-file constraint).
+    loader: {
+      ".css": "css",
+      ".woff": "dataurl",
+      ".woff2": "dataurl",
+      ".png": "dataurl",
+      ".svg": "dataurl",
+    },
+    alias: { "@": join(ROOT, "src") },
+    plugins,
+  });
+  // Separation proof: the standard profile must not contain the heavy libs.
+  if (profile === "standard") {
+    const leaked = Object.keys(res.metafile.inputs).filter((i) =>
+      /plotly\.js-(gl3d|finance)|maplibre-gl|react-globe|deck\.gl|three\//.test(i)
+    );
+    if (leaked.length) {
+      console.error(`export-standard leaked heavy inputs:\n  ${leaked.slice(0, 5).join("\n  ")}`);
+      process.exit(1);
+    }
+  }
+  const js = statSync(join(OUT, `export-${profile}.js`)).size;
+  const cssPath = join(OUT, `export-${profile}.css`);
+  const css = existsSync(cssPath) ? statSync(cssPath).size : 0;
+  console.error(
+    `export-${profile}: js ${(js / 1024 / 1024).toFixed(1)}MB, css ${(css / 1024).toFixed(0)}KB`
+  );
+  return { js, css };
+}
+
+const std = await buildExportProfile("standard");
+const full = await buildExportProfile("full");
+
+// ── 5. Export app.css (fonts inlined) + manifest ──
+// The viewer's app.css references /assets/fonts/… — a single file cannot.
+// Rebuild the tailwind output with font url()s replaced by data URIs.
+const appCss = readFileSync(join(OUT, "app.css"), "utf-8");
+const exportAppCss = appCss.replace(/url\((\/assets\/fonts\/[^)]+)\)/g, (m, p) => {
+  const f = join(OUT, p.replace("/assets/", ""));
+  if (!existsSync(f)) return m;
+  return `url(data:font/woff2;base64,${readFileSync(f).toString("base64")})`;
+});
+writeFileSync(join(OUT, "export-app.css"), exportAppCss);
+
+// Catalog types only renderable by the FULL profile — derived from which
+// chart modules the standard profile stubs (see registry.tsx bindings).
+// scripts/check-export-types.mjs? (v1: verified by the assembler test.)
+const FULL_ONLY_TYPES = [
+  "CandlestickChart",
+  "ContourChart",
+  "FunnelChart",
+  "GaugeChart",
+  "Globe3D",
+  "Map3D",
+  "MapView",
+  "QuiverChart",
+  "Scatter3D",
+  "Surface3D",
+  "TernaryChart",
+  "WaterfallChart",
+  "WindRose",
+];
+writeFileSync(
+  join(OUT, "export-manifest.json"),
+  JSON.stringify(
+    {
+      builtAt: new Date().toISOString(),
+      fullOnlyTypes: FULL_ONLY_TYPES,
+      profiles: {
+        standard: { js: "export-standard.js", css: "export-standard.css", bytes: std.js + std.css },
+        full: { js: "export-full.js", css: "export-full.css", bytes: full.js + full.css },
+      },
+    },
+    null,
+    2
+  ) + "\n"
+);
+console.error("export-manifest.json written");

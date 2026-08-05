@@ -1,7 +1,13 @@
 # Dashboard distribution — the dashboard IS the file
 
 > Created: 2026-08-05
-> Status: PROPOSAL — supersedes the distribution section (§6) of
+> Status: v1 IMPLEMENTED (2026-08-05) — build order items 1–4 shipped: export
+> profiles in the viewer build, `lib/export/html-export.ts` assembler, all
+> three harness surfaces (web export menu + POST /api/export-html +
+> GET /api/export/[id]; `hermetic render --html`; MCP `export_dashboard` +
+> `export_url` on analyze + viewer Download button), governance floor
+> (`__`-state strip, as-of watermark, exposure line). v2 (DuckDB-WASM
+> Parquet snapshots) remains open. Supersedes the distribution section (§6) of
 > `specs/published-artifacts-sharing-2026-06-17.md`; inherits its locked
 > decisions on interactivity tiers, grain materialization, governance, and
 > the Tier-3 handoff. Those analyses still stand; what changed is HOW the

@@ -1043,6 +1043,52 @@ export async function deleteLocalLlmModel(body: { backend: string; model: string
   }
 }
 
+// ── Interactive HTML export (single-file dashboard) ───────────
+
+export interface HtmlExportResult {
+  blob: Blob;
+  /** Server-derived download name (from the question). */
+  filename: string;
+  /** Which renderer bundle got inlined — size honesty (dashboard-distribution spec §5). */
+  bundle: string;
+  bytes: number;
+}
+
+/**
+ * Compile the current spec into the self-contained interactive HTML file.
+ * The spec is sent AS-IS (including `__`-prefixed internal state) — the
+ * assembler strips internals server-side, so the client never needs to know
+ * the private-namespace convention.
+ */
+export async function exportInteractiveHtml(
+  spec: unknown,
+  question: string | null
+): Promise<HtmlExportResult> {
+  const res = await fetch("/api/export-html", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      spec,
+      question: question ?? undefined,
+      // A live dashboard's as-of watermark is "now" (persisted entries get
+      // their stored timestamp via the CLI/MCP surfaces instead).
+      created_at: new Date().toISOString(),
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.error ?? "HTML export failed", res.status);
+  }
+  const filename =
+    res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "dashboard.html";
+  return {
+    blob: await res.blob(),
+    filename,
+    bundle: res.headers.get("X-Hermetic-Export-Bundle") ?? "standard",
+    bytes: Number(res.headers.get("X-Hermetic-Export-Bytes") ?? 0),
+  };
+}
+
 // ── Static assets ──────────────────────────────────────────────
 
 /** Fetch a same-origin static asset (e.g. the bundled sample dataset). */

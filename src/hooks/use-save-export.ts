@@ -6,10 +6,19 @@ import {
   downloadDashboardAsPdf,
   downloadDashboardAsDocx,
   downloadDashboardAsPptx,
+  triggerDownload,
 } from "@/lib/export-utils";
-import { saveViz, ApiError } from "@/app/lib/api";
+import { saveViz, exportInteractiveHtml, ApiError } from "@/app/lib/api";
 
-type ExportFormat = "pdf" | "docx" | "pptx";
+type ExportFormat = "pdf" | "docx" | "pptx" | "html";
+
+/** Human size for the export status line ("3.2 MB", "412 KB"). */
+function formatBytes(bytes: number): string {
+  const MB = 1024 * 1024;
+  return bytes >= MB
+    ? `${(bytes / MB).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 
 interface UseSaveExportOptions {
   csvId: string | null;
@@ -105,6 +114,37 @@ export function useSaveExport({
     [exportWith]
   );
 
+  /**
+   * Single-file interactive HTML export (dashboard-distribution spec §4.2).
+   * Unlike the DOM-capture formats above, this compiles the SPEC server-side
+   * — so it takes currentSpecRef, not dashboardRef, and doesn't fit
+   * exportWith's (el, title) shape. The live spec goes as-is: `__`-prefixed
+   * internal state is stripped by the assembler, not the client.
+   */
+  const handleExportHtml = useCallback(async () => {
+    const spec = currentSpecRef.current;
+    if (!spec) return;
+    setExporting("html");
+    setSaveMessage(null);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    try {
+      const result = await exportInteractiveHtml(spec, currentQuestionRef.current);
+      const url = URL.createObjectURL(result.blob);
+      triggerDownload(url, result.filename);
+      URL.revokeObjectURL(url);
+      // Size honesty (spec §5): say which bundle got inlined and how big the
+      // file is, through the same status channel Save uses.
+      setSaveMessage(`HTML: ${result.bundle} bundle, ${formatBytes(result.bytes)}`);
+      saveTimerRef.current = setTimeout(() => setSaveMessage(null), 4000);
+    } catch (e) {
+      console.error("HTML export failed:", e);
+      setSaveMessage(e instanceof ApiError ? e.message : "HTML export failed");
+      saveTimerRef.current = setTimeout(() => setSaveMessage(null), 4000);
+    } finally {
+      setExporting(null);
+    }
+  }, [currentSpecRef, currentQuestionRef]);
+
   return {
     saving,
     saveMessage,
@@ -113,6 +153,7 @@ export function useSaveExport({
     handleExportPdf,
     handleExportDocx,
     handleExportPptx,
+    handleExportHtml,
     lastSavedVizId,
   };
 }

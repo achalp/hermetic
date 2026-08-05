@@ -20,7 +20,7 @@ import { extractProse } from "@/lib/spec-summary";
 import type { McpDeps } from "../deps";
 import { getSource, reattachHint } from "../sources";
 import { assertSourceLive } from "./liveness";
-import { viewUrl } from "../view-url";
+import { viewUrl, exportUrl } from "../view-url";
 import { CHART_ROW_CAP } from "../caps";
 import { McpToolError, unknownSource } from "../errors";
 
@@ -322,6 +322,10 @@ async function runAnalyze(
     ...(typeof runId === "string" ? { run_id: runId } : {}),
     ...extractSummary(spec),
     dashboard_url: dashboardUrl,
+    // The single-file HTML download for the same entry — lets the host offer
+    // "share this" without a second tool call (export_dashboard writes the
+    // file server-side when a path is wanted instead).
+    export_url: historyId ? exportUrl(historyId) : null,
     history_id: historyId,
     element_count: Object.keys(spec.elements).length,
     cost,

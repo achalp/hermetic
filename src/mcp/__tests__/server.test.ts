@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -29,9 +29,11 @@ import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { toCSVText } from "@/lib/csv/parser";
 import { setPathRoots } from "@/lib/paths";
+import { exportDashboardHtml, type ExportInput } from "@/lib/export/html-export";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
 import type { HistoryMeta } from "@/lib/contracts/storage-types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const CSV_TEXT = "month,revenue\nJan,100\nFeb,200\nMar,300\n";
 
@@ -137,6 +139,12 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       // Cast: partial HistoryMeta — the tools read only .id.
       meta: { id: "hist-123" } as HistoryMeta,
     })),
+    // Default: no persisted entries — the export_dashboard suite overrides
+    // with a real-shaped entry (and a miniature dist for the real assembler).
+    loadHistoryEntry: vi.fn(async (id: string) => {
+      throw new Error(`no entry ${id}`);
+    }),
+    exportDashboardHtml, // real: pure over the distDir the caller supplies
     getActiveSandboxRuntime: vi.fn(() => "docker" as const),
     getCSVContent: vi.fn(async () => CSV_TEXT),
     // Live by default; individual tests flip it to exercise expiry.
@@ -234,6 +242,7 @@ describe("mcp server (in-memory transport, fake deps)", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "analyze",
       "connect_source",
+      "export_dashboard",
       "get_schema",
       "list_sources",
       "persist_dashboard",
@@ -364,6 +373,9 @@ describe("analyze (fake pipeline)", () => {
     expect(result.run_id).toBe("run-test-1");
     expect(audit.find((e) => e.tool === "analyze")?.runId).toBe("run-test-1");
     expect(String(result.dashboard_url)).toContain("restore=hist-123");
+    // The single-file download link rides beside dashboard_url (0.4.0) so a
+    // host can offer "share this" without a second tool call.
+    expect(String(result.export_url)).toContain("/api/export/hist-123");
     expect((result.cost as { costUsd: number }).costUsd).toBe(0.12);
     expect(result.element_count).toBe(3);
     // Chart titles are labels, not findings — they must not appear as prose.
@@ -1015,6 +1027,155 @@ describe("persist_dashboard (real catalog validation — ENFORCING)", () => {
     );
     expect(result.history_id).toBe("hist-123");
     expect(String(result.dashboard_url)).toContain("restore=hist-123");
+  });
+});
+
+describe("export_dashboard (real assembler over a miniature dist)", () => {
+  const ENTRY_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+  /** The html-export test fixture pattern: a dist the test controls fully. */
+  async function makeMiniDist(): Promise<string> {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const dist = join(dir, "mini-dist");
+    mkdirSync(dist, { recursive: true });
+    writeFileSync(
+      join(dist, "export-manifest.json"),
+      JSON.stringify({
+        fullOnlyTypes: ["Globe3D"],
+        profiles: {
+          standard: { js: "export-standard.js", css: "export-standard.css", bytes: 10 },
+          full: { js: "export-full.js", css: "export-full.css", bytes: 20 },
+        },
+      })
+    );
+    writeFileSync(join(dist, "export-app.css"), ":root{--x:1}");
+    writeFileSync(join(dist, "export-standard.js"), "/*standard*/");
+    writeFileSync(join(dist, "export-standard.css"), ".std{}");
+    writeFileSync(join(dist, "export-full.js"), "/*full*/");
+    writeFileSync(join(dist, "export-full.css"), ".full{}");
+    return dist;
+  }
+
+  function exportDeps(miniDist: string) {
+    return makeTestDeps({
+      loadHistoryEntry: vi.fn(async (id: string) => ({
+        // Cast: partial HistoryMeta — the tool reads question + timestamp.
+        meta: {
+          id,
+          question: "Revenue by region?",
+          timestamp: Date.parse("2026-08-05T00:00:00Z"),
+        } as HistoryMeta,
+        spec: {
+          root: "r",
+          elements: {
+            r: { type: "LayoutColumn", props: {}, children: ["c"] },
+            c: { type: "BarChart", props: { title: "T" }, children: [] },
+          },
+          state: { datasets: { main: [{ a: 1 }] }, __cost: { usd: 1 } },
+        },
+        generatedCode: "",
+        schema: {} as CSVSchema,
+      })),
+      // The REAL assembler, pointed at the miniature dist instead of the
+      // repo's viewer build.
+      exportDashboardHtml: vi.fn((input: ExportInput) =>
+        exportDashboardHtml({ ...input, distDir: miniDist })
+      ),
+    });
+  }
+
+  it("writes the self-contained file and reports both handles + size honesty", async () => {
+    const { existsSync, readFileSync } = await import("node:fs");
+    const deps = exportDeps(await makeMiniDist());
+    const client = await connectedClient(deps, audit);
+
+    const result = parseToolJson(
+      await client.callTool({ name: "export_dashboard", arguments: { history_id: ENTRY_ID } })
+    );
+
+    // Default path: data/exports/<id>.html under the (test) data root.
+    expect(result.file_path).toBe(join(dir, "exports", `${ENTRY_ID}.html`));
+    expect(isAbsolute(result.file_path as string)).toBe(true);
+    const html = readFileSync(result.file_path as string, "utf-8");
+    expect(html).toContain("/*standard*/");
+    expect(html).toContain('id="hermetic-spec"');
+    expect(html).toContain("Revenue by region?");
+    // Internal state stripped on the way out (governance floor).
+    expect(html).not.toContain("__cost");
+    expect(existsSync(result.file_path as string)).toBe(true);
+
+    expect(String(result.export_url)).toContain(`/api/export/${ENTRY_ID}`);
+    expect(result.bundle).toBe("standard");
+    expect(result.size_bytes).toBeGreaterThan(0);
+    expect(result.element_count).toBe(2);
+    expect(result.full_only_types_used).toEqual([]);
+
+    expect(audit.find((e) => e.tool === "export_dashboard")).toMatchObject({ outcome: "ok" });
+  });
+
+  it("honors an absolute out_path and rejects a relative one", async () => {
+    const deps = exportDeps(await makeMiniDist());
+    const client = await connectedClient(deps, audit);
+    const outPath = join(dir, "custom", "report.html");
+
+    const ok = parseToolJson(
+      await client.callTool({
+        name: "export_dashboard",
+        arguments: { history_id: ENTRY_ID, out_path: outPath },
+      })
+    );
+    expect(ok.file_path).toBe(outPath);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(outPath)).toBe(true);
+
+    const bad = await client.callTool({
+      name: "export_dashboard",
+      arguments: { history_id: ENTRY_ID, out_path: "relative/report.html" },
+    });
+    expect((bad as { isError?: boolean }).isError).toBe(true);
+    expect(parseToolJson(bad).code).toBe("invalid_input");
+  });
+
+  it("rejects malformed and unknown ids as invalid_input", async () => {
+    const deps = exportDeps(await makeMiniDist());
+    const client = await connectedClient(deps, audit);
+
+    const malformed = await client.callTool({
+      name: "export_dashboard",
+      arguments: { history_id: "not-a-uuid" },
+    });
+    expect((malformed as { isError?: boolean }).isError).toBe(true);
+    expect(parseToolJson(malformed).code).toBe("invalid_input");
+    // Malformed ids never reach the store.
+    expect(deps.loadHistoryEntry).not.toHaveBeenCalled();
+
+    // Valid UUID, no such entry (the DEFAULT loadHistoryEntry fake throws).
+    const bareClient = await connectedClient(makeTestDeps({}), audit);
+    const unknown = await bareClient.callTool({
+      name: "export_dashboard",
+      arguments: { history_id: "aaaaaaaa-bbbb-4ccc-8ddd-000000000000" },
+    });
+    expect((unknown as { isError?: boolean }).isError).toBe(true);
+    expect(parseToolJson(unknown).code).toBe("invalid_input");
+  });
+
+  it("names the build step when the export bundles are missing", async () => {
+    // A distDir with no export-manifest.json — the assembler's ENOENT.
+    const deps = makeTestDeps({
+      loadHistoryEntry: exportDeps(await makeMiniDist()).loadHistoryEntry,
+      exportDashboardHtml: vi.fn((input: ExportInput) =>
+        exportDashboardHtml({ ...input, distDir: join(dir, "no-such-dist") })
+      ),
+    });
+    const client = await connectedClient(deps, audit);
+    const res = await client.callTool({
+      name: "export_dashboard",
+      arguments: { history_id: ENTRY_ID },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    const payload = parseToolJson(res);
+    expect(payload.code).toBe("execution_failed");
+    expect(String(payload.error)).toContain("pnpm mcp:build-viewer");
   });
 });
 

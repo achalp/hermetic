@@ -12,7 +12,19 @@ export function setViewUrlBase(base: string): void {
   configuredBase = base;
 }
 
+function base(): string {
+  return process.env.HERMETIC_MCP_VIEW_BASE ?? configuredBase ?? "http://localhost:3000";
+}
+
 export function viewUrl(historyId: string): string {
-  const base = process.env.HERMETIC_MCP_VIEW_BASE ?? configuredBase ?? "http://localhost:3000";
-  return `${base}/?restore=${historyId}`;
+  return `${base()}/?restore=${historyId}`;
+}
+
+/**
+ * The single-file HTML download for a persisted entry
+ * (specs/dashboard-distribution-2026-08-05.md §4.2) — same base as viewUrl,
+ * so the link resolves against whichever surface is serving the dashboards.
+ */
+export function exportUrl(historyId: string): string {
+  return `${base()}/api/export/${historyId}`;
 }

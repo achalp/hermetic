@@ -179,6 +179,9 @@ export function ResultsToolbar({
                       { label: "DOCX", fn: saveExport.handleExportDocx },
                       { label: "PPTX", fn: saveExport.handleExportPptx },
                       { label: "Slides", fn: onExportSlides },
+                      // Single-file interactive export (dashboard-distribution
+                      // spec §4.2) — spec-compiled server-side, not a DOM capture.
+                      { label: "Interactive HTML", fn: saveExport.handleExportHtml },
                     ]
                 ).map((item) => (
                   <button

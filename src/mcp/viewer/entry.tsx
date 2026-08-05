@@ -23,7 +23,8 @@ import { SpecView } from "@/components/spec-view";
 import type { Spec } from "@/lib/contracts/spec";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { THEME_IDS } from "@/components/theme/theme-config";
-import { ThemeProvider, useTheme, THEMES, type ColorMode } from "@/components/theme/theme-context";
+import { ThemeProvider } from "@/components/theme/theme-context";
+import { ThemeControls } from "./chrome";
 // Geist via @fontsource-variable: esbuild bundles these into the entry css
 // with the woff2 files as hashed assets. app.css maps --font-geist-sans/mono
 // to these family names (scripts/build-mcp-viewer.mjs).
@@ -50,48 +51,6 @@ try {
 interface LoadedEntry {
   spec: Spec;
   question: string | null;
-}
-
-const MODES: { id: ColorMode; label: string }[] = [
-  { id: "system", label: "System" },
-  { id: "light", label: "Light" },
-  { id: "dark", label: "Dark" },
-];
-
-/** The web app's theme + mode choices, compacted for the viewer header. */
-function ThemeControls() {
-  const { theme, setTheme, mode, setMode } = useTheme();
-  const selectClass =
-    "rounded-badge border border-border-default bg-surface-1 px-1.5 py-0.5 text-xs " +
-    "text-t-secondary focus:outline-none focus:ring-1 focus:ring-accent";
-  return (
-    <span className="flex shrink-0 items-center gap-1.5">
-      <select
-        aria-label="Theme"
-        className={selectClass}
-        value={theme}
-        onChange={(e) => setTheme(e.target.value as (typeof THEMES)[number]["id"])}
-      >
-        {THEMES.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.label}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label="Color mode"
-        className={selectClass}
-        value={mode}
-        onChange={(e) => setMode(e.target.value as ColorMode)}
-      >
-        {MODES.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-    </span>
-  );
 }
 
 function Viewer() {
@@ -130,6 +89,7 @@ function Viewer() {
       </div>
     );
   }
+  const id = new URLSearchParams(window.location.search).get("restore");
   return (
     <div className="mx-auto max-w-6xl p-6">
       <header className="mb-4 flex items-baseline justify-between gap-4">
@@ -137,6 +97,15 @@ function Viewer() {
           {state.entry.question ?? "Analysis"}
         </h1>
         <span className="flex shrink-0 items-center gap-3">
+          {/* Single-file interactive export — the server assembles it from the
+              same spec this page renders (spec §4.2). */}
+          <a
+            className="rounded-badge border border-border-default bg-surface-1 px-2 py-0.5 text-xs text-accent-text hover:underline"
+            href={`/api/export/${encodeURIComponent(id ?? "")}`}
+            download
+          >
+            Download .html
+          </a>
           <ThemeControls />
           <span className="text-xs text-t-tertiary">hermetic · MCP viewer</span>
         </span>

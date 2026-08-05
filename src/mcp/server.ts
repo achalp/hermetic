@@ -21,6 +21,7 @@ import { analyze, analyzeInput } from "./tools/analyze";
 import { runAnalysis, runAnalysisInput } from "./tools/run-analysis";
 import { verifyNarrative, verifyNarrativeInput } from "./tools/verify-narrative";
 import { persistDashboard, persistDashboardInput } from "./tools/persist-dashboard";
+import { exportDashboard, exportDashboardInput } from "./tools/export-dashboard";
 import { listSources } from "./sources";
 
 export const MCP_SERVER_NAME = "hermetic";
@@ -31,8 +32,10 @@ export const MCP_SERVER_NAME = "hermetic";
  * additive response fields, MAJOR for anything a host could break on.
  * 0.2.0: error `code` taxonomy; `truncated_columns` flags.
  * 0.3.0: analyze returns `run_id` (joins the audit line and server logs).
+ * 0.4.0: `export_dashboard` tool (single-file HTML export); analyze returns
+ *        `export_url` (the same download link) beside `dashboard_url`.
  */
-export const MCP_SERVER_VERSION = "0.3.0";
+export const MCP_SERVER_VERSION = "0.4.0";
 
 interface ToolTextResult {
   [key: string]: unknown;
@@ -237,6 +240,20 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
       inputSchema: persistDashboardInput,
     },
     withAudit(audit, "persist_dashboard", (args) => persistDashboard(deps, args))
+  );
+
+  server.registerTool(
+    "export_dashboard",
+    {
+      description:
+        "Export a persisted dashboard as ONE self-contained .html file — data, charts, and " +
+        "full interactivity inlined; opens in any browser from file://, offline, no install. " +
+        "Use when the user wants to share, send, or download a dashboard. Takes the " +
+        "history_id from analyze/persist_dashboard; returns the written file's path and a " +
+        "local download link.",
+      inputSchema: exportDashboardInput,
+    },
+    withAudit(audit, "export_dashboard", (args) => exportDashboard(deps, args))
   );
 
   server.registerTool(

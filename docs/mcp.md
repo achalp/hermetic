@@ -47,16 +47,17 @@ pnpm mcp:build-viewer
 
 ## Tools
 
-| Tool                | What it does                                                                                                                                                                                                                                           | Boundary guarantees                                                               |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| `connect_source`    | Attach a source → `source_id` + schema summary. `path`: .csv, .xlsx (`sheet` for multi-sheet), GeoJSON, .parquet file or folder (Hive auto-detected). `url`: cloud Parquet (s3/https/gs, incl. partitioned prefixes). `connection_id`: saved warehouse | No raw rows, no credentials in any response                                       |
-| `get_schema`        | Rich schema: column stats, detected domain, correlations                                                                                                                                                                                               | Aggregates only; row-linked samples are structurally unreachable                  |
-| `analyze`           | **Flagship.** Full hermetic pipeline (code-gen → sandbox → dashboard), persisted; returns summary + cost + link                                                                                                                                        | Data and compute stay local; host sees narrative + aggregates                     |
-| `run_sql`           | Read-only SELECT against a warehouse (pushdown; billions of rows)                                                                                                                                                                                      | `assertReadOnlySql` **before** execution; row-capped results                      |
-| `run_analysis`      | Host-authored Python in the Docker sandbox                                                                                                                                                                                                             | `--network none` enforced regardless of code content; row-level datasets withheld |
-| `verify_narrative`  | Trace every data-like number in prose to computed values                                                                                                                                                                                               | Reports untraceable figures before the user sees them                             |
-| `persist_dashboard` | Persist a host-authored spec as a viewable analysis                                                                                                                                                                                                    | **Enforcing** catalog validation — invalid specs rejected                         |
-| `list_sources`      | Sources connected this session                                                                                                                                                                                                                         | —                                                                                 |
+| Tool                | What it does                                                                                                                                                                                                                                           | Boundary guarantees                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `connect_source`    | Attach a source → `source_id` + schema summary. `path`: .csv, .xlsx (`sheet` for multi-sheet), GeoJSON, .parquet file or folder (Hive auto-detected). `url`: cloud Parquet (s3/https/gs, incl. partitioned prefixes). `connection_id`: saved warehouse | No raw rows, no credentials in any response                                                                               |
+| `get_schema`        | Rich schema: column stats, detected domain, correlations                                                                                                                                                                                               | Aggregates only; row-linked samples are structurally unreachable                                                          |
+| `analyze`           | **Flagship.** Full hermetic pipeline (code-gen → sandbox → dashboard), persisted; returns summary + cost + link                                                                                                                                        | Data and compute stay local; host sees narrative + aggregates                                                             |
+| `run_sql`           | Read-only SELECT against a warehouse (pushdown; billions of rows)                                                                                                                                                                                      | `assertReadOnlySql` **before** execution; row-capped results                                                              |
+| `run_analysis`      | Host-authored Python in the Docker sandbox                                                                                                                                                                                                             | `--network none` enforced regardless of code content; row-level datasets withheld                                         |
+| `verify_narrative`  | Trace every data-like number in prose to computed values                                                                                                                                                                                               | Reports untraceable figures before the user sees them                                                                     |
+| `persist_dashboard` | Persist a host-authored spec as a viewable analysis                                                                                                                                                                                                    | **Enforcing** catalog validation — invalid specs rejected                                                                 |
+| `export_dashboard`  | A persisted dashboard as ONE self-contained interactive .html file (share/send/open offline)                                                                                                                                                           | File contains only what the dashboard shows — same aggregates, no raw datasets beyond spec state, `__`-internals stripped |
+| `list_sources`      | Sources connected this session                                                                                                                                                                                                                         | —                                                                                                                         |
 
 ## Knowing what a source supports
 
@@ -92,6 +93,18 @@ uses: drill-downs and interactivity included.
 
 Entries also appear in the web app's History page — the stores are shared when
 both run from the same checkout.
+
+### Sharing a dashboard
+
+`analyze` also returns an `export_url` beside `dashboard_url`: the same
+entry as a **single self-contained .html download**
+(`/api/export/<history_id>` on the embedded viewer; the viewer page has a
+matching Download button). The `export_dashboard` tool writes that file
+server-side instead — to `data/exports/<history_id>.html` or an absolute
+`out_path` — and reports which bundle it inlined and the resulting size, so
+the host can hand the user a file to drop in Slack, email, or a shared
+drive. The file is offline-forever and carries full Tier-2 interactivity;
+design and size budget: `specs/dashboard-distribution-2026-08-05.md`.
 
 ## Cloud sources and credentials
 

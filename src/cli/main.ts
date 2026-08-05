@@ -7,6 +7,7 @@
  * harness breaks in CI instead of the architecture rotting silently.
  *
  *   hermetic ask "<question>" <data.csv> [--out file.ndjson]
+ *   hermetic render <history-id> --html <out-path>
  *
  * Boot mirrors the Next harness: env config snapshot, default path roots.
  * With HERMETIC_LLM_MODE=replay and committed fixtures, an ask runs fully
@@ -31,8 +32,15 @@ console.warn = stderrConsole.warn.bind(stderrConsole);
 
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2);
+  // `render` compiles a persisted history entry into the single-file
+  // interactive HTML export — wiring lives in render.ts (unit-testable).
+  if (cmd === "render") {
+    const { runRenderCommand } = await import("./render");
+    return runRenderCommand(rest);
+  }
   if (cmd !== "ask" || rest.length < 2) {
     console.error('usage: hermetic ask "<question>" <data.csv> [--out file.ndjson]');
+    console.error("       hermetic render <history-id> --html <out-path>");
     return 2;
   }
   const outIdx = rest.indexOf("--out");

@@ -11,6 +11,9 @@
  *   GET /api/spec/<id>   → { spec, question } from the persisted history
  *                          entry — id strictly validated, path never joined
  *                          from raw input beyond that.
+ *   GET /api/export/<id> → the entry as ONE self-contained .html download
+ *                          (specs/dashboard-distribution-2026-08-05.md §4.2)
+ *                          — the viewer entry's Download button targets this.
  */
 import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -18,6 +21,9 @@ import { existsSync } from "node:fs";
 import { join, resolve, extname } from "node:path";
 import { hermeticPaths } from "@/lib/paths";
 import { RECORD_FILES } from "@/lib/record-store";
+// Server-side node code, so the export assembler (a framework-free lib) is
+// imported directly — the McpDeps seam covers tool handlers, not this server.
+import { exportDashboardHtml, exportFilename } from "@/lib/export/html-export";
 import { logger } from "@/lib/logger";
 
 const DIST = resolve(__dirname, "dist");
@@ -36,6 +42,10 @@ const MIME: Record<string, string> = {
 const BUILD_HELP =
   "The MCP viewer bundle is not built. Run `pnpm mcp:build-viewer` in the hermetic checkout, " +
   "then reload this page.";
+
+const EXPORT_BUILD_HELP =
+  "The single-file export bundles are not built. Run `pnpm mcp:build-viewer` in the hermetic " +
+  "checkout, then retry the download.";
 
 export interface ViewerServer {
   port: number;
@@ -76,6 +86,45 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
           // meta is optional for rendering
         }
         return send(200, JSON.stringify({ spec, question }));
+      }
+
+      if (path.startsWith("/api/export/")) {
+        const id = path.slice("/api/export/".length);
+        if (!UUID_RE.test(id)) return send(400, JSON.stringify({ error: "invalid id" }));
+        const entryDir = join(hermeticPaths.historyDir(), id);
+        if (!existsSync(join(entryDir, RECORD_FILES.spec))) {
+          return send(404, JSON.stringify({ error: `no history entry ${id}` }));
+        }
+        if (!existsSync(join(DIST, "export-manifest.json"))) {
+          return send(503, EXPORT_BUILD_HELP, "text/plain; charset=utf-8");
+        }
+        const spec = JSON.parse(await readFile(join(entryDir, RECORD_FILES.spec), "utf-8"));
+        let question: string | null = null;
+        let createdAt: string | null = null;
+        try {
+          const meta = JSON.parse(await readFile(join(entryDir, RECORD_FILES.meta), "utf-8"));
+          question = typeof meta.question === "string" ? meta.question : null;
+          if (typeof meta.timestamp === "number") {
+            createdAt = new Date(meta.timestamp).toISOString();
+          }
+        } catch {
+          // meta is optional for exporting too — the watermark just goes blank
+        }
+        const { html, report } = await exportDashboardHtml({
+          spec,
+          question,
+          createdAt,
+          distDir: DIST,
+        });
+        res.writeHead(200, {
+          "Content-Type": MIME[".html"],
+          "Content-Disposition": `attachment; filename="${exportFilename(question)}"`,
+          "Cache-Control": "no-store",
+          // Same report headers as the web routes — one wire contract.
+          "X-Hermetic-Export-Bundle": report.bundle,
+          "X-Hermetic-Export-Bytes": String(report.bytes),
+        });
+        return res.end(html);
       }
 
       if (path === "/" || path === "/index.html") {
