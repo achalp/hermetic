@@ -9,7 +9,7 @@
  */
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
-import { storeCSV, getCSVContent } from "@/lib/csv/storage";
+import { storeCSV, getCSVContent, storeLocalFileRef, storeGeoJSON } from "@/lib/csv/storage";
 import { createConnector } from "@/lib/warehouse/connector";
 import { loadConnections } from "@/lib/warehouse/persist-env";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
@@ -22,6 +22,15 @@ import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { executeSandbox } from "@/lib/sandbox";
 import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
 import { validateSpec } from "@/lib/catalog";
+import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
+import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
+import { extractRemoteParquetSchema, extractParquetSchema } from "@/lib/parquet/schema-extractor";
+import { storeRemoteParquetRef } from "@/lib/csv/storage";
+import { getFileInfo } from "@/lib/local-files/browser";
+import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
+import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
+import { toCSVText } from "@/lib/csv/parser";
+
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL } from "@/lib/constants";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
 
@@ -45,6 +54,19 @@ export interface McpDeps {
   collectGroundedValues: typeof collectGroundedValues;
   verifyGrounding: typeof verifyGrounding;
   validateSpec: typeof validateSpec;
+  isSafeParquetUrl: typeof isSafeParquetUrl;
+  normalizeRemoteParquetUrl: typeof normalizeRemoteParquetUrl;
+  extractRemoteParquetSchema: typeof extractRemoteParquetSchema;
+  storeRemoteParquetRef: typeof storeRemoteParquetRef;
+  extractParquetSchema: typeof extractParquetSchema;
+  storeLocalFileRef: typeof storeLocalFileRef;
+  getFileInfo: typeof getFileInfo;
+  parseExcelMeta: typeof parseExcelMeta;
+  sheetToCSV: typeof sheetToCSV;
+  parseGeoJSON: typeof parseGeoJSON;
+  isGeoJSONObject: typeof isGeoJSONObject;
+  storeGeoJSON: typeof storeGeoJSON;
+  toCSVText: typeof toCSVText;
   models: { codeGen: string; uiCompose: string };
 }
 
@@ -72,6 +94,19 @@ export function realDeps(): McpDeps {
     collectGroundedValues,
     verifyGrounding,
     validateSpec,
+    isSafeParquetUrl,
+    normalizeRemoteParquetUrl,
+    extractRemoteParquetSchema,
+    storeRemoteParquetRef,
+    extractParquetSchema,
+    storeLocalFileRef,
+    getFileInfo,
+    parseExcelMeta,
+    sheetToCSV,
+    parseGeoJSON,
+    isGeoJSONObject,
+    storeGeoJSON,
+    toCSVText,
     models: { codeGen: CODE_GEN_MODEL, uiCompose: UI_COMPOSE_MODEL },
   };
 }

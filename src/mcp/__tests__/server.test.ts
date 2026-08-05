@@ -21,6 +21,13 @@ import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { collectGroundedValues, verifyGrounding } from "@/lib/pipeline/grounding";
 import { validateSpec } from "@/lib/catalog";
+import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
+import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
+import { storeRemoteParquetRef, storeLocalFileRef, storeGeoJSON } from "@/lib/csv/storage";
+import { getFileInfo } from "@/lib/local-files/browser";
+import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
+import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
+import { toCSVText } from "@/lib/csv/parser";
 import { setPathRoots } from "@/lib/paths";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 
@@ -105,6 +112,28 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
     collectGroundedValues, // real: pure
     verifyGrounding, // real: pure — the engine under test
     validateSpec, // real: the enforcing gate under test
+    // Remote/local parquet: validation+normalization real (pure); the
+    // extractors are faked (they run docker); the ref stores are real
+    // (in-memory maps under the test path roots).
+    isSafeParquetUrl,
+    normalizeRemoteParquetUrl,
+    extractRemoteParquetSchema: vi.fn(async (_url: string, csvId: string, filename: string) =>
+      extractSchema(parseCSV(CSV_TEXT), csvId, filename)
+    ) as unknown as McpDeps["extractRemoteParquetSchema"],
+    storeRemoteParquetRef: vi.fn(
+      storeRemoteParquetRef
+    ) as unknown as McpDeps["storeRemoteParquetRef"],
+    extractParquetSchema: vi.fn(async (_p: string, csvId: string, filename: string) =>
+      extractSchema(parseCSV(CSV_TEXT), csvId, filename)
+    ) as unknown as McpDeps["extractParquetSchema"],
+    storeLocalFileRef: vi.fn(storeLocalFileRef) as unknown as McpDeps["storeLocalFileRef"],
+    getFileInfo, // real: fs
+    parseExcelMeta, // real: pure over a buffer
+    sheetToCSV, // real: pure
+    parseGeoJSON, // real: pure
+    isGeoJSONObject, // real: pure
+    storeGeoJSON, // real: writes under test scratch root
+    toCSVText, // real: pure
     models: { codeGen: "model-a", uiCompose: "model-b" },
   };
 }
@@ -426,6 +455,148 @@ describe("verify_narrative (real grounding engine)", () => {
       arguments: { prose: "Revenue is 5." },
     });
     expect((result as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+describe("connect_source: cloud URLs, parquet paths, excel, geojson", () => {
+  it("connects a cloud parquet URL; env creds resolved server-side, never in the response", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const prevEnv = { ...process.env };
+    process.env.AWS_ACCESS_KEY_ID = "AKIA_TEST";
+    process.env.AWS_SECRET_ACCESS_KEY = "supersecret";
+    try {
+      const result = parseToolJson(
+        await client.callTool({
+          name: "connect_source",
+          arguments: { url: "s3://bucket/data/trips.parquet" },
+        })
+      );
+      expect(result.source_id).toBeTruthy();
+      expect(JSON.stringify(result)).not.toContain("supersecret");
+      expect(JSON.stringify(result)).not.toContain("AKIA_TEST");
+      const call = vi.mocked(deps.storeRemoteParquetRef).mock.calls[0];
+      expect((call[3] as { s3SecretAccessKey?: string })?.s3SecretAccessKey).toBe("supersecret");
+    } finally {
+      process.env = prevEnv;
+    }
+  });
+
+  it("rejects unsafe URLs before any extraction", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const result = await client.callTool({
+      name: "connect_source",
+      arguments: { url: "s3://bucket/x'; DROP--" },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(deps.extractRemoteParquetSchema).not.toHaveBeenCalled();
+  });
+
+  it("run_analysis refuses remote and path-based sources (network/mount policy)", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({
+        name: "connect_source",
+        arguments: { url: "https://example.com/data.parquet" },
+      })
+    ) as { source_id: string };
+    const result = await client.callTool({
+      name: "run_analysis",
+      arguments: { source_id, python: "x" },
+    });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(String(parseToolJson(result).error)).toContain("analyze");
+  });
+
+  it("connects a local parquet file as a path-based source", async () => {
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const pq = join(dir, "events.parquet");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(pq, "PAR1fake");
+    const result = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: pq } })
+    );
+    expect(result.source_id).toBeTruthy();
+    expect(deps.extractParquetSchema).toHaveBeenCalledWith(
+      pq,
+      expect.any(String),
+      "events.parquet",
+      false,
+      "docker",
+      undefined
+    );
+    expect(deps.storeLocalFileRef).toHaveBeenCalled();
+  });
+
+  it("multi-sheet excel returns the sheet list, then connects the chosen sheet", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const s1 = wb.addWorksheet("Revenue");
+    s1.addRow(["month", "revenue"]);
+    s1.addRow(["Jan", 100]);
+    const s2 = wb.addWorksheet("Costs");
+    s2.addRow(["month", "cost"]);
+    s2.addRow(["Jan", 40]);
+    const xlsxPath = join(dir, "book.xlsx");
+    await wb.xlsx.writeFile(xlsxPath);
+
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+
+    const listing = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: xlsxPath } })
+    );
+    expect(listing.needs_sheet).toBe(true);
+    expect((listing.sheets as Array<{ name: string }>).map((sh) => sh.name)).toEqual([
+      "Revenue",
+      "Costs",
+    ]);
+
+    const connected = parseToolJson(
+      await client.callTool({
+        name: "connect_source",
+        arguments: { path: xlsxPath, sheet: "Costs" },
+      })
+    );
+    expect(connected.source_id).toBeTruthy();
+    const schema = connected.schema as { filename: string; row_count: number };
+    expect(schema.filename).toContain("Costs");
+    expect(schema.row_count).toBe(1);
+  });
+
+  it("connects GeoJSON and rejects non-GeoJSON .json", async () => {
+    const { writeFileSync } = await import("node:fs");
+    const geoPath = join(dir, "places.geojson");
+    writeFileSync(
+      geoPath,
+      JSON.stringify({
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [0, 0] },
+            properties: { name: "Origin", population: 5 },
+          },
+        ],
+      })
+    );
+    const deps = fakeDeps(fakeConnector(""));
+    const client = await connectedClient(deps, audit);
+    const ok = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: geoPath } })
+    );
+    expect((ok.schema as { has_geojson: boolean }).has_geojson).toBe(true);
+
+    const plainPath = join(dir, "config.json");
+    writeFileSync(plainPath, JSON.stringify({ hello: "world" }));
+    const bad = await client.callTool({
+      name: "connect_source",
+      arguments: { path: plainPath },
+    });
+    expect((bad as { isError?: boolean }).isError).toBe(true);
   });
 });
 

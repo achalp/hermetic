@@ -84,9 +84,12 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
     "connect_source",
     {
       description:
-        "Attach a data source (local CSV file or saved warehouse connection) and get a " +
-        "source_id plus a schema summary. Data never leaves the machine; responses carry " +
-        "schema and statistics only, never raw rows or credentials.",
+        "Attach a data source and get a source_id plus a schema summary. Accepts: `path` " +
+        "(local .csv, .xlsx [use `sheet` for multi-sheet], GeoJSON, .parquet file, or " +
+        "Parquet folder), `url` (cloud Parquet — s3://, https://, gs://, incl. " +
+        "Hive-partitioned prefixes), or `connection_id` (saved warehouse). Data never " +
+        "leaves the machine; responses carry schema and statistics only, never raw rows " +
+        "or credentials.",
       inputSchema: connectSourceInput,
     },
     withAudit(audit, "connect_source", (args) => connectSource(deps, args))

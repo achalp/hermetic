@@ -22,6 +22,14 @@ export interface CsvSource {
   label: string;
   csvId: string;
   schema: CSVSchema;
+  /** True for cloud Parquet sources (s3://, https://, gs://) — reads need
+   *  network, so run_analysis (network-deny) refuses them; analyze handles
+   *  them through the pipeline's scan-budgeted remote path. */
+  remote?: boolean;
+  /** True for bind-mounted local Parquet file/folder refs — there is no CSV
+   *  text in the store, so run_analysis redirects to analyze (whose pipeline
+   *  mounts the path into the sandbox). */
+  pathBased?: boolean;
 }
 
 export interface WarehouseSource {

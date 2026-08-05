@@ -32,16 +32,16 @@ pnpm mcp:build-viewer
 
 ## Tools
 
-| Tool                | What it does                                                                                                    | Boundary guarantees                                                               |
-| ------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `connect_source`    | Attach a local CSV (`path`) or saved warehouse connection (`connection_id`) → `source_id` + schema summary      | No raw rows, no credentials in any response                                       |
-| `get_schema`        | Rich schema: column stats, detected domain, correlations                                                        | Aggregates only; row-linked samples are structurally unreachable                  |
-| `analyze`           | **Flagship.** Full hermetic pipeline (code-gen → sandbox → dashboard), persisted; returns summary + cost + link | Data and compute stay local; host sees narrative + aggregates                     |
-| `run_sql`           | Read-only SELECT against a warehouse (pushdown; billions of rows)                                               | `assertReadOnlySql` **before** execution; row-capped results                      |
-| `run_analysis`      | Host-authored Python in the Docker sandbox                                                                      | `--network none` enforced regardless of code content; row-level datasets withheld |
-| `verify_narrative`  | Trace every data-like number in prose to computed values                                                        | Reports untraceable figures before the user sees them                             |
-| `persist_dashboard` | Persist a host-authored spec as a viewable analysis                                                             | **Enforcing** catalog validation — invalid specs rejected                         |
-| `list_sources`      | Sources connected this session                                                                                  | —                                                                                 |
+| Tool                | What it does                                                                                                                                                                                                                                           | Boundary guarantees                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `connect_source`    | Attach a source → `source_id` + schema summary. `path`: .csv, .xlsx (`sheet` for multi-sheet), GeoJSON, .parquet file or folder (Hive auto-detected). `url`: cloud Parquet (s3/https/gs, incl. partitioned prefixes). `connection_id`: saved warehouse | No raw rows, no credentials in any response                                       |
+| `get_schema`        | Rich schema: column stats, detected domain, correlations                                                                                                                                                                                               | Aggregates only; row-linked samples are structurally unreachable                  |
+| `analyze`           | **Flagship.** Full hermetic pipeline (code-gen → sandbox → dashboard), persisted; returns summary + cost + link                                                                                                                                        | Data and compute stay local; host sees narrative + aggregates                     |
+| `run_sql`           | Read-only SELECT against a warehouse (pushdown; billions of rows)                                                                                                                                                                                      | `assertReadOnlySql` **before** execution; row-capped results                      |
+| `run_analysis`      | Host-authored Python in the Docker sandbox                                                                                                                                                                                                             | `--network none` enforced regardless of code content; row-level datasets withheld |
+| `verify_narrative`  | Trace every data-like number in prose to computed values                                                                                                                                                                                               | Reports untraceable figures before the user sees them                             |
+| `persist_dashboard` | Persist a host-authored spec as a viewable analysis                                                                                                                                                                                                    | **Enforcing** catalog validation — invalid specs rejected                         |
+| `list_sources`      | Sources connected this session                                                                                                                                                                                                                         | —                                                                                 |
 
 ## The dashboard link
 
@@ -57,6 +57,26 @@ uses: drill-downs and interactivity included.
 
 Entries also appear in the web app's History page — the stores are shared when
 both run from the same checkout.
+
+## Cloud sources and credentials
+
+Cloud Parquet URLs are read over the network by DuckDB inside the sandbox —
+nothing is downloaded to disk, and multi-billion-row partitioned datasets
+work under the pipeline's scan budget. **Credentials are never tool
+arguments** (a secret passed as an argument would flow through the host
+model's context). Private buckets authenticate from the MCP server's own
+environment, set in the host config:
+
+```jsonc
+"hermetic": {
+  "command": "pnpm", "args": ["mcp"], "cwd": "/path/to/hermetic",
+  "env": { "AWS_REGION": "us-east-1", "AWS_ACCESS_KEY_ID": "…", "AWS_SECRET_ACCESS_KEY": "…" }
+}
+```
+
+Public buckets (e.g. Overture) need nothing. The same policy is why new
+warehouse connections can't be created via MCP — save them once in the web
+app, then use `connection_id`.
 
 ## Security model
 
@@ -86,9 +106,15 @@ Run locally: `HERMETIC_LLM_MODE=replay node scripts/mcp-proof.mjs`.
 
 ## Current limitations
 
-- CSV + saved warehouse connections; Excel/local-folder sources are
-  web-harness-only for now.
-- `run_analysis` and `persist_dashboard` target CSV sources.
+- Excel workbook-relational mode (all sheets joined) is web-harness-only —
+  MCP loads one sheet at a time; multi-sheet analysis via repeated
+  connect_source.
+- New warehouse connections cannot be created via MCP (by credential policy —
+  see above); local Parquet/cloud URLs require the Docker runtime.
+- `run_analysis` targets in-memory sources (CSV/Excel-sheet/GeoJSON);
+  Parquet/cloud/warehouse sources analyze through `analyze` (mounted or
+  scan-budgeted network reads the deny policy can't grant).
+- `persist_dashboard` targets non-warehouse sources.
 - One session's `source_id`s live in-process — reconnect after a server
   restart.
 - The catalog-as-resource (teaching the host to author specs natively) is

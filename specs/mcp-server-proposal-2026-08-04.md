@@ -3,9 +3,14 @@
 **Date:** 2026-08-04
 **Status:** v1 implemented (M1–M5, branch `mcp-server-v1`, 2026-08-04) —
 tool surface + embedded viewer + hardening shipped per §3/§4; deviations:
-`list_sources` added; `persist_dashboard`/`run_analysis` are CSV-source-only
-in v1; consent flow realized as default-on audit + documented trust model
-(docs/mcp.md) rather than interactive prompts
+`list_sources` added; connect_source covers all viable web-app sources (CSV,
+Excel per-sheet, GeoJSON, local Parquet file/folder, cloud Parquet URLs with
+env-based creds, saved warehouses) — excluded by policy: new-connection
+credentials as tool args; excluded as UI-mechanism: browse/drag-drop pickers,
+Excel workbook-relational mode (route-orchestration, needs lib extraction);
+`run_analysis` is in-memory-source-only (deny policy can't grant
+mount/network); consent flow realized as default-on audit + documented trust
+model (docs/mcp.md) rather than interactive prompts
 **Context:** Post-modularization Phase 1 (`specs/modularization-2026-08-01.md` §9).
 An MCP server is "someone else's harness" — the third harness the modularization
 explicitly anticipated. Competitive grounding:

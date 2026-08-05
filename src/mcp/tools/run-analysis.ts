@@ -58,6 +58,19 @@ export async function runAnalysis(
       "run_analysis targets CSV sources. For warehouse sources use run_sql (pushdown) or analyze."
     );
   }
+  if (source.remote) {
+    throw new Error(
+      "run_analysis runs with networking disabled, and this source is a cloud URL that must " +
+        "be read over the network. Use analyze — its pipeline reads remote sources under a " +
+        "scan budget."
+    );
+  }
+  if (source.pathBased) {
+    throw new Error(
+      "This source is a bind-mounted Parquet path with no CSV text in the store. Use " +
+        "analyze — its pipeline mounts the path into the sandbox."
+    );
+  }
 
   const csvText = await deps.getCSVContent(source.csvId);
   if (!csvText) {
