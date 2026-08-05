@@ -11,8 +11,10 @@ afterEach(() => cleanup());
 const RECENTS: RecentItem[] = [
   { id: "r1", kind: "upload", name: "quarterly_deals.xlsx", subtitle: "~", meta: "2h ago" },
   { id: "r2", kind: "warehouse", name: "play.clickhouse.com", subtitle: "ch", brandColor: "#fc0" },
-  { id: "r3", kind: "remote-parquet", name: "acme-lake/events", subtitle: "s3" },
-  { id: "r4", kind: "upload", name: "should-not-render.csv", subtitle: "~" },
+  { id: "r3", kind: "remote-parquet", name: "acme-lake/events", subtitle: "s3", meta: "2.5B rows" },
+  { id: "r4", kind: "upload", name: "fourth-recent.csv", subtitle: "~" },
+  { id: "r5", kind: "local-file", name: "events.parquet", subtitle: "/data/events.parquet" },
+  { id: "r6", kind: "local-folder", name: "lake/", subtitle: "/data/lake" },
 ];
 
 const SAVED: SavedConnectionItem[] = [
@@ -38,11 +40,38 @@ function renderMenu(overrides: Partial<React.ComponentProps<typeof AddDataMenu>>
 }
 
 describe("AddDataMenu", () => {
-  it("shows at most three recents, newest first", () => {
+  it("shows ALL recents, newest first (the store caps totals; the menu scrolls)", () => {
     renderMenu();
     expect(screen.getByText("quarterly_deals.xlsx")).toBeTruthy();
-    expect(screen.getByText("acme-lake/events")).toBeTruthy();
-    expect(screen.queryByText("should-not-render.csv")).toBeNull();
+    expect(screen.getByText("fourth-recent.csv")).toBeTruthy();
+    // Local/cloud recents appear TWICE by design: fast-resume row up top
+    // plus their category row under the local & cloud door.
+    expect(screen.getAllByText("lake/")).toHaveLength(2);
+  });
+
+  it("nests local & cloud sources in their own group under the local/cloud entry", () => {
+    renderMenu();
+    const group = screen.getByRole("group", { name: "Saved local & cloud sources" });
+    // remote-parquet, local-file, and local-folder recents appear here…
+    expect(within(group).getByText("acme-lake/events")).toBeTruthy();
+    expect(within(group).getByText("events.parquet")).toBeTruthy();
+    expect(within(group).getByText("lake/")).toBeTruthy();
+    // …uploads and warehouses do not (they have their own doors).
+    expect(within(group).queryByText("quarterly_deals.xlsx")).toBeNull();
+    expect(within(group).queryByText("play.clickhouse.com")).toBeNull();
+  });
+
+  it("omits the local & cloud group when no path/url recents exist", () => {
+    renderMenu({ recents: RECENTS.filter((r) => r.kind === "upload") });
+    expect(screen.queryByRole("group", { name: "Saved local & cloud sources" })).toBeNull();
+  });
+
+  it("opening a nested local & cloud item reports the RecentItem and closes", async () => {
+    const h = renderMenu();
+    const group = screen.getByRole("group", { name: "Saved local & cloud sources" });
+    await userEvent.click(within(group).getByText("events.parquet"));
+    expect(h.onOpenRecent).toHaveBeenCalledExactlyOnceWith(RECENTS[4]);
+    expect(h.onPicked).toHaveBeenCalledTimes(1);
   });
 
   it("hides the Recent group entirely for first-run users", () => {

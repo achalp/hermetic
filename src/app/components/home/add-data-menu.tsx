@@ -24,14 +24,30 @@ interface AddDataMenuProps {
   onPicked: () => void;
 }
 
-const MAX_RECENTS = 3;
+/**
+ * Rows visible before a group scrolls. The recents STORE caps at 24; a menu
+ * that tall would bury the "Add new" doors, so each group shows everything
+ * but scrolls past this many rows.
+ */
+const VISIBLE_ROWS = 5;
+
+/** The kinds the "Local & cloud files" door owns (recents are the only
+ * persistent record of these — the local/cloud analog of a saved warehouse
+ * connection). */
+const LOCAL_CLOUD_KINDS = new Set<RecentItem["kind"]>([
+  "local-file",
+  "local-folder",
+  "remote-parquet",
+]);
 
 /**
  * The single "Add data" menu: every way into the product, in priority order.
- * Recent (fast resume) → Add new (upload / local & cloud / warehouse, with
- * saved connections nested one level inside the warehouse door) → Sample.
- * Recents answer "continue where I left off"; saved answers "which of my
- * warehouses" — a connection can be both, and neither costs a page row.
+ * Recent (fast resume) → Add new (upload / local & cloud / warehouse), with
+ * each door's saved items nested one level inside it: local paths and cloud
+ * URLs under "Local & cloud files", saved connections under "Connect a
+ * warehouse" → Sample. Recents answer "continue where I left off"; the
+ * nested lists answer "which of my sources" — an item can be both, and
+ * neither costs a page row.
  */
 export function AddDataMenu({
   recents,
@@ -48,22 +64,24 @@ export function AddDataMenu({
     fn();
     onPicked();
   };
-  const topRecents = recents.slice(0, MAX_RECENTS);
+  const localCloudRecents = recents.filter((r) => LOCAL_CLOUD_KINDS.has(r.kind));
 
   return (
     <div role="menu" aria-label="Add data" className="p-1.5" style={{ minWidth: 330 }}>
-      {topRecents.length > 0 && (
+      {recents.length > 0 && (
         <>
           <GroupHeading>Recent</GroupHeading>
-          {topRecents.map((item) => (
-            <MenuItem key={`${item.kind}:${item.id}`} onClick={pick(() => onOpenRecent(item))}>
-              <KindDot brandColor={item.brandColor} kind={item.kind} />
-              <span className="min-w-0 flex-1 truncate text-left font-medium text-t-primary text-sm">
-                {item.name}
-              </span>
-              {item.meta && <Meta>{item.meta}</Meta>}
-            </MenuItem>
-          ))}
+          <ScrollGroup rows={VISIBLE_ROWS} rowHeight={42}>
+            {recents.map((item) => (
+              <MenuItem key={`${item.kind}:${item.id}`} onClick={pick(() => onOpenRecent(item))}>
+                <KindDot brandColor={item.brandColor} kind={item.kind} />
+                <span className="min-w-0 flex-1 truncate text-left font-medium text-t-primary text-sm">
+                  {item.name}
+                </span>
+                {item.meta && <Meta>{item.meta}</Meta>}
+              </MenuItem>
+            ))}
+          </ScrollGroup>
           <Separator />
           <GroupHeading>Add new</GroupHeading>
         </>
@@ -86,6 +104,24 @@ export function AddDataMenu({
         <ItemText title="Local & cloud files" detail="Parquet · S3/HTTPS — zero-copy" />
       </MenuItem>
 
+      {localCloudRecents.length > 0 && (
+        <NestedGroup label="Saved local & cloud sources">
+          {localCloudRecents.map((item) => (
+            <MenuItem
+              key={`lc:${item.kind}:${item.id}`}
+              compact
+              onClick={pick(() => onOpenRecent(item))}
+            >
+              <KindDot brandColor={item.brandColor} kind={item.kind} />
+              <span className="min-w-0 flex-1 truncate text-left text-sm text-t-primary">
+                {item.name}
+              </span>
+              <Meta>{item.meta ?? "saved"}</Meta>
+            </MenuItem>
+          ))}
+        </NestedGroup>
+      )}
+
       <MenuItem onClick={pick(onNewWarehouse)}>
         <ActionIcon>
           <DatabaseIcon />
@@ -97,12 +133,7 @@ export function AddDataMenu({
       </MenuItem>
 
       {savedConnections.length > 0 && (
-        <div
-          role="group"
-          aria-label="Saved connections"
-          className="border-l-2 border-border-default"
-          style={{ margin: "0 6px 4px 47px", paddingLeft: 6 }}
-        >
+        <NestedGroup label="Saved connections">
           {savedConnections.map((c) => (
             <MenuItem key={c.id} compact onClick={pick(() => onSavedConnect(c.id))}>
               <KindDot brandColor={c.brandColor} kind="warehouse" />
@@ -112,7 +143,7 @@ export function AddDataMenu({
               <Meta>saved</Meta>
             </MenuItem>
           ))}
-        </div>
+        </NestedGroup>
       )}
 
       <MenuItem onClick={pick(onSample)}>
@@ -145,6 +176,39 @@ function Separator() {
       className="bg-border-default"
       style={{ height: 1, margin: "5px 8px" }}
     />
+  );
+}
+
+/** Show everything, scroll past `rows` — the store caps totals (24 recents),
+ * the menu just refuses to become a full-page list. */
+function ScrollGroup({
+  children,
+  rows,
+  rowHeight,
+}: {
+  children: React.ReactNode;
+  rows: number;
+  rowHeight: number;
+}) {
+  return (
+    <div className="overflow-y-auto" style={{ maxHeight: rows * rowHeight + rowHeight / 2 }}>
+      {children}
+    </div>
+  );
+}
+
+/** The indented "belongs to the door above" list (saved connections, saved
+ * local/cloud sources) — scrolls like the recents group. */
+function NestedGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="overflow-y-auto border-l-2 border-border-default"
+      style={{ margin: "0 6px 4px 47px", paddingLeft: 6, maxHeight: VISIBLE_ROWS * 40 + 20 }}
+    >
+      {children}
+    </div>
   );
 }
 
