@@ -1,6 +1,13 @@
 # Hermetic
 
-**Ask your data anything.** Upload CSV, Excel, GeoJSON, or Parquet files (single file or Hive-partitioned folder via DuckDB) — or connect to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, or Hive — ask questions in natural language, and get interactive dashboards. Ask follow-up questions in conversation, kick off a multi-step **Investigate** for a full deep-dive, schedule a saved dashboard to refresh on a cron, see exactly what each analysis costs, and teach it your domain with drop-in **skills** (markdown guidance + Python helpers the model is steered to import). Designed for people who have data but not the skills to analyze it. Works with cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama.
+Hermetic is an open-source, local-first AI data analyst: ask questions of your data in natural language and get interactive dashboards, without the model ever seeing your rows.
+
+- **Sources**: CSV, Excel, GeoJSON, and Parquet files (single files, Hive-partitioned folders, and cloud Parquet on S3/HTTPS at billion-row scale) — or direct connections to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, and Hive.
+- **Analysis**: single-question dashboards, conversational follow-ups, and a multi-step **Investigate** agent; every narrative number is checked against what the analysis actually computed.
+- **Teachable**: drop-in **skills** (markdown guidance + tested Python helpers) carry your team's definitions and methods, enforced by a pre-execution review gate.
+- **Durable**: analyses persist, restore, re-run against fresh data, refresh on a cron, and export — including as a **single self-contained interactive HTML file** you can share anywhere.
+- **Agent-ready**: hermetic is also an **MCP server** — Claude Desktop, Claude Code, or any MCP host can drive the same pipeline as tools while data and execution stay on your machine.
+- **Models**: cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama.
 
 ![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
 
@@ -26,7 +33,86 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 **Sandboxed execution.** Code runs in containers or microVMs with no access to the host filesystem. Docker containers run with networking disabled (`--network none`) by default; network is enabled only when the generated code actually reads a remote data source (cloud Parquet over `s3://`/`https://`), and those runs use a fresh ephemeral container rather than the shared warm one. Data is passed in via stdin and results are read from stdout. Warm sandbox modes (Docker, Microsandbox) reuse the underlying container across queries for speed but clear working data between runs. E2B creates a fresh cloud sandbox each time (network posture is E2B's).
 
-**Adaptive UI.** The LLM composes a JSON-Render spec, a declarative layout of charts, stat cards, tables, annotations, and filters, tailored to each question. A bar chart for comparisons, a line chart for trends, stat cards for KPIs, a treemap for composition. The UI adapts to the question rather than using a fixed template.
+**Adaptive UI.** The LLM composes a declarative render spec (an owned, vendored fork of JSON-Render — `src/spec`), a layout of charts, stat cards, tables, annotations, and filters, tailored to each question. A bar chart for comparisons, a line chart for trends, stat cards for KPIs, a treemap for composition. The UI adapts to the question rather than using a fixed template.
+
+## Quick Start
+
+```bash
+git clone https://github.com/achalp/hermetic.git
+cd hermetic
+./start.sh
+```
+
+The setup script checks prerequisites, installs dependencies, sets up your chosen sandbox runtime, and starts the dev server. It will prompt you for an API key and let you choose between Docker and Microsandbox.
+
+It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP server — see [Using from Claude](#using-from-claude-mcp-server).
+
+### Manual Setup
+
+1. **Install dependencies**
+
+   This project uses [pnpm](https://pnpm.io). Enable it with Corepack (bundled with Node), then install:
+
+   ```bash
+   corepack enable
+   pnpm install
+   ```
+
+   The committed `pnpm-lock.yaml` is registry-agnostic, so it installs cleanly against the public npm registry or a corporate mirror (e.g. Artifactory) configured in your `~/.npmrc`.
+
+2. **Configure environment**
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+   Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration). For local-only usage with Ollama, no `.env.local` changes are needed. Configure it from the Settings UI instead.
+
+3. **Set up a sandbox runtime** (pick one):
+
+   **Option A: Docker** (default)
+
+   ```bash
+   docker build -t hermetic-sandbox docker/sandbox
+   ```
+
+   Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+   **Option B: Microsandbox** (lightweight microVMs)
+
+   ```bash
+   # Install the microsandbox server
+   curl -sSL https://get.microsandbox.dev | sh
+
+   # Start the server (dev mode, no API key required)
+   msb server start --dev
+   ```
+
+   Then set in `.env.local`:
+
+   ```
+   SANDBOX_RUNTIME=microsandbox
+   MICROSANDBOX_URL=http://127.0.0.1:5555
+   ```
+
+   Requires macOS Apple Silicon (M1+) or Linux with KVM.
+
+   **Option C: E2B** (cloud sandbox)
+
+   ```
+   SANDBOX_RUNTIME=e2b
+   E2B_API_KEY=your-e2b-key
+   ```
+
+   Sign up at [e2b.dev](https://e2b.dev).
+
+4. **Start the dev server**
+
+   ```bash
+   pnpm dev
+   ```
+
+5. Open [http://localhost:3000](http://localhost:3000)
 
 ## Features
 
@@ -46,7 +132,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 ### Agentic Analysis
 
 - **Investigate agent.** One question, a full deep-dive. The planner decomposes it into a few focused, penetrating sub-questions — the count scaled to the output style (a Brief stays tight at ~3; a Deep dive goes wide) — the orchestrator runs independent ones in parallel waves and dependent ones serially, and a composer synthesizes them into a single unified dashboard. Against a **data warehouse**, each sub-question generates its own targeted SQL that aggregates server-side over the full population (no row-cap sampling bias), bounded to a scan window sized from engine metadata so a billion-row table never blows the read limit. Progress streams live as a step list with status icons. The planner sees schema and stats only — never row values. Results render as a unified dashboard or as a step-by-step **notebook view** (each step's question, code, and result as a cell), exportable to Markdown, HTML, PDF, or Slides.
-- **Per-run diagnostics.** Every Investigate (and Ask) run writes one structured JSON record to `data/diagnostics/<date>.jsonl` — materialization (rows, sampled, Parquet, SQL repairs), per sub-question (path, escalations + reason, retries + error classes, status), an aggregate summary, plus cost and call count. So "why did this run cost or behave this way" is answerable from data, not guesswork.
+- **Per-run diagnostics.** Every Investigate (and Ask) run writes one structured JSON record to `data/diagnostics/<date>.jsonl` — materialization (rows, sampled, Parquet, SQL repairs), per sub-question (path, escalations + reason, retries + error classes, status), an aggregate summary, plus cost and call count. A `/diagnostics` page aggregates the records — runs per day, failure modes ranked by frequency, escalations, recent failures with run ids — so "why did this run cost or behave this way" is answerable from data, not guesswork.
 - **Multi-retry with reflection.** When generated code fails, the pipeline retries up to three times, carrying the full history of failed attempts forward. A reflection prompt kicks in after two failures so the model sees what it tried and why it broke, not just the original prompt.
 - **Scheduled runs.** Saved dashboards can be scheduled with node-cron. Schedule popover anchored to the dashboard toolbar, schedule pills on saved-viz cards with edit/delete in place — a dashboard you built last week refreshes itself every Monday morning.
 - **Persistent history.** Every analysis auto-saves to disk (generated code, results, visualizations). History survives restarts. Browse from a dedicated page, restore any previous result instantly, or re-run it against fresh data.
@@ -82,7 +168,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 ### Operations
 
 - **Edit and re-run.** If the generated Python or SQL is 90% right, edit it directly in the code editor and rebuild the whole dashboard through the standard pipeline. The server skips the generation step for whichever artifact you edited and runs everything downstream.
-- **Save and export.** Save visualizations, export as PDF, DOCX, or PPTX. Individual charts downloadable as PNG.
+- **Save and export.** Save visualizations; export as PDF, DOCX, PPTX — or as a **single-file interactive HTML** dashboard (see [Sharing dashboards](#sharing-dashboards)). Individual charts downloadable as PNG.
 - **Artifacts viewer.** Bottom sheet panel with syntax-highlighted SQL, Python code, and computed data tables. Copy to clipboard or export as CSV/XLSX.
 - **Update data.** Re-run saved visualizations with new data files. Schema-compatible updates skip LLM calls.
 - **Cost tracking.** Every analysis' LLM token cost is captured automatically across the whole fan-out (code-gen, retries, planner, sub-questions, compose) with zero call-site threading, and surfaced three ways: a live footer (last analysis + running session total), a per-day CSV log (`data/cost/<date>.csv` with token buckets, per-analysis cost, and a **per-phase breakdown** — planner, SQL-gen, SQL-repair, code-gen, compose, …), and a `/cost` page with totals and a per-dataset breakdown, linked from Settings. Local or unknown models report $0 but still track tokens.
@@ -95,6 +181,27 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 - **Local models.** MLX (Apple Silicon), llama.cpp, or Ollama. Detect, download, and activate models from the Settings drawer.
 - **Four themes.** Focus (emerald, default), Stamen (cartographic), Info is Beautiful (vivid), Pentagram (reductive). Each with light and dark variants.
 - **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
+
+## Using from Claude (MCP server)
+
+Hermetic doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server: any MCP host — Claude Desktop, Claude Code, or another MCP-speaking agent — gets hermetic's pipeline as tools while data, execution, and dashboards stay on your machine.
+
+- **9 tools**: `analyze` (the full pipeline as one call), `connect_source`, `get_schema`, `run_sql`, `run_analysis` (host-authored Python in the sandbox), `verify_narrative`, `persist_dashboard`, `export_dashboard`, `list_sources`.
+- **Embedded viewer**: dashboard links work with nothing else running (loopback-only server inside the MCP process), with the app's full theming and a download button.
+- **Trust model**: guards sit on authorship — host-written SQL passes a read-only gate before any connector sees it, host-written Python runs with networking denied, host-written specs validate against the catalog in enforcing mode. Every call lands in an audit log; the egress allowlist is proven in CI by an exfiltration canary.
+- **Setup**: `./scripts/install-mcp.sh` (detects Claude Desktop/Code, asks, writes config, builds the viewer). Claude Code needs nothing inside this checkout — the repo's `.mcp.json` auto-prompts.
+
+Full tool reference, trust model, and observability guide: [docs/mcp.md](docs/mcp.md).
+
+## Sharing dashboards
+
+Any analysis exports as **one self-contained `.html` file** — spec, data, renderer, charts, themes, and fonts inlined. It opens in any browser from `file://`, offline, with full interactivity (filters, cross-filter, drill-down), and needs no server, hosting, or account. Send it over Slack or email, or drop it on a shared drive.
+
+- ~3 MB for typical dashboards (the exporter inlines only the chart families the spec uses; 3D/geo/finance dashboards are larger) — the size and bundle are reported at export time.
+- Available from the web app's export menu ("Interactive HTML"), the CLI (`hermetic render <history-id> --html out.html`), and MCP (`export_dashboard`, plus an `export_url` on every `analyze` response).
+- The exported file strips pipeline-internal state, carries an as-of watermark and the verbatim question, and contains only what the dashboard shows.
+
+Design and rationale: [`specs/dashboard-distribution-2026-08-05.md`](specs/dashboard-distribution-2026-08-05.md).
 
 ## Data Warehouses
 
@@ -305,157 +412,59 @@ Click the **Browse local files** entry on the home screen, navigate to the file 
 
 Hive-partitioned folders (e.g. `year=2024/month=01/...`) are detected as a single dataset; partition columns appear in the schema alongside the file columns.
 
-## Quick Start
+## Command line
+
+The CLI drives the same pipeline with no web server:
 
 ```bash
-git clone https://github.com/achalp/hermetic.git
-cd hermetic
-./start.sh
+pnpm cli ask "What is the MRR trend over time?" data.csv --out spec.ndjson
+pnpm cli render <history-id> --html dashboard.html   # single-file export
 ```
 
-The setup script checks prerequisites, installs dependencies, sets up your chosen sandbox runtime, and starts the dev server. It will prompt you for an API key and let you choose between Docker and Microsandbox.
-
-It also offers to connect hermetic to **Claude Desktop / Claude Code as an MCP server** — your agent gets `analyze`, `run_sql`, and friends as tools while your data stays on your machine (see [docs/mcp.md](docs/mcp.md)). Standalone: `./scripts/install-mcp.sh`. Claude Code users need nothing: the repo's `.mcp.json` auto-prompts when you open `claude` here.
-
-### Manual Setup
-
-1. **Install dependencies**
-
-   This project uses [pnpm](https://pnpm.io). Enable it with Corepack (bundled with Node), then install:
-
-   ```bash
-   corepack enable
-   pnpm install
-   ```
-
-   The committed `pnpm-lock.yaml` is registry-agnostic, so it installs cleanly against the public npm registry or a corporate mirror (e.g. Artifactory) configured in your `~/.npmrc`.
-
-2. **Configure environment**
-
-   ```bash
-   cp .env.example .env.local
-   ```
-
-   Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration). For local-only usage with Ollama, no `.env.local` changes are needed. Configure it from the Settings UI instead.
-
-3. **Set up a sandbox runtime** (pick one):
-
-   **Option A: Docker** (default)
-
-   ```bash
-   docker build -t hermetic-sandbox docker/sandbox
-   ```
-
-   Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-
-   **Option B: Microsandbox** (lightweight microVMs)
-
-   ```bash
-   # Install the microsandbox server
-   curl -sSL https://get.microsandbox.dev | sh
-
-   # Start the server (dev mode, no API key required)
-   msb server start --dev
-   ```
-
-   Then set in `.env.local`:
-
-   ```
-   SANDBOX_RUNTIME=microsandbox
-   MICROSANDBOX_URL=http://127.0.0.1:5555
-   ```
-
-   Requires macOS Apple Silicon (M1+) or Linux with KVM.
-
-   **Option C: E2B** (cloud sandbox)
-
-   ```
-   SANDBOX_RUNTIME=e2b
-   E2B_API_KEY=your-e2b-key
-   ```
-
-   Sign up at [e2b.dev](https://e2b.dev).
-
-4. **Start the dev server**
-
-   ```bash
-   pnpm dev
-   ```
-
-5. Open [http://localhost:3000](http://localhost:3000)
+`ask` streams the analysis as NDJSON patches and persists it to history; `render` exports a persisted entry as a self-contained interactive HTML file. Reference: [docs/cli.md](docs/cli.md).
 
 ## Architecture
 
 ```
 src/
-  app/                  Next.js App Router
-    api/
-      query/            LLM query endpoint (streaming, with conversation context)
-      upload/           File upload endpoint
-      local-files/      Local file browser + Parquet/DuckDB ingest
-      warehouse/        Warehouse connection + introspection endpoints
-      vizs/             Saved visualization CRUD + scheduling
-      history/          Persistent analysis history
-      artifacts/        Execution artifacts viewer
-      suggest/          Question suggestion endpoint
-      providers/        LLM provider detection
-      runtimes/         Sandbox runtime status
-      skills/           Skill listing (valid + rejected files with reasons)
-      ollama/           Ollama model management
-      local-llm/        Local model (MLX / llama.cpp) management
-    history/            Persistent history page
-  components/
-    app/                Application shell
-      top-bar.tsx       Persistent header with actions
-      source-cards.tsx  File / warehouse / local file source cards
-      settings-drawer.tsx  Right-side settings panel
-      settings/         Inference, models, appearance, connected sources
-      data-rail.tsx     Collapsible data explorer rail
-      data-explorer/    Schema, profile, sample, sheet/table views
-      local-file-browser.tsx  File system picker for Parquet/CSV
-      schedule-popover.tsx    Cron scheduling UI for saved dashboards
-      code-editor.tsx   Edit-and-rerun Python / SQL editor
-      artifacts-panel.tsx  Bottom sheet for SQL/code/data
-      analysis-history.tsx  Session + persistent history of past analyses
-      saved-vizs-panel.tsx  Saved dashboards with schedule pills
-      suggestion-pills.tsx  LLM-generated question + follow-up suggestions
+  app/                  Next.js harness (App Router)
+    api/                ~60 thin route handlers delegating to lib
+      query/            Ask + Investigate streaming endpoints (NDJSON patches)
+      upload/, local-files/, remote-parquet/   File & Parquet ingestion (shared lib/sources/ingest)
+      warehouse/        Connection, introspection (cached + FK inference), sample
+      vizs/, history/   Saved visualization CRUD + scheduling; persistent history
+      export-html/, export/[id]/   Single-file interactive HTML export
+      skills/, diagnostics/, cost/, health/, providers/, runtimes/, local-llm/
+    components/         Application UI (top bar, settings, data rail, panels, home)
+    lib/                Browser-side app plumbing (typed API client, client-log bridge)
+    diagnostics/, cost/, history/   Operational pages
+  components/           The renderer library (future @hermetic/renderer — CI-checked closure)
     charts/             57 chart components (Nivo, Plotly, deck.gl, MapLibre GL)
-    pivot-table.tsx     Interactive pivot table (sort, drill, cross-filter)
     controllers/        DataController for client-side filtering
-    inputs/             Form inputs (Select, NumberInput, Toggle)
-  lib/
-    csv/                CSV parsing and schema extraction
-    excel/              Excel file handling
-    geojson/            GeoJSON parsing
-    parquet/            Parquet schema extraction via DuckDB
-    local-files/        Local file browser + path sandboxing
-    warehouse/          Data warehouse connectors
-      postgres, bigquery, clickhouse, snowflake, databricks, trino, hive
-      sql-generation.ts dialect-aware SQL prompts
-      dbt-metadata.ts   dbt column-description enrichment
-      infer-relationships.ts  FK/PK + heuristic relationship detection
-    llm/                LLM client, prompts, code generation
-      investigate-planner.ts   Decompose question → sub-questions
-      investigate-composer.ts  Synthesize sub-results → one dashboard
-      resolve-placeholders.ts  Hydrate composed spec with real values
-    skills/             Skill system (see docs/creating-skills.md)
-      builtin/          geo-overture, planet-scale-superlative, map-answer-visibility
-      skill-md.ts       SKILL.md parser (frontmatter, triggers, review rules, hints)
-      user-skills.ts    data/skills/<name>/ loader (mtime-cached, never throws)
-      user-modules.ts   data/user_lib always-on Python modules
-      registry.ts       Activation + guidance render + helper auto-advertisement
-    pipeline/           Query orchestration
-      orchestrator.ts            Single-question pipeline w/ multi-retry
-      investigate-orchestrator.ts Multi-step Investigate runner
-      conversation-cache.ts      Server-side follow-up context
-      code-cache.ts              Edit-rerun cached artifacts
-      artifacts-cache.ts         Execution artifact cache
-    sandbox/            Code execution (Docker warm / E2B / Microsandbox warm)
-    saved/              Saved viz storage, versioning, scheduler (node-cron)
-    history/            Persistent on-disk history
-    cost/               Per-analysis LLM cost capture (usage middleware + accumulator), pricing, daily CSV storage
-    suggest-questions.ts  Heuristic question suggestion fallback
-    purpose-prompts.ts  Output style definitions (Dashboard, Brief, Report, Deep dive)
+    inputs/             Form inputs
+    theme/              Theme system (4 themes × light/dark; shared with viewer + export)
+    registry.tsx, spec-view.tsx, data-table.tsx, pivot-table.tsx
+  spec/                 Vendored spec system fork (future @hermetic/spec — bottom of the stack)
+  lib/                  Framework-free core (no Next, no React — lint-enforced)
+    contracts/          Owned shared types (stream protocol, requests, schemas, configs)
+    csv/, excel/, geojson/, parquet/, local-files/   Parsers & schema extraction
+    sources/            Shared ingestion seam (upload, local-files, MCP all consume it)
+    warehouse/          Connectors (postgres, bigquery, clickhouse, snowflake, databricks,
+                        trino, hive), read-only SQL guard, engine descriptors, cached
+                        introspection + FK inference, dbt metadata
+    sqlgen/             Dialect-aware SQL generation + self-healing repair
+    llm/                LLM client & transports (incl. Claude CLI), prompts, planners/composers
+    skills/             Skill system: triggers, guidance, review rules, helpers (docs/creating-skills.md)
+    pipeline/           Orchestration: Ask/Investigate runners, retry loops, review gate,
+                        patch streaming, run control, grounding verification, caches
+    sandbox/            Execution: Docker / E2B / Microsandbox, capability descriptors,
+                        egress allowlist (CI-proven exfiltration canary), lifecycle
+    export/             Single-file HTML export assembler
+    history/, saved/, cost/, diagnostics/   Persistence, scheduling, cost capture, run records
+  cli/                  CLI harness (ask, render) — the architecture canary, runs in CI
+  mcp/                  MCP server harness: 9 tools, audit log, error taxonomy,
+    viewer/             embedded dashboard viewer + export bundles (esbuild, no Next)
+  harness/              Boot seam shared by non-Next harnesses (env config snapshot)
 ```
 
 ### How It Works
@@ -465,8 +474,8 @@ src/
 1. **Load.** CSV, Excel (multi-sheet), GeoJSON, JSON, or Parquet file is parsed, schema extracted, and stored in memory (Parquet stays on disk and is bind-mounted into the sandbox).
 2. **Query.** User question + schema (and prior conversation history, if any) sent to your configured LLM for Python code generation, along with guidance from any skills whose triggers match the schema or question.
 3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, scikit-learn, and DuckDB (plus any active skills' helper modules under `skill_lib`). When a review gate is active, an LLM critic lints the code against the skills' rules first and regenerates on findings. Failures retry up to 3× with a reflection prompt after the second attempt.
-4. **Compose.** Execution results sent to the LLM for UI composition as a JSON-Render spec.
-5. **Render.** JSON-Render spec streamed to the browser and rendered as interactive React components. Every analysis auto-saves to persistent history.
+4. **Compose.** Execution results sent to the LLM for UI composition as a render spec.
+5. **Render.** The spec is streamed to the browser and rendered as interactive React components. Every analysis auto-saves to persistent history.
 
 **Warehouse queries** add two steps before the standard pipeline:
 
@@ -477,7 +486,7 @@ src/
 
 1. **Plan.** The planner sees schema + stats only and decomposes the question into 3–7 sub-questions with a dependency graph.
 2. **Orchestrate.** Independent sub-questions run in parallel waves; dependent ones run serially. Each sub-question uses the standard pipeline.
-3. **Compose.** The composer synthesizes all sub-results into a single unified JSON-Render spec.
+3. **Compose.** The composer synthesizes all sub-results into a single unified render spec.
 
 **Conversational follow-ups** are handled by the conversation cache: each turn's question, generated code, and result schema are kept server-side so the next turn's LLM call has full context. "Exclude outliers and re-run" works without you restating the original setup.
 
@@ -497,6 +506,11 @@ pnpm format:check    # Prettier check
 pnpm type-check      # TypeScript check
 pnpm test            # Run tests
 pnpm test:watch      # Tests in watch mode
+pnpm cli ask ...     # CLI harness (no web server)
+pnpm mcp             # MCP server over stdio
+pnpm mcp:build-viewer  # Build the embedded viewer + export bundles
+node scripts/ratchet.mjs         # Design-flaw counters (fail CI on regression)
+node scripts/isolation-check.mjs # Package-closure proof (spec / contracts / renderer)
 pnpm analyze         # Bundle analysis
 ```
 
@@ -672,7 +686,7 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 **Framework and rendering**
 
 - [Next.js 16](https://nextjs.org/) with React 19
-- [JSON-Render](https://json-render.dev/) for streaming declarative UI from JSON specs
+- An owned, vendored fork of [JSON-Render](https://json-render.dev/) (`src/spec`, with its own test suite) for streaming declarative UI from JSON specs
 - [Tailwind CSS v4](https://tailwindcss.com/)
 
 **LLM integration**
