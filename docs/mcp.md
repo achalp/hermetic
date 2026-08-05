@@ -102,8 +102,22 @@ app, then use `connection_id`.
   certificates still validate against the real host; DuckDB picks the proxy
   up via the prelude's connect patch, Python via standard env vars — and
   anything that misses the proxy fails closed against the routeless network.
-  Proven by `scripts/egress-proof.ts` (in CI): allowed origin readable,
-  non-allowlisted origin 403'd, proxy bypass impossible.
+  Proven by `scripts/egress-proof.ts` (runs in CI on every push): allowed
+  origin readable, non-allowlisted origin 403'd, proxy bypass impossible,
+  plus a permanent **exfiltration canary** — an origin that must never
+  receive a request, with a positive control proving it is genuinely
+  reachable from an unrestricted container first, so silence means blocked
+  rather than unreachable. The canary is checked under both policies:
+  host-authored code (`network: "deny"`) and allowlisted networked code
+  reading its permitted origin (the prompt-injection path). Mutation-tested:
+  disabling the allowlist, and separately widening it to trust private-range
+  IPs, both fail the proof — the second is caught ONLY by the canary.
+
+  Matching granularity: exact hostname, case-insensitive; ports are not
+  restricted (bucket endpoints are distinguished by host, and a
+  port-restricted allowlist would break S3-compatible endpoints on
+  non-standard ports).
+
 - **SQL**: single-statement read-only enforcement in code
   (`lib/warehouse/sql-guard.ts`) before anything reaches a connector.
 - **Specs**: host-authored specs validate against the catalog **enforcing**
