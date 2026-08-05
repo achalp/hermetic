@@ -58,3 +58,6 @@ __pycache__/
 *.pyc
 test-fixtures/golden/*.received.ndjson
 test-fixtures/llm/*.miss.json
+
+# MCP embedded viewer build artifact
+src/mcp/viewer/dist/

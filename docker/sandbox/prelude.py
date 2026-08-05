@@ -464,3 +464,35 @@ except Exception as _rt_err:
         progress(runtime_pkg="inline-fallback: %s" % _rt_err)
     except Exception:
         pass
+
+# ── Egress proxy for DuckDB (auto-injected) ──────────────────────────────────
+# Under a restricted-egress run (lib/sandbox/egress.ts) the container has no
+# outbound route; the only door is the allowlist proxy named in
+# HERMETIC_HTTP_PROXY. Python's urllib/requests honor the standard proxy env
+# vars, but DuckDB 1.2.x reads its http_proxy SETTING only — so every duckdb
+# connection is patched to apply it. Fail-closed by construction: if this
+# patch missed a path, the read is blocked by the network, not silently open.
+import os as _os
+_hermetic_proxy = _os.environ.get("HERMETIC_HTTP_PROXY")
+if _hermetic_proxy:
+    try:
+        import duckdb as _duckdb
+
+        _orig_connect = _duckdb.connect
+
+        def _proxied_connect(*a, **kw):
+            con = _orig_connect(*a, **kw)
+            try:
+                con.execute("SET http_proxy=?", [_hermetic_proxy])
+            except Exception:
+                pass
+            return con
+
+        _duckdb.connect = _proxied_connect
+        # The module-level default connection too (duckdb.sql(...) style).
+        try:
+            _duckdb.execute("SET http_proxy=?", [_hermetic_proxy])
+        except Exception:
+            pass
+    except ImportError:
+        pass

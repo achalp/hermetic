@@ -1,7 +1,16 @@
 # Hermetic as an MCP server — proposal & v1 implementation plan
 
 **Date:** 2026-08-04
-**Status:** Proposed
+**Status:** v1 implemented (M1–M5, branch `mcp-server-v1`, 2026-08-04) —
+tool surface + embedded viewer + hardening shipped per §3/§4; deviations:
+`list_sources` added; connect_source covers all viable web-app sources (CSV,
+Excel per-sheet, GeoJSON, local Parquet file/folder, cloud Parquet URLs with
+env-based creds, saved warehouses) — excluded by policy: new-connection
+credentials as tool args; excluded as UI-mechanism: browse/drag-drop pickers,
+Excel workbook-relational mode (route-orchestration, needs lib extraction);
+`run_analysis` is in-memory-source-only (deny policy can't grant
+mount/network); consent flow realized as default-on audit + documented trust
+model (docs/mcp.md) rather than interactive prompts
 **Context:** Post-modularization Phase 1 (`specs/modularization-2026-08-01.md` §9).
 An MCP server is "someone else's harness" — the third harness the modularization
 explicitly anticipated. Competitive grounding:
@@ -187,3 +196,48 @@ of the libraries _as they are_ — no publishing required. It also forces the
 right subset of Phase 2a early (enforcing validation, trust model) while
 deferring the rest (CSS distribution, packaging) until a package consumer
 actually appears.
+
+## 8. Addendum (2026-08-05): the host is a harness; the tools are RPC
+
+The sharpest articulation of what this server _is_, arrived at while
+dogfooding v1 — recorded here because it should outlive the conversation
+that produced it.
+
+Hermetic is a set of libraries composed by interchangeable harnesses: the
+Next.js app, the CLI, and now an MCP host. The tools are **RPC into those
+libraries**, and the host model plays the role `page.tsx` plays for the web
+app or `main.ts` plays for the CLI — it decides what to call and in what
+order. What makes this harness different is that its logic is an LLM's
+runtime decisions rather than audited code, and its context may carry
+injected instructions. It is a **semi-trusted harness**: trusted to
+orchestrate, not trusted to author code.
+
+Two consequences, one of which **amends premise §1.1**:
+
+1. **Guards sit on authorship, not on data.** Host-authored SQL is
+   statement-gated (`assertReadOnlySql`), host-authored Python runs with
+   networking denied unconditionally, host-authored specs validate
+   enforcing — while hermetic's own generated code gets the softer
+   heuristic policies. These controls sit on the code path, where prompt
+   injection actually bites.
+
+2. **The row-hiding form of the data boundary does not survive this
+   harness — and shouldn't.** §1.1's "the model sees schema and computed
+   aggregates, never rows" is the wrong invariant for an RPC surface: the
+   host is simultaneously the recipient of the data and the author of the
+   queries, so it can always ask for rows explicitly (`run_sql`,
+   `run_analysis`). Withholding rows elsewhere buys no protection — it only
+   makes the harness work harder — and hermetic does not second-guess what
+   the browser harness renders, so it should not second-guess this one.
+   The durable invariant is instead: **the data plane stays local** (files,
+   sandbox, warehouse connections, dashboards, viewer); **the control plane
+   is the host**, and everything a tool returns crosses into it — bounded
+   by transport caps (finite context, not policy), visible in the audit
+   log, with credentials never crossing on any path. Whether analysis
+   results reach a cloud provider is decided by the user's choice of host,
+   not by hermetic's return shapes. (Full statement: `docs/mcp.md`,
+   "Architecture: the host is a harness".)
+
+The framing also predicts the RPC-hygiene gaps a harness consumer feels
+before a chat consumer does: flagged rather than silent truncation,
+a consistent error taxonomy, and a version on the tool surface.

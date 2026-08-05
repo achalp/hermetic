@@ -21,7 +21,17 @@ export type PersistResult = { saved: true; meta: HistoryMeta } | { saved: false;
 export async function persistHistoryEntry(
   csvId: string,
   spec: Record<string, unknown>,
-  question: string
+  question: string,
+  opts: {
+    /**
+     * Skip the cached code/artifacts lookup. The cache is keyed by csvId, so
+     * for a spec this process did NOT compose (an MCP host authoring its own
+     * dashboard) the cache holds some OTHER run's Python and results —
+     * pairing them would make "Edit & rerun" execute code that never produced
+     * the visible dashboard.
+     */
+    withoutCachedRun?: boolean;
+  } = {}
 ): Promise<PersistResult> {
   if (!csvId || !spec || !question) return { saved: false, reason: "missing csvId/spec/question" };
 
@@ -32,10 +42,12 @@ export async function persistHistoryEntry(
     return { saved: false, reason: "csv expired" };
   }
 
-  const artifacts = getCachedArtifacts(csvId);
+  const artifacts = opts.withoutCachedRun ? undefined : getCachedArtifacts(csvId);
   // Single-shot Ask caches its Python in the code cache; Investigate mirrors its
   // last successful step's code onto the artifacts. Fall back so nothing drops.
-  const generatedCode = getCachedCode(csvId)?.code ?? artifacts?.code ?? "";
+  const generatedCode = opts.withoutCachedRun
+    ? ""
+    : (getCachedCode(csvId)?.code ?? artifacts?.code ?? "");
 
   const isLocal = !!(stored.localPath || stored.localFolderPath);
   const isWarehouse = stored.schema.source_type === "warehouse";

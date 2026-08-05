@@ -135,9 +135,22 @@ jobs:
 
       - name: Harness stays framework-free
         run: |
-          # The CLI + harness layers must never import Next (lib is
+          # The CLI/MCP + harness layers must never import Next (lib is
           # lint-enforced; this guards the harness files themselves).
-          ! grep -rE 'from "next(/|")' src/cli src/harness
+          ! grep -rE 'from "next(/|")' src/cli src/harness src/mcp
+
+      - name: Egress allowlist proof (real containers, internal network)
+        run: npx tsx scripts/egress-proof.ts
+
+      - name: MCP harness proof (offline, real server over stdio)
+        env:
+          HERMETIC_LLM_MODE: replay
+          ANTHROPIC_API_KEY: test-key-replay-only
+        run: |
+          # Same fixtures as the CLI proof; additionally builds and exercises
+          # the embedded viewer end-to-end (mcp-server spec §4 M5).
+          pnpm mcp:build-viewer
+          node scripts/mcp-proof.mjs
 
       # On a replay miss the middleware writes <hash>.miss.json next to the
       # fixtures (the attempted params). Upload those plus the received

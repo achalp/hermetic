@@ -63,6 +63,7 @@ export const hermeticPaths = {
   runtimeConfigFile: () => join(roots().dataRoot, "runtime-config.json"),
   schedulesFile: () => join(roots().dataRoot, "schedules.json"),
   warehouseConnectionsFile: () => join(roots().dataRoot, "warehouse-connections.json"),
+  mcpAuditFile: () => join(roots().dataRoot, "mcp-audit.jsonl"),
   /** Pre-C1 location (repo root, hidden file) — read as migration fallback. */
   legacyWarehouseConnectionsFile: () => join(roots().assetRoot, ".warehouse-connections.json"),
   // ── scratchRoot ──
@@ -76,4 +77,5 @@ export const hermeticPaths = {
   // ── assetRoot ──
   sandboxRuntimeAssetsDir: () => join(roots().assetRoot, "docker", "sandbox", "hermetic_runtime"),
   sandboxPreludeFile: () => join(roots().assetRoot, "docker", "sandbox", "prelude.py"),
+  sandboxEgressProxyFile: () => join(roots().assetRoot, "docker", "sandbox", "egress-proxy.py"),
 } as const;
