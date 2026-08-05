@@ -82,10 +82,23 @@ app, then use `connection_id`.
 
 - **Data boundary**: tool responses carry schema, statistics, and computed
   aggregates. Raw rows and warehouse credentials never enter host context.
-- **Execution**: `run_analysis` runs under Docker with networking disabled
-  unconditionally (`SandboxExecOptions.network: "deny"`) — an
-  external-model-authored script cannot exfiltrate. Non-Docker runtimes are
-  rejected for this tool rather than silently degraded.
+- **Execution — deny by authorship, not by source.** Three regimes:
+  hermetic's fixed template scripts (schema extraction over a validated URL)
+  run with network, but nothing model-authored executes; hermetic-generated
+  pipeline code (`analyze`) runs under "auto" — `--network none` for local
+  data, an ephemeral networked container only when the code manifestly reads
+  remote data; host-authored code (`run_analysis`) runs under absolute
+  "deny", and cloud/mounted sources are REFUSED for it rather than carved
+  out — Docker networking is all-or-nothing per container, and a
+  source-based exception would grant full egress to exactly the code
+  trusted least. Non-Docker runtimes are rejected rather than silently
+  degraded.
+- **Known residual**: during an `analyze` of a cloud source, that run's
+  container has unrestricted egress (the read requires network), and the
+  generated code's inputs include the host-supplied question. Narrow
+  surface (the container holds only the data under analysis), but nonzero;
+  planned hardening is a per-run egress allowlist scoped to the bucket
+  host.
 - **SQL**: single-statement read-only enforcement in code
   (`lib/warehouse/sql-guard.ts`) before anything reaches a connector.
 - **Specs**: host-authored specs validate against the catalog **enforcing**
