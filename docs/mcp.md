@@ -93,12 +93,17 @@ app, then use `connection_id`.
   source-based exception would grant full egress to exactly the code
   trusted least. Non-Docker runtimes are rejected rather than silently
   degraded.
-- **Known residual**: during an `analyze` of a cloud source, that run's
-  container has unrestricted egress (the read requires network), and the
-  generated code's inputs include the host-supplied question. Narrow
-  surface (the container holds only the data under analysis), but nonzero;
-  planned hardening is a per-run egress allowlist scoped to the bucket
-  host.
+- **Bucket-scoped egress (the former "known residual" — closed).** A
+  networked remote-source run no longer gets open internet: the analysis
+  container joins an INTERNAL Docker network with no outbound route, and its
+  only door is a hermetic-owned allowlist proxy (gateway container) that
+  forwards exclusively to the hosts derived from the source URL + creds
+  (`lib/sandbox/egress.ts`). HTTPS passes through as CONNECT tunnels, so
+  certificates still validate against the real host; DuckDB picks the proxy
+  up via the prelude's connect patch, Python via standard env vars — and
+  anything that misses the proxy fails closed against the routeless network.
+  Proven by `scripts/egress-proof.ts` (in CI): allowed origin readable,
+  non-allowlisted origin 403'd, proxy bypass impossible.
 - **SQL**: single-statement read-only enforcement in code
   (`lib/warehouse/sql-guard.ts`) before anything reaches a connector.
 - **Specs**: host-authored specs validate against the catalog **enforcing**

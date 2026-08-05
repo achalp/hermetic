@@ -7,6 +7,8 @@ import type { ExecutionResult, AdditionalFile, SandboxRunHooks } from "@/lib/con
 export type { AdditionalFile };
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { getStoredCSV } from "@/lib/csv/storage";
+import { deriveAllowedEgressHosts } from "./egress";
 import { hermeticRuntimeFiles } from "./runtime-files";
 
 /**
@@ -41,6 +43,13 @@ export interface SandboxExecOptions {
    * it here and are rejected rather than silently degraded.
    */
   network?: "auto" | "deny";
+  /**
+   * Explicit egress allowlist for a networked run (internal network +
+   * allowlist gateway — lib/sandbox/egress.ts). When absent, remote-source
+   * runs derive it from the stored source URL; local-data runs get
+   * --network none regardless.
+   */
+  allowedEgressHosts?: string[];
 }
 
 type SandboxExecutor = (
@@ -124,7 +133,23 @@ export function executeSandbox(
   // Under "deny" this branch must not fire: network-looking code still runs,
   // but with no network — reads fail inside the jail instead of escaping it.
   if (rt === "docker" && network !== "deny" && codeNeedsNetwork(code)) {
-    return dockerExecutor(csvContent, code, { geojsonContent, additionalFiles, hooks });
+    // Bucket-scoped egress: when the run's source is a KNOWN remote URL, the
+    // network grant narrows to exactly that source's hosts (internal network
+    // + allowlist gateway — lib/sandbox/egress.ts). Runs without a stored
+    // remote source keep today's open egress (we cannot derive a destination
+    // to scope to).
+    const stored = csvId ? getStoredCSV(csvId) : undefined;
+    const allowedEgressHosts =
+      opts.allowedEgressHosts ??
+      (stored?.remoteParquetUrl
+        ? deriveAllowedEgressHosts(stored.remoteParquetUrl, stored.remoteCreds)
+        : undefined);
+    return dockerExecutor(csvContent, code, {
+      geojsonContent,
+      additionalFiles,
+      hooks,
+      allowedEgressHosts,
+    });
   }
 
   // Route through warm manager when available (not for E2B)

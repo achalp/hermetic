@@ -15,6 +15,7 @@ import { sandboxMemoryRunArgs } from "./memory-budget";
 import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
+import { setupEgressNetwork, type EgressNetwork } from "./egress";
 import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 
 export interface DockerExecOptions {
@@ -26,6 +27,10 @@ export interface DockerExecOptions {
   /** "deny" forces --network none even when the code looks like remote IO
    *  (see SandboxExecOptions.network — untrusted-author policy, MCP M4). */
   network?: "auto" | "deny";
+  /** When the run IS granted network for a remote source, restrict egress to
+   *  exactly these hosts via an internal network + allowlist gateway
+   *  (lib/sandbox/egress.ts). Empty/absent = today's open egress. */
+  allowedEgressHosts?: string[];
 }
 
 export async function executeSandbox(
@@ -36,6 +41,7 @@ export async function executeSandbox(
   const { geojsonContent, additionalFiles, localMountPath, inputParquetPath, hooks } = opts;
   const start = Date.now();
   const id = `${SANDBOX_CONTAINER_PREFIX}${randomUUID()}`;
+  let egress: EgressNetwork | null = null;
 
   // Whether the run touches large local Parquet or slow remote cloud data — kept
   // for logging/telemetry only. It NO LONGER bounds execution: we never impose a
@@ -56,6 +62,17 @@ export async function executeSandbox(
     const withNetwork = opts.network === "deny" ? false : codeNeedsNetwork(code);
     if (!withNetwork) {
       runArgs.push("--network", "none");
+    } else if (opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0) {
+      // Bucket-scoped egress: internal network + allowlist gateway. The
+      // container has no route out except the proxy, and the proxy only
+      // opens toward the derived hosts.
+      // Short id: the gateway's container name doubles as a DNS label
+      // (63-char limit), so the full container id is too long.
+      egress = await setupEgressNetwork(id.slice(-12), opts.allowedEgressHosts);
+      runArgs.push("--network", egress.networkName);
+      for (const [k, v] of Object.entries(egress.env)) {
+        runArgs.push("-e", `${k}=${v}`);
+      }
     }
     if (localMountPath) {
       runArgs.push("-v", `${localMountPath}:${LOCAL_MOUNT_PATH}:ro`);
@@ -192,6 +209,7 @@ export async function executeSandbox(
   } finally {
     // 6. Cleanup — always remove container + drop it from the live registry.
     hooks?.onContainerEnd?.(id);
-    run("docker", ["rm", "-f", id]).catch(() => {});
+    await run("docker", ["rm", "-f", id]).catch(() => {});
+    if (egress) await egress.teardown();
   }
 }

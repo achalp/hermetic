@@ -139,6 +139,9 @@ jobs:
           # lint-enforced; this guards the harness files themselves).
           ! grep -rE 'from "next(/|")' src/cli src/harness src/mcp
 
+      - name: Egress allowlist proof (real containers, internal network)
+        run: npx tsx scripts/egress-proof.ts
+
       - name: MCP harness proof (offline, real server over stdio)
         env:
           HERMETIC_LLM_MODE: replay

@@ -77,4 +77,5 @@ export const hermeticPaths = {
   // ── assetRoot ──
   sandboxRuntimeAssetsDir: () => join(roots().assetRoot, "docker", "sandbox", "hermetic_runtime"),
   sandboxPreludeFile: () => join(roots().assetRoot, "docker", "sandbox", "prelude.py"),
+  sandboxEgressProxyFile: () => join(roots().assetRoot, "docker", "sandbox", "egress-proxy.py"),
 } as const;
