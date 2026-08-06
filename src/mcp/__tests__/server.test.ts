@@ -1651,3 +1651,20 @@ describe("dashboard_data (the iframe's pull channel)", () => {
     expect(String(parseToolJson(res).error)).toContain("No history entry");
   });
 });
+
+describe("truncateAtBoundary (deep-dive summary cap, run-4 fix)", () => {
+  it("never cuts mid-word: prefers sentence ends, falls back to word ends", async () => {
+    const { truncateAtBoundary } = await import("../tools/analyze");
+    const text =
+      "August marks the single largest deterioration. The step change dwarfs every other month. " +
+      "Self-Serve drives most of it.";
+    const bySentence = truncateAtBoundary(text, 100);
+    expect(bySentence.endsWith(".")).toBe(true);
+    expect(text.startsWith(bySentence)).toBe(true);
+
+    const byWord = truncateAtBoundary("August marks the single largest deterioration", 25);
+    expect(byWord).toBe("August marks the single…");
+
+    expect(truncateAtBoundary("short", 100)).toBe("short");
+  });
+});

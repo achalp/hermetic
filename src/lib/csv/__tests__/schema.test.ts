@@ -588,3 +588,44 @@ function round(n: number, decimals = 2): number {
   const f = Math.pow(10, decimals);
   return Math.round(n * f) / f;
 }
+
+describe("month keys vs the phone pattern (run-4 regression)", () => {
+  it("classifies YYYY-MM month columns as dates, not phone-patterned strings", () => {
+    const schema = extractSchema(
+      singleColumn("month", ["2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06"]),
+      "c1",
+      "t.csv"
+    );
+    expect(schema.columns[0].dtype).toBe("date");
+    expect(
+      (schema.columns[0].meta as { detected_pattern?: string }).detected_pattern
+    ).toBeUndefined();
+  });
+
+  it("still detects real phone numbers, and never claims ISO dates", () => {
+    const phones = extractSchema(
+      singleColumn("contact", [
+        "555-123-4567",
+        "(212) 555-0182",
+        "+1 415 555 2671",
+        "555-987-6543",
+        "555 555 5555",
+      ]),
+      "c2",
+      "t.csv"
+    );
+    expect((phones.columns[0].meta as { detected_pattern?: string }).detected_pattern).toBe(
+      "phone"
+    );
+
+    // Short digit-and-dash codes (< 7 digits) must not read as phones either.
+    const codes = extractSchema(
+      singleColumn("code", ["12-345", "67-890", "11-222", "33-444", "55-666"]),
+      "c3",
+      "t.csv"
+    );
+    expect((codes.columns[0].meta as { detected_pattern?: string }).detected_pattern).not.toBe(
+      "phone"
+    );
+  });
+});

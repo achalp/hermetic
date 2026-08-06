@@ -155,9 +155,30 @@ export function extractSummary(
     .map((p) => p.text)
     .join("\n\n");
   return {
-    summary: joined.length > cap ? joined.slice(0, cap) + "…" : joined,
+    summary: truncateAtBoundary(joined, cap),
     headline_stats: stats,
   };
+}
+
+/**
+ * Cap the summary WITHOUT cutting mid-word (observed on every deep-dive run:
+ * "marks the single largest…"). Prefer the last sentence end within the cap;
+ * fall back to the last word boundary; hard-slice only for one giant token.
+ */
+export function truncateAtBoundary(text: string, cap: number): string {
+  if (text.length <= cap) return text;
+  const window = text.slice(0, cap);
+  const sentenceEnd = Math.max(
+    window.lastIndexOf(". "),
+    window.lastIndexOf("! "),
+    window.lastIndexOf("? "),
+    window.lastIndexOf(".\n")
+  );
+  // A sentence boundary in the back half of the window reads best.
+  if (sentenceEnd > cap / 2) return window.slice(0, sentenceEnd + 1);
+  const wordEnd = window.lastIndexOf(" ");
+  if (wordEnd > 0) return window.slice(0, wordEnd) + "…";
+  return window + "…";
 }
 
 /** Coarse progress for the host: a stage name and, when known, step/total. */

@@ -69,6 +69,8 @@ function inferDtype(values: string[]): CSVColumn["dtype"] {
     /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2},?\s+\d{2,4}/i, // "January 12, 2024"
     /^\d{4}\/\d{2}\/\d{2}/, // YYYY/MM/DD
     /^\d{8}$/, // YYYYMMDD compact
+    /^\d{4}-(?:0[1-9]|1[0-2])$/, // YYYY-MM month key ("2024-01") — without this,
+    // month columns fell to string and the phone pattern claimed them.
   ];
   const allDate = nonEmpty.every(
     (v) => datePatterns.some((p) => p.test(v.trim())) && !isNaN(Date.parse(v))
@@ -285,7 +287,9 @@ const STRING_PATTERNS: { name: string; re: RegExp; threshold: number }[] = [
   { name: "url", re: /^https?:\/\/.+/i, threshold: 0.7 },
   {
     name: "phone",
-    re: /^[+]?[\d\s().-]{7,20}$/,
+    // Requires >=7 actual DIGITS and rejects pure date shapes (YYYY-MM,
+    // YYYY-MM-DD) — the old length-only match claimed "2024-01" month keys.
+    re: /^(?!\d{4}-\d{2}(?:-\d{2})?$)(?=(?:\D*\d){7})[+]?[\d\s().-]{7,20}$/,
     threshold: 0.7,
   },
   { name: "zip_us", re: /^\d{5}(-\d{4})?$/, threshold: 0.8 },

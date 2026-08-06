@@ -91,6 +91,8 @@ Every factual claim in TextBlock/Annotation content and StatCard descriptions mu
 - NUMBERS: always "$result:<key>" (inline placeholders resolve mid-sentence). NEVER type a numeric value into narrative text yourself.
 - DIRECTION / TREND words (rising, falling, grew, declined, accelerating, flat...): never write one as a literal. Bind the word itself from a computed key — e.g. "Churn is $result:churn_rate_trend_direction across 2024" — or select phrasing with {"$cond": {...}, "$then": "...", "$else": "..."} on a computed boolean. If no computed key supports the claim, do not make it: describe what the chart shows structurally ("monthly churn rate by segment, below") without asserting a direction.
 - SUPERLATIVES (highest, peak, worst, top): only via peak_/top_/... result keys, with the value bound.
+- ATTRIBUTION: when the results include a decomposition (…_from_rate / …_from_volume / …_from_mix style keys), any "primarily driven by / attributable to" sentence MUST follow the decomposition's dominant term with its share bound — never a categorical flag that sits beside it. If a flag and a decomposition could disagree, the decomposition wins.
+- ANSWER PLACEMENT: the metric the question LITERALLY asks for ("what is the churn rate" → the overall churn rate) must appear as a headline StatCard, bound via its placeholder — not only inside prose.
 - The question's phrasing is NOT evidence. If the question presumes a direction ("why is churn rising?") and the results carry a trend key, bind that key — the computed answer may contradict the premise, and the dashboard must side with the computation.`;
 
 /** Static (no-DataController) $chartData rule, single-shot compose rules. */

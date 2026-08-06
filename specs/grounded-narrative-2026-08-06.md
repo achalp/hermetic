@@ -98,10 +98,17 @@ UI as untraceable figures.
 
 ## 5. Roadmap (not yet built)
 
-- **Findings as first-class taxonomy:** a typed `findings` list from
-  `write_output` (kind/metric/fields) instead of naming conventions; composer
-  binds findings by id; validator checks coverage (every finding narrated or
-  deliberately skipped).
+- **Findings as first-class taxonomy — PRIORITY RAISED (run-4 evidence):**
+  across two runs on identical data the heterogeneity keys changed SHAPE
+  (`segment_heterogeneity_significant: true` + ANOVA → a test-free
+  `_verdict: "consistent"` string) and flipped conclusion — prompt-level
+  "use exactly these names" (added same day) mitigates, but only a typed
+  `findings` list from `write_output` (kind/metric/fields), validated
+  server-side, makes the results schema a CONTRACT downstream consumers can
+  rely on. Same run also narrated a base-effect flag against its own
+  decomposition (86.6% rate-driven) — the coherence rules (base_effect
+  derived from decomposition; attribution follows the dominant term) are now
+  in the prompts, but the validator is where they become guarantees.
 - **$cond-driven template blocks:** a NarrativeBlock component that renders a
   finding descriptor with renderer-owned phrasing per kind — removes even the
   sentence-structure guesswork for the highest-stakes claims.
