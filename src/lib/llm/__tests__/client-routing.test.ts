@@ -151,7 +151,7 @@ describe("getModel routing", () => {
 
   it("openai-compatible: requires OPENAI_MODEL and uses it for every call", () => {
     process.env.OPENAI_BASE_URL = "http://proxy";
-    expect(() => getModel("claude-sonnet-4-6")).toThrow(/OPENAI_MODEL is required/);
+    expect(() => getModel("claude-sonnet-4-6")).toThrow(/model is required/);
     process.env.OPENAI_MODEL = "corp-llm";
     getModel("claude-sonnet-4-6");
     expect(openaiClient).toHaveBeenCalledWith("corp-llm");

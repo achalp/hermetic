@@ -5,6 +5,7 @@ import { pythonNanPrelude } from "./prelude";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { parseSandboxOutput } from "./parse-output";
 import { envConfig } from "@/lib/harness-slot";
+import { getApiKey } from "@/lib/secrets";
 
 export async function executeSandbox(
   csvContent: string,
@@ -21,7 +22,7 @@ export async function executeSandbox(
 
   try {
     sandbox = await Sandbox.create({
-      apiKey: envConfig().E2B_API_KEY,
+      apiKey: getApiKey("e2b"),
       timeoutMs: SANDBOX_TIMEOUT_MS + 10_000, // extra buffer for sandbox setup
     });
 

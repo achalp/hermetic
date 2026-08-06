@@ -186,8 +186,9 @@ It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP ser
 
 Hermetic doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server: any MCP host — Claude Desktop, Claude Code, or another MCP-speaking agent — gets hermetic's pipeline as tools while data, execution, and dashboards stay on your machine.
 
-- **9 tools**: `analyze` (the full pipeline as one call), `connect_source`, `get_schema`, `run_sql`, `run_analysis` (host-authored Python in the sandbox), `verify_narrative`, `persist_dashboard`, `export_dashboard`, `list_sources`.
+- **14 tools**: `analyze` (the full pipeline as one call), `analyze_start`/`analyze_status`/`analyze_result`/`analyze_cancel` (the same pipeline as a background job with long-poll progress — for hosts that cancel long tool calls), `connect_source`, `get_schema`, `run_sql`, `run_analysis` (host-authored Python in the sandbox), `verify_narrative`, `persist_dashboard`, `export_dashboard`, `list_sources`, plus `dashboard_data` (internal, app-only — feeds the inline MCP Apps viewer).
 - **Embedded viewer**: dashboard links work with nothing else running (loopback-only server inside the MCP process), with the app's full theming and a download button.
+- **Inline dashboards (MCP Apps)**: hosts that support the [MCP Apps extension](https://modelcontextprotocol.io/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp) (Claude Desktop, VS Code, Goose) render `analyze`/`persist_dashboard` results as an interactive dashboard **inside the chat** — the spec travels as `structuredContent` to a sandboxed iframe (never into model context), and the viewer template is fully self-contained (no external requests). Text-only hosts see exactly the old JSON responses.
 - **Trust model**: guards sit on authorship — host-written SQL passes a read-only gate before any connector sees it, host-written Python runs with networking denied, host-written specs validate against the catalog in enforcing mode. Every call lands in an audit log; the egress allowlist is proven in CI by an exfiltration canary.
 - **Setup**: `./scripts/install-mcp.sh` (detects Claude Desktop/Code, asks, writes config, builds the viewer). Claude Code needs nothing inside this checkout — the repo's `.mcp.json` auto-prompts.
 
@@ -530,6 +531,8 @@ Set `SANDBOX_RUNTIME` in `.env.local` to switch runtimes. The startup script (`s
 
 ### LLM Provider
 
+**Where configuration lives** (2026-08): product settings (provider endpoints, sandbox tuning, retention) live in `data/runtime-config.json` — shared by the web app, the MCP server, and the CLI — with environment variables as the seed/fallback. **Secrets never persist in hermetic-written files**: API keys added via Settings and warehouse connection credentials are stored in your **OS keychain** (macOS Keychain / Linux Secret Service / Windows Credential Manager); environment variables remain the headless/CI path. Existing `warehouse-connections` files migrate their credentials into the keychain automatically on first load.
+
 Pick **one** provider. If `LLM_PROVIDER` is not set, the app auto-detects from available credentials. Ollama can be enabled from the Settings UI without any environment variables, and the **Claude CLI** needs no key at all — it uses your existing `claude` login (see below).
 
 | Variable                 | Required                      | Default     | Description                                                                                        |
@@ -552,6 +555,8 @@ If you have the Claude CLI (Claude Code) installed and authenticated — `npm in
 Each analysis call shells out to `claude -p` with the model chosen per task (the same internal model IDs as the Anthropic provider), authenticating with whatever credentials the CLI itself holds — a Pro/Max subscription or API billing. When the CLI provider is selected, API-key variables are stripped from its environment, so calls always use the CLI's own login instead of silently billing a leftover `ANTHROPIC_API_KEY`. Built-in tools are disabled on every call (Hermetic runs its generated code in its own sandbox and never uses the CLI's tools), which keeps per-call overhead minimal. If `claude` isn't on `PATH`, set `claudeCli.binaryPath` in `data/runtime-config.json`.
 
 Cost is reported at **equivalent API rates** (the CLI can be metered per token, so `$0` would mislead), with cache reads priced at the cheap cache-read rate. It's an estimate, not the CLI's own bill.
+
+**Thinking effort** is routed by pipeline phase: the analytical phases (code generation, SQL generation/repair, the skill code-review gate) run at `high`, while composition, planning, and classification run at `low` — at the CLI's own default effort, roughly two-thirds of a compose call's billed output tokens were invisible reasoning (measured: ~$0.20 and 3+ minutes extra per dashboard). Force a single level for everything with `HERMETIC_CLAUDE_CLI_EFFORT=low|medium|high|xhigh|max`, or `default` to defer to the CLI's own setting. Older CLIs without `--effort` are detected and run unchanged.
 
 > Note: for a self-hosted app where each user authenticates their own `claude`, this is the intended use. Anthropic's terms do not permit _offering_ claude.ai login or subscription rate limits as a feature of a third-party product.
 

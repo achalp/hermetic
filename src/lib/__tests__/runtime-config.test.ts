@@ -65,3 +65,23 @@ describe("runtime-config — corrupt file vs missing file", () => {
     expect(JSON.parse(readFileSync(path, "utf-8")).activeProvider).toBe("ollama");
   });
 });
+
+describe("settings blocks (providers/sandbox/retention) persist and clear", () => {
+  it("round-trips a block through disk and replaces it wholesale", () => {
+    setRuntimeConfig({ retention: { maxHistoryEntries: 300 } });
+    expect(getRuntimeConfig().retention).toEqual({ maxHistoryEntries: 300 });
+
+    // Wholesale replacement: a block sent without a field CLEARS that field
+    // (the /api/settings route sends complete blocks — per-field merge would
+    // make clearing impossible).
+    setRuntimeConfig({ retention: { maxRunRecords: 50 } });
+    expect(getRuntimeConfig().retention).toEqual({ maxRunRecords: 50 });
+
+    setRuntimeConfig({ providers: { openaiModel: "llama3.3" }, sandbox: { memoryFraction: 0.5 } });
+    clearRuntimeConfigCache();
+    const rc = getRuntimeConfig();
+    expect(rc.providers?.openaiModel).toBe("llama3.3");
+    expect(rc.sandbox?.memoryFraction).toBe(0.5);
+    expect(rc.retention).toEqual({ maxRunRecords: 50 });
+  });
+});

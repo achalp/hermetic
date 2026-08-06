@@ -40,6 +40,28 @@ export interface RuntimeConfig {
   sandboxRuntime?: "docker" | "e2b" | "microsandbox";
   /** User-selected LLM provider override (takes priority over auto-detection) */
   activeProvider?: string;
+  /**
+   * Product settings migrated from env-only config (lib/settings.ts resolves
+   * these first, env second) so every harness — web, MCP, CLI — shares them.
+   * NEVER put secrets here; those live in the OS keychain (lib/secrets).
+   */
+  providers?: {
+    openaiBaseUrl?: string;
+    openaiModel?: string;
+    vertexProject?: string;
+    vertexLocation?: string;
+    awsRegion?: string;
+  };
+  sandbox?: {
+    microsandboxUrl?: string;
+    microsandboxImage?: string;
+    /** Fraction (0,1] of daemon memory a sandbox container may use. */
+    memoryFraction?: number;
+  };
+  retention?: {
+    maxHistoryEntries?: number;
+    maxRunRecords?: number;
+  };
 }
 
 // Resolved per call, not at import — a module-level const froze the pre-boot
@@ -122,6 +144,19 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
   }
   if (partial.activeProvider !== undefined) {
     merged.activeProvider = partial.activeProvider || undefined;
+  }
+  // Settings blocks (lib/settings.ts): REPLACED wholesale, not per-field
+  // merged — the /api/settings route sends the complete block with cleared
+  // fields as `undefined`, and a per-field merge would make clearing
+  // impossible (undefined spreads as "keep the old value").
+  if (partial.providers !== undefined) {
+    merged.providers = partial.providers === null ? undefined : partial.providers;
+  }
+  if (partial.sandbox !== undefined) {
+    merged.sandbox = partial.sandbox === null ? undefined : partial.sandbox;
+  }
+  if (partial.retention !== undefined) {
+    merged.retention = partial.retention === null ? undefined : partial.retention;
   }
 
   // Atomic write: write to tmp then rename

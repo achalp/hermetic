@@ -38,12 +38,69 @@ export interface ProviderInfo {
   activeLabel: string;
   configured: string[];
   model?: string;
+  /** Whether the OS keychain is available for storing API keys. */
+  keychain_available?: boolean;
 }
 
 export interface RuntimeStatus {
   id: string;
   label: string;
   available: boolean;
+}
+
+// ── /api/settings (runtime-config blocks + keychain API keys) ────────
+
+export interface SettingsBlocks {
+  providers: {
+    openaiBaseUrl?: string | null;
+    openaiModel?: string | null;
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+    awsRegion?: string | null;
+  };
+  sandbox: {
+    microsandboxUrl?: string | null;
+    microsandboxImage?: string | null;
+    memoryFraction?: number | null;
+  };
+  retention: {
+    maxHistoryEntries?: number | null;
+    maxRunRecords?: number | null;
+  };
+}
+
+export type ApiKeyId = "anthropic" | "openai" | "e2b" | "microsandbox";
+
+export interface SettingsInfo {
+  /** The runtime-config values (what the form edits). */
+  config: SettingsBlocks;
+  /** Resolved values (runtime-config → env) — shown as placeholders. */
+  effective: SettingsBlocks;
+  /** Key status only — key material never crosses this API. */
+  api_keys: Record<ApiKeyId, { set: boolean; source: "keychain" | "env" | null }>;
+  keychain_available: boolean;
+}
+
+export interface SettingsUpdate {
+  providers?: Record<string, string>;
+  sandbox?: Record<string, string | number>;
+  retention?: Record<string, string | number>;
+  /** Stored in the OS keychain; empty string deletes. */
+  api_keys?: Partial<Record<ApiKeyId, string>>;
+}
+
+export async function getSettings(signal?: AbortSignal): Promise<SettingsInfo> {
+  const res = await fetch("/api/settings", { signal });
+  return json<SettingsInfo>(res);
+}
+
+export async function putSettings(update: SettingsUpdate): Promise<SettingsInfo> {
+  const res = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  return json<SettingsInfo>(res);
 }
 
 export async function getProviders(signal?: AbortSignal): Promise<ProviderInfo> {

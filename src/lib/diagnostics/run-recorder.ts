@@ -4,6 +4,7 @@ import { getRunId } from "@/lib/run-context";
 import { logger } from "@/lib/logger";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
+import { maxRunRecords } from "@/lib/settings";
 
 /**
  * Incremental, best-effort forensic trail for a run.
@@ -29,8 +30,7 @@ const DEFAULT_MAX_RUNS = 200;
 const MAX_ARTIFACT_BYTES = 512 * 1024;
 
 function maxRuns(): number {
-  const raw = Number(envConfig().HERMETIC_MAX_RUN_RECORDS);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_RUNS;
+  return maxRunRecords(DEFAULT_MAX_RUNS);
 }
 
 async function ensureRunDir(runId: string): Promise<string> {

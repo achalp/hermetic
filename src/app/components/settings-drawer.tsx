@@ -9,6 +9,7 @@ import { RecentSourcesSection } from "./settings/recent-sources-section";
 import { InferenceSection } from "./settings/inference-section";
 // Schedule UI moved out of Settings to the dashboard toolbar + Saved Vizs panel.
 import { AnalysisDefaultsSection } from "./settings/analysis-defaults-section";
+import { ConfigSection } from "./settings/config-section";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
 
@@ -107,6 +108,10 @@ export function SettingsDrawer({
           schemaMode={schemaMode}
           onSchemaModeChange={(m) => onSchemaModeChange(m as SchemaMode)}
         />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Advanced Configuration" defaultOpen={false}>
+        <ConfigSection />
       </CollapsibleSection>
 
       <CollapsibleSection title="Cost & Usage" defaultOpen={false}>

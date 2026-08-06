@@ -2,6 +2,7 @@ import { run } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { DEFAULT_SANDBOX_MEMORY_FRACTION } from "@/lib/constants";
 import { envConfig } from "@/lib/harness-slot";
+import { sandboxMemoryFraction } from "@/lib/settings";
 
 /**
  * Per-container memory budget, derived at runtime from the Docker daemon's own
@@ -18,8 +19,7 @@ import { envConfig } from "@/lib/harness-slot";
 
 /** Policy fraction of daemon memory a container may use (env-overridable). */
 function memoryFraction(): number {
-  const raw = Number(envConfig().SANDBOX_MEMORY_FRACTION);
-  return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : DEFAULT_SANDBOX_MEMORY_FRACTION;
+  return sandboxMemoryFraction(DEFAULT_SANDBOX_MEMORY_FRACTION);
 }
 
 // Cache only a SUCCESSFUL probe: the daemon allocation is fixed for the

@@ -7,6 +7,14 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { LOCAL_CTX_SIZE, DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
+import {
+  openaiBaseUrl,
+  openaiModel,
+  vertexProject,
+  vertexLocation,
+  awsRegion,
+} from "@/lib/settings";
+import { getApiKey } from "@/lib/secrets";
 import { recordCall, currentPhase } from "@/lib/cost/accumulator";
 import { llmReplayMiddleware } from "@/lib/llm/replay";
 import {
@@ -476,10 +484,10 @@ export function detectActiveProvider(): LLMProviderId | undefined {
   if (rc.llamaCpp?.enabled && rc.llamaCpp.activeModel) return "llama-cpp";
   if (rc.ollama?.enabled && rc.ollama.activeModel) return "ollama";
 
-  if (envConfig().ANTHROPIC_API_KEY) return "anthropic";
+  if (getApiKey("anthropic")) return "anthropic";
   if (envConfig().AWS_ACCESS_KEY_ID || envConfig().AWS_PROFILE) return "bedrock";
-  if (envConfig().GOOGLE_VERTEX_PROJECT) return "vertex";
-  if (envConfig().OPENAI_BASE_URL) return "openai-compatible";
+  if (vertexProject()) return "vertex";
+  if (openaiBaseUrl()) return "openai-compatible";
 
   // Last resort: no API credentials, but the `claude` CLI is installed and
   // authenticated. Checked last so a configured key always wins.
@@ -513,7 +521,7 @@ export function getActiveProvider(): LLMProviderId {
 function createProviderClient(provider: LLMProviderId) {
   switch (provider) {
     case "anthropic":
-      return createAnthropic({ apiKey: envConfig().ANTHROPIC_API_KEY });
+      return createAnthropic({ apiKey: getApiKey("anthropic") });
     case "claude-cli": {
       const rc = getRuntimeConfig();
       // Dummy base URL — every request is intercepted by claudeCliFetch, which
@@ -527,17 +535,17 @@ function createProviderClient(provider: LLMProviderId) {
     }
     case "bedrock":
       return createAmazonBedrock({
-        region: envConfig().AWS_REGION ?? "us-east-1",
+        region: awsRegion() ?? "us-east-1",
       });
     case "vertex":
       return createVertex({
-        project: envConfig().GOOGLE_VERTEX_PROJECT,
-        location: envConfig().GOOGLE_VERTEX_LOCATION ?? "us-east5",
+        project: vertexProject(),
+        location: vertexLocation() ?? "us-east5",
       });
     case "openai-compatible":
       return createOpenAI({
-        baseURL: envConfig().OPENAI_BASE_URL,
-        apiKey: envConfig().OPENAI_API_KEY ?? "",
+        baseURL: openaiBaseUrl(),
+        apiKey: getApiKey("openai") ?? "",
       });
     case "mlx": {
       const rc = getRuntimeConfig();
@@ -733,9 +741,12 @@ export function getModel(internalModelId: string) {
 
   // OpenAI-compatible uses a single user-configured model for all calls
   if (provider === "openai-compatible") {
-    const model = envConfig().OPENAI_MODEL;
+    const model = openaiModel();
     if (!model) {
-      throw new Error("OPENAI_MODEL is required when using the openai-compatible provider.");
+      throw new Error(
+        "A model is required for the openai-compatible provider — set it in Settings " +
+          "(runtime-config providers.openaiModel) or via OPENAI_MODEL."
+      );
     }
     return track(client(model), model);
   }

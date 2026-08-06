@@ -10,6 +10,7 @@ import { RecordDirStore, RECORD_FILES, RecordCorruptError } from "@/lib/record-s
 import { HERMETIC_SPEC_VERSION } from "@/lib/contracts/spec";
 import { validateSpec } from "@/lib/catalog";
 import { logger } from "@/lib/logger";
+import { maxHistoryEntries as maxHistoryEntriesSetting } from "@/lib/settings";
 
 // Constructed lazily and rebuilt on a root change — a module-scope
 // `new RecordDirStore(...)` froze the pre-boot default root before the harness
@@ -35,8 +36,7 @@ function store(): RecordDirStore {
 const DEFAULT_MAX_HISTORY_ENTRIES = 200;
 
 function maxHistoryEntries(): number {
-  const raw = Number(envConfig().HERMETIC_MAX_HISTORY_ENTRIES);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_HISTORY_ENTRIES;
+  return maxHistoryEntriesSetting(DEFAULT_MAX_HISTORY_ENTRIES);
 }
 
 // ── Chart type extraction ─────────────────────────────────────

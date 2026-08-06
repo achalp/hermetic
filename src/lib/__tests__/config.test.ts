@@ -138,7 +138,7 @@ describe("validateEnv", () => {
     vi.stubEnv("SANDBOX_RUNTIME", "docker");
 
     const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("ANTHROPIC_API_KEY is required");
+    expect(() => validateEnv()).toThrow("Anthropic API key is required");
 
     vi.unstubAllEnvs();
   });
@@ -166,7 +166,7 @@ describe("validateEnv", () => {
     vi.stubEnv("SANDBOX_RUNTIME", "docker");
 
     const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("GOOGLE_VERTEX_PROJECT is required");
+    expect(() => validateEnv()).toThrow("Vertex project is required");
 
     vi.unstubAllEnvs();
   });
@@ -220,7 +220,7 @@ describe("validateEnv", () => {
     vi.stubEnv("SANDBOX_RUNTIME", "docker");
 
     const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("OPENAI_BASE_URL is required");
+    expect(() => validateEnv()).toThrow("base URL is required");
 
     vi.unstubAllEnvs();
   });
@@ -236,7 +236,7 @@ describe("validateEnv", () => {
     vi.stubEnv("SANDBOX_RUNTIME", "docker");
 
     const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("OPENAI_MODEL is required");
+    expect(() => validateEnv()).toThrow("model is required");
 
     vi.unstubAllEnvs();
   });
@@ -311,7 +311,7 @@ describe("validateEnv", () => {
     vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
 
     const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("E2B_API_KEY is required");
+    expect(() => validateEnv()).toThrow("E2B API key is required");
 
     vi.unstubAllEnvs();
   });
@@ -326,7 +326,7 @@ describe("validateEnv", () => {
     vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
 
     const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("MICROSANDBOX_URL is required");
+    expect(() => validateEnv()).toThrow("server URL is required");
 
     vi.unstubAllEnvs();
   });

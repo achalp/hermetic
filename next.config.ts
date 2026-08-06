@@ -6,7 +6,13 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@e2b/code-interpreter", "snowflake-sdk", "@databricks/sql"],
+  serverExternalPackages: [
+    "@e2b/code-interpreter",
+    "snowflake-sdk",
+    "@databricks/sql",
+    // Native addon (OS keychain) — must load from node_modules, not the bundle.
+    "@napi-rs/keyring",
+  ],
   transpilePackages: [
     "@deck.gl/core",
     "@deck.gl/react",

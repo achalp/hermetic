@@ -8,6 +8,8 @@ import { detectActiveProvider, VALID_PROVIDERS } from "@/lib/llm/client";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { envConfig } from "@/lib/harness-slot";
+import { openaiBaseUrl, openaiModel, vertexProject, microsandboxUrl } from "@/lib/settings";
+import { getApiKey } from "@/lib/secrets";
 
 export interface EnvConfig {
   LLM_PROVIDER: LLMProviderId;
@@ -66,9 +68,10 @@ export function validateEnv(): EnvConfig {
   }
 
   // Validate provider-specific credentials
-  if (provider === "anthropic" && !envConfig().ANTHROPIC_API_KEY) {
+  if (provider === "anthropic" && !getApiKey("anthropic")) {
     throw new EnvError(
-      "ANTHROPIC_API_KEY is required when using the Anthropic provider. " +
+      "An Anthropic API key is required for the Anthropic provider — add it in Settings " +
+        "(stored in your OS keychain) or set ANTHROPIC_API_KEY. " +
         "Get one at https://console.anthropic.com/settings/keys"
     );
   }
@@ -94,22 +97,24 @@ export function validateEnv(): EnvConfig {
   }
 
   if (provider === "vertex") {
-    if (!envConfig().GOOGLE_VERTEX_PROJECT) {
-      throw new EnvError("GOOGLE_VERTEX_PROJECT is required when using the Vertex AI provider.");
+    if (!vertexProject()) {
+      throw new EnvError(
+        "A Vertex project is required — set it in Settings or via GOOGLE_VERTEX_PROJECT."
+      );
     }
   }
 
   if (provider === "openai-compatible") {
-    if (!envConfig().OPENAI_BASE_URL) {
+    if (!openaiBaseUrl()) {
       throw new EnvError(
-        "OPENAI_BASE_URL is required when using the openai-compatible provider. " +
-          "Example: http://localhost:11434/v1 (Ollama)"
+        "A base URL is required for the openai-compatible provider — set it in Settings " +
+          "or via OPENAI_BASE_URL. Example: http://localhost:11434/v1 (Ollama)"
       );
     }
-    if (!envConfig().OPENAI_MODEL) {
+    if (!openaiModel()) {
       throw new EnvError(
-        "OPENAI_MODEL is required when using the openai-compatible provider. " +
-          "Example: llama3.3, gpt-4o, mistral"
+        "A model is required for the openai-compatible provider — set it in Settings " +
+          "or via OPENAI_MODEL. Example: llama3.3, gpt-4o, mistral"
       );
     }
   }
@@ -122,24 +127,29 @@ export function validateEnv(): EnvConfig {
     );
   }
 
-  if (runtime === "e2b" && !envConfig().E2B_API_KEY) {
-    throw new EnvError("E2B_API_KEY is required when SANDBOX_RUNTIME=e2b");
+  if (runtime === "e2b" && !getApiKey("e2b")) {
+    throw new EnvError(
+      "An E2B API key is required for the e2b runtime — add it in Settings or set E2B_API_KEY"
+    );
   }
 
   if (runtime === "microsandbox") {
-    if (!envConfig().MICROSANDBOX_URL) {
-      throw new EnvError("MICROSANDBOX_URL is required when SANDBOX_RUNTIME=microsandbox");
+    if (!microsandboxUrl()) {
+      throw new EnvError(
+        "A server URL is required for the microsandbox runtime — set it in Settings " +
+          "or via MICROSANDBOX_URL"
+      );
     }
   }
 
   cachedConfig = {
     LLM_PROVIDER: provider,
     SANDBOX_RUNTIME: runtime,
-    E2B_API_KEY: envConfig().E2B_API_KEY,
-    MICROSANDBOX_URL: envConfig().MICROSANDBOX_URL,
-    MICROSANDBOX_API_KEY: envConfig().MICROSANDBOX_API_KEY,
-    OPENAI_BASE_URL: envConfig().OPENAI_BASE_URL,
-    OPENAI_MODEL: envConfig().OPENAI_MODEL,
+    E2B_API_KEY: getApiKey("e2b"),
+    MICROSANDBOX_URL: microsandboxUrl(),
+    MICROSANDBOX_API_KEY: getApiKey("microsandbox"),
+    OPENAI_BASE_URL: openaiBaseUrl(),
+    OPENAI_MODEL: openaiModel(),
   };
 
   return cachedConfig;
