@@ -57,7 +57,7 @@ const SYSTEM = `You extract reusable lessons from failed data-analysis code atte
 Rules:
 - Phrase the lesson as an imperative guidance bullet, general (no run-specific values, paths, or dataset names unless the lesson IS about that dataset's schema).
 - kind: "dialect-fact" for engine/library facts (function names, syntax, API shapes); "domain-guidance" for dataset/schema/domain behavior.
-- retreat: true when the fix REMOVED the failing functionality instead of repairing it. When the error itself suggested a repair (e.g. "Did you mean X"), phrase the lesson from that repair, not from the removal.
+- retreat: true when the fix REMOVED the failing functionality instead of repairing it — including REMOVING a WHERE predicate/filter (a disambiguating region/country constraint) to make an empty-result error disappear. When the error itself suggested a repair (e.g. "Did you mean X"), phrase the lesson from that repair, not from the removal.
 Answer STRICT JSON: {"lessons":[{"kind":"...","lessonText":"...","retreat":false}]} — one entry per input pair, same order.`;
 
 function buildPrompt(pairs: AttemptPair[]): string {
