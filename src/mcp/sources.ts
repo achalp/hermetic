@@ -92,6 +92,21 @@ export function getSource(id: string): McpSource | undefined {
 }
 
 /**
+ * Re-insert a source under its ORIGINAL id (rehydration after a host-driven
+ * server restart — source-persist.ts). registerSource mints a fresh id;
+ * restore must not, or every persisted source_id the host still holds would
+ * dangle.
+ */
+export function restoreSource(source: McpSource): void {
+  sources().set(source.id, source);
+}
+
+/** Raw registry values (listSources maps them for the wire). */
+export function allSources(): McpSource[] {
+  return [...sources().values()];
+}
+
+/**
  * What each source can actually be used with (review S1/S2). Without this the
  * host cannot distinguish a local CSV from a cloud URL — both report
  * kind:"csv" — and discovers the difference only by calling a tool and being

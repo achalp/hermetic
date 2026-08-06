@@ -29,7 +29,11 @@ import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { toCSVText } from "@/lib/csv/parser";
 import { setPathRoots } from "@/lib/paths";
-import { exportDashboardHtml, type ExportInput } from "@/lib/export/html-export";
+import {
+  exportDashboardHtml,
+  exportAppTemplateHtml,
+  type ExportInput,
+} from "@/lib/export/html-export";
 import type { WarehouseConnector } from "@/lib/warehouse/connector";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
 import type { HistoryMeta } from "@/lib/contracts/storage-types";
@@ -108,6 +112,7 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       // The real runPatchStream returns the run's correlation id.
       return "run-test-1";
     }) as unknown as McpDeps["runPatchStream"],
+    stopRun: vi.fn(async () => true),
     runAskQuery: vi.fn(async ({ stream, question }: { stream: unknown; question: string }) => {
       lastRun.question = question;
       const push = pushOf(stream);
@@ -145,6 +150,7 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
       throw new Error(`no entry ${id}`);
     }),
     exportDashboardHtml, // real: pure over the distDir the caller supplies
+    exportAppTemplateHtml, // real: pure over the distDir the caller supplies
     getActiveSandboxRuntime: vi.fn(() => "docker" as const),
     getCSVContent: vi.fn(async () => CSV_TEXT),
     // Live by default; individual tests flip it to exercise expiry.
@@ -157,6 +163,7 @@ function fakeDeps(connector: WarehouseConnector): McpDeps {
           createdAt: Date.now(),
         }) as unknown as NonNullable<ReturnType<McpDeps["getStoredCSV"]>>
     ),
+    restoreStoredCSV: vi.fn(),
     getGeoJSONContent: vi.fn(async () => null),
     executeSandbox: vi.fn(async () => ({
       success: true as const,
@@ -241,7 +248,12 @@ describe("mcp server (in-memory transport, fake deps)", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "analyze",
+      "analyze_cancel",
+      "analyze_result",
+      "analyze_start",
+      "analyze_status",
       "connect_source",
+      "dashboard_data",
       "export_dashboard",
       "get_schema",
       "list_sources",
@@ -1258,5 +1270,384 @@ describe("RPC hygiene (spec §8): error codes, truncation flags, contract versio
     const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
     const res = parseToolJson(await client.callTool({ name: "list_sources", arguments: {} }));
     expect(res.contract_version).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe("MCP Apps (SEP-1865): template resource, tool linkage, gated structuredContent", () => {
+  const UI_URI = "ui://hermetic/dashboard";
+  const UI_MIME = "text/html;profile=mcp-app";
+  const UI_CAPS = {
+    extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [UI_MIME] } },
+  };
+
+  /** A client that negotiated the ui extension (Claude Desktop's shape). */
+  async function uiClient(deps: McpDeps) {
+    const server = buildMcpServer(deps, (e) => audit.push(e));
+    const client = new Client({ name: "ui-client", version: "0.0.0" }, { capabilities: UI_CAPS });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return client;
+  }
+
+  const VALID_SPEC = async () => ({
+    root: "root",
+    elements: {
+      root: {
+        type: "TextBlock",
+        props: (await import("@/lib/__tests__/fixtures/catalog-samples")).ALL_CATALOG_SAMPLES
+          .TextBlock,
+        children: [],
+      },
+    },
+  });
+
+  async function csvSource(client: Client) {
+    const csvPath = join(dir, "apps.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+    return source_id;
+  }
+
+  it("dashboard-producing tools declare the template in _meta.ui; others don't", async () => {
+    const client = await connectedClient(makeTestDeps(), audit);
+    const { tools } = await client.listTools();
+    for (const name of ["analyze", "persist_dashboard"]) {
+      const meta = tools.find((t) => t.name === name)?._meta as
+        | { ui?: { resourceUri?: string }; "ui/resourceUri"?: string }
+        | undefined;
+      expect(meta?.ui?.resourceUri).toBe(UI_URI);
+      // The deprecated flat key rides along for pre-final hosts.
+      expect(meta?.["ui/resourceUri"]).toBe(UI_URI);
+    }
+    const schemaMeta = tools.find((t) => t.name === "get_schema")?._meta as
+      | { ui?: unknown }
+      | undefined;
+    expect(schemaMeta?.ui).toBeUndefined();
+  });
+
+  it("serves the data-less template at ui://hermetic/dashboard with the app mimeType", async () => {
+    // The same miniature dist trick as export_dashboard: the REAL assembler
+    // over a dist the test owns.
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const miniDist = join(dir, "app-dist");
+    mkdirSync(miniDist, { recursive: true });
+    writeFileSync(
+      join(miniDist, "export-manifest.json"),
+      JSON.stringify({
+        fullOnlyTypes: [],
+        profiles: {
+          standard: { js: "export-standard.js", css: "export-standard.css", bytes: 10 },
+          full: { js: "export-full.js", css: "export-full.css", bytes: 20 },
+        },
+      })
+    );
+    writeFileSync(join(miniDist, "export-app.css"), ":root{--x:1}");
+    writeFileSync(join(miniDist, "export-standard.js"), "/*standard*/");
+    writeFileSync(join(miniDist, "export-standard.css"), ".std{}");
+    const deps = makeTestDeps({
+      exportAppTemplateHtml: vi.fn(() => exportAppTemplateHtml({ distDir: miniDist })),
+    });
+    const client = await uiClient(deps);
+
+    const { resources } = await client.listResources();
+    const listed = resources.find((r) => r.uri === UI_URI);
+    expect(listed?.mimeType).toBe(UI_MIME);
+
+    const read = await client.readResource({ uri: UI_URI });
+    const item = read.contents[0] as { mimeType?: string; text?: string };
+    expect(item.mimeType).toBe(UI_MIME);
+    expect(item.text).toContain("/*standard*/");
+    expect(item.text).toContain('"mode":"mcp-app"');
+    expect(item.text).not.toContain('id="hermetic-spec"');
+  });
+
+  it("persist_dashboard returns the spec as structuredContent to a ui-capable client", async () => {
+    const deps = makeTestDeps();
+    const client = await uiClient(deps);
+    const source_id = await csvSource(client);
+    const result = await client.callTool({
+      name: "persist_dashboard",
+      arguments: { source_id, title: "Revenue overview", spec: await VALID_SPEC() },
+    });
+
+    const sc = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+    expect(sc).toBeTruthy();
+    expect(sc?.question).toBe("Revenue overview");
+    expect((sc?.spec as { root?: string })?.root).toBe("root");
+    // Model-visible text: pre-0.5.0 contract exactly — no payload key.
+    const text = parseToolJson(result);
+    expect(text.__ui).toBeUndefined();
+    expect(text.history_id).toBeTruthy();
+  });
+
+  it("withholds structuredContent from a client that never negotiated the extension", async () => {
+    const deps = makeTestDeps();
+    const client = await connectedClient(deps, audit);
+    const source_id = await csvSource(client);
+    const result = await client.callTool({
+      name: "persist_dashboard",
+      arguments: { source_id, title: "Revenue overview", spec: await VALID_SPEC() },
+    });
+
+    expect((result as { structuredContent?: unknown }).structuredContent).toBeUndefined();
+    expect(parseToolJson(result).__ui).toBeUndefined();
+  });
+});
+
+describe("analyze cancellation (notifications/cancelled → stopRun)", () => {
+  it("stops the live run when the host cancels mid-pipeline", async () => {
+    // A runAskQuery fake that reports its runId (first /state add, as the
+    // real runPatchStream does), then stalls long enough to be cancelled.
+    const deps = makeTestDeps({
+      runAskQuery: vi.fn(async ({ stream }: { stream: unknown }) => {
+        const push = pushOf(stream);
+        push(
+          '{"op":"add","path":"/state","value":{"__progress":{"stage":"generating","step":1,"total":5},"__runId":"run-live-9"}}\n'
+        );
+        await new Promise((r) => setTimeout(r, 120));
+        // Past the cancellation: the closed stream must swallow, not crash.
+        push('{"op":"add","path":"/root","value":"main"}\n');
+      }) as unknown as McpDeps["runAskQuery"],
+    });
+    const csvPath = join(dir, "cancel.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const client = await connectedClient(deps, audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+
+    const controller = new AbortController();
+    const pending = client
+      .callTool({ name: "analyze", arguments: { source_id, question: "q" } }, undefined, {
+        signal: controller.signal,
+      })
+      .then(
+        () => "resolved",
+        () => "rejected"
+      );
+    // Let the run start and report its runId, then cancel like Desktop does.
+    await new Promise((r) => setTimeout(r, 40));
+    controller.abort();
+
+    expect(await pending).toBe("rejected");
+    // The cancellation must reach the run controller — that is what unwinds
+    // LLM streams, kills sandbox containers, and frees the per-source lock.
+    await vi.waitFor(() => expect(deps.stopRun).toHaveBeenCalledWith("run-live-9"));
+  });
+});
+
+describe("background analysis jobs (analyze_start / status / result / cancel)", () => {
+  async function uiCapableClient(deps: McpDeps) {
+    const server = buildMcpServer(deps, (e) => audit.push(e));
+    const client = new Client(
+      { name: "ui-client", version: "0.0.0" },
+      {
+        capabilities: {
+          extensions: {
+            "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] },
+          },
+        },
+      }
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return client;
+  }
+
+  async function startedJob(deps: McpDeps, client: Client) {
+    const csvPath = join(dir, "jobs.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+    const start = parseToolJson(
+      await client.callTool({
+        name: "analyze_start",
+        arguments: { source_id, question: "Revenue trend?" },
+      })
+    );
+    return { source_id, job_id: start.job_id as string, start };
+  }
+
+  it("start returns immediately; status long-polls to done; result is the analyze payload", async () => {
+    const { _resetAnalysisJobs } = await import("../tools/analyze-async");
+    _resetAnalysisJobs();
+    // A pipeline slow enough that analyze_start must NOT wait for it.
+    const deps = makeTestDeps({
+      runAskQuery: vi.fn(async ({ stream, question }: { stream: unknown; question: string }) => {
+        void question;
+        const push = pushOf(stream);
+        push(
+          '{"op":"add","path":"/state","value":{"__progress":{"stage":"generating","step":1,"total":5},"__runId":"run-job-1"}}\n'
+        );
+        await new Promise((r) => setTimeout(r, 150));
+        push('{"op":"add","path":"/root","value":"main"}\n');
+        push(
+          '{"op":"add","path":"/elements/summary","value":{"type":"TextBlock","props":{"content":"Revenue grew 3x."}}}\n'
+        );
+      }) as unknown as McpDeps["runAskQuery"],
+    });
+    const client = await uiCapableClient(deps);
+
+    const t0 = Date.now();
+    const { job_id, start } = await startedJob(deps, client);
+    expect(Date.now() - t0).toBeLessThan(1000); // never blocks on the pipeline
+    expect(start.status).toBe("running");
+
+    // Long-poll until done — bounded, no fixed sleeps.
+    let status: Record<string, unknown> = {};
+    for (let i = 0; i < 20; i++) {
+      status = parseToolJson(
+        await client.callTool({
+          name: "analyze_status",
+          arguments: { job_id, wait_seconds: 1 },
+        })
+      );
+      if (status.status === "done") break;
+    }
+    expect(status.status).toBe("done");
+
+    const result = await client.callTool({
+      name: "analyze_result",
+      arguments: { job_id },
+    });
+    const body = parseToolJson(result);
+    expect(body.job_id).toBe(job_id);
+    expect(body.summary).toContain("Revenue grew 3x.");
+    expect(body.history_id).toBeTruthy();
+    // The MCP-Apps channel rides the result call for ui-capable hosts.
+    const sc = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+    expect((sc?.spec as { root?: string })?.root).toBe("main");
+    expect(body.__ui).toBeUndefined();
+  });
+
+  it("cancel stops the live run and result reports the cancellation", async () => {
+    const { _resetAnalysisJobs } = await import("../tools/analyze-async");
+    _resetAnalysisJobs();
+    const deps = makeTestDeps({
+      runAskQuery: vi.fn(async ({ stream }: { stream: unknown }) => {
+        const push = pushOf(stream);
+        // Real stream protocol: wholesale /state add (carries __runId), then
+        // /state/__progress replaces — only the replaces map to stages.
+        push(
+          '{"op":"add","path":"/state","value":{"__progress":{"stage":"starting","step":0,"total":5},"__runId":"run-job-2"}}\n'
+        );
+        push(
+          '{"op":"replace","path":"/state/__progress","value":{"stage":"generating","step":1,"total":5}}\n'
+        );
+        await new Promise((r) => setTimeout(r, 60_000)); // never finishes on its own
+      }) as unknown as McpDeps["runAskQuery"],
+    });
+    const client = await connectedClient(deps, audit);
+    const { job_id } = await startedJob(deps, client);
+
+    // Let the runId patch arrive before cancelling.
+    await vi.waitFor(async () => {
+      const s = parseToolJson(
+        await client.callTool({
+          name: "analyze_status",
+          arguments: { job_id, wait_seconds: 0 },
+        })
+      );
+      expect((s.stage as { stage?: string })?.stage).toBe("generating");
+    });
+
+    const cancelled = parseToolJson(
+      await client.callTool({ name: "analyze_cancel", arguments: { job_id } })
+    );
+    expect(cancelled.status).toBe("cancelled");
+    expect(deps.stopRun).toHaveBeenCalledWith("run-job-2");
+
+    const result = await client.callTool({ name: "analyze_result", arguments: { job_id } });
+    expect((result as { isError?: boolean }).isError).toBe(true);
+    expect(String(parseToolJson(result).error)).toContain("cancelled");
+  });
+
+  it("analyze_start rejects an unknown source instead of burying it in a job", async () => {
+    const deps = makeTestDeps();
+    const client = await connectedClient(deps, audit);
+    const res = await client.callTool({
+      name: "analyze_start",
+      arguments: { source_id: "nope", question: "q" },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+describe("dashboard_data (the iframe's pull channel)", () => {
+  const ENTRY = {
+    meta: {
+      id: "e2f1a6c0-0000-4000-8000-000000000001",
+      question: "Revenue by region?",
+      timestamp: Date.parse("2026-08-06T00:00:00Z"),
+    } as HistoryMeta,
+    spec: {
+      root: "r",
+      elements: { r: { type: "BarChart", props: { title: "T" }, children: [] } },
+      state: { datasets: { main: [{ a: 1 }] }, __cost: { usd: 1 } },
+    },
+    generatedCode: "",
+    schema: {} as CSVSchema,
+  };
+
+  async function uiClient(deps: McpDeps) {
+    const server = buildMcpServer(deps, (e) => audit.push(e));
+    const client = new Client(
+      { name: "ui-client", version: "0.0.0" },
+      {
+        capabilities: {
+          extensions: {
+            "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] },
+          },
+        },
+      }
+    );
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    await client.connect(ct);
+    return client;
+  }
+
+  it("returns the payload on BOTH channels, app-only visibility, internals stripped", async () => {
+    const deps = makeTestDeps({ loadHistoryEntry: vi.fn(async () => ENTRY) });
+    const client = await uiClient(deps);
+
+    const { tools } = await client.listTools();
+    const meta = tools.find((t) => t.name === "dashboard_data")?._meta as
+      | { ui?: { visibility?: string[] } }
+      | undefined;
+    expect(meta?.ui?.visibility).toEqual(["app"]);
+
+    const result = await client.callTool({
+      name: "dashboard_data",
+      arguments: { history_id: ENTRY.meta.id },
+    });
+    // Channel 1: structuredContent (when the host preserves it).
+    const sc = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+    expect((sc?.spec as { root?: string })?.root).toBe("r");
+    // Channel 2: the JSON text block (survives structuredContent stripping).
+    const text = parseToolJson(result);
+    expect((text.spec as { root?: string })?.root).toBe("r");
+    expect(text.question).toBe("Revenue by region?");
+    // Publish floor: __-prefixed pipeline state never leaves the server.
+    expect(JSON.stringify(text.spec)).not.toContain("__cost");
+  });
+
+  it("rejects an unknown history_id with an actionable error", async () => {
+    const deps = makeTestDeps();
+    const client = await uiClient(deps);
+    const res = await client.callTool({
+      name: "dashboard_data",
+      arguments: { history_id: "nope" },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    expect(String(parseToolJson(res).error)).toContain("No history entry");
   });
 });

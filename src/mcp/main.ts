@@ -5,7 +5,7 @@
  * optional LLM replay), zero Next imports, stdio transport for Claude
  * Desktop / Claude Code:
  *
- *   { "mcpServers": { "hermetic": { "command": "pnpm", "args": ["mcp"],
+ *   { "mcpServers": { "hermetic": { "command": "pnpm", "args": ["--silent", "mcp"],
  *       "cwd": "<hermetic checkout>" } } }
  *
  * stdout belongs to the MCP protocol. hermetic's logger writes info/debug via
@@ -66,7 +66,15 @@ async function main(): Promise<void> {
     }
   }
 
-  const server = buildMcpServer(realDeps(), fileAuditSink());
+  const deps = realDeps();
+
+  // Rehydrate source_ids from the previous server life BEFORE serving:
+  // Claude Desktop chat recycles this process on conversation resume, and
+  // the host's next call may reference a source connected pre-recycle.
+  const { restoreSources } = await import("./source-persist");
+  await restoreSources(deps).catch(() => {});
+
+  const server = buildMcpServer(deps, fileAuditSink());
   await server.connect(new StdioServerTransport());
   console.error("[hermetic-mcp] serving on stdio");
 

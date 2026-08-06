@@ -101,6 +101,17 @@ export async function storeCSV(
   });
 }
 
+/**
+ * Re-seed an index entry from persisted metadata (MCP source rehydration —
+ * mcp/source-persist.ts). The index dies with the process while the bytes
+ * survive on disk; this puts the entry back so a restarted server can keep
+ * serving a source_id it handed out in a previous life. Callers must have
+ * verified the underlying data still exists.
+ */
+export function restoreStoredCSV(csvId: string, entry: StoredCSV): void {
+  store.set(csvId, { ...entry, createdAt: Date.now() });
+}
+
 export function getStoredCSV(csvId: string): StoredCSV | undefined {
   const entry = store.get(csvId);
   if (!entry) return undefined;

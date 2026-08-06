@@ -23,11 +23,13 @@ import { assertSourceLive } from "./liveness";
 import { viewUrl, exportUrl } from "../view-url";
 import { CHART_ROW_CAP } from "../caps";
 import { McpToolError, unknownSource } from "../errors";
+import { UI_PAYLOAD_KEY, dashboardUiPayload } from "../app-ui";
 
 /** The McpDeps slice analyze consumes (see LivenessDeps for the pattern). */
 export type AnalyzeDeps = Pick<
   McpDeps,
   | "runPatchStream"
+  | "stopRun"
   | "runAskQuery"
   | "getWarehouseState"
   | "getStoredCSV"
@@ -200,17 +202,23 @@ export function progressFromPatch(patch: PatchLine): AnalyzeProgress | null {
 export async function analyze(
   deps: AnalyzeDeps,
   args: { source_id: string; question: string; purpose?: string },
-  onProgress?: ProgressReporter
+  onProgress?: ProgressReporter,
+  signal?: AbortSignal,
+  /** Fires when the pipeline's runId is known — the background-job tools
+   *  (analyze-async.ts) need it to target stopRun before the run settles. */
+  onRunId?: (runId: string) => void
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id);
   if (!source) throw unknownSource(args.source_id);
-  return serializedBySource(source.id, () => runAnalyze(deps, args, onProgress));
+  return serializedBySource(source.id, () => runAnalyze(deps, args, onProgress, signal, onRunId));
 }
 
 async function runAnalyze(
   deps: AnalyzeDeps,
   args: { source_id: string; question: string; purpose?: string },
-  onProgress?: ProgressReporter
+  onProgress?: ProgressReporter,
+  signal?: AbortSignal,
+  onRunId?: (runId: string) => void
 ): Promise<Record<string, unknown>> {
   const source = getSource(args.source_id)!;
   assertSourceLive(deps, source);
@@ -241,35 +249,76 @@ async function runAnalyze(
     question: args.question,
   };
 
-  onProgress?.({ stage: "starting" });
-  // runPatchStream returns the runId — the join key for this run's server
-  // logs, diagnostics, and cost rows.
-  const runId = await deps.runPatchStream(
-    "mcp:analyze",
-    {
-      write: (data: string) => {
-        lines.push(data);
-        if (!onProgress) return;
-        // Stream-side reporting: parse each line as it arrives, not at the end.
-        for (const patch of parsePatchLines([data])) {
-          const update = progressFromPatch(patch);
-          if (update) onProgress(update);
-        }
+  // Host cancellation (MCP notifications/cancelled → extra.signal): a run
+  // the host gave up on must actually STOP — otherwise it burns LLM tokens
+  // into the void and, worse, holds the per-source serialization lock so
+  // every later analyze on this source queues behind a zombie. stopRun is
+  // the same lever as the web app's stop button: aborts the run's signal
+  // (LLM streams unwind) and force-removes its sandbox containers. The
+  // in-flight runId arrives on the FIRST stream patch (`/state` add carries
+  // __runId), so the sink below captures it before anything can abort.
+  let liveRunId: string | undefined;
+  let stopIssued = false;
+  const stopIfAborted = () => {
+    if (!signal?.aborted || stopIssued) return;
+    stopIssued = true;
+    if (liveRunId) void deps.stopRun(liveRunId).catch(() => {});
+  };
+  if (signal?.aborted) {
+    throw new McpToolError("execution_failed", "The host cancelled the analysis.");
+  }
+  signal?.addEventListener("abort", stopIfAborted, { once: true });
+
+  let runId: string | undefined;
+  try {
+    onProgress?.({ stage: "starting" });
+    // runPatchStream returns the runId — the join key for this run's server
+    // logs, diagnostics, and cost rows.
+    runId = await deps.runPatchStream(
+      "mcp:analyze",
+      {
+        write: (data: string) => {
+          // Stream-side: capture the runId, then report progress per line.
+          for (const patch of parsePatchLines([data])) {
+            if (!liveRunId && patch.path === "/state") {
+              const v = patch.value as { __runId?: string } | undefined;
+              if (v?.__runId) {
+                liveRunId = v.__runId;
+                onRunId?.(liveRunId);
+              }
+            }
+            const update = onProgress ? progressFromPatch(patch) : null;
+            if (update) onProgress?.(update);
+          }
+          if (signal?.aborted) {
+            stopIfAborted();
+            // Throwing here flips the stream to closed — the pipeline's
+            // isClosed checkpoints treat it like a disconnected client.
+            throw new Error("host cancelled the analysis");
+          }
+          lines.push(data);
+        },
       },
-    },
-    async (stream) => {
-      await deps.runAskQuery({
-        context: { purpose: args.purpose ?? "dashboard" },
-        question: args.question,
-        source: analysisSource,
-        codeGenModel: deps.models.codeGen,
-        uiComposeModel: deps.models.uiCompose,
-        sandboxRuntime: deps.getActiveSandboxRuntime(),
-        runState,
-        stream,
-      });
-    }
-  );
+      async (stream) => {
+        await deps.runAskQuery({
+          context: { purpose: args.purpose ?? "dashboard" },
+          question: args.question,
+          source: analysisSource,
+          codeGenModel: deps.models.codeGen,
+          uiComposeModel: deps.models.uiCompose,
+          sandboxRuntime: deps.getActiveSandboxRuntime(),
+          runState,
+          stream,
+        });
+      }
+    );
+  } finally {
+    signal?.removeEventListener("abort", stopIfAborted);
+  }
+
+  if (signal?.aborted) {
+    throw new McpToolError("execution_failed", "The host cancelled the analysis.");
+  }
 
   const patches = parsePatchLines(lines);
 
@@ -331,5 +380,14 @@ async function runAnalyze(
     cost,
     ...(persistError ? { persist_error: persistError } : {}),
     ...(cached ? capArtifacts(cached) : {}),
+    // The MCP-App iframe's data channel (app-ui.ts): the full renderable
+    // spec. withAudit strips this key from the model-visible JSON and emits
+    // it as structuredContent only for hosts that declared the ui extension.
+    [UI_PAYLOAD_KEY]: dashboardUiPayload({
+      spec,
+      question: args.question,
+      createdAt: new Date().toISOString(),
+      dashboardUrl,
+    }),
   };
 }

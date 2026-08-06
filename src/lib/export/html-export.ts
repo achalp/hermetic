@@ -137,6 +137,67 @@ function escapeHtmlText(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * MCP App template assembler (SEP-1865): the SAME single-file viewer, minus
+ * the data. Hosts that support MCP Apps (Claude Desktop et al.) fetch this
+ * once via resources/read as `ui://hermetic/dashboard` and render it in a
+ * sandboxed iframe; the spec then arrives per tool call through the
+ * `ui/notifications/tool-result` structuredContent channel — so the template
+ * is registered before any dashboard exists.
+ *
+ * Always the STANDARD profile: the template is re-sent to hosts that don't
+ * cache, so the 11MB FULL bundle is off the table. Heavy chart families
+ * (geo/3d/finance/polar) render the standard bundle's "unavailable" tile —
+ * the tool result still carries dashboard_url for the complete view.
+ *
+ * The `mode: "mcp-app"` manifest flag (plus the absent #hermetic-spec block)
+ * is what flips the shared export entry from read-inline-JSON to
+ * wait-for-host-data.
+ */
+export async function exportAppTemplateHtml(input: {
+  distDir: string;
+}): Promise<{ html: string; bytes: number }> {
+  const manifest = JSON.parse(
+    await readFile(join(input.distDir, "export-manifest.json"), "utf-8")
+  ) as ExportBuildManifest;
+  const profile = manifest.profiles.standard;
+
+  const [appCss, profileCss, profileJs] = await Promise.all([
+    readFile(join(input.distDir, "export-app.css"), "utf-8"),
+    readFile(join(input.distDir, profile.css), "utf-8").catch(() => ""),
+    readFile(join(input.distDir, profile.js), "utf-8"),
+  ]);
+
+  const appManifest = {
+    question: null,
+    createdAt: null,
+    generator: "hermetic",
+    bundle: "standard",
+    elementCount: 0,
+    mode: "mcp-app",
+  };
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="generator" content="hermetic" />
+<title>hermetic dashboard</title>
+<style>${appCss}</style>
+${profileCss ? `<style>${profileCss}</style>` : ""}
+</head>
+<body class="antialiased">
+<div id="root"></div>
+${jsonBlock("hermetic-manifest", appManifest)}
+<script>${profileJs}</script>
+</body>
+</html>
+`;
+
+  return { html, bytes: Buffer.byteLength(html, "utf-8") };
+}
+
 /** Filesystem-safe default filename for an export, from the question. */
 export function exportFilename(question: string | null | undefined): string {
   const base = (question ?? "dashboard")

@@ -86,8 +86,10 @@ if [ -n "$DESKTOP_CONFIG" ] && [ -d "$(dirname "$DESKTOP_CONFIG")" ]; then
       const already = JSON.stringify(cfg.mcpServers.hermetic);
       // pnpm -C <root> pins the working directory in the COMMAND itself —
       // `claude mcp add-json` drops a cwd field, and Desktop support for it
-      // varies; this form needs neither.
-      cfg.mcpServers.hermetic = { command: "pnpm", args: ["-C", root, "mcp"] };
+      // varies; this form needs neither. --silent keeps pnpm's "> tsx ..."
+      // script banner off stdout, which is the MCP protocol channel —
+      // Claude Desktop rejects those lines as invalid JSON.
+      cfg.mcpServers.hermetic = { command: "pnpm", args: ["--silent", "-C", root, "mcp"] };
       fs.mkdirSync(require("path").dirname(cfgPath), { recursive: true });
       fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
       console.log(already === JSON.stringify(cfg.mcpServers.hermetic) ? "UNCHANGED" : "WRITTEN");
@@ -120,11 +122,11 @@ if command -v claude &>/dev/null; then
   read -r CODE_ANSWER || CODE_ANSWER="n"
   if [ -z "$CODE_ANSWER" ] || [[ "$CODE_ANSWER" =~ ^[Yy] ]]; then
     if claude mcp add-json hermetic \
-        "{\"command\":\"pnpm\",\"args\":[\"-C\",\"$ROOT\",\"mcp\"]}" \
+        "{\"command\":\"pnpm\",\"args\":[\"--silent\",\"-C\",\"$ROOT\",\"mcp\"]}" \
         --scope user >/dev/null 2>&1; then
       ok "Claude Code (user scope) configured — available in every directory"
     else
-      warn "claude mcp add-json failed — register manually: claude mcp add-json hermetic '{\"command\":\"pnpm\",\"args\":[\"-C\",\"$ROOT\",\"mcp\"]}' --scope user"
+      warn "claude mcp add-json failed — register manually: claude mcp add-json hermetic '{\"command\":\"pnpm\",\"args\":[\"--silent\",\"-C\",\"$ROOT\",\"mcp\"]}' --scope user"
     fi
   else
     ok "Skipped — project scope still works inside this checkout"

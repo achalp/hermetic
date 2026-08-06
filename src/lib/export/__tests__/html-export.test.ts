@@ -2,7 +2,12 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { exportDashboardHtml, exportFilename, stripInternalState } from "../html-export";
+import {
+  exportDashboardHtml,
+  exportAppTemplateHtml,
+  exportFilename,
+  stripInternalState,
+} from "../html-export";
 
 let dist: string;
 
@@ -96,5 +101,23 @@ describe("exportDashboardHtml", () => {
       "which-repos-gained-stars-in-2024.html"
     );
     expect(exportFilename(null)).toBe("dashboard.html");
+  });
+});
+
+describe("exportAppTemplateHtml (MCP Apps template)", () => {
+  it("is the STANDARD bundle with the app-mode manifest and NO spec block", async () => {
+    const { html, bytes } = await exportAppTemplateHtml({ distDir: dist });
+    // Always standard — the 11MB full bundle never rides resources/read.
+    expect(html).toContain("/*standard*/");
+    expect(html).not.toContain("/*full*/");
+    // Data-less: the spec arrives per tool call via structuredContent, so
+    // the template must carry the mode flag and no inline spec.
+    expect(html).not.toContain('id="hermetic-spec"');
+    expect(html).toContain('id="hermetic-manifest"');
+    expect(html).toContain('"mode":"mcp-app"');
+    // Self-contained, same constraint as the file export (host CSP default
+    // blocks all external requests).
+    expect(html).not.toContain('href="/assets');
+    expect(bytes).toBe(Buffer.byteLength(html, "utf-8"));
   });
 });

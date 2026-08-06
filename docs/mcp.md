@@ -29,7 +29,7 @@ support for one varies):
   "mcpServers": {
     "hermetic": {
       "command": "pnpm",
-      "args": ["-C", "/path/to/hermetic", "mcp"],
+      "args": ["--silent", "-C", "/path/to/hermetic", "mcp"],
     },
   },
 }
@@ -47,17 +47,18 @@ pnpm mcp:build-viewer
 
 ## Tools
 
-| Tool                | What it does                                                                                                                                                                                                                                           | Boundary guarantees                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `connect_source`    | Attach a source → `source_id` + schema summary. `path`: .csv, .xlsx (`sheet` for multi-sheet), GeoJSON, .parquet file or folder (Hive auto-detected). `url`: cloud Parquet (s3/https/gs, incl. partitioned prefixes). `connection_id`: saved warehouse | No raw rows, no credentials in any response                                                                               |
-| `get_schema`        | Rich schema: column stats, detected domain, correlations                                                                                                                                                                                               | Aggregates only; row-linked samples are structurally unreachable                                                          |
-| `analyze`           | **Flagship.** Full hermetic pipeline (code-gen → sandbox → dashboard), persisted; returns summary + cost + link                                                                                                                                        | Data and compute stay local; host sees narrative + aggregates                                                             |
-| `run_sql`           | Read-only SELECT against a warehouse (pushdown; billions of rows)                                                                                                                                                                                      | `assertReadOnlySql` **before** execution; row-capped results                                                              |
-| `run_analysis`      | Host-authored Python in the Docker sandbox                                                                                                                                                                                                             | `--network none` enforced regardless of code content; row-level datasets withheld                                         |
-| `verify_narrative`  | Trace every data-like number in prose to computed values                                                                                                                                                                                               | Reports untraceable figures before the user sees them                                                                     |
-| `persist_dashboard` | Persist a host-authored spec as a viewable analysis                                                                                                                                                                                                    | **Enforcing** catalog validation — invalid specs rejected                                                                 |
-| `export_dashboard`  | A persisted dashboard as ONE self-contained interactive .html file (share/send/open offline)                                                                                                                                                           | File contains only what the dashboard shows — same aggregates, no raw datasets beyond spec state, `__`-internals stripped |
-| `list_sources`      | Sources connected this session                                                                                                                                                                                                                         | —                                                                                                                         |
+| Tool                                                                     | What it does                                                                                                                                                                                                                                                                                                                                                                          | Boundary guarantees                                                                                                       |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `connect_source`                                                         | Attach a source → `source_id` + schema summary. `path`: .csv, .xlsx (`sheet` for multi-sheet), GeoJSON, .parquet file or folder (Hive auto-detected). `url`: cloud Parquet (s3/https/gs, incl. partitioned prefixes). `connection_id`: saved warehouse                                                                                                                                | No raw rows, no credentials in any response                                                                               |
+| `get_schema`                                                             | Rich schema: column stats, detected domain, correlations                                                                                                                                                                                                                                                                                                                              | Aggregates only; row-linked samples are structurally unreachable                                                          |
+| `analyze`                                                                | **Flagship.** Full hermetic pipeline (code-gen → sandbox → dashboard), persisted; returns summary + cost + link                                                                                                                                                                                                                                                                       | Data and compute stay local; host sees narrative + aggregates                                                             |
+| `analyze_start` / `analyze_status` / `analyze_result` / `analyze_cancel` | The same pipeline as a **background job**: start returns `{job_id}` in milliseconds; status **long-polls** (blocks until the stage changes, default 45s); result returns the full analyze payload; cancel maps to the run-stop lever. For hosts that cancel long tool calls — Claude Desktop chat enforces a hard ~4-minute cap with no progressToken, while real analyses run longer | Same guarantees as `analyze`; results kept ~30 min after completion                                                       |
+| `run_sql`                                                                | Read-only SELECT against a warehouse (pushdown; billions of rows)                                                                                                                                                                                                                                                                                                                     | `assertReadOnlySql` **before** execution; row-capped results                                                              |
+| `run_analysis`                                                           | Host-authored Python in the Docker sandbox                                                                                                                                                                                                                                                                                                                                            | `--network none` enforced regardless of code content; row-level datasets withheld                                         |
+| `verify_narrative`                                                       | Trace every data-like number in prose to computed values                                                                                                                                                                                                                                                                                                                              | Reports untraceable figures before the user sees them                                                                     |
+| `persist_dashboard`                                                      | Persist a host-authored spec as a viewable analysis                                                                                                                                                                                                                                                                                                                                   | **Enforcing** catalog validation — invalid specs rejected                                                                 |
+| `export_dashboard`                                                       | A persisted dashboard as ONE self-contained interactive .html file (share/send/open offline)                                                                                                                                                                                                                                                                                          | File contains only what the dashboard shows — same aggregates, no raw datasets beyond spec state, `__`-internals stripped |
+| `list_sources`                                                           | Sources connected this session                                                                                                                                                                                                                                                                                                                                                        | —                                                                                                                         |
 
 ## Knowing what a source supports
 
@@ -94,6 +95,26 @@ uses: drill-downs and interactivity included.
 Entries also appear in the web app's History page — the stores are shared when
 both run from the same checkout.
 
+### Inline dashboards (MCP Apps)
+
+Hosts that negotiated the [MCP Apps extension](https://modelcontextprotocol.io/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp)
+(`io.modelcontextprotocol/ui` — Claude Desktop, VS Code, Goose) render the
+dashboard **inside the chat window** instead of behind the link:
+
+- The server pre-declares `ui://hermetic/dashboard` — the data-less
+  standard-profile viewer (~3 MB, fully self-contained; the host's default
+  CSP blocks all external requests and nothing in the template makes any).
+- `analyze` and `persist_dashboard` point at it via `_meta.ui.resourceUri`,
+  and return the renderable spec as `structuredContent`. Per the extension,
+  hosts deliver `structuredContent` to the iframe only — it is **not** added
+  to model context, so the model-visible JSON stays exactly the text-block
+  contract below.
+- Capability-gated both ways: a text-only host never receives
+  `structuredContent`, and a ui-capable host that never reads the template
+  pays nothing. Heavy chart families (3D/geo/finance) show an
+  "open the full dashboard" tile inline — `dashboard_url` still carries the
+  complete view.
+
 ### Sharing a dashboard
 
 `analyze` also returns an `export_url` beside `dashboard_url`: the same
@@ -117,7 +138,7 @@ environment, set in the host config:
 
 ```jsonc
 "hermetic": {
-  "command": "pnpm", "args": ["mcp"], "cwd": "/path/to/hermetic",
+  "command": "pnpm", "args": ["--silent", "mcp"], "cwd": "/path/to/hermetic",
   "env": { "AWS_REGION": "us-east-1", "AWS_ACCESS_KEY_ID": "…", "AWS_SECRET_ACCESS_KEY": "…" }
 }
 ```
@@ -267,12 +288,15 @@ the canary.
   directly; charting warehouse data goes through `analyze`.
 - Concurrent `analyze` calls on ONE source are serialized (their computed
   artifacts share a per-source cache); different sources run in parallel.
-- One session's `source_id`s live in-process — reconnect after a server
-  restart. Warehouse connections also idle out after ~3h (credentialed
-  sockets — file/cloud sources are retained for the server's lifetime);
-  affected tools then fail with
-  a message naming the source, the cause, and the exact `connect_source` call
-  that re-attaches it (a re-attach yields a NEW `source_id`).
+- File/cloud `source_id`s SURVIVE server restarts: descriptors are written
+  through to `data/mcp-sources.json` (never credentials) and rehydrated at
+  boot from the on-disk bytes — necessary because some hosts (Claude Desktop
+  chat) recycle the server between conversation turns. Credentialed
+  cloud-parquet sources and warehouse connections do NOT rehydrate
+  (credential policy; warehouse sockets also idle out after ~3h); affected
+  tools then fail with a message naming the source, the cause, and the exact
+  `connect_source` call that re-attaches it (a re-attach yields a NEW
+  `source_id`).
 - The catalog-as-resource (teaching the host to author specs natively) is
   deliberately deferred (spec §4, v3) behind the broader untrusted-spec
   hardening.

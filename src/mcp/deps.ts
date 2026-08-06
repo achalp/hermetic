@@ -14,6 +14,7 @@ import {
   getCSVContent,
   getGeoJSONContent,
   getStoredCSV,
+  restoreStoredCSV,
   storeLocalFileRef,
   storeGeoJSON,
 } from "@/lib/csv/storage";
@@ -22,11 +23,12 @@ import { loadConnections } from "@/lib/warehouse/persist-env";
 import { assertReadOnlySql } from "@/lib/warehouse/sql-guard";
 import { storeWarehouse, getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
 import { runPatchStream } from "@/lib/pipeline/patch-stream";
+import { stopRun } from "@/lib/pipeline/run-control";
 import { runAskQuery } from "@/lib/pipeline/run-ask-query";
 import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { persistHistoryEntry } from "@/lib/history/persist";
 import { loadHistoryEntry } from "@/lib/history/storage";
-import { exportDashboardHtml } from "@/lib/export/html-export";
+import { exportDashboardHtml, exportAppTemplateHtml } from "@/lib/export/html-export";
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { executeSandbox } from "@/lib/sandbox";
@@ -57,16 +59,21 @@ export interface McpDeps {
   /** Composed accessor: the {warehouse, connector} pair runAskQuery takes. */
   getWarehouseState: (warehouseId: string) => WarehouseState | undefined;
   runPatchStream: typeof runPatchStream;
+  /** Host-cancellation seam: aborts a run's LLM streams and kills its containers. */
+  stopRun: typeof stopRun;
   runAskQuery: typeof runAskQuery;
   assembleSpecFromPatches: typeof assembleSpecFromPatches;
   persistHistoryEntry: typeof persistHistoryEntry;
   loadHistoryEntry: typeof loadHistoryEntry;
   exportDashboardHtml: typeof exportDashboardHtml;
+  exportAppTemplateHtml: typeof exportAppTemplateHtml;
   getCachedArtifacts: typeof getCachedArtifacts;
   getActiveSandboxRuntime: typeof getActiveSandboxRuntime;
   getCSVContent: typeof getCSVContent;
   /** Liveness probe: undefined once the sliding idle TTL expired the entry. */
   getStoredCSV: typeof getStoredCSV;
+  /** Re-seed a store index entry from persisted metadata (source-persist). */
+  restoreStoredCSV: typeof restoreStoredCSV;
   getGeoJSONContent: typeof getGeoJSONContent;
   executeSandbox: typeof executeSandbox;
   collectGroundedValues: typeof collectGroundedValues;
@@ -142,15 +149,18 @@ export function realDeps(): McpDeps {
       return warehouse && connector ? { warehouse, connector } : undefined;
     },
     runPatchStream,
+    stopRun,
     runAskQuery,
     assembleSpecFromPatches,
     persistHistoryEntry,
     loadHistoryEntry,
     exportDashboardHtml,
+    exportAppTemplateHtml,
     getCachedArtifacts,
     getActiveSandboxRuntime,
     getCSVContent,
     getStoredCSV,
+    restoreStoredCSV,
     getGeoJSONContent,
     executeSandbox,
     collectGroundedValues,

@@ -2,7 +2,7 @@
   "mcpServers": {
     "hermetic": {
       "command": "pnpm",
-      "args": ["mcp"]
+      "args": ["--silent", "mcp"]
     }
   }
 }

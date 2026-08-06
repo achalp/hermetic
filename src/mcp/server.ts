@@ -5,19 +5,44 @@
  * validation via zod shapes (the SDK enforces them before the handler runs),
  * one audit line per call (spec §3 cross-cutting defaults), errors surfaced
  * as MCP tool errors with the message — never a stack — and all results
- * returned as a single JSON text block so any host can consume them.
+ * returned as a single JSON text block so any host can consume them. Hosts
+ * that negotiated the MCP Apps ui extension additionally get dashboard specs
+ * as structuredContent for inline rendering (app-ui.ts).
  *
  * Transport-free by design: main.ts attaches stdio, tests attach the SDK's
  * in-memory transport pair.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  RESOURCE_MIME_TYPE,
+  RESOURCE_URI_META_KEY,
+  getUiCapability,
+  registerAppResource,
+} from "@modelcontextprotocol/ext-apps/server";
 import type { McpDeps } from "./deps";
 import { errorCodeOf, type McpErrorCode } from "./errors";
 import { sanitizeArgs, type AuditSink } from "./audit";
+import {
+  DASHBOARD_UI_URI,
+  UI_PAYLOAD_KEY,
+  dashboardData,
+  dashboardDataInput,
+  readDashboardAppTemplate,
+} from "./app-ui";
 import { connectSource, connectSourceInput } from "./tools/connect-source";
 import { getSchema, getSchemaInput } from "./tools/get-schema";
 import { runSql, runSqlInput } from "./tools/run-sql";
 import { analyze, analyzeInput } from "./tools/analyze";
+import {
+  analyzeStart,
+  analyzeStartInput,
+  analyzeStatus,
+  analyzeStatusInput,
+  analyzeResult,
+  analyzeResultInput,
+  analyzeCancel,
+  analyzeCancelInput,
+} from "./tools/analyze-async";
 import { runAnalysis, runAnalysisInput } from "./tools/run-analysis";
 import { verifyNarrative, verifyNarrativeInput } from "./tools/verify-narrative";
 import { persistDashboard, persistDashboardInput } from "./tools/persist-dashboard";
@@ -34,12 +59,23 @@ export const MCP_SERVER_NAME = "hermetic";
  * 0.3.0: analyze returns `run_id` (joins the audit line and server logs).
  * 0.4.0: `export_dashboard` tool (single-file HTML export); analyze returns
  *        `export_url` (the same download link) beside `dashboard_url`.
+ * 0.5.0: MCP Apps (SEP-1865) — `ui://hermetic/dashboard` template resource;
+ *        analyze/persist_dashboard declare `_meta.ui` and return the spec as
+ *        structuredContent to hosts that negotiated the ui extension. The
+ *        model-visible JSON text block is unchanged.
+ * 0.6.0: background analysis jobs (analyze_start/status/result/cancel) —
+ *        the start→long-poll→result shape for hosts that cancel long tool
+ *        calls (Claude Desktop chat: hard ~4 min, no progressToken).
+ * 0.7.0: `dashboard_data` (app-only visibility) — the iframe's pull channel
+ *        for the dashboard payload, working around hosts that strip
+ *        structuredContent from ui/notifications/tool-result.
  */
-export const MCP_SERVER_VERSION = "0.4.0";
+export const MCP_SERVER_VERSION = "0.7.0";
 
 interface ToolTextResult {
   [key: string]: unknown;
   content: Array<{ type: "text"; text: string }>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
 
@@ -60,6 +96,8 @@ function errorResult(message: string, code: McpErrorCode): ToolTextResult {
  */
 interface RequestExtra {
   _meta?: { progressToken?: string | number };
+  /** Fires when the host sends notifications/cancelled for this request. */
+  signal?: AbortSignal;
   sendNotification?: (n: {
     method: "notifications/progress";
     params: {
@@ -99,11 +137,17 @@ export function progressReporterFor(extra: RequestExtra | undefined) {
 /**
  * Wrap a tool handler with the audit + error policy while preserving its
  * argument type, so the SDK's schema-derived inference still applies.
+ *
+ * `supportsUi` (when supplied) is the MCP-Apps gate: a handler result may
+ * carry an iframe payload under UI_PAYLOAD_KEY — it is ALWAYS stripped from
+ * the model-visible JSON text, and becomes `structuredContent` only when the
+ * connected client negotiated the ui extension (app-ui.ts).
  */
 function withAudit<A extends Record<string, unknown>>(
   audit: AuditSink,
   name: string,
-  fn: (args: A, extra?: RequestExtra) => Promise<unknown>
+  fn: (args: A, extra?: RequestExtra) => Promise<unknown>,
+  supportsUi?: () => boolean
 ): (args: A, extra?: RequestExtra) => Promise<ToolTextResult> {
   return async (args: A, extra?: RequestExtra) => {
     const started = Date.now();
@@ -115,7 +159,13 @@ function withAudit<A extends Record<string, unknown>>(
       args: sanitizeArgs(args ?? {}),
     };
     try {
-      const result = await fn(args, extra);
+      let result = await fn(args, extra);
+      let uiPayload: Record<string, unknown> | undefined;
+      if (result && typeof result === "object" && UI_PAYLOAD_KEY in result) {
+        const { [UI_PAYLOAD_KEY]: ui, ...rest } = result as Record<string, unknown>;
+        if (ui && typeof ui === "object") uiPayload = ui as Record<string, unknown>;
+        result = rest;
+      }
       // A tool that ran a pipeline reports its run_id in the result (analyze)
       // — stamp it into the audit line so the call joins the run's logs.
       const runId =
@@ -128,7 +178,18 @@ function withAudit<A extends Record<string, unknown>>(
         outcome: "ok",
         durationMs: Date.now() - started,
       });
-      return jsonResult(result);
+      const out = jsonResult(result);
+      if (uiPayload && supportsUi?.()) {
+        out.structuredContent = uiPayload;
+        // Diagnosis breadcrumb (inline-render debugging): confirms the UI
+        // payload LEFT the server, with its size — so a blank iframe can be
+        // attributed to host forwarding, not to hermetic.
+        console.error(
+          `[mcp-apps] ${name}: ui payload attached as structuredContent ` +
+            `(${Math.round(JSON.stringify(uiPayload).length / 1024)}KB)`
+        );
+      }
+      return out;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const code = errorCodeOf(err);
@@ -146,6 +207,73 @@ function withAudit<A extends Record<string, unknown>>(
 
 export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION });
+
+  // MCP Apps (SEP-1865): did the connected client negotiate the ui
+  // extension? Read at CALL time (capabilities exist only after initialize);
+  // gates structuredContent so text-only hosts never receive megabytes of
+  // spec they'd feed to the model.
+  const supportsUi = () =>
+    getUiCapability(server.server.getClientCapabilities())?.mimeTypes?.includes(
+      RESOURCE_MIME_TYPE
+    ) === true;
+
+  // One stderr line at initialize naming the host and whether it negotiated
+  // the extension — so "why didn't the dashboard render inline?" is
+  // answerable from the log instead of by protocol archaeology. (Claude
+  // Desktop chat negotiates it; Claude Code and other text-only hosts don't.)
+  server.server.oninitialized = () => {
+    const host = server.server.getClientVersion();
+    console.error(
+      `[mcp-apps] host ${host?.name ?? "unknown"}@${host?.version ?? "?"} ` +
+        (supportsUi()
+          ? "negotiated the ui extension — dashboards render inline"
+          : "did not negotiate the ui extension — dashboards stay behind dashboard_url")
+    );
+  };
+
+  // The pre-declared dashboard template (app-ui.ts): the data-less viewer a
+  // host renders in its sandboxed iframe. Registered unconditionally — a
+  // host that never negotiated the extension simply never reads it.
+  registerAppResource(
+    server,
+    "hermetic_dashboard",
+    DASHBOARD_UI_URI,
+    {
+      title: "hermetic dashboard viewer",
+      description:
+        "Interactive dashboard viewer template (MCP Apps). Receives the spec per tool call " +
+        "via structuredContent; fully self-contained — no external requests.",
+      mimeType: RESOURCE_MIME_TYPE,
+      _meta: {
+        ui: {
+          // The template inlines its fonts as data: URIs (single-file
+          // constraint). Claude Desktop's default iframe CSP allows only
+          // font-src 'self', which blocks them (renderer log: "Loading the
+          // font 'data:font/woff2...' violates ... font-src") — declare the
+          // scheme so hosts that honor csp hints stop stripping the fonts.
+          // Cosmetic when ignored: text falls back to system fonts.
+          csp: { resourceDomains: ["data:"] },
+        },
+      },
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: await readDashboardAppTemplate(deps),
+        },
+      ],
+    })
+  );
+
+  // Tool→template linkage: nested `_meta.ui` (current spec) plus the flat
+  // deprecated key for hosts on the pre-final shape. Harmless metadata to
+  // hosts without the extension.
+  const dashboardToolMeta = {
+    ui: { resourceUri: DASHBOARD_UI_URI },
+    [RESOURCE_URI_META_KEY]: DASHBOARD_UI_URI,
+  };
 
   server.registerTool(
     "connect_source",
@@ -195,10 +323,93 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
         "Run hermetic's full analysis pipeline on a source: generates and executes analysis " +
         "code in a sandbox, composes an interactive dashboard, persists it, and returns a " +
         "summary + a link to view it. The flagship tool — prefer this over hand-rolling " +
-        "SQL/code for open-ended questions. Takes seconds to minutes; cost is reported.",
+        "SQL/code for open-ended questions. Takes MINUTES and blocks until done; if your " +
+        "host cancels long tool calls (many chat hosts cap at ~4 minutes), use " +
+        "analyze_start + analyze_status + analyze_result instead. Cost is reported.",
       inputSchema: analyzeInput,
+      _meta: dashboardToolMeta,
     },
-    withAudit(audit, "analyze", (args, extra) => analyze(deps, args, progressReporterFor(extra)))
+    withAudit(
+      audit,
+      "analyze",
+      (args, extra) => {
+        const progress = progressReporterFor(extra);
+        // Diagnosis breadcrumb: without a progressToken the host cannot
+        // extend its tool timeout, and a multi-minute analyze may be
+        // cancelled mid-run (Claude Desktop chat: hard 4-minute cap).
+        if (!progress) {
+          console.error(
+            "[analyze] host did not request progress — long runs may hit host-side timeouts"
+          );
+        }
+        return analyze(deps, args, progress, extra?.signal);
+      },
+      supportsUi
+    )
+  );
+
+  server.registerTool(
+    "dashboard_data",
+    {
+      description:
+        "INTERNAL — the inline dashboard viewer (MCP Apps iframe) fetches its render payload " +
+        "with this. Models should NOT call it: the output is the full dashboard spec (large) " +
+        "and everything model-relevant is already in the analyze/analyze_result response.",
+      inputSchema: dashboardDataInput,
+      _meta: { ui: { visibility: ["app"] } },
+    },
+    withAudit(audit, "dashboard_data", (args) => dashboardData(deps, args), supportsUi)
+  );
+
+  server.registerTool(
+    "analyze_start",
+    {
+      description:
+        "Start analyze as a BACKGROUND job — returns {job_id} immediately. Use this instead " +
+        "of analyze whenever the analysis may run long or your host cancels long tool calls. " +
+        "Then call analyze_status (it blocks until there is progress) until status is " +
+        "'done', and analyze_result for the full result.",
+      inputSchema: analyzeStartInput,
+    },
+    withAudit(audit, "analyze_start", async (args) => analyzeStart(deps, args))
+  );
+
+  server.registerTool(
+    "analyze_status",
+    {
+      description:
+        "Progress of a background analysis job. LONG-POLLS: blocks up to wait_seconds " +
+        "(default 45) and returns as soon as the stage changes or the job finishes — so " +
+        "simply call it again each time it returns with status 'running'. Never treat a " +
+        "'running' response as failure.",
+      inputSchema: analyzeStatusInput,
+    },
+    withAudit(audit, "analyze_status", (args) => analyzeStatus(deps, args))
+  );
+
+  server.registerTool(
+    "analyze_result",
+    {
+      description:
+        "The full result of a finished background analysis job — same shape as analyze " +
+        "(summary, headline stats, dashboard link, computed values). If the job is still " +
+        "running it waits up to wait_seconds, then reports status; results are kept ~30 " +
+        "minutes after completion.",
+      inputSchema: analyzeResultInput,
+      _meta: dashboardToolMeta,
+    },
+    withAudit(audit, "analyze_result", (args) => analyzeResult(deps, args), supportsUi)
+  );
+
+  server.registerTool(
+    "analyze_cancel",
+    {
+      description:
+        "Cancel a running background analysis job: aborts its LLM streams and sandbox. " +
+        "Use when the user changes their mind or the question was wrong.",
+      inputSchema: analyzeCancelInput,
+    },
+    withAudit(audit, "analyze_cancel", (args) => analyzeCancel(deps, args))
   );
 
   server.registerTool(
@@ -238,8 +449,9 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
         "are rejected with the reason. Prefer analyze unless you are deliberately composing " +
         "the dashboard yourself.",
       inputSchema: persistDashboardInput,
+      _meta: dashboardToolMeta,
     },
-    withAudit(audit, "persist_dashboard", (args) => persistDashboard(deps, args))
+    withAudit(audit, "persist_dashboard", (args) => persistDashboard(deps, args), supportsUi)
   );
 
   server.registerTool(

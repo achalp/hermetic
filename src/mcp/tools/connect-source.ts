@@ -34,6 +34,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ingestFromDeps, type McpDeps } from "../deps";
 import { registerSource, type McpSource } from "../sources";
+import { persistSources } from "../source-persist";
 import { McpToolError } from "../errors";
 import { summarizeSource } from "./get-schema";
 import { IngestError, type IngestResult } from "@/lib/sources/ingest";
@@ -265,6 +266,11 @@ export async function connectSource(
   } else {
     source = await connectWarehouse(deps, args.connection_id!, args.label);
   }
+
+  // Write-through registry persistence: hosts (Claude Desktop chat) recycle
+  // this server between turns; without this, every recycle invalidates the
+  // source_id the host still holds. Best-effort — never fails the connect.
+  if (source.kind === "csv") void persistSources(deps);
 
   const summary: Record<string, unknown> = { source_id: source.id, ...summarizeSource(source) };
   // Additive: the join graph rides the connect response too, so a host can

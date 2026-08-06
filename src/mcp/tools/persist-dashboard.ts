@@ -14,6 +14,7 @@ import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
 import { McpToolError, unknownSource } from "../errors";
+import { UI_PAYLOAD_KEY, dashboardUiPayload } from "../app-ui";
 
 /** The McpDeps slice persist_dashboard consumes (see LivenessDeps for the pattern). */
 export type PersistDashboardDeps = Pick<
@@ -77,5 +78,13 @@ export async function persistDashboard(
     source_id: source.id,
     history_id: persisted.meta.id,
     dashboard_url: viewUrl(persisted.meta.id),
+    // MCP-App iframe payload (app-ui.ts) — the spec just validated above,
+    // so the iframe renders exactly what the catalog accepted.
+    [UI_PAYLOAD_KEY]: dashboardUiPayload({
+      spec: args.spec,
+      question: args.title,
+      createdAt: new Date().toISOString(),
+      dashboardUrl: viewUrl(persisted.meta.id),
+    }),
   };
 }
