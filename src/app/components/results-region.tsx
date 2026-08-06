@@ -105,6 +105,22 @@ export function ResultsRegion(props: ResultsRegionProps) {
         </div>
       )}
       <div ref={dashboardRef}>
+        {/* The question IS the dashboard's headline — full text, wrapping,
+            inside the captured container so PNG/PDF/HTML exports carry it
+            (it was previously a 400px-clipped span in the top-bar chrome). */}
+        {pageState.currentQuestion && (
+          <h1
+            className="mx-auto w-full max-w-[1100px] px-1 text-t-primary"
+            style={{
+              fontSize: "clamp(18px, 2.2vw, 24px)",
+              fontWeight: 650,
+              lineHeight: 1.3,
+              marginBottom: 14,
+            }}
+          >
+            {pageState.currentQuestion}
+          </h1>
+        )}
         <ResponsePanel
           csvId={props.csvId}
           warehouseId={props.warehouseId}

@@ -269,14 +269,12 @@ export function HomeTopBar({
   onLogoClick,
   hasData,
   isState1,
-  currentQuestion,
   sourceLabel,
   toolbar,
 }: {
   onLogoClick: () => void;
   hasData: boolean;
   isState1: boolean;
-  currentQuestion: string | null;
   sourceLabel: string;
   toolbar: ResultsToolbarProps;
 }) {
@@ -284,24 +282,11 @@ export function HomeTopBar({
     <TopBar
       onLogoClick={onLogoClick}
       center={
-        hasData && !isState1 ? (
-          toolbar.isState4 ? (
-            <span
-              className="text-sm text-t-secondary"
-              style={{
-                maxWidth: 400,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                display: "block",
-              }}
-            >
-              {currentQuestion}
-            </span>
-          ) : (
-            <SourcePill label={sourceLabel} />
-          )
-        ) : undefined
+        // The question is NOT chrome: clipped-at-400px it lost the most
+        // important context of a dashboard. It now renders as the
+        // dashboard's own headline (ResultsRegion); the center shows the
+        // short source pill in every with-data state.
+        hasData && !isState1 ? <SourcePill label={sourceLabel} /> : undefined
       }
       right={<ResultsToolbar {...toolbar} />}
     />

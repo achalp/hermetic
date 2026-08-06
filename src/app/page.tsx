@@ -276,7 +276,6 @@ export default function Home() {
         onLogoClick={handleReset}
         hasData={hasData}
         isState1={isState1}
-        currentQuestion={currentQuestion}
         sourceLabel={buildSourceLabel(schema, warehouse)}
         toolbar={{
           isState4,
