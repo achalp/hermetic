@@ -21,6 +21,8 @@ import { existsSync } from "node:fs";
 import { Readable } from "node:stream";
 import { once } from "node:events";
 import { logger, serializeError } from "@/lib/logger";
+import { currentPhase } from "@/lib/cost/accumulator";
+import { envConfig } from "@/lib/harness-slot";
 import {
   responsesJSON,
   responsesSSE,
@@ -117,13 +119,16 @@ export function buildClaudeInvocation(input: {
   system: string;
   prompt: string;
   streaming: boolean;
+  /** Thinking effort (--effort). Omitted → the CLI's own default. */
+  effort?: string;
 }): { args: string[]; stdin: string; systemFolded: boolean } {
-  const { model, system, prompt, streaming } = input;
+  const { model, system, prompt, streaming, effort } = input;
 
   const args: string[] = ["-p", "--output-format", streaming ? "stream-json" : "json"];
   args.push("--tools", "");
   if (streaming) args.push("--verbose", "--include-partial-messages");
   if (model) args.push("--model", model);
+  if (effort) args.push("--effort", effort);
 
   let stdin = prompt;
   let systemFolded = false;
@@ -250,6 +255,87 @@ export function claudeCliChildEnv(base: EnvRecord = process.env): {
  * Responses-API shape (streaming SSE or a single JSON envelope). Non-`/responses`
  * requests pass through untouched.
  */
+// ── Thinking effort ──────────────────────────────────────────────────
+// The CLI runs its own default thinking effort when the flag is absent —
+// measured on a real compose call, that meant ~2/3 of billed output tokens
+// (~$0.17-0.20 and 3+ minutes per dashboard) were invisible reasoning that
+// never landed in the spec. Effort is routed by COST PHASE (every LLM call
+// site already declares one for cost attribution, and the fetch runs inside
+// that AsyncLocalStorage scope): the phases doing real analytical reasoning
+// run HIGH; formatting/layout/classification phases run LOW. Precedence:
+// per-request `reasoning: { effort }` in the Responses body → the
+// HERMETIC_CLAUDE_CLI_EFFORT env var (a global force; "default" defers to
+// the CLI's own setting) → the phase policy → low.
+
+const EFFORT_LEVELS = new Set(["low", "medium", "high", "xhigh", "max"]);
+const DEFAULT_EFFORT = "low";
+
+/**
+ * The phase policy: where the ANALYSIS lives gets full reasoning — generated
+ * code and SQL are the product's correctness surface, and the review gate is
+ * the guard on skill-supplied code. Compose (layout + placeholder binding),
+ * planning, and classification phases stay at low; adjust HERE, not at call
+ * sites.
+ */
+const PHASE_EFFORT: Record<string, string> = {
+  code_gen: "high",
+  sql_gen: "high",
+  sql_repair: "high",
+  code_review: "high",
+};
+
+/** Effort resolution: body override → env force → phase policy → "low". */
+export function resolveEffort(body: Record<string, unknown>): string | null {
+  const fromBody = (body.reasoning as { effort?: unknown } | undefined)?.effort;
+  if (typeof fromBody === "string" && EFFORT_LEVELS.has(fromBody)) return fromBody;
+  const fromEnv = envConfig().HERMETIC_CLAUDE_CLI_EFFORT;
+  if (fromEnv === "default") return null; // defer to the CLI's own default
+  if (fromEnv && EFFORT_LEVELS.has(fromEnv)) return fromEnv;
+  if (fromEnv) {
+    logger.warn("claudeCliFetch: ignoring invalid HERMETIC_CLAUDE_CLI_EFFORT", { value: fromEnv });
+  }
+  const phase = currentPhase();
+  if (phase && PHASE_EFFORT[phase]) return PHASE_EFFORT[phase];
+  return DEFAULT_EFFORT;
+}
+
+/**
+ * Does this CLI know --effort? Probed ONCE per binary per process via
+ * `--help` — an unknown flag would otherwise fail every generation on an
+ * older CLI, which is far worse than running at its default effort.
+ */
+const effortSupportCache = new Map<string, Promise<boolean>>();
+export function supportsEffortFlag(binary: string): Promise<boolean> {
+  let cached = effortSupportCache.get(binary);
+  if (!cached) {
+    cached = new Promise<boolean>((resolve) => {
+      const probe = spawn(binary, ["--help"], { stdio: ["ignore", "pipe", "ignore"] });
+      let out = "";
+      probe.stdout.on("data", (d: Buffer) => {
+        out += d.toString();
+      });
+      const done = (supported: boolean) => {
+        if (!supported) {
+          logger.warn(
+            "claudeCliFetch: this CLI does not support --effort — running at its default " +
+              "thinking effort (upgrade the Claude CLI to control generation cost)"
+          );
+        }
+        resolve(supported);
+      };
+      probe.once("close", () => done(out.includes("--effort")));
+      probe.once("error", () => done(false));
+    });
+    effortSupportCache.set(binary, cached);
+  }
+  return cached;
+}
+
+/** Test seam: forget probe results. */
+export function _resetEffortSupportCache(): void {
+  effortSupportCache.clear();
+}
+
 export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number } = {}) {
   const timeoutMs = opts.timeoutMs ?? CLAUDE_CLI_REQUEST_TIMEOUT_MS;
 
@@ -287,11 +373,15 @@ export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number }
       return cliError(err instanceof Error ? err.message : String(err));
     }
 
+    const wantedEffort = resolveEffort(body);
+    const effort = wantedEffort && (await supportsEffortFlag(binary)) ? wantedEffort : undefined;
+
     const { args, stdin, systemFolded } = buildClaudeInvocation({
       model,
       system,
       prompt,
       streaming: isStreaming,
+      effort,
     });
     if (systemFolded) {
       logger.warn("claudeCliFetch: system prompt too large for argv, folded into stdin", {
@@ -303,6 +393,7 @@ export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number }
       binary,
       model,
       streaming: isStreaming,
+      effort: effort ?? "cli-default",
       systemChars: system.length,
       promptChars: prompt.length,
     });

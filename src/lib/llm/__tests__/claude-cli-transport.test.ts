@@ -5,7 +5,7 @@
  * that emits a fake child process, so we cover the streaming SSE path, the
  * non-streaming JSON path, and every failure branch without a real `claude`.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 
@@ -32,6 +32,9 @@ import {
   claudeCliFetch,
   claudeCliChildEnv,
   SYSTEM_ARG_MAX_BYTES,
+  resolveEffort,
+  supportsEffortFlag,
+  _resetEffortSupportCache,
 } from "@/lib/llm/claude-cli-transport";
 
 const mockedSpawn = vi.mocked(spawn);
@@ -40,6 +43,14 @@ const mockedExistsSync = vi.mocked(existsSync);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // "default" bypasses the --effort flag AND its --help capability probe —
+  // the probe would otherwise consume each test's single mocked child. The
+  // effort suite below manages this variable itself.
+  process.env.HERMETIC_CLAUDE_CLI_EFFORT = "default";
+});
+
+afterEach(() => {
+  delete process.env.HERMETIC_CLAUDE_CLI_EFFORT;
 });
 
 // ── Fake child process ─────────────────────────────────────────────
@@ -535,5 +546,119 @@ describe("claudeCliFetch", () => {
     );
     const child = mockedSpawn.mock.results[0].value;
     expect(child.stdin.write).toHaveBeenCalledWith(`${bigSystem}\n\nq`);
+  });
+});
+
+// ── Thinking effort (--effort) ─────────────────────────────────────
+describe("thinking effort", () => {
+  const ENV = "HERMETIC_CLAUDE_CLI_EFFORT";
+  beforeEach(() => {
+    // The suite-level beforeEach sets "default" (probe bypass); these tests
+    // exercise the real resolution order, so start from a clean env.
+    delete process.env[ENV];
+  });
+
+  it("appends --effort to the invocation, and omits it when absent", () => {
+    const withEffort = buildClaudeInvocation({
+      model: "m",
+      system: "",
+      prompt: "p",
+      streaming: false,
+      effort: "low",
+    });
+    expect(withEffort.args).toContain("--effort");
+    expect(withEffort.args[withEffort.args.indexOf("--effort") + 1]).toBe("low");
+
+    const without = buildClaudeInvocation({
+      model: "m",
+      system: "",
+      prompt: "p",
+      streaming: false,
+    });
+    expect(without.args).not.toContain("--effort");
+  });
+
+  it("defaults to LOW outside any reasoning phase — the cost fix this knob exists for", () => {
+    expect(resolveEffort({})).toBe("low");
+  });
+
+  it("routes reasoning phases to HIGH, formatting phases to LOW", async () => {
+    const { withPhase } = await import("@/lib/cost/accumulator");
+    expect(await withPhase("code_gen", async () => resolveEffort({}))).toBe("high");
+    expect(await withPhase("sql_gen", async () => resolveEffort({}))).toBe("high");
+    expect(await withPhase("sql_repair", async () => resolveEffort({}))).toBe("high");
+    expect(await withPhase("code_review", async () => resolveEffort({}))).toBe("high");
+    expect(await withPhase("compose", async () => resolveEffort({}))).toBe("low");
+    expect(await withPhase("planner", async () => resolveEffort({}))).toBe("low");
+    // Explicit overrides still beat the phase policy.
+    expect(
+      await withPhase("code_gen", async () => resolveEffort({ reasoning: { effort: "low" } }))
+    ).toBe("low");
+    process.env[ENV] = "medium";
+    expect(await withPhase("code_gen", async () => resolveEffort({}))).toBe("medium");
+    delete process.env[ENV];
+  });
+
+  it("honors a per-request reasoning.effort override", () => {
+    expect(resolveEffort({ reasoning: { effort: "high" } })).toBe("high");
+    // Invalid levels fall through to the default, never onto the argv.
+    expect(resolveEffort({ reasoning: { effort: "maximal" } })).toBe("low");
+  });
+
+  it("honors the env override, including 'default' meaning no flag", () => {
+    process.env[ENV] = "medium";
+    expect(resolveEffort({})).toBe("medium");
+    process.env[ENV] = "default";
+    expect(resolveEffort({})).toBe(null);
+    process.env[ENV] = "turbo"; // invalid → default, not argv
+    expect(resolveEffort({})).toBe("low");
+    // Request override still wins over env.
+    process.env[ENV] = "medium";
+    expect(resolveEffort({ reasoning: { effort: "xhigh" } })).toBe("xhigh");
+  });
+
+  it("fetch passes --effort low by default when the CLI supports it", async () => {
+    _resetEffortSupportCache();
+    mockedExistsSync.mockReturnValue(true);
+    // Lazy children: makeChild fires its lifecycle events via microtasks at
+    // CREATION, so each child must be created at its own spawn call — a
+    // pre-built second child would emit "spawn" before the fetch listens.
+    mockedSpawn
+      .mockImplementationOnce(() => makeChild({ stdout: "  --effort <level>\n" }) as never)
+      .mockImplementationOnce(
+        () =>
+          makeChild({
+            stdout: JSON.stringify({
+              type: "result",
+              result: "ok",
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+          }) as never
+      );
+    const fetchImpl = claudeCliFetch({ binaryPath: "/fake/claude" });
+    await fetchImpl("https://x/responses", requestInit({ model: "m", input: [] }));
+    const generationArgs = mockedSpawn.mock.calls[1][1] as string[];
+    expect(generationArgs).toContain("--effort");
+    expect(generationArgs[generationArgs.indexOf("--effort") + 1]).toBe("low");
+    _resetEffortSupportCache();
+  });
+
+  it("probes --help once per binary: supported, unsupported, and broken CLIs", async () => {
+    _resetEffortSupportCache();
+    mockedSpawn.mockReturnValueOnce(
+      makeChild({ stdout: "Usage: claude ...\n  --effort <level>  Effort level\n" }) as never
+    );
+    await expect(supportsEffortFlag("/fake/new-claude")).resolves.toBe(true);
+    // Memoized: a second call must not spawn again.
+    const calls = mockedSpawn.mock.calls.length;
+    await expect(supportsEffortFlag("/fake/new-claude")).resolves.toBe(true);
+    expect(mockedSpawn.mock.calls.length).toBe(calls);
+
+    mockedSpawn.mockReturnValueOnce(makeChild({ stdout: "Usage: claude (old)\n" }) as never);
+    await expect(supportsEffortFlag("/fake/old-claude")).resolves.toBe(false);
+
+    mockedSpawn.mockReturnValueOnce(makeChild({ spawnError: new Error("ENOENT") }) as never);
+    await expect(supportsEffortFlag("/fake/missing-claude")).resolves.toBe(false);
+    _resetEffortSupportCache();
   });
 });
