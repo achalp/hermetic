@@ -84,6 +84,25 @@ export function ResultsToolbar({
           <polyline points="12 6 12 12 16 14" />
         </svg>
       </a>
+      <a
+        href="/learning"
+        className="p-1 transition-colors text-t-secondary hover:text-t-primary"
+        title="Learning — review lessons the engine wants to keep"
+        aria-label="Learning"
+      >
+        {/* Graduation cap: lessons that graduate land here for approval. */}
+        <svg
+          className="h-5 w-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          viewBox="0 0 24 24"
+        >
+          <path d="M22 10L12 5 2 10l10 5 10-5z" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5" strokeLinecap="round" />
+          <path d="M22 10v6" strokeLinecap="round" />
+        </svg>
+      </a>
       <button
         onClick={onToggleSaved}
         className={`p-1 transition-colors ${showSaved ? "text-accent" : "text-t-secondary hover:text-t-primary"}`}

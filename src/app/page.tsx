@@ -393,6 +393,8 @@ export default function Home() {
             <HomeHero
               composer={composerWiring}
               menu={menuWiring}
+              purpose={purpose}
+              onStyleChange={actions.handleStyleChange}
               onDropFile={(file) => {
                 composer.armFromComposer();
                 source.processUploadFile(file);

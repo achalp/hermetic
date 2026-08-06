@@ -74,6 +74,10 @@ export function WarehouseConnecting({ error }: { error: string | null }) {
 export interface HomeHeroProps {
   composer: ComposerWiring;
   menu: AddDataMenuWiring;
+  /** Output style (Dashboard / Brief / Report / Deep dive) — the same picker
+   * AskScreen shows; the choice must exist BEFORE data is attached too. */
+  purpose: string;
+  onStyleChange: (id: string) => void;
   onDropFile: (file: File) => void;
   activeRuns: ComponentProps<typeof ActiveRunsBanner>["runs"];
   onResumeRun: ComponentProps<typeof ActiveRunsBanner>["onResume"];
@@ -86,6 +90,8 @@ export interface HomeHeroProps {
 export function HomeHero({
   composer,
   menu,
+  purpose,
+  onStyleChange,
   onDropFile,
   activeRuns,
   onResumeRun,
@@ -132,6 +138,10 @@ export function HomeHero({
       {/* Analyses still running server-side after this tab lost their
           live view (reload / HMR) — one click to reattach to the stream. */}
       <ActiveRunsBanner runs={activeRuns} onResume={onResumeRun} onDismiss={onDismissRun} />
+
+      {/* Output style rides with the question from the start (regression
+          fix: the redesign dropped it from the pre-attach screen). */}
+      <StyleSelector selected={purpose} onSelect={onStyleChange} />
 
       {/* THE primary action: question first, data attached to it.
           Recents and saved connections live inside the Add-data menu. */}
