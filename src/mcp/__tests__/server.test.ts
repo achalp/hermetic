@@ -750,7 +750,7 @@ describe("expired sources fail with an actionable message (reliability #1)", () 
     expect((res as { isError?: boolean }).isError).toBe(true);
     const msg = String(parseToolJson(res).error);
     expect(msg).toContain("rev.csv");
-    expect(msg).toContain("expired");
+    expect(msg).toContain("no longer in hermetic's store");
     expect(msg).toContain("connect_source");
     expect(msg).toContain(csvPath); // the exact path to replay
     expect(msg).toContain("NEW source_id");

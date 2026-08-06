@@ -48,6 +48,9 @@ export const WAREHOUSE_QUERY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 // pins its own CSV regardless of age (see csv/storage.ts isExpired), so this only
 // governs how long a truly-idle dataset lingers between questions. Generous so a
 // user returning to follow up isn't told to re-upload.
+// Idle TTL for WAREHOUSE connections (credentialed sockets — see
+// lib/warehouse/storage.ts). CSV/excel/remote entries no longer expire
+// (retention policy 2026-08-05, lib/csv/storage.ts).
 export const CSV_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours idle
 export const DOCKER_SANDBOX_IMAGE = "hermetic-sandbox";
 // Fraction of the Docker/colima DAEMON's total memory that a single sandbox

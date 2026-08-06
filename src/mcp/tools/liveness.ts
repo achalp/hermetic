@@ -2,8 +2,9 @@
  * Source liveness (reliability #1).
  *
  * The MCP registry holds a source for the life of the process, but the
- * underlying stores expire on a sliding idle TTL (3h) — and for warehouses
- * the sweeper CLOSES the connector on the way out. Without this check the
+ * warehouse store expires idle connections (3h — credentialed sockets), and
+ * a server restart empties the in-memory CSV index (CSV/remote entries no
+ * longer idle-expire; retention policy in lib/csv/storage.ts). Without this check the
  * failure surfaces as a raw driver error ("Cannot use a pool after calling
  * end") or a web-app string ("CSV not found. Please re-upload."), neither of
  * which tells an MCP host what to do.
@@ -35,7 +36,7 @@ export function assertSourceLive(deps: LivenessDeps, source: McpSource): void {
   const what =
     source.kind === "warehouse"
       ? `The warehouse connection "${source.label}" was closed after ${IDLE_HOURS}h idle`
-      : `The data for "${source.label}" expired from hermetic's store after ${IDLE_HOURS}h idle`;
+      : `The data for "${source.label}" is no longer in hermetic's store (the server restarted since it was attached)`;
 
   throw new McpToolError(
     "source_expired",

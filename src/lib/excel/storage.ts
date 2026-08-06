@@ -1,6 +1,5 @@
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
-import { CSV_TTL_MS } from "@/lib/constants";
 import { registerSweepable } from "@/lib/store-ttl";
 import { hermeticPaths } from "@/lib/paths";
 import { stateNamespace } from "@/lib/state-store";
@@ -36,14 +35,9 @@ export async function storeExcel(excelId: string, buffer: Buffer, filename: stri
 }
 
 export function getStoredExcel(excelId: string): StoredExcel | undefined {
-  const entry = store.get(excelId);
-  if (!entry) return undefined;
-  if (Date.now() - entry.createdAt > CSV_TTL_MS) {
-    store.delete(excelId);
-    unlink(entry.filePath).catch(() => {});
-    return undefined;
-  }
-  return entry;
+  // Retention policy 2026-08-05 (see lib/csv/storage.ts): workbook entries no
+  // longer idle-expire — a sheet picker left open over lunch must still work.
+  return store.get(excelId);
 }
 
 export async function getExcelBuffer(excelId: string): Promise<Buffer | null> {
@@ -65,12 +59,15 @@ export async function deleteStoredExcel(excelId: string): Promise<void> {
   }
 }
 
-/** Active sweep (see lib/store-sweeper.ts) — expiry was lazy-read-only. */
+/** Active sweep (see lib/store-sweeper.ts) — retention keeps index entries
+ * for the process lifetime; only week-old files are reclaimed (their entry,
+ * if any, dies with them — post-restart orphans have none). */
+const ORPHAN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export function sweepExpiredExcel(): number {
   const now = Date.now();
   let swept = 0;
   for (const [k, v] of store) {
-    if (now - v.createdAt > CSV_TTL_MS) {
+    if (now - v.createdAt > ORPHAN_AGE_MS) {
       store.delete(k);
       unlink(v.filePath).catch(() => {});
       swept++;

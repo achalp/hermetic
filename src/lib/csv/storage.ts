@@ -2,8 +2,7 @@ import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
 import type { StoredCSV, RemoteCreds } from "@/lib/contracts/storage-types";
-import { CSV_TTL_MS } from "@/lib/constants";
-import { isIdleExpired, touch, registerSweepable } from "@/lib/store-ttl";
+import { touch, registerSweepable } from "@/lib/store-ttl";
 import { hermeticPaths } from "@/lib/paths";
 import { stateNamespace } from "@/lib/state-store";
 
@@ -26,20 +25,20 @@ async function ensureDir(): Promise<string> {
   return dir;
 }
 
-/** Local files live on disk and are bind-mounted — they never expire. */
-function isLocalEntry(entry: StoredCSV): boolean {
-  return !!(entry.localPath || entry.localFolderPath);
-}
-
 /**
- * Whether `entry` should be evicted at `now`. Local (bind-mounted) files never
- * expire; everything else follows the shared sliding-idle + active-run-pin
- * policy (see lib/store-ttl.ts).
+ * Retention policy (2026-08-05): entries NEVER idle-expire. This is a local,
+ * single-user tool — the index entry is a few hundred bytes (schema + a file
+ * path; the bytes live on disk in scratch), so the old 3h sliding-idle
+ * eviction saved almost nothing while costing the worst UX in the product:
+ * "CSV not found or expired. Please re-upload." after any three-hour gap.
+ * Remote-parquet refs were even cheaper to keep (a URL + creds + schema —
+ * the data lives in the bucket). Warehouse connections still idle out
+ * (lib/warehouse/storage.ts): those hold credentialed sockets.
+ *
+ * What remains swept: ORPHAN scratch files (written before a restart — the
+ * in-memory index dies with the process), age-gated generously.
  */
-function isExpired(entry: StoredCSV, now: number): boolean {
-  if (isLocalEntry(entry)) return false;
-  return isIdleExpired(entry, entry.createdAt, CSV_TTL_MS, now);
-}
+const ORPHAN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Active sweep for the store-sweeper (see lib/store-sweeper.ts). Expiry was
@@ -49,18 +48,10 @@ function isExpired(entry: StoredCSV, now: number): boolean {
  */
 export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans: number }> {
   const now = Date.now();
-  let expired = 0;
-  for (const [csvId, entry] of store) {
-    if (isExpired(entry, now)) {
-      store.delete(csvId);
-      manifestStore.delete(csvId);
-      unlink(entry.filePath).catch(() => {});
-      unlink(join(csvDir(), `${csvId}.geojson`)).catch(() => {});
-      expired++;
-    }
-  }
-  // Orphaned files: on disk but not in the index (e.g. written before a
-  // restart). Age-gated by mtime so an in-flight write is never touched.
+  // Index entries are retained for the life of the process (see policy above).
+  const expired = 0;
+  // Orphaned files: on disk but not in the index (written before a restart).
+  // Age-gated by mtime so an in-flight write is never touched.
   let orphans = 0;
   try {
     const { readdir, stat } = await import("fs/promises");
@@ -69,7 +60,7 @@ export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans
       if (store.has(id)) continue;
       const full = join(csvDir(), name);
       const info = await stat(full).catch(() => null);
-      if (info && now - info.mtimeMs > CSV_TTL_MS) {
+      if (info && now - info.mtimeMs > ORPHAN_AGE_MS) {
         await unlink(full).catch(() => {});
         orphans++;
       }
@@ -113,16 +104,8 @@ export async function storeCSV(
 export function getStoredCSV(csvId: string): StoredCSV | undefined {
   const entry = store.get(csvId);
   if (!entry) return undefined;
-  const now = Date.now();
-  if (isExpired(entry, now)) {
-    store.delete(csvId);
-    unlink(entry.filePath).catch(() => {});
-    // Also clean up sidecar GeoJSON file if present
-    unlink(join(csvDir(), `${csvId}.geojson`)).catch(() => {});
-    return undefined;
-  }
-  // Slide the idle window forward and pin to the reading run (if any).
-  touch(entry, now);
+  // Touch retained for run-pinning diagnostics; entries no longer expire.
+  touch(entry, Date.now());
   return entry;
 }
 
