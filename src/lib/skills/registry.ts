@@ -60,6 +60,21 @@ function renderGuidance(skills: ActivatedSkill[], ctx: SkillRenderContext): stri
     .join("\n");
 }
 
+function hasOwnTriggers(def: SkillDefinition): boolean {
+  const t = def.triggers;
+  return !!(t.columns?.length || t.question?.length || t.sources?.length || t.always || t.when);
+}
+
+/**
+ * A complement sorts immediately after its parent: parent's order + a small
+ * epsilon, so "geo-overture-learned" guidance renders adjacent to
+ * "geo-overture" regardless of the user-skill default order (1000).
+ */
+function effectiveOrder(s: ActivatedSkill, active: Map<string, ActivatedSkill>): number {
+  const parent = s.def.extends ? active.get(s.def.extends) : undefined;
+  return parent ? parent.def.order + 0.5 : s.def.order;
+}
+
 /**
  * Evaluate every known skill against the run context. Deterministic: the same
  * schema/question always yields the same skill set, so within a run every
@@ -83,8 +98,34 @@ export function activateSkills(ctx: SkillTriggerContext, opts?: ActivateOptions)
 
   const active = new Map<string, ActivatedSkill>();
   for (const def of defs.values()) {
+    // A complement with no triggers of its own is parent-activated only —
+    // evaluateSkill requires at least one trigger, so skip the base pass.
+    if (def.extends && !hasOwnTriggers(def)) continue;
     const match = evaluateSkill(def, ctx);
     if (match) active.set(def.name, { def, reason: match.reason, viaQuestion: match.viaQuestion });
+  }
+
+  // Complement pass: `extends` rides the parent's activation. Runs after the
+  // base pass so a complement also fires when only the parent matched; the
+  // parent's placement (viaQuestion) is inherited so guidance stays in the
+  // same prompt part and renders adjacent (order defaults to parent+1).
+  for (const def of defs.values()) {
+    if (!def.extends || active.has(def.name)) continue;
+    const parent = active.get(def.extends);
+    if (!parent) {
+      if (!defs.has(def.extends)) {
+        logger.warn("Skill extends an unknown skill — ignored", {
+          skill: def.name,
+          extends: def.extends,
+        });
+      }
+      continue;
+    }
+    active.set(def.name, {
+      def,
+      reason: `complements "${def.extends}"`,
+      viaQuestion: parent.viaQuestion,
+    });
   }
 
   // `requires` closure: a required skill inherits the requirer's placement so
@@ -113,7 +154,8 @@ export function activateSkills(ctx: SkillTriggerContext, opts?: ActivateOptions)
   }
 
   const ordered = [...active.values()].sort(
-    (a, b) => a.def.order - b.def.order || a.def.name.localeCompare(b.def.name)
+    (a, b) =>
+      effectiveOrder(a, active) - effectiveOrder(b, active) || a.def.name.localeCompare(b.def.name)
   );
   const prefixSkills = ordered.filter((s) => !s.viaQuestion);
   const questionSkills = ordered.filter((s) => s.viaQuestion);

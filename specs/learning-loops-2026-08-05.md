@@ -1,7 +1,11 @@
 # Learning loops — "every failure is a data loop": assessment & roadmap
 
 > Created: 2026-08-05
-> Status: ASSESSMENT + TODO — parked for later pickup. The state map below
+> Status: v1 SHIPPED for opportunities #1 and #3 (2026-08-05, same day —
+> ledger + extraction + proposal flow into user-level complement skills
+> [`extends`], exemplar bank + retrieval into the code-gen tail; engine
+> defects surfaced on /learning, never as prompts). #2/#4/#5/#6 remain open.
+> Originally: ASSESSMENT + TODO — parked for later pickup. The state map below
 > was produced by a full-codebase investigation (file:line evidence spot
 > notes retained); the opportunity list is ranked by leverage and is the
 > intended pickup order.
@@ -102,7 +106,7 @@ fallbacks, duration calibration (the estimator's own comment cites
 
 ## 3. Opportunities — ranked pickup order
 
-- [ ] **#1 Correction → skill draft** (the promised loop; cheapest close;
+- [x] **#1 Correction → skill draft** (v1: failure-diff extraction rather than edit-and-rerun diffs — the manual-correction source remains open) (the promised loop; cheapest close;
       biggest differentiator). Every ingredient exists: edit-and-rerun has
       the failed original AND the human's correction; history stores both;
       skills hot-reload from disk. Build: diff the correction → model
@@ -115,7 +119,7 @@ fallbacks, duration calibration (the estimator's own comment cites
       ranking into `RETRY_GUIDANCE` / SQL-repair instructions (periodic or
       build-time step; per source-type). Low risk — these prompts are
       advisory; replay fixtures force honesty about when guidance changed.
-- [ ] **#3 Exemplar memory (learn from success).** Retrieval of verified
+- [x] **#3 Exemplar memory (learn from success).** (v1 shipped) Retrieval of verified
       past code ("worked on similar schema/question — ran, passed semantic
       validation, got grounded") into code-gen prompts. Vanna's RAG trick
       at the analysis level, with verification hermetic uniquely has.

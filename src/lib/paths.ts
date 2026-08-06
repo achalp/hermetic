@@ -57,6 +57,12 @@ export const hermeticPaths = {
   diagnosticsDir: () => join(roots().dataRoot, "diagnostics"),
   schemaCacheDir: () => join(roots().dataRoot, "schema-cache"),
   skillsDir: () => join(roots().dataRoot, "skills"),
+  // Learning loop (specs/learning-loops-2026-08-05.md): candidate ledger,
+  // graduated proposals awaiting review, and the verified-exemplar bank.
+  learningDir: () => join(roots().dataRoot, "learning"),
+  learningLedgerFile: () => join(roots().dataRoot, "learning", "ledger.json"),
+  learningProposalsDir: () => join(roots().dataRoot, "learning", "proposals"),
+  learningExemplarsDir: () => join(roots().dataRoot, "learning", "exemplars"),
   userLibDir: () => join(roots().dataRoot, "user_lib"),
   ggufModelsDir: () => join(roots().dataRoot, "models", "gguf"),
   bundledBinDir: () => join(roots().dataRoot, "bin"),

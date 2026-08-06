@@ -157,8 +157,17 @@ export default function DiagnosticsPage() {
           <span style={{ color: "var(--color-t-tertiary)" }}>/</span>
           <span style={{ fontSize: 15, fontWeight: 600 }}>Run Diagnostics</span>
         </div>
-        <span style={{ fontSize: 13, color: "var(--color-t-tertiary)" }}>
-          {runs.length} {runs.length === 1 ? "run" : "runs"}
+        <span className="flex items-center gap-4">
+          <Link
+            href="/learning"
+            style={{ fontSize: 13, color: "var(--color-t-tertiary)" }}
+            className="hover:underline"
+          >
+            Learning →
+          </Link>
+          <span style={{ fontSize: 13, color: "var(--color-t-tertiary)" }}>
+            {runs.length} {runs.length === 1 ? "run" : "runs"}
+          </span>
         </span>
       </header>
 

@@ -30,39 +30,59 @@ import { z } from "zod";
 import { parse as parseYaml } from "yaml";
 import type { SkillDefinition, SkillRenderContext } from "./types";
 
-const FrontmatterSchema = z.object({
-  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case (a-z, 0-9, hyphens)"),
-  description: z.string().min(1),
-  order: z.number().int().min(0).default(1000),
-  triggers: z
-    .object({
-      columns: z.array(z.string()).optional(),
-      question: z.array(z.string().min(1)).optional(),
-      sources: z.array(z.enum(["file", "warehouse"])).optional(),
-      always: z.boolean().optional(),
-    })
-    .refine(
-      (t) => !!(t.columns?.length || t.question?.length || t.sources?.length || t.always),
-      "triggers must declare at least one of columns/question/sources/always"
-    ),
-  requires: z.array(z.string()).optional(),
-  reviewGate: z.boolean().default(false),
-  reviewRules: z.string().optional(),
-  failureHints: z
-    .array(
-      z.object({
-        pattern: z.string().min(1),
-        hint: z.string().min(1),
-        // Matched only on a bare hard kill, never over a watchdog-predicted
-        // abort — for catch-all ("^") hints.
-        fallback: z.boolean().optional(),
+const FrontmatterSchema = z
+  .object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case (a-z, 0-9, hyphens)"),
+    description: z.string().min(1),
+    order: z.number().int().min(0).default(1000),
+    /**
+     * Complement a named skill: activate whenever it activates, render
+     * adjacent to it. With `extends`, `triggers` becomes optional — this is
+     * the learned-lesson vehicle (a user-level `<parent>-learned` skill
+     * riding a shipped built-in without touching it).
+     */
+    extends: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]*$/)
+      .optional(),
+    triggers: z
+      .object({
+        columns: z.array(z.string()).optional(),
+        question: z.array(z.string().min(1)).optional(),
+        sources: z.array(z.enum(["file", "warehouse"])).optional(),
+        always: z.boolean().optional(),
       })
-    )
-    .optional(),
-  // Python fragment run after the shared prelude, before generated code.
-  // Executes inside the sandbox like all skill code; wrap in try/except.
-  preludeSnippet: z.string().optional(),
-});
+      .optional(),
+    requires: z.array(z.string()).optional(),
+    reviewGate: z.boolean().default(false),
+    reviewRules: z.string().optional(),
+    failureHints: z
+      .array(
+        z.object({
+          pattern: z.string().min(1),
+          hint: z.string().min(1),
+          // Matched only on a bare hard kill, never over a watchdog-predicted
+          // abort — for catch-all ("^") hints.
+          fallback: z.boolean().optional(),
+        })
+      )
+      .optional(),
+    // Python fragment run after the shared prelude, before generated code.
+    // Executes inside the sandbox like all skill code; wrap in try/except.
+    preludeSnippet: z.string().optional(),
+  })
+  .refine(
+    (m) =>
+      !!m.extends ||
+      !!(
+        m.triggers &&
+        (m.triggers.columns?.length ||
+          m.triggers.question?.length ||
+          m.triggers.sources?.length ||
+          m.triggers.always)
+      ),
+    "declare triggers (columns/question/sources/always) or `extends: <skill>`"
+  );
 
 /** Thrown with a human-readable, settings-page-worthy reason. */
 export class SkillParseError extends Error {}
@@ -98,7 +118,7 @@ export function parseSkillMd(text: string, sourcePath: string): SkillDefinition 
 
   // Regexes must compile NOW (activation-time failures would be silent skips).
   for (const source of [
-    ...(meta.triggers.columns ?? []),
+    ...(meta.triggers?.columns ?? []),
     ...(meta.failureHints ?? []).map((h) => h.pattern),
   ]) {
     try {
@@ -122,7 +142,10 @@ export function parseSkillMd(text: string, sourcePath: string): SkillDefinition 
     order: meta.order,
     origin: "user",
     sourcePath,
-    triggers: meta.triggers,
+    extends: meta.extends,
+    // Pure complements have no triggers of their own — activation rides the
+    // parent (registry complement pass).
+    triggers: meta.triggers ?? {},
     requires: meta.requires,
     reviewGate: meta.reviewGate,
     reviewRules: meta.reviewRules?.trim() || undefined,

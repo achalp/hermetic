@@ -406,6 +406,25 @@ export async function getDiagnosticsRuns<T>(signal?: AbortSignal): Promise<T[]> 
   return data.runs ?? [];
 }
 
+/** The learning loop's review state (ledger, proposals, exemplar count). */
+export async function getLearningState<T>(signal?: AbortSignal): Promise<T> {
+  const res = await fetch("/api/learning", { signal });
+  return json<T>(res);
+}
+
+/** Approve or reject a graduated lesson proposal. */
+export async function decideLearningProposal(
+  id: string,
+  action: "accept" | "reject"
+): Promise<{ ok: boolean; applied: boolean; path?: string }> {
+  const res = await fetch(`/api/learning/proposals/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  return json(res);
+}
+
 export interface LoadedHistory {
   meta: HistoryMeta;
   spec: Spec;

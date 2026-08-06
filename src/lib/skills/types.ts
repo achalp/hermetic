@@ -73,6 +73,15 @@ export interface SkillDefinition {
   triggers: SkillTriggerSpec;
   /** Names of skills to co-activate (missing names warn and are ignored). */
   requires?: string[];
+  /**
+   * COMPLEMENT skill: activates whenever the named parent activates (own
+   * triggers, if any, can ALSO activate it independently) and its guidance
+   * renders adjacent to the parent's. This is how learned lessons ship:
+   * shipped built-ins stay pristine; a user-level `<parent>-learned` skill
+   * carries the team's accumulated corrections alongside them
+   * (specs/learning-loops-2026-08-05.md opportunity #1).
+   */
+  extends?: string;
   /** Guidance text for the code-gen prompt; "" contributes nothing. */
   buildGuidance(ctx: SkillRenderContext): string;
   /**

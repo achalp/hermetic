@@ -280,3 +280,23 @@ No caches to clear, no restart.
 - **Everything observable, by name.** Activation, shipped helpers, fired
   hints, and rejections are all logged with names and reasons — if you can't
   see a skill working, that's a bug, not a mystery.
+
+## Complement skills (`extends`)
+
+A skill can complement another instead of declaring its own triggers:
+
+```yaml
+---
+name: geo-overture-learned
+description: Learned lessons complementing geo-overture
+extends: geo-overture
+---
+## Guidance
+- division_area locality lookups: filter country + subtype + names.primary; do NOT filter region.
+```
+
+An `extends` skill activates whenever its parent activates and its guidance
+renders immediately after the parent's. Own triggers are optional and OR'd
+in. This is the vehicle for the learning loop's accepted lessons (`/learning`
+page): they land in user-level `<parent>-learned` skills under
+`data/skills/`, never in the shipped built-ins.

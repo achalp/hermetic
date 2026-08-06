@@ -34,7 +34,11 @@ import {
 } from "@/lib/pipeline/run-control";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { getRunId } from "@/lib/run-context";
+import { envConfig } from "@/lib/harness-slot";
 import { getModel, cachedSystem } from "@/lib/llm/client";
+import { llmReplayConfig } from "@/lib/llm/replay";
+import { retrieveExemplar } from "@/lib/learning/exemplars";
+import { harvestRun } from "@/lib/learning/harvest";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
 import {
   CODE_GEN_MODEL,
@@ -149,7 +153,31 @@ export async function runPipeline(
   // live and where a 15-min remote scan makes a few-thousand-token critic
   // obviously worth it. A plain CSV question activates nothing → never pays.
   const reviewEnabled = activeSkills.reviewGated;
-  const questionGuidance = activeSkills.questionGuidance(skillRenderCtx);
+  let questionGuidance = activeSkills.questionGuidance(skillRenderCtx);
+  // Verified exemplar (learning-loops spec #3): working code from a previous
+  // successful run over a similar schema/question, appended to the UN-CACHED
+  // question tail (it varies per question — must never enter the cached
+  // prefix). Skipped under replay so the recorded fixture surface stays
+  // byte-stable; retrieval is local and deterministic.
+  if (!llmReplayConfig() && !envConfig().VITEST) {
+    const exemplar = await retrieveExemplar({
+      question,
+      columns: schema.columns.map((c) => ({ name: c.name, dtype: c.dtype })),
+      detectedDomain: schema.detected_domain ?? null,
+      activeSkills: activeSkills.skills.map((s) => s.def.name),
+    }).catch(() => null);
+    if (exemplar) {
+      logger.debug("Learning: exemplar injected into code-gen tail", {
+        exemplarRunId: exemplar.runId,
+        attempts: exemplar.attempts,
+      });
+      questionGuidance +=
+        `\n## Verified exemplar (previous successful analysis, similar schema/question)\n` +
+        `A prior run answering "${exemplar.question}" on a matching schema executed, ` +
+        `validated, and grounded with this code — ADAPT its approach to the current ` +
+        `question; do not copy blindly:\n\`\`\`python\n${exemplar.code.slice(0, 6000)}\n\`\`\`\n`;
+    }
+  }
 
   // The system-prompt tail shared by every fix/retry generation (active skill
   // guidance — BOTH placements, retries are uncached anyway — + purpose scope +
@@ -498,6 +526,20 @@ export async function runPipeline(
   // the run's record is complete even when history saves only a stub.
   recordRunArtifact("code.py", code);
   recordRunEvent({ type: "final", success: result.success, attempts: attemptIndex });
+  // Learning harvest (learning-loops spec): failures → ledger candidates
+  // (graduation → proposal), verified success → exemplar bank. Fire-and-forget
+  // — the loop must never delay or fail the run's own epilogue. "Verified"
+  // means executed AND semantically valid (a degenerate-output success would
+  // poison the bank with garbage exemplars).
+  void harvestRun({
+    runId: getRunId() ?? "unknown",
+    question,
+    schema,
+    activeSkills: activeSkills.skills.map((s) => s.def.name),
+    failedAttempts: priorAttempts,
+    finalCode: code,
+    success: result.success && (semanticVerdict?.ok ?? true),
+  });
   if (result.success) {
     recordRunArtifact(
       "output.json",

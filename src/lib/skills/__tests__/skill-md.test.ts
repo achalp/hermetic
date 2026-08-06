@@ -83,7 +83,7 @@ describe("parseSkillMd", () => {
     [
       "no triggers declared",
       `---\nname: x\ndescription: d\ntriggers: {}\n---\nBody.`,
-      "at least one",
+      "declare triggers",
     ],
     [
       "invalid column regex",
