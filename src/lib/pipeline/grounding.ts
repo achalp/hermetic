@@ -305,6 +305,76 @@ export interface VerifyArgs {
   grounded: number[];
   /** 1-based step numbers that produced a usable (success/degraded) result. */
   successfulStepNos: number[];
+  /**
+   * Result scalars, for the DIRECTIONAL check: when the analysis computed an
+   * explicit trend verdict (a key named like trend, direction, or rising)
+   * and the narrative asserts the OPPOSITE direction, that is a
+   * contradiction — the plausible-but-wrong failure in its most damaging
+   * form, since the story denies the engine's own finding. Optional:
+   * callers without result scalars skip the check.
+   */
+  results?: Record<string, unknown>;
+}
+
+// ── Directional claims ───────────────────────────────────────────────
+// Deliberately conservative, mirroring the numeric posture: we only flag a
+// contradiction when the computed trend keys are UNANIMOUS about a direction
+// and the narrative asserts the opposite. Mixed metrics (churn dollars rising
+// while churn rate falls) produce non-unanimous keys → silence.
+
+const UP_WORDS =
+  /\b(?:rising|rise[sn]?|rose|climb(?:ed|ing|s)?|gr[eo]w(?:ing|s|n|th)?|increas(?:e[sd]?|ing)|accelerat(?:e[sd]?|ing)|upward|trending up)\b/i;
+const DOWN_WORDS =
+  /\b(?:falling|f[ae]ll(?:en|s)?|declin(?:e[sd]?|ing)|decreas(?:e[sd]?|ing)|dropp(?:ed|ing)|drops?\b|shrink(?:ing|s)?|shrank|downward|trending down)\b/i;
+/** A negation shortly before a direction word flips/voids the assertion. */
+const NEGATION =
+  /\b(?:not|no longer|isn't|wasn't|stopped|without|rather than|instead of)\s+(?:\w+\s+){0,2}$/i;
+
+function assertedDirection(text: string): "up" | "down" | null {
+  const up = UP_WORDS.exec(text);
+  const down = DOWN_WORDS.exec(text);
+  const clean = (m: RegExpExecArray | null) =>
+    m !== null && !NEGATION.test(text.slice(Math.max(0, m.index - 40), m.index));
+  const hasUp = clean(up);
+  const hasDown = clean(down);
+  // Both directions in one narrative (e.g. "dollars rose while the rate fell")
+  // is nuance, not a claim to police.
+  if (hasUp && hasDown) return null;
+  return hasUp ? "up" : hasDown ? "down" : null;
+}
+
+/**
+ * The direction the RESULTS assert, when they are unanimous. Reads boolean
+ * keys whose names contain rising, increasing, or growing (true → up) or
+ * falling, declining (true → down), and string keys whose names contain
+ * trend or direction with values like "rising" or "falling". Returns null
+ * when no key speaks or keys disagree.
+ */
+function computedDirection(results: Record<string, unknown>): "up" | "down" | null {
+  const votes = new Set<"up" | "down">();
+  const visit = (obj: Record<string, unknown>) => {
+    for (const [key, val] of Object.entries(obj)) {
+      const k = key.toLowerCase();
+      if (val !== null && typeof val === "object" && !Array.isArray(val)) {
+        visit(val as Record<string, unknown>);
+        continue;
+      }
+      if (typeof val === "boolean") {
+        if (/(rising|increasing|growing|upward|uptrend)/.test(k)) votes.add(val ? "up" : "down");
+        else if (/(falling|declining|decreasing|downward|downtrend)/.test(k))
+          votes.add(val ? "down" : "up");
+      } else if (typeof val === "string" && /(trend|direction)/.test(k)) {
+        const v = val.toLowerCase();
+        if (/(rising|increasing|growing|up)/.test(v)) votes.add("up");
+        else if (/(falling|declining|decreasing|down)/.test(v)) votes.add("down");
+        // "flat"/"stable" casts no vote — a flat verdict contradicts neither
+        // phrasing strongly enough for a low-false-positive advisory.
+      }
+    }
+  };
+  visit(results);
+  if (votes.size !== 1) return null;
+  return [...votes][0];
 }
 
 /**
@@ -332,14 +402,43 @@ export function verifyGrounding(args: VerifyArgs): GroundingReport {
   const citedSet = new Set(args.citedSteps);
   const uncitedSuccessfulSteps = args.successfulStepNos.filter((s) => !citedSet.has(s));
 
+  // Directional contradiction: the narrative asserts one direction while the
+  // computed trend keys unanimously say the other. (The c411967f class of
+  // failure: "churn rate rising every month" beside churn_rate_trend_rising:
+  // false — numbers all traced, story still wrong.)
+  const contradictions: string[] = [];
+  if (args.results) {
+    const computed = computedDirection(args.results);
+    if (computed) {
+      for (const text of args.narrativeTexts) {
+        const asserted = assertedDirection(text);
+        if (asserted && asserted !== computed) {
+          contradictions.push(
+            `narrative asserts a ${asserted === "up" ? "rising" : "falling"} trend but the ` +
+              `computed trend result says ${computed === "up" ? "rising" : "falling"}`
+          );
+          break; // one report per run — advisory, not a lint pass
+        }
+      }
+    }
+  }
+
   return {
-    ok: ungrounded.length === 0,
+    ok: ungrounded.length === 0 && contradictions.length === 0,
     checkedCount,
     ungrounded,
+    ...(contradictions.length > 0 ? { contradictions } : {}),
     citedSteps: [...citedSet].sort((a, b) => a - b),
     uncitedSuccessfulSteps,
   };
 }
 
 // Test seam
-export const __testing = { extractNumbers, isDataLike, matchesAny, numbersClose };
+export const __testing = {
+  extractNumbers,
+  isDataLike,
+  matchesAny,
+  numbersClose,
+  assertedDirection,
+  computedDirection,
+};

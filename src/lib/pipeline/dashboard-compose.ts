@@ -25,6 +25,7 @@ import {
   CHART_DATA_STRING_USAGE,
   CHART_DATA_PLACEHOLDER_RULE,
   METADATA_PLACEHOLDER_RULES,
+  NARRATIVE_GROUNDING_RULES,
 } from "@/lib/llm/prompt-fragments";
 import { catalog } from "@/lib/catalog";
 import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
@@ -237,9 +238,13 @@ function buildCorePrompt(
       ? `## Analysis Results Schema
 ${JSON.stringify(describeResultsSchema(compactResults as Record<string, unknown>))}
 
-${RESULT_PLACEHOLDER_USAGE}`
+${RESULT_PLACEHOLDER_USAGE}
+
+${NARRATIVE_GROUNDING_RULES}`
       : `## Analysis Results
-${JSON.stringify(compactResults)}`;
+${JSON.stringify(compactResults)}
+
+${NARRATIVE_GROUNDING_RULES}`;
 
   const chartDataShape = Object.fromEntries(
     Object.entries(executionResult.chart_data).map(([k, v]) => [
@@ -728,6 +733,9 @@ export async function composeAndStreamDashboard(args: {
         citedSteps: [],
         grounded,
         successfulStepNos: [],
+        // Enables the directional-contradiction check: a story that denies
+        // the engine's own computed trend verdict gets flagged.
+        results: (executionResult.results ?? {}) as Record<string, unknown>,
       });
       if (!report.ok) {
         emit(JSON.stringify({ op: "add", path: "/state/__grounding", value: report }) + "\n");

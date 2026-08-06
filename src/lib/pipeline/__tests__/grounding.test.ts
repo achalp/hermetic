@@ -230,3 +230,56 @@ describe("extractPlaceholderCitedSteps", () => {
     expect(extractPlaceholderCitedSteps(rawLine)).toEqual([2]);
   });
 });
+
+describe("directional contradiction check (grounded-narrative 2026-08-06)", () => {
+  const base = { citedSteps: [], grounded: [1, 2, 3], successfulStepNos: [] };
+
+  it("flags a narrative that denies the computed trend verdict", () => {
+    const report = verifyGrounding({
+      ...base,
+      narrativeTexts: ["Churn rate is rising consistently across all twelve months."],
+      results: { churn_rate_trend_rising: false },
+    });
+    expect(report.ok).toBe(false);
+    expect(report.contradictions?.[0]).toContain("rising");
+    expect(report.contradictions?.[0]).toContain("falling");
+  });
+
+  it("accepts a narrative that matches the computed direction", () => {
+    const report = verifyGrounding({
+      ...base,
+      narrativeTexts: ["Gross churn rate declined over the year."],
+      results: { churn_rate_trend_direction: "falling" },
+    });
+    expect(report.contradictions).toBeUndefined();
+    expect(report.ok).toBe(true);
+  });
+
+  it("stays silent when trend keys disagree (mixed metrics are nuance)", () => {
+    const report = verifyGrounding({
+      ...base,
+      narrativeTexts: ["Churn dollars grew every month."],
+      results: { churn_mrr_trend_rising: true, churn_rate_trend_rising: false },
+    });
+    expect(report.contradictions).toBeUndefined();
+  });
+
+  it("stays silent on negated and two-sided phrasings", () => {
+    const { assertedDirection } = __testing as unknown as {
+      assertedDirection: (t: string) => "up" | "down" | null;
+    };
+    expect(assertedDirection("churn is not rising anymore")).toBe(null);
+    expect(assertedDirection("dollars rose while the rate fell")).toBe(null);
+    expect(assertedDirection("churn kept climbing through Q4")).toBe("up");
+  });
+
+  it("string trend keys and boolean falling keys vote correctly", () => {
+    const { computedDirection } = __testing as unknown as {
+      computedDirection: (r: Record<string, unknown>) => "up" | "down" | null;
+    };
+    expect(computedDirection({ revenue_trend_direction: "rising" })).toBe("up");
+    expect(computedDirection({ rate_falling: true })).toBe("down");
+    expect(computedDirection({ rate_trend_direction: "flat" })).toBe(null);
+    expect(computedDirection({ note: "hello" })).toBe(null);
+  });
+});

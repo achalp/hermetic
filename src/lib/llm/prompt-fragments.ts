@@ -76,6 +76,23 @@ export const RESULT_PLACEHOLDER_USAGE = `Use "$result:<key>" placeholders for al
 /** Static (no-DataController) $chartData usage, single-shot user prompt. */
 export const CHART_DATA_STRING_USAGE = `When referencing chart data in component props, use the string "$chartData:<key>" as the data value. It will be replaced with the actual array at render time. For example: "data": "$chartData:bar_data"`;
 
+/**
+ * Narrative grounding rules (grounded-narrative spec, 2026-08-06): the
+ * composer must never ASSERT what it cannot SEE. In metadata mode it sees no
+ * values at all, so a typed-out number is a fabrication and a direction word
+ * is a guess anchored to the question's framing — both are the exact failure
+ * this block exists to prevent. Placeholders resolve inline inside prose
+ * (resolve-placeholders.ts pass 2), so binding a direction WORD works:
+ * "Churn is $result:churn_trend_direction over the year" renders with the
+ * computed word.
+ */
+export const NARRATIVE_GROUNDING_RULES = `## Narrative Grounding (NON-NEGOTIABLE)
+Every factual claim in TextBlock/Annotation content and StatCard descriptions must be BOUND to a computed result, never asserted from expectation:
+- NUMBERS: always "$result:<key>" (inline placeholders resolve mid-sentence). NEVER type a numeric value into narrative text yourself.
+- DIRECTION / TREND words (rising, falling, grew, declined, accelerating, flat...): never write one as a literal. Bind the word itself from a computed key — e.g. "Churn is $result:churn_rate_trend_direction across 2024" — or select phrasing with {"$cond": {...}, "$then": "...", "$else": "..."} on a computed boolean. If no computed key supports the claim, do not make it: describe what the chart shows structurally ("monthly churn rate by segment, below") without asserting a direction.
+- SUPERLATIVES (highest, peak, worst, top): only via peak_/top_/... result keys, with the value bound.
+- The question's phrasing is NOT evidence. If the question presumes a direction ("why is churn rising?") and the results carry a trend key, bind that key — the computed answer may contradict the premise, and the dashboard must side with the computation.`;
+
 /** Static (no-DataController) $chartData rule, single-shot compose rules. */
 export const CHART_DATA_PLACEHOLDER_RULE = `Reference chart data using "$chartData:<key>" placeholders in data props. Do NOT inline data arrays. Example: "data": "$chartData:bar_data". For nested fields like heatmap data, use "$chartData:heatmap.z", "$chartData:heatmap.x_labels", "$chartData:heatmap.y_labels".`;
 

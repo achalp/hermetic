@@ -160,6 +160,20 @@ export function buildCodeGenSystemPrompt(
   // always over-produces and the composer discards the excess (wasted compute).
   const scopeNote = purpose ? `\n- ${getPurposeCodegenScope(purpose)}` : "";
 
+  // Computed Findings contract (grounded-narrative spec, 2026-08-06): the
+  // composer that narrates these results runs VALUES-BLIND (metadata mode) —
+  // it can only bind computed values, never read them. So every claim the
+  // final narrative might make must exist as a computed result here. Without
+  // this, the story gets written from the question's framing (e.g. "churn
+  // rate rising" beside a computed churn_rate_trend_rising: false).
+  const findingsContract = `
+- COMPUTED FINDINGS (required): the narrative layer can only STATE what you COMPUTE — findings must be results entries, not left for a reader to infer from charts. The items below are the canonical battery for change-over-time / rate / comparison questions; for other question shapes, apply the same obligation in its analogous form (a verdict key for whatever the narrative will claim: which group differs, whether the distribution is skewed, whether the correlation is significant). Whenever the question involves change over time, rates, or comparisons, compute:
+  * Trend: <metric>_trend_direction as the STRING "rising" | "falling" | "flat" (OLS slope over the period; "flat" if p >= 0.05), plus <metric>_slope_per_period and <metric>_trend_p_value. The narrative binds the direction WORD from this key — pick names accordingly.
+  * Step changes: scan period-over-period deltas; emit <metric>_step_change_period (the period label, or None if no |delta| exceeds ~3x the baseline delta spread) and <metric>_step_change_delta. A discontinuity the code doesn't flag is a discontinuity the story cannot mention.
+  * Base effects (ratio metrics): when the metric is a ratio, also compute the denominator's trend and <metric>_base_effect ("masking" | "amplifying" | "none") — a growing base hiding a worsening rate is the finding an exec asks about first.
+  * Superlatives: peak_/top_/largest_ results for anything the narrative might call highest/best/worst — never leave a superlative to inference. Skip tautological ones (the max of a monotonic series is its endpoint — compute the monotonicity flag instead).
+- UNITS IN NAMES: percentage-POINT quantities end in _pp; percent-of quantities end in _pct. NEVER name a percentage-point difference _pct — the UI formats and labels from the name.`;
+
   return `You are a data analyst. You will be given a CSV schema and a user question.
 
 Your job is to write a single Python script that:
@@ -178,7 +192,7 @@ Your job is to write a single Python script that:
    least one entry. (It writes "/data/output.json".)
 
 Rules:
-- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}${scopeNote}
+- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}${scopeNote}${findingsContract}
 - Use pandas for all data manipulation.
 - For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.
 - For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.

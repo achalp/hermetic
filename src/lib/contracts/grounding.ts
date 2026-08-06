@@ -11,6 +11,12 @@ export interface GroundingReport {
   checkedCount: number;
   /** Raw tokens that could not be traced to any computed value. */
   ungrounded: string[];
+  /**
+   * Directional claims that CONTRADICT a computed trend verdict (narrative
+   * says rising, *_trend_rising says false). Optional: absent on reports
+   * persisted before 2026-08-06 and on runs without trend keys.
+   */
+  contradictions?: string[];
   /** 1-based step numbers the narrative explicitly referenced. */
   citedSteps: number[];
   /** Successful steps whose data was never referenced in the narrative. */
