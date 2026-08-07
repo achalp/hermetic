@@ -553,6 +553,22 @@ const checkPassed = (f: FindingEntry): boolean | null => {
  * findings is an unheeded red flag; a check with passed but zero evidence
  * keys is self-graded. All advisory — the posture never fails a run.
  */
+/** Presence backstop: findings with ZERO checks means the analysis never
+ *  interrogated its own assumptions — every semantic decision is unvalidated. */
+export function lintNoChecksDeclared(findings: FindingEntry[]): FindingIssue[] {
+  const nonCheck = findings.filter((f) => f.dtype !== "check");
+  const checks = findings.filter((f) => f.dtype === "check");
+  if (nonCheck.length >= 4 && checks.length === 0) {
+    return [
+      {
+        kind: "no_checks_declared",
+        detail: `${nonCheck.length} findings declared with zero validating checks — the analysis never interrogated its own assumptions (grain, windows, model form, plausibility are all unvalidated)`,
+      },
+    ];
+  }
+  return [];
+}
+
 export function lintCheckGating(findings: FindingEntry[]): FindingIssue[] {
   const issues: FindingIssue[] = [];
   const checks = new Map(findings.filter(isCheck).map((f) => [f.name, f]));

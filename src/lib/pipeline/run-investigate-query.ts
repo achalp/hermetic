@@ -41,6 +41,7 @@ import {
   lintGranularityConflict,
   lintTrendContract,
   lintCheckGating,
+  lintNoChecksDeclared,
   lintMethodMismatch,
   namespaceFindings,
 } from "@/lib/findings";
@@ -703,6 +704,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               ...lintGranularityConflict(merged),
               ...lintTrendContract(merged),
               ...lintCheckGating(merged),
+              ...lintNoChecksDeclared(merged),
               ...lintMethodMismatch(merged),
             ];
             if (coherence.length > 0) {

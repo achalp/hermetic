@@ -25,6 +25,7 @@ import {
   lintCompletenessConflict,
   lintTrendContract,
   lintCheckGating,
+  lintNoChecksDeclared,
   lintMethodMismatch,
   lintRangeFabrication,
 } from "@/lib/findings";
@@ -437,6 +438,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintMissingLinkage(validated.manifest.findings),
             ...lintGranularityConflict(validated.manifest.findings),
             ...lintCheckGating(validated.manifest.findings),
+            ...lintNoChecksDeclared(validated.manifest.findings),
             ...lintMethodMismatch(validated.manifest.findings),
             ...lintTrendContract(validated.manifest.findings),
             ...lintRangeFabrication(validated.manifest.findings, executionResult.data_completeness),

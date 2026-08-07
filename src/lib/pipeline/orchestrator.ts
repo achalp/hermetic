@@ -232,6 +232,30 @@ export async function runPipeline(
     );
   };
 
+  // Deterministic checks-presence gate (declared-checks spec §2): whether
+  // the model writes GOOD checks is the reviewer's judgment call; whether it
+  // wrote ANY is a string search — and check presence must not be at the
+  // mercy of model variability (run-24: 33 findings, 0 checks). One targeted
+  // redo; if the model still declines, proceed (posture: never block) and
+  // the manifest-level advisory takes over.
+  const ensureChecksDeclared = async (currentCode: string): Promise<string> => {
+    if (!currentCode.includes("declare_finding(") || currentCode.includes("declare_check(")) {
+      return currentCode;
+    }
+    logger.info("Generated code declares findings but zero checks — targeted redo");
+    try {
+      return await generateFixedCode([
+        {
+          code: currentCode,
+          error:
+            "The code declares findings but ZERO checks. The declared-checks contract requires interrogating the data BEFORE analysis with declare_check(name, definition, passed, evidence={...}) — checks derived from domain knowledge of THIS dataset (completeness/coverage stability, magnitude plausibility, grain/hierarchy, join-vs-shortcut agreement, window comparability, model-form fit), with COMPUTED evidence. Add the checks that validate this code's semantic decisions and keep everything else verbatim.",
+        },
+      ]);
+    } catch {
+      return currentCode;
+    }
+  };
+
   // Pre-execution "lint critic": review the code BEFORE running it and, on ANY
   // finding, feed ALL of them back for a fix-everything redo — the critic's
   // severity calibration proved unreliable (a "minor — won't OOM" finding caused
@@ -350,6 +374,7 @@ export async function runPipeline(
 
   // Pre-execution review gate: catch OOM / memory-cap / wrong-region defects and
   // redo BEFORE spending a 15-min remote scan on them. No-op off the geo path.
+  code = await ensureChecksDeclared(code);
   code = await reviewAndRevise(code);
 
   // Persist the code BEFORE executing — an OOM/crash during the run must not lose it.

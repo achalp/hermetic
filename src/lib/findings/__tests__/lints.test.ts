@@ -9,6 +9,7 @@ import {
   lintTrendContract,
   lintRangeFabrication,
   lintCheckGating,
+  lintNoChecksDeclared,
   lintMethodMismatch,
 } from "@/lib/findings/lints";
 
@@ -375,5 +376,31 @@ describe("lintMethodMismatch — declared vs computed test", () => {
     expect(
       lintMethodMismatch([{ ...kw, definition: "significance test across eras" }])
     ).toHaveLength(0);
+  });
+});
+
+describe("lintNoChecksDeclared — check presence is not optional", () => {
+  const finding = (name: string) => ({
+    name,
+    definition: "a computed measure over the price column",
+    dtype: "trend",
+    value: { direction: "rising", p_value: 0.01 },
+  });
+
+  it("flags a rich manifest with zero checks; quiet with any check or few findings", () => {
+    const many = [finding("a"), finding("b"), finding("c"), finding("d")];
+    expect(lintNoChecksDeclared(many).map((i) => i.kind)).toEqual(["no_checks_declared"]);
+    const withCheck = [
+      ...many,
+      {
+        name: "grain_ok",
+        definition: "grain validated against joined totals",
+        dtype: "check",
+        tags: ["check", "caveat"],
+        value: { passed: true, divergence_pct: 0.2 },
+      },
+    ];
+    expect(lintNoChecksDeclared(withCheck)).toHaveLength(0);
+    expect(lintNoChecksDeclared([finding("a")])).toHaveLength(0);
   });
 });
