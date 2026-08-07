@@ -381,6 +381,19 @@ def finding_step_change(values, labels=None, counts=None):
         if best_d is None or abs(best_d) <= 3.0 * median:
             return no_step
         idx = best_i + 1  # the period the level changed TO
+        # Spike-reversion gate: a "step" whose BEFORE level is itself a
+        # one-point outlier (far off the pre-period median) is a spike
+        # reverting, not a regime change — 1999's outlier-driven $987.93
+        # "stepping down" -977.9 in 2000 is the 1999 artifact, and two
+        # regime-slope findings were fit on it. The before level must be
+        # representative of its own regime.
+        pre = [y for y in ys[:idx - 1] if y is not None][-12:]
+        if len(pre) >= 3:
+            sp = sorted(pre)
+            pre_med = sp[len(sp) // 2]
+            before_dev = abs((ys[idx - 1] or 0.0) - pre_med)
+            if before_dev > 0.5 * abs(best_d) and before_dev > 3.0 * median:
+                return no_step
         if counts is not None:
             try:
                 ns = [safe_float(c) for c in list(counts)]

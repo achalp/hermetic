@@ -455,6 +455,15 @@ class TestFindingStatHelpers(unittest.TestCase):
         rising = finding_trend([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
         self.assertEqual(rising["direction"], "rising")
 
+    def test_step_change_spike_reversion_gate(self):
+        # The 1999 artifact: a one-year outlier spike reverting is not a
+        # regime change, even though the -977 delta clears 3x spread.
+        vals = [1.0, 1.2, 0.9, 1.1, 1.0, 987.9, 10.0, 9.5, 10.2, 9.8]
+        self.assertIsNone(finding_step_change(vals)["period"])
+        # A genuine level shift (representative before level) still fires.
+        vals2 = [1.0, 1.2, 0.9, 1.1, 1.0, 10.0, 9.5, 10.2, 9.8, 10.1]
+        self.assertIsNotNone(finding_step_change(vals2)["period"])
+
     def test_step_change_thin_period_gate(self):
         # The 2005 menu artifact: a persistent-looking step whose edge
         # periods have ~22 observations against a median of ~230 is sparse

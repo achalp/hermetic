@@ -28,8 +28,9 @@ import {
   lintNoChecksDeclared,
   lintMethodMismatch,
   lintNullAncestry,
-  lintRangeFabrication,
 } from "@/lib/findings";
+import { saveConventions } from "@/lib/learning/conventions";
+import { lintRangeFabrication } from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { WAREHOUSE_SCAN_ROW_BUDGET } from "@/lib/constants";
@@ -462,6 +463,13 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               executionResult.data_completeness
             ),
           ];
+          // Persist this run's checks as the dataset's settled conventions
+          // (drift fix): the next run on the same column shape receives them.
+          saveConventions(
+            stored.schema.columns.map((c) => c.name),
+            validated.manifest.findings,
+            question
+          );
           diagEvent("findings", {
             mode,
             declared: executionResult.findings.length,
