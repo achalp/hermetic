@@ -121,10 +121,15 @@ if command -v claude &>/dev/null; then
   echo -en "    Register ${BOLD}user-wide${RESET} so the tools work from ${BOLD}any${RESET} directory? [Y/n]: "
   read -r CODE_ANSWER || CODE_ANSWER="n"
   if [ -z "$CODE_ANSWER" ] || [[ "$CODE_ANSWER" =~ ^[Yy] ]]; then
-    if claude mcp add-json hermetic \
+    # add-json has no idempotent mode — "already exists" is success here,
+    # not failure (the Desktop path reports UNCHANGED the same way).
+    ADD_OUT=$(claude mcp add-json hermetic \
         "{\"command\":\"pnpm\",\"args\":[\"--silent\",\"-C\",\"$ROOT\",\"mcp\"]}" \
-        --scope user >/dev/null 2>&1; then
+        --scope user 2>&1) && ADD_RC=0 || ADD_RC=$?
+    if [ "$ADD_RC" -eq 0 ]; then
       ok "Claude Code (user scope) configured — available in every directory"
+    elif echo "$ADD_OUT" | grep -qi "already exists"; then
+      ok "Claude Code (user scope) already configured"
     else
       warn "claude mcp add-json failed — register manually: claude mcp add-json hermetic '{\"command\":\"pnpm\",\"args\":[\"--silent\",\"-C\",\"$ROOT\",\"mcp\"]}' --scope user"
     fi
