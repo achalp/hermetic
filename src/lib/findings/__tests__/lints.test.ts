@@ -8,6 +8,7 @@ import {
   lintCompletenessConflict,
   lintTrendContract,
   lintRangeFabrication,
+  lintCheckGating,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -313,5 +314,45 @@ describe("lintRangeFabrication — framing must match the observed range", () =>
     ];
     expect(lintRangeFabrication(ok, completeness)).toHaveLength(0);
     expect(lintRangeFabrication(ok, null)).toHaveLength(0);
+  });
+});
+
+describe("lintCheckGating — declared-checks enforcement", () => {
+  const failedCheck = {
+    name: "join_vs_shortcut_divergence",
+    definition: "joined totals vs dish lifetime shortcut differ by <2%",
+    dtype: "check",
+    tags: ["check", "blocking"],
+    value: { passed: false, divergence_pct: 174.0 },
+  };
+  const dependent = {
+    name: "avg_price_by_year",
+    definition: "average price by debut year from the dish table",
+    dtype: "distribution",
+    value: { y2004: 21.45 },
+    derived_from_findings: ["join_vs_shortcut_divergence"],
+  };
+
+  it("flags findings resting on a failed check, and heeded lineage silences the unheeded flag", () => {
+    const issues = lintCheckGating([failedCheck, dependent]);
+    expect(issues.map((i) => i.kind)).toEqual(["rests_on_failed_check"]);
+  });
+
+  it("flags an unheeded failed blocking check and self-graded checks", () => {
+    const issues = lintCheckGating([failedCheck]);
+    expect(issues.map((i) => i.kind)).toEqual(["unheeded_blocking_check"]);
+    const weak = {
+      name: "vibes",
+      definition: "the data seems fine overall today",
+      dtype: "check",
+      tags: ["check", "caveat"],
+      value: { passed: true },
+    };
+    expect(lintCheckGating([weak]).map((i) => i.kind)).toEqual(["weak_check"]);
+  });
+
+  it("passing evidence-bearing checks are silent", () => {
+    const ok = { ...failedCheck, value: { passed: true, divergence_pct: 0.4 } };
+    expect(lintCheckGating([ok, { ...dependent }])).toHaveLength(0);
   });
 });

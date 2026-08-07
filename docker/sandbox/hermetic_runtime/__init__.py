@@ -12,6 +12,7 @@ user code runs, and a crash on import would take down every analysis.
 
 from . import guards, profile
 from .coerce import safe_float, safe_int, to_native
+from .checks import declare_check
 from .findings import (
     declare_finding,
     finding_current_state,
@@ -29,6 +30,7 @@ from .output import write_output
 
 __all__ = [
     "assert_fits",
+    "declare_check",
     "declare_finding",
     "finding_current_state",
     "finding_decompose",

@@ -154,11 +154,33 @@ export function FindingsTab({
       {findings.findings.length === 0 ? (
         <p className="text-sm text-t-secondary">No findings were declared in this run.</p>
       ) : (
-        <ol className="flex flex-col gap-2">
-          {findings.findings.map((f) => (
-            <FindingRow key={f.name} finding={f} onOpenCodeRef={onOpenCodeRef} />
-          ))}
-        </ol>
+        (() => {
+          // Declared-checks spec §3: checks are findings about the data /
+          // process — grouped separately so validations read as validations.
+          const checks = findings.findings.filter((f) => f.dtype === "check");
+          const rest = findings.findings.filter((f) => f.dtype !== "check");
+          return (
+            <>
+              <ol className="flex flex-col gap-2">
+                {rest.map((f) => (
+                  <FindingRow key={f.name} finding={f} onOpenCodeRef={onOpenCodeRef} />
+                ))}
+              </ol>
+              {checks.length > 0 && (
+                <>
+                  <h4 className="mt-3 text-xs font-medium uppercase tracking-wide text-t-tertiary">
+                    Data checks
+                  </h4>
+                  <ol className="flex flex-col gap-2">
+                    {checks.map((f) => (
+                      <FindingRow key={f.name} finding={f} onOpenCodeRef={onOpenCodeRef} />
+                    ))}
+                  </ol>
+                </>
+              )}
+            </>
+          );
+        })()
       )}
     </div>
   );

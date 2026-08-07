@@ -32,6 +32,7 @@ except Exception:
 
 from . import findings, guards
 from .coerce import safe_float, safe_int, to_native
+from .checks import declare_check
 from .findings import (
     declare_finding,
     finding_decompose,
@@ -297,6 +298,30 @@ class TestDeclareFinding(unittest.TestCase):
         declare_finding("dup", 1, definition="mean of the x column", dtype="scalar")
         declare_finding("dup", 2, definition="mean of the x column", dtype="scalar")
         self.assertEqual([e["value"] for e in findings.get_findings()], [1, 2])
+
+
+class TestDeclareCheck(unittest.TestCase):
+    def setUp(self):
+        findings.reset_findings()
+
+    def test_check_rides_the_findings_registry(self):
+        declare_check("grain_check", "country-level totals match joined totals within 2%",
+                      passed=True, evidence={"divergence_pct": 0.4}, severity="blocking")
+        entries = findings.get_findings()
+        self.assertEqual(len(entries), 1)
+        e = entries[0]
+        self.assertEqual(e["dtype"], "check")
+        self.assertEqual(e["tags"], ["check", "blocking"])
+        self.assertEqual(e["value"], {"passed": True, "divergence_pct": 0.4})
+
+    def test_check_defaults_and_never_raises(self):
+        declare_check("weak", "a check with no evidence", passed=False, severity="bogus")
+        e = findings.get_findings()[0]
+        self.assertEqual(e["tags"], ["check", "caveat"])
+        self.assertEqual(e["value"], {"passed": False})
+        # Garbage never raises; host-side zod validation drops malformed entries.
+        declare_check(None, None, passed=object())
+        self.assertGreaterEqual(len(findings.get_findings()), 1)
 
 
 class TestFindingStatHelpers(unittest.TestCase):

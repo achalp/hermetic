@@ -24,6 +24,7 @@ import {
   lintGranularityConflict,
   lintCompletenessConflict,
   lintTrendContract,
+  lintCheckGating,
   lintRangeFabrication,
 } from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
@@ -434,6 +435,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintDerivations(validated.manifest.findings),
             ...lintMissingLinkage(validated.manifest.findings),
             ...lintGranularityConflict(validated.manifest.findings),
+            ...lintCheckGating(validated.manifest.findings),
             ...lintTrendContract(validated.manifest.findings),
             ...lintRangeFabrication(validated.manifest.findings, executionResult.data_completeness),
             ...lintCompletenessConflict(

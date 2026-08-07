@@ -521,6 +521,28 @@ function buildComposeRules(args: {
  * a MANDATORY caveat source — it cannot compute this itself (values-blind)
  * and generated code failed to wire it four runs straight.
  */
+/** Failed declared checks are MANDATORY caveats — same mechanism as the
+ *  completeness section. Passing checks are deliberately NOT listed as
+ *  assurance (a green suite of weak checks reads as validation). */
+function buildFailedChecksSection(manifest?: FindingsManifest): string {
+  const failed = (manifest?.findings ?? []).filter(
+    (f) =>
+      f.dtype === "check" &&
+      f.value !== null &&
+      typeof f.value === "object" &&
+      (f.value as Record<string, unknown>).passed === false
+  );
+  if (failed.length === 0) return "";
+  const lines = failed.map(
+    (f) => `- ${f.name}${f.tags?.includes("blocking") ? " (BLOCKING)" : ""}: ${f.definition}`
+  );
+  return `
+
+## Failed Data Checks (MANDATORY caveats)
+The analysis declared checks that FAILED. Every claim resting on one of these assumptions must carry the caveat, with the check's evidence bound via "$finding:<name>.<field>"; a BLOCKING failure means the affected conclusion is stated as unvalidated, not asserted:
+${lines.join("\n")}`;
+}
+
 function buildCompletenessSection(completeness: unknown): string {
   const prof = completeness as
     | {
@@ -586,6 +608,7 @@ export function buildDashboardComposeRequest(
     buildCorePrompt(executionResult, question, schemaMode, analysis.useDataController) +
     buildFindingsSection(opts.findings?.manifest) +
     buildHeadlineSection(headlinePlan) +
+    buildFailedChecksSection(opts.findings?.manifest) +
     buildCompletenessSection(executionResult.data_completeness) +
     buildDatasetSection(analysis, schemaMode) +
     buildDrillDownSection(drillDownContext) +

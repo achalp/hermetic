@@ -527,3 +527,63 @@ export function lintRangeFabrication(
   }
   return issues;
 }
+
+// ── Check-gating lints (declared-checks spec §3) ─────────────────────
+
+const isCheck = (f: FindingEntry): boolean => f.dtype === "check";
+const checkPassed = (f: FindingEntry): boolean | null => {
+  if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) return null;
+  const p = (f.value as Record<string, unknown>).passed;
+  return typeof p === "boolean" ? p : null;
+};
+
+/**
+ * Declared-checks enforcement: a finding derived from a FAILED check rests
+ * on an invalidated assumption; a failed blocking check with no dependent
+ * findings is an unheeded red flag; a check with passed but zero evidence
+ * keys is self-graded. All advisory — the posture never fails a run.
+ */
+export function lintCheckGating(findings: FindingEntry[]): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const checks = new Map(findings.filter(isCheck).map((f) => [f.name, f]));
+  for (const f of findings) {
+    if (isCheck(f)) {
+      const v = f.value as Record<string, unknown> | null;
+      const evidenceKeys =
+        v && typeof v === "object" ? Object.keys(v).filter((k) => k !== "passed") : [];
+      if (checkPassed(f) !== null && evidenceKeys.length === 0) {
+        issues.push({
+          kind: "weak_check",
+          name: f.name,
+          detail: `check ${f.name} declares passed=${String(checkPassed(f))} with NO computed evidence — a self-graded check validates nothing`,
+        });
+      }
+      continue;
+    }
+    for (const ref of f.derived_from_findings ?? []) {
+      const check = checks.get(ref) ?? checks.get(ref.replace(/^step_\d+\./, ""));
+      if (check && checkPassed(check) === false) {
+        issues.push({
+          kind: "rests_on_failed_check",
+          name: f.name,
+          detail: `${f.name} derives from FAILED check ${check.name} — the assumption it rests on did not validate; narrate only with the caveat bound`,
+        });
+      }
+    }
+  }
+  for (const [name, check] of checks) {
+    if (checkPassed(check) === false && check.tags?.includes("blocking")) {
+      const heeded = findings.some(
+        (f) => !isCheck(f) && (f.derived_from_findings ?? []).includes(name)
+      );
+      if (!heeded) {
+        issues.push({
+          kind: "unheeded_blocking_check",
+          name,
+          detail: `blocking check ${name} FAILED and no finding declares lineage from it — the analysis proceeded as if it passed`,
+        });
+      }
+    }
+  }
+  return issues;
+}

@@ -144,6 +144,7 @@ def declare_finding(
     derived_from_columns=None,
     tags=None,
     method=None,
+    _frame_depth=1,
 ):
     """Declare a finding adjacent to the computation that produced it.
 
@@ -157,7 +158,9 @@ def declare_finding(
     try:
         import sys
 
-        frame = sys._getframe(1)
+        # _frame_depth lets sugar wrappers (declare_check) point the literal
+        # audit at the USER's call site — the literal rule applies there too.
+        frame = sys._getframe(_frame_depth)
         bad = _literal_violation(frame)
         if bad is not None:
             _sidecar_write(

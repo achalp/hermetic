@@ -547,6 +547,8 @@ def finding_decompose(total_change, terms):
     return _out
 def finding_heterogeneity(groups):
     return {'significant': None, 'p_value': None, 'test': 'anova'}
+def declare_check(name, definition, passed=None, evidence=None, severity='caveat', derived_from_columns=None):
+    pass
 def finding_yoy(period_labels, values):
     return {'prior_year': None, 'latest_year': None, 'window_months': None,
             'prior_total': None, 'latest_total': None, 'pct_change': None}
@@ -573,7 +575,8 @@ try:
     # override (package write_output reading a registry the fallback
     # declare_finding never fills — the spec's E6 silent-loss class) can't occur.
     from hermetic_runtime import (declare_finding, finding_trend, finding_step_change,
-        finding_decompose, finding_heterogeneity, finding_current_state, finding_yoy)
+        finding_decompose, finding_heterogeneity, finding_current_state, finding_yoy,
+        declare_check)
     from hermetic_runtime import to_native as _to_native
     _hrt.guards.configure(_MEM_LIMIT)
     assert_fits = _hrt.guards.assert_fits
