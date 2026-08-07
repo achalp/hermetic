@@ -190,3 +190,101 @@ describe("state-binding repair — the empty-dashboard family (run-8 PDF)", () =
     expect(repairStateBindings(v2, valid)).toBe(0);
   });
 });
+
+describe("inline sentinel/boolean refusal — value-aware, at the resolver seam", () => {
+  const findings = {
+    heterogeneity_significant: true,
+    base_effect: "none",
+    anomaly: null,
+    churn_direction: "rising",
+  };
+  const results = { base_effect: "none", flag: false };
+
+  it("strips a boolean bound inline instead of rendering 'Yes'", () => {
+    const line =
+      '{"content": "Segment churn rates are $finding:heterogeneity_significant across the year."}';
+    const out = resolveSpecPlaceholders(line, {}, {}, findings);
+    expect(out).not.toContain("Yes");
+    expect(out).not.toContain("$finding");
+  });
+
+  it("strips 'none' sentinels and nulls from prose, for findings and results", () => {
+    const line =
+      '{"content": "The base effect is $result:base_effect and $finding:anomaly was found; flag says $result:flag."}';
+    const out = resolveSpecPlaceholders(line, results, {}, findings);
+    expect(out).not.toContain("none");
+    expect(out).not.toContain("null");
+    expect(out).not.toContain("No");
+    expect(out).not.toContain("$result");
+    expect(out).not.toContain("$finding");
+  });
+
+  it("keeps meaningful words inline and booleans in whole-value form", () => {
+    const inline = resolveSpecPlaceholders(
+      '{"content": "Churn is $finding:churn_direction over the year."}',
+      {},
+      {},
+      findings
+    );
+    expect(inline).toContain("Churn is rising over the year.");
+    // Whole-value binding: a StatCard may legitimately show a boolean.
+    const whole = resolveSpecPlaceholders(
+      '{"value": "$finding:heterogeneity_significant"}',
+      {},
+      {},
+      findings
+    );
+    expect(whole).toBe('{"value": true}');
+  });
+});
+
+describe("unit-carrying inline rendering — the composer never writes unit words", () => {
+  const findings = {
+    churn_slope: 0.9,
+    churn_rate: 12.4,
+    trend: { value: 0.9, p_value: 0.01 },
+    "step_2.mom_change": 1.2,
+  };
+  const units = {
+    churn_slope: "pp",
+    churn_rate: "%",
+    trend: "pp",
+    "step_2.mom_change": "pp",
+  };
+
+  it("appends the declared unit to bare and .value bindings (step-qualified too)", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "slope of $finding:churn_slope per month; trend $finding:trend.value overall; MoM $finding:step_2.mom_change since June"}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("slope of 0.9 pp per month");
+    expect(out).toContain("trend 0.9 pp overall");
+    expect(out).toContain("MoM 1.2 pp since June");
+  });
+
+  it("attaches % without a space and leaves non-value fields unitless", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "rate of $finding:churn_rate with p = $finding:trend.p_value"}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("rate of 12.4% with p = 0.01");
+  });
+
+  it("does not double a unit the prose already carries", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "rose $finding:churn_slope pp since June"}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("rose 0.9 pp since June");
+    expect(out).not.toContain("pp pp");
+  });
+});

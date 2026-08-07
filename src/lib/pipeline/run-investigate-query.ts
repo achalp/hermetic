@@ -858,6 +858,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           results: mergedResults,
           chartData: mergedChartData,
           findings: investigateFindingValues,
+          findingUnits: Object.fromEntries(investigateUnitByName),
         });
 
         let buffer = "";

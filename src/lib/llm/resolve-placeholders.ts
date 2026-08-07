@@ -255,6 +255,46 @@ export function harvestStateKeys(patch: unknown, valid: ValidStateKeys): void {
   if (dm) valid[dm[1] as "computed" | "datasets"].add(dm[2]);
 }
 
+// ── Inline-prose refusal + unit rendering ────────────────────────
+// The composer is values-blind: it cannot know a key resolves to a flag or
+// what unit a number carries. Two consequences, handled HERE (the only
+// value-aware seam) rather than by prompt rules alone:
+//  - a boolean/null/sentinel value must never render inside a sentence
+//    ("rates are Yes", "the base size none the...") — refuse and strip,
+//    the same posture as unresolved inline tokens;
+//  - a finding's number renders WITH its declared unit ("0.9 pp"), so the
+//    composer never writes unit words and can never re-unit a value.
+
+const SENTINEL_INLINE = new Set(["none", "n/a", "na", "null", ""]);
+
+function isInlineRefused(value: unknown): boolean {
+  return (
+    typeof value === "boolean" ||
+    value === null ||
+    (typeof value === "string" && SENTINEL_INLINE.has(value.trim().toLowerCase()))
+  );
+}
+
+function refuseInline(token: string): "" {
+  logger.warn("resolveSpecPlaceholders: refused sentinel/boolean inline in prose", { token });
+  void recordFailure({
+    stage: "compose",
+    kind: "compose",
+    errorClass: "compose_sentinel_inline",
+    detail: token,
+  });
+  return "";
+}
+
+const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** "0.9" + "pp" → "0.9 pp"; "%" attaches without a space. Skips appending
+ *  when the prose already continues with the same unit word. */
+function withUnit(num: string, unit: string, following: string): string {
+  if (new RegExp(`^\\s*${escapeRegExp(unit)}`, "i").test(following)) return num;
+  return unit === "%" ? `${num}%` : `${num} ${unit}`;
+}
+
 /** Replace all `$result:<key>` and `$chartData:<key>` placeholders in a line. */
 export function resolveSpecPlaceholders(
   line: string,
@@ -262,7 +302,10 @@ export function resolveSpecPlaceholders(
   chartData: Record<string, unknown>,
   /** Declared-findings values by (possibly step-qualified) name — enables
    *  `$finding:<name>[.<field>]` binding (declared-findings spec §4.2). */
-  findings: Record<string, unknown> = {}
+  findings: Record<string, unknown> = {},
+  /** Declared units by finding name — inline numeric bindings render with
+   *  the unit attached, so the composer never writes unit words. */
+  findingUnits: Record<string, string> = {}
 ): string {
   let processed = line;
 
@@ -290,18 +333,28 @@ export function resolveSpecPlaceholders(
     // objects resolve only when the path reached a leaf.
     const inlineFindingRegex =
       /\$finding:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=\.(?![a-zA-Z0-9_])|[^a-zA-Z0-9_.]|$)/g;
-    processed = processed.replace(inlineFindingRegex, (_match, keyPath: string) => {
-      const raw = resolveKeyPath(findings, keyPath.trim());
-      if (raw === undefined) return _match;
-      const value = unwrapScalar(raw);
-      if (typeof value === "number") {
-        return Number.isInteger(value) ? String(value) : parseFloat(value.toFixed(4)).toString();
+    processed = processed.replace(
+      inlineFindingRegex,
+      (_match, keyPath: string, offset: number, whole: string) => {
+        const trimmed = keyPath.trim();
+        const raw = resolveKeyPath(findings, trimmed);
+        if (raw === undefined) return _match;
+        const value = unwrapScalar(raw);
+        if (isInlineRefused(value)) return refuseInline(_match);
+        if (typeof value === "number") {
+          const num = Number.isInteger(value)
+            ? String(value)
+            : parseFloat(value.toFixed(4)).toString();
+          // Unit applies to the finding's MAIN value only: a bare scalar
+          // binding or its conventional `.value` field — never arbitrary
+          // fields (a decomposition's p_value is not in pp).
+          const unit = findingUnits[trimmed] ?? findingUnits[trimmed.replace(/\.value$/, "")];
+          return unit ? withUnit(num, unit, whole.slice(offset + _match.length)) : num;
+        }
+        if (typeof value === "object") return _match; // needs a .field path
+        return String(value);
       }
-      if (typeof value === "boolean") return value ? "Yes" : "No";
-      if (value === null) return "null";
-      if (typeof value === "object") return _match; // needs a .field path
-      return String(value);
-    });
+    );
   }
 
   // ── Pass 0: object-form placeholders ───────────────────────────
@@ -423,11 +476,10 @@ export function resolveSpecPlaceholders(
     const raw = resolveKeyPath(results, keyPath.trim());
     if (raw === undefined) return _match;
     const value = unwrapScalar(raw);
+    if (isInlineRefused(value)) return refuseInline(_match);
     if (typeof value === "number") {
       return Number.isInteger(value) ? String(value) : parseFloat(value.toFixed(4)).toString();
     }
-    if (typeof value === "boolean") return value ? "Yes" : "No";
-    if (value === null) return "null";
     if (typeof value === "object") return JSON.stringify(value);
     return String(value);
   });

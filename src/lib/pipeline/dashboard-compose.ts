@@ -653,6 +653,7 @@ export async function composeAndStreamDashboard(args: {
     results: executionResult.results,
     chartData: executionResult.chart_data,
     findings: findingValues,
+    findingUnits: Object.fromEntries(unitByName),
     imagePlaceholders,
     validStateKeys,
     mutatePatch: (patch) => {

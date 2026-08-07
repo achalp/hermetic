@@ -34,10 +34,13 @@ describe("resolveSpecPlaceholders — $result", () => {
     expect(out).toBe('{"text":"Avg: 3.1416"}');
   });
 
-  it("renders booleans as Yes/No when inline", () => {
+  it("refuses booleans inline — a flag in a word slot is stripped, never rendered", () => {
+    // Was: rendered "Yes"/"No". A values-blind composer can't know a key is a
+    // flag, so "rates are Yes"-class prose is prevented at the resolver seam.
     const line = '{"text":"Significant: $result:sig"}';
     const out = resolveSpecPlaceholders(line, { sig: true }, {});
-    expect(out).toBe('{"text":"Significant: Yes"}');
+    expect(out).toBe('{"text":"Significant: "}');
+    expect(out).not.toContain("Yes");
   });
 
   it("blanks an unresolved placeholder to null — never leaks the raw token to the UI", () => {

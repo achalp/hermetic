@@ -37,6 +37,8 @@ export interface SpecFinalizerConfig {
   chartData: Record<string, unknown>;
   /** Declared-finding values by name, for `$finding:` resolution (spec §4.2). */
   findings?: Record<string, unknown>;
+  /** Declared units by finding name — inline numbers render with the unit. */
+  findingUnits?: Record<string, string>;
   /** Ask only: IMAGE_PLACEHOLDER_<key> → base64 data URI. */
   imagePlaceholders?: Record<string, string>;
   /** Enables chart `$state` binding repair (Ask DataController flow). Null/omitted disables it. */
@@ -90,7 +92,8 @@ export function createSpecFinalizer(
       processed,
       config.results,
       config.chartData,
-      config.findings ?? {}
+      config.findings ?? {},
+      config.findingUnits ?? {}
     );
 
     // 3-4. Structural passes need the parsed patch. Plain JSON.parse keeps a
