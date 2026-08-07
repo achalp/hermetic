@@ -84,6 +84,7 @@ describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
     // (spec §2.1) — empty array for a run that declared nothing.
     expect(Object.keys(out).sort()).toEqual([
       "chart_data",
+      "data_completeness",
       "datasets",
       "findings",
       "images",

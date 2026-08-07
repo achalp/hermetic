@@ -405,8 +405,14 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
     # Always writes the five top-level keys, so output is never silently empty.
     # findings needs NO argument — the declare_finding registry is the truth
     # (spec declared-findings-2026-08-06 §2.1); findings= is an explicit override.
+    try:
+        from hermetic_runtime.profile import get_profile as _hrt_get_profile
+        _completeness = _hrt_get_profile()
+    except Exception:
+        _completeness = None
     out = {
         'runtime_fallback': _HERMETIC_RUNTIME_FALLBACK,
+        'data_completeness': _to_native(_completeness),
         'results': _to_native(results if results is not None else {}),
         'chart_data': _to_native(chart_data if chart_data is not None else {}),
         'datasets': {},
