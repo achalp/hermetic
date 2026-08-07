@@ -341,6 +341,15 @@ function formatInlineNumber(value: number): string {
 
 const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** Unit encoded in a key/field NAME: "_pct" suffix or "pct_" prefix → "%",
+ *  "_pp" suffix → "pp". Applied to the LAST path segment. */
+function keyNameUnit(keyPath: string): string | undefined {
+  const seg = keyPath.split(".").pop() ?? keyPath;
+  if (/_pct$/.test(seg) || /^pct_/.test(seg)) return "%";
+  if (/_pp$/.test(seg)) return "pp";
+  return undefined;
+}
+
 /** "0.9" + "pp" → "0.9 pp"; "%" attaches without a space. Skips appending
  *  when the unit word already appears within the next few words of prose —
  *  not just immediately ("$finding:x cases total cases" came from a guard
@@ -405,8 +414,14 @@ export function resolveSpecPlaceholders(
           const num = formatInlineNumber(value);
           // Unit applies to the finding's MAIN value only: a bare scalar
           // binding or its conventional `.value` field — never arbitrary
-          // fields (a decomposition's p_value is not in pp).
-          const unit = findingUnits[trimmed] ?? findingUnits[trimmed.replace(/\.value$/, "")];
+          // fields (a decomposition's p_value is not in pp). Fields carry
+          // units in their NAME (pct_from_peak, delta_pp) — honor the same
+          // suffix/prefix convention as $result keys so "-61.44 from peak"
+          // renders "-61.44%".
+          const unit =
+            findingUnits[trimmed] ??
+            findingUnits[trimmed.replace(/\.value$/, "")] ??
+            keyNameUnit(trimmed);
           return unit ? withUnit(num, unit, whole.slice(offset + _match.length)) : num;
         }
         if (typeof value === "object") return _match; // needs a .field path
@@ -540,12 +555,11 @@ export function resolveSpecPlaceholders(
       if (isInlineRefused(value)) return refuseInline(_match);
       if (typeof value === "number") {
         const num = formatInlineNumber(value);
-        // Result keys carry units in their SUFFIX by convention (_pct/_pp) —
-        // render them so result-bound prose doesn't drop units either.
-        const seg = trimmed.split(".").pop() ?? trimmed;
-        const sfx = /_(pct|pp)$/.exec(seg)?.[1];
-        if (!sfx) return num;
-        const unit = sfx === "pct" ? "%" : "pp";
+        // Result keys carry units in their name by convention (_pct/_pp
+        // suffix, pct_ prefix) — render them so result-bound prose doesn't
+        // drop units either.
+        const unit = keyNameUnit(trimmed);
+        if (!unit) return num;
         return withUnit(num, unit, whole.slice(offset + _match.length));
       }
       if (typeof value === "object") return JSON.stringify(value);

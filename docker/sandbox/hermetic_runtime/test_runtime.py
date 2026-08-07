@@ -38,6 +38,7 @@ from .findings import (
     finding_heterogeneity,
     finding_step_change,
     finding_current_state,
+    finding_yoy,
     finding_trend,
 )
 from .output import write_output
@@ -327,6 +328,25 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(out["value"], 350000.0)
         self.assertEqual(out["excluded_trailing"], 1)
         self.assertAlmostEqual(out["pct_from_peak"], (350000.0-360000.0)/360000.0*100, places=1)
+
+    def test_yoy_like_for_like_on_partial_year(self):
+        # 12 months of 2020 vs 10 of 2021: comparison must restrict to Jan-Oct
+        # of BOTH years and record the window for audit.
+        labels = ["2020-%02d" % m for m in range(1, 13)] + ["2021-%02d" % m for m in range(1, 11)]
+        vals = [100.0] * 12 + [300.0] * 10
+        out = finding_yoy(labels, vals)
+        self.assertEqual(out["window_months"], list(range(1, 11)))
+        self.assertEqual(out["prior_total"], 1000.0)
+        self.assertEqual(out["latest_total"], 3000.0)
+        self.assertEqual(out["pct_change"], 200.0)
+
+    def test_yoy_sums_daily_grain_and_never_raises(self):
+        labels = ["2020-05-01", "2020-05-20", "2021-05-03"]
+        out = finding_yoy(labels, [10.0, 5.0, 30.0])
+        self.assertEqual(out["window_months"], [5])
+        self.assertEqual(out["pct_change"], 100.0)
+        self.assertIsNone(finding_yoy(["2021-01"], [5.0])["pct_change"])
+        self.assertIsNone(finding_yoy("garbage", None)["pct_change"])
 
     def test_current_state_coverage_catches_what_magnitude_misses(self):
         # The October case: the incomplete final month is 58% of the trailing

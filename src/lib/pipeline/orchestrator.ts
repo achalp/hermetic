@@ -8,7 +8,7 @@ import {
   stripValueAssertions,
   fixMissingSqlFString,
 } from "@/lib/llm/code-generation";
-import { buildRetryPromptMulti, RETRY_GUIDANCE } from "@/lib/llm/prompts";
+import { buildRetryPromptMulti, RETRY_GUIDANCE, buildCodeGenSystemPrompt } from "@/lib/llm/prompts";
 import { activateSkills, reportSkillActivation } from "@/lib/skills";
 import { userModuleFiles } from "@/lib/skills/user-modules";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
@@ -200,8 +200,16 @@ export async function runPipeline(
     const retryResult = withPhaseSync("code_gen", () =>
       streamText({
         model: getModel(model),
+        // FULL codegen constitution + repair addendum — NOT a stripped fixer
+        // prompt. Observed twice on the covid dataset: a redo running with
+        // only "fix the code" + feedback in context produced a hastier draft
+        // that satisfied the findings but LOST rule-driven refinements the
+        // first pass had (the like-for-like YoY, the headline set) — the
+        // rules weren't in its context, so it couldn't know they were
+        // deliberate. Repair must happen under the same rules as the draft.
         system: cachedSystem(
-          "You are a data analyst. Fix the Python code based on the error history. The code must write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
+          buildCodeGenSystemPrompt(mode, !!workbookContext, schema.detected_domain, purpose) +
+            "\n\n## REPAIR MODE\nYou are fixing the Python analysis code below based on the error/review history. Repair with a MINIMAL DIFF: change ONLY what the reported findings require and preserve every other line — key names, finding declarations, windowed comparisons, rounding, and refinements of the prior attempt stay VERBATIM. A rewrite that satisfies the findings but loses working refinements is a regression. The code must still write its JSON output to /data/output.json (not print to stdout). Output ONLY the corrected Python code. No markdown fencing.\n\n" +
             RETRY_GUIDANCE +
             retrySystemExtra()
         ),

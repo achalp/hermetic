@@ -400,3 +400,27 @@ describe("anaphora-aware refusal stripping (run-13: 'This exceeded...')", () => 
     expect(out).toContain("This exceeded expectations.");
   });
 });
+
+describe("field-name units — pct_from_peak renders with % (run-15 leak)", () => {
+  it("appends % for pct_-prefixed finding fields and _pct results", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "ends $finding:cases_current_state.pct_from_peak from that peak; spread $result:spread_pct of total"}',
+      { spread_pct: 23.4 },
+      {},
+      { cases_current_state: { period: "2021-10", value: 8694867, pct_from_peak: -61.44 } }
+    );
+    expect(out).toContain("ends -61.44% from that peak");
+    expect(out).toContain("spread 23.4% of total");
+  });
+
+  it("declared finding unit still wins over the field-name convention", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "slope $finding:churn_slope.value overall"}',
+      {},
+      {},
+      { churn_slope: { value: 0.9 } },
+      { churn_slope: "pp" }
+    );
+    expect(out).toContain("slope 0.9 pp overall");
+  });
+});

@@ -19,6 +19,7 @@ from .findings import (
     finding_heterogeneity,
     finding_step_change,
     finding_trend,
+    finding_yoy,
     get_findings,
     reset_findings,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "finding_heterogeneity",
     "finding_step_change",
     "finding_trend",
+    "finding_yoy",
     "get_findings",
     "guards",
     "numeric",

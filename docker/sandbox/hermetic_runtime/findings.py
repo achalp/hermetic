@@ -385,6 +385,63 @@ def finding_step_change(values, labels=None):
         return failed
 
 
+def finding_yoy(period_labels, values):
+    """Like-for-like year-over-year growth — the ONLY valid YoY on partial years.
+
+    Comparing raw calendar-year totals when the latest year is incomplete
+    (12 months vs 10) is invalid arithmetic dressed as a growth rate; this
+    recurred repeatedly when hand-rolled. This helper restricts BOTH years
+    to their overlapping months before comparing.
+
+    period_labels: parseable period strings ("2021-03", "2021-03-15", ...);
+    values are summed per (year, month). The two most recent years with any
+    data are compared over the intersection of their reported months.
+
+    Returns {"prior_year", "latest_year", "window_months", "prior_total",
+    "latest_total", "pct_change"} — window_months is the sorted overlapping
+    month list (e.g. [1..10]), recorded for audit. Degenerate inputs
+    (fewer than two years, empty overlap, zero prior total) return all-None
+    fields. Never raises.
+    """
+    failed = {"prior_year": None, "latest_year": None, "window_months": None,
+              "prior_total": None, "latest_total": None, "pct_change": None}
+    try:
+        import re as _re
+        totals = {}
+        for label, v in zip(list(period_labels), list(values)):
+            fv = safe_float(v)
+            if fv is None:
+                continue
+            m = _re.search(r"(\d{4})\D?(\d{2})", str(label))
+            if not m:
+                continue
+            y, mo = int(m.group(1)), int(m.group(2))
+            if not 1 <= mo <= 12:
+                continue
+            totals[(y, mo)] = totals.get((y, mo), 0.0) + fv
+        years = sorted({y for y, _ in totals})
+        if len(years) < 2:
+            return failed
+        latest, prior = years[-1], years[-2]
+        months = sorted(
+            {mo for y, mo in totals if y == latest} & {mo for y, mo in totals if y == prior}
+        )
+        if not months:
+            return failed
+        prior_total = sum(totals[(prior, mo)] for mo in months)
+        latest_total = sum(totals[(latest, mo)] for mo in months)
+        if prior_total == 0:
+            return {"prior_year": prior, "latest_year": latest, "window_months": months,
+                    "prior_total": prior_total, "latest_total": latest_total,
+                    "pct_change": None}
+        pct = (latest_total - prior_total) / abs(prior_total) * 100.0
+        return {"prior_year": prior, "latest_year": latest, "window_months": months,
+                "prior_total": prior_total, "latest_total": latest_total,
+                "pct_change": round(pct, 1)}
+    except Exception:
+        return failed
+
+
 def finding_current_state(values, labels=None, window=6, coverage=None):
     """Where the series ENDS — from the last COMPLETE observation.
 
