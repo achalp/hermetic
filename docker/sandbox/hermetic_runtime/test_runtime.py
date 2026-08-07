@@ -412,6 +412,15 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertIsNone(finding_yoy(["2021-01"], [5.0])["pct_change"])
         self.assertIsNone(finding_yoy("garbage", None)["pct_change"])
 
+    def test_current_state_magnitude_only_walkback_is_capped(self):
+        # A genuinely declining series must not be eaten by the stationarity
+        # assumption: without coverage evidence, at most 2 trailing periods
+        # may be excluded on magnitude alone.
+        vals = [100.0, 95.0, 90.0, 80.0, 60.0, 40.0, 20.0, 10.0, 5.0, 2.0, 1.0, 0.5]
+        out = finding_current_state(vals)
+        self.assertLessEqual(out["excluded_trailing"], 2)
+        self.assertIsNotNone(out["value"])
+
     def test_current_state_coverage_catches_what_magnitude_misses(self):
         # The October case: the incomplete final month is 58% of the trailing
         # mean — above the 30% magnitude bar — but its reporting coverage

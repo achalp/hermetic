@@ -54,6 +54,28 @@ function checkSentence(sentence: string, issues: FindingIssue[]): "keep" | "drop
     });
     return "drop";
   }
+  // Narrated-arithmetic coherence: "A ... B ... a multiplier of C" where C
+  // matches neither B/A nor A/B (±5%) mixes values from different windows
+  // in one claim — the sentence's own arithmetic must work.
+  const mult = /\b(?:multiplier|ratio)\s+of\s+(-?\d[\d,.]*)/i.exec(sentence);
+  if (mult) {
+    const nums = [...sentence.matchAll(/-?\d[\d,]*(?:\.\d+)?/g)]
+      .map((m) => parseFloat(m[0].replace(/,/g, "")))
+      .filter((n) => Number.isFinite(n) && n !== 0);
+    const c = parseFloat(mult[1].replace(/,/g, ""));
+    const others = nums.filter((n) => n !== c);
+    if (others.length >= 2 && Number.isFinite(c)) {
+      const coheres = others.some((x) =>
+        others.some((y) => y !== x && Math.abs(x / y - c) / Math.abs(c) < 0.05)
+      );
+      if (!coheres) {
+        issues.push({
+          kind: "arithmetic_incoherence",
+          detail: `sentence claims a multiplier/ratio of ${c} that no pair of its own numbers produces — values from different windows narrated as one claim: "${sentence.trim().slice(0, 120)}"`,
+        });
+      }
+    }
+  }
   const seq = SEQUENCE_RE.exec(sentence);
   if (seq) {
     const before: number[] = [];

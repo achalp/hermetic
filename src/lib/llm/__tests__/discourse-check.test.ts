@@ -39,3 +39,19 @@ describe("checkDiscourseLine — the relational-claims bug class, one home", () 
     expect(checkDiscourseLine(line).line).toBe(line);
   });
 });
+
+describe("arithmetic coherence — the multiplier sentence (run-28)", () => {
+  it("flags a multiplier no pair of the sentence's numbers produces", () => {
+    const { issues } = checkDiscourseLine(
+      '{"content": "The 2010s reached 7.64, up from 1.32 in the early window, a multiplier of 7.9 over the period."}'
+    );
+    expect(issues.some((i) => i.kind === "arithmetic_incoherence")).toBe(true);
+  });
+
+  it("accepts a multiplier the sentence's own numbers produce", () => {
+    const ok = checkDiscourseLine(
+      '{"content": "The late median of 10.43 against the early 1.32 is a multiplier of 7.9 across the corpus."}'
+    );
+    expect(ok.issues.filter((i) => i.kind === "arithmetic_incoherence")).toHaveLength(0);
+  });
+});

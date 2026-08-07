@@ -123,7 +123,12 @@ export function capArtifacts(artifacts: {
   const truncated: string[] = [];
   for (const [k, v] of Object.entries(artifacts.chart_data ?? {})) {
     if (Array.isArray(v) && v.length > CHART_ROW_CAP) {
-      chart[k] = v.slice(0, CHART_ROW_CAP);
+      // Downsample EVENLY, always keeping both endpoints — a head-slice
+      // chopped a 142-year price series at 1974 and the reader's headline
+      // chart lost the last forty years. For a time series, losing the
+      // recent end is losing the answer.
+      const step = (v.length - 1) / (CHART_ROW_CAP - 1);
+      chart[k] = Array.from({ length: CHART_ROW_CAP }, (_, i) => v[Math.round(i * step)]);
       truncated.push(k);
     } else {
       chart[k] = v;

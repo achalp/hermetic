@@ -530,6 +530,12 @@ def finding_current_state(values, labels=None, window=6, coverage=None):
             return failed
         end = idxs[-1]
         excluded = 0
+        # Magnitude-ONLY exclusions are capped at 2: the 0.3x-trailing-mean
+        # test assumes a roughly stationary level, and on a genuinely
+        # DECLININING series it cascades — a run walked back 9 real years
+        # (each with 100+ observations) and two metrics disagreed about
+        # where the data ends. Deep walk-backs require coverage EVIDENCE.
+        magnitude_only_cap = 2
         while True:
             prior_i = [i for i in idxs if i < end]
             prior = [ys[i] for i in prior_i][-window:]
@@ -543,6 +549,12 @@ def finding_current_state(values, labels=None, window=6, coverage=None):
                     incomplete = True
             mean = sum(prior) / len(prior)
             cur = ys[end]
+            if (
+                not incomplete
+                and covs is None
+                and excluded >= magnitude_only_cap
+            ):
+                break
             if not incomplete and mean > 0 and cur is not None and cur < 0.3 * mean:
                 incomplete = True
             if incomplete:
