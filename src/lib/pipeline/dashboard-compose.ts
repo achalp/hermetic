@@ -60,6 +60,10 @@ export interface DashboardComposeOpts {
    * $finding: resolver pass, and the §3.4/§3.5 grounding fields.
    */
   findings?: { manifest: FindingsManifest; issues: FindingIssue[] };
+  /** Set on the ONE bounded repair pass: severe post-compose advisories from
+   *  the first pass, injected as explicit repair instructions. Presence of
+   *  this field also acts as the recursion guard. */
+  repairAdvisories?: string[];
   question: string;
   schema: CSVSchema;
   schemaMode: SchemaMode;
@@ -524,6 +528,16 @@ function buildComposeRules(args: {
 /** Failed declared checks are MANDATORY caveats — same mechanism as the
  *  completeness section. Passing checks are deliberately NOT listed as
  *  assurance (a green suite of weak checks reads as validation). */
+/** The bounded recompose pass: first-pass advisories become instructions. */
+function buildRepairSection(advisories?: string[]): string {
+  if (!advisories || advisories.length === 0) return "";
+  return `
+
+## REPAIR PASS (previous composition had defects — fix ALL of them)
+Your previous composition of this dashboard produced the defects below. Recompose the FULL dashboard fixing every one: gate null-resolving bindings with $cond or drop the claim, narrate or chart unnarrated findings, and keep everything that was already correct:
+${advisories.map((a) => `- ${a}`).join("\n")}`;
+}
+
 function buildFailedChecksSection(manifest?: FindingsManifest): string {
   const failed = (manifest?.findings ?? []).filter(
     (f) =>
@@ -609,6 +623,7 @@ export function buildDashboardComposeRequest(
     buildFindingsSection(opts.findings?.manifest) +
     buildHeadlineSection(headlinePlan) +
     buildFailedChecksSection(opts.findings?.manifest) +
+    buildRepairSection(opts.repairAdvisories) +
     buildCompletenessSection(executionResult.data_completeness) +
     buildDatasetSection(analysis, schemaMode) +
     buildDrillDownSection(drillDownContext) +
@@ -923,18 +938,103 @@ export async function composeAndStreamDashboard(args: {
         }
       }
 
-      // Scaffold enforcement (advisory): planned headline bindings that never
-      // reached any composed patch — the composer dropped a required tile.
-      for (const tile of headlinePlan) {
-        const bound = composedPatches.some((p) =>
-          JSON.stringify(p.value ?? {}).includes(tile.binding)
+      // Scaffold enforcement, now DETERMINISTIC: a planned tile the composer
+      // dropped is INJECTED server-side — the server has both the plan and
+      // the values, so a missing required tile needs no model. Injected
+      // elements are appended to the first StatCard-bearing grid (or root).
+      const missingTiles = headlinePlan.filter(
+        (tile) => !composedPatches.some((p) => JSON.stringify(p.value ?? {}).includes(tile.binding))
+      );
+      if (missingTiles.length > 0) {
+        const statCardIds = new Set(
+          composedPatches
+            .filter(
+              (p) =>
+                p.value &&
+                typeof p.value === "object" &&
+                (p.value as { type?: unknown }).type === "StatCard" &&
+                typeof p.path === "string"
+            )
+            .map((p) => (p.path as string).split("/").pop() as string)
         );
-        if (!bound) {
-          proseLintIssues.set(`headline_tile_missing:${tile.binding}`, {
-            kind: "headline_tile_missing",
-            detail: `required headline tile ${tile.binding} (${tile.reason}) was not composed`,
+        const container = composedPatches.find(
+          (p) =>
+            p.value &&
+            typeof p.value === "object" &&
+            Array.isArray((p.value as { children?: unknown }).children) &&
+            ((p.value as { children: unknown[] }).children as unknown[]).some(
+              (id) => typeof id === "string" && statCardIds.has(id)
+            )
+        );
+        if (container && typeof container.path === "string") {
+          const containerId = container.path.split("/").pop() as string;
+          const oldChildren = (container.value as { children: string[] }).children;
+          const injectedIds: string[] = [];
+          missingTiles.forEach((tile, i) => {
+            const id = `hermetic_injected_tile_${i}`;
+            const el = {
+              op: "add",
+              path: `/elements/${id}`,
+              value: {
+                type: "StatCard",
+                props: {
+                  label: tile.label,
+                  value: tile.binding,
+                  ...(tile.descriptionBinding ? { description: tile.descriptionBinding } : {}),
+                },
+                children: [],
+              },
+            };
+            const line = processLine(JSON.stringify(el));
+            if (line !== null) {
+              emitPatch(line);
+              injectedIds.push(id);
+            }
           });
+          if (injectedIds.length > 0) {
+            emitPatch(
+              JSON.stringify({
+                op: "add",
+                path: `/elements/${containerId}/children`,
+                value: [...oldChildren, ...injectedIds],
+              })
+            );
+            logger.info("Injected missing required headline tiles", {
+              tiles: missingTiles.map((t) => t.binding),
+            });
+          }
+        } else {
+          for (const tile of missingTiles) {
+            proseLintIssues.set(`headline_tile_missing:${tile.binding}`, {
+              kind: "headline_tile_missing",
+              detail: `required headline tile ${tile.binding} (${tile.reason}) was not composed`,
+            });
+          }
         }
+      }
+
+      // Bounded recompose (ONE pass): severe narrative defects — null
+      // bindings that stripped sentences, unfilled slots — go back to the
+      // composer as explicit repair instructions. The recursion re-runs the
+      // full compose with fresh state; the new /root supersedes pass 1's
+      // elements (orphans are unreferenced and harmless).
+      const SEVERE_KINDS = new Set([
+        "sentinel_interpolation",
+        "zero_count_sentence",
+        "empty_interpolation",
+      ]);
+      const severe = [...proseLintIssues.values()]
+        .filter((i) => SEVERE_KINDS.has(i.kind))
+        .map((i) => i.detail);
+      if (severe.length > 0 && !opts.repairAdvisories && !isClosed()) {
+        logger.info("Severe compose advisories — running bounded repair pass", {
+          count: severe.length,
+        });
+        await composeAndStreamDashboard({
+          ...args,
+          opts: { ...opts, repairAdvisories: severe },
+        });
+        return;
       }
       const report = verifyGrounding({
         narrativeTexts,

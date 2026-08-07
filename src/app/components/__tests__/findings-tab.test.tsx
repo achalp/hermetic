@@ -122,7 +122,7 @@ describe("grounding advisories", () => {
       screen.getByText(/Computed but not mentioned: august_step, churn_by_cohort\./)
     ).toBeTruthy();
     expect(screen.getByText(/\(median_revenue\) is not shown in a headline stat/)).toBeTruthy();
-    expect(screen.getByText(/Findings check: derivation contradiction/)).toBeTruthy();
+    expect(screen.getByText(/derivation contradiction/)).toBeTruthy();
   });
 
   it("renders nothing for reports that predate the advisory fields", () => {

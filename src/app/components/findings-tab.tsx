@@ -217,20 +217,60 @@ export function GroundingAdvisories({ grounding }: { grounding: GroundingReport 
       `The finding that answers the question (${grounding.questionPrimaryMiss}) is not shown in a headline stat.`
     );
   }
-  for (const f of grounding.findingIssues ?? []) {
-    items.push(`Findings check: ${f}`);
-  }
-  if (items.length === 0) return null;
+  const details = grounding.findingIssues ?? [];
+  if (items.length === 0 && details.length === 0) return null;
+  // Two-tier rendering: the banner speaks in USER language (a rollup per
+  // category); the raw engineering diagnostics ($finding: bindings, lint
+  // kinds) live behind a disclosure for the Trail-inclined.
+  const rollup = summarizeFindingIssues(details);
   return (
-    <ul
+    <div
       className="mt-1 flex flex-col gap-0.5 text-xs"
       style={{ color: "var(--color-warning-text)" }}
     >
-      {items.map((t, i) => (
-        // Advisory, not verdicts: same ▲ warn idiom as the untraceable-
-        // figures message, never blocking, never "verified".
-        <li key={i}>&#9650; {t}</li>
-      ))}
-    </ul>
+      <ul className="flex flex-col gap-0.5">
+        {[...items, ...rollup].map((t, i) => (
+          // Advisory, not verdicts: same ▲ warn idiom as the untraceable-
+          // figures message, never blocking, never "verified".
+          <li key={i}>&#9650; {t}</li>
+        ))}
+      </ul>
+      {details.length > 0 && (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-t-tertiary">
+            {details.length} detailed diagnostic{details.length === 1 ? "" : "s"}
+          </summary>
+          <ul className="mt-1 flex flex-col gap-0.5 text-t-tertiary">
+            {details.map((f, i) => (
+              <li key={i}>{f}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
   );
+}
+
+/** Roll raw finding-issue diagnostics up into user-language category lines. */
+function summarizeFindingIssues(details: string[]): string[] {
+  const count = (pred: (d: string) => boolean) => details.filter(pred).length;
+  const out: string[] = [];
+  const nulls = count((d) => d.includes('resolves to "null"') || d.includes("resolves to \u0000"));
+  if (nulls > 0)
+    out.push(
+      `${nulls} claim${nulls === 1 ? " was" : "s were"} removed because the analysis did not compute the value cleanly.`
+    );
+  const units = count((d) => d.includes("unit") && d.includes("narrative"));
+  if (units > 0) out.push(`${units} figure${units === 1 ? " carries" : "s carry"} a unit caveat.`);
+  const dropped = count((d) => d.startsWith("dropped a sentence"));
+  if (dropped > 0)
+    out.push(`${dropped} sentence${dropped === 1 ? " was" : "s were"} removed as not applicable.`);
+  const tiles = count((d) => d.includes("headline tile"));
+  if (tiles > 0)
+    out.push(`${tiles} planned headline stat${tiles === 1 ? " is" : "s are"} missing.`);
+  const linkage = count((d) => d.includes("no finding derives from both"));
+  if (linkage > 0) out.push("A connection the data supports is not stated in the narrative.");
+  const rest = details.length - nulls - units - dropped - tiles - linkage;
+  if (rest > 0) out.push(`${rest} other consistency note${rest === 1 ? "" : "s"} (see details).`);
+  return out;
 }
