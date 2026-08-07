@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { LearningState, LearnedProposal, LedgerEntry } from "@/lib/contracts/learning";
+import type { ConventionListing } from "@/lib/learning/conventions";
 import { getLearningState, decideLearningProposal } from "@/app/lib/api";
 
 /**
@@ -147,7 +148,9 @@ function LedgerRow({ e }: { e: LedgerEntry }) {
 }
 
 export default function LearningPage() {
-  const [state, setState] = useState<LearningState | null>(null);
+  const [state, setState] = useState<
+    (LearningState & { conventions?: ConventionListing[] }) | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -160,6 +163,20 @@ export default function LearningPage() {
   }, []);
 
   useEffect(() => refresh(), [refresh]);
+
+  const dropConventions = useCallback(
+    async (fp: string) => {
+      setBusy(true);
+      try {
+        await fetch(`/api/learning?convention=${fp}`, { method: "DELETE" });
+        setNote("Conventions dropped — the next run re-decides from scratch.");
+        refresh();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh]
+  );
 
   const decide = useCallback(
     async (id: string, action: "accept" | "reject") => {
@@ -267,6 +284,51 @@ export default function LearningPage() {
                 <SectionTitle>Engine-fix candidates (never become prompts)</SectionTitle>
                 {state.engineDefects.map((e) => (
                   <LedgerRow key={e.id} e={e} />
+                ))}
+              </div>
+            )}
+
+            {(state.conventions?.length ?? 0) > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <SectionTitle>Dataset conventions (declared checks that persist)</SectionTitle>
+                {state.conventions!.map((rec) => (
+                  <div
+                    key={rec.fingerprint}
+                    className="border border-border-default"
+                    style={{
+                      borderRadius: "var(--radius-card)",
+                      padding: "10px 12px",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                      <span className="text-sm text-t-primary">
+                        {rec.question ?? "dataset"}{" "}
+                        <span className="text-xs text-t-tertiary">
+                          · {rec.conventions.length} convention
+                          {rec.conventions.length === 1 ? "" : "s"} · {rec.saveCount} run
+                          {rec.saveCount === 1 ? "" : "s"}
+                        </span>
+                      </span>
+                      <button
+                        onClick={() => dropConventions(rec.fingerprint)}
+                        disabled={busy}
+                        className="text-xs"
+                        style={{ color: "var(--color-error-text)" }}
+                      >
+                        Drop all
+                      </button>
+                    </div>
+                    <ul className="flex flex-col gap-1 text-xs text-t-secondary">
+                      {rec.conventions.map((c) => (
+                        <li key={c.name}>
+                          <span className="font-medium">{c.name}</span>
+                          {c.passed === false ? " (failed last run)" : ""} — {c.definition}
+                          <span className="text-t-tertiary"> · seen {c.seenCount}x</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
               </div>
             )}

@@ -14,7 +14,7 @@
  * (same grammar-vs-vocabulary split as declared-checks).
  */
 import { createHash } from "crypto";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { hermeticPaths } from "@/lib/paths";
 import type { FindingEntry } from "@/lib/contracts/findings";
@@ -147,5 +147,40 @@ Previous analysis of this dataset settled the policies below as declared checks.
 ${lines.join("\n")}`;
   } catch {
     return null;
+  }
+}
+
+export interface ConventionListing {
+  fingerprint: string;
+  savedAt: number;
+  saveCount: number;
+  question?: string;
+  conventions: StoredConvention[];
+}
+
+/** All stored convention records, newest first — the Learning page's view. */
+export function listConventionRecords(): ConventionListing[] {
+  try {
+    const dir = join(hermeticPaths.learningDir(), "conventions");
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => {
+        const rec = JSON.parse(readFileSync(join(dir, f), "utf-8")) as ConventionRecord;
+        return { fingerprint: f.replace(/\.json$/, ""), ...rec };
+      })
+      .sort((a, b) => b.savedAt - a.savedAt);
+  } catch {
+    return [];
+  }
+}
+
+/** Manual curation: drop a dataset's conventions entirely (Learning page). */
+export function deleteConventionRecord(fp: string): boolean {
+  try {
+    if (!/^[a-f0-9]{16}$/.test(fp)) return false;
+    unlinkSync(join(hermeticPaths.learningDir(), "conventions", `${fp}.json`));
+    return true;
+  } catch {
+    return false;
   }
 }
