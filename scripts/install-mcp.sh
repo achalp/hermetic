@@ -86,8 +86,8 @@ if [ -n "$DESKTOP_CONFIG" ] && [ -d "$(dirname "$DESKTOP_CONFIG")" ]; then
       const already = JSON.stringify(cfg.mcpServers.hermetic);
       // pnpm -C <root> pins the working directory in the COMMAND itself —
       // `claude mcp add-json` drops a cwd field, and Desktop support for it
-      // varies; this form needs neither. --silent keeps pnpm's "> tsx ..."
-      // script banner off stdout, which is the MCP protocol channel —
+      // varies; this form needs neither. --silent keeps the pnpm script
+      // banner ("> tsx ...") off stdout, which is the MCP protocol channel —
       // Claude Desktop rejects those lines as invalid JSON.
       cfg.mcpServers.hermetic = { command: "pnpm", args: ["--silent", "-C", root, "mcp"] };
       fs.mkdirSync(require("path").dirname(cfgPath), { recursive: true });
