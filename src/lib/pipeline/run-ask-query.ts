@@ -468,7 +468,16 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           saveConventions(
             stored.schema.columns.map((c) => c.name),
             validated.manifest.findings,
-            question
+            question,
+            {
+              // Quality gate: a degraded run must not write conventions —
+              // baking a regression in would make it repeat.
+              degraded:
+                !!executionResult.runtime_fallback ||
+                findingIssues.some((i) =>
+                  ["runtime_fallback", "no_checks_declared"].includes(i.kind)
+                ),
+            }
           );
           diagEvent("findings", {
             mode,

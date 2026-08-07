@@ -43,3 +43,45 @@ describe("per-dataset conventions — judgment survives re-runs", () => {
     expect(conventionsGuidance(COLS)).toBeNull();
   });
 });
+
+describe("bad conventions cannot bake in", () => {
+  beforeEach(() => {
+    const root = mkdtempSync(join(tmpdir(), "hermetic-conv2-"));
+    setPathRoots({ dataRoot: root });
+  });
+
+  it("a later run MERGES — it cannot silently overwrite a settled convention", () => {
+    saveConventions(COLS, [check("median_headline_choice", true)]);
+    // A regression run declaring a DIFFERENT check must not erase the prior one.
+    saveConventions(COLS, [check("mean_everywhere", true)]);
+    const g = conventionsGuidance(COLS)!;
+    expect(g).toContain("median_headline_choice");
+    expect(g).toContain("mean_everywhere");
+  });
+
+  it("replacing a convention requires the explicit change protocol", () => {
+    saveConventions(COLS, [check("median_headline_choice", true)]);
+    saveConventions(COLS, [check("convention_change_median_headline_choice", true)]);
+    const g = conventionsGuidance(COLS)!;
+    expect(g).not.toMatch(/- median_headline_choice/);
+    expect(g).toContain("convention_change_median_headline_choice");
+  });
+
+  it("a degraded run writes nothing", () => {
+    saveConventions(COLS, [check("good_policy", true)]);
+    saveConventions(COLS, [check("stub_garbage", true)], "q", { degraded: true });
+    const g = conventionsGuidance(COLS)!;
+    expect(g).toContain("good_policy");
+    expect(g).not.toContain("stub_garbage");
+  });
+
+  it("conventions the model stops re-declaring decay after 5 saves", () => {
+    saveConventions(COLS, [check("fading_policy", true)]);
+    for (let i = 0; i < 6; i++) {
+      saveConventions(COLS, [check("stable_policy", true)]);
+    }
+    const g = conventionsGuidance(COLS)!;
+    expect(g).toContain("stable_policy");
+    expect(g).not.toContain("fading_policy");
+  });
+});
