@@ -143,6 +143,27 @@ _threading.Thread(target=_mem_watchdog, daemon=True).start()
 
 try:
     import pandas as _pd
+    # Data-edge profiling hook (platform-owned completeness): the FIRST frame
+    # loaded with a usable time column gets profiled; write_output ships the
+    # result automatically. Best-effort — never blocks or raises.
+    def _hermetic_profile_hook(_frame):
+        try:
+            import hermetic_runtime as _hrt_prof
+            _hrt_prof.profile.maybe_profile(_frame)
+        except Exception:
+            pass
+        return _frame
+    _orig_read_csv = _pd.read_csv
+    def _profiled_read_csv(*a, **kw):
+        return _hermetic_profile_hook(_orig_read_csv(*a, **kw))
+    _pd.read_csv = _profiled_read_csv
+    try:
+        _orig_read_parquet = _pd.read_parquet
+        def _profiled_read_parquet(*a, **kw):
+            return _hermetic_profile_hook(_orig_read_parquet(*a, **kw))
+        _pd.read_parquet = _profiled_read_parquet
+    except Exception:
+        pass
     _orig_corr = _pd.DataFrame.corr
     _orig_cov = _pd.DataFrame.cov
     def _safe_corr(self, *a, **kw):
@@ -286,8 +307,15 @@ try:
                          "already have (never read a cell/region that isn't provably small), and pull ONLY "
                          "numeric rowid,lon,lat into a KD-tree — never id/names/class/height.") % _cap)
                 return _probe
-            _duckdb_mod.DuckDBPyRelation.df = _capped_rel_df
-            _duckdb_mod.DuckDBPyRelation.fetchdf = _capped_rel_df
+            def _profiled_rel_df(self, *a, **kw):
+                _f = _capped_rel_df(self, *a, **kw)
+                try:
+                    _hermetic_profile_hook(_f)
+                except Exception:
+                    pass
+                return _f
+            _duckdb_mod.DuckDBPyRelation.df = _profiled_rel_df
+            _duckdb_mod.DuckDBPyRelation.fetchdf = _profiled_rel_df
     except Exception:
         pass
 except ImportError:

@@ -1,0 +1,101 @@
+/**
+ * Post-resolution discourse checker (structural fix 3, 2026-08-07).
+ *
+ * One home for the whole "values-blind composer makes relational claims"
+ * bug class, operating on RESOLVED prose — where interpolated values are
+ * visible and empty slots are detectable, which pre-resolution lints
+ * cannot do by construction. Ran per finalized line by
+ * finalize-spec-stream; issues flow to grounding advisories, egregious
+ * sentences (zero-count templates) are dropped like refusals.
+ *
+ * Encoded relations (add new ones HERE, not as new lints):
+ *  - empty interpolation: leftover multi-space gaps ("in both  and  to")
+ *    — flagged, whitespace collapsed;
+ *  - zero-count template: "The latest 0 trailing month(s) ... are
+ *    excluded" — a sentence about zero things asserting a process that
+ *    didn't happen; the sentence is dropped;
+ *  - temporal incoherence: sequencing words joining out-of-order periods
+ *    ("climbed to its peak in 2021-04, then contracted ... in 2020-01")
+ *    — flagged (rewriting prose is unsafe).
+ */
+import type { FindingIssue } from "@/lib/contracts/findings";
+
+export interface DiscourseCheckResult {
+  line: string;
+  issues: FindingIssue[];
+}
+
+const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
+
+/** "0 months", "0 trailing month(s)", "0 periods were excluded"… */
+const ZERO_COUNT_RE =
+  /\b0(?:\.0+)?\s+(?:[a-z]+\s+){0,2}(?:month|day|week|year|period|record|entr|item|point|row)[a-z()]*\b/i;
+
+/** Sequencing markers that assert forward temporal order. */
+const SEQUENCE_RE = /\b(?:then|followed by|subsequently|after (?:that|which))\b/i;
+
+/** Period tokens: 2021-04, 2021-04-21, 2021Q2, bare 2021 (years last — only
+ *  counted when no finer token is present, to avoid "2021-04" double-hits). */
+const PERIOD_RE = /\b(20\d{2})(?:-(\d{2})(?:-(\d{2}))?|[Qq]([1-4]))?\b/g;
+
+function periodOrdinal(m: RegExpMatchArray): number {
+  const year = Number(m[1]);
+  if (m[4]) return year * 372 + (Number(m[4]) - 1) * 93; // quarter
+  const month = m[2] ? Number(m[2]) - 1 : 0;
+  const day = m[3] ? Number(m[3]) : 0;
+  return year * 372 + month * 31 + day;
+}
+
+function checkSentence(sentence: string, issues: FindingIssue[]): "keep" | "drop" {
+  if (ZERO_COUNT_RE.test(sentence)) {
+    issues.push({
+      kind: "zero_count_sentence",
+      detail: `dropped a sentence narrating zero things as an event: "${sentence.trim().slice(0, 120)}"`,
+    });
+    return "drop";
+  }
+  const seq = SEQUENCE_RE.exec(sentence);
+  if (seq) {
+    const before: number[] = [];
+    const after: number[] = [];
+    for (const m of sentence.matchAll(PERIOD_RE)) {
+      ((m.index ?? 0) < (seq.index ?? 0) ? before : after).push(periodOrdinal(m));
+    }
+    if (before.length > 0 && after.length > 0 && Math.max(...after) < Math.min(...before)) {
+      issues.push({
+        kind: "temporal_incoherence",
+        detail: `sequencing word "${seq[0]}" joins out-of-order periods — the narrative runs backwards in time: "${sentence.trim().slice(0, 140)}"`,
+      });
+    }
+  }
+  return "keep";
+}
+
+/**
+ * Check one finalized JSONL line. Only JSON string contents are touched;
+ * structure is never modified. Returns the (possibly cleaned) line plus
+ * advisory issues.
+ */
+export function checkDiscourseLine(line: string): DiscourseCheckResult {
+  const issues: FindingIssue[] = [];
+  // Fast path: nothing prose-like.
+  if (!/[a-z]{3}/i.test(line)) return { line, issues };
+  const cleaned = line.replace(/"((?:[^"\\]|\\.)*)"/g, (whole, inner: string) => {
+    if (!/[a-zA-Z]{3}/.test(inner) || inner.length < 40) return whole;
+    let text = inner;
+    // Empty interpolation: a multi-space gap mid-prose is the tell of an
+    // unfilled slot ("present in both  and  to ensure").
+    if (/\S {2,}\S/.test(text)) {
+      issues.push({
+        kind: "empty_interpolation",
+        detail: `prose contains unfilled slots (multi-space gaps): "${text.trim().slice(0, 120)}"`,
+      });
+      text = text.replace(/(\S) {2,}(\S)/g, "$1 $2");
+    }
+    const sentences = text.split(SENTENCE_SPLIT);
+    const kept = sentences.filter((s) => checkSentence(s, issues) === "keep");
+    if (kept.length === sentences.length && text === inner) return whole;
+    return `"${kept.join(" ").trim()}"`;
+  });
+  return { line: cleaned, issues };
+}

@@ -32,6 +32,7 @@ import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { projectManifestForPrompt } from "@/lib/findings/project";
+import { planHeadlineTiles, buildHeadlineSection } from "@/lib/findings/headline-plan";
 import {
   lintUnitPhrase,
   lintSentinelInterpolation,
@@ -514,6 +515,44 @@ function buildComposeRules(args: {
  * budget with the omissions named, so the ignored-findings check can skip
  * entries the composer never saw.
  */
+/**
+ * Platform-profiled data-edge completeness (structural fix 1): when the
+ * profiler found incomplete edge periods, the composer receives the fact as
+ * a MANDATORY caveat source — it cannot compute this itself (values-blind)
+ * and generated code failed to wire it four runs straight.
+ */
+function buildCompletenessSection(completeness: unknown): string {
+  const prof = completeness as
+    | {
+        trailing_incomplete?: Array<{
+          period?: unknown;
+          coverage?: unknown;
+          baseline_coverage?: unknown;
+        }>;
+        leading_incomplete?: Array<{ period?: unknown }>;
+        entity_column?: string | null;
+      }
+    | null
+    | undefined;
+  const trailing = prof?.trailing_incomplete ?? [];
+  const leading = prof?.leading_incomplete ?? [];
+  if (trailing.length === 0 && leading.length === 0) return "";
+  const parts: string[] = [];
+  if (trailing.length > 0) {
+    const last = trailing[trailing.length - 1];
+    parts.push(
+      `the FINAL ${trailing.length} period(s) are INCOMPLETE (coverage collapsed to ${String(last?.coverage)} of ~${String(last?.baseline_coverage)} ${prof?.entity_column ? `distinct ${prof.entity_column}` : "contributors"} by ${String(last?.period)})`
+    );
+  }
+  if (leading.length > 0) {
+    parts.push(`the FIRST ${leading.length} period(s) are sparse/partial`);
+  }
+  return `
+
+## Data Completeness (platform-profiled — MANDATORY caveat)
+The platform profiled the raw data's edges: ${parts.join("; ")}. Any claim about the most recent (or earliest) values MUST carry this caveat, and no ending-state/"collapsed"/"currently" claim may treat the incomplete edge as real. State the caveat once, plainly (e.g. "the final days are excluded as incomplete — reporting is still arriving").`;
+}
+
 function buildFindingsSection(manifest?: FindingsManifest): string {
   if (!manifest || manifest.findings.length === 0) return "";
   const { projections, omitted } = projectManifestForPrompt(manifest.findings);
@@ -538,9 +577,16 @@ export function buildDashboardComposeRequest(
 
   const analysis = analyzeDatasets(executionResult);
 
+  const headlinePlan = planHeadlineTiles(
+    opts.findings?.manifest.findings ?? [],
+    (executionResult.results ?? {}) as Record<string, unknown>,
+    question
+  );
   const userPrompt =
     buildCorePrompt(executionResult, question, schemaMode, analysis.useDataController) +
     buildFindingsSection(opts.findings?.manifest) +
+    buildHeadlineSection(headlinePlan) +
+    buildCompletenessSection(executionResult.data_completeness) +
     buildDatasetSection(analysis, schemaMode) +
     buildDrillDownSection(drillDownContext) +
     buildHistorySection(priorTurns, question) +
@@ -647,6 +693,13 @@ export async function composeAndStreamDashboard(args: {
   );
   const findingValueMap = new Map<string, unknown>(Object.entries(findingValues));
   const proseLintIssues = new Map<string, FindingIssue>();
+  // Recomputed here (pure) for scaffold enforcement — the prompt-side plan
+  // is built in buildDashboardComposeRequest with identical inputs.
+  const headlinePlan = planHeadlineTiles(
+    opts.findings?.manifest.findings ?? [],
+    (executionResult.results ?? {}) as Record<string, unknown>,
+    opts.question
+  );
   // Did the composed spec bind any {"$state": ...} path? When it did in a
   // NON-DataController run (composer drift), the datasets injection below
   // must still fire or the (possibly repaired) /datasets/<key> bindings
@@ -708,6 +761,9 @@ export async function composeAndStreamDashboard(args: {
     lineCount++;
     if (result.patch) composedPatches.push(result.patch as PatchLike);
     if (result.line.includes('"$state"')) sawStateBinding = true;
+    for (const issue of result.discourseIssues ?? []) {
+      proseLintIssues.set(`${issue.kind}:${issue.detail}`, issue);
+    }
     const proseLintLookup = {
       findings: findingValueMap,
       results: (executionResult.results ?? {}) as Record<string, unknown>,
@@ -844,6 +900,19 @@ export async function composeAndStreamDashboard(args: {
         }
       }
 
+      // Scaffold enforcement (advisory): planned headline bindings that never
+      // reached any composed patch — the composer dropped a required tile.
+      for (const tile of headlinePlan) {
+        const bound = composedPatches.some((p) =>
+          JSON.stringify(p.value ?? {}).includes(tile.binding)
+        );
+        if (!bound) {
+          proseLintIssues.set(`headline_tile_missing:${tile.binding}`, {
+            kind: "headline_tile_missing",
+            detail: `required headline tile ${tile.binding} (${tile.reason}) was not composed`,
+          });
+        }
+      }
       const report = verifyGrounding({
         narrativeTexts,
         citedSteps: [],

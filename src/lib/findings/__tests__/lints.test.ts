@@ -5,6 +5,7 @@ import {
   lintMissingLinkage,
   lintSignedLanguage,
   lintGranularityConflict,
+  lintCompletenessConflict,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -202,5 +203,37 @@ describe("lintGranularityConflict — monthly rising vs quarterly flat", () => {
     expect(
       lintGranularityConflict([monthly, { ...quarterly, value: { direction: "rising" } }])
     ).toHaveLength(0);
+  });
+});
+
+describe("lintCompletenessConflict — profiler vs ending-state findings", () => {
+  const profile = {
+    time_column: "date",
+    entity_column: "location_key",
+    trailing_incomplete: [
+      { period: "2021-10-24", coverage: 13, baseline_coverage: 231 },
+      { period: "2021-10-25", coverage: 3, baseline_coverage: 231 },
+    ],
+    leading_incomplete: [],
+  };
+  const endingState = {
+    name: "cases_current_state",
+    definition: "ending state",
+    dtype: "state",
+    value: { period: "2021-10", value: 8694867, pct_from_peak: -61.44, excluded_trailing: 0 },
+  };
+
+  it("flags an ending-state finding that excluded nothing against a dirty edge", () => {
+    const issues = lintCompletenessConflict([endingState], profile);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("completeness_conflict");
+    expect(issues[0].detail).toContain("cases_current_state");
+  });
+
+  it("flags a dirty edge with no ending-state finding; quiet when clean or accounted", () => {
+    expect(lintCompletenessConflict([], profile)).toHaveLength(1);
+    expect(lintCompletenessConflict([endingState], null)).toHaveLength(0);
+    const accounted = { ...endingState, value: { ...endingState.value, excluded_trailing: 2 } };
+    expect(lintCompletenessConflict([accounted], profile)).toHaveLength(0);
   });
 });

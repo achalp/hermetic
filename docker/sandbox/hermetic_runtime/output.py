@@ -2,6 +2,7 @@
 
 from .coerce import to_native
 from .findings import get_findings
+from .profile import get_profile
 
 
 def write_output(results=None, chart_data=None, datasets=None, images=None, findings=None):
@@ -21,6 +22,7 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
         "datasets": {},
         "images": to_native(images if images is not None else {}),
         "findings": to_native(findings if findings is not None else get_findings()),
+        "data_completeness": to_native(get_profile()),
     }
     try:
         import pandas as pd

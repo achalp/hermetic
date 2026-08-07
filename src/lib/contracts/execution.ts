@@ -14,6 +14,11 @@ export interface SandboxExecutionResult {
    *  order (declared-findings spec §2) — validated/merged host-side by
    *  lib/findings; absent for pre-findings runs and findings.mode=off. */
   findings?: unknown[];
+  /** Platform-profiled data-edge completeness (hermetic_runtime/profile.py):
+   *  time/entity columns, per-day coverage, leading/trailing incomplete
+   *  periods. Computed deterministically at data-load time — never by
+   *  generated code. Absent when no time column qualified. */
+  data_completeness?: unknown;
 }
 
 export interface SandboxExecutionError {

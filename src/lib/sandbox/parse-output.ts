@@ -36,6 +36,7 @@ const SandboxEnvelopeSchema = z.object({
   // strip an unlisted key, which is exactly how v1 of the spec lost every
   // declaration in review. Validation happens in lib/findings, not here.
   findings: z.array(z.unknown()).optional(),
+  data_completeness: z.unknown().optional(),
 });
 
 const NO_OUTPUT_ERROR =

@@ -884,6 +884,9 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               citedFindingNames.add(m[1]);
             }
             lintComposedLine(r.raw);
+            for (const issue of r.discourseIssues ?? []) {
+              proseLintIssues.set(`${issue.kind}:${issue.detail}`, issue);
+            }
             ingestComposedLine(r.raw, r.patch);
             emit(r.line + "\n");
           }

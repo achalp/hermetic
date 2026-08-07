@@ -10,7 +10,7 @@ Import-time side effects are forbidden here: the prelude imports this before
 user code runs, and a crash on import would take down every analysis.
 """
 
-from . import guards
+from . import guards, profile
 from .coerce import safe_float, safe_int, to_native
 from .findings import (
     declare_finding,
@@ -38,6 +38,7 @@ __all__ = [
     "finding_yoy",
     "get_findings",
     "guards",
+    "profile",
     "numeric",
     "reset_findings",
     "safe_float",

@@ -23,6 +23,7 @@ const RUNTIME_MODULES = [
   "guards.py",
   "output.py",
   "findings.py",
+  "profile.py",
 ];
 
 function runtimeDir(): string {

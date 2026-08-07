@@ -142,7 +142,7 @@ class TestWriteOutput(unittest.TestCase):
             self.assertEqual(out["findings"], [])
             written = json.load(open(f.name))
             self.assertEqual(
-                set(written), {"results", "chart_data", "datasets", "images", "findings"}
+                set(written), {"results", "chart_data", "datasets", "images", "findings", "data_completeness"}
             )
 
 
@@ -328,6 +328,31 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(out["value"], 350000.0)
         self.assertEqual(out["excluded_trailing"], 1)
         self.assertAlmostEqual(out["pct_from_peak"], (350000.0-360000.0)/360000.0*100, places=1)
+
+    @unittest.skipUnless(HAVE_PANDAS, "pandas not installed on host")
+    def test_profile_detects_trailing_coverage_collapse(self):
+        import pandas as pd
+        from hermetic_runtime.profile import profile_data_edges
+        rows = []
+        dates = pd.date_range("2021-01-01", periods=60, freq="D")
+        for i, d in enumerate(dates):
+            n_entities = 3 if i >= 58 else 40  # final two days collapse
+            for e in range(n_entities):
+                rows.append({"date": d.strftime("%Y-%m-%d"), "loc": "E%d" % e, "cases": 10})
+        prof = profile_data_edges(pd.DataFrame(rows))
+        self.assertIsNotNone(prof)
+        self.assertEqual(prof["time_column"], "date")
+        self.assertEqual(prof["entity_column"], "loc")
+        self.assertEqual(len(prof["trailing_incomplete"]), 2)
+        self.assertEqual(prof["trailing_incomplete"][-1]["coverage"], 3.0)
+        self.assertEqual(prof["leading_incomplete"], [])
+
+    @unittest.skipUnless(HAVE_PANDAS, "pandas not installed on host")
+    def test_profile_returns_none_without_time_column(self):
+        import pandas as pd
+        from hermetic_runtime.profile import profile_data_edges
+        df = pd.DataFrame({"a": range(100), "b": ["x"] * 100})
+        self.assertIsNone(profile_data_edges(df))
 
     def test_yoy_like_for_like_on_partial_year(self):
         # 12 months of 2020 vs 10 of 2021: comparison must restrict to Jan-Oct

@@ -16,6 +16,8 @@
  * through `createSpecFinalizer` keeps them at parity by construction.
  */
 
+import { checkDiscourseLine } from "@/lib/llm/discourse-check";
+import type { FindingIssue } from "@/lib/contracts/findings";
 import {
   resolveSpecPlaceholders,
   repairStateBindings,
@@ -60,6 +62,8 @@ export interface FinalizedLine {
   patch: SpecPatch | null;
   /** The trimmed pre-resolution line (e.g. for `$result:step_N_` citation extraction). */
   raw: string;
+  /** Post-resolution discourse-check advisories (discourse-check.ts). */
+  discourseIssues?: FindingIssue[];
 }
 
 /**
@@ -96,6 +100,12 @@ export function createSpecFinalizer(
       config.findingUnits ?? {}
     );
 
+    // 2b. Post-resolution discourse check: relational coherence of prose
+    // AROUND the now-visible values (empty slots, zero-count templates,
+    // backwards time). One home for the class — see discourse-check.ts.
+    const discourse = checkDiscourseLine(processed);
+    processed = discourse.line;
+
     // 3-4. Structural passes need the parsed patch. Plain JSON.parse keeps a
     // safe round-trip for re-serialization; assembly consumers re-parse the
     // emitted line with parseSpecStreamLine for their applySpecPatch step.
@@ -121,6 +131,6 @@ export function createSpecFinalizer(
       if (mutated) processed = JSON.stringify(patch);
     }
 
-    return { skip: false, line: processed, patch, raw: trimmed };
+    return { skip: false, line: processed, patch, raw: trimmed, discourseIssues: discourse.issues };
   };
 }

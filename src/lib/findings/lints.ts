@@ -404,3 +404,58 @@ export function lintGranularityConflict(findings: FindingEntry[]): FindingIssue[
   }
   return issues;
 }
+
+// ── Completeness-conflict lint (structural fix 1, 2026-08-07) ────────
+
+interface EdgeProfile {
+  trailing_incomplete?: Array<{
+    period?: unknown;
+    coverage?: unknown;
+    baseline_coverage?: unknown;
+  }>;
+}
+
+/**
+ * The platform profiler found trailing incomplete periods, but an
+ * ending-state-shaped finding (value carries excluded_trailing) excluded
+ * NOTHING — the generated code ran its completeness test at a grain that
+ * erased the signal (4 consecutive runs of excluded_trailing: 0 against a
+ * 231 -> 3 coverage collapse). Advisory; also fires when no ending-state
+ * finding exists at all but the edge is dirty.
+ */
+export function lintCompletenessConflict(
+  findings: FindingEntry[],
+  completeness: unknown
+): FindingIssue[] {
+  const prof = completeness as EdgeProfile | null | undefined;
+  const trailing = prof?.trailing_incomplete;
+  if (!Array.isArray(trailing) || trailing.length === 0) return [];
+  const endingState = findings.filter(
+    (f) =>
+      f.value !== null &&
+      typeof f.value === "object" &&
+      !Array.isArray(f.value) &&
+      "excluded_trailing" in (f.value as Record<string, unknown>)
+  );
+  const last = trailing[trailing.length - 1];
+  const edge = `platform profiler: ${trailing.length} trailing period(s) have collapsed coverage (last: ${String(last?.period)} at ${String(last?.coverage)} of ${String(last?.baseline_coverage)} contributors)`;
+  const conflicted = endingState.filter(
+    (f) => (f.value as Record<string, unknown>).excluded_trailing === 0
+  );
+  if (conflicted.length > 0) {
+    return conflicted.map((f) => ({
+      kind: "completeness_conflict",
+      name: f.name,
+      detail: `${f.name} excluded no trailing periods but the ${edge} — its completeness test ran at a grain that erased the signal; ending-state figures overstate the edge`,
+    }));
+  }
+  if (endingState.length === 0) {
+    return [
+      {
+        kind: "completeness_conflict",
+        detail: `${edge} — no finding accounts for it; recent-period figures include incomplete data`,
+      },
+    ];
+  }
+  return [];
+}
