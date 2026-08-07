@@ -28,6 +28,7 @@ export interface UseAnalysisStreamArgs {
   warehouseId: string | null | undefined;
   reattachRunId: string | null | undefined;
   schemaMode: SchemaMode | undefined;
+  composerSight?: string;
   codeGenModel: string | undefined;
   uiComposeModel: string | undefined;
   sandboxRuntime: string | undefined;
@@ -56,6 +57,7 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     warehouseId,
     reattachRunId,
     schemaMode,
+    composerSight,
     codeGenModel,
     uiComposeModel,
     sandboxRuntime,
@@ -203,6 +205,7 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
       warehouse_id: warehouseId ?? undefined,
       question: question,
       schema_mode: schemaMode,
+      composer_sight: composerSight === "sighted" ? "sighted" : "blind",
       code_gen_model: codeGenModel,
       ui_compose_model: uiComposeModel,
       sandbox_runtime: sandboxRuntime,

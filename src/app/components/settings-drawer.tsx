@@ -34,6 +34,8 @@ interface SettingsDrawerProps {
   onDefaultStyleChange: (style: string) => void;
   schemaMode: SchemaMode;
   onSchemaModeChange: (mode: SchemaMode) => void;
+  composerSight: string;
+  onComposerSightChange: (mode: string) => void;
   /* Warehouse */
   isConnected: boolean;
   warehouseType: string | null;
@@ -65,6 +67,8 @@ export function SettingsDrawer({
   onDefaultStyleChange,
   schemaMode,
   onSchemaModeChange,
+  composerSight,
+  onComposerSightChange,
   isConnected,
   warehouseType,
   warehouseId,
@@ -119,6 +123,8 @@ export function SettingsDrawer({
           onDefaultStyleChange={onDefaultStyleChange}
           schemaMode={schemaMode}
           onSchemaModeChange={(m) => onSchemaModeChange(m as SchemaMode)}
+          composerSight={composerSight}
+          onComposerSightChange={onComposerSightChange}
         />
       </CollapsibleSection>
 

@@ -789,3 +789,31 @@ export function lintChartConsistency(
   }
   return issues;
 }
+
+// ── Results-provenance lint (run-31: superlative with no finding) ────
+
+/** A superlative-shaped results scalar (peak_/trough_/max_/min_) with no
+ *  finding sharing its name tokens has a broken provenance chain — the
+ *  manifest exists so every headline value traces to a declared finding. */
+export function lintResultsProvenance(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const findingTokens = findings.map(
+    (f) => new Set(f.name.split(/[._]/).filter((t) => t.length > 2))
+  );
+  for (const [key, val] of Object.entries(results)) {
+    if (typeof val !== "number") continue;
+    if (!/^(peak|trough|max|min|largest|smallest)_/.test(key)) continue;
+    const toks = key.split(/[._]/).filter((t) => t.length > 2);
+    const backed = findingTokens.some((ft) => toks.filter((t) => ft.has(t)).length >= 2);
+    if (!backed && issues.length < 5) {
+      issues.push({
+        kind: "unbacked_superlative",
+        detail: `results.${key} = ${val} has no finding backing it — a superlative shipped without the provenance the manifest exists to provide`,
+      });
+    }
+  }
+  return issues;
+}

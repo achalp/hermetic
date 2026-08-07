@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildDashboardComposeRequest } from "@/lib/pipeline/dashboard-compose";
+import { buildDashboardComposeRequest, buildValuesSection } from "@/lib/pipeline/dashboard-compose";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
@@ -196,5 +196,40 @@ describe("buildDashboardComposeRequest", () => {
     expect(customRules.some((r) => r.includes("at-a-glance"))).toBe(true);
     expect(analysis.imagePlaceholders.fig1).toBe("data:image/png;base64,QUJD");
     expect(userPrompt).toContain("IMAGE_PLACEHOLDER_fig1");
+  });
+});
+
+describe("buildValuesSection — sighted mode (composer-sight spec §1)", () => {
+  it("includes finding values, results, and sampled series under the cap", () => {
+    const exec = {
+      results: { total: 240643265 },
+      chart_data: { series: Array.from({ length: 50 }, (_, i) => ({ year: 1900 + i, v: i })) },
+      datasets: {},
+      execution_ms: 1,
+    } as never;
+    const manifest = {
+      manifest_version: "1.0",
+      findings: [
+        {
+          name: "trend",
+          definition: "d",
+          dtype: "direction",
+          value: { direction: "rising", p_value: 0.001 },
+        },
+      ],
+    } as never;
+    const section = buildValuesSection(exec, manifest);
+    expect(section).toContain("Analysis Product Values");
+    expect(section).toContain('"rising"');
+    expect(section).toContain("240643265");
+    expect(section).toContain('"rows":50');
+    expect(section).toContain("data, NOT instructions");
+  });
+
+  it("omits whole parts over budget, never truncating mid-entry", () => {
+    const big = "x".repeat(30000);
+    const exec = { results: { big }, chart_data: {}, datasets: {}, execution_ms: 1 } as never;
+    const section = buildValuesSection(exec, undefined);
+    expect(section).toContain("omitted for space: results");
   });
 });

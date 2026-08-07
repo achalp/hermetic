@@ -30,6 +30,7 @@ import {
   lintNullAncestry,
   lintDefinitionContradicted,
   lintChartConsistency,
+  lintResultsProvenance,
 } from "@/lib/findings";
 import { saveConventions } from "@/lib/learning/conventions";
 import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
@@ -465,6 +466,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintMethodMismatch(validated.manifest.findings),
             ...lintNullAncestry(validated.manifest.findings),
             ...lintDefinitionContradicted(validated.manifest.findings),
+            ...lintResultsProvenance(
+              (executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
             ...lintChartConsistency(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
               validated.manifest.findings
@@ -540,6 +545,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             question,
             schema: stored.schema,
             schemaMode,
+            sight: context.composer_sight === "sighted" ? "sighted" : "blind",
             purpose,
             priorTurns,
             drillDownContext,

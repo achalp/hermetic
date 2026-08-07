@@ -55,6 +55,7 @@ interface ResponsePanelProps {
   loadedSpec?: Spec | null;
   loadedArtifacts?: CachedArtifacts | null;
   schemaMode?: SchemaMode;
+  composerSight?: string;
   codeGenModel?: ModelId;
   uiComposeModel?: ModelId;
   sandboxRuntime?: SandboxRuntimeId;
@@ -111,6 +112,7 @@ export function ResponsePanel({
   loadedSpec,
   loadedArtifacts,
   schemaMode = "metadata",
+  composerSight,
   codeGenModel,
   uiComposeModel,
   sandboxRuntime,
@@ -185,6 +187,7 @@ export function ResponsePanel({
     warehouseId,
     reattachRunId,
     schemaMode,
+    composerSight,
     codeGenModel,
     uiComposeModel,
     sandboxRuntime,

@@ -15,6 +15,8 @@ import { CodeEditor } from "./code-editor";
 import { FindingsTab, GroundingAdvisories } from "./findings-tab";
 import { rerunCode, ApiError } from "@/app/lib/api";
 
+import { VerifyTab } from "@/app/components/verify-tab";
+
 interface ArtifactsViewerProps {
   artifacts: CachedArtifacts;
   /**
@@ -40,9 +42,13 @@ interface ArtifactsViewerProps {
    * artifacts panel after dispatching so the user sees the new dashboard.
    */
   onRequestRerun?: (edits: { code?: string; sql?: string }) => void;
+  /** Verifiability payload from spec state (__verifiability) — Verify tab. */
+  verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload | null;
+  /** History id enabling the on-demand audit action. */
+  historyId?: string | null;
 }
 
-type Tab = "trail" | "sql" | "code" | "data" | "findings";
+type Tab = "trail" | "sql" | "code" | "data" | "findings" | "verify";
 
 /** A normalized view of one artifacts source — either the top-level cached
  *  result or a single investigation step the user selected from the trail. */
@@ -198,6 +204,8 @@ export function ArtifactsViewer({
   sandboxRuntime,
   onRerunSuccess,
   onRequestRerun,
+  verifiability,
+  historyId,
 }: ArtifactsViewerProps) {
   const investigation = artifacts.investigation;
   const [copied, setCopied] = useState(false);
@@ -512,6 +520,17 @@ export function ArtifactsViewer({
         >
           Findings
         </button>
+        <button
+          onClick={() => setTab("verify")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "verify"
+              ? "border-b-2 border-accent text-accent"
+              : "text-t-secondary hover:text-t-primary"
+          }`}
+          style={{ transitionDuration: "var(--transition-speed)" }}
+        >
+          Verify
+        </button>
         <span className="ml-auto mr-4 flex items-center gap-3 text-xs text-t-tertiary">
           {activeStep && tab !== "trail" && (
             <button
@@ -714,6 +733,7 @@ export function ArtifactsViewer({
       {/* Findings tab — the declared-findings inspectability surface
           (spec §11 phase 1); code_ref links jump into the Python tab. */}
       {tab === "findings" && <FindingsTab findings={findings} onOpenCodeRef={openCodeRef} />}
+      {tab === "verify" && <VerifyTab verifiability={verifiability} historyId={historyId} />}
 
       {/* Data tab */}
       {tab === "data" && (

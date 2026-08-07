@@ -42,6 +42,7 @@ export interface ResultsRegionProps {
   warehouseId: string | null;
   reattach: ReturnType<typeof useReattach>;
   schemaMode: SchemaMode;
+  composerSight?: string;
   models: ReturnType<typeof useModelSettings>;
   purpose: string;
   onRerun: () => void;
@@ -133,6 +134,7 @@ export function ResultsRegion(props: ResultsRegionProps) {
           loadedSpec={pageState.loadedSpec}
           loadedArtifacts={pageState.loadedArtifacts}
           schemaMode={props.schemaMode}
+          composerSight={props.composerSight}
           codeGenModel={props.models.codeGenModel}
           uiComposeModel={props.models.uiComposeModel}
           sandboxRuntime={props.models.sandboxRuntime}

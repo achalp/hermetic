@@ -16,6 +16,8 @@ interface ArtifactsPanelProps {
    * viewer probing the artifacts payload; legacy runs have none at all.
    */
   findings?: FindingsManifest;
+  verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload | null;
+  historyId?: string | null;
   /** csv_id — required to enable Edit-and-Re-run on the Code tab. */
   csvId?: string | null;
   sandboxRuntime?: string;
@@ -42,6 +44,8 @@ export function ArtifactsPanel({
   sandboxRuntime,
   onRerunSuccess,
   onRequestRerun,
+  verifiability,
+  historyId,
 }: ArtifactsPanelProps) {
   return (
     <>
@@ -152,6 +156,8 @@ export function ArtifactsPanel({
               sandboxRuntime={sandboxRuntime}
               onRerunSuccess={onRerunSuccess}
               onRequestRerun={onRequestRerun}
+              verifiability={verifiability}
+              historyId={historyId}
             />
           ) : (
             <div

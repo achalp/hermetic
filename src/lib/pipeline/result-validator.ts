@@ -103,6 +103,53 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     }
   }
 
+  // Check #2c — CHART X-KEY CONTRACT (run-31: a 105-row time series shipped
+  // with no year field — as a time series it cannot be plotted). Mechanical
+  // schema on the assembled artifacts: every multi-row chart of numeric
+  // records must carry an x-axis key (a known period key, or any key
+  // present in every row whose values aren't all numbers). Rides the
+  // semantic retry with a targeted fix.
+  const X_KEYS = [
+    "year",
+    "month",
+    "date",
+    "period",
+    "quarter",
+    "x",
+    "label",
+    "name",
+    "category",
+    "decade",
+    "segment",
+  ];
+  for (const key of chartKeys) {
+    const val = exec.chart_data[key];
+    const rows = Array.isArray(val) ? val : (val as { rows?: unknown[] } | null)?.rows;
+    if (!Array.isArray(rows) || rows.length < 3) continue;
+    const objRows = rows.filter(
+      (r): r is Record<string, unknown> => r !== null && typeof r === "object" && !Array.isArray(r)
+    );
+    if (objRows.length < 3) continue;
+    const cols = Object.keys(objRows[0]);
+    if (cols.length < 2) continue;
+    const hasX = cols.some(
+      (c) =>
+        X_KEYS.includes(c.toLowerCase()) ||
+        /_(year|month|date|period|label|name|ym)$/.test(c.toLowerCase()) ||
+        objRows.every((r) => typeof r[c] === "string")
+    );
+    const allNumeric = cols.every((c) =>
+      objRows.every((r) => typeof r[c] === "number" || r[c] === null)
+    );
+    if (!hasX && allNumeric) {
+      return {
+        ok: false,
+        reason: `chart_data["${key}"] has ${objRows.length} rows of numeric records with NO x-axis key (${cols.join(", ")}) — it cannot be plotted.`,
+        suggestedFix: `Every chart series row must carry its x value (year/month/date/label). Add the index column back to chart_data["${key}"] — a time series stripped of its year field is unusable.`,
+      };
+    }
+  }
+
   // Check #3 — EVERY chart is an empty array and there are no results either.
   // A single empty chart alongside real results or a populated chart is legitimate
   // (that particular breakdown simply had no matching rows) — flagging it just

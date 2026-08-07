@@ -30,6 +30,10 @@ export interface AnalysisRequestContext {
   warehouse_id?: string;
   question?: string;
   schema_mode?: SchemaMode;
+  /** Composer sight (composer-sight spec §1): "blind" (default — values
+   *  never enter the composition prompt) or "sighted" (the composer sees
+   *  the DERIVED Analysis Product values; raw datasets never). */
+  composer_sight?: "blind" | "sighted";
   code_gen_model?: string;
   ui_compose_model?: string;
   sandbox_runtime?: string;

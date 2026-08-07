@@ -7,15 +7,20 @@ interface AnalysisDefaultsSectionProps {
   onDefaultStyleChange: (style: string) => void;
   schemaMode: string;
   onSchemaModeChange: (mode: string) => void;
+  composerSight: string;
+  onComposerSightChange: (mode: string) => void;
 }
 
 const SCHEMA_MODES = ["Metadata", "Sample"];
+const SIGHT_MODES = ["Blind", "Sighted"];
 
 export function AnalysisDefaultsSection({
   defaultStyle,
   onDefaultStyleChange,
   schemaMode,
   onSchemaModeChange,
+  composerSight,
+  onComposerSightChange,
 }: AnalysisDefaultsSectionProps) {
   const labelStyle: React.CSSProperties = {
     fontSize: 11,
@@ -100,6 +105,49 @@ export function AnalysisDefaultsSection({
               }}
               onMouseLeave={(e) => {
                 if (!active) e.currentTarget.style.color = "var(--color-surface-dark-text3)";
+              }}
+            >
+              {m}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Composer sight (composer-sight spec §1): Blind = values never enter
+          the composition prompt (default). Sighted = the composer sees the
+          DERIVED Analysis Product values (never raw rows) to inform
+          selection/phrasing; binding discipline unchanged. */}
+      <div style={{ ...labelStyle, marginTop: 14 }}>COMPOSER SIGHT</div>
+      <div
+        style={{
+          display: "flex",
+          background: "var(--color-surface-dark-2)",
+          borderRadius: 6,
+          overflow: "hidden",
+        }}
+      >
+        {SIGHT_MODES.map((m) => {
+          const value = m.toLowerCase();
+          const active = composerSight === value;
+          return (
+            <button
+              key={value}
+              onClick={() => onComposerSightChange(value)}
+              title={
+                value === "blind"
+                  ? "Composer never sees computed values (maximal separation)"
+                  : "Composer sees derived aggregates (never raw rows) for better selection and phrasing"
+              }
+              style={{
+                flex: 1,
+                padding: "6px 0",
+                fontSize: 12,
+                textAlign: "center",
+                background: active ? "var(--color-accent)" : "transparent",
+                color: active ? "#fff" : "var(--color-surface-dark-text3)",
+                border: "none",
+                cursor: "pointer",
+                transition: "color 0.15s",
               }}
             >
               {m}

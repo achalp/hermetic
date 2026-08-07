@@ -25,6 +25,10 @@ export interface PageChromeProps {
   models: ReturnType<typeof useModelSettings>;
   purpose: string;
   onPurposeChange: (id: string) => void;
+  composerSight: string;
+  onComposerSightChange: (m: string) => void;
+  verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload | null;
+  historyId?: string | null;
   schemaMode: SchemaMode;
   onSchemaModeChange: (m: SchemaMode) => void;
   warehouse: ReturnType<typeof useWarehouse>;
@@ -72,6 +76,8 @@ export function PageChrome(props: PageChromeProps) {
         onDefaultStyleChange={props.onPurposeChange}
         schemaMode={props.schemaMode}
         onSchemaModeChange={props.onSchemaModeChange}
+        composerSight={props.composerSight}
+        onComposerSightChange={props.onComposerSightChange}
         isConnected={warehouse.isConnected}
         warehouseType={warehouse.warehouseType}
         warehouseId={warehouse.warehouseId}
@@ -141,6 +147,8 @@ export function PageChrome(props: PageChromeProps) {
         sandboxRuntime={models.sandboxRuntime}
         onRerunSuccess={(newArtifacts) => props.pageArtifacts.setArtifacts(newArtifacts)}
         onRequestRerun={props.onRequestRerun}
+        verifiability={props.verifiability}
+        historyId={props.historyId}
       />
 
       {/* Schedule popover — anchored to whichever button opened it. Auto-saves

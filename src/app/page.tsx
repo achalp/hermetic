@@ -83,6 +83,20 @@ export default function Home() {
   } = pageState;
 
   const [schemaMode, setSchemaMode] = useState<SchemaMode>("metadata");
+  // Composer sight (composer-sight spec §1) — user choice like schema mode.
+  const [composerSight, setComposerSight] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("hermetic_composer_sight");
+      if (stored === "sighted" || stored === "blind") return stored;
+    }
+    return "blind";
+  });
+  const handleComposerSightChange = (m: string) => {
+    setComposerSight(m === "sighted" ? "sighted" : "blind");
+    try {
+      localStorage.setItem("hermetic_composer_sight", m);
+    } catch {}
+  };
   const [purpose, setPurpose] = useState(DEFAULT_PURPOSE);
   // Model / runtime selections, persisted to localStorage — use-model-settings.
   const models = useModelSettings();
@@ -343,6 +357,16 @@ export default function Home() {
         onPurposeChange={setPurpose}
         schemaMode={schemaMode}
         onSchemaModeChange={setSchemaMode}
+        composerSight={composerSight}
+        onComposerSightChange={handleComposerSightChange}
+        verifiability={
+          (
+            (analysis.freshSpec ?? loadedSpec)?.state as
+              | { __verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload }
+              | undefined
+          )?.__verifiability ?? null
+        }
+        historyId={loadedVizId ?? liveHistoryId}
         warehouse={warehouse}
         hasData={hasData}
         schema={schema}
@@ -476,6 +500,7 @@ export default function Home() {
             warehouseId={warehouse.warehouseId}
             reattach={reattach}
             schemaMode={schemaMode}
+            composerSight={composerSight}
             models={models}
             purpose={purpose}
             onRerun={viz.handleRerunFromToolbar}

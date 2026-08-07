@@ -78,6 +78,10 @@ export const analyzeInput = {
   source_id: z.string().describe("A source_id from connect_source (csv or warehouse)."),
   question: z.string().describe("The analysis question, in natural language."),
   purpose: z.enum(PURPOSE_IDS).optional().describe("Output style/breadth. Default: dashboard."),
+  composer_sight: z
+    .enum(["blind", "sighted"])
+    .optional()
+    .describe("Composer sight mode (default blind — values never enter the composition prompt)."),
 };
 
 // Chart rows come back capped (shared CHART_ROW_CAP, see ../caps) so the
@@ -263,7 +267,12 @@ export function progressFromPatch(patch: PatchLine): AnalyzeProgress | null {
 
 export async function analyze(
   deps: AnalyzeDeps,
-  args: { source_id: string; question: string; purpose?: string },
+  args: {
+    source_id: string;
+    question: string;
+    purpose?: string;
+    composer_sight?: "blind" | "sighted";
+  },
   onProgress?: ProgressReporter,
   signal?: AbortSignal,
   /** Fires when the pipeline's runId is known — the background-job tools
@@ -277,7 +286,12 @@ export async function analyze(
 
 async function runAnalyze(
   deps: AnalyzeDeps,
-  args: { source_id: string; question: string; purpose?: string },
+  args: {
+    source_id: string;
+    question: string;
+    purpose?: string;
+    composer_sight?: "blind" | "sighted";
+  },
   onProgress?: ProgressReporter,
   signal?: AbortSignal,
   onRunId?: (runId: string) => void
@@ -363,7 +377,7 @@ async function runAnalyze(
       },
       async (stream) => {
         await deps.runAskQuery({
-          context: { purpose: args.purpose ?? "dashboard" },
+          context: { purpose: args.purpose ?? "dashboard", composer_sight: args.composer_sight },
           question: args.question,
           source: analysisSource,
           codeGenModel: deps.models.codeGen,
