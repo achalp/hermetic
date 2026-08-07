@@ -37,7 +37,15 @@ export class MicrosandboxWarmBackend implements WarmSandboxBackend {
     }
 
     // Write additional files (workbook sheets, runtime package, skill/user libs)
-    if (additionalFiles && additionalFiles.length > 0) {
+    await this.writeFiles(additionalFiles ?? []);
+
+    logger.debug("Microsandbox warm data loaded", { csvId });
+  }
+
+  /** Files-only writer — runs on EVERY execute (see WarmSandboxBackend). */
+  async writeFiles(additionalFiles: AdditionalFile[]): Promise<void> {
+    if (additionalFiles.length > 0) {
+      const sandbox = await getOrCreateSandbox();
       for (const file of additionalFiles) {
         const localPath = file.path; // already absolute under /data/
         const parent = localPath.slice(0, localPath.lastIndexOf("/")) || "/data";
@@ -49,8 +57,6 @@ export class MicrosandboxWarmBackend implements WarmSandboxBackend {
         if (fileErr) throw new Error(fileErr);
       }
     }
-
-    logger.debug("Microsandbox warm data loaded", { csvId });
   }
 
   async executeScript(code: string): Promise<ExecutionResult> {

@@ -92,6 +92,18 @@ export interface RunDiagnostics {
   llmCalls?: number;
   materialization?: MaterializationDiag;
   steps: StepDiag[];
+  /** Declared-findings outcome for the run (declared-findings spec §9):
+   *  compliance + drop/issue counters. Absent pre-findings and mode=off —
+   *  unknown event types used to be silently dropped here, which hid the
+   *  first production runs' zero-manifest bug. */
+  findings?: {
+    mode?: string;
+    declared?: number;
+    kept?: number;
+    dropped?: number;
+    compliance?: boolean;
+    issues?: string[];
+  };
   /**
    * Progress-stage transitions in order ("stage" events from emitProgress).
    * These carry a NUMERIC step counter, so the string-keyed step grouping
@@ -132,6 +144,18 @@ export function buildRunDiagnostics(
     llmCalls?: number;
   }
 ): RunDiagnostics {
+  const findingsEv = events.find((e) => e.type === "findings");
+  const findings = findingsEv
+    ? {
+        mode: findingsEv.mode as string | undefined,
+        declared: findingsEv.declared as number | undefined,
+        kept: findingsEv.kept as number | undefined,
+        dropped: findingsEv.dropped as number | undefined,
+        compliance: findingsEv.compliance as boolean | undefined,
+        issues: findingsEv.issues as string[] | undefined,
+      }
+    : undefined;
+
   const materializationEv = events.find((e) => e.type === "materialization");
   const materialization = materializationEv
     ? {
@@ -207,6 +231,7 @@ export function buildRunDiagnostics(
     costUsd: meta.costUsd,
     llmCalls: meta.llmCalls,
     materialization,
+    findings,
     steps,
     stages: stages.length ? stages : undefined,
     failures: failures.length ? failures : undefined,

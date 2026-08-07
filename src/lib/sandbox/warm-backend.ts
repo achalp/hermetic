@@ -19,6 +19,12 @@ export interface WarmSandboxBackend {
     additionalFiles?: AdditionalFile[]
   ): Promise<void>;
   /** Write script + run (data already loaded) */
+  /** Write auxiliary files (runtime package, skill libs) WITHOUT reloading
+   *  data — called on every execute: the data-reused fast path previously
+   *  skipped loadData entirely, so the hermetic_runtime package never
+   *  reached a warm container and every run silently used the inline
+   *  fallback (degraded stat-helper stubs — the run-7 "flaky detector"). */
+  writeFiles(files: AdditionalFile[]): Promise<void>;
   executeScript(code: string): Promise<ExecutionResult>;
   /** Fallback: full execution (warmup + load + execute) */
   executeFull(

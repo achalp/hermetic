@@ -116,6 +116,11 @@ export class WarmSandboxManager {
           this.loadedCsvId = csvId;
           logger.info("Warm sandbox execution", { csvId, reloaded: true });
         } else {
+          // Data reuse must NOT skip the auxiliary files: this fast path
+          // previously bypassed loadData entirely, so the runtime package
+          // (hermetic_runtime incl. findings.py) never reached a warm
+          // container and every run degraded to the inline fallback stubs.
+          await this.backend.writeFiles(additionalFiles ?? []);
           logger.info("Warm sandbox execution (data reused)", { csvId });
         }
         return await this.backend.executeScript(code);

@@ -39,6 +39,11 @@ export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
     datasets: entry.datasets,
     execution_ms: entry.execution_ms,
     sql: entry.sql,
+    // Explicit-field projection: findings was stored by cacheArtifacts but
+    // STRIPPED here — the fourth appearance of the silent field-whitelist
+    // loss class (declared-findings review E6). If you add a CachedArtifacts
+    // field, it must appear HERE too.
+    findings: entry.findings,
     investigation: entry.investigation,
   };
 }

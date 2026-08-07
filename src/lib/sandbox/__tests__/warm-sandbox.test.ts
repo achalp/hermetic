@@ -30,6 +30,10 @@ class TrackingBackend implements WarmSandboxBackend {
     this.loads.push(csvId);
     await this.critical();
   }
+  writeFilesCalls = 0;
+  async writeFiles(): Promise<void> {
+    this.writeFilesCalls++;
+  }
   async executeScript(): Promise<ExecutionResult> {
     await this.critical();
     return { success: true, results: {}, chart_data: {}, images: {}, execution_ms: 1 };
@@ -63,5 +67,17 @@ describe("WarmSandboxManager concurrency", () => {
 
     expect(backend.loads).toEqual(["csv-a"]); // loaded once
     expect(backend.maxActive).toBe(1);
+  });
+});
+
+describe("auxiliary files on the data-reused path (run-7 fix)", () => {
+  it("writes additionalFiles on EVERY execute, including data reuse", async () => {
+    const backend = new TrackingBackend();
+    const mgr = new WarmSandboxManager(backend);
+    await mgr.execute("csv-1", "a,b\n1,2", "code", { additionalFiles: [] });
+    const afterFirst = backend.writeFilesCalls;
+    // Same csvId → data reused → loadData skipped — but files must still land.
+    await mgr.execute("csv-1", "a,b\n1,2", "code", { additionalFiles: [] });
+    expect(backend.writeFilesCalls).toBeGreaterThan(afterFirst);
   });
 });

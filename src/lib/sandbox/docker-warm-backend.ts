@@ -65,7 +65,13 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     }
 
     // Write additional files (workbook sheets, runtime package, skill/user libs)
-    if (additionalFiles && additionalFiles.length > 0) {
+    await this.writeFiles(additionalFiles ?? []);
+    logger.debug("Warm Docker data loaded", { csvId });
+  }
+
+  /** Files-only writer — runs on EVERY execute (see WarmSandboxBackend). */
+  async writeFiles(additionalFiles: AdditionalFile[]): Promise<void> {
+    if (additionalFiles.length > 0) {
       for (const file of additionalFiles) {
         const safePath = file.path.replace(/'/g, "'\\''");
         const safeDir = safePath.slice(0, safePath.lastIndexOf("/")) || "/data";
@@ -83,8 +89,6 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         );
       }
     }
-
-    logger.debug("Warm Docker data loaded", { csvId });
   }
 
   async executeScript(code: string): Promise<ExecutionResult> {
