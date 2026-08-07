@@ -385,6 +385,77 @@ def finding_step_change(values, labels=None):
         return failed
 
 
+def finding_current_state(values, labels=None, window=6):
+    """Where the series ENDS — from the last COMPLETE observation.
+
+    The trailing edge of a live dataset is often incomplete (reporting lag:
+    the final day has a fraction of sources reported), and taking it at face
+    value turns a truncation artifact into "the series collapsed 99.8%".
+    Guard: walk back from the end while a value is < 30% of the mean of the
+    `window` observations before it; those are excluded as incomplete.
+
+    Returns {"period", "value", "pct_from_peak", "direction",
+    "excluded_trailing"} — period/value from the last complete observation,
+    pct_from_peak vs the series max (negative below peak), direction the
+    sign of a least-squares slope over the final `window` complete points
+    ("rising"/"falling"/"flat"), excluded_trailing how many tail
+    observations the guard dropped (0 = clean edge). Never raises.
+    """
+    failed = {"period": None, "value": None, "pct_from_peak": None,
+              "direction": None, "excluded_trailing": None}
+    try:
+        ys = [safe_float(v) for v in list(values)]
+        idxs = [i for i, y in enumerate(ys) if y is not None]
+        if len(idxs) < 2:
+            return failed
+        end = idxs[-1]
+        excluded = 0
+        while True:
+            prior = [ys[i] for i in idxs if i < end and ys[i] is not None][-window:]
+            if len(prior) < 2:
+                break
+            mean = sum(prior) / len(prior)
+            cur = ys[end]
+            if mean > 0 and cur is not None and cur < 0.3 * mean:
+                excluded += 1
+                remaining = [i for i in idxs if i < end]
+                if not remaining:
+                    return failed
+                end = remaining[-1]
+                continue
+            break
+        value = ys[end]
+        finite = [y for y in ys[: end + 1] if y is not None]
+        peak = max(finite)
+        pct = None if peak == 0 else (value - peak) / abs(peak) * 100.0
+        tail_idx = [i for i in idxs if i <= end][-window:]
+        direction = None
+        if len(tail_idx) >= 2:
+            xs = list(range(len(tail_idx)))
+            ts = [ys[i] for i in tail_idx]
+            n = len(xs)
+            mx = sum(xs) / n
+            my = sum(ts) / n
+            denom = sum((x - mx) ** 2 for x in xs)
+            slope = sum((x - mx) * (t - my) for x, t in zip(xs, ts)) / denom if denom else 0.0
+            scale = max(abs(t) for t in ts) or 1.0
+            if abs(slope) < 0.01 * scale:
+                direction = "flat"
+            else:
+                direction = "rising" if slope > 0 else "falling"
+        period = end
+        if labels is not None:
+            try:
+                period = list(labels)[end]
+            except Exception:
+                period = end
+        return {"period": period, "value": value,
+                "pct_from_peak": None if pct is None else round(pct, 2),
+                "direction": direction, "excluded_trailing": excluded}
+    except Exception:
+        return failed
+
+
 def finding_decompose(total_change, terms):
     """Attribution split → {**terms, "dominant": max-|term| key, "residual"}.
 

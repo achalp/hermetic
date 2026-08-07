@@ -37,6 +37,7 @@ from .findings import (
     finding_decompose,
     finding_heterogeneity,
     finding_step_change,
+    finding_current_state,
     finding_trend,
 )
 from .output import write_output
@@ -316,6 +317,29 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertIsNone(finding_trend(["a", None, object()])["direction"])
         self.assertIsNone(finding_trend([1.0, 2.0])["direction"])  # too short for a p
         self.assertIsNone(finding_trend(None)["direction"])
+
+    def test_current_state_excludes_incomplete_tail(self):
+        # Reporting-lag artifact: a final day at ~0.5% of the trailing mean
+        # must be excluded, not narrated as a 99.8% collapse.
+        vals = [300000.0, 320000.0, 340000.0, 360000.0, 348000.0, 350000.0, 1790.0]
+        out = finding_current_state(vals, labels=["m1","m2","m3","m4","m5","m6","last_day"])
+        self.assertEqual(out["period"], "m6")
+        self.assertEqual(out["value"], 350000.0)
+        self.assertEqual(out["excluded_trailing"], 1)
+        self.assertAlmostEqual(out["pct_from_peak"], (350000.0-360000.0)/360000.0*100, places=1)
+
+    def test_current_state_clean_edge_and_direction(self):
+        vals = [10.0, 20.0, 30.0, 40.0, 35.0, 30.0, 25.0, 20.0]
+        out = finding_current_state(vals)
+        self.assertEqual(out["period"], 7)
+        self.assertEqual(out["excluded_trailing"], 0)
+        self.assertEqual(out["direction"], "falling")
+        self.assertLess(out["pct_from_peak"], 0)
+
+    def test_current_state_never_raises(self):
+        self.assertIsNone(finding_current_state([])["period"])
+        self.assertIsNone(finding_current_state([None, None])["period"])
+        self.assertIsNone(finding_current_state("garbage")["period"])
 
     def test_step_change_direction_down_on_persistent_decline(self):
         out = finding_step_change([50.0, 50.5, 49.8, 50.2, 20.0, 19.5, 20.3, 19.8])

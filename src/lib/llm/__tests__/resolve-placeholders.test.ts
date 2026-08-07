@@ -376,3 +376,27 @@ describe("unit guard — nearby unit words suppress appending (run-12 grammar bu
     expect(out).toContain("peaked at 53379480 cases in Q2.");
   });
 });
+
+describe("anaphora-aware refusal stripping (run-13: 'This exceeded...')", () => {
+  it("drops a This/It sentence that followed a stripped null-detection sentence", () => {
+    const findings = {
+      cases_step_change: { period: null, delta: null, direction: null, baseline_spread: 3056244.5 },
+    };
+    const line =
+      '{"content": "The largest monthly jump was $finding:cases_step_change.delta cases in $finding:cases_step_change.period. This exceeded the baseline monthly fluctuation spread of $finding:cases_step_change.baseline_spread cases. Waves remained the dominant pattern."}';
+    const out = resolveSpecPlaceholders(line, {}, {}, findings);
+    expect(out).not.toContain("exceeded the baseline");
+    expect(out).not.toContain("largest monthly jump");
+    expect(out).toContain("Waves remained the dominant pattern.");
+  });
+
+  it("keeps an anaphoric sentence when nothing before it was stripped", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Cases rose to $result:total. This exceeded expectations."}',
+      { total: 500 },
+      {},
+      {}
+    );
+    expect(out).toContain("This exceeded expectations.");
+  });
+});

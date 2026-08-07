@@ -14,6 +14,7 @@ from . import guards
 from .coerce import safe_float, safe_int, to_native
 from .findings import (
     declare_finding,
+    finding_current_state,
     finding_decompose,
     finding_heterogeneity,
     finding_step_change,
@@ -28,6 +29,7 @@ from .output import write_output
 __all__ = [
     "assert_fits",
     "declare_finding",
+    "finding_current_state",
     "finding_decompose",
     "finding_heterogeneity",
     "finding_step_change",

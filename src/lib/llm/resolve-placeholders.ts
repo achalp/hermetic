@@ -301,12 +301,25 @@ function stripRefusedSentences(line: string): string {
   if (!line.includes(REFUSAL_MARKER)) return line;
   return line.replace(/"((?:[^"\\]|\\.)*)"/g, (whole, inner: string) => {
     if (!inner.includes(REFUSAL_MARKER)) return whole;
-    const kept = inner
-      .split(/(?<=[.!?])\s+/)
-      .filter((sentence) => !sentence.includes(REFUSAL_MARKER))
-      .join(" ")
-      .trim();
-    return `"${kept}"`;
+    const sentences = inner.split(/(?<=[.!?])\s+/);
+    const kept: string[] = [];
+    let dropped = false;
+    for (const sentence of sentences) {
+      if (sentence.includes(REFUSAL_MARKER)) {
+        dropped = true;
+        continue;
+      }
+      // Discourse anaphora: a sentence opening with This/That/It/These/Those
+      // right after a dropped one refers to the dropped subject — keeping it
+      // asserts a detection that didn't happen ("Largest jump: <stripped>.
+      // This exceeded the baseline spread of N."), which reads as a finding.
+      if (dropped && /^(?:This|That|It|These|Those)\b/.test(sentence.trim())) {
+        continue;
+      }
+      dropped = false;
+      kept.push(sentence);
+    }
+    return `"${kept.join(" ").trim()}"`;
   });
 }
 
