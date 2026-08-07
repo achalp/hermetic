@@ -7,7 +7,7 @@
  * audit action. Self-contained; renders whatever subset of the
  * verifiability payload exists (legacy runs show an empty-state note).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export interface VerifiabilityPayload {
   composerSight?: string;
@@ -53,6 +53,19 @@ export function VerifyTab({
   const [audit, setAudit] = useState<AuditResult | null>(null);
   const [auditBusy, setAuditBusy] = useState(false);
   const [auditErr, setAuditErr] = useState<string | null>(null);
+
+  // Restored entries show their persisted audit without a re-run.
+  useEffect(() => {
+    if (!historyId) return;
+    const controller = new AbortController();
+    fetch(`/api/audit?history_id=${historyId}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { audit?: AuditResult | null } | null) => {
+        if (d?.audit) setAudit(d.audit);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [historyId]);
 
   const runAudit = async () => {
     if (!historyId) return;

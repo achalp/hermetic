@@ -314,6 +314,9 @@ export interface ComposeArgs {
    *  present only when findings.mode === "on"; the caller owns the policy. */
   findings?: import("@/lib/contracts/findings").FindingsManifest;
   uiComposeModel?: string;
+  /** Sighted-mode values section (composer-sight spec §1), appended verbatim
+   *  by the caller — derived aggregates only, never raw rows. */
+  extraSection?: string;
   /** Output style — shapes the dashboard's form (density/framing/tone). */
   purpose?: string;
   /** Warehouse only: the time window the analysis covers, surfaced in the dashboard. */
@@ -567,17 +570,18 @@ export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
   const model = getModel(args.uiComposeModel ?? UI_COMPOSE_MODEL);
 
   const systemPrompt = buildComposerSystemPrompt(args.purpose);
-  const userPrompt = buildComposerUserPrompt({
-    originalQuestion: args.originalQuestion,
-    plan: args.plan,
-    schema: args.schema,
-    perStepMetadata,
-    mergedResults,
-    mergedChartData,
-    analysisWindow: args.analysisWindow,
-    sampleRows: args.sampleRows,
-    findings: args.findings,
-  });
+  const userPrompt =
+    buildComposerUserPrompt({
+      originalQuestion: args.originalQuestion,
+      plan: args.plan,
+      schema: args.schema,
+      perStepMetadata,
+      mergedResults,
+      mergedChartData,
+      analysisWindow: args.analysisWindow,
+      sampleRows: args.sampleRows,
+      findings: args.findings,
+    }) + (args.extraSection ?? "");
 
   logger.info("Investigate: composing dashboard", {
     successfulSteps: perStepMetadata.filter((m) => !m.failed && !m.degraded).length,

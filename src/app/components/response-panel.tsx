@@ -56,6 +56,8 @@ interface ResponsePanelProps {
   loadedArtifacts?: CachedArtifacts | null;
   schemaMode?: SchemaMode;
   composerSight?: string;
+  verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload | null;
+  historyId?: string | null;
   codeGenModel?: ModelId;
   uiComposeModel?: ModelId;
   sandboxRuntime?: SandboxRuntimeId;
@@ -113,6 +115,8 @@ export function ResponsePanel({
   loadedArtifacts,
   schemaMode = "metadata",
   composerSight,
+  verifiability,
+  historyId,
   codeGenModel,
   uiComposeModel,
   sandboxRuntime,
@@ -664,7 +668,13 @@ export function ResponsePanel({
       </CitationNavigateContext.Provider>
 
       {/* Artifacts viewer */}
-      {showArtifacts && artifacts && <ArtifactsViewer artifacts={artifacts} />}
+      {showArtifacts && artifacts && (
+        <ArtifactsViewer
+          artifacts={artifacts}
+          verifiability={verifiability}
+          historyId={historyId}
+        />
+      )}
 
       {/* Previous spec shown dimmed below the new dashboard during follow-ups */}
       {previousSpec?.root && previousSpec?.elements && isStreaming && (

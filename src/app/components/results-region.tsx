@@ -43,6 +43,8 @@ export interface ResultsRegionProps {
   reattach: ReturnType<typeof useReattach>;
   schemaMode: SchemaMode;
   composerSight?: string;
+  verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload | null;
+  historyId?: string | null;
   models: ReturnType<typeof useModelSettings>;
   purpose: string;
   onRerun: () => void;
@@ -135,6 +137,8 @@ export function ResultsRegion(props: ResultsRegionProps) {
           loadedArtifacts={pageState.loadedArtifacts}
           schemaMode={props.schemaMode}
           composerSight={props.composerSight}
+          verifiability={props.verifiability}
+          historyId={props.historyId}
           codeGenModel={props.models.codeGenModel}
           uiComposeModel={props.models.uiComposeModel}
           sandboxRuntime={props.models.sandboxRuntime}

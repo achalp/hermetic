@@ -24,6 +24,7 @@ import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
+import { buildValuesSection } from "@/lib/pipeline/dashboard-compose";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -762,6 +763,26 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         stepCount++;
         emitProgress("composing", stepCount, totalSteps);
 
+        // Sighted mode (composer-sight spec §1): derived per-step aggregates
+        // + finding values, never raw rows. Built from subResults with the
+        // same step_N_ namespacing the composer uses.
+        const sightedValuesSection = (() => {
+          if (context.composer_sight !== "sighted") return undefined;
+          const res: Record<string, unknown> = {};
+          const charts: Record<string, unknown> = {};
+          for (const sub of subResults) {
+            if (sub.removed || !sub.result) continue;
+            const prefix = `step_${sub.index + 1}_`;
+            for (const [k, v] of Object.entries(sub.result.executionResult.results ?? {}))
+              res[`${prefix}${k}`] = v;
+            for (const [k, v] of Object.entries(sub.result.executionResult.chart_data ?? {}))
+              charts[`${prefix}${k}`] = v;
+          }
+          return buildValuesSection(
+            { results: res, chart_data: charts, datasets: {}, execution_ms: 0 } as never,
+            fMode === "on" ? (investigationFindings ?? undefined) : undefined
+          );
+        })();
         const compose = composeInvestigation({
           originalQuestion: question,
           plan,
@@ -778,6 +799,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           // When the pull hit the row cap, the analysis is over a sample —
           // tell the composer to disclose it.
           sampleRows: materializationSampled ? WAREHOUSE_MAX_ROWS : undefined,
+          extraSection: sightedValuesSection,
         });
 
         // Inject merged data into spec.state so $result/$chartData
@@ -976,6 +998,43 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                 }
               : {}),
           });
+          // Verifiability panel (composer-sight spec §2) — investigate flavor.
+          emit(
+            JSON.stringify({
+              op: "add",
+              path: "/state/__verifiability",
+              value: {
+                composerSight: context.composer_sight === "sighted" ? "sighted" : "blind",
+                findings: {
+                  declared: investigationFindings?.findings.length ?? 0,
+                  cited: citedFindingNames.size,
+                  checks: (investigationFindings?.findings ?? []).filter((f) => f.dtype === "check")
+                    .length,
+                  failedChecks: (investigationFindings?.findings ?? [])
+                    .filter(
+                      (f) =>
+                        f.dtype === "check" &&
+                        f.value !== null &&
+                        typeof f.value === "object" &&
+                        (f.value as Record<string, unknown>).passed === false
+                    )
+                    .map((f) => f.name),
+                },
+                prose: {
+                  issues: [...proseLintIssues.values()].slice(0, 32).map((i) => ({
+                    kind: i.kind,
+                    detail: i.detail,
+                  })),
+                },
+                grounding: {
+                  ok: grounding.ok,
+                  checkedCount: grounding.checkedCount,
+                  ungrounded: grounding.ungrounded,
+                  contradictions: grounding.contradictions ?? [],
+                },
+              },
+            }) + "\n"
+          );
           trace.grounding = grounding; // shared ref — updates the cached entry
           if (
             !grounding.ok ||

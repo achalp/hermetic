@@ -501,6 +501,16 @@ export default function Home() {
             reattach={reattach}
             schemaMode={schemaMode}
             composerSight={composerSight}
+            verifiability={
+              (
+                (analysis.freshSpec ?? loadedSpec)?.state as
+                  | {
+                      __verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload;
+                    }
+                  | undefined
+              )?.__verifiability ?? null
+            }
+            historyId={loadedVizId ?? liveHistoryId}
             models={models}
             purpose={purpose}
             onRerun={viz.handleRerunFromToolbar}

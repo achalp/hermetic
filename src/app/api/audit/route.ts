@@ -4,7 +4,7 @@
  * raw rows), runs one adversarial review call, persists audit.json on
  * the entry, returns the result.
  */
-import { writeFileSync } from "fs";
+import { writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import { apiError } from "@/app/lib/api-error";
 import { loadHistoryEntry } from "@/lib/history/storage";
@@ -49,5 +49,23 @@ export async function POST(request: Request) {
     return Response.json({ audit: result });
   } catch (err) {
     return apiError("/api/audit", err, "Audit failed");
+  }
+}
+
+/** GET /api/audit?history_id=<id> — the persisted audit for an entry, if any. */
+export async function GET(request: Request) {
+  try {
+    const id = new URL(request.url).searchParams.get("history_id");
+    if (!id || !/^[a-f0-9-]{8,40}$/.test(id)) {
+      return Response.json({ error: "history_id required" }, { status: 400 });
+    }
+    try {
+      const raw = readFileSync(join(hermeticPaths.historyDir(), id, "audit.json"), "utf-8");
+      return Response.json({ audit: JSON.parse(raw) });
+    } catch {
+      return Response.json({ audit: null });
+    }
+  } catch (err) {
+    return apiError("/api/audit", err, "Failed to read audit");
   }
 }
