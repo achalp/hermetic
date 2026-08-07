@@ -13,6 +13,7 @@ import {
   lintMethodMismatch,
   lintDefinitionContradicted,
   lintChartConsistency,
+  lintUndeclaredScreen,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -456,5 +457,52 @@ describe("lintChartConsistency — one payload, one policy (run-30)", () => {
     expect(
       lintChartConsistency(clean, [{ ...peak, value: { year: 1966, value: 10000 } }])
     ).toHaveLength(0);
+  });
+});
+
+describe("lintUndeclaredScreen — every screened series has a contract (run-32)", () => {
+  const chartData = {
+    price_trends: [
+      { year: 1966, max_price_usd: 10000, max_price_screened_usd: null },
+      { year: 1955, max_price_usd: 7000, max_price_screened_usd: 7000 },
+    ],
+  };
+
+  it("flags a *_screened column with no declaring check", () => {
+    const issues = lintUndeclaredScreen(chartData, []);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("undeclared_screen");
+    expect(issues[0].detail).toContain("max_price");
+  });
+
+  it("quiet when a check declares the screen over that column", () => {
+    const check = {
+      name: "max_price_outlier_screen",
+      definition: "values above 8100 excluded as transcription errors from max_price",
+      dtype: "check",
+      tags: ["check", "caveat"],
+      value: { passed: false, threshold_usd: 8100, n_excluded: 2 },
+    };
+    expect(lintUndeclaredScreen(chartData, [check])).toHaveLength(0);
+  });
+});
+
+describe("weak_check — evidence without numbers is a label (run-32)", () => {
+  it("flags string-only evidence; numeric evidence passes", () => {
+    const label = {
+      name: "early_late_window_comparability",
+      definition: "windows produced by the pinned midpoint split are comparable",
+      dtype: "check",
+      tags: ["check", "caveat"],
+      value: {
+        passed: true,
+        split_method: "pinned midpoint",
+        series_used: "positive-median years",
+      },
+    };
+    const issues = lintCheckGating([label]);
+    expect(issues.some((i) => i.kind === "weak_check" && i.detail.includes("NUMERIC"))).toBe(true);
+    const real = { ...label, value: { ...label.value, early_n: 47, late_n: 47 } };
+    expect(lintCheckGating([real])).toHaveLength(0);
   });
 });

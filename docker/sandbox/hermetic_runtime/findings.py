@@ -618,21 +618,23 @@ def finding_current_state(values, labels=None, window=6, coverage=None):
         finite = [y for y in ys[: end + 1] if y is not None]
         peak = max(finite)
         pct = None if peak == 0 else (value - peak) / abs(peak) * 100.0
-        tail_idx = [i for i in idxs if i <= end][-window:]
+        # Direction = where the ENDPOINT sits relative to the recent level
+        # (median of the prior window) — NOT a tail OLS slope. A slope over
+        # the last N points is dominated by the run-up and blind to an
+        # endpoint collapse: a series whose final observation fell 77.6% YoY
+        # was labeled "rising" (run-32), contradicting the yoy finding
+        # beside it in the same payload.
+        prior_tail = [ys[i] for i in idxs if i < end][-window:]
         direction = None
-        if len(tail_idx) >= 2:
-            xs = list(range(len(tail_idx)))
-            ts = [ys[i] for i in tail_idx]
-            n = len(xs)
-            mx = sum(xs) / n
-            my = sum(ts) / n
-            denom = sum((x - mx) ** 2 for x in xs)
-            slope = sum((x - mx) * (t - my) for x, t in zip(xs, ts)) / denom if denom else 0.0
-            scale = max(abs(t) for t in ts) or 1.0
-            if abs(slope) < 0.01 * scale:
+        if len(prior_tail) >= 2 and value is not None:
+            sp = sorted(prior_tail)
+            recent = sp[len(sp) // 2] if len(sp) % 2 else (sp[len(sp) // 2 - 1] + sp[len(sp) // 2]) / 2.0
+            scale = max(abs(recent), abs(value)) or 1.0
+            diff = value - recent
+            if abs(diff) < 0.1 * scale:
                 direction = "flat"
             else:
-                direction = "rising" if slope > 0 else "falling"
+                direction = "rising" if diff > 0 else "falling"
         period = end
         if labels is not None:
             try:

@@ -577,11 +577,25 @@ export function lintCheckGating(findings: FindingEntry[]): FindingIssue[] {
       const v = f.value as Record<string, unknown> | null;
       const evidenceKeys =
         v && typeof v === "object" ? Object.keys(v).filter((k) => k !== "passed") : [];
+      const hasNumericEvidence = evidenceKeys.some((k) => {
+        const val = (v as Record<string, unknown>)[k];
+        return (
+          typeof val === "number" || (Array.isArray(val) && val.some((x) => typeof x === "number"))
+        );
+      });
       if (checkPassed(f) !== null && evidenceKeys.length === 0) {
         issues.push({
           kind: "weak_check",
           name: f.name,
           detail: `check ${f.name} declares passed=${String(checkPassed(f))} with NO computed evidence — a self-graded check validates nothing`,
+        });
+      } else if (checkPassed(f) !== null && !hasNumericEvidence) {
+        // Run-32: a comparability check reduced to {split_method, series_used}
+        // strings — evidence without numbers is a label, not a check.
+        issues.push({
+          kind: "weak_check",
+          name: f.name,
+          detail: `check ${f.name} carries no NUMERIC evidence (${evidenceKeys.join(", ")}) — method names and labels assert, they do not measure; report the n's/spans/thresholds the pass rests on`,
         });
       }
       continue;
@@ -812,6 +826,44 @@ export function lintResultsProvenance(
       issues.push({
         kind: "unbacked_superlative",
         detail: `results.${key} = ${val} has no finding backing it — a superlative shipped without the provenance the manifest exists to provide`,
+      });
+    }
+  }
+  return issues;
+}
+
+// ── Undeclared-screen lint (run-32: max_price screened, no contract) ──
+
+/** A *_screened column in chart_data with no check declaring a screen over
+ *  its base column: the parallel-columns contract eliminated consumer-side
+ *  assumptions, but a screen with no declaration is a transformation with
+ *  no contract behind it. */
+export function lintUndeclaredScreen(
+  chartData: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const screenedBases = new Set<string>();
+  for (const v of Object.values(chartData)) {
+    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+    if (!Array.isArray(rows) || rows.length === 0 || typeof rows[0] !== "object") continue;
+    for (const col of Object.keys(rows[0] as Record<string, unknown>)) {
+      const m = /^(.*?)_screened(?:_[a-z]+)?$/.exec(col);
+      if (m) screenedBases.add(m[1]);
+    }
+  }
+  const issues: FindingIssue[] = [];
+  for (const base of screenedBases) {
+    const tokens = base.split(/_/).filter((t) => t.length > 2);
+    const declared = findings.some(
+      (f) =>
+        f.dtype === "check" &&
+        /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
+        tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
+    );
+    if (!declared) {
+      issues.push({
+        kind: "undeclared_screen",
+        detail: `chart_data carries ${base}_screened* columns but no check declares a screen over ${base} — a transformation with no declaration behind it (which rule, what threshold, how many excluded?)`,
       });
     }
   }

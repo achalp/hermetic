@@ -30,6 +30,7 @@ import {
   lintNullAncestry,
   lintDefinitionContradicted,
   lintChartConsistency,
+  lintUndeclaredScreen,
   lintResultsProvenance,
 } from "@/lib/findings";
 import { saveConventions } from "@/lib/learning/conventions";
@@ -468,6 +469,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintDefinitionContradicted(validated.manifest.findings),
             ...lintResultsProvenance(
               (executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
+            ...lintUndeclaredScreen(
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
               validated.manifest.findings
             ),
             ...lintChartConsistency(

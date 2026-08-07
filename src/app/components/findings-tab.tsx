@@ -12,6 +12,7 @@
  */
 
 import type { ReactNode } from "react";
+import { downloadJson } from "@/lib/export-utils";
 import type { FindingsManifest, FindingEntry } from "@/lib/contracts/findings";
 import type { GroundingReport } from "@/lib/contracts/grounding";
 
@@ -147,10 +148,21 @@ export function FindingsTab({
     <div className="space-y-3 p-4">
       {/* §6 one-line disclosure — fixed copy; "structurally checked" is
           permitted here ONLY because code_ref deep-links into the Code tab. */}
-      <p className="text-xs text-t-tertiary">
-        Structurally checked &mdash; definitions and values are produced by the analysis code (not
-        reviewed for truth).
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-t-tertiary">
+          Structurally checked &mdash; definitions and values are produced by the analysis code (not
+          reviewed for truth).
+        </p>
+        {findings.findings.length > 0 && (
+          <button
+            onClick={() => downloadJson(findings, "findings-manifest")}
+            className="text-xs text-accent hover:underline shrink-0 ml-3"
+            title="Machine-readable manifest (findings + checks), as validated"
+          >
+            Export JSON
+          </button>
+        )}
+      </div>
       {findings.findings.length === 0 ? (
         <p className="text-sm text-t-secondary">No findings were declared in this run.</p>
       ) : (

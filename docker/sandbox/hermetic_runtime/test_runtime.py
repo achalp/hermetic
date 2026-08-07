@@ -425,6 +425,16 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertIsNone(finding_yoy(["2021-01"], [5.0])["pct_change"])
         self.assertIsNone(finding_yoy("garbage", None)["pct_change"])
 
+    def test_current_state_direction_reflects_the_endpoint(self):
+        # Rising run-up, final collapse: the endpoint is DOWN 77% vs the
+        # recent level — direction must be falling, not slope-dominated
+        # "rising" (run-32 contradiction with the yoy finding beside it).
+        vals = [10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 4.5]
+        out = finding_current_state(vals)
+        self.assertEqual(out["direction"], "falling")
+        rising = finding_current_state([10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 18.0])
+        self.assertEqual(rising["direction"], "rising")
+
     def test_current_state_magnitude_only_walkback_is_capped(self):
         # A genuinely declining series must not be eaten by the stationarity
         # assumption: without coverage evidence, at most 2 trailing periods

@@ -77,3 +77,22 @@ describe("interpreting insignificance (run-29: flat spread 'indicating' divergen
     ).toHaveLength(0);
   });
 });
+
+describe("count formatting — parenthesized counts rewritten (run-32, third recurrence)", () => {
+  it("rewrites ': (8) years' to ': 8 years' and flags once", () => {
+    const { line, issues } = checkDiscourseLine(
+      '{"content": "Three screens were applied across the corpus data: (8) years where all prices are zero; (3) years where coverage collapsed entirely."}'
+    );
+    expect(issues.some((i) => i.kind === "count_formatting")).toBe(true);
+    expect(line).toContain(": 8 years");
+    expect(line).toContain("; 3 years");
+    expect(line).not.toContain("(8)");
+  });
+
+  it("leaves legitimate parentheticals alone", () => {
+    const ok = checkDiscourseLine(
+      '{"content": "The median rose steadily over the century of observed data (1851 to 2015 inclusive)."}'
+    );
+    expect(ok.issues.filter((i) => i.kind === "count_formatting")).toHaveLength(0);
+  });
+});

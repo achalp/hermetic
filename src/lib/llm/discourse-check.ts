@@ -123,6 +123,15 @@ export function checkDiscourseLine(line: string): DiscourseCheckResult {
   const cleaned = line.replace(/"((?:[^"\\]|\\.)*)"/g, (whole, inner: string) => {
     if (!/[a-zA-Z]{3}/.test(inner) || inner.length < 40) return whole;
     let text = inner;
+    // Counts rendered as list markers — "(8) years where..." reads as
+    // enumeration (three runs of prompt rules didn't hold; fixed here).
+    if (/[:;]\s*\(\d+\)\s+[a-z]/i.test(text)) {
+      issues.push({
+        kind: "count_formatting",
+        detail: `parenthesized counts rewritten to plain counts: "${text.trim().slice(0, 90)}"`,
+      });
+      text = text.replace(/([:;]\s*)\((\d+)\)\s+/g, "$1$2 ");
+    }
     // Empty interpolation: a multi-space gap mid-prose is the tell of an
     // unfilled slot ("present in both  and  to ensure").
     if (/\S {2,}\S/.test(text)) {

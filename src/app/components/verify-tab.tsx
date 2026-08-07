@@ -8,6 +8,7 @@
  * verifiability payload exists (legacy runs show an empty-state note).
  */
 import { useEffect, useState } from "react";
+import { downloadJson } from "@/lib/export-utils";
 
 export interface VerifiabilityPayload {
   composerSight?: string;
@@ -90,6 +91,17 @@ export function VerifyTab({
   const v = verifiability;
   return (
     <div className="flex flex-col gap-4 p-4 text-sm">
+      {(v || audit) && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => downloadJson({ verifiability: v ?? null, audit }, "verifiability")}
+            className="text-xs text-accent hover:underline"
+            title="Machine-readable verifiability record + audit verdict"
+          >
+            Export JSON
+          </button>
+        </div>
+      )}
       {!v ? (
         <p className="text-t-secondary text-xs">
           No verifiability record — this analysis predates the Verify surface.

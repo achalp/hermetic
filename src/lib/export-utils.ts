@@ -264,3 +264,14 @@ export function downloadCodeAsFile(code: string, filename: string): void {
   triggerDownload(url, filename);
   URL.revokeObjectURL(url);
 }
+
+/** Download any serializable object as pretty-printed JSON. */
+export function downloadJson(data: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.endsWith(".json") ? filename : `${filename}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
