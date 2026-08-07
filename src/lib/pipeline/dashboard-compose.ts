@@ -608,15 +608,19 @@ export async function composeAndStreamDashboard(args: {
     }
   };
 
-  const validStateKeys: ValidStateKeys | null = useDataController
-    ? {
-        computed: new Set<string>([
-          ...Object.keys(executionResult.chart_data ?? {}),
-          ...Object.keys(executionResult.results ?? {}),
-        ]),
-        datasets: new Set<string>([...Object.keys(executionResult.chart_data ?? {}), "main"]),
-      }
-    : null;
+  // ALWAYS enabled (both modes): the repair used to be gated on
+  // useDataController — but the failure it exists for happens precisely
+  // when the composer emits DataController-style /computed bindings in a
+  // run the pipeline decided was NON-DC (observed: every chart empty,
+  // "$state": "/computed/monthly_line" with the data at
+  // /datasets/monthly_churn_line and no DataController element at all).
+  const validStateKeys: ValidStateKeys = {
+    computed: new Set<string>([
+      ...Object.keys(executionResult.chart_data ?? {}),
+      ...Object.keys(executionResult.results ?? {}),
+    ]),
+    datasets: new Set<string>([...Object.keys(executionResult.chart_data ?? {}), "main"]),
+  };
 
   // §4.2: finding values bind by (bare) name in single-shot compose.
   const findingValues = Object.fromEntries(
@@ -627,6 +631,11 @@ export async function composeAndStreamDashboard(args: {
   // gone). Base name only — a .field binding cites the finding.
   const citedFindings = new Set<string>();
   const headlineBound = new Set<string>();
+  // Did the composed spec bind any {"$state": ...} path? When it did in a
+  // NON-DataController run (composer drift), the datasets injection below
+  // must still fire or the (possibly repaired) /datasets/<key> bindings
+  // resolve to nothing and every chart renders empty.
+  let sawStateBinding = false;
 
   const finalize = createSpecFinalizer({
     results: executionResult.results,
@@ -681,6 +690,7 @@ export async function composeAndStreamDashboard(args: {
     if (result.skip) return null;
     lineCount++;
     if (result.patch) composedPatches.push(result.patch as PatchLike);
+    if (result.line.includes('"$state"')) sawStateBinding = true;
     for (const m of result.raw.matchAll(/\$finding:([a-zA-Z0-9_]+)/g)) {
       citedFindings.add(m[1]);
       // Headline coverage (§3.5): bindings inside StatCard elements.
@@ -754,7 +764,7 @@ export async function composeAndStreamDashboard(args: {
   // If the LLM streamed state as individual field patches (not a single /state
   // add), we still need to inject the dataset (also when closed, so the assembled
   // spec is complete for history).
-  if (useDataController && !stateInjected && mainDataset) {
+  if ((useDataController || sawStateBinding) && !stateInjected && mainDataset) {
     const datasetsPayload: Record<string, unknown> = { main: mainDataset };
     for (const [key, value] of Object.entries(executionResult.chart_data)) {
       if (typeof value === "object" && value !== null) datasetsPayload[key] = value;

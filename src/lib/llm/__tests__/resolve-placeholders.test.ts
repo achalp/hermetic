@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveSpecPlaceholders } from "@/lib/llm/resolve-placeholders";
+import { resolveSpecPlaceholders, repairStateBindings } from "@/lib/llm/resolve-placeholders";
 
 // Lever 2: the composer sometimes references a chart_data key the analysis code
 // produced under a slightly different name. We repair confident, unique near-
@@ -140,5 +140,53 @@ describe("$finding resolution (declared-findings spec §4.2)", () => {
       findings
     );
     expect(inline).not.toContain("$finding");
+  });
+});
+
+describe("state-binding repair — the empty-dashboard family (run-8 PDF)", () => {
+  const valid = {
+    computed: new Set(["stats"]),
+    datasets: new Set([
+      "main",
+      "monthly_churn_line",
+      "segment_churn_line",
+      "segment_churn_bar",
+      "mom_change_bar",
+      "waterfall_decomposition",
+      "segment_jan_vs_dec_dumbbell",
+    ]),
+  };
+
+  it("repairs every chart binding from the real broken run (cross-prefix + token subset)", () => {
+    // The composer bound /computed/<short-name> in a spec with NO
+    // DataController; the arrays sat under /datasets/<longer-name>.
+    const cases: Array<[string, string]> = [
+      ["/computed/monthly_line", "/datasets/monthly_churn_line"],
+      ["/computed/seg_line", "/datasets/segment_churn_line"],
+      ["/computed/seg_bar", "/datasets/segment_churn_bar"],
+      ["/computed/mom_bar", "/datasets/mom_change_bar"],
+      ["/computed/waterfall", "/datasets/waterfall_decomposition"],
+      ["/computed/dumbbell", "/datasets/segment_jan_vs_dec_dumbbell"],
+    ];
+    for (const [broken, fixed] of cases) {
+      const value = { props: { data: { $state: broken } } };
+      const repairs = repairStateBindings(value, valid);
+      expect(repairs).toBe(1);
+      expect(value.props.data.$state).toBe(fixed);
+    }
+  });
+
+  it("never repairs ambiguously and leaves valid bindings alone", () => {
+    const ambiguous = {
+      computed: new Set<string>(),
+      datasets: new Set(["segment_churn_line", "segment_churn_bar"]),
+    };
+    // "seg" token-matches BOTH candidates → no repair (empty beats wrong).
+    const v1 = { data: { $state: "/computed/seg" } };
+    expect(repairStateBindings(v1, ambiguous)).toBe(0);
+    expect(v1.data.$state).toBe("/computed/seg");
+
+    const v2 = { data: { $state: "/datasets/main" } };
+    expect(repairStateBindings(v2, valid)).toBe(0);
   });
 });

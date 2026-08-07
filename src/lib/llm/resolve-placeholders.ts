@@ -123,6 +123,38 @@ const normalizeStateKey = (s: string): string => s.toLowerCase().replace(/[-_\s]
  * case/underscores/hyphens (e.g. "/computed/wind_rose" → "/computed/windrose").
  * Returns the path unchanged when already valid or no normalized match exists.
  */
+/**
+ * Prefix-tolerant token subset match: every requested token appears in the
+ * candidate (allowing prefix equality, "seg" ~ "segment"). Returns the
+ * UNIQUE candidate or undefined — an ambiguous repair is worse than an
+ * empty chart. Covers the observed composer drift family:
+ * monthly_line→monthly_churn_line, seg_bar→segment_churn_bar,
+ * dumbbell→segment_jan_vs_dec_dumbbell, waterfall→waterfall_decomposition.
+ */
+function uniqueTokenSubsetMatch(base: string, candidates: Set<string>): string | undefined {
+  const tokens = (k: string) =>
+    normalizeStateKey(k) === k
+      ? k.split(/[^a-z0-9]+/).filter(Boolean)
+      : k
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter(Boolean);
+  const want = base
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (want.length === 0) return undefined;
+  const hits: string[] = [];
+  for (const cand of candidates) {
+    const have = tokens(cand);
+    const covered = want.every((w) =>
+      have.some((h) => h === w || h.startsWith(w) || w.startsWith(h))
+    );
+    if (covered) hits.push(cand);
+  }
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
 function repairStatePath(path: string, valid: ValidStateKeys): string {
   const m = /^\/(computed|datasets)\/([^/]+)(\/.*)?$/.exec(path);
   if (!m) return path;
@@ -130,11 +162,25 @@ function repairStatePath(path: string, valid: ValidStateKeys): string {
   const base = m[2];
   const rest = m[3] ?? "";
   const set = valid[prefix];
-  if (set.size === 0 || set.has(base)) return path;
+  if (set.has(base)) return path;
   const norm = normalizeStateKey(base);
+  // 1. Normalized exact match, same prefix.
   for (const v of set) {
     if (normalizeStateKey(v) === norm) return `/${prefix}/${v}${rest}`;
   }
+  // 2. Normalized exact match, OTHER prefix (composer bound /computed/x for
+  //    data that lives under /datasets/x — the run-8 failure family, where
+  //    every chart in a no-DataController spec pointed at computed keys
+  //    nothing produced while the arrays sat in datasets).
+  const other = prefix === "computed" ? "datasets" : "computed";
+  for (const v of valid[other]) {
+    if (normalizeStateKey(v) === norm) return `/${other}/${v}${rest}`;
+  }
+  // 3. Unique token-subset match — datasets first (arrays live there).
+  const inDatasets = uniqueTokenSubsetMatch(base, valid.datasets);
+  if (inDatasets) return `/datasets/${inDatasets}${rest}`;
+  const inComputed = uniqueTokenSubsetMatch(base, valid.computed);
+  if (inComputed) return `/computed/${inComputed}${rest}`;
   return path;
 }
 
