@@ -45,6 +45,7 @@ export function useModelSettings() {
   // in runtime-config so the CLI transport (and MCP) honor it — same
   // cross-harness contract as the model selection.
   const [effort, setEffort] = useState<string>("auto");
+  const [phaseEfforts, setPhaseEfforts] = useState<Record<string, string>>({});
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
 
   // Adopt the server-side model selection when one is stored — runtime-config
@@ -59,6 +60,8 @@ export function useModelSettings() {
           | { codeGen?: string; uiCompose?: string; effort?: string }
           | undefined;
         if (m?.effort) setEffort(m.effort);
+        const eff = (m as { efforts?: Record<string, string> } | undefined)?.efforts;
+        if (eff && typeof eff === "object") setPhaseEfforts(eff);
         if (m?.codeGen && isValidModelId(m.codeGen)) {
           setCodeGenModel(m.codeGen);
           localStorage.setItem(STORAGE_KEYS.codeGenModel, m.codeGen);
@@ -110,6 +113,15 @@ export function useModelSettings() {
     setEffort(e);
     setActiveModels({ effort: e }).catch(() => {});
   }, []);
+  const handlePhaseEffortChange = useCallback((phase: string, level: string) => {
+    setPhaseEfforts((prev) => {
+      const next = { ...prev };
+      if (level === "auto") delete next[phase];
+      else next[phase] = level;
+      setActiveModels({ efforts: next }).catch(() => {});
+      return next;
+    });
+  }, []);
   const handleUiComposeModelChange = useCallback((m: ModelId) => {
     setUiComposeModel(m);
     localStorage.setItem(STORAGE_KEYS.uiComposeModel, m);
@@ -127,5 +139,7 @@ export function useModelSettings() {
     handleUiComposeModelChange,
     effort,
     handleEffortChange,
+    phaseEfforts,
+    handlePhaseEffortChange,
   };
 }

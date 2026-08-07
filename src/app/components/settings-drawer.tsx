@@ -23,6 +23,8 @@ interface SettingsDrawerProps {
   onUiComposeModelChange: (model: ModelId) => void;
   effort: string;
   onEffortChange: (effort: string) => void;
+  phaseEfforts: Record<string, string>;
+  onPhaseEffortChange: (phase: string, level: string) => void;
   sandboxRuntime: SandboxRuntimeId;
   onSandboxRuntimeChange: (runtime: SandboxRuntimeId) => void;
   ollamaModel: string | null;
@@ -53,6 +55,8 @@ export function SettingsDrawer({
   onUiComposeModelChange,
   effort,
   onEffortChange,
+  phaseEfforts,
+  onPhaseEffortChange,
   sandboxRuntime,
   onSandboxRuntimeChange,
   ollamaModel,
@@ -85,6 +89,8 @@ export function SettingsDrawer({
           onUiComposeModelChange={onUiComposeModelChange}
           effort={effort}
           onEffortChange={onEffortChange}
+          phaseEfforts={phaseEfforts}
+          onPhaseEffortChange={onPhaseEffortChange}
           sandboxRuntime={sandboxRuntime}
           onSandboxRuntimeChange={onSandboxRuntimeChange}
           ollamaModel={ollamaModel}

@@ -62,6 +62,8 @@ export function PageChrome(props: PageChromeProps) {
         onUiComposeModelChange={models.handleUiComposeModelChange}
         effort={models.effort}
         onEffortChange={models.handleEffortChange}
+        phaseEfforts={models.phaseEfforts}
+        onPhaseEffortChange={models.handlePhaseEffortChange}
         sandboxRuntime={models.sandboxRuntime}
         onSandboxRuntimeChange={models.handleRuntimeChange}
         ollamaModel={models.ollamaModel}

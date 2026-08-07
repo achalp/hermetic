@@ -79,8 +79,13 @@ export interface RuntimeConfig {
     codeGen?: string;
     uiCompose?: string;
     /** Claude CLI reasoning-effort override: "auto" (phase-routed default)
-     *  or a fixed level applied to every phase. */
+     *  or a fixed level applied to every phase. Superseded by per-phase
+     *  `efforts` when a phase has an entry there. */
     effort?: string;
+    /** Per-phase effort overrides ({code_gen: "high", compose: "medium"});
+     *  "auto"/absent defers to the phase policy. Open keys — new phases need
+     *  no config migration. */
+    efforts?: Record<string, string>;
   };
 }
 
@@ -209,12 +214,18 @@ export function clearRuntimeConfigCache(): void {
  * fallback. Every layer that needs "the code-gen model" or "the compose
  * model" without an explicit per-request override resolves through here.
  */
-export const EFFORT_CHOICES = ["auto", "low", "medium", "high"] as const;
+export const EFFORT_CHOICES = ["auto", "low", "medium", "high", "xhigh", "max"] as const;
 
-/** The user's effort override; "auto" / unset defers to phase routing. */
-export function getActiveEffort(): string | null {
-  const e = getRuntimeConfig().models?.effort;
-  return e && e !== "auto" && (EFFORT_CHOICES as readonly string[]).includes(e) ? e : null;
+/** The user's effort override for a phase: per-phase entry first, then the
+ *  global override; "auto"/unset defers to phase routing. */
+export function getActiveEffort(phase?: string | null): string | null {
+  const m = getRuntimeConfig().models;
+  const valid = (e: unknown): e is string =>
+    typeof e === "string" && e !== "auto" && (EFFORT_CHOICES as readonly string[]).includes(e);
+  const perPhase = phase ? m?.efforts?.[phase] : undefined;
+  if (valid(perPhase)) return perPhase;
+  if (valid(m?.effort)) return m.effort as string;
+  return null;
 }
 
 export function getActiveModels(): { codeGen: string; uiCompose: string } {

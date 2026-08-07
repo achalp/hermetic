@@ -2,6 +2,18 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { AVAILABLE_MODELS, AVAILABLE_PROVIDERS } from "@/lib/constants";
+
+// Mirrors the CLI transport's phase policy (claude-cli-transport PHASE_EFFORT
+// + DEFAULT_EFFORT) — "Auto" shows what the policy would pick.
+const EFFORT_PHASES = [
+  { phase: "code_gen", label: "Code generation", autoLevel: "high" },
+  { phase: "sql_gen", label: "SQL generation", autoLevel: "high" },
+  { phase: "sql_repair", label: "SQL repair", autoLevel: "high" },
+  { phase: "code_review", label: "Code review", autoLevel: "high" },
+  { phase: "compose", label: "Dashboard compose", autoLevel: "low" },
+  { phase: "assess", label: "Assess", autoLevel: "low" },
+  { phase: "planner", label: "Investigate planner", autoLevel: "low" },
+] as const;
 import type { ModelId, SandboxRuntimeId, LLMProviderId, LocalBackendId } from "@/lib/constants";
 import { LocalBackendSection } from "@/app/components/local-backend-section";
 import {
@@ -18,6 +30,8 @@ interface InferenceSectionProps {
   uiComposeModel: ModelId;
   effort: string;
   onEffortChange: (effort: string) => void;
+  phaseEfforts: Record<string, string>;
+  onPhaseEffortChange: (phase: string, level: string) => void;
   onCodeGenModelChange: (model: ModelId) => void;
   onUiComposeModelChange: (model: ModelId) => void;
   sandboxRuntime: SandboxRuntimeId;
@@ -75,6 +89,8 @@ export function InferenceSection({
   uiComposeModel,
   effort,
   onEffortChange,
+  phaseEfforts,
+  onPhaseEffortChange,
   onCodeGenModelChange,
   onUiComposeModelChange,
   sandboxRuntime,
@@ -291,13 +307,29 @@ export function InferenceSection({
               </option>
             ))}
           </select>
-          <div style={{ ...S.hint, marginBottom: 6 }}>Reasoning Effort</div>
-          <select value={effort} onChange={(e) => onEffortChange(e.target.value)} style={S.select}>
-            <option value="auto">Auto (per-phase: code/SQL high, compose low)</option>
-            <option value="low">Low — fastest, cheapest</option>
-            <option value="medium">Medium</option>
-            <option value="high">High — deepest reasoning, all phases</option>
-          </select>
+          <div style={{ ...S.hint, marginBottom: 6 }}>Reasoning Effort (per phase)</div>
+          {EFFORT_PHASES.map((p) => (
+            <div
+              key={p.phase}
+              style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}
+            >
+              <span style={{ ...S.hint, marginTop: 0, marginBottom: 0, flex: "0 0 45%" }}>
+                {p.label}
+              </span>
+              <select
+                value={phaseEfforts[p.phase] ?? "auto"}
+                onChange={(e) => onPhaseEffortChange(p.phase, e.target.value)}
+                style={{ ...S.select, marginBottom: 0 }}
+              >
+                <option value="auto">Auto ({p.autoLevel})</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="xhigh">X-High</option>
+                <option value="max">Max</option>
+              </select>
+            </div>
+          ))}
         </div>
       )}
 

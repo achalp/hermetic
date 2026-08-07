@@ -292,7 +292,7 @@ const PHASE_EFFORT: Record<string, string> = {
 export function resolveEffort(body: Record<string, unknown>): string | null {
   const fromBody = (body.reasoning as { effort?: unknown } | undefined)?.effort;
   if (typeof fromBody === "string" && EFFORT_LEVELS.has(fromBody)) return fromBody;
-  const fromSettings = getActiveEffort();
+  const fromSettings = getActiveEffort(currentPhase());
   if (fromSettings && EFFORT_LEVELS.has(fromSettings)) return fromSettings;
   const fromEnv = envConfig().HERMETIC_CLAUDE_CLI_EFFORT;
   if (fromEnv === "default") return null; // defer to the CLI's own default

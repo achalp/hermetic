@@ -190,9 +190,26 @@ export async function PUT(request: Request) {
     const m = (body.models ?? {}) as Record<string, unknown>;
     const codeGen = cleanString(m.codeGen);
     const uiCompose = cleanString(m.uiCompose);
+    const LEVELS = ["auto", "low", "medium", "high", "xhigh", "max"];
     const effort = cleanString(m.effort);
-    if (effort !== undefined && !["auto", "low", "medium", "high"].includes(effort)) {
+    if (effort !== undefined && !LEVELS.includes(effort)) {
       return Response.json({ error: `Unknown effort level: ${effort}` }, { status: 400 });
+    }
+    let efforts: Record<string, string> | undefined;
+    if (m.efforts !== undefined && m.efforts !== null) {
+      if (typeof m.efforts !== "object" || Array.isArray(m.efforts)) {
+        return Response.json({ error: "models.efforts must be an object" }, { status: 400 });
+      }
+      efforts = {};
+      for (const [phase, level] of Object.entries(m.efforts as Record<string, unknown>)) {
+        if (typeof level !== "string" || !LEVELS.includes(level)) {
+          return Response.json(
+            { error: `Unknown effort level for ${phase}: ${String(level)}` },
+            { status: 400 }
+          );
+        }
+        if (level !== "auto") efforts[phase] = level; // "auto" clears the phase
+      }
     }
     if (codeGen !== undefined && !isValidModelId(codeGen)) {
       return Response.json({ error: `Unknown model id: ${codeGen}` }, { status: 400 });
@@ -200,7 +217,13 @@ export async function PUT(request: Request) {
     if (uiCompose !== undefined && !isValidModelId(uiCompose)) {
       return Response.json({ error: `Unknown model id: ${uiCompose}` }, { status: 400 });
     }
-    patch.models = { ...rc.models, codeGen, uiCompose, effort };
+    patch.models = {
+      ...rc.models,
+      codeGen,
+      uiCompose,
+      effort,
+      ...(efforts !== undefined ? { efforts } : {}),
+    };
   }
   if (Object.keys(patch).length > 0) setRuntimeConfig(patch);
 

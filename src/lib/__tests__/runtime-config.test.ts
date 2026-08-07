@@ -13,6 +13,7 @@ import {
   setRuntimeConfig,
   clearRuntimeConfigCache,
   getActiveModels,
+  getActiveEffort,
 } from "@/lib/runtime-config";
 import { hermeticPaths, setPathRoots } from "@/lib/paths";
 import { logger } from "@/lib/logger";
@@ -112,5 +113,22 @@ describe("getActiveModels — the cross-harness model selection", () => {
     const models = getActiveModels();
     expect(models.codeGen).toBe("claude-sonnet-4-6");
     expect(models.uiCompose).toBe("claude-fable-5");
+  });
+});
+
+describe("getActiveEffort — per-phase overrides", () => {
+  it("phase entry wins over global; auto/unknown defer to phase policy", () => {
+    setRuntimeConfig({
+      models: { efforts: { compose: "medium", code_gen: "max" }, effort: "low" },
+    });
+    clearRuntimeConfigCache();
+    expect(getActiveEffort("compose")).toBe("medium");
+    expect(getActiveEffort("code_gen")).toBe("max");
+    // No per-phase entry → the global override applies.
+    expect(getActiveEffort("sql_gen")).toBe("low");
+    setRuntimeConfig({ models: { efforts: {}, effort: "auto" } });
+    clearRuntimeConfigCache();
+    expect(getActiveEffort("compose")).toBeNull();
+    expect(getActiveEffort(null)).toBeNull();
   });
 });

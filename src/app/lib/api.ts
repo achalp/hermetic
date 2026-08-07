@@ -128,6 +128,7 @@ export async function setActiveModels(models: {
   codeGen?: string;
   uiCompose?: string;
   effort?: string;
+  efforts?: Record<string, string>;
 }): Promise<void> {
   await fetch("/api/settings", {
     method: "PUT",
