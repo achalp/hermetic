@@ -36,6 +36,7 @@ import {
   lintCrossStepReconciliation,
   lintUnitPhrase,
   lintSentinelInterpolation,
+  lintSignedLanguage,
   lintMissingLinkage,
   namespaceFindings,
 } from "@/lib/findings";
@@ -849,12 +850,14 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         );
         const proseLintIssues = new Map<string, FindingIssue>();
         const lintComposedLine = (raw: string) => {
+          const lookup = {
+            findings: investigateFindingValueMap,
+            results: mergedResults as Record<string, unknown>,
+          };
           for (const issue of [
             ...lintUnitPhrase(raw, investigateUnitByName),
-            ...lintSentinelInterpolation(raw, {
-              findings: investigateFindingValueMap,
-              results: mergedResults as Record<string, unknown>,
-            }),
+            ...lintSentinelInterpolation(raw, lookup),
+            ...lintSignedLanguage(raw, lookup),
           ]) {
             proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
           }

@@ -297,3 +297,71 @@ export function lintMissingLinkage(findings: FindingEntry[]): FindingIssue[] {
     },
   ];
 }
+
+// ── Signed-language lint (run-11: "-23.8M ... sharpest acceleration") ──
+
+const POSITIVE_WORDS =
+  /accelerat|jump|surge|spike|increas|\brise\b|\brose\b|\bgain|growth|climb|\bup\b/i;
+const NEGATIVE_WORDS = /declin|\bdrop|\bfell\b|\bfall|decreas|contract|plunge|shrink|\bdown\b/i;
+
+/**
+ * A negative bound value narrated with positive-direction words (a -46%
+ * month-over-month decline called "the sharpest acceleration") — or the
+ * inverse. The composer is values-blind, so sign-appropriate language can
+ * only be checked here. Window-scoped like lintUnitPhrase; advisory only.
+ */
+export function lintSignedLanguage(
+  rawLine: string,
+  lookup: {
+    findings?: ReadonlyMap<string, unknown>;
+    results?: Readonly<Record<string, unknown>>;
+  }
+): FindingIssue[] {
+  if (!rawLine.includes("$finding:") && !rawLine.includes("$result:")) return [];
+  const issues: FindingIssue[] = [];
+  for (const m of rawLine.matchAll(/\$(finding|result):([a-zA-Z0-9_.]+)/g)) {
+    const [, kind, ref] = m;
+    let value: unknown;
+    if (kind === "finding") {
+      const map = lookup.findings;
+      if (!map) continue;
+      if (map.has(ref)) value = map.get(ref);
+      else {
+        const base = ref.replace(/\.[a-zA-Z0-9_]+$/, "");
+        const field = ref.slice(base.length + 1);
+        const parent = map.get(base);
+        value =
+          parent && typeof parent === "object"
+            ? (parent as Record<string, unknown>)[field]
+            : undefined;
+      }
+    } else {
+      let cur: unknown = lookup.results ?? {};
+      for (const seg of ref.split(".")) {
+        if (cur === null || typeof cur !== "object") {
+          cur = undefined;
+          break;
+        }
+        cur = (cur as Record<string, unknown>)[seg];
+      }
+      value = cur;
+    }
+    if (typeof value !== "number" || value === 0) continue;
+    const start = Math.max(0, (m.index ?? 0) - 60);
+    const window = rawLine.slice(start, (m.index ?? 0) + m[0].length + 60);
+    if (value < 0 && POSITIVE_WORDS.test(window) && !NEGATIVE_WORDS.test(window)) {
+      issues.push({
+        kind: "sign_mismatch",
+        name: ref,
+        detail: `narrative uses positive-direction language around ${ref}, which is NEGATIVE (${value}) — a decline described as an acceleration/jump`,
+      });
+    } else if (value > 0 && NEGATIVE_WORDS.test(window) && !POSITIVE_WORDS.test(window)) {
+      issues.push({
+        kind: "sign_mismatch",
+        name: ref,
+        detail: `narrative uses negative-direction language around ${ref}, which is POSITIVE (${value})`,
+      });
+    }
+  }
+  return issues;
+}

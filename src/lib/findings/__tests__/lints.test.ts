@@ -3,6 +3,7 @@ import {
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintMissingLinkage,
+  lintSignedLanguage,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -127,5 +128,42 @@ describe("lintMissingLinkage — the unwritable attribution sentence", () => {
     expect(lintMissingLinkage([step, groups, link])).toHaveLength(0);
     expect(lintMissingLinkage([step])).toHaveLength(0);
     expect(lintMissingLinkage([groups])).toHaveLength(0);
+  });
+});
+
+describe("lintSignedLanguage — declines described as accelerations", () => {
+  const findings = new Map<string, unknown>([
+    ["monthly_step", { period: "2021-02", delta: -23808948, direction: "down" }],
+  ]);
+  const results = { step_delta: -23808948, rise_pp: 4.4 };
+
+  it("flags positive-direction words around a negative bound value", () => {
+    const line =
+      '{"content": "The single largest step change was $finding:monthly_step.delta cases. This represents the sharpest acceleration in the series."}';
+    const issues = lintSignedLanguage(line, { findings, results });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("sign_mismatch");
+    expect(issues[0].detail).toContain("acceleration");
+  });
+
+  it("flags negative words around a positive value, stays quiet on matches", () => {
+    expect(
+      lintSignedLanguage('{"content": "churn fell by $result:rise_pp since June"}', {
+        findings,
+        results,
+      })
+    ).toHaveLength(1);
+    expect(
+      lintSignedLanguage('{"content": "cases dropped $finding:monthly_step.delta in February"}', {
+        findings,
+        results,
+      })
+    ).toHaveLength(0);
+    expect(
+      lintSignedLanguage('{"content": "rose $result:rise_pp pp since June"}', {
+        findings,
+        results,
+      })
+    ).toHaveLength(0);
   });
 });

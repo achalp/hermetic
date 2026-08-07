@@ -324,15 +324,25 @@ def finding_trend(values, unit=None):
 
 
 def finding_step_change(values, labels=None):
-    """Largest single-period jump, if it stands out from the baseline churn.
+    """Largest single-period level shift, if it stands out AND persists.
 
-    Returns {"period", "delta", "baseline_spread"} where period is labels[i]
-    (or index i) of the first value AFTER the jump and baseline_spread is the
-    median absolute period-over-period delta. When no |delta| exceeds 3x that
-    median (e.g. a smooth ramp — every delta is the median), period/delta are
-    None. Never raises.
+    Returns {"period", "delta", "direction", "baseline_spread"} where period
+    is labels[i] (or index i) of the first value AFTER the jump, direction is
+    "up"/"down" from delta's sign (bind THIS for narrative language — a
+    negative delta narrated as an "acceleration" is the sign-blindness bug),
+    and baseline_spread is the median absolute period-over-period delta.
+
+    Two gates, both required — failing either returns period/delta/direction
+    None (with baseline_spread kept):
+      - magnitude: |delta| must exceed 3x the baseline spread;
+      - persistence: >= 70% of post-step values must stay on the new side of
+        the pre/post midpoint. A step-change model asserts one regime
+        REPLACED another; an oscillating series (a wave that re-crosses the
+        break — e.g. a decline followed by a higher peak) is not a regime
+        change, and fitting a break to a wave's downslope reports a
+        structural inflection that does not exist. Never raises.
     """
-    failed = {"period": None, "delta": None, "baseline_spread": None}
+    failed = {"period": None, "delta": None, "direction": None, "baseline_spread": None}
     try:
         ys = [safe_float(v) for v in list(values)]
         deltas = [
@@ -344,20 +354,33 @@ def finding_step_change(values, labels=None):
             return failed
         m = len(spread)
         median = spread[m // 2] if m % 2 else (spread[m // 2 - 1] + spread[m // 2]) / 2.0
+        no_step = {"period": None, "delta": None, "direction": None, "baseline_spread": median}
         best_i, best_d = None, None
         for i, d in enumerate(deltas):
             if d is not None and (best_d is None or abs(d) > abs(best_d)):
                 best_i, best_d = i, d
         if best_d is None or abs(best_d) <= 3.0 * median:
-            return {"period": None, "delta": None, "baseline_spread": median}
+            return no_step
         idx = best_i + 1  # the period the level changed TO
+        before = ys[idx - 1]
+        midpoint = before + best_d / 2.0
+        post = [y for y in ys[idx:] if y is not None]
+        if post:
+            if best_d > 0:
+                held = sum(1 for y in post if y > midpoint)
+            else:
+                held = sum(1 for y in post if y < midpoint)
+            if held / float(len(post)) < 0.7:
+                return no_step
         period = idx
         if labels is not None:
             try:
                 period = list(labels)[idx]
             except Exception:
                 period = idx
-        return {"period": period, "delta": best_d, "baseline_spread": median}
+        direction = "up" if best_d > 0 else "down"
+        return {"period": period, "delta": best_d, "direction": direction,
+                "baseline_spread": median}
     except Exception:
         return failed
 

@@ -317,6 +317,25 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertIsNone(finding_trend([1.0, 2.0])["direction"])  # too short for a p
         self.assertIsNone(finding_trend(None)["direction"])
 
+    def test_step_change_direction_down_on_persistent_decline(self):
+        out = finding_step_change([50.0, 50.5, 49.8, 50.2, 20.0, 19.5, 20.3, 19.8])
+        self.assertEqual(out["period"], 4)
+        self.assertEqual(out["direction"], "down")
+        self.assertLess(out["delta"], 0)
+
+    def test_step_change_suppressed_on_oscillating_series(self):
+        # The covid-wave misfit: a stand-out drop (passes the 3x-spread
+        # magnitude gate) followed by recovery ABOVE the break is a wave, not
+        # a regime change — the persistence gate must return no step.
+        # deltas: 0.5, -0.7, 0.4, -30.2, 28, 4, 3 -> median |d| = 3, so the
+        # -30.2 drop is a 10x-spread "step"; but post values [20, 48, 52, 55]
+        # re-cross the midpoint (35.1) — only 1/4 stay below.
+        out = finding_step_change([50.0, 50.5, 49.8, 50.2, 20.0, 48.0, 52.0, 55.0])
+        self.assertIsNone(out["period"])
+        self.assertIsNone(out["delta"])
+        self.assertIsNone(out["direction"])
+        self.assertIsNotNone(out["baseline_spread"])
+
     def test_step_change_at_known_index(self):
         labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"]
         out = finding_step_change([10.0, 10.2, 9.9, 10.1, 15.0, 15.2, 14.9], labels=labels)

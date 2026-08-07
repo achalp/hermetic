@@ -32,7 +32,11 @@ import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { projectManifestForPrompt } from "@/lib/findings/project";
-import { lintUnitPhrase, lintSentinelInterpolation } from "@/lib/findings/lints";
+import {
+  lintUnitPhrase,
+  lintSentinelInterpolation,
+  lintSignedLanguage,
+} from "@/lib/findings/lints";
 import type { FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
@@ -704,12 +708,14 @@ export async function composeAndStreamDashboard(args: {
     lineCount++;
     if (result.patch) composedPatches.push(result.patch as PatchLike);
     if (result.line.includes('"$state"')) sawStateBinding = true;
+    const proseLintLookup = {
+      findings: findingValueMap,
+      results: (executionResult.results ?? {}) as Record<string, unknown>,
+    };
     for (const issue of [
       ...lintUnitPhrase(result.raw, unitByName),
-      ...lintSentinelInterpolation(result.raw, {
-        findings: findingValueMap,
-        results: (executionResult.results ?? {}) as Record<string, unknown>,
-      }),
+      ...lintSentinelInterpolation(result.raw, proseLintLookup),
+      ...lintSignedLanguage(result.raw, proseLintLookup),
     ]) {
       proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
     }
