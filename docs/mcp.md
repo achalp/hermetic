@@ -117,8 +117,8 @@ dashboard **inside the chat window** instead of behind the link:
 
 ### Declared findings (manifest)
 
-When `findings.mode` is `"on"` (runtime-config; default `"shadow"` collects
-without shipping), `analyze`/`analyze_result` responses carry a
+When `findings.mode` is `"on"` (the default; `"shadow"` collects without
+shipping and `"off"` disables — runtime-config), `analyze`/`analyze_result` responses carry a
 `findings` envelope — `{ manifest_version, findings: [...] }` — plus a
 `findings_truncated` flag when the response cap (50 entries / 8 KB) trimmed
 it. Each entry: `name`, `definition`, `dtype`, optional `unit`/`tags`/

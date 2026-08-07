@@ -33,6 +33,8 @@ import type { AnalysisWindow } from "@/lib/contracts/warehouse-schema";
 import type { SubQuestionResult } from "@/lib/contracts/investigation";
 import type { InvestigationPlan, PlannedSubQuestion } from "@/lib/llm/investigate-planner";
 import { logger } from "@/lib/logger";
+import { projectManifestForPrompt } from "@/lib/findings/project";
+import type { FindingsManifest } from "@/lib/contracts/findings";
 
 // ── Helpers (mirrors the inline ones in /api/query/route.ts) ─────────
 // Exported for reuse by the per-step cell composer (step-cell-composer.ts).
@@ -235,6 +237,7 @@ function buildComposerUserPrompt(args: {
   mergedChartData: Record<string, unknown>;
   analysisWindow?: AnalysisWindow;
   sampleRows?: number;
+  findings?: FindingsManifest;
 }): string {
   const stepBlocks = args.perStepMetadata
     .map((m) => {
@@ -285,6 +288,7 @@ ${stepBlocks}
 
 ## Results Schema (across all steps)
 ${JSON.stringify(resultsSchema)}
+${buildInvestigateFindingsSection(args.findings)}
 
 ${resultPlaceholderLine({
   components: " in StatCard / TextBlock / TrendIndicator",
@@ -306,6 +310,9 @@ export interface ComposeArgs {
   plan: InvestigationPlan;
   schema: CSVSchema;
   subResults: SubQuestionResult[];
+  /** Merged, step-namespaced findings manifest (declared-findings §7.5) —
+   *  present only when findings.mode === "on"; the caller owns the policy. */
+  findings?: import("@/lib/contracts/findings").FindingsManifest;
   uiComposeModel?: string;
   /** Output style — shapes the dashboard's form (density/framing/tone). */
   purpose?: string;
@@ -538,6 +545,22 @@ export const __testing = { parseGapCheckOutput };
  * `initialState` into the spec's state on first patch (mirrors how
  * /api/query streams its base state).
  */
+
+/**
+ * §7.5 synthesis projection: step-namespaced finding names + scrubbed
+ * definitions (values-blind, same boundary as the single-shot composer).
+ * The synthesis binds "$finding:step_N.<name>[.<field>]".
+ */
+function buildInvestigateFindingsSection(manifest?: FindingsManifest): string {
+  if (!manifest || manifest.findings.length === 0) return "";
+  const { projections, omitted } = projectManifestForPrompt(manifest.findings);
+  return `
+
+## Declared Findings (bind these — never restate)
+Bind values via "$finding:<name>" (names are step-qualified, e.g. "$finding:step_2.churn_trend.direction"). Claims a finding supports must bind it; steps whose findings DISAGREE about the same measure must be reconciled or scoped explicitly, never averaged over.
+${JSON.stringify(projections, null, 1)}${omitted.length > 0 ? `\n(${omitted.length} findings omitted for space: ${omitted.join(", ")})` : ""}`;
+}
+
 export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
   const { mergedResults, mergedChartData, perStepMetadata } = flattenStepArtifacts(args.subResults);
 
@@ -553,6 +576,7 @@ export function composeInvestigation(args: ComposeArgs): ComposeStreamOutput {
     mergedChartData,
     analysisWindow: args.analysisWindow,
     sampleRows: args.sampleRows,
+    findings: args.findings,
   });
 
   logger.info("Investigate: composing dashboard", {

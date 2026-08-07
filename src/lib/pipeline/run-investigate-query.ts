@@ -744,6 +744,9 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           plan,
           schema: stored.schema,
           subResults,
+          // §7.5 synthesis binding — consumers receive the manifest only in
+          // mode "on" (assembled above, before composition).
+          ...(fMode === "on" && investigationFindings ? { findings: investigationFindings } : {}),
           uiComposeModel,
           purpose: context.purpose,
           // Warehouse investigations cover the materialized pull's time
@@ -821,9 +824,17 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // Shared finalization stage (placeholder resolution + $state repair),
         // identical to Ask mode. Investigate inlines per-step data via
         // $chartData/$result, so no DataController $state repair is needed.
+        const investigateFindingValues = Object.fromEntries(
+          (fMode === "on" ? (investigationFindings?.findings ?? []) : []).map((f) => [
+            f.name,
+            f.value,
+          ])
+        );
+        const citedFindingNames = new Set<string>();
         const finalize = createSpecFinalizer({
           results: mergedResults,
           chartData: mergedChartData,
+          findings: investigateFindingValues,
         });
 
         let buffer = "";
@@ -835,6 +846,9 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           for (const line of lines) {
             const r = finalize(line);
             if (r.skip) continue;
+            for (const m of r.raw.matchAll(/\$finding:(step_\d+\.[a-zA-Z0-9_]+)/g)) {
+              citedFindingNames.add(m[1]);
+            }
             ingestComposedLine(r.raw, r.patch);
             emit(r.line + "\n");
           }
@@ -897,6 +911,19 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             citedSteps: [...citedSteps].sort((a, b) => a - b),
             grounded,
             successfulStepNos: successfulStepNos(trace),
+            // §7.5: unnarrated findings + cross-step coherence, advisory.
+            ...(fMode === "on" && investigationFindings
+              ? {
+                  findings: {
+                    declared: investigationFindings.findings.map((f) => f.name),
+                    cited: [...citedFindingNames],
+                    issues: [
+                      ...lintDerivations(investigationFindings.findings),
+                      ...lintCrossStepReconciliation(investigationFindings.findings),
+                    ].map((i) => i.detail),
+                  },
+                }
+              : {}),
           });
           trace.grounding = grounding; // shared ref — updates the cached entry
           if (

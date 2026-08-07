@@ -460,3 +460,14 @@ Deliberately NOT shipped (with reasons):
 - Skill-shipped audit rules hook (P3) — the review gate audits all code
   incl. skill helpers already; a per-skill rule registry awaits a real skill
   needing it.
+
+**Amendment (2026-08-06, product decision):** shadow-first rollout SKIPPED —
+`findings.mode` defaults to **"on"**; full pipeline live everywhere
+(code-gen declarations, composer projection + $finding binding, grounding
+advisories, MCP manifest, investigate synthesis binding). The §8 kill
+criteria remain operative via the flag (`shadow`/`off` are the fallback
+lever, one runtime-config edit, no restart). §9's metrics still record on
+every run — the baseline now accrues in production rather than before it.
+Remaining deferred: the re-planner working-memory prompt block (§7.4's
+planner-side injection; the merged manifest already reaches artifacts and
+the synthesis) and the provenance popover.
