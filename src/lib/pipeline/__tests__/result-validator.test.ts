@@ -189,6 +189,22 @@ describe("findings collapse (menu run regression)", () => {
     execution_ms: 1,
   };
   const nullTrend = { direction: null, slope_per_period: 0, p_value: 1 };
+  const flatDegenerate = { direction: "flat", slope_per_period: 0, p_value: 1 };
+
+  it("counts 'flat' with slope 0 / p 1 as degenerate (run-23 regression)", () => {
+    const exec = {
+      ...base,
+      findings: [
+        { name: "t1", value: flatDegenerate },
+        { name: "t2", value: flatDegenerate },
+        { name: "t3", value: flatDegenerate },
+        { name: "t4", value: flatDegenerate },
+        { name: "ok", value: { direction: "rising", slope_per_period: 0.4, p_value: 0.001 } },
+      ],
+    } as never;
+    const verdict = validateExecutionResult(exec);
+    expect(verdict.ok).toBe(false);
+  });
 
   it("fails validation when most findings are null/degenerate beside real charts", () => {
     const exec = {

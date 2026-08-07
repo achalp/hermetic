@@ -296,11 +296,22 @@ def finding_trend(values, unit=None):
     Returns {"direction": "rising"|"falling"|"flat", "slope_per_period",
     "p_value"} (plus "unit" passthrough when given). "flat" means the slope's
     two-sided t-test p >= 0.05, not slope == 0. Never raises; a series too
-    short or degenerate for inference → {"direction": None, ...}.
+    short or degenerate for inference → {"direction": None, ...}. DEGENERATE
+    GATE: an all-zero series, or one where >50% of inputs were dropped as
+    missing, returns direction None — slope 0 / p 1 five findings in a row is
+    the signature of a regression over nulled data, and labeling it "flat"
+    turns a pipeline failure into a confident false claim (a series rising
+    243 -> 52,868 was narrated as "flat trajectory").
     """
     failed = {"direction": None, "slope_per_period": None, "p_value": None}
     try:
         pts = _clean_series(values)
+        try:
+            total = len(list(values))
+        except Exception:
+            total = len(pts)
+        if pts and (all(y == 0 for _x, y in pts) or (total > 0 and len(pts) < 0.5 * total)):
+            return failed
         n = len(pts)
         if n < 3:
             return failed

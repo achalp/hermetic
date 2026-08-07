@@ -942,6 +942,23 @@ export async function composeAndStreamDashboard(args: {
       // dropped is INJECTED server-side — the server has both the plan and
       // the values, so a missing required tile needs no model. Injected
       // elements are appended to the first StatCard-bearing grid (or root).
+      // Duplicate tiles (same label+value StatCard twice) read as filler.
+      const tileSigs = new Map<string, number>();
+      for (const p of composedPatches) {
+        const val = p.value as { type?: unknown; props?: { label?: unknown; value?: unknown } };
+        if (val && typeof val === "object" && val.type === "StatCard") {
+          const sig = JSON.stringify([val.props?.label, val.props?.value]);
+          tileSigs.set(sig, (tileSigs.get(sig) ?? 0) + 1);
+        }
+      }
+      for (const [sig, n] of tileSigs) {
+        if (n > 1) {
+          proseLintIssues.set(`duplicate_tile:${sig}`, {
+            kind: "duplicate_tile",
+            detail: `headline tile ${sig} appears ${n} times`,
+          });
+        }
+      }
       const missingTiles = headlinePlan.filter(
         (tile) => !composedPatches.some((p) => JSON.stringify(p.value ?? {}).includes(tile.binding))
       );

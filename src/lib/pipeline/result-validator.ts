@@ -84,7 +84,12 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     const allNull = (val: unknown): boolean => {
       if (val === null || val === undefined) return true;
       if (typeof val !== "object" || Array.isArray(val)) return false;
-      const leaves = Object.values(val as Record<string, unknown>);
+      const rec = val as Record<string, unknown>;
+      // slope exactly 0 with p exactly 1 is a regression that never ran —
+      // "flat" beside them doesn't make the finding real (run-23: five such
+      // trends narrated as flat over a series rising 243 -> 52,868).
+      if (rec.slope_per_period === 0 && rec.p_value === 1) return true;
+      const leaves = Object.values(rec);
       return leaves.length > 0 && leaves.every((x) => x === null || x === 0 || x === 1);
     };
     const nulled = findingEntries.filter((f) => allNull((f as { value?: unknown })?.value)).length;

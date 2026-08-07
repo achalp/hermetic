@@ -429,6 +429,18 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertIsNone(finding_current_state([None, None])["period"])
         self.assertIsNone(finding_current_state("garbage")["period"])
 
+    def test_trend_degenerate_gate_all_zero_and_mostly_dropped(self):
+        # An all-zero series (zeros that were nulled medians) must NOT be
+        # labeled "flat" — slope 0 / p 1 is a regression that never ran.
+        out = finding_trend([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.assertIsNone(out["direction"])
+        # >50% of inputs missing → degenerate, not a trend.
+        sparse = [None, None, None, None, None, None, None, 1.0, 2.0, 3.0]
+        self.assertIsNone(finding_trend(sparse)["direction"])
+        # A real constant nonzero series may still report; a real rise reports.
+        rising = finding_trend([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        self.assertEqual(rising["direction"], "rising")
+
     def test_step_change_thin_period_gate(self):
         # The 2005 menu artifact: a persistent-looking step whose edge
         # periods have ~22 observations against a median of ~230 is sparse
