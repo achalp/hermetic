@@ -12,14 +12,30 @@ user code runs, and a crash on import would take down every analysis.
 
 from . import guards
 from .coerce import safe_float, safe_int, to_native
+from .findings import (
+    declare_finding,
+    finding_decompose,
+    finding_heterogeneity,
+    finding_step_change,
+    finding_trend,
+    get_findings,
+    reset_findings,
+)
 from .frames import numeric, safe_qcut, to_num
 from .guards import assert_fits
 from .output import write_output
 
 __all__ = [
     "assert_fits",
+    "declare_finding",
+    "finding_decompose",
+    "finding_heterogeneity",
+    "finding_step_change",
+    "finding_trend",
+    "get_findings",
     "guards",
     "numeric",
+    "reset_findings",
     "safe_float",
     "safe_int",
     "safe_qcut",

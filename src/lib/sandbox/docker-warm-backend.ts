@@ -99,7 +99,9 @@ export class DockerWarmBackend implements WarmSandboxBackend {
           CONTAINER_NAME,
           "sh",
           "-c",
-          "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt",
+          // findings.jsonl included: a stale sidecar in a reused container would
+          // leak a previous run's declarations into this run's manifest.
+          "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt /data/findings.jsonl",
         ],
         { timeoutMs: 5_000 }
       );

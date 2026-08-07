@@ -287,8 +287,10 @@ export function extractCitedSteps(text: string): number[] {
  */
 export function extractPlaceholderCitedSteps(text: string): number[] {
   const steps = new Set<number>();
-  for (const m of text.matchAll(/\$(?:result|chartData):step_(\d+)_/g)) {
-    const n = Number(m[1]);
+  // $finding:step_N. citations count too — without this, new-mechanism
+  // syntheses would false-fire "step never used" (declared-findings §7.5).
+  for (const m of text.matchAll(/\$(?:result|chartData):step_(\d+)_|\$finding:step_(\d+)\./g)) {
+    const n = Number(m[1] ?? m[2]);
     if (Number.isInteger(n) && n > 0) steps.add(n);
   }
   return [...steps].sort((a, b) => a - b);
@@ -314,6 +316,18 @@ export interface VerifyArgs {
    * callers without result scalars skip the check.
    */
   results?: Record<string, unknown>;
+  /**
+   * Declared-findings inputs (spec §3.4/§3.5), computed by the compose
+   * layer (it alone sees pre-resolution bindings): declared names, cited
+   * names, coherence issue details, and the question-primary miss (if any).
+   * Optional — absent pre-findings and when findings.mode is not "on".
+   */
+  findings?: {
+    declared: string[];
+    cited: string[];
+    issues: string[];
+    questionPrimaryMiss?: string;
+  };
 }
 
 // ── Directional claims ───────────────────────────────────────────────
@@ -423,11 +437,25 @@ export function verifyGrounding(args: VerifyArgs): GroundingReport {
     }
   }
 
+  // §3.4 declared-but-ignored + §3.5 question-primary + coherence issues —
+  // all advisory, all pre-computed by the caller; this function assembles
+  // the report so every caveat rides one channel.
+  const f = args.findings;
+  const unnarrated = f ? f.declared.filter((n) => !f.cited.includes(n)) : [];
+
   return {
-    ok: ungrounded.length === 0 && contradictions.length === 0,
+    ok:
+      ungrounded.length === 0 &&
+      contradictions.length === 0 &&
+      unnarrated.length === 0 &&
+      (f?.issues.length ?? 0) === 0 &&
+      !f?.questionPrimaryMiss,
     checkedCount,
     ungrounded,
     ...(contradictions.length > 0 ? { contradictions } : {}),
+    ...(unnarrated.length > 0 ? { unnarratedFindings: unnarrated } : {}),
+    ...(f?.questionPrimaryMiss ? { questionPrimaryMiss: f.questionPrimaryMiss } : {}),
+    ...(f && f.issues.length > 0 ? { findingIssues: f.issues } : {}),
     citedSteps: [...citedSet].sort((a, b) => a - b),
     uncitedSuccessfulSteps,
   };

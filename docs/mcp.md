@@ -115,6 +115,25 @@ dashboard **inside the chat window** instead of behind the link:
   "open the full dashboard" tile inline — `dashboard_url` still carries the
   complete view.
 
+### Declared findings (manifest)
+
+When `findings.mode` is `"on"` (runtime-config; default `"shadow"` collects
+without shipping), `analyze`/`analyze_result` responses carry a
+`findings` envelope — `{ manifest_version, findings: [...] }` — plus a
+`findings_truncated` flag when the response cap (50 entries / 8 KB) trimmed
+it. Each entry: `name`, `definition`, `dtype`, optional `unit`/`tags`/
+`method`, `value`, optional `derived_from_findings`/`derived_from_columns`,
+`code_ref` ("script.py:<line>" into the generated analysis code), and
+`redeclarations`. `verify_narrative` ships the same manifest as
+`structural_checks` with an explicit caveat string.
+
+**Contract stability:** the GRAMMAR (envelope, entry field names,
+`manifest_version`) is stable and bumps semver; the `dtype`/`tags`
+vocabulary is OPEN by design — rely on structure, never on a dtype enum.
+These are structural checks, not truth verification: definitions and values
+come from the analysis code (inspectable at `code_ref`), unreviewed for
+correctness. Entries persisted before 2026-08 have no manifest.
+
 ### Sharing a dashboard
 
 `analyze` also returns an `export_url` beside `dashboard_url`: the same

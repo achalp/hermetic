@@ -10,11 +10,20 @@ import {
 } from "@/lib/export-utils";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { InvestigationTrace, TraceStep } from "@/lib/contracts/investigation";
+import type { FindingsManifest } from "@/lib/contracts/findings";
 import { CodeEditor } from "./code-editor";
+import { FindingsTab, GroundingAdvisories } from "./findings-tab";
 import { rerunCode, ApiError } from "@/app/lib/api";
 
 interface ArtifactsViewerProps {
   artifacts: CachedArtifacts;
+  /**
+   * Declared-findings manifest for this run (declared-findings spec §11
+   * phase 1). Optional twice over: legacy runs have none, and the pipeline
+   * threading lands separately — when omitted we also probe the artifacts
+   * payload itself, which gains an optional `findings` field.
+   */
+  findings?: FindingsManifest;
   /** csv_id — required for re-run. When omitted, the editor is read-only. */
   csvId?: string | null;
   /** Active sandbox runtime, passed through to the rerun endpoint. */
@@ -33,7 +42,7 @@ interface ArtifactsViewerProps {
   onRequestRerun?: (edits: { code?: string; sql?: string }) => void;
 }
 
-type Tab = "trail" | "sql" | "code" | "data";
+type Tab = "trail" | "sql" | "code" | "data" | "findings";
 
 /** A normalized view of one artifacts source — either the top-level cached
  *  result or a single investigation step the user selected from the trail. */
@@ -184,6 +193,7 @@ function DataSection({
 
 export function ArtifactsViewer({
   artifacts,
+  findings: findingsProp,
   csvId,
   sandboxRuntime,
   onRerunSuccess,
@@ -191,6 +201,12 @@ export function ArtifactsViewer({
 }: ArtifactsViewerProps) {
   const investigation = artifacts.investigation;
   const [copied, setCopied] = useState(false);
+
+  // UI-layer widening only: the artifacts payload gains an optional
+  // `findings` in the pipeline threading that lands in parallel; the shared
+  // CachedArtifacts contract is not ours to edit from here, so we probe.
+  const findings =
+    findingsProp ?? (artifacts as CachedArtifacts & { findings?: FindingsManifest }).findings;
 
   // Investigation trail: which step (if any) the user is inspecting. `null`
   // means the default top-level view (the last successful step's artifacts).
@@ -240,6 +256,10 @@ export function ArtifactsViewer({
   // exists (e.g. stuck on "trail" after an Ask replaced an Investigate →
   // blank panel) and a stale activeStepNo can silently select the
   // same-numbered step of an unrelated trace.
+  // Pending code_ref deep-link target from the Findings tab. The nonce lets
+  // a second click on the same ref re-trigger the scroll.
+  const [codeTarget, setCodeTarget] = useState<{ line: number; nonce: number } | null>(null);
+
   const [prevArtifacts, setPrevArtifacts] = useState(artifacts);
   if (artifacts !== prevArtifacts) {
     setPrevArtifacts(artifacts);
@@ -247,7 +267,18 @@ export function ArtifactsViewer({
     setTab(investigation ? "trail" : artifacts.sql ? "sql" : "code");
     setEditsByView({});
     setEditedSql(artifacts.sql ?? "");
+    setCodeTarget(null);
   }
+
+  // Findings-tab code_ref click → Python tab, scrolled to the cited line.
+  // code_ref line numbers are generated-code-relative (spec §2.4), i.e. they
+  // index the TOP-LEVEL script — so clear any selected trail step, whose
+  // editor shows different code.
+  const openCodeRef = useCallback((line: number) => {
+    setActiveStepNo(null);
+    setTab("code");
+    setCodeTarget((t) => ({ line, nonce: (t?.nonce ?? 0) + 1 }));
+  }, []);
 
   const editedCode = editsByView[viewKey] ?? view.code;
   const setEditedCode = useCallback(
@@ -468,6 +499,19 @@ export function ArtifactsViewer({
         >
           Data
         </button>
+        {/* Always shown — a legacy run must say "no manifest", never hide
+            the surface (spec §6, review P11). */}
+        <button
+          onClick={() => setTab("findings")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "findings"
+              ? "border-b-2 border-accent text-accent"
+              : "text-t-secondary hover:text-t-primary"
+          }`}
+          style={{ transitionDuration: "var(--transition-speed)" }}
+        >
+          Findings
+        </button>
         <span className="ml-auto mr-4 flex items-center gap-3 text-xs text-t-tertiary">
           {activeStep && tab !== "trail" && (
             <button
@@ -653,6 +697,9 @@ export function ArtifactsViewer({
             readOnly={!csvId}
             onChange={setEditedCode}
             height={360}
+            // Deep-link only at the top-level view: code_ref lines index the
+            // top-level generated script, not a trail step's.
+            scrollToLine={activeStepNo == null && codeTarget ? codeTarget : undefined}
           />
           {!view.sql && rerunState.kind === "idle" && csvId && (
             <p className="px-4 py-2 text-xs" style={{ color: "var(--color-surface-dark-text3)" }}>
@@ -663,6 +710,10 @@ export function ArtifactsViewer({
           )}
         </div>
       )}
+
+      {/* Findings tab — the declared-findings inspectability surface
+          (spec §11 phase 1); code_ref links jump into the Python tab. */}
+      {tab === "findings" && <FindingsTab findings={findings} onOpenCodeRef={openCodeRef} />}
 
       {/* Data tab */}
       {tab === "data" && (
@@ -774,6 +825,9 @@ function InvestigationTrail({
               {g.uncitedSuccessfulSteps.join(", Step ")}.
             </p>
           )}
+          {/* Findings-era advisory checks (contradictions, un-narrated
+              findings, …) — same fields the caveat banner surfaces. */}
+          <GroundingAdvisories grounding={g} />
         </div>
       )}
 

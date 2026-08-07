@@ -1,6 +1,7 @@
 "use client";
 
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
+import type { FindingsManifest } from "@/lib/contracts/findings";
 import { ArtifactsViewer } from "./artifacts-viewer";
 
 interface ArtifactsPanelProps {
@@ -9,6 +10,12 @@ interface ArtifactsPanelProps {
   onClose: () => void;
   onToggleFullscreen: () => void;
   artifacts: CachedArtifacts | null;
+  /**
+   * Declared-findings manifest for this run (declared-findings spec §11
+   * phase 1). Optional: callers that don't thread it yet fall back to the
+   * viewer probing the artifacts payload; legacy runs have none at all.
+   */
+  findings?: FindingsManifest;
   /** csv_id — required to enable Edit-and-Re-run on the Code tab. */
   csvId?: string | null;
   sandboxRuntime?: string;
@@ -30,6 +37,7 @@ export function ArtifactsPanel({
   onClose,
   onToggleFullscreen,
   artifacts,
+  findings,
   csvId,
   sandboxRuntime,
   onRerunSuccess,
@@ -139,6 +147,7 @@ export function ArtifactsPanel({
           {artifacts ? (
             <ArtifactsViewer
               artifacts={artifacts}
+              findings={findings}
               csvId={csvId}
               sandboxRuntime={sandboxRuntime}
               onRerunSuccess={onRerunSuccess}

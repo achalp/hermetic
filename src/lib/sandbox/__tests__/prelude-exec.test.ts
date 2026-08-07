@@ -78,9 +78,18 @@ describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
     expect(results.pair).toEqual([1, 2]);
   });
 
-  it("always writes the four top-level keys, even for a bare call", () => {
+  it("always writes the five top-level keys, even for a bare call", () => {
     const out = runPrelude(`write_output()`);
-    expect(Object.keys(out).sort()).toEqual(["chart_data", "datasets", "images", "results"]);
+    // findings joined the envelope with the declared-findings feature
+    // (spec §2.1) — empty array for a run that declared nothing.
+    expect(Object.keys(out).sort()).toEqual([
+      "chart_data",
+      "datasets",
+      "findings",
+      "images",
+      "results",
+    ]);
+    expect(out.findings).toEqual([]);
   });
 
   it("caps datasets['main'] at 5000 rows and records the true total in _main_total", () => {

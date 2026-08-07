@@ -151,6 +151,9 @@ export interface CachedArtifacts {
   execution_ms: number;
   /** SQL query generated for warehouse data sources */
   sql?: string;
+  /** Validated declared-findings manifest (spec §1); absent pre-findings
+   *  and when findings.mode=off. */
+  findings?: import("./findings").FindingsManifest;
   /**
    * Full audit trail for an Investigate run: every sub-question's code +
    * result, the re-planner's decisions, and the narrative grounding verdict.

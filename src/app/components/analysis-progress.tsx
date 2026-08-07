@@ -3,6 +3,7 @@
 import type { Spec } from "@/lib/contracts/spec";
 import { readStreamState, type PlanStep } from "@/lib/contracts/stream-state";
 import { ProgressCard, type ProgressStep } from "@/app/components/progress-card";
+import { GroundingAdvisories, hasGroundingAdvisories } from "@/app/components/findings-tab";
 import type { DrillLevel } from "@/app/components/spec-insights";
 
 /**
@@ -227,7 +228,11 @@ export function InvestigationCaveats({ spec }: { spec: Spec | null }) {
   const hasDq =
     !!dq && (dq.degraded?.length ?? 0) + (dq.failed?.length ?? 0) + (dq.removed?.length ?? 0) > 0;
   const hasUngrounded = !!g && g.ok === false && (g.ungrounded?.length ?? 0) > 0;
-  if (!hasDq && !hasUngrounded) return null;
+  // Findings-era advisory fields (declared-findings spec §3.4/§3.5) — a
+  // report can carry them even when every figure traced (ok === true), so
+  // they gate independently of hasUngrounded.
+  const hasAdvisories = !!g && hasGroundingAdvisories(g);
+  if (!hasDq && !hasUngrounded && !hasAdvisories) return null;
 
   return (
     <div className="mb-3 flex flex-col gap-2">
@@ -245,6 +250,22 @@ export function InvestigationCaveats({ spec }: { spec: Spec | null }) {
           number{g!.ungrounded!.length === 1 ? "" : "s"} in the narrative could not be traced to a
           computed result: {g!.ungrounded!.join(", ")}. See the artifacts Trail for each step&apos;s
           code.
+        </div>
+      )}
+      {hasAdvisories && (
+        // Same warn banner idiom as the untraceable-figures message above —
+        // these are advisory consistency checks, never a verdict on truth.
+        <div
+          className="border px-3 py-2 text-sm"
+          style={{
+            borderRadius: "var(--radius-card)",
+            borderColor: "var(--color-warning-border)",
+            background: "var(--color-warning-bg)",
+            color: "var(--color-warning-text)",
+          }}
+        >
+          <span className="font-medium">Advisory checks on the narrative:</span>
+          <GroundingAdvisories grounding={g!} />
         </div>
       )}
       {hasDq && (

@@ -12,6 +12,7 @@ import type {
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import { MAX_SAMPLE_ROWS } from "@/lib/constants";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
+import { findingsMode } from "@/lib/findings/mode";
 import { activateSkills } from "@/lib/skills/registry";
 import { buildUserModulesSection } from "@/lib/skills/user-modules";
 import { preloadedExtrasLine } from "@/lib/sandbox/runtime-files";
@@ -160,6 +161,21 @@ export function buildCodeGenSystemPrompt(
   // always over-produces and the composer discards the excess (wasted compute).
   const scopeNote = purpose ? `\n- ${getPurposeCodegenScope(purpose)}` : "";
 
+  // Declared-findings instructions (declared-findings spec §2): active in
+  // shadow AND on (shadow collects manifests without shipping them — the
+  // §8 rollout needs real declarations to measure). "off" removes the
+  // surface entirely.
+  const findingsNote =
+    findingsMode() === "off"
+      ? ""
+      : `
+- DECLARED FINDINGS: whenever you compute a claim-bearing result (a trend verdict, a step change, a decomposition, a comparison, a superlative), ALSO declare it where you compute it:
+      declare_finding("churn_rate_trend", trend_dict,
+          definition="OLS direction of monthly_churn_rate over the period",
+          dtype="direction", unit="pp",
+          derived_from_columns=["monthly_churn_rate"], tags=["trend"])
+  Rules: call it ADJACENT to the computation (declare what you discovered, when you discover it); names are ^[a-z][a-z0-9_]*$ and unique (loops: embed the group in the name); definition/method/unit MUST be plain string literals — NEVER f-strings or concatenation (a definition describes the measure; the VALUE carries the numbers); derived_from_findings names other declared findings a verdict rests on (a verdict derived from a decomposition must agree with its dominant term); keep values small (one scalar or one small dict — never a table). Helpers finding_trend(values), finding_step_change(values, labels), finding_decompose(total, terms), finding_heterogeneity(groups) return ready dicts — a library, not a menu: compute bespoke findings freely. declare_finding never raises and needs no cleanup.`;
+
   // Computed Findings contract (grounded-narrative spec, 2026-08-06): the
   // composer that narrates these results runs VALUES-BLIND (metadata mode) —
   // it can only bind computed values, never read them. So every claim the
@@ -194,7 +210,7 @@ Your job is to write a single Python script that:
    least one entry. (It writes "/data/output.json".)
 
 Rules:
-- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}${scopeNote}${findingsContract}
+- IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}${scopeNote}${findingsContract}${findingsNote}
 - Use pandas for all data manipulation.
 - For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.
 - For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.

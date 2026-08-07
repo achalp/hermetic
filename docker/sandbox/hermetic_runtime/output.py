@@ -1,20 +1,26 @@
 """write_output — the ONE way generated code should emit its results."""
 
 from .coerce import to_native
+from .findings import get_findings
 
 
-def write_output(results=None, chart_data=None, datasets=None, images=None):
+def write_output(results=None, chart_data=None, datasets=None, images=None, findings=None):
     """Write /data/output.json in the required envelope structure.
 
     Coerces NaN/Inf/numpy/Timestamp/Decimal to JSON-safe values and caps each
     dataset at 5000 rows (recording the true total for 'main' so the dashboard
-    can disclose sampling). Always writes all four top-level keys.
+    can disclose sampling). Always writes all five top-level keys. The
+    findings key needs NO argument — the declare_finding registry is the
+    truth (specs/declared-findings-2026-08-06.md §2.1); findings= exists only
+    as an explicit override. Entries were coerced at declaration time; the
+    to_native here is belt-and-braces.
     """
     out = {
         "results": to_native(results if results is not None else {}),
         "chart_data": to_native(chart_data if chart_data is not None else {}),
         "datasets": {},
         "images": to_native(images if images is not None else {}),
+        "findings": to_native(findings if findings is not None else get_findings()),
     }
     try:
         import pandas as pd

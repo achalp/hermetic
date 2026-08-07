@@ -69,8 +69,12 @@ export const MCP_SERVER_NAME = "hermetic";
  * 0.7.0: `dashboard_data` (app-only visibility) — the iframe's pull channel
  *        for the dashboard payload, working around hosts that strip
  *        structuredContent from ui/notifications/tool-result.
+ * 0.8.0: declared-findings manifest (`findings` + `findings_truncated`) on
+ *        analyze/analyze_result when findings.mode="on" — the grammar
+ *        (envelope/entry fields) is stable; dtype/tag vocabulary is OPEN
+ *        by design (rely on structure, never a dtype enum).
  */
-export const MCP_SERVER_VERSION = "0.7.0";
+export const MCP_SERVER_VERSION = "0.8.0";
 
 interface ToolTextResult {
   [key: string]: unknown;

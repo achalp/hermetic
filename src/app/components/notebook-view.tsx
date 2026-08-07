@@ -28,6 +28,7 @@ import { registry } from "@/components/registry";
 import { renderWithCitations } from "@/components/registry-primitives";
 import { RendererErrorBoundary } from "@/components/renderer-error-boundary";
 import { CodeEditor } from "@/app/components/code-editor";
+import { GroundingAdvisories } from "@/app/components/findings-tab";
 import { Markdown } from "@/app/components/markdown";
 import { MiniTable, recordsToTable } from "@/app/components/artifacts-viewer";
 import { buildNotebookMarkdown, buildNotebookHtml } from "@/lib/notebook-export";
@@ -477,6 +478,10 @@ function SynthesisCell({
             )}
           </p>
         )}
+        {/* Findings-era advisory checks (declared-findings spec §3.4/§3.5):
+            contradictions, un-narrated findings, question-primary miss,
+            findings-coherence issues. Renders nothing on legacy reports. */}
+        {grounding && <GroundingAdvisories grounding={grounding} />}
         {decisions && decisions.length > 0 && (
           <Disclosure label="How the agent got here">
             <ol className="flex flex-col gap-2 text-xs text-t-secondary">

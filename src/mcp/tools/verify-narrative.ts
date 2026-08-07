@@ -15,6 +15,9 @@ import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { McpToolError, unknownSource } from "../errors";
+import { findingsMode } from "@/lib/findings";
+import { capFindingsForResponse } from "./analyze";
+import type { FindingsManifest } from "@/lib/contracts/findings";
 
 /** The McpDeps slice verify_narrative consumes (see LivenessDeps for the pattern). */
 export type VerifyNarrativeDeps = Pick<
@@ -59,6 +62,7 @@ export async function verifyNarrative(
   // from hermetic's own artifacts cache, so a host cannot validate its prose
   // against numbers it invented.
   let results = args.results;
+  let cachedFindings: FindingsManifest | undefined;
   let chartData = args.chart_data;
   let anchor: "server" | "caller-supplied" = "caller-supplied";
   if (args.source_id) {
@@ -82,6 +86,7 @@ export async function verifyNarrative(
     }
     results = cached.results;
     chartData = cached.chart_data;
+    cachedFindings = cached.findings;
     anchor = "server";
   }
   if (!results && !chartData) {
@@ -104,6 +109,18 @@ export async function verifyNarrative(
     checked_count: report.checkedCount,
     ungrounded: report.ungrounded,
     grounded_value_count: grounded.length,
+    // The declared-findings manifest (definitions + code_refs) is the host
+    // model's semantic-audit surface (spec §5) — shipped alongside the
+    // numeric verdict when the run declared findings and mode is "on".
+    // These are STRUCTURAL checks, not truth verification.
+    ...(cachedFindings && findingsMode() === "on"
+      ? {
+          structural_checks: capFindingsForResponse(cachedFindings),
+          structural_checks_caveat:
+            "Findings are structurally checked (declared at computation time, definitions " +
+            "inspectable at code_ref) — hermetic has not verified them as true.",
+        }
+      : {}),
     advice:
       anchor === "caller-supplied" && report.ungrounded.length === 0
         ? "All numbers trace to the values YOU supplied — pass `source_id` to verify " +

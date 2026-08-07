@@ -473,7 +473,10 @@ function summarizeResultsForReplanner(completed: SubQuestionResultSummary[]): st
   if (completed.length === 0) return "(no sub-questions completed yet)";
   const lines: string[] = [];
   for (const r of completed) {
-    lines.push(`### Step ${r.index} — ${r.status.toUpperCase()}`);
+    // 1-based, matching the composer's step_N namespace and finding refs —
+    // the old 0-based header disagreed with every other step surface
+    // (declared-findings spec §7.0 prerequisite).
+    lines.push(`### Step ${r.index + 1} — ${r.status.toUpperCase()}`);
     lines.push(`Question: ${r.question}`);
     if (r.rationale) lines.push(`Rationale: ${r.rationale}`);
     if (r.status === "failed" && r.errorPreview) {

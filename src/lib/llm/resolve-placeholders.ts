@@ -213,9 +213,50 @@ export function harvestStateKeys(patch: unknown, valid: ValidStateKeys): void {
 export function resolveSpecPlaceholders(
   line: string,
   results: Record<string, unknown>,
-  chartData: Record<string, unknown>
+  chartData: Record<string, unknown>,
+  /** Declared-findings values by (possibly step-qualified) name — enables
+   *  `$finding:<name>[.<field>]` binding (declared-findings spec §4.2). */
+  findings: Record<string, unknown> = {}
 ): string {
   let processed = line;
+
+  // ── $finding substitution (declared-findings spec §4.2) ─────────
+  // Same three shapes the $result: history proved LLMs emit: object-form,
+  // standalone value-form, and inline-in-prose. Runs FIRST so a finding
+  // named like a result key resolves as the finding the composer bound.
+  if (Object.keys(findings).length > 0) {
+    // Object-form: {"$finding": "name"} → resolved value.
+    processed = processed.replace(
+      /\{\s*"\$finding"\s*:\s*"([^"]+)"\s*\}/g,
+      (match, keyPath: string) => {
+        const value = resolveKeyPath(findings, keyPath.trim().replace(/^\$?finding:/, ""));
+        return value === undefined ? match : JSON.stringify(unwrapScalar(value));
+      }
+    );
+    // Value-form: "prop": "$finding:name" or "$finding:name.field".
+    processed = processed.replace(/"\$finding:([^"]+)"/g, (_match, keyPath: string) => {
+      const value = resolveKeyPath(findings, keyPath.trim());
+      if (value === undefined) return _match;
+      return JSON.stringify(unwrapScalar(value));
+    });
+    // Inline-form: mid-sentence. Structured values need a `.field` path —
+    // a bare "shares" finding must not print a JSON object into prose, so
+    // objects resolve only when the path reached a leaf.
+    const inlineFindingRegex =
+      /\$finding:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=\.(?![a-zA-Z0-9_])|[^a-zA-Z0-9_.]|$)/g;
+    processed = processed.replace(inlineFindingRegex, (_match, keyPath: string) => {
+      const raw = resolveKeyPath(findings, keyPath.trim());
+      if (raw === undefined) return _match;
+      const value = unwrapScalar(raw);
+      if (typeof value === "number") {
+        return Number.isInteger(value) ? String(value) : parseFloat(value.toFixed(4)).toString();
+      }
+      if (typeof value === "boolean") return value ? "Yes" : "No";
+      if (value === null) return "null";
+      if (typeof value === "object") return _match; // needs a .field path
+      return String(value);
+    });
+  }
 
   // ── Pass 0: object-form placeholders ───────────────────────────
   // LLMs sometimes emit {"$result": "key"} / {"$chartData": "key"} (the
@@ -357,15 +398,19 @@ export function resolveSpecPlaceholders(
     void recordFailure({
       stage: "compose",
       kind: "compose",
-      errorClass: "compose_key_unresolved",
+      // Findings get their own class (spec §4.2): a recurring miss here means
+      // the composer bound a name the manifest never carried.
+      errorClass: token.includes("$finding:")
+        ? "compose_finding_unresolved"
+        : "compose_key_unresolved",
       detail: token,
     });
   };
-  processed = processed.replace(/"\$(?:result|chartData):[^"\n]+"/g, (m) => {
+  processed = processed.replace(/"\$(?:result|chartData|finding):[^"\n]+"/g, (m) => {
     recordMiss(m, "value");
     return "null";
   });
-  if (/\$(?:result|chartData):/.test(processed)) {
+  if (/\$(?:result|chartData|finding):/.test(processed)) {
     // Consume the WHOLE malformed key, including punctuation a bad key may embed
     // from a data value (".", ",", "-" — e.g. "$result:..._on-demand_pct"). The
     // earlier passes only match `[a-zA-Z0-9_.]`, so a hyphen would truncate the
@@ -373,7 +418,7 @@ export function resolveSpecPlaceholders(
     // ("-demand_pct") in the prose. Match the full key-ish run so nothing leaks.
     // (Only unresolved survivors reach here — resolved placeholders were already
     // replaced — so aggressive consumption is safe.)
-    processed = processed.replace(/\$(?:result|chartData):[a-zA-Z0-9_.,-]+/g, (m) => {
+    processed = processed.replace(/\$(?:result|chartData|finding):[a-zA-Z0-9_.,-]+/g, (m) => {
       recordMiss(m, "inline");
       return "";
     });

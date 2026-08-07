@@ -24,6 +24,8 @@ import { viewUrl, exportUrl } from "../view-url";
 import { CHART_ROW_CAP } from "../caps";
 import { McpToolError, unknownSource } from "../errors";
 import { UI_PAYLOAD_KEY, dashboardUiPayload } from "../app-ui";
+import { findingsMode } from "@/lib/findings";
+import type { FindingsManifest } from "@/lib/contracts/findings";
 
 /** The McpDeps slice analyze consumes (see LivenessDeps for the pattern). */
 export type AnalyzeDeps = Pick<
@@ -83,10 +85,39 @@ export const analyzeInput = {
 // `datasets` are never returned (boundary invariant) — these are the
 // aggregates the dashboard itself charts.
 
+/**
+ * MCP response surface cap for the findings manifest (declared-findings
+ * spec §4.3): tighter than the storage cap — host context is billed.
+ * Truncates largest-first with an explicit flag, mirroring
+ * chart_data_truncated_keys; NEVER silently.
+ */
+export const FINDINGS_RESPONSE_MAX_ENTRIES = 50;
+export const FINDINGS_RESPONSE_MAX_BYTES = 8_000;
+
+export function capFindingsForResponse(manifest: FindingsManifest): {
+  findings: FindingsManifest;
+  findings_truncated?: { dropped: number; total: number };
+} {
+  let entries = [...manifest.findings];
+  const total = entries.length;
+  const size = () => Buffer.byteLength(JSON.stringify(entries), "utf-8");
+  if (entries.length > FINDINGS_RESPONSE_MAX_ENTRIES || size() > FINDINGS_RESPONSE_MAX_BYTES) {
+    entries.sort((a, b) => JSON.stringify(a.value).length - JSON.stringify(b.value).length);
+    entries = entries.slice(0, FINDINGS_RESPONSE_MAX_ENTRIES);
+    while (entries.length > 0 && size() > FINDINGS_RESPONSE_MAX_BYTES) entries.pop();
+  }
+  const dropped = total - entries.length;
+  return {
+    findings: { manifest_version: manifest.manifest_version, findings: entries },
+    ...(dropped > 0 ? { findings_truncated: { dropped, total } } : {}),
+  };
+}
+
 export function capArtifacts(artifacts: {
   results?: Record<string, unknown>;
   chart_data?: Record<string, unknown>;
   sql?: string;
+  findings?: FindingsManifest;
 }): Record<string, unknown> {
   const chart: Record<string, unknown> = {};
   const truncated: string[] = [];
@@ -103,6 +134,11 @@ export function capArtifacts(artifacts: {
     chart_data: chart,
     chart_data_truncated_keys: truncated,
     ...(artifacts.sql ? { sql: artifacts.sql } : {}),
+    // Declared findings ship to hosts ONLY in mode "on" (spec §8); the
+    // response cap keeps host context bounded with truncation flagged.
+    ...(artifacts.findings && findingsMode() === "on"
+      ? capFindingsForResponse(artifacts.findings)
+      : {}),
   };
 }
 

@@ -15,6 +15,9 @@ import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { findingsMode, mergeDeclarations, validateFindings, lintDerivations } from "@/lib/findings";
+import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
+import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { WAREHOUSE_SCAN_ROW_BUDGET } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
@@ -394,6 +397,43 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
 
         // Cache artifacts for the artifacts viewer
         const { executionResult } = pipelineResult;
+
+        // ── Declared findings (spec §3/§8): merge → validate → lint. Runs
+        // in shadow AND on (the rollout needs real manifests to measure);
+        // "off" skips entirely. Shadow ships to NO consumer — the manifest
+        // lands only in the artifacts record and diagnostics.
+        const mode = findingsMode();
+        let findingsManifest: FindingsManifest | undefined;
+        let findingIssues: FindingIssue[] = [];
+        if (mode !== "off" && Array.isArray(executionResult.findings)) {
+          const merged = mergeDeclarations(
+            executionResult.findings.filter(
+              (f): f is FindingEntry =>
+                !!f && typeof f === "object" && !("__dropped__" in (f as object))
+            )
+          );
+          const referenceNames = [
+            ...stored.schema.columns.map((c) => c.name),
+            ...Object.keys(executionResult.results ?? {}),
+            ...merged.map((m) => m.name),
+          ];
+          const validated = validateFindings(merged, { referenceNames });
+          findingsManifest = validated.manifest;
+          findingIssues = [...validated.issues, ...lintDerivations(validated.manifest.findings)];
+          diagEvent("findings", {
+            mode,
+            declared: executionResult.findings.length,
+            kept: findingsManifest.findings.length,
+            dropped: validated.droppedCount,
+            issues: findingIssues.map((i) => i.kind),
+            compliance: findingsManifest.findings.length > 0,
+          });
+        } else if (mode !== "off") {
+          // Zero declarations: advisory only, NEVER a retry (spec §8 — a
+          // retry teaches speculative declaration).
+          diagEvent("findings", { mode, declared: 0, kept: 0, dropped: 0, compliance: false });
+        }
+
         const cachedArtifactData = {
           code: pipelineResult.generatedCode,
           question,
@@ -402,6 +442,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           datasets: (executionResult.datasets ?? {}) as Record<string, Record<string, unknown>[]>,
           execution_ms: executionResult.execution_ms ?? 0,
           sql: warehouseSQL,
+          ...(findingsManifest ? { findings: findingsManifest } : {}),
         };
         cacheArtifacts(csvId, cachedArtifactData);
 
@@ -420,6 +461,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         await composeAndStreamDashboard({
           executionResult,
           opts: {
+            // Consumers receive the manifest ONLY in mode "on" (spec §8).
+            ...(mode === "on" && findingsManifest
+              ? { findings: { manifest: findingsManifest, issues: findingIssues } }
+              : {}),
             question,
             schema: stored.schema,
             schemaMode,

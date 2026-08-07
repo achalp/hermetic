@@ -31,6 +31,8 @@ import { catalog } from "@/lib/catalog";
 import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
+import { projectManifestForPrompt } from "@/lib/findings/project";
+import type { FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
 import {
@@ -45,6 +47,13 @@ import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { FilterValue } from "@/lib/contracts/spec-types";
 
 export interface DashboardComposeOpts {
+  /**
+   * Declared-findings manifest for THIS run, present ONLY when
+   * findings.mode === "on" (the caller owns the rollout policy — spec §8:
+   * shadow ships to no consumer). Enables the §4.1 projection block, the
+   * $finding: resolver pass, and the §3.4/§3.5 grounding fields.
+   */
+  findings?: { manifest: FindingsManifest; issues: FindingIssue[] };
   question: string;
   schema: CSVSchema;
   schemaMode: SchemaMode;
@@ -495,6 +504,22 @@ function buildComposeRules(args: {
 }
 
 /**
+ * §4.1 projection block: the values-blind composer receives finding NAMES,
+ * scrubbed definitions, dtypes, and field names — never values. Whole-entry
+ * budget with the omissions named, so the ignored-findings check can skip
+ * entries the composer never saw.
+ */
+function buildFindingsSection(manifest?: FindingsManifest): string {
+  if (!manifest || manifest.findings.length === 0) return "";
+  const { projections, omitted } = projectManifestForPrompt(manifest.findings);
+  return `
+
+## Declared Findings (bind these — never restate)
+The analysis DECLARED these findings; their values bind via "$finding:<name>" (or "$finding:<name>.<field>" for structured ones — value_fields lists the fields). Every claim a finding supports must be bound from it, not paraphrased around it. A finding you deliberately do not narrate should usually still appear in a chart or table.
+${JSON.stringify(projections, null, 1)}${omitted.length > 0 ? `\n(${omitted.length} findings omitted for space: ${omitted.join(", ")})` : ""}`;
+}
+
+/**
  * Pure: build the compose `userPrompt` + `customRules` for a single-shot
  * dashboard, plus the dataset analysis the stream step consumes. No I/O —
  * a plain assembly of the section builders above.
@@ -510,6 +535,7 @@ export function buildDashboardComposeRequest(
 
   const userPrompt =
     buildCorePrompt(executionResult, question, schemaMode, analysis.useDataController) +
+    buildFindingsSection(opts.findings?.manifest) +
     buildDatasetSection(analysis, schemaMode) +
     buildDrillDownSection(drillDownContext) +
     buildHistorySection(priorTurns, question) +
@@ -592,9 +618,20 @@ export async function composeAndStreamDashboard(args: {
       }
     : null;
 
+  // §4.2: finding values bind by (bare) name in single-shot compose.
+  const findingValues = Object.fromEntries(
+    (opts.findings?.manifest.findings ?? []).map((f) => [f.name, f.value])
+  );
+  // §3.4 citation tracking: which declared findings the composer actually
+  // bound, scanned on the PRE-resolution line (post-resolution the token is
+  // gone). Base name only — a .field binding cites the finding.
+  const citedFindings = new Set<string>();
+  const headlineBound = new Set<string>();
+
   const finalize = createSpecFinalizer({
     results: executionResult.results,
     chartData: executionResult.chart_data,
+    findings: findingValues,
     imagePlaceholders,
     validStateKeys,
     mutatePatch: (patch) => {
@@ -644,6 +681,15 @@ export async function composeAndStreamDashboard(args: {
     if (result.skip) return null;
     lineCount++;
     if (result.patch) composedPatches.push(result.patch as PatchLike);
+    for (const m of result.raw.matchAll(/\$finding:([a-zA-Z0-9_]+)/g)) {
+      citedFindings.add(m[1]);
+      // Headline coverage (§3.5): bindings inside StatCard elements.
+      const isStatCard =
+        result.patch?.value &&
+        typeof result.patch.value === "object" &&
+        (result.patch.value as { type?: unknown }).type === "StatCard";
+      if (isStatCard) headlineBound.add(m[1]);
+    }
     return result.line;
   };
 
@@ -728,6 +774,38 @@ export async function composeAndStreamDashboard(args: {
       );
       const datasets = executionResult.datasets as Record<string, unknown> | undefined;
       if (datasets) grounded.push(...collectGroundedValues({}, datasets));
+      // §3.5 question-primary heuristic, deliberately low-noise: the finding
+      // tagged "question-primary", else the one whose full name (tokens) the
+      // question contains. A miss counts only when the finding is bound in
+      // NO StatCard *and* no StatCard binds a $result key sharing its tokens
+      // (the tile may legitimately bind the equivalent result scalar).
+      let questionPrimaryMiss: string | undefined;
+      const declaredEntries = opts.findings?.manifest.findings ?? [];
+      if (declaredEntries.length > 0) {
+        const q = opts.question.toLowerCase();
+        const primary =
+          declaredEntries.find((e) => e.tags?.includes("question-primary")) ??
+          declaredEntries.find((e) => {
+            const tokens = e.name.split("_").filter((t) => t.length > 2);
+            return tokens.length > 0 && tokens.every((t) => q.includes(t));
+          });
+        if (primary && !headlineBound.has(primary.name)) {
+          const tokens = primary.name.split("_").filter((t) => t.length > 2);
+          const statCardResultKeys = composedPatches
+            .filter(
+              (p) =>
+                p.value &&
+                typeof p.value === "object" &&
+                (p.value as { type?: unknown }).type === "StatCard"
+            )
+            .map((p) => JSON.stringify(p.value));
+          const coveredByResult = statCardResultKeys.some((json) =>
+            tokens.some((t) => json.toLowerCase().includes(t))
+          );
+          if (!coveredByResult) questionPrimaryMiss = primary.name;
+        }
+      }
+
       const report = verifyGrounding({
         narrativeTexts,
         citedSteps: [],
@@ -736,6 +814,16 @@ export async function composeAndStreamDashboard(args: {
         // Enables the directional-contradiction check: a story that denies
         // the engine's own computed trend verdict gets flagged.
         results: (executionResult.results ?? {}) as Record<string, unknown>,
+        ...(opts.findings
+          ? {
+              findings: {
+                declared: declaredEntries.map((e) => e.name),
+                cited: [...citedFindings],
+                issues: opts.findings.issues.map((i) => i.detail),
+                questionPrimaryMiss,
+              },
+            }
+          : {}),
       });
       if (!report.ok) {
         emit(JSON.stringify({ op: "add", path: "/state/__grounding", value: report }) + "\n");

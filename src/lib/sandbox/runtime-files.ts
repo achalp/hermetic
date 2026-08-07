@@ -16,7 +16,14 @@ import { logger } from "@/lib/logger";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import { hermeticPaths } from "@/lib/paths";
 
-const RUNTIME_MODULES = ["__init__.py", "coerce.py", "frames.py", "guards.py", "output.py"];
+const RUNTIME_MODULES = [
+  "__init__.py",
+  "coerce.py",
+  "frames.py",
+  "guards.py",
+  "output.py",
+  "findings.py",
+];
 
 function runtimeDir(): string {
   return hermeticPaths.sandboxRuntimeAssetsDir();

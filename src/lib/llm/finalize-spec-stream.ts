@@ -35,6 +35,8 @@ export interface SpecFinalizerConfig {
   results: Record<string, unknown>;
   /** Chart-data tables for `$chartData:` resolution. */
   chartData: Record<string, unknown>;
+  /** Declared-finding values by name, for `$finding:` resolution (spec §4.2). */
+  findings?: Record<string, unknown>;
   /** Ask only: IMAGE_PLACEHOLDER_<key> → base64 data URI. */
   imagePlaceholders?: Record<string, string>;
   /** Enables chart `$state` binding repair (Ask DataController flow). Null/omitted disables it. */
@@ -84,7 +86,12 @@ export function createSpecFinalizer(
     }
 
     // 2. Resolve $result / $chartData placeholders.
-    processed = resolveSpecPlaceholders(processed, config.results, config.chartData);
+    processed = resolveSpecPlaceholders(
+      processed,
+      config.results,
+      config.chartData,
+      config.findings ?? {}
+    );
 
     // 3-4. Structural passes need the parsed patch. Plain JSON.parse keeps a
     // safe round-trip for re-serialization; assembly consumers re-parse the

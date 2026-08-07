@@ -21,6 +21,7 @@ describe("hermeticRuntimeFiles", () => {
       "/data/hermetic_runtime/frames.py",
       "/data/hermetic_runtime/guards.py",
       "/data/hermetic_runtime/output.py",
+      "/data/hermetic_runtime/findings.py",
     ]);
     for (const f of files) expect(f.content.length).toBeGreaterThan(100);
     // Import purity: the package must not import pandas/numpy at module level

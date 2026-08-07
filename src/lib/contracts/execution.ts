@@ -10,6 +10,10 @@ export interface SandboxExecutionResult {
   images: Record<string, string>;
   datasets?: Record<string, Record<string, unknown>[]>;
   execution_ms: number;
+  /** Raw declare_finding entries from the sandbox registry, in declaration
+   *  order (declared-findings spec §2) — validated/merged host-side by
+   *  lib/findings; absent for pre-findings runs and findings.mode=off. */
+  findings?: unknown[];
 }
 
 export interface SandboxExecutionError {

@@ -17,6 +17,22 @@ export interface GroundingReport {
    * persisted before 2026-08-06 and on runs without trend keys.
    */
   contradictions?: string[];
+  /**
+   * Declared findings the narrative never bound (declared-findings spec
+   * §3.4) — the "computed August step, never mentioned" class. Optional:
+   * absent pre-findings and when findings.mode is not "on".
+   */
+  unnarratedFindings?: string[];
+  /**
+   * §3.5: the question-primary finding exists but is bound in no headline
+   * StatCard. Optional, same absence semantics as above.
+   */
+  questionPrimaryMiss?: string;
+  /**
+   * Findings coherence issues surfaced to the user (derivation
+   * contradictions etc. — FindingIssue.detail strings). Optional.
+   */
+  findingIssues?: string[];
   /** 1-based step numbers the narrative explicitly referenced. */
   citedSteps: number[];
   /** Successful steps whose data was never referenced in the narrative. */

@@ -1,6 +1,6 @@
 # Declared findings: the model generates the vocabulary, code grounds it
 
-**Date:** 2026-08-06 · **Status:** SPEC v2 (not yet implemented) ·
+**Date:** 2026-08-06 · **Status:** v2 — IMPLEMENTED (phases 1–3 + phase-5 core; §13) ·
 **Supersedes** the "findings as first-class taxonomy" roadmap item in
 `specs/grounded-narrative-2026-08-06.md` §5.
 
@@ -416,3 +416,47 @@ mechanical fixes folded in above); notable adjudications:
 - v1's `analysis.py:41` example was itself wrong twice (filename and
   offset, E5) — kept corrected in §2.4 as a reminder that inspectability
   claims need the same rigor as the code they cite.
+
+## 13. Implementation record (2026-08-06, same day)
+
+Shipped, default mode SHADOW per §8:
+
+- **P1 grammar**: contracts/findings.ts + lib/findings (meta-schema, limits,
+  last-wins merge, derivation/dominant-term lints, cross-step lints,
+  numeral-scrubbed projection, namespacing) — 13 lib tests.
+  `declare_finding` in BOTH runtimes (package + prelude fallback, atomic
+  override import), sidecar JSONL, never-raise, declaration-time coercion,
+  Python-AST literal rule, self-measuring prelude offset for
+  generated-code-relative code_refs, stat helpers with exact pure-python
+  p-values — 18 new unittest cases. Envelope carries `findings` (zod schema
+  extended — no silent strip), warm-container cleanup includes the sidecar,
+  runtime-config `findings.mode`, per-run diagnostics with compliance flag.
+  UI: artifacts "Findings" tab with real CodeMirror line-jump on code_ref,
+  §6 trust copy, legacy/no-manifest states; grounding advisories rendered
+  on all three surfaces — 9 component tests.
+- **P2 binding**: composer projection block (mode "on"), `$finding:` resolver
+  passes (value/inline/object forms; structured values refuse bare inline)
+  with BOTH final sweeps extended and a distinct failure class; pre-resolution
+  citation tracking; unnarrated/question-primary/coherence fields on
+  GroundingReport; MCP 0.8.0 with response caps + `findings_truncated`;
+  verify_narrative ships `structural_checks` + fixed caveat string.
+- **P3 audit**: review-gate FINDINGS AUDIT instruction (pre-execution — the
+  literal definitions sit beside the computing code, so the
+  "consistent-without-a-test" class is checkable before anything runs).
+- **P5 core**: re-planner headers fixed to 1-based (the §7.0 prerequisite),
+  citation regex counts `$finding:step_N.` bindings, per-step validate →
+  namespace → DAG-checked derivations → cross-step reconciliation lint,
+  merged manifest on investigate artifacts.
+
+Deliberately NOT shipped (with reasons):
+
+- **P4 retirement** — evidence-gated by §9's own rule; the naming-convention
+  prompt blocks stay until the shadow-baseline metrics clear the gate.
+- Investigate SYNTHESIS projection + re-planner working-memory injection
+  (§7.4/§7.5 prompts) — the merged manifest exists on artifacts; the prompt
+  plumbing is the next slice.
+- The P2 claim-provenance popover — Findings tab + code_ref jump shipped;
+  the in-dashboard popover is UI polish on top of the same data.
+- Skill-shipped audit rules hook (P3) — the review gate audits all code
+  incl. skill helpers already; a per-skill rule registry awaits a real skill
+  needing it.

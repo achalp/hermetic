@@ -62,6 +62,11 @@ export interface RuntimeConfig {
     maxHistoryEntries?: number;
     maxRunRecords?: number;
   };
+  /** Declared-findings rollout (spec §8): off | shadow (collect, ship to no
+   *  consumer — the default) | on (composer + MCP receive the manifest). */
+  findings?: {
+    mode?: "off" | "shadow" | "on";
+  };
 }
 
 // Resolved per call, not at import — a module-level const froze the pre-boot
@@ -157,6 +162,9 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
   }
   if (partial.retention !== undefined) {
     merged.retention = partial.retention === null ? undefined : partial.retention;
+  }
+  if (partial.findings !== undefined) {
+    merged.findings = partial.findings === null ? undefined : partial.findings;
   }
 
   // Atomic write: write to tmp then rename

@@ -369,15 +369,18 @@ def safe_int(x, default=None):
     f = safe_float(x, None)
     return default if f is None else int(f)
 
-def write_output(results=None, chart_data=None, datasets=None, images=None):
+def write_output(results=None, chart_data=None, datasets=None, images=None, findings=None):
     # Write /data/output.json in the required structure. Coerces NaN/Inf/numpy/
     # Timestamp/Decimal to JSON-safe values and caps each dataset at 5000 rows.
-    # Always writes the four top-level keys, so output is never silently empty.
+    # Always writes the five top-level keys, so output is never silently empty.
+    # findings needs NO argument — the declare_finding registry is the truth
+    # (spec declared-findings-2026-08-06 §2.1); findings= is an explicit override.
     out = {
         'results': _to_native(results if results is not None else {}),
         'chart_data': _to_native(chart_data if chart_data is not None else {}),
         'datasets': {},
         'images': _to_native(images if images is not None else {}),
+        'findings': _to_native(findings if findings is not None else _hermetic_findings),
     }
     try:
         import pandas as _pd
@@ -440,6 +443,83 @@ def safe_qcut(s, q, labels=None):
         except Exception:
             return _pd.cut(ser, min(k, 2), duplicates='drop')
 
+# ── Declared findings, fallback copy (spec declared-findings-2026-08-06 §2) ──
+# Minimal declare_finding so the name NEVER NameErrors on a degraded deploy:
+# registry append + sidecar JSONL + declaration-time coercion + code_ref. The
+# tested package version (hermetic_runtime.findings) adds the §2.2 literal-rule
+# AST check and overrides this below; the host scrubs regardless, so skipping
+# that check here loses defense-in-depth, not the wall itself.
+_hermetic_findings = []
+def declare_finding(name, value, definition, dtype, unit=None,
+                    derived_from_findings=None, derived_from_columns=None,
+                    tags=None, method=None):
+    # Declare a finding adjacent to its computation. Never raises; the value
+    # is coerced NOW — the frame is live, and a raw np.nan surviving to
+    # write_output would otherwise crash the run. Field names match
+    # contracts/findings.ts FindingEntry exactly.
+    try:
+        try:
+            _nm = name if isinstance(name, str) else str(name)
+        except Exception:
+            _nm = '<unprintable>'
+        _entry = {
+            'name': _nm,
+            'definition': definition if isinstance(definition, str) else str(definition),
+            'dtype': dtype if isinstance(dtype, str) else str(dtype),
+            'value': _to_native(value),
+        }
+        if unit is not None:
+            try: _entry['unit'] = unit if isinstance(unit, str) else str(unit)
+            except Exception: pass
+        for _fk, _fv in (('derived_from_findings', derived_from_findings),
+                         ('derived_from_columns', derived_from_columns),
+                         ('tags', tags)):
+            if _fv:
+                try: _entry[_fk] = [_x if isinstance(_x, str) else str(_x) for _x in list(_fv)]
+                except Exception: pass
+        if method is not None:
+            try: _entry['method'] = method if isinstance(method, str) else str(method)
+            except Exception: pass
+        # code_ref: generated-code-relative (§2.4) — subtract the prelude's
+        # self-measured line count (set at the END of this file), clamp at 1.
+        try:
+            _fr = _sys._getframe(1)
+            _ln = int(_fr.f_lineno)
+            _off = _fr.f_globals.get('_HERMETIC_PRELUDE_LINES')
+            if isinstance(_off, int) and not isinstance(_off, bool) and _off > 0:
+                _ln -= _off
+            _entry['code_ref'] = 'script.py:%d' % max(1, _ln)
+        except Exception:
+            pass
+        _hermetic_findings.append(_entry)
+        try:
+            with open('/data/findings.jsonl', 'a') as _sf:
+                _sf.write(_json_mod.dumps(_entry, default=str) + chr(10))
+        except Exception:
+            pass
+        return _entry
+    except Exception:
+        return None
+
+# The stat helpers live ONLY in the package (they carry real math + tests);
+# these stubs return each helper's documented never-raise failure shape so a
+# degraded deploy degrades the STATS, never NameErrors the analysis. The
+# model's own computation and declare_finding still work.
+def finding_trend(values, unit=None):
+    return {'direction': None, 'slope_per_period': None, 'p_value': None}
+def finding_step_change(values, labels=None):
+    return {'period': None, 'delta': None, 'baseline_spread': None}
+def finding_decompose(total_change, terms):
+    try:
+        _out = {str(_k): _v for _k, _v in dict(terms).items()}
+    except Exception:
+        _out = {}
+    _out['dominant'] = None
+    _out['residual'] = None
+    return _out
+def finding_heterogeneity(groups):
+    return {'significant': None, 'p_value': None, 'test': 'anova'}
+
 # ── Hermetic runtime package override (auto-injected) ────────────────────────
 # The helper definitions above are the LEGACY INLINE COPY. The host ships the
 # TESTED package (docker/sandbox/hermetic_runtime/) into /data/hermetic_runtime
@@ -454,6 +534,12 @@ try:
         _rt_sys.path.insert(0, "/data")
     import hermetic_runtime as _hrt
     from hermetic_runtime import safe_float, safe_int, write_output, to_num, numeric, safe_qcut
+    # One import statement for the findings surface: `import hermetic_runtime`
+    # above already failed atomically if findings.py didn't ship, so a partial
+    # override (package write_output reading a registry the fallback
+    # declare_finding never fills — the spec's E6 silent-loss class) can't occur.
+    from hermetic_runtime import (declare_finding, finding_trend, finding_step_change,
+        finding_decompose, finding_heterogeneity)
     from hermetic_runtime import to_native as _to_native
     _hrt.guards.configure(_MEM_LIMIT)
     assert_fits = _hrt.guards.assert_fits
@@ -496,3 +582,12 @@ if _hermetic_proxy:
             pass
     except ImportError:
         pass
+
+# ── Prelude line count (spec declared-findings-2026-08-06 §2.4) ──────────────
+# The generated script is appended DIRECTLY after this file, so declare_finding
+# must subtract the prelude's line count to make code_ref generated-code-
+# relative ("script.py:41" cites the statement it claims to). Self-measured —
+# the executing frame's line number ON the assignment below IS the prelude's
+# last line, never a hardcoded constant. This MUST stay the final line of the
+# file: anything added after it silently corrupts every code_ref.
+_HERMETIC_PRELUDE_LINES = __import__('inspect').currentframe().f_lineno

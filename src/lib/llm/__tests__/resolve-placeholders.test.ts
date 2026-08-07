@@ -81,3 +81,64 @@ describe("resolveSpecPlaceholders — never leak an unresolved placeholder", () 
     expect(out).toContain("percent");
   });
 });
+
+describe("$finding resolution (declared-findings spec §4.2)", () => {
+  const findings = {
+    churn_rate_trend: "falling",
+    rate_vs_volume_split: { rate: 1317.3, volume: 203.8, dominant: "rate" },
+  };
+
+  it("resolves value-form, field paths, and inline prose bindings", () => {
+    expect(
+      resolveSpecPlaceholders('{"value": "$finding:churn_rate_trend"}', {}, {}, findings)
+    ).toBe('{"value": "falling"}');
+    expect(
+      resolveSpecPlaceholders(
+        '{"content": "Churn is $finding:churn_rate_trend across 2024."}',
+        {},
+        {},
+        findings
+      )
+    ).toContain("Churn is falling across 2024.");
+    expect(
+      resolveSpecPlaceholders(
+        '{"content": "driven by $finding:rate_vs_volume_split.dominant"}',
+        {},
+        {},
+        findings
+      )
+    ).toContain("driven by rate");
+  });
+
+  it("object-form normalizes; bare structured inline does NOT print JSON", () => {
+    expect(
+      resolveSpecPlaceholders('{"value": {"$finding": "churn_rate_trend"}}', {}, {}, findings)
+    ).toBe('{"value": "falling"}');
+    // A structured finding without a .field path must not dump an object
+    // into prose — the token is left for the sweep instead.
+    const out = resolveSpecPlaceholders(
+      '{"content": "split: $finding:rate_vs_volume_split done"}',
+      {},
+      {},
+      findings
+    );
+    expect(out).not.toContain("1317");
+  });
+
+  it("the final sweeps strip unresolved $finding tokens instead of leaking them", () => {
+    const valueForm = resolveSpecPlaceholders(
+      '{"value": "$finding:ghost_metric"}',
+      {},
+      {},
+      findings
+    );
+    expect(valueForm).toBe('{"value": null}');
+    const inline = resolveSpecPlaceholders(
+      '{"content": "it was $finding:ghost_metric overall"}',
+      {},
+      {},
+      findings
+    );
+    expect(inline).not.toContain("$finding");
+  });
+});

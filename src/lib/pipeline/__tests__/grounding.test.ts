@@ -283,3 +283,43 @@ describe("directional contradiction check (grounded-narrative 2026-08-06)", () =
     expect(computedDirection({ note: "hello" })).toBe(null);
   });
 });
+
+describe("findings-aware grounding fields (declared-findings §3.4/§3.5)", () => {
+  const base = {
+    narrativeTexts: ["All good."],
+    citedSteps: [],
+    grounded: [1],
+    successfulStepNos: [],
+  };
+
+  it("reports declared-but-uncited findings and question-primary misses", () => {
+    const report = verifyGrounding({
+      ...base,
+      findings: {
+        declared: ["churn_rate_trend", "august_step", "rate_split"],
+        cited: ["churn_rate_trend"],
+        issues: [],
+        questionPrimaryMiss: "overall_churn_rate",
+      },
+    });
+    expect(report.ok).toBe(false);
+    expect(report.unnarratedFindings).toEqual(["august_step", "rate_split"]);
+    expect(report.questionPrimaryMiss).toBe("overall_churn_rate");
+  });
+
+  it("carries coherence issues and stays ok when everything is bound", () => {
+    const dirty = verifyGrounding({
+      ...base,
+      findings: { declared: ["a_metric"], cited: ["a_metric"], issues: ["verdict disagrees"] },
+    });
+    expect(dirty.ok).toBe(false);
+    expect(dirty.findingIssues).toEqual(["verdict disagrees"]);
+
+    const clean = verifyGrounding({
+      ...base,
+      findings: { declared: ["a_metric"], cited: ["a_metric"], issues: [] },
+    });
+    expect(clean.ok).toBe(true);
+    expect(clean.unnarratedFindings).toBeUndefined();
+  });
+});

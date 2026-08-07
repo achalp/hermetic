@@ -32,6 +32,10 @@ const SandboxEnvelopeSchema = z.object({
   images: z.record(z.string(), z.string()).optional(),
   // Named datasets, each a list of row objects.
   datasets: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))).optional(),
+  // Declared-findings registry (spec §2.1) — RAW entries; zod would silently
+  // strip an unlisted key, which is exactly how v1 of the spec lost every
+  // declaration in review. Validation happens in lib/findings, not here.
+  findings: z.array(z.unknown()).optional(),
 });
 
 const NO_OUTPUT_ERROR =
@@ -408,6 +412,7 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     chart_data: envelope.data.chart_data ?? {},
     images: envelope.data.images ?? {},
     datasets: envelope.data.datasets as Record<string, Record<string, unknown>[]> | undefined,
+    ...(envelope.data.findings ? { findings: envelope.data.findings } : {}),
     execution_ms: executionMs,
   };
 }

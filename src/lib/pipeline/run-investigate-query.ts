@@ -28,6 +28,20 @@ import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import { createSpecFinalizer, type SpecPatch } from "@/lib/llm/finalize-spec-stream";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
+  findingsMode,
+  mergeDeclarations,
+  validateFindings,
+  lintDerivations,
+  lintCrossStepDerivations,
+  lintCrossStepReconciliation,
+  namespaceFindings,
+} from "@/lib/findings";
+import {
+  FINDINGS_MANIFEST_VERSION,
+  type FindingEntry,
+  type FindingsManifest,
+} from "@/lib/contracts/findings";
+import {
   buildInvestigationTrace,
   successfulStepNos,
   TraceRecorder,
@@ -639,7 +653,58 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               execution_ms: prior?.execution_ms ?? 0,
               sql: warehouseSQL ?? prior?.sql,
             };
-        cacheArtifacts(csvId, { ...topLevel, investigation: trace });
+        // ── Declared findings, investigate shape (spec §7): validate each
+        // step's declarations under BARE names (the meta-schema forbids
+        // dots), then namespace to step_N.<name>, then run the cross-step
+        // lints (DAG-checked derivations; reconciliation of overlapping
+        // measures that disagree). Shadow collects; "on" ships (§8).
+        const fMode = findingsMode();
+        let investigationFindings: FindingsManifest | undefined;
+        if (fMode !== "off") {
+          const merged: FindingEntry[] = [];
+          subResults.forEach((r, idx) => {
+            const raw = r.result?.executionResult.findings;
+            if (!Array.isArray(raw)) return;
+            const entries = mergeDeclarations(
+              raw.filter(
+                (f): f is FindingEntry =>
+                  !!f && typeof f === "object" && !("__dropped__" in (f as object))
+              )
+            );
+            const stepNo = idx + 1; // 1-based, = planner index + 1 (§7.0)
+            const validated = validateFindings(entries);
+            const dagIssues = lintCrossStepDerivations(
+              validated.manifest.findings,
+              stepNo,
+              plan.subQuestions[idx]?.depends_on ?? []
+            );
+            if (dagIssues.length > 0) {
+              logger.warn("investigate findings: derivation outside depends_on DAG", {
+                stepNo,
+                issues: dagIssues.map((i) => i.detail),
+              });
+            }
+            merged.push(...namespaceFindings(stepNo, validated.manifest.findings));
+          });
+          if (merged.length > 0) {
+            const coherence = [...lintDerivations(merged), ...lintCrossStepReconciliation(merged)];
+            if (coherence.length > 0) {
+              logger.warn("investigate findings: cross-step coherence issues", {
+                issues: coherence.map((i) => `${i.kind}: ${i.detail}`),
+              });
+            }
+            investigationFindings = {
+              manifest_version: FINDINGS_MANIFEST_VERSION,
+              findings: merged,
+            };
+          }
+        }
+
+        cacheArtifacts(csvId, {
+          ...topLevel,
+          investigation: trace,
+          ...(investigationFindings ? { findings: investigationFindings } : {}),
+        });
 
         // Deterministic data-quality surfacing — guarantees degraded / failed
         // / dropped branches reach the user regardless of whether the composer
