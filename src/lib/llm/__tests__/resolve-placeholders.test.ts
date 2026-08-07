@@ -114,15 +114,16 @@ describe("$finding resolution (declared-findings spec §4.2)", () => {
     expect(
       resolveSpecPlaceholders('{"value": {"$finding": "churn_rate_trend"}}', {}, {}, findings)
     ).toBe('{"value": "falling"}');
-    // A structured finding without a .field path must not dump an object
-    // into prose — the token is left for the sweep instead.
+    // A small structured finding inline renders as PROSE ("rate: 1317, ...")
+    // — never as JSON syntax (run-26: refusing it left a caveat sentence
+    // truncated mid-thought while the values sat in the manifest).
     const out = resolveSpecPlaceholders(
       '{"content": "split: $finding:rate_vs_volume_split done"}',
       {},
       {},
       findings
     );
-    expect(out).not.toContain("1317");
+    expect(out).toContain("split: rate: 1317.3, volume: 203.8, dominant: rate done");
   });
 
   it("the final sweeps strip unresolved $finding tokens instead of leaking them", () => {
@@ -422,5 +423,37 @@ describe("field-name units — pct_from_peak renders with % (run-15 leak)", () =
       { churn_slope: "pp" }
     );
     expect(out).toContain("slope 0.9 pp overall");
+  });
+});
+
+describe("inline small-dict rendering — the vanished caveat (run-26)", () => {
+  it("renders a flat mapping as prose instead of sweeping it to nothing", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Thin decades flagged by the analysis: $finding:thin_decades.value."}',
+      {},
+      {},
+      { thin_decades: { value: { "2010s": 2, "1870s": 1 } } }
+    );
+    expect(out).toContain("Thin decades flagged by the analysis: 2010s: 2, 1870s: 1.");
+  });
+
+  it("still refuses large or nested objects inline", () => {
+    const big = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, i]));
+    const out = resolveSpecPlaceholders(
+      '{"content": "Breakdown: $finding:big.value in detail. Next sentence stands."}',
+      {},
+      {},
+      { big: { value: big } }
+    );
+    expect(out).not.toContain("k0");
+    expect(out).toContain("Next sentence stands.");
+    const nested = resolveSpecPlaceholders(
+      '{"content": "Shape: $finding:n.value here. After."}',
+      {},
+      {},
+      { n: { value: { a: { b: 1 } } } }
+    );
+    expect(nested).not.toContain("[object");
+    expect(nested).toContain("After.");
   });
 });

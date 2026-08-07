@@ -61,6 +61,9 @@ export function planHeadlineTiles(
     // A slope with p ~ 1 is noise — a null upstream must never render as a
     // confident 0 tile ("Median Price Trend (per yr): 0").
     if (typeof p === "number" && p > 0.05 && /slope/.test(field)) return false;
+    // Tautological delta: a distance-from-peak of exactly 0 means the
+    // current period IS the peak — "Current vs Peak: 0" informs nothing.
+    if (/pct_from_peak|_delta$|_change$/.test(field) && v === 0) return false;
     return true;
   };
   const tiles: HeadlineTile[] = [];

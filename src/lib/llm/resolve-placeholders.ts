@@ -341,6 +341,21 @@ function formatInlineNumber(value: number): string {
 
 const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** A flat dict of ≤6 scalar leaves renders inline as "k: v, k: v" prose.
+ *  Returns null for anything bigger or nested — those still refuse. */
+function renderSmallDictInline(value: unknown): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > 6) return null;
+  const parts: string[] = [];
+  for (const [k, val] of entries) {
+    if (val !== null && typeof val === "object") return null;
+    const shown = typeof val === "number" ? formatInlineNumber(val) : String(val);
+    parts.push(`${humanizeIfIdentifier(k)}: ${shown}`);
+  }
+  return parts.join(", ");
+}
+
 /** Unit encoded in a key/field NAME: "_pct" suffix or "pct_" prefix → "%",
  *  "_pp" suffix → "pp". Applied to the LAST path segment. */
 function keyNameUnit(keyPath: string): string | undefined {
@@ -424,7 +439,14 @@ export function resolveSpecPlaceholders(
             keyNameUnit(trimmed);
           return unit ? withUnit(num, unit, whole.slice(offset + _match.length)) : num;
         }
-        if (typeof value === "object") return _match; // needs a .field path
+        if (typeof value === "object") {
+          // Small flat mappings render as prose ("2010s: 2, 1870s: 1") —
+          // refusing them left "Thin decades flagged by the analysis:"
+          // followed by nothing (the token swept to empty). Anything
+          // larger/nested still refuses via the sweep.
+          const prose = renderSmallDictInline(value);
+          return prose ?? _match;
+        }
         return humanizeIfIdentifier(String(value));
       }
     );

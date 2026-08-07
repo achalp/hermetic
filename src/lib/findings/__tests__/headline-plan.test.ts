@@ -46,3 +46,23 @@ describe("planHeadlineTiles — the server owns the headline set", () => {
     expect(planHeadlineTiles([], {})).toHaveLength(0);
   });
 });
+
+describe("tautological-delta guard (run-26: 'Current vs Peak: 0')", () => {
+  it("skips a zero pct_from_peak tile; keeps a real one", () => {
+    const atPeak = [
+      {
+        name: "median_price_current_state",
+        definition: "ending state",
+        dtype: "current_state",
+        value: { period: "2012", value: 9.25, pct_from_peak: 0, excluded_trailing: 1 },
+      },
+    ];
+    expect(planHeadlineTiles(atPeak, {}).some((t) => t.binding.includes("pct_from_peak"))).toBe(
+      false
+    );
+    const below = [{ ...atPeak[0], value: { ...atPeak[0].value, pct_from_peak: -61.4 } }];
+    expect(planHeadlineTiles(below, {}).some((t) => t.binding.includes("pct_from_peak"))).toBe(
+      true
+    );
+  });
+});
