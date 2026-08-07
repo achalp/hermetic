@@ -708,3 +708,84 @@ export function lintDefinitionContradicted(findings: FindingEntry[]): FindingIss
   }
   return issues;
 }
+
+// ── Chart-consistency lint (run-30: null-vs-zero split across series) ──
+
+/**
+ * Two chart series in ONE payload disagreeing about the same (x, column)
+ * cell — 1966 max_price null in price_trend_over_time and 10000 in
+ * price_spread_over_time — is the screen applied to some series and not
+ * others; and a peak/max superlative naming a smaller value than a chart
+ * column beside it ships two answers. Deterministic, advisory.
+ */
+export function lintChartConsistency(
+  chartData: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  // Cell map: column -> xValue -> {nulls: series[], values: Map<series, number>}
+  const cells = new Map<string, Map<string, { nulls: string[]; nums: Map<string, number> }>>();
+  const xKeyOf = (row: Record<string, unknown>): string | undefined => {
+    for (const k of ["year", "month", "date", "period", "x", "label"]) {
+      if (k in row) return String(row[k]);
+    }
+    return undefined;
+  };
+  for (const [series, v] of Object.entries(chartData)) {
+    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+    if (!Array.isArray(rows)) continue;
+    for (const raw of rows) {
+      if (raw === null || typeof raw !== "object") continue;
+      const row = raw as Record<string, unknown>;
+      const x = xKeyOf(row);
+      if (x === undefined) continue;
+      for (const [col, val] of Object.entries(row)) {
+        if (["year", "month", "date", "period", "x", "label"].includes(col)) continue;
+        const byX = cells.get(col) ?? new Map();
+        cells.set(col, byX);
+        const cell = byX.get(x) ?? { nulls: [], nums: new Map() };
+        byX.set(x, cell);
+        if (val === null) cell.nulls.push(series);
+        else if (typeof val === "number") cell.nums.set(series, val);
+      }
+    }
+  }
+  let divergences = 0;
+  for (const [col, byX] of cells) {
+    for (const [x, cell] of byX) {
+      if (cell.nulls.length > 0 && cell.nums.size > 0 && divergences < 3) {
+        divergences++;
+        const [numSeries, num] = [...cell.nums.entries()][0];
+        issues.push({
+          kind: "chart_policy_divergence",
+          detail: `${col} at ${x} is null in ${cell.nulls[0]} but ${num} in ${numSeries} — the same cell under two policies; a screen applied to some series and not others`,
+        });
+      }
+    }
+  }
+  // Superlative vs chart max: a peak/max finding whose value a chart column exceeds.
+  for (const f of findings) {
+    if (!/peak|max/.test(f.name) || f.value === null || typeof f.value !== "object") continue;
+    const val = (f.value as Record<string, unknown>).value;
+    if (typeof val !== "number") continue;
+    const tokens = f.name.split(/[._]/).filter((t) => t.length > 2 && !["peak", "max"].includes(t));
+    for (const [col, byX] of cells) {
+      if (!tokens.some((t) => col.includes(t))) continue;
+      let best: { x: string; v: number } | null = null;
+      for (const [x, cell] of byX) {
+        for (const v of cell.nums.values()) {
+          if (!best || v > best.v) best = { x, v };
+        }
+      }
+      if (best && best.v > val * 1.05) {
+        issues.push({
+          kind: "superlative_contradicted_by_chart",
+          name: f.name,
+          detail: `${f.name} reports ${val} but chart column ${col} holds ${best.v} at ${best.x} — the finding and the chart beside it disagree about the maximum`,
+        });
+        break;
+      }
+    }
+  }
+  return issues;
+}

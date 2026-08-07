@@ -40,6 +40,7 @@ from .findings import (
     finding_step_change,
     finding_current_state,
     finding_yoy,
+    finding_split_comparison,
     finding_trend,
 )
 from .output import write_output
@@ -392,6 +393,18 @@ class TestFindingStatHelpers(unittest.TestCase):
         from hermetic_runtime.profile import profile_data_edges
         df = pd.DataFrame({"a": range(100), "b": ["x"] * 100})
         self.assertIsNone(profile_data_edges(df))
+
+    def test_split_comparison_pinned_midpoint(self):
+        labels = [str(1900 + i) for i in range(10)]
+        vals = [1.0, 1.0, 3.0, 1.0, 1.0, 8.0, 8.0, 10.0, 8.0, 8.0]
+        out = finding_split_comparison(labels, vals)
+        self.assertEqual(out["early_n"], 5)
+        self.assertEqual(out["late_n"], 5)
+        self.assertEqual(out["early_span"], "1900-1904")
+        self.assertEqual(out["late_span"], "1905-1909")
+        self.assertEqual(out["multiplier"], 8.0)
+        # Nones excluded before splitting; degenerate input all-None.
+        self.assertIsNone(finding_split_comparison(["a"], [1.0])["multiplier"])
 
     def test_yoy_like_for_like_on_partial_year(self):
         # 12 months of 2020 vs 10 of 2021: comparison must restrict to Jan-Oct

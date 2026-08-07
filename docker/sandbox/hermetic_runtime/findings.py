@@ -489,6 +489,56 @@ def finding_yoy(period_labels, values):
         return failed
 
 
+def finding_split_comparison(labels, values):
+    """Early-vs-late comparison with the windowing scheme PINNED: midpoint
+    split over the OBSERVED (non-None) series.
+
+    Three consecutive runs used three windowing schemes (span-based,
+    equal-n, midpoint) and produced multipliers of 7.9x, 34x, and 16.8x on
+    the same data — a headline that moves 4x on an invisible convention.
+    The midpoint split is the pinned scheme: it uses all the data and
+    reports both n's and both spans so imbalance is visible, not silent.
+
+    Pass the SAME series (same zero/outlier policy) the headline trend
+    uses — feeding this a differently-screened series is the two-zero-
+    policies bug. Returns {"early_median", "late_median", "early_n",
+    "late_n", "early_span", "late_span", "multiplier"}; degenerate input
+    returns all-None. Never raises.
+    """
+    failed = {"early_median": None, "late_median": None, "early_n": None,
+              "late_n": None, "early_span": None, "late_span": None,
+              "multiplier": None}
+    try:
+        pairs = [
+            (str(lab), safe_float(v))
+            for lab, v in zip(list(labels), list(values))
+        ]
+        pairs = [(lab, v) for lab, v in pairs if v is not None]
+        if len(pairs) < 6:
+            return failed
+        mid = len(pairs) // 2
+        early, late = pairs[:mid], pairs[mid:]
+
+        def med(vals):
+            s = sorted(vals)
+            n = len(s)
+            return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+        e_vals = [v for _l, v in early]
+        l_vals = [v for _l, v in late]
+        e_med, l_med = med(e_vals), med(l_vals)
+        mult = None if e_med == 0 else round(l_med / e_med, 1)
+        return {
+            "early_median": e_med, "late_median": l_med,
+            "early_n": len(early), "late_n": len(late),
+            "early_span": "%s-%s" % (early[0][0], early[-1][0]),
+            "late_span": "%s-%s" % (late[0][0], late[-1][0]),
+            "multiplier": mult,
+        }
+    except Exception:
+        return failed
+
+
 def finding_current_state(values, labels=None, window=6, coverage=None):
     """Where the series ENDS — from the last COMPLETE observation.
 

@@ -16,6 +16,7 @@ from .checks import declare_check
 from .findings import (
     declare_finding,
     finding_current_state,
+    finding_split_comparison,
     finding_decompose,
     finding_heterogeneity,
     finding_step_change,
@@ -33,6 +34,7 @@ __all__ = [
     "declare_check",
     "declare_finding",
     "finding_current_state",
+    "finding_split_comparison",
     "finding_decompose",
     "finding_heterogeneity",
     "finding_step_change",

@@ -12,6 +12,7 @@ import {
   lintNoChecksDeclared,
   lintMethodMismatch,
   lintDefinitionContradicted,
+  lintChartConsistency,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -419,5 +420,41 @@ describe("lintDefinitionContradicted — is_X false beside a definition assertin
     expect(issues[0].kind).toBe("definition_contradicted");
     const negated = { ...bad, definition: "min_price is NOT boolean; treated as continuous" };
     expect(lintDefinitionContradicted([negated])).toHaveLength(0);
+  });
+});
+
+describe("lintChartConsistency — one payload, one policy (run-30)", () => {
+  const chartData = {
+    price_trend_over_time: [
+      { year: 1966, max_price: null },
+      { year: 1980, avg_price: null, max_price: null },
+    ],
+    price_spread_over_time: [
+      { year: 1966, max_price: 10000 },
+      { year: 1980, avg_price: 836.5, max_price: 30000 },
+    ],
+  };
+
+  it("flags the same cell null in one series and valued in another", () => {
+    const issues = lintChartConsistency(chartData, []);
+    expect(issues.some((i) => i.kind === "chart_policy_divergence")).toBe(true);
+  });
+
+  it("flags a peak superlative a chart column exceeds; consistent data quiet", () => {
+    const peak = {
+      name: "peak_max_price",
+      definition: "highest recorded dish price",
+      dtype: "superlative",
+      value: { year: 1955, value: 7000 },
+    };
+    const issues = lintChartConsistency(chartData, [peak]);
+    expect(issues.some((i) => i.kind === "superlative_contradicted_by_chart")).toBe(true);
+    const clean = {
+      series_a: [{ year: 1966, max_price: 10000 }],
+      series_b: [{ year: 1966, max_price: 10000 }],
+    };
+    expect(
+      lintChartConsistency(clean, [{ ...peak, value: { year: 1966, value: 10000 } }])
+    ).toHaveLength(0);
   });
 });

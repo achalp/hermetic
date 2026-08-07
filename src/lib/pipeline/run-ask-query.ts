@@ -29,6 +29,7 @@ import {
   lintMethodMismatch,
   lintNullAncestry,
   lintDefinitionContradicted,
+  lintChartConsistency,
 } from "@/lib/findings";
 import { saveConventions } from "@/lib/learning/conventions";
 import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
@@ -464,6 +465,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintMethodMismatch(validated.manifest.findings),
             ...lintNullAncestry(validated.manifest.findings),
             ...lintDefinitionContradicted(validated.manifest.findings),
+            ...lintChartConsistency(
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
             ...lintTrendContract(validated.manifest.findings),
             ...lintRangeFabrication(validated.manifest.findings, executionResult.data_completeness),
             ...lintCompletenessConflict(
