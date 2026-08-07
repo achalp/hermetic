@@ -36,6 +36,7 @@ import {
   lintCrossStepReconciliation,
   lintUnitPhrase,
   lintSentinelInterpolation,
+  lintMissingLinkage,
   namespaceFindings,
 } from "@/lib/findings";
 import {
@@ -690,7 +691,11 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             merged.push(...namespaceFindings(stepNo, validated.manifest.findings));
           });
           if (merged.length > 0) {
-            const coherence = [...lintDerivations(merged), ...lintCrossStepReconciliation(merged)];
+            const coherence = [
+              ...lintDerivations(merged),
+              ...lintCrossStepReconciliation(merged),
+              ...lintMissingLinkage(merged),
+            ];
             if (coherence.length > 0) {
               logger.warn("investigate findings: cross-step coherence issues", {
                 issues: coherence.map((i) => `${i.kind}: ${i.detail}`),

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { lintUnitPhrase, lintSentinelInterpolation } from "@/lib/findings/lints";
+import {
+  lintUnitPhrase,
+  lintSentinelInterpolation,
+  lintMissingLinkage,
+} from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
   const units = new Map([
@@ -84,5 +88,44 @@ describe("lintSentinelInterpolation — flags/sentinels in word slots", () => {
         results,
       })
     ).toHaveLength(0);
+  });
+});
+
+describe("lintMissingLinkage — the unwritable attribution sentence", () => {
+  const step = {
+    name: "churn_rate_step_change",
+    definition: "largest month-over-month churn_rate jump vs baseline spread",
+    dtype: "step_change",
+    value: { period: "2024-08", delta: 4.4, baseline_spread: 0.46 },
+  };
+  const groups = {
+    name: "segment_churn_trends",
+    definition: "per-segment OLS churn_rate trends",
+    dtype: "distribution",
+    value: {
+      "Self-Serve": { direction: "rising", slope_per_period: 1.3597 },
+      Enterprise: { direction: "rising", slope_per_period: 0.1153 },
+    },
+  };
+
+  it("flags a step-change + per-group pair with no finding deriving from both", () => {
+    const issues = lintMissingLinkage([step, groups]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("missing_linking_finding");
+    expect(issues[0].detail).toContain("churn_rate_step_change");
+    expect(issues[0].detail).toContain("segment_churn_trends");
+  });
+
+  it("stays quiet when a linking finding exists, or either shape is absent", () => {
+    const link = {
+      name: "step_change_attribution",
+      definition: "the segment contributing most to the churn_rate step change",
+      dtype: "attribution",
+      value: { period: "2024-08", leading_group: "Self-Serve" },
+      derived_from_findings: ["churn_rate_step_change", "segment_churn_trends"],
+    };
+    expect(lintMissingLinkage([step, groups, link])).toHaveLength(0);
+    expect(lintMissingLinkage([step])).toHaveLength(0);
+    expect(lintMissingLinkage([groups])).toHaveLength(0);
   });
 });

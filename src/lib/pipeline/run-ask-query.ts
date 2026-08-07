@@ -15,7 +15,13 @@ import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { findingsMode, mergeDeclarations, validateFindings, lintDerivations } from "@/lib/findings";
+import {
+  findingsMode,
+  mergeDeclarations,
+  validateFindings,
+  lintDerivations,
+  lintMissingLinkage,
+} from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { WAREHOUSE_SCAN_ROW_BUDGET } from "@/lib/constants";
@@ -419,7 +425,11 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           ];
           const validated = validateFindings(merged, { referenceNames });
           findingsManifest = validated.manifest;
-          findingIssues = [...validated.issues, ...lintDerivations(validated.manifest.findings)];
+          findingIssues = [
+            ...validated.issues,
+            ...lintDerivations(validated.manifest.findings),
+            ...lintMissingLinkage(validated.manifest.findings),
+          ];
           diagEvent("findings", {
             mode,
             declared: executionResult.findings.length,

@@ -510,15 +510,28 @@ export function resolveSpecPlaceholders(
   // never resolves.
   const inlineResultRegex =
     /\$result:([a-zA-Z0-9_]+(?:\.[\w][^\n",}]*?)*?)(?=\.(?![a-zA-Z0-9_])|[^a-zA-Z0-9_.]|$)/g;
-  processed = processed.replace(inlineResultRegex, (_match, keyPath: string) => {
-    const raw = resolveKeyPath(results, keyPath.trim());
-    if (raw === undefined) return _match;
-    const value = unwrapScalar(raw);
-    if (isInlineRefused(value)) return refuseInline(_match);
-    if (typeof value === "number") return formatInlineNumber(value);
-    if (typeof value === "object") return JSON.stringify(value);
-    return humanizeIfIdentifier(String(value));
-  });
+  processed = processed.replace(
+    inlineResultRegex,
+    (_match, keyPath: string, offset: number, whole: string) => {
+      const trimmed = keyPath.trim();
+      const raw = resolveKeyPath(results, trimmed);
+      if (raw === undefined) return _match;
+      const value = unwrapScalar(raw);
+      if (isInlineRefused(value)) return refuseInline(_match);
+      if (typeof value === "number") {
+        const num = formatInlineNumber(value);
+        // Result keys carry units in their SUFFIX by convention (_pct/_pp) —
+        // render them so result-bound prose doesn't drop units either.
+        const seg = trimmed.split(".").pop() ?? trimmed;
+        const sfx = /_(pct|pp)$/.exec(seg)?.[1];
+        if (!sfx) return num;
+        const unit = sfx === "pct" ? "%" : "pp";
+        return withUnit(num, unit, whole.slice(offset + _match.length));
+      }
+      if (typeof value === "object") return JSON.stringify(value);
+      return humanizeIfIdentifier(String(value));
+    }
+  );
 
   // ── Final sweep: any "$result:"/"$chartData:" that survived every pass is
   // genuinely unresolvable (the composer named a key that was never computed,

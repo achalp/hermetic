@@ -324,3 +324,27 @@ describe("run-9 feedback fixes: sentence-level refusal, identifiers, tiny number
     expect(out).not.toContain("p = 0)");
   });
 });
+
+describe("$result suffix units — result-bound prose keeps its units", () => {
+  it("renders _pct as % (no space) and _pp with a space", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Self-Serve at $result:top_segment_churn_rate_pct, shifting $result:step_delta_pp in August"}',
+      { top_segment_churn_rate_pct: 9.59, step_delta_pp: 4.4 },
+      {}
+    );
+    expect(out).toContain("Self-Serve at 9.59%");
+    expect(out).toContain("shifting 4.4 pp in August");
+  });
+
+  it("does not double a unit the prose already carries", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Spread is $result:spread_pct% of revenue; rose $result:rise_pp pp"}',
+      { spread_pct: 23.4, rise_pp: 1.2 },
+      {}
+    );
+    expect(out).toContain("Spread is 23.4% of revenue");
+    expect(out).toContain("rose 1.2 pp");
+    expect(out).not.toContain("pp pp");
+    expect(out).not.toContain("%%");
+  });
+});

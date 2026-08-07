@@ -256,3 +256,44 @@ export function lintSentinelInterpolation(
   }
   return issues;
 }
+
+// ── Missing-linkage lint (run-10: "ten for ten") ─────────────────────
+
+/**
+ * A step-change finding and a per-group trends finding in the same manifest
+ * jointly imply an attribution ("which group drove the step") — but a
+ * values-blind composer cannot COMPUTE that link, only bind it. When no
+ * finding derives from both, the most decision-relevant sentence in the run
+ * is unwritable. Detection is STRUCTURAL (no dtype vocabulary): step-shaped
+ * = value carries period+delta fields; group-shaped = value is a dict of
+ * ≥2 sub-objects sharing a numeric field.
+ */
+export function lintMissingLinkage(findings: FindingEntry[]): FindingIssue[] {
+  const isObj = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+  const stepish = findings.filter(
+    (f) => isObj(f.value) && "period" in f.value && "delta" in f.value
+  );
+  const groupish = findings.filter((f) => {
+    if (!isObj(f.value)) return false;
+    const children = Object.values(f.value).filter(isObj);
+    if (children.length < 2) return false;
+    const first = children[0];
+    return Object.keys(first).some((k) => children.every((c) => typeof c[k] === "number"));
+  });
+  if (stepish.length === 0 || groupish.length === 0) return [];
+  const stepNames = new Set(stepish.map((f) => f.name));
+  const groupNames = new Set(groupish.map((f) => f.name));
+  const linked = findings.some((f) => {
+    const refs = f.derived_from_findings ?? [];
+    return refs.some((r) => stepNames.has(r)) && refs.some((r) => groupNames.has(r));
+  });
+  if (linked) return [];
+  return [
+    {
+      kind: "missing_linking_finding",
+      name: stepish[0].name,
+      detail: `${stepish[0].name} and ${groupish[0].name} are declared but no finding derives from both — the attribution linking them is computable and undeclared, so the narrative cannot state it`,
+    },
+  ];
+}
