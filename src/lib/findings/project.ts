@@ -23,7 +23,14 @@ export function scrubNumerals(text: string): string {
 
 function leafFields(value: unknown): string[] | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return Object.keys(value as Record<string, unknown>);
+  // Null-valued leaves are EXCLUDED: a values-blind composer that sees a
+  // field name will bind it, the null then gets refused, the sentence
+  // stripped, and a repair pass burned — making null bindings impossible
+  // at the projection beats refusing them at the resolver (run-24).
+  const keys = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([k]) => k);
+  return keys.length > 0 ? keys : undefined;
 }
 
 export function projectFinding(entry: FindingEntry): FindingProjection {

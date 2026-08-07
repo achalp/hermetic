@@ -32,7 +32,9 @@ def to_native(o):
         f = float(o)
         return None if (math.isnan(f) or math.isinf(f)) else f
     if isinstance(o, (dt.datetime, dt.date)):
-        return o.isoformat()
+        # pd.NaT IS a datetime instance and reaches this branch before the
+        # pandas block below — NaT != NaT (NaN semantics), so this catches it.
+        return None if o != o else o.isoformat()
     try:
         import pandas as pd
 

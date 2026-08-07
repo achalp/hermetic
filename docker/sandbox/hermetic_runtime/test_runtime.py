@@ -373,6 +373,20 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(prof["leading_incomplete"], [])
 
     @unittest.skipUnless(HAVE_PANDAS, "pandas not installed on host")
+    @unittest.skipUnless(HAVE_PANDAS, "pandas not installed on host")
+    def test_profile_accepts_integer_year_column(self):
+        import pandas as pd
+        from hermetic_runtime.profile import profile_data_edges
+        rows = []
+        for year in range(1851, 1901):
+            for e in range(30):
+                rows.append({"year": year, "dish": "d%d" % e, "price": 1.0})
+        prof = profile_data_edges(pd.DataFrame(rows))
+        self.assertIsNotNone(prof)
+        self.assertEqual(prof["time_column"], "year")
+        self.assertTrue(str(prof["time_min"]).startswith("1851"))
+
+    @unittest.skipUnless(HAVE_PANDAS, "pandas not installed on host")
     def test_profile_returns_none_without_time_column(self):
         import pandas as pd
         from hermetic_runtime.profile import profile_data_edges

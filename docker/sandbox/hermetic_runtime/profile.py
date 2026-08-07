@@ -69,6 +69,20 @@ def profile_data_edges(df):
                         parsed = pd.to_datetime(s, errors="coerce")
                     except Exception:
                         continue
+            elif kind in ("i", "u", "f"):
+                # Integer/float YEAR columns (menu data: year 1851..2000) —
+                # a year-granular dataset must not go unprofiled just because
+                # its time column is numeric.
+                try:
+                    nums = pd.to_numeric(s, errors="coerce")
+                    frac_yearish = ((nums >= 1500) & (nums <= 2100)).mean()
+                    if frac_yearish < 0.8:
+                        continue
+                    parsed = pd.to_datetime(
+                        nums.round().astype("Int64").astype(str), format="%Y", errors="coerce"
+                    )
+                except Exception:
+                    continue
             else:
                 continue
             ok = parsed.notna()

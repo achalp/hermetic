@@ -347,6 +347,16 @@ export function lintSignedLanguage(
       value = cur;
     }
     if (typeof value !== "number" || value === 0) continue;
+    // Only fields that MEASURE change carry a sign worth checking — a year
+    // (1856) or a count (menus_covered: 5) near the word "decrease" is not
+    // a sign mismatch (run-24 false positives).
+    const lastSeg = ref.split(".").pop() ?? ref;
+    if (
+      !/delta|change|slope|growth|diff|pct|effect|shift|net|trend|rise|fall|drop|declin|increas|decreas/i.test(
+        lastSeg
+      )
+    )
+      continue;
     const start = Math.max(0, (m.index ?? 0) - 60);
     const window = rawLine.slice(start, (m.index ?? 0) + m[0].length + 60);
     if (value < 0 && POSITIVE_WORDS.test(window) && !NEGATIVE_WORDS.test(window)) {

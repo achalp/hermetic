@@ -959,9 +959,40 @@ export async function composeAndStreamDashboard(args: {
           });
         }
       }
-      const missingTiles = headlinePlan.filter(
-        (tile) => !composedPatches.some((p) => JSON.stringify(p.value ?? {}).includes(tile.binding))
+      const resolveTileValue = (binding: string): unknown => {
+        const m = /^\$(finding|result):(.+)$/.exec(binding);
+        if (!m) return undefined;
+        const src =
+          m[1] === "finding"
+            ? findingValues
+            : ((executionResult.results ?? {}) as Record<string, unknown>);
+        let cur: unknown = src;
+        for (const seg of m[2].split(".")) {
+          if (cur === null || typeof cur !== "object") return undefined;
+          cur = (cur as Record<string, unknown>)[seg];
+        }
+        return cur;
+      };
+      const shownTileValues = new Set(
+        composedPatches
+          .filter(
+            (p) =>
+              p.value &&
+              typeof p.value === "object" &&
+              (p.value as { type?: unknown }).type === "StatCard"
+          )
+          .map((p) => String(((p.value as { props?: { value?: unknown } }).props ?? {}).value))
       );
+      const missingTiles = headlinePlan.filter((tile) => {
+        if (composedPatches.some((p) => JSON.stringify(p.value ?? {}).includes(tile.binding)))
+          return false;
+        // Injection dedupe: a tile whose VALUE is already shown under any
+        // label is not missing (run-24 injected a duplicate of an existing
+        // total under a different label).
+        const v = resolveTileValue(tile.binding);
+        if (v !== undefined && shownTileValues.has(String(v))) return false;
+        return true;
+      });
       if (missingTiles.length > 0) {
         const statCardIds = new Set(
           composedPatches
