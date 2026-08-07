@@ -34,11 +34,14 @@ import {
   lintDerivations,
   lintCrossStepDerivations,
   lintCrossStepReconciliation,
+  lintUnitPhrase,
+  lintSentinelInterpolation,
   namespaceFindings,
 } from "@/lib/findings";
 import {
   FINDINGS_MANIFEST_VERSION,
   type FindingEntry,
+  type FindingIssue,
   type FindingsManifest,
 } from "@/lib/contracts/findings";
 import {
@@ -831,6 +834,26 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           ])
         );
         const citedFindingNames = new Set<string>();
+        const investigateUnitByName = new Map<string, string>(
+          (fMode === "on" ? (investigationFindings?.findings ?? []) : [])
+            .filter((f) => typeof f.unit === "string" && f.unit.length > 0)
+            .map((f) => [f.name, f.unit as string])
+        );
+        const investigateFindingValueMap = new Map<string, unknown>(
+          Object.entries(investigateFindingValues)
+        );
+        const proseLintIssues = new Map<string, FindingIssue>();
+        const lintComposedLine = (raw: string) => {
+          for (const issue of [
+            ...lintUnitPhrase(raw, investigateUnitByName),
+            ...lintSentinelInterpolation(raw, {
+              findings: investigateFindingValueMap,
+              results: mergedResults as Record<string, unknown>,
+            }),
+          ]) {
+            proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
+          }
+        };
         const finalize = createSpecFinalizer({
           results: mergedResults,
           chartData: mergedChartData,
@@ -849,6 +872,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             for (const m of r.raw.matchAll(/\$finding:(step_\d+\.[a-zA-Z0-9_]+)/g)) {
               citedFindingNames.add(m[1]);
             }
+            lintComposedLine(r.raw);
             ingestComposedLine(r.raw, r.patch);
             emit(r.line + "\n");
           }
@@ -920,6 +944,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     issues: [
                       ...lintDerivations(investigationFindings.findings),
                       ...lintCrossStepReconciliation(investigationFindings.findings),
+                      ...proseLintIssues.values(),
                     ].map((i) => i.detail),
                   },
                 }

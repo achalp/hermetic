@@ -32,6 +32,7 @@ import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { projectManifestForPrompt } from "@/lib/findings/project";
+import { lintUnitPhrase, lintSentinelInterpolation } from "@/lib/findings/lints";
 import type { FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
 import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-audit";
@@ -631,6 +632,17 @@ export async function composeAndStreamDashboard(args: {
   // gone). Base name only — a .field binding cites the finding.
   const citedFindings = new Set<string>();
   const headlineBound = new Set<string>();
+  // Prose-quality lints on the PRE-resolution line: unit re-phrasing around a
+  // bound finding, and sentinel/boolean values interpolated into word slots
+  // ("rates are Yes"). Value-aware — only the server can catch these; the
+  // composer is values-blind by design. Deduped by kind+name; advisory only.
+  const unitByName = new Map<string, string>(
+    (opts.findings?.manifest.findings ?? [])
+      .filter((f) => typeof f.unit === "string" && f.unit.length > 0)
+      .map((f) => [f.name, f.unit as string])
+  );
+  const findingValueMap = new Map<string, unknown>(Object.entries(findingValues));
+  const proseLintIssues = new Map<string, FindingIssue>();
   // Did the composed spec bind any {"$state": ...} path? When it did in a
   // NON-DataController run (composer drift), the datasets injection below
   // must still fire or the (possibly repaired) /datasets/<key> bindings
@@ -691,6 +703,15 @@ export async function composeAndStreamDashboard(args: {
     lineCount++;
     if (result.patch) composedPatches.push(result.patch as PatchLike);
     if (result.line.includes('"$state"')) sawStateBinding = true;
+    for (const issue of [
+      ...lintUnitPhrase(result.raw, unitByName),
+      ...lintSentinelInterpolation(result.raw, {
+        findings: findingValueMap,
+        results: (executionResult.results ?? {}) as Record<string, unknown>,
+      }),
+    ]) {
+      proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
+    }
     for (const m of result.raw.matchAll(/\$finding:([a-zA-Z0-9_]+)/g)) {
       citedFindings.add(m[1]);
       // Headline coverage (§3.5): bindings inside StatCard elements.
@@ -829,7 +850,7 @@ export async function composeAndStreamDashboard(args: {
               findings: {
                 declared: declaredEntries.map((e) => e.name),
                 cited: [...citedFindings],
-                issues: opts.findings.issues.map((i) => i.detail),
+                issues: [...opts.findings.issues, ...proseLintIssues.values()].map((i) => i.detail),
                 questionPrimaryMiss,
               },
             }

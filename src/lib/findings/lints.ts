@@ -131,3 +131,128 @@ export function lintCrossStepReconciliation(
   }
   return issues;
 }
+
+// ── Unit-phrase lint (post-compose, pre-resolution) ──────────────────
+
+const PERCENT_WORDS = /percentage\s*points?|\bpp\b|\bpercent(?:age)?\b|%/i;
+const RATIO_WORDS = /\bratio\b|\bfraction\b|\bproportion\b/i;
+const RATIO_UNIT = /^(ratio|fraction|proportion)$/i;
+const PERCENT_UNIT = /^(pp|percentage\s*points?|%|percent|pct)$/i;
+
+/**
+ * Detect prose that RE-UNITS a bound finding: the manifest declares
+ * unit "ratio" and the sentence wraps the placeholder in "percentage
+ * points" (or the inverse). The bound VALUE is correct — the words around
+ * it are off by 100×, which reads as "essentially flat" for a series that
+ * tripled. Scans the PRE-resolution composer line (the $finding token is
+ * still present, so the window is anchored to the exact binding).
+ * Advisory: issues feed grounding caveats, never rewrite the spec.
+ */
+export function lintUnitPhrase(
+  rawLine: string,
+  unitByName: ReadonlyMap<string, string>
+): FindingIssue[] {
+  if (!rawLine.includes("$finding:")) return [];
+  const issues: FindingIssue[] = [];
+  for (const m of rawLine.matchAll(/\$finding:([a-zA-Z0-9_.]+)/g)) {
+    // Full token first, then with a trailing .field stripped — handles both
+    // "name.value" and step-qualified "step_2.name.value".
+    const name = unitByName.has(m[1]) ? m[1] : m[1].replace(/\.[a-zA-Z0-9_]+$/, "");
+    const unit = unitByName.get(name);
+    if (!unit) continue;
+    const start = Math.max(0, (m.index ?? 0) - 60);
+    const window = rawLine.slice(start, (m.index ?? 0) + m[0].length + 60);
+    if (RATIO_UNIT.test(unit) && PERCENT_WORDS.test(window)) {
+      issues.push({
+        kind: "unit_mismatch",
+        name,
+        detail: `narrative describes ${name} (declared unit "${unit}") in percentage terms — the surrounding words re-unit the bound value (a 0.009 ratio is 0.9 pp; 100\u00d7 off)`,
+      });
+    } else if (PERCENT_UNIT.test(unit) && RATIO_WORDS.test(window) && !PERCENT_WORDS.test(window)) {
+      issues.push({
+        kind: "unit_mismatch",
+        name,
+        detail: `narrative describes ${name} (declared unit "${unit}") as a ratio/fraction — the surrounding words contradict the declared unit`,
+      });
+    }
+  }
+  return issues;
+}
+
+// ── Sentinel-interpolation lint ──────────────────────────────────────
+
+const SENTINEL_STRINGS = new Set(["none", "n/a", "na", "null", ""]);
+
+function isSentinelValue(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "boolean") return true;
+  if (typeof v === "string") return SENTINEL_STRINGS.has(v.trim().toLowerCase());
+  return false;
+}
+
+function renderedForm(v: unknown): string {
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (v === null || v === undefined) return "null";
+  return String(v);
+}
+
+function descend(root: unknown, path: string[]): unknown {
+  let cur = root;
+  for (const seg of path) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return cur;
+}
+
+/**
+ * Detect a sentinel or boolean value bound INLINE into prose — the
+ * "Segment churn rates are Yes across the year" / "the customer base size
+ * none the headline" class. The composer is values-blind, so it cannot
+ * know a flag resolves to Yes/No or "none"; the server CAN, at compose
+ * time, before resolution. A token is inline when its host JSON string
+ * carries other words (a whole-value StatCard binding of a boolean is
+ * legitimate — "Yes" as a stat value reads fine).
+ * Advisory: feeds grounding caveats, never rewrites the spec.
+ */
+export function lintSentinelInterpolation(
+  rawLine: string,
+  lookup: {
+    findings?: ReadonlyMap<string, unknown>;
+    results?: Readonly<Record<string, unknown>>;
+  }
+): FindingIssue[] {
+  if (!rawLine.includes("$finding:") && !rawLine.includes("$result:")) return [];
+  const issues: FindingIssue[] = [];
+  for (const strMatch of rawLine.matchAll(/"((?:[^"\\]|\\.)*)"/g)) {
+    const str = strMatch[1];
+    const tokens = [...str.matchAll(/\$(finding|result):([a-zA-Z0-9_.]+)/g)];
+    if (tokens.length === 0) continue;
+    // Inline = the string still contains letters once every token is removed.
+    const residue = tokens.reduce((acc, t) => acc.replace(t[0], ""), str);
+    if (!/[a-zA-Z]/.test(residue)) continue;
+    for (const t of tokens) {
+      const [, kind, ref] = t;
+      let value: unknown;
+      if (kind === "finding") {
+        const map = lookup.findings;
+        if (!map) continue;
+        if (map.has(ref)) value = map.get(ref);
+        else {
+          const base = ref.replace(/\.[a-zA-Z0-9_]+$/, "");
+          const field = ref.slice(base.length + 1);
+          value = map.has(base) ? descend(map.get(base), [field]) : undefined;
+        }
+      } else {
+        value = descend(lookup.results ?? {}, ref.split("."));
+      }
+      if (value === undefined || !isSentinelValue(value)) continue;
+      issues.push({
+        kind: "sentinel_interpolation",
+        name: ref,
+        detail: `narrative interpolates $${kind}:${ref} mid-sentence, but it resolves to "${renderedForm(value)}" — a flag/sentinel in a word slot reads as broken prose; gate the sentence with $cond or state the fact explicitly`,
+      });
+    }
+  }
+  return issues;
+}
