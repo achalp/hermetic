@@ -19,6 +19,40 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+# ── Headless mode: --headless / -y skips every interactive question by
+# answering each prompt with an empty string, which selects that prompt's
+# documented default ("[Y/n]" → yes, "[c]" → c, key prompts → skip). The
+# flag is exported so sourced/child scripts (install-mcp.sh) inherit it.
+# Implemented by shadowing the `read` builtin rather than editing 40 call
+# sites — under `set -e`, redirecting stdin from /dev/null would instead
+# abort at the first EOF'd read.
+HEADLESS=false
+for _arg in "$@"; do
+  case "$_arg" in
+    --headless|--yes|-y) HEADLESS=true ;;
+    -h|--help)
+      echo "Usage: ./start.sh [--headless|-y]"
+      echo "  --headless, -y   non-interactive: skip all questions, accept every default"
+      exit 0
+      ;;
+  esac
+done
+export HERMETIC_HEADLESS=$([ "$HEADLESS" = true ] && echo 1 || echo 0)
+if $HEADLESS; then
+  read() {
+    # Assign "" to the target variable (last argument; flags like -r skipped).
+    local _var="${!#}"
+    if [ $# -gt 0 ] && [[ "$_var" != -* ]]; then
+      printf -v "$_var" '%s' ""
+    else
+      REPLY=""
+    fi
+    echo ""  # terminate the `echo -n`-style prompt line
+    return 0
+  }
+  echo -e "${DIM}Headless mode: all prompts auto-answered with defaults.${RESET}"
+fi
+
 step=0
 step() {
   step=$((step + 1))

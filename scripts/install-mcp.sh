@@ -33,6 +33,22 @@ fail() { echo -e "    ${RED}✗ $1${RESET}"; exit 1; }
 
 command -v node &>/dev/null || fail "node is required (run ./start.sh first)"
 
+# Headless propagation from start.sh --headless (or standalone
+# HERMETIC_HEADLESS=1 ./scripts/install-mcp.sh): every prompt takes its
+# default answer. Same read-shadow technique as start.sh.
+if [ "${HERMETIC_HEADLESS:-0}" = "1" ]; then
+  read() {
+    local _var="${!#}"
+    if [ $# -gt 0 ] && [[ "$_var" != -* ]]; then
+      printf -v "$_var" '%s' ""
+    else
+      REPLY=""
+    fi
+    echo ""
+    return 0
+  }
+fi
+
 # ── Prerequisites: deps + viewer bundle ───────────────────
 if [ ! -d node_modules ]; then
   warn "node_modules missing — running pnpm install"
