@@ -1,3 +1,6 @@
+import { z as zAudit } from "zod";
+import { McpToolError } from "@/mcp/errors";
+import { auditHistoryEntry } from "@/lib/pipeline/audit";
 /**
  * The MCP server assembly (mcp-server spec §4).
  *
@@ -363,6 +366,31 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
       _meta: { ui: { visibility: ["app"] } },
     },
     withAudit(audit, "dashboard_data", (args) => dashboardData(deps, args), supportsUi)
+  );
+
+  server.registerTool(
+    "audit_analysis",
+    {
+      description:
+        "Run a non-blind adversarial audit over a completed analysis' DERIVED artifacts " +
+        "(findings, results, chart samples, narrative — never raw rows). Pass the history_id " +
+        "from an analyze/analyze_result response. Returns a structured verdict with severity-" +
+        "ranked findings; the result also persists on the entry (Verify tab in the web app). " +
+        "One high-effort model call — use when the user asks to verify/audit an analysis.",
+      inputSchema: {
+        history_id: zAudit
+          .string()
+          .describe("history_id from an analyze or analyze_result response."),
+      },
+    },
+    withAudit(audit, "audit_analysis", async (args: { history_id: string }) => {
+      if (!/^[a-f0-9-]{8,40}$/.test(args.history_id)) {
+        throw new McpToolError("invalid_input", "invalid history_id");
+      }
+      const result = await auditHistoryEntry(args.history_id);
+      if (!result) throw new McpToolError("execution_failed", "audit failed — see server logs");
+      return { audit: result };
+    })
   );
 
   server.registerTool(

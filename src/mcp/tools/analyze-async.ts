@@ -131,7 +131,12 @@ export const analyzeStartInput = analyzeInput;
 
 export function analyzeStart(
   deps: AnalyzeDeps,
-  args: { source_id: string; question: string; purpose?: string }
+  args: {
+    source_id: string;
+    question: string;
+    purpose?: string;
+    composer_sight?: "blind" | "sighted";
+  }
 ): Record<string, unknown> {
   sweep(deps);
   // Fail fast on an unknown source — a background job must not swallow the

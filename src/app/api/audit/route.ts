@@ -1,62 +1,33 @@
 /**
- * POST /api/audit { history_id } — on-demand non-blind audit
- * (composer-sight spec §3). Assembles the entry's DERIVED bundle (never
- * raw rows), runs one adversarial review call, persists audit.json on
- * the entry, returns the result.
+ * /api/audit — on-demand non-blind audit (composer-sight spec §3).
+ * POST { history_id } runs it; GET ?history_id returns the persisted one.
  */
-import { writeFileSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { join } from "path";
 import { apiError } from "@/app/lib/api-error";
-import { loadHistoryEntry } from "@/lib/history/storage";
 import { hermeticPaths } from "@/lib/paths";
-import { collectNarrativeStrings } from "@/lib/pipeline/grounding";
-import { runAudit } from "@/lib/pipeline/audit";
+import { auditHistoryEntry } from "@/lib/pipeline/audit";
+
+const ID_RE = /^[a-f0-9-]{8,40}$/;
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { history_id?: string };
-    const id = body.history_id;
-    if (!id || !/^[a-f0-9-]{8,40}$/.test(id)) {
+    if (!body.history_id || !ID_RE.test(body.history_id)) {
       return Response.json({ error: "history_id required" }, { status: 400 });
     }
-    const entry = await loadHistoryEntry(id);
-    const artifacts = (entry.artifacts ?? {}) as {
-      results?: Record<string, unknown>;
-      chart_data?: Record<string, unknown>;
-      findings?: unknown;
-      sql?: string;
-    };
-    const result = await runAudit({
-      question: entry.meta.question,
-      results: artifacts.results,
-      chartData: artifacts.chart_data,
-      findings: artifacts.findings,
-      narrativeTexts: collectNarrativeStrings(entry.spec),
-      sql: artifacts.sql,
-    });
-    if (!result) {
-      return Response.json({ error: "Audit failed — see server logs" }, { status: 502 });
-    }
-    try {
-      writeFileSync(
-        join(hermeticPaths.historyDir(), id, "audit.json"),
-        JSON.stringify(result, null, 2),
-        "utf-8"
-      );
-    } catch {
-      // Persistence is best-effort; the caller still gets the result.
-    }
+    const result = await auditHistoryEntry(body.history_id);
+    if (!result) return Response.json({ error: "Audit failed — see server logs" }, { status: 502 });
     return Response.json({ audit: result });
   } catch (err) {
     return apiError("/api/audit", err, "Audit failed");
   }
 }
 
-/** GET /api/audit?history_id=<id> — the persisted audit for an entry, if any. */
 export async function GET(request: Request) {
   try {
     const id = new URL(request.url).searchParams.get("history_id");
-    if (!id || !/^[a-f0-9-]{8,40}$/.test(id)) {
+    if (!id || !ID_RE.test(id)) {
       return Response.json({ error: "history_id required" }, { status: 400 });
     }
     try {

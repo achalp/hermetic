@@ -110,3 +110,40 @@ export async function runAudit(bundle: AuditBundle): Promise<AuditResult | null>
     return null;
   }
 }
+
+/** Load a history entry, audit its derived bundle, persist audit.json.
+ *  Shared by /api/audit and the MCP audit_analysis tool. */
+export async function auditHistoryEntry(id: string): Promise<AuditResult | null> {
+  const { loadHistoryEntry } = await import("@/lib/history/storage");
+  const { collectNarrativeStrings } = await import("@/lib/pipeline/grounding");
+  const { hermeticPaths } = await import("@/lib/paths");
+  const { writeFileSync } = await import("fs");
+  const { join } = await import("path");
+  const entry = await loadHistoryEntry(id);
+  const artifacts = (entry.artifacts ?? {}) as {
+    results?: Record<string, unknown>;
+    chart_data?: Record<string, unknown>;
+    findings?: unknown;
+    sql?: string;
+  };
+  const result = await runAudit({
+    question: entry.meta.question,
+    results: artifacts.results,
+    chartData: artifacts.chart_data,
+    findings: artifacts.findings,
+    narrativeTexts: collectNarrativeStrings(entry.spec),
+    sql: artifacts.sql,
+  });
+  if (result) {
+    try {
+      writeFileSync(
+        join(hermeticPaths.historyDir(), id, "audit.json"),
+        JSON.stringify(result, null, 2),
+        "utf-8"
+      );
+    } catch {
+      // best-effort persistence
+    }
+  }
+  return result;
+}

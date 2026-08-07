@@ -252,6 +252,7 @@ describe("mcp server (in-memory transport, fake deps)", () => {
       "analyze_result",
       "analyze_start",
       "analyze_status",
+      "audit_analysis",
       "connect_source",
       "dashboard_data",
       "export_dashboard",
