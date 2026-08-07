@@ -34,6 +34,7 @@ import { useModelSettings } from "@/hooks/use-model-settings";
 import { useRecentsList } from "@/hooks/use-recents-list";
 import { useReattach } from "@/hooks/use-reattach";
 import { useAnalysisActions } from "@/hooks/use-analysis-actions";
+import { useBrowserNav } from "@/hooks/use-browser-nav";
 import { usePanels } from "@/hooks/use-panels";
 import { useHomeComposer } from "@/hooks/use-home-composer";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
@@ -205,6 +206,24 @@ export default function Home() {
   const isState2 = hasData && !isAnalyzing && !hasResults;
   const isState3 = isAnalyzing;
   const isState4 = hasData && !isAnalyzing && hasResults;
+
+  // Browser back/forward walks the app's own transitions (use-browser-nav):
+  // results -> data -> home, with results URL-addressable via ?restore=.
+  useBrowserNav({
+    view: isState4 ? "results" : isState2 ? "data" : "home",
+    restoreId: loadedVizId,
+    suspended: isAnalyzing || loadingViz || rerunningViz,
+    onPopTo: (target) => {
+      if (target === "home") {
+        handleReset();
+      } else if (target === "data") {
+        dispatch({ type: "NEW_ANALYSIS" });
+      }
+      // "results" forward-nav: only restorable content reloads, handled by
+      // the restore deep-link on full navigation; in-SPA forward to an
+      // unsaved result is a no-op by design.
+    },
+  });
 
   // Reconnect to a run that survived a client drop — use-reattach.
   const reattach = useReattach({

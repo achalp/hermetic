@@ -551,3 +551,19 @@ describe("pageReducer", () => {
     });
   });
 });
+
+describe("NEW_ANALYSIS — browser-back from results keeps the source", () => {
+  it("clears analysis fields but preserves saved-panel state", () => {
+    const afterQuery = pageReducer(
+      { ...initial, showSaved: true, savedRefreshKey: 3 },
+      { type: "QUERY", question: "how did churn change" }
+    );
+    expect(afterQuery.questionSeq).toBe(1);
+    const back = pageReducer(afterQuery, { type: "NEW_ANALYSIS" });
+    expect(back.currentQuestion).toBeNull();
+    expect(back.questionSeq).toBe(0);
+    expect(back.loadedVizId).toBeNull();
+    expect(back.showSaved).toBe(true);
+    expect(back.savedRefreshKey).toBe(3);
+  });
+});

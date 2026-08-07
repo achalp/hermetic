@@ -49,6 +49,7 @@ export type PageAction =
   | { type: "QUERY"; question: string; mode?: QueryMode }
   | { type: "STREAM_END" }
   | { type: "RESET" }
+  | { type: "NEW_ANALYSIS" }
   | { type: "LOAD_VIZ_START" }
   | {
       type: "LOAD_VIZ_SUCCESS";
@@ -121,6 +122,15 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
     case "STREAM_END":
       return { ...state, isAnalyzing: false, rerunCode: null, rerunSql: null };
     case "RESET":
+      return {
+        ...initialState,
+        showSaved: state.showSaved,
+        savedRefreshKey: state.savedRefreshKey,
+      };
+    case "NEW_ANALYSIS":
+      // Browser-back from results → the data-loaded view: clear the analysis
+      // but keep everything source-scoped (the data itself lives outside
+      // this reducer). Distinct from RESET, which returns to the home view.
       return {
         ...initialState,
         showSaved: state.showSaved,
