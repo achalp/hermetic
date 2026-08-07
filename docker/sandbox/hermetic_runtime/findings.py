@@ -323,7 +323,7 @@ def finding_trend(values, unit=None):
         return failed
 
 
-def finding_step_change(values, labels=None):
+def finding_step_change(values, labels=None, counts=None):
     """Largest single-period level shift, if it stands out AND persists.
 
     Returns {"period", "delta", "direction", "baseline_spread"} where period
@@ -332,8 +332,13 @@ def finding_step_change(values, labels=None):
     negative delta narrated as an "acceleration" is the sign-blindness bug),
     and baseline_spread is the median absolute period-over-period delta.
 
-    Two gates, both required — failing either returns period/delta/direction
-    None (with baseline_spread kept):
+    Three gates — failing any returns period/delta/direction None (with
+    baseline_spread kept):
+      - sample size (when counts= is given — observations per period): a
+        step whose BEFORE or AFTER period is THIN (count < max(5, 20% of
+        the median count)) is an artifact of sparse data, not structure —
+        a -18.5 "structural break" off a 22-dish year cleared a 0.29
+        spread trivially. ALWAYS pass counts when periods aggregate rows.
       - magnitude: |delta| must exceed 3x the baseline spread;
       - persistence: >= 70% of post-step values must stay on the new side of
         the pre/post midpoint. A step-change model asserts one regime
@@ -362,6 +367,21 @@ def finding_step_change(values, labels=None):
         if best_d is None or abs(best_d) <= 3.0 * median:
             return no_step
         idx = best_i + 1  # the period the level changed TO
+        if counts is not None:
+            try:
+                ns = [safe_float(c) for c in list(counts)]
+                finite_ns = sorted(n for n in ns if n is not None)
+                if finite_ns and len(ns) == len(ys):
+                    med = finite_ns[len(finite_ns) // 2]
+                    thin = max(5.0, 0.2 * med)
+                    n_before = ns[idx - 1]
+                    n_after = ns[idx]
+                    if (n_before is not None and n_before < thin) or (
+                        n_after is not None and n_after < thin
+                    ):
+                        return no_step
+            except Exception:
+                pass
         before = ys[idx - 1]
         midpoint = before + best_d / 2.0
         post = [y for y in ys[idx:] if y is not None]

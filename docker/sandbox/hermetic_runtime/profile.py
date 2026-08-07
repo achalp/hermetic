@@ -135,6 +135,8 @@ def profile_data_edges(df):
 
         return {
             "time_column": str(best_col),
+            "time_min": labels[0],
+            "time_max": labels[-1],
             "entity_column": None if ent_col is None else str(ent_col),
             "grain": "day",
             "periods": len(vals),

@@ -6,6 +6,8 @@ import {
   lintSignedLanguage,
   lintGranularityConflict,
   lintCompletenessConflict,
+  lintTrendContract,
+  lintRangeFabrication,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -235,5 +237,81 @@ describe("lintCompletenessConflict — profiler vs ending-state findings", () =>
     expect(lintCompletenessConflict([endingState], null)).toHaveLength(0);
     const accounted = { ...endingState, value: { ...endingState.value, excluded_trailing: 2 } };
     expect(lintCompletenessConflict([accounted], profile)).toHaveLength(0);
+  });
+});
+
+describe("lintTrendContract — directions are a contract", () => {
+  it("flags a non-direction word and an insignificant non-flat direction", () => {
+    const issues = lintTrendContract([
+      {
+        name: "avg_lowest_price_trend",
+        definition: "trend of avg lowest price",
+        dtype: "direction",
+        value: { direction: "regime_change", slope_per_period: 0.0088, p_value: 0.9944 },
+      },
+      {
+        name: "max_price_trend",
+        definition: "trend of max price",
+        dtype: "direction",
+        value: { direction: "rising", slope_per_period: 0.4, p_value: 0.51 },
+      },
+    ]);
+    expect(issues.map((i) => i.kind)).toEqual([
+      "nonstandard_direction",
+      "insignificant_trend_direction",
+    ]);
+  });
+
+  it("accepts helper-contract directions with significant fits", () => {
+    expect(
+      lintTrendContract([
+        {
+          name: "decade_trend",
+          definition: "decade trend",
+          dtype: "direction",
+          value: { direction: "rising", p_value: 0.0015 },
+        },
+        {
+          name: "flat_trend",
+          definition: "flat",
+          dtype: "direction",
+          value: { direction: "flat", p_value: 0.9 },
+        },
+      ])
+    ).toHaveLength(0);
+  });
+});
+
+describe("lintRangeFabrication — framing must match the observed range", () => {
+  const completeness = { time_min: "1851-01-01", time_max: "2012-12-31" };
+
+  it("flags definitions citing years outside the profiled range", () => {
+    const issues = lintRangeFabrication(
+      [
+        {
+          name: "era_avg_price",
+          definition: "average dish price per era over 1820-2020, eras cut at 1880/1920/1960",
+          dtype: "distribution",
+          value: {},
+        },
+      ],
+      completeness
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].detail).toContain("1820");
+    expect(issues[0].detail).toContain("2020");
+  });
+
+  it("accepts in-range framing and missing profiles", () => {
+    const ok = [
+      {
+        name: "x",
+        definition: "trend over 1851-2012 by year",
+        dtype: "direction",
+        value: {},
+      },
+    ];
+    expect(lintRangeFabrication(ok, completeness)).toHaveLength(0);
+    expect(lintRangeFabrication(ok, null)).toHaveLength(0);
   });
 });

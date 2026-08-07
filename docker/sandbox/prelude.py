@@ -535,7 +535,7 @@ def declare_finding(name, value, definition, dtype, unit=None,
 # model's own computation and declare_finding still work.
 def finding_trend(values, unit=None):
     return {'direction': None, 'slope_per_period': None, 'p_value': None}
-def finding_step_change(values, labels=None):
+def finding_step_change(values, labels=None, counts=None):
     return {'period': None, 'delta': None, 'direction': None, 'baseline_spread': None}
 def finding_decompose(total_change, terms):
     try:

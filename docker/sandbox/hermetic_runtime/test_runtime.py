@@ -404,6 +404,15 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertIsNone(finding_current_state([None, None])["period"])
         self.assertIsNone(finding_current_state("garbage")["period"])
 
+    def test_step_change_thin_period_gate(self):
+        # The 2005 menu artifact: a persistent-looking step whose edge
+        # periods have ~22 observations against a median of ~230 is sparse
+        # data, not structure.
+        vals2 = [3.0, 3.1, 2.9, 3.0, 21.0, 21.5, 21.2, 21.3]
+        counts2 = [230.0, 231.0, 228.0, 232.0, 4.0, 3.0, 4.0, 2.0]
+        self.assertIsNotNone(finding_step_change(vals2)["period"])
+        self.assertIsNone(finding_step_change(vals2, counts=counts2)["period"])
+
     def test_step_change_direction_down_on_persistent_decline(self):
         out = finding_step_change([50.0, 50.5, 49.8, 50.2, 20.0, 19.5, 20.3, 19.8])
         self.assertEqual(out["period"], 4)

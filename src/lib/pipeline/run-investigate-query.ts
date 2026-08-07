@@ -39,6 +39,7 @@ import {
   lintSignedLanguage,
   lintMissingLinkage,
   lintGranularityConflict,
+  lintTrendContract,
   namespaceFindings,
 } from "@/lib/findings";
 import {
@@ -698,6 +699,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               ...lintCrossStepReconciliation(merged),
               ...lintMissingLinkage(merged),
               ...lintGranularityConflict(merged),
+              ...lintTrendContract(merged),
             ];
             if (coherence.length > 0) {
               logger.warn("investigate findings: cross-step coherence issues", {

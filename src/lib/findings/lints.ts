@@ -459,3 +459,71 @@ export function lintCompletenessConflict(
   }
   return [];
 }
+
+// ── Range-fabrication + trend-contract lints (menu run, 2026-08-07) ──
+
+const STANDARD_DIRECTIONS = new Set(["rising", "falling", "flat", "up", "down"]);
+
+/**
+ * Trend-contract violations: a direction that is not a direction word
+ * ("regime_change" in a direction slot breaks the rising/falling/flat
+ * contract every consumer assumes), and a non-flat direction narrated
+ * beside an insignificant fit (p = 0.994 means NO detectable trend — the
+ * slope describes nothing). Advisory.
+ */
+export function lintTrendContract(findings: FindingEntry[]): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const f of findings) {
+    const v = f.value;
+    if (v === null || typeof v !== "object" || Array.isArray(v)) continue;
+    const rec = v as Record<string, unknown>;
+    const dir = rec.direction;
+    if (typeof dir !== "string" || dir === "") continue;
+    if (!STANDARD_DIRECTIONS.has(dir.toLowerCase())) {
+      issues.push({
+        kind: "nonstandard_direction",
+        name: f.name,
+        detail: `${f.name} declares direction "${dir}" — not a direction word (rising/falling/flat); hand-assigned instead of taken from finding_trend`,
+      });
+      continue;
+    }
+    const p = rec.p_value;
+    if (typeof p === "number" && p > 0.05 && dir.toLowerCase() !== "flat") {
+      issues.push({
+        kind: "insignificant_trend_direction",
+        name: f.name,
+        detail: `${f.name} declares "${dir}" with p = ${p} — an insignificant fit is "flat"; the slope describes nothing at this granularity`,
+      });
+    }
+  }
+  return issues;
+}
+
+/**
+ * Fabricated framing: a finding definition citing years OUTSIDE the
+ * platform-profiled data range ("over 1820-2020" on data spanning
+ * 1851-2012 — invented periodisation presented as analysis structure).
+ * Advisory; tolerates a 1-year edge slack.
+ */
+export function lintRangeFabrication(
+  findings: FindingEntry[],
+  completeness: unknown
+): FindingIssue[] {
+  const prof = completeness as { time_min?: unknown; time_max?: unknown } | null | undefined;
+  const minY = Number(String(prof?.time_min ?? "").slice(0, 4));
+  const maxY = Number(String(prof?.time_max ?? "").slice(0, 4));
+  if (!Number.isFinite(minY) || !Number.isFinite(maxY) || minY < 1000 || maxY < 1000) return [];
+  const issues: FindingIssue[] = [];
+  for (const f of findings) {
+    const years = [...f.definition.matchAll(/\b(1[6-9]\d{2}|20\d{2})\b/g)].map((m) => Number(m[1]));
+    const outside = years.filter((y) => y < minY - 1 || y > maxY + 1);
+    if (outside.length > 0) {
+      issues.push({
+        kind: "range_fabrication",
+        name: f.name,
+        detail: `${f.name} definition cites year(s) ${outside.join(", ")} outside the observed data range ${minY}-${maxY} — invented periodisation`,
+      });
+    }
+  }
+  return issues;
+}
