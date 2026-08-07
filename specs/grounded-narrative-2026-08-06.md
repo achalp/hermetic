@@ -98,7 +98,11 @@ UI as untraceable figures.
 
 ## 5. Roadmap (not yet built)
 
-- **Findings as first-class taxonomy — PRIORITY RAISED (run-4 evidence):**
+- **Findings — SUPERSEDED by `specs/declared-findings-2026-08-06.md`** (the
+  fixed-taxonomy validator was rejected as a point-in-time corpus that caps
+  the model's analytical vocabulary; the declared-measures architecture keeps
+  the guarantees as a content-free grammar). Original rationale kept below
+  for the record:\*\*
   across two runs on identical data the heterogeneity keys changed SHAPE
   (`segment_heterogeneity_significant: true` + ANOVA → a test-free
   `_verdict: "consistent"` string) and flipped conclusion — prompt-level
