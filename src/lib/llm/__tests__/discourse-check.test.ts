@@ -55,3 +55,25 @@ describe("arithmetic coherence — the multiplier sentence (run-28)", () => {
     expect(ok.issues.filter((i) => i.kind === "arithmetic_incoherence")).toHaveLength(0);
   });
 });
+
+describe("interpreting insignificance (run-29: flat spread 'indicating' divergence)", () => {
+  it("flags interpretive verbs on a visible p > 0.05", () => {
+    const { issues } = checkDiscourseLine(
+      '{"content": "The spread trend is flat (p = 0.129), indicating that premium offerings and ordinary dishes did not move in lockstep across the corpus."}'
+    );
+    expect(issues.some((i) => i.kind === "interpreting_insignificance")).toBe(true);
+  });
+
+  it("stays quiet on significant results and non-interpretive nulls", () => {
+    expect(
+      checkDiscourseLine(
+        '{"content": "Median price is rising (p = 0.001), indicating sustained growth across the century of data."}'
+      ).issues
+    ).toHaveLength(0);
+    expect(
+      checkDiscourseLine(
+        '{"content": "The spread trend is flat (p = 0.129); no divergence could be established from this data."}'
+      ).issues
+    ).toHaveLength(0);
+  });
+});

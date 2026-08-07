@@ -76,6 +76,24 @@ function checkSentence(sentence: string, issues: FindingIssue[]): "keep" | "drop
       }
     }
   }
+  // Interpreting insignificance: a sentence carrying a visible p-value
+  // above 0.05 plus an interpretive verb is manufacturing meaning the
+  // statistic declined to provide ("flat at p = 0.129 ... indicating that
+  // premium offerings did not move in lockstep" — an insignificant slope
+  // cannot be distinguished from no relationship, in EITHER direction).
+  const pMatch = /\bp\s*[=<>]\s*(0?\.\d+)/i.exec(sentence);
+  if (pMatch && parseFloat(pMatch[1]) > 0.05) {
+    if (
+      /\b(?:means?|indicat(?:es|ing)|reveal(?:s|ing)|establish(?:es|ing)|demonstrat(?:es|ing)|shows? that|confirm(?:s|ing))\b/i.test(
+        sentence
+      )
+    ) {
+      issues.push({
+        kind: "interpreting_insignificance",
+        detail: `sentence interprets an insignificant result (p = ${pMatch[1]}) as establishing something — it cannot be distinguished from no relationship: "${sentence.trim().slice(0, 130)}"`,
+      });
+    }
+  }
   const seq = SEQUENCE_RE.exec(sentence);
   if (seq) {
     const before: number[] = [];

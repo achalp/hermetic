@@ -174,3 +174,30 @@ export function buildHeadlineSection(tiles: HeadlineTile[]): string {
 The headline StatCard row is planned from the analysis' own findings. Create a StatCard for EACH binding below — relabel freely, order freely, but never drop one or substitute a different binding:
 ${lines.join("\n")}`;
 }
+
+/** Deterministic normalization of a results-level headline_stats array:
+ *  duplicates (same label+value) dropped, capped at MAX_TILES + 1 — nine
+ *  tiles with a doubled entry recurred across runs; presentation metadata
+ *  is normalized at consumption, never trusted to generation. */
+export function normalizeHeadlineStats(results: Record<string, unknown>): string[] {
+  const issues: string[] = [];
+  const raw = results.headline_stats;
+  if (!Array.isArray(raw)) return issues;
+  const seen = new Set<string>();
+  const deduped = raw.filter((entry) => {
+    const e = entry as { label?: unknown; value?: unknown } | null;
+    const sig = JSON.stringify([e?.label, e?.value]);
+    if (seen.has(sig)) {
+      issues.push(`duplicate headline stat dropped: ${sig}`);
+      return false;
+    }
+    seen.add(sig);
+    return true;
+  });
+  const cap = MAX_TILES + 1;
+  if (deduped.length > cap) {
+    issues.push(`headline_stats capped at ${cap} (was ${deduped.length})`);
+  }
+  results.headline_stats = deduped.slice(0, cap);
+  return issues;
+}

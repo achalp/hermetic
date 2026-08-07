@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planHeadlineTiles } from "@/lib/findings/headline-plan";
+import { planHeadlineTiles, normalizeHeadlineStats } from "@/lib/findings/headline-plan";
 
 const findings = [
   {
@@ -64,5 +64,30 @@ describe("tautological-delta guard (run-26: 'Current vs Peak: 0')", () => {
     expect(planHeadlineTiles(below, {}).some((t) => t.binding.includes("pct_from_peak"))).toBe(
       true
     );
+  });
+});
+
+describe("normalizeHeadlineStats — dedupe and cap at consumption", () => {
+  it("drops duplicates and caps, reporting what it did", () => {
+    const results: Record<string, unknown> = {
+      headline_stats: [
+        { label: "Median Price Trend (per year)", value: 0.125 },
+        { label: "Total", value: 100 },
+        { label: "Median Price Trend (per year)", value: 0.125 },
+        ...Array.from({ length: 7 }, (_, i) => ({ label: `S${i}`, value: i })),
+      ],
+    };
+    const issues = normalizeHeadlineStats(results);
+    const stats = results.headline_stats as unknown[];
+    expect(stats.length).toBeLessThanOrEqual(6);
+    expect(issues.some((m) => m.includes("duplicate"))).toBe(true);
+    expect(issues.some((m) => m.includes("capped"))).toBe(true);
+  });
+
+  it("no-ops when absent or clean", () => {
+    expect(normalizeHeadlineStats({})).toHaveLength(0);
+    const ok = { headline_stats: [{ label: "a", value: 1 }] };
+    expect(normalizeHeadlineStats(ok)).toHaveLength(0);
+    expect((ok.headline_stats as unknown[]).length).toBe(1);
   });
 });

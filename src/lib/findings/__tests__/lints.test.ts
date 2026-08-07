@@ -11,6 +11,7 @@ import {
   lintCheckGating,
   lintNoChecksDeclared,
   lintMethodMismatch,
+  lintDefinitionContradicted,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -402,5 +403,21 @@ describe("lintNoChecksDeclared — check presence is not optional", () => {
     ];
     expect(lintNoChecksDeclared(withCheck)).toHaveLength(0);
     expect(lintNoChecksDeclared([finding("a")])).toHaveLength(0);
+  });
+});
+
+describe("lintDefinitionContradicted — is_X false beside a definition asserting X", () => {
+  it("flags the four-run min_price_boolean_flag shape; accepts negated definitions", () => {
+    const bad = {
+      name: "min_price_boolean_flag",
+      definition: "min_price is a boolean completeness flag for each year row",
+      dtype: "check",
+      value: { passed: true, is_boolean: false, zero_rows: 140 },
+    };
+    const issues = lintDefinitionContradicted([bad]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("definition_contradicted");
+    const negated = { ...bad, definition: "min_price is NOT boolean; treated as continuous" };
+    expect(lintDefinitionContradicted([negated])).toHaveLength(0);
   });
 });

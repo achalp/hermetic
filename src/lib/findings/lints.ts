@@ -679,3 +679,32 @@ export function lintNullAncestry(findings: FindingEntry[]): FindingIssue[] {
   }
   return issues;
 }
+
+// ── Definition-contradicted lint (4 runs of min_price_boolean_flag) ──
+
+/** A boolean evidence key `is_X: false` beside a definition that asserts X
+ *  ("min_price is a boolean completeness flag" next to is_boolean: false)
+ *  states a conclusion the computation denies. */
+export function lintDefinitionContradicted(findings: FindingEntry[]): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const f of findings) {
+    if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) continue;
+    const def = f.definition.toLowerCase();
+    for (const [k, v] of Object.entries(f.value as Record<string, unknown>)) {
+      if (v !== false || !/^is_[a-z_]+$/.test(k)) continue;
+      const phrase = k.slice(3).replace(/_/g, " ");
+      if (
+        def.includes(phrase) &&
+        !def.includes(`not ${phrase}`) &&
+        !def.includes(`non-${phrase}`)
+      ) {
+        issues.push({
+          kind: "definition_contradicted",
+          name: f.name,
+          detail: `${f.name} definition asserts "${phrase}" while ${k}: false denies it — the prose states a conclusion the computation rejects`,
+        });
+      }
+    }
+  }
+  return issues;
+}

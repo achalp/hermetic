@@ -28,8 +28,10 @@ import {
   lintNoChecksDeclared,
   lintMethodMismatch,
   lintNullAncestry,
+  lintDefinitionContradicted,
 } from "@/lib/findings";
 import { saveConventions } from "@/lib/learning/conventions";
+import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
 import { lintRangeFabrication } from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
@@ -439,6 +441,11 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               error: executionResult.runtime_fallback,
             });
           }
+          for (const msg of normalizeHeadlineStats(
+            (executionResult.results ?? {}) as Record<string, unknown>
+          )) {
+            logger.info("headline_stats normalized", { msg });
+          }
           findingIssues = [
             ...(executionResult.runtime_fallback
               ? [
@@ -456,6 +463,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintNoChecksDeclared(validated.manifest.findings),
             ...lintMethodMismatch(validated.manifest.findings),
             ...lintNullAncestry(validated.manifest.findings),
+            ...lintDefinitionContradicted(validated.manifest.findings),
             ...lintTrendContract(validated.manifest.findings),
             ...lintRangeFabrication(validated.manifest.findings, executionResult.data_completeness),
             ...lintCompletenessConflict(
