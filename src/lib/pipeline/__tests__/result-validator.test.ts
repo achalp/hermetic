@@ -180,3 +180,47 @@ describe("formatSemanticVerdictForRetry", () => {
     expect(out).toContain("Check the filter.");
   });
 });
+
+describe("findings collapse (menu run regression)", () => {
+  const base = {
+    results: { a: 1 },
+    chart_data: { decade_averages: [{ decade: "1850s", median: 0.86 }] },
+    datasets: {},
+    execution_ms: 1,
+  };
+  const nullTrend = { direction: null, slope_per_period: 0, p_value: 1 };
+
+  it("fails validation when most findings are null/degenerate beside real charts", () => {
+    const exec = {
+      ...base,
+      findings: [
+        { name: "t1", value: nullTrend },
+        { name: "t2", value: nullTrend },
+        { name: "t3", value: { period: null, delta: null, direction: null } },
+        { name: "t4", value: nullTrend },
+        { name: "ok", value: { direction: "rising", slope_per_period: 0.4, p_value: 0.001 } },
+      ],
+    } as never;
+    const verdict = validateExecutionResult(exec);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.reason).toContain("findings layer collapsed");
+      expect(verdict.suggestedFix).toContain("ZEROS");
+    }
+  });
+
+  it("passes when findings carry real values or too few to judge", () => {
+    const healthy = {
+      ...base,
+      findings: [
+        { name: "a", value: { direction: "rising", slope_per_period: 0.4, p_value: 0.01 } },
+        { name: "b", value: { period: "2021-04", delta: 4.4, direction: "up" } },
+        { name: "c", value: nullTrend },
+        { name: "d", value: { pct_change: 200 } },
+      ],
+    } as never;
+    expect(validateExecutionResult(healthy).ok).toBe(true);
+    const few = { ...base, findings: [{ name: "a", value: nullTrend }] } as never;
+    expect(validateExecutionResult(few).ok).toBe(true);
+  });
+});

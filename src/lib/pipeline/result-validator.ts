@@ -73,6 +73,31 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     };
   }
 
+  // Check #2b — FINDINGS COLLAPSE (menu run, 2026-08-07): most declared
+  // findings null-valued while charts carry real series. Observed cause: a
+  // data-cleaning step converting legitimate ZEROS to null (a $0 median is
+  // data; unpriced records are excluded at the RECORD level), gutting every
+  // downstream fit — 10 of 12 findings null over an 18-element dashboard.
+  // Rides the existing semantic retry so the run repairs instead of shipping.
+  const findingEntries = Array.isArray(exec.findings) ? exec.findings : [];
+  if (findingEntries.length >= 4 && chartKeys.length > 0) {
+    const allNull = (val: unknown): boolean => {
+      if (val === null || val === undefined) return true;
+      if (typeof val !== "object" || Array.isArray(val)) return false;
+      const leaves = Object.values(val as Record<string, unknown>);
+      return leaves.length > 0 && leaves.every((x) => x === null || x === 0 || x === 1);
+    };
+    const nulled = findingEntries.filter((f) => allNull((f as { value?: unknown })?.value)).length;
+    if (nulled / findingEntries.length > 0.6) {
+      return {
+        ok: false,
+        reason: `${nulled} of ${findingEntries.length} declared findings are null/degenerate while chart_data holds real series — the findings layer collapsed.`,
+        suggestedFix:
+          "Almost always a cleaning bug upstream of the stat helpers: check whether ZEROS were converted to null/NaN (a $0 median is data — exclude unrecorded values at the RECORD level, not by nulling aggregates), and whether the series passed to finding_trend/step_change/current_state is the same non-null series the charts plot. Recompute findings from the populated series.",
+      };
+    }
+  }
+
   // Check #3 — EVERY chart is an empty array and there are no results either.
   // A single empty chart alongside real results or a populated chart is legitimate
   // (that particular breakdown simply had no matching rows) — flagging it just

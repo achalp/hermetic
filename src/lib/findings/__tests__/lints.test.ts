@@ -9,6 +9,7 @@ import {
   lintTrendContract,
   lintRangeFabrication,
   lintCheckGating,
+  lintMethodMismatch,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -354,5 +355,25 @@ describe("lintCheckGating — declared-checks enforcement", () => {
   it("passing evidence-bearing checks are silent", () => {
     const ok = { ...failedCheck, value: { passed: true, divergence_pct: 0.4 } };
     expect(lintCheckGating([ok, { ...dependent }])).toHaveLength(0);
+  });
+});
+
+describe("lintMethodMismatch — declared vs computed test", () => {
+  it("flags Kruskal-Wallis promised, anova recorded; accepts agreement", () => {
+    const kw = {
+      name: "era_heterogeneity",
+      definition: "Kruskal-Wallis test of median price across eras",
+      dtype: "check",
+      value: { significant: true, p_value: 0.01, test: "anova" },
+    };
+    const issues = lintMethodMismatch([kw]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("method_mismatch");
+    expect(
+      lintMethodMismatch([{ ...kw, value: { ...kw.value, test: "kruskal-wallis" } }])
+    ).toHaveLength(0);
+    expect(
+      lintMethodMismatch([{ ...kw, definition: "significance test across eras" }])
+    ).toHaveLength(0);
   });
 });

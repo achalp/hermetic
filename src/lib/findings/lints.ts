@@ -587,3 +587,38 @@ export function lintCheckGating(findings: FindingEntry[]): FindingIssue[] {
   }
   return issues;
 }
+
+// ── Method-mismatch lint (3rd Kruskal-Wallis-vs-anova occurrence) ────
+
+const TEST_WORDS = [
+  "anova",
+  "kruskal",
+  "wallis",
+  "mann-whitney",
+  "t-test",
+  "chi-square",
+  "spearman",
+  "pearson",
+  "f-test",
+];
+
+/** A definition promising one statistical test while value.test records
+ *  another is a fabricated method claim at the declaration layer. */
+export function lintMethodMismatch(findings: FindingEntry[]): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const f of findings) {
+    if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) continue;
+    const test = (f.value as Record<string, unknown>).test;
+    if (typeof test !== "string" || test === "") continue;
+    const def = f.definition.toLowerCase();
+    const promised = TEST_WORDS.filter((w) => def.includes(w));
+    if (promised.length > 0 && !promised.some((w) => test.toLowerCase().includes(w))) {
+      issues.push({
+        kind: "method_mismatch",
+        name: f.name,
+        detail: `${f.name} definition promises "${promised.join("/")}" but value.test records "${test}" — the declared method and the computed method disagree`,
+      });
+    }
+  }
+  return issues;
+}

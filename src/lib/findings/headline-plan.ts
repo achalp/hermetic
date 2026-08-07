@@ -52,6 +52,17 @@ export function planHeadlineTiles(
   results: Record<string, unknown>,
   question = ""
 ): HeadlineTile[] {
+  const fieldValue = (f: FindingEntry, field: string): unknown =>
+    isObj(f.value) ? (f.value as Record<string, unknown>)[field] : f.value;
+  const usable = (f: FindingEntry, field: string): boolean => {
+    const v = fieldValue(f, field);
+    if (v === null || v === undefined) return false;
+    const p = isObj(f.value) ? (f.value as Record<string, unknown>).p_value : undefined;
+    // A slope with p ~ 1 is noise — a null upstream must never render as a
+    // confident 0 tile ("Median Price Trend (per yr): 0").
+    if (typeof p === "number" && p > 0.05 && /slope/.test(field)) return false;
+    return true;
+  };
   const tiles: HeadlineTile[] = [];
   const add = (t: HeadlineTile) => {
     if (tiles.length < MAX_TILES && !tiles.some((x) => x.binding === t.binding)) tiles.push(t);
@@ -84,7 +95,7 @@ export function planHeadlineTiles(
 
   // Change metric: yoy pct_change, else a trend slope.
   const yoy = findings.find((f) => isObj(f.value) && "pct_change" in f.value);
-  if (yoy) {
+  if (yoy && usable(yoy, "pct_change")) {
     add({
       binding: `$finding:${yoy.name}.pct_change`,
       label: humanize(yoy.name),
@@ -94,7 +105,15 @@ export function planHeadlineTiles(
     const trend = findings.find(
       (f) => isObj(f.value) && ("slope_per_period" in f.value || "slope" in f.value)
     );
-    if (trend) {
+    if (
+      trend &&
+      usable(
+        trend,
+        "slope_per_period" in (trend.value as Record<string, unknown>)
+          ? "slope_per_period"
+          : "slope"
+      )
+    ) {
       const field =
         "slope_per_period" in (trend.value as Record<string, unknown>)
           ? "slope_per_period"
@@ -109,7 +128,7 @@ export function planHeadlineTiles(
 
   // Current state: the ending-state finding.
   const current = findings.find((f) => isObj(f.value) && "pct_from_peak" in f.value);
-  if (current) {
+  if (current && usable(current, "pct_from_peak")) {
     const pf = periodField(current.value as Record<string, unknown>);
     add({
       binding: `$finding:${current.name}.pct_from_peak`,
@@ -126,7 +145,7 @@ export function planHeadlineTiles(
       periodField(f.value as Record<string, unknown>) !== undefined && /peak|max|top/.test(f.name)
     );
   });
-  if (peak) {
+  if (peak && usable(peak, "value")) {
     const pf = periodField(peak.value as Record<string, unknown>)!;
     add({
       binding: `$finding:${peak.name}.value`,
