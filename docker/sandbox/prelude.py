@@ -519,7 +519,7 @@ def finding_decompose(total_change, terms):
     return _out
 def finding_heterogeneity(groups):
     return {'significant': None, 'p_value': None, 'test': 'anova'}
-def finding_current_state(values, labels=None, window=6):
+def finding_current_state(values, labels=None, window=6, coverage=None):
     return {'period': None, 'value': None, 'pct_from_peak': None,
             'direction': None, 'excluded_trailing': None}
 

@@ -328,6 +328,24 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(out["excluded_trailing"], 1)
         self.assertAlmostEqual(out["pct_from_peak"], (350000.0-360000.0)/360000.0*100, places=1)
 
+    def test_current_state_coverage_catches_what_magnitude_misses(self):
+        # The October case: the incomplete final month is 58% of the trailing
+        # mean — above the 30% magnitude bar — but its reporting coverage
+        # collapsed. Coverage must exclude it; magnitude alone must not.
+        vals = [12.0e6, 14.0e6, 15.0e6, 16.0e6, 14.5e6, 15.5e6, 8.69e6]
+        cov = [230.0, 231.0, 229.0, 231.0, 230.0, 228.0, 90.0]
+        without = finding_current_state(vals)
+        self.assertEqual(without["excluded_trailing"], 0)  # dilution passes the value test
+        with_cov = finding_current_state(vals, coverage=cov)
+        self.assertEqual(with_cov["excluded_trailing"], 1)
+        self.assertEqual(with_cov["value"], 15.5e6)
+
+    def test_current_state_coverage_len_mismatch_falls_back(self):
+        vals = [10.0, 11.0, 12.0, 11.5, 12.5, 11.8]
+        out = finding_current_state(vals, coverage=[1.0, 2.0])
+        self.assertEqual(out["excluded_trailing"], 0)
+        self.assertEqual(out["value"], 11.8)
+
     def test_current_state_clean_edge_and_direction(self):
         vals = [10.0, 20.0, 30.0, 40.0, 35.0, 30.0, 25.0, 20.0]
         out = finding_current_state(vals)

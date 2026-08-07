@@ -385,43 +385,67 @@ def finding_step_change(values, labels=None):
         return failed
 
 
-def finding_current_state(values, labels=None, window=6):
+def finding_current_state(values, labels=None, window=6, coverage=None):
     """Where the series ENDS — from the last COMPLETE observation.
 
     The trailing edge of a live dataset is often incomplete (reporting lag:
     the final day has a fraction of sources reported), and taking it at face
     value turns a truncation artifact into "the series collapsed 99.8%".
-    Guard: walk back from the end while a value is < 30% of the mean of the
-    `window` observations before it; those are excluded as incomplete.
+
+    Two completeness tests, walking back from the end:
+      - coverage (SHARP, preferred): pass `coverage` — contributors per
+        period (count of distinct reporting entities). A period whose
+        coverage is < 50% of the max over the window before it is
+        incomplete, regardless of its value. Magnitude dilutes under
+        rollups (an incomplete month at 58% of trailing mean passes a
+        value test); a 231 -> 3 reporting-entity drop is unambiguous.
+      - magnitude (fallback, always on): value < 30% of the trailing-window
+        mean.
 
     Returns {"period", "value", "pct_from_peak", "direction",
     "excluded_trailing"} — period/value from the last complete observation,
     pct_from_peak vs the series max (negative below peak), direction the
     sign of a least-squares slope over the final `window` complete points
     ("rising"/"falling"/"flat"), excluded_trailing how many tail
-    observations the guard dropped (0 = clean edge). Never raises.
+    observations the guards dropped (0 = clean edge). Never raises.
     """
     failed = {"period": None, "value": None, "pct_from_peak": None,
               "direction": None, "excluded_trailing": None}
     try:
         ys = [safe_float(v) for v in list(values)]
+        covs = None
+        if coverage is not None:
+            try:
+                covs = [safe_float(c) for c in list(coverage)]
+                if len(covs) != len(ys):
+                    covs = None
+            except Exception:
+                covs = None
         idxs = [i for i, y in enumerate(ys) if y is not None]
         if len(idxs) < 2:
             return failed
         end = idxs[-1]
         excluded = 0
         while True:
-            prior = [ys[i] for i in idxs if i < end and ys[i] is not None][-window:]
+            prior_i = [i for i in idxs if i < end]
+            prior = [ys[i] for i in prior_i][-window:]
             if len(prior) < 2:
                 break
+            incomplete = False
+            if covs is not None:
+                cov_prior = [covs[i] for i in prior_i if covs[i] is not None][-window:]
+                cov_cur = covs[end]
+                if cov_prior and cov_cur is not None and cov_cur < 0.5 * max(cov_prior):
+                    incomplete = True
             mean = sum(prior) / len(prior)
             cur = ys[end]
-            if mean > 0 and cur is not None and cur < 0.3 * mean:
+            if not incomplete and mean > 0 and cur is not None and cur < 0.3 * mean:
+                incomplete = True
+            if incomplete:
                 excluded += 1
-                remaining = [i for i in idxs if i < end]
-                if not remaining:
+                if not prior_i:
                     return failed
-                end = remaining[-1]
+                end = prior_i[-1]
                 continue
             break
         value = ys[end]

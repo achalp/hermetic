@@ -4,6 +4,7 @@ import {
   lintSentinelInterpolation,
   lintMissingLinkage,
   lintSignedLanguage,
+  lintGranularityConflict,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -164,6 +165,42 @@ describe("lintSignedLanguage — declines described as accelerations", () => {
         findings,
         results,
       })
+    ).toHaveLength(0);
+  });
+});
+
+describe("lintGranularityConflict — monthly rising vs quarterly flat", () => {
+  const monthly = {
+    name: "cases_trend_monthly",
+    definition: "OLS trend of monthly new_confirmed cases",
+    dtype: "direction",
+    value: { direction: "rising", slope_per_period: 2007380, p_value: 3.5e-5 },
+  };
+  const quarterly = {
+    name: "cases_trend_quarterly",
+    definition: "OLS trend of quarterly new_confirmed cases",
+    dtype: "direction",
+    value: { direction: "flat", slope_per_period: 4100000, p_value: 0.246 },
+  };
+  const unrelated = {
+    name: "churn_rate_trend",
+    definition: "OLS trend of monthly churn_rate",
+    dtype: "direction",
+    value: { direction: "falling" },
+  };
+
+  it("flags disagreeing directions on the same measure", () => {
+    const issues = lintGranularityConflict([monthly, quarterly]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("granularity_conflict");
+    expect(issues[0].detail).toContain("rising");
+    expect(issues[0].detail).toContain("flat");
+  });
+
+  it("ignores different measures and agreeing directions", () => {
+    expect(lintGranularityConflict([monthly, unrelated])).toHaveLength(0);
+    expect(
+      lintGranularityConflict([monthly, { ...quarterly, value: { direction: "rising" } }])
     ).toHaveLength(0);
   });
 });

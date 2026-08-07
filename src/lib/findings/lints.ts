@@ -365,3 +365,42 @@ export function lintSignedLanguage(
   }
   return issues;
 }
+
+// ── Granularity-conflict lint (run-14: monthly rising vs quarterly flat) ──
+
+/**
+ * Two findings about the SAME measure (>= 2 shared name tokens) whose values
+ * both carry a direction string that DISAGREES — usually the same series at
+ * two granularities ("rising" monthly, "flat" quarterly). Both labels
+ * reaching the reader unreconciled is a contradiction to them; the composer
+ * must scope or reconcile. Advisory.
+ */
+export function lintGranularityConflict(findings: FindingEntry[]): FindingIssue[] {
+  const dirOf = (f: FindingEntry): string | undefined => {
+    const v = f.value;
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return undefined;
+    const d = (v as Record<string, unknown>).direction;
+    return typeof d === "string" ? d : undefined;
+  };
+  const tokens = (name: string) => new Set(name.split(/[._]/).filter((t) => t.length > 2));
+  const directional = findings
+    .map((f) => ({ f, dir: dirOf(f) }))
+    .filter((x): x is { f: FindingEntry; dir: string } => x.dir !== undefined && x.dir !== "");
+  const issues: FindingIssue[] = [];
+  for (let i = 0; i < directional.length; i++) {
+    for (let j = i + 1; j < directional.length; j++) {
+      const a = directional[i];
+      const b = directional[j];
+      if (a.dir.toLowerCase() === b.dir.toLowerCase()) continue;
+      const ta = tokens(a.f.name);
+      const shared = [...tokens(b.f.name)].filter((t) => ta.has(t));
+      if (shared.length < 2) continue;
+      issues.push({
+        kind: "granularity_conflict",
+        name: a.f.name,
+        detail: `${a.f.name} says "${a.dir}" while ${b.f.name} says "${b.dir}" for the same measure — the narrative must reconcile or scope them (a significance-test "flat" means not-significant at that granularity, not no growth)`,
+      });
+    }
+  }
+  return issues;
+}
