@@ -32,7 +32,7 @@ import {
   PLACEHOLDER_STRING_FORM_RULE,
 } from "@/lib/llm/prompt-fragments";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
-import { UI_COMPOSE_MODEL } from "@/lib/constants";
+import { getActiveModels } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
 
 const CELL_SYSTEM_PROMPT = `You compose ONE compact notebook cell visualizing the result of a single investigation step. The cell appears in a notebook where the step's question, status, and code are already shown by the surrounding chrome — your job is ONLY the output area.
@@ -182,7 +182,7 @@ export function assembleCellSpec(
  * on any LLM or assembly failure.
  */
 export async function composeStepCell(args: ComposeStepCellArgs): Promise<Spec | null> {
-  const model = getModel(args.uiComposeModel ?? UI_COMPOSE_MODEL);
+  const model = getModel(args.uiComposeModel ?? getActiveModels().uiCompose);
   // Offer the LLM only flattened scalar result keys (placeholder-safe names,
   // no nested objects) and resolve against the same map.
   const flatArgs = { ...args, results: flattenResultScalars(args.results) };

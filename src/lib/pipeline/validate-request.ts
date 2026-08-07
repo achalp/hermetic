@@ -23,14 +23,9 @@
  */
 import { getStoredCSV } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import {
-  CODE_GEN_MODEL,
-  UI_COMPOSE_MODEL,
-  isValidModelId,
-  isValidRuntimeId,
-} from "@/lib/constants";
+import { isValidModelId, isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { getActiveSandboxRuntime, getActiveModels } from "@/lib/runtime-config";
 
 import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
 /** @deprecated alias — use AnalysisRequestContext (modularization M1-1c). */
@@ -135,16 +130,20 @@ export function resolveQuerySources(
     return fail("csv_id or warehouse_id is required in context", 400);
   }
 
+  // Explicit per-request choice wins; otherwise the SERVER-side selection
+  // (Settings UI via runtime-config) — so a request that sends no model
+  // still honors the user's configured choice, same as MCP.
+  const activeModels = getActiveModels();
   const codeGenModel =
     !opts.skipModelValidation && context.code_gen_model && isValidModelId(context.code_gen_model)
       ? context.code_gen_model
-      : CODE_GEN_MODEL;
+      : activeModels.codeGen;
   const uiComposeModel =
     !opts.skipModelValidation &&
     context.ui_compose_model &&
     isValidModelId(context.ui_compose_model)
       ? context.ui_compose_model
-      : UI_COMPOSE_MODEL;
+      : activeModels.uiCompose;
   const sandboxRuntime: SandboxRuntimeId =
     context.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
       ? context.sandbox_runtime

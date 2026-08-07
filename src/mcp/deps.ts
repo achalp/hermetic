@@ -45,7 +45,7 @@ import { toCSVText } from "@/lib/csv/parser";
 import { ingestFile, makeIngest, type IngestFn } from "@/lib/sources/ingest";
 import { introspectWithCache } from "@/lib/warehouse/introspect";
 
-import { CODE_GEN_MODEL, UI_COMPOSE_MODEL } from "@/lib/constants";
+import { getActiveModels } from "@/lib/runtime-config";
 import type { WarehouseState } from "@/lib/pipeline/validate-request";
 
 export interface McpDeps {
@@ -182,6 +182,17 @@ export function realDeps(): McpDeps {
     toCSVText,
     ingestFile,
     introspectWithCache,
-    models: { codeGen: CODE_GEN_MODEL, uiCompose: UI_COMPOSE_MODEL },
+    // Live getters, not a boot-time snapshot: the MCP server has no
+    // localStorage, so the Settings UI's model choice reaches it through
+    // runtime-config — and a long-lived server must see changes made after
+    // it started.
+    models: {
+      get codeGen() {
+        return getActiveModels().codeGen;
+      },
+      get uiCompose() {
+        return getActiveModels().uiCompose;
+      },
+    },
   };
 }

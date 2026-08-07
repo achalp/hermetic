@@ -40,12 +40,8 @@ import { llmReplayConfig } from "@/lib/llm/replay";
 import { retrieveExemplar } from "@/lib/learning/exemplars";
 import { harvestRun } from "@/lib/learning/harvest";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
-import {
-  CODE_GEN_MODEL,
-  CODE_REVIEW_MODEL,
-  MAX_REVIEW_REDOS,
-  LLM_MAX_OUTPUT_TOKENS,
-} from "@/lib/constants";
+import { getActiveModels } from "@/lib/runtime-config";
+import { CODE_REVIEW_MODEL, MAX_REVIEW_REDOS, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
@@ -93,7 +89,7 @@ export async function runPipeline(
   const {
     onStage,
     mode = "metadata",
-    model = CODE_GEN_MODEL,
+    model = getActiveModels().codeGen,
     runtime,
     geojsonContent,
     workbookContext,

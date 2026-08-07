@@ -6,7 +6,8 @@ import {
   buildCodeGenSchemaBlock,
   buildConversationHistorySection,
 } from "./prompts";
-import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { getActiveModels } from "@/lib/runtime-config";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
@@ -181,7 +182,7 @@ export async function generateAnalysisCode(
   schema: CSVSchema,
   question: string,
   mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL,
+  model: string = getActiveModels().codeGen,
   workbookContext?: string,
   localFileContext?: string,
   priorTurns?: ConversationTurn[],
@@ -281,7 +282,7 @@ export async function generateAnalysisCode(
 export async function prewarmCodeGenCache(
   schema: CSVSchema,
   mode: SchemaMode = "metadata",
-  model: string = CODE_GEN_MODEL,
+  model: string = getActiveModels().codeGen,
   workbookContext?: string,
   localFileContext?: string,
   systemOnly = false,

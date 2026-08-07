@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import { envConfig } from "@/lib/harness-slot";
+import { CODE_GEN_MODEL, UI_COMPOSE_MODEL, isValidModelId } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
 import { logger } from "@/lib/logger";
 
@@ -66,6 +67,17 @@ export interface RuntimeConfig {
    *  consumer — the default) | on (composer + MCP receive the manifest). */
   findings?: {
     mode?: "off" | "shadow" | "on";
+  };
+  /**
+   * User-selected models (Settings UI). The SERVER-side source of truth so
+   * every harness honors one choice: web requests fall back to it when the
+   * client sends none, and the MCP server reads it directly (it has no
+   * localStorage). Validated against AVAILABLE_MODELS on read AND write —
+   * a stale id from an old config falls back to the defaults.
+   */
+  models?: {
+    codeGen?: string;
+    uiCompose?: string;
   };
 }
 
@@ -166,6 +178,9 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
   if (partial.findings !== undefined) {
     merged.findings = partial.findings === null ? undefined : partial.findings;
   }
+  if (partial.models !== undefined) {
+    merged.models = partial.models === null ? undefined : partial.models;
+  }
 
   // Atomic write: write to tmp then rename
   const path = configPath();
@@ -184,6 +199,23 @@ export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig
 export function clearRuntimeConfigCache(): void {
   cached = null;
   cacheTime = 0;
+}
+
+/**
+ * The active model selection: runtime-config (UI choice) first, constants
+ * fallback. Every layer that needs "the code-gen model" or "the compose
+ * model" without an explicit per-request override resolves through here.
+ */
+export function getActiveModels(): { codeGen: string; uiCompose: string } {
+  const rc = getRuntimeConfig();
+  return {
+    codeGen:
+      rc.models?.codeGen && isValidModelId(rc.models.codeGen) ? rc.models.codeGen : CODE_GEN_MODEL,
+    uiCompose:
+      rc.models?.uiCompose && isValidModelId(rc.models.uiCompose)
+        ? rc.models.uiCompose
+        : UI_COMPOSE_MODEL,
+  };
 }
 
 /**

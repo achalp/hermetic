@@ -1,7 +1,8 @@
 import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm/client";
-import { CODE_GEN_MODEL, LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from "@/lib/constants";
+import { LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from "@/lib/constants";
+import { getActiveModels } from "@/lib/runtime-config";
 import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
 import { logger } from "@/lib/logger";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
@@ -148,7 +149,7 @@ export async function generateSQL(
   tables: WarehouseTableSchema[],
   question: string,
   warehouseType: WarehouseType,
-  model: string = CODE_GEN_MODEL,
+  model: string = getActiveModels().codeGen,
   priorTurns?: ConversationTurn[]
 ): Promise<string> {
   const historySection = buildSQLHistorySection(priorTurns);
@@ -184,7 +185,7 @@ export async function generateSQL(
 export async function prewarmSQLGenCache(
   tables: WarehouseTableSchema[],
   warehouseType: WarehouseType,
-  model: string = CODE_GEN_MODEL
+  model: string = getActiveModels().codeGen
 ): Promise<void> {
   if (getActiveProvider() !== "anthropic") return;
   try {
@@ -268,7 +269,7 @@ async function repairSQL(args: {
   // engine error are the uncached tail; they vary per repair.
   const result = await withPhase("sql_repair", () =>
     generateText({
-      model: getModel(args.model ?? CODE_GEN_MODEL),
+      model: getModel(args.model ?? getActiveModels().codeGen),
       system: cachedSystem(buildSQLGenSystemPrompt(args.warehouseType)),
       messages: [
         {

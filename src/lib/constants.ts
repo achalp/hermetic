@@ -107,6 +107,9 @@ export const SUGGEST_MODEL = "claude-haiku-4-5-20251001" as const;
 export const MAX_AUTO_INVESTIGATIONS_PER_SESSION = 4;
 
 export const AVAILABLE_MODELS = [
+  { id: "claude-fable-5", label: "Claude Fable 5" },
+  { id: "claude-opus-5", label: "Claude Opus 5" },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
   { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
@@ -141,6 +144,11 @@ export interface ModelPrice {
 // back to the 5-minute default, cacheWrite drops to 1.25× input.
 // Opus 4.x list price is $5/$25 per MTok (the $15/$75 figure is Claude 3 Opus).
 export const MODEL_PRICING: Record<string, ModelPrice> = {
+  // Claude 5 family: tier-assumed pricing (matches the corresponding 4.x
+  // tier) until official numbers are wired — cost display only, not billing.
+  "claude-fable-5": { input: 5, output: 25, cacheWrite: 10, cacheRead: 0.5 },
+  "claude-opus-5": { input: 5, output: 25, cacheWrite: 10, cacheRead: 0.5 },
+  "claude-sonnet-5": { input: 3, output: 15, cacheWrite: 6, cacheRead: 0.3 },
   "claude-opus-4-8": { input: 5, output: 25, cacheWrite: 10, cacheRead: 0.5 },
   // Retained so historical analyses that ran on Opus 4.6 still price correctly.
   "claude-opus-4-6": { input: 5, output: 25, cacheWrite: 10, cacheRead: 0.5 },

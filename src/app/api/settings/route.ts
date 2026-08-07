@@ -15,7 +15,12 @@
  *         → OS keychain only ("" deletes). 422 when no credential service
  *           exists — secrets are never written to files.
  */
-import { getRuntimeConfig, setRuntimeConfig, type RuntimeConfig } from "@/lib/runtime-config";
+import {
+  getRuntimeConfig,
+  setRuntimeConfig,
+  getActiveModels,
+  type RuntimeConfig,
+} from "@/lib/runtime-config";
 import {
   openaiBaseUrl,
   openaiModel,
@@ -36,7 +41,7 @@ import {
   keychainAvailable,
   type ApiKeyId,
 } from "@/lib/secrets";
-import { DEFAULT_SANDBOX_MEMORY_FRACTION } from "@/lib/constants";
+import { DEFAULT_SANDBOX_MEMORY_FRACTION, isValidModelId } from "@/lib/constants";
 
 const DEFAULT_MAX_HISTORY = 200;
 const DEFAULT_MAX_RUNS = 200;
@@ -61,6 +66,7 @@ export function GET() {
       providers: rc.providers ?? {},
       sandbox: rc.sandbox ?? {},
       retention: rc.retention ?? {},
+      models: rc.models ?? {},
     },
     effective: {
       providers: {
@@ -79,6 +85,7 @@ export function GET() {
         maxHistoryEntries: maxHistoryEntries(DEFAULT_MAX_HISTORY),
         maxRunRecords: maxRunRecords(DEFAULT_MAX_RUNS),
       },
+      models: getActiveModels(),
     },
     api_keys: apiKeyStatus(),
     keychain_available: keychainAvailable(),
@@ -178,6 +185,18 @@ export async function PUT(request: Request) {
       maxHistoryEntries: hist ? Math.floor(hist) : undefined,
       maxRunRecords: runs ? Math.floor(runs) : undefined,
     };
+  }
+  if (body.models !== undefined) {
+    const m = (body.models ?? {}) as Record<string, unknown>;
+    const codeGen = cleanString(m.codeGen);
+    const uiCompose = cleanString(m.uiCompose);
+    if (codeGen !== undefined && !isValidModelId(codeGen)) {
+      return Response.json({ error: `Unknown model id: ${codeGen}` }, { status: 400 });
+    }
+    if (uiCompose !== undefined && !isValidModelId(uiCompose)) {
+      return Response.json({ error: `Unknown model id: ${uiCompose}` }, { status: 400 });
+    }
+    patch.models = { ...rc.models, codeGen, uiCompose };
   }
   if (Object.keys(patch).length > 0) setRuntimeConfig(patch);
 

@@ -122,6 +122,19 @@ export async function setActiveSandboxRuntime(sandboxRuntime: string): Promise<v
   });
 }
 
+/** Persist the model selection server-side (runtime-config) so MCP and
+ *  context-less requests honor the same choice. Best-effort. */
+export async function setActiveModels(models: {
+  codeGen?: string;
+  uiCompose?: string;
+}): Promise<void> {
+  await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ models }),
+  });
+}
+
 /** Switch the active LLM provider (Settings). */
 export async function setActiveProvider(
   provider: string

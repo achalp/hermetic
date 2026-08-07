@@ -8,7 +8,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getRuntimeConfig, setRuntimeConfig, clearRuntimeConfigCache } from "@/lib/runtime-config";
+import {
+  getRuntimeConfig,
+  setRuntimeConfig,
+  clearRuntimeConfigCache,
+  getActiveModels,
+} from "@/lib/runtime-config";
 import { hermeticPaths, setPathRoots } from "@/lib/paths";
 import { logger } from "@/lib/logger";
 
@@ -83,5 +88,29 @@ describe("settings blocks (providers/sandbox/retention) persist and clear", () =
     expect(rc.providers?.openaiModel).toBe("llama3.3");
     expect(rc.sandbox?.memoryFraction).toBe(0.5);
     expect(rc.retention).toEqual({ maxRunRecords: 50 });
+  });
+});
+
+describe("getActiveModels — the cross-harness model selection", () => {
+  it("defaults to the constants when nothing is stored", () => {
+    const models = getActiveModels();
+    expect(models.codeGen).toBe("claude-sonnet-4-6");
+    expect(models.uiCompose).toBe("claude-sonnet-4-6");
+  });
+
+  it("honors a stored selection (the Opus-5-everywhere path)", () => {
+    setRuntimeConfig({ models: { codeGen: "claude-opus-5", uiCompose: "claude-opus-5" } });
+    clearRuntimeConfigCache();
+    const models = getActiveModels();
+    expect(models.codeGen).toBe("claude-opus-5");
+    expect(models.uiCompose).toBe("claude-opus-5");
+  });
+
+  it("falls back per-field for stale/unknown ids from an old config", () => {
+    setRuntimeConfig({ models: { codeGen: "claude-retired-model", uiCompose: "claude-fable-5" } });
+    clearRuntimeConfigCache();
+    const models = getActiveModels();
+    expect(models.codeGen).toBe("claude-sonnet-4-6");
+    expect(models.uiCompose).toBe("claude-fable-5");
   });
 });

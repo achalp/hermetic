@@ -17,7 +17,7 @@ import {
   isValidModelId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
-import { getLocalBackendConfig, setActiveSandboxRuntime } from "@/app/lib/api";
+import { getLocalBackendConfig, setActiveSandboxRuntime, setActiveModels } from "@/app/lib/api";
 
 export function useModelSettings() {
   const [codeGenModel, setCodeGenModel] = useState<ModelId>(() => {
@@ -42,6 +42,28 @@ export function useModelSettings() {
     return DEFAULT_SANDBOX_RUNTIME;
   });
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
+
+  // Adopt the server-side model selection when one is stored — runtime-config
+  // is the cross-harness source of truth (MCP reads it too), so a choice made
+  // in another browser/profile still wins over this tab's stale localStorage.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/settings", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { config?: { models?: { codeGen?: string; uiCompose?: string } } } | null) => {
+        const m = data?.config?.models;
+        if (m?.codeGen && isValidModelId(m.codeGen)) {
+          setCodeGenModel(m.codeGen);
+          localStorage.setItem(STORAGE_KEYS.codeGenModel, m.codeGen);
+        }
+        if (m?.uiCompose && isValidModelId(m.uiCompose)) {
+          setUiComposeModel(m.uiCompose);
+          localStorage.setItem(STORAGE_KEYS.uiComposeModel, m.uiCompose);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   // Reflect the server-side local-backend config (whichever backend is
   // enabled with an active model) into the settings drawer's model field.
@@ -69,13 +91,18 @@ export function useModelSettings() {
     setActiveSandboxRuntime(r).catch(() => {});
   }, []);
 
+  // Model choices persist BOTH client-side (localStorage — instant reload
+  // state) and server-side (runtime-config via /api/settings) so the MCP
+  // server and requests that send no explicit model honor the same choice.
   const handleCodeGenModelChange = useCallback((m: ModelId) => {
     setCodeGenModel(m);
     localStorage.setItem(STORAGE_KEYS.codeGenModel, m);
+    setActiveModels({ codeGen: m }).catch(() => {});
   }, []);
   const handleUiComposeModelChange = useCallback((m: ModelId) => {
     setUiComposeModel(m);
     localStorage.setItem(STORAGE_KEYS.uiComposeModel, m);
+    setActiveModels({ uiCompose: m }).catch(() => {});
   }, []);
 
   return {

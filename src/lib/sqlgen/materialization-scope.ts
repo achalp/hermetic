@@ -9,7 +9,7 @@
 import { generateText } from "ai";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
-import { CODE_GEN_MODEL } from "@/lib/constants";
+import { getActiveModels } from "@/lib/runtime-config";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 
 export interface MaterializationScope {
@@ -24,7 +24,7 @@ const SYSTEM_PROMPT = `You pick the PRIMARY fact table and its main time/date co
 export async function pickMaterializationScope(
   question: string,
   tables: WarehouseTableSchema[],
-  model: string = CODE_GEN_MODEL
+  model: string = getActiveModels().codeGen
 ): Promise<MaterializationScope | null> {
   const catalog = tables
     .map((t) => {

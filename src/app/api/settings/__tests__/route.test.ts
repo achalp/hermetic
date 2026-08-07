@@ -18,6 +18,10 @@ vi.mock("@/lib/runtime-config", () => ({
     state.rc = { ...state.rc, ...patch };
     return state.rc;
   }),
+  getActiveModels: vi.fn(() => ({
+    codeGen: "claude-sonnet-4-6",
+    uiCompose: "claude-sonnet-4-6",
+  })),
 }));
 
 vi.mock("@/lib/secrets", async (importOriginal) => {
@@ -127,5 +131,29 @@ describe("PUT /api/settings", () => {
   it("rejects unknown key ids", async () => {
     const res = await PUT(putReq({ api_keys: { evil: "x" } }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("PUT /api/settings — models block", () => {
+  it("persists a valid selection and rejects unknown ids", async () => {
+    const { PUT } = await import("@/app/api/settings/route");
+    const ok = await PUT(
+      new Request("http://x/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          models: { codeGen: "claude-opus-5", uiCompose: "claude-sonnet-5" },
+        }),
+      })
+    );
+    expect(ok.status).toBe(200);
+    expect((state.rc as { models?: { codeGen?: string } }).models?.codeGen).toBe("claude-opus-5");
+
+    const bad = await PUT(
+      new Request("http://x/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ models: { codeGen: "gpt-9000" } }),
+      })
+    );
+    expect(bad.status).toBe(400);
   });
 });

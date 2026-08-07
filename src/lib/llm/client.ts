@@ -403,6 +403,9 @@ function localOpenAIFetch(baseUrl: string) {
  */
 const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
   anthropic: {
+    "claude-fable-5": "claude-fable-5",
+    "claude-opus-5": "claude-opus-5",
+    "claude-sonnet-5": "claude-sonnet-5",
     "claude-opus-4-8": "claude-opus-4-8",
     "claude-opus-4-6": "claude-opus-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
@@ -412,6 +415,9 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
   // it honors the app's per-task model choices (haiku for planning, sonnet for
   // code-gen, …) exactly like the direct Anthropic provider.
   "claude-cli": {
+    "claude-fable-5": "claude-fable-5",
+    "claude-opus-5": "claude-opus-5",
+    "claude-sonnet-5": "claude-sonnet-5",
     "claude-opus-4-8": "claude-opus-4-8",
     "claude-opus-4-6": "claude-opus-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
@@ -421,12 +427,18 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
   // convention; confirm the exact 4.8 profile string against the AWS Bedrock
   // model catalog for your region before deploying there.
   bedrock: {
+    "claude-fable-5": "us.anthropic.claude-fable-5-v1",
+    "claude-opus-5": "us.anthropic.claude-opus-5-v1",
+    "claude-sonnet-5": "us.anthropic.claude-sonnet-5-v1",
     "claude-opus-4-8": "us.anthropic.claude-opus-4-8-v1",
     "claude-opus-4-6": "us.anthropic.claude-opus-4-6-v1",
     "claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
     "claude-haiku-4-5-20251001": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   },
   vertex: {
+    "claude-fable-5": "claude-fable-5",
+    "claude-opus-5": "claude-opus-5",
+    "claude-sonnet-5": "claude-sonnet-5",
     "claude-opus-4-8": "claude-opus-4-8",
     "claude-opus-4-6": "claude-opus-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
@@ -670,6 +682,7 @@ function usageMiddleware(costKey: string): LanguageModelMiddleware {
 export function isAdaptiveOnlyModel(internalModelId: string): boolean {
   return (
     /^claude-opus-4-(?:[7-9]|\d\d)/.test(internalModelId) ||
+    /^claude-(?:opus|sonnet)-5/.test(internalModelId) ||
     /^claude-(?:fable|mythos)-/.test(internalModelId)
   );
 }

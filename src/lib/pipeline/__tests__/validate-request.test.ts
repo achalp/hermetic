@@ -15,6 +15,10 @@ vi.mock("@/lib/warehouse/storage", () => ({
 }));
 vi.mock("@/lib/runtime-config", () => ({
   getActiveSandboxRuntime: vi.fn(() => "docker"),
+  getActiveModels: vi.fn(() => ({
+    codeGen: "claude-sonnet-4-6",
+    uiCompose: "claude-sonnet-4-6",
+  })),
 }));
 
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
