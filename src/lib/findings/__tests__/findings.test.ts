@@ -192,3 +192,25 @@ describe("namespaceFindings", () => {
     expect(f.derived_from_findings).toEqual(["step_3.local_measure", "step_1.upstream"]);
   });
 });
+
+describe("depth cap accepts per-group findings (run-9 regression)", () => {
+  it("keeps a depth-3 per-segment structure that the old cap dropped", () => {
+    // segment_trend_heterogeneity from the real run: root -> slopes -> segment -> leaf.
+    const entry = {
+      name: "segment_trend_heterogeneity",
+      definition: "per-segment churn_rate trend slopes with heterogeneity test",
+      dtype: "distribution",
+      value: {
+        significant: true,
+        p_value: 9.123e-7,
+        slopes: {
+          Enterprise: { direction: "rising", slope_per_period: 0.00115 },
+          "Self-Serve": { direction: "rising", slope_per_period: 0.0136 },
+        },
+      },
+    };
+    const { manifest, issues } = validateFindings([entry]);
+    expect(manifest.findings).toHaveLength(1);
+    expect(issues).toHaveLength(0);
+  });
+});

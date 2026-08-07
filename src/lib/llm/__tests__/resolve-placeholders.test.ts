@@ -288,3 +288,39 @@ describe("unit-carrying inline rendering — the composer never writes unit word
     expect(out).not.toContain("pp pp");
   });
 });
+
+describe("run-9 feedback fixes: sentence-level refusal, identifiers, tiny numbers", () => {
+  it("drops the whole sentence on refusal — no stranded 'described as: .'", () => {
+    const line =
+      '{"content": "Churn rose over the year. The relationship between base size and churn rate is described as: $result:base_effect. Peak was December."}';
+    const out = resolveSpecPlaceholders(line, { base_effect: "none" }, {});
+    expect(out).toContain("Churn rose over the year.");
+    expect(out).toContain("Peak was December.");
+    expect(out).not.toContain("described as");
+    expect(out).not.toContain(": .");
+    expect(out).not.toContain("\u0000");
+  });
+
+  it("humanizes snake_case identifier values in prose", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "primarily driven by $finding:decomp.dominant"}',
+      {},
+      {},
+      { decomp: { churn_volume_effect: 0.09, dominant: "churn_volume_effect" } }
+    );
+    expect(out).toContain("primarily driven by churn volume effect");
+    expect(out).not.toContain("churn_volume_effect");
+  });
+
+  it("renders tiny magnitudes exponentially — p = 9e-7 never narrates as 0", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "significant (p = $finding:trend.p_value; slope p = $result:slope_p)"}',
+      { slope_p: 2.4385585774528402e-5 },
+      {},
+      { trend: { direction: "rising", p_value: 9.123e-7 } }
+    );
+    expect(out).toContain("p = 9.12e-7");
+    expect(out).toContain("slope p = 2.44e-5");
+    expect(out).not.toContain("p = 0)");
+  });
+});

@@ -275,7 +275,11 @@ function isInlineRefused(value: unknown): boolean {
   );
 }
 
-function refuseInline(token: string): "" {
+// Refusal marker: the containing SENTENCE is removed in a cleanup pass —
+// stripping only the token leaves the sentence stranded ("described as: .").
+const REFUSAL_MARKER = "\u0000";
+
+function refuseInline(token: string): string {
   logger.warn("resolveSpecPlaceholders: refused sentinel/boolean inline in prose", { token });
   void recordFailure({
     stage: "compose",
@@ -283,7 +287,43 @@ function refuseInline(token: string): "" {
     errorClass: "compose_sentinel_inline",
     detail: token,
   });
-  return "";
+  return REFUSAL_MARKER;
+}
+
+/**
+ * Remove every sentence that contains a refusal marker, per JSON string
+ * (never across quotes). Sentence boundary = [.!?] followed by whitespace —
+ * decimals ("0.9 pp") have no space after the dot, so they don't split.
+ * A string reduced to nothing renders as empty prose, which reads better
+ * than a stranded "described as: .".
+ */
+function stripRefusedSentences(line: string): string {
+  if (!line.includes(REFUSAL_MARKER)) return line;
+  return line.replace(/"((?:[^"\\]|\\.)*)"/g, (whole, inner: string) => {
+    if (!inner.includes(REFUSAL_MARKER)) return whole;
+    const kept = inner
+      .split(/(?<=[.!?])\s+/)
+      .filter((sentence) => !sentence.includes(REFUSAL_MARKER))
+      .join(" ")
+      .trim();
+    return `"${kept}"`;
+  });
+}
+
+/** snake_case machine identifiers read as code in prose — humanize to words.
+ *  ("churn_volume_effect" → "churn volume effect"). */
+const IDENTIFIER_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+
+function humanizeIfIdentifier(value: string): string {
+  return IDENTIFIER_RE.test(value) ? value.replace(/_/g, " ") : value;
+}
+
+/** Inline numeric formatting. toFixed(4) rounds tiny magnitudes to 0 — a
+ *  p-value of 9e-7 must never narrate as "p = 0". */
+function formatInlineNumber(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  if (value !== 0 && Math.abs(value) < 0.00005) return value.toExponential(2);
+  return parseFloat(value.toFixed(4)).toString();
 }
 
 const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -342,9 +382,7 @@ export function resolveSpecPlaceholders(
         const value = unwrapScalar(raw);
         if (isInlineRefused(value)) return refuseInline(_match);
         if (typeof value === "number") {
-          const num = Number.isInteger(value)
-            ? String(value)
-            : parseFloat(value.toFixed(4)).toString();
+          const num = formatInlineNumber(value);
           // Unit applies to the finding's MAIN value only: a bare scalar
           // binding or its conventional `.value` field — never arbitrary
           // fields (a decomposition's p_value is not in pp).
@@ -352,7 +390,7 @@ export function resolveSpecPlaceholders(
           return unit ? withUnit(num, unit, whole.slice(offset + _match.length)) : num;
         }
         if (typeof value === "object") return _match; // needs a .field path
-        return String(value);
+        return humanizeIfIdentifier(String(value));
       }
     );
   }
@@ -477,11 +515,9 @@ export function resolveSpecPlaceholders(
     if (raw === undefined) return _match;
     const value = unwrapScalar(raw);
     if (isInlineRefused(value)) return refuseInline(_match);
-    if (typeof value === "number") {
-      return Number.isInteger(value) ? String(value) : parseFloat(value.toFixed(4)).toString();
-    }
+    if (typeof value === "number") return formatInlineNumber(value);
     if (typeof value === "object") return JSON.stringify(value);
-    return String(value);
+    return humanizeIfIdentifier(String(value));
   });
 
   // ── Final sweep: any "$result:"/"$chartData:" that survived every pass is
@@ -522,7 +558,7 @@ export function resolveSpecPlaceholders(
     });
   }
 
-  return processed;
+  return stripRefusedSentences(processed);
 }
 
 /**

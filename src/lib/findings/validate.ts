@@ -20,7 +20,7 @@ import {
 
 // ── Structural limits (spec §1, review E10) ──────────────────────────
 export const VALUE_MAX_BYTES = 2_048;
-export const VALUE_MAX_DEPTH = 2;
+export const VALUE_MAX_DEPTH = 3;
 export const VALUE_MAX_LEAVES = 25;
 export const MANIFEST_MAX_ENTRIES = 100;
 export const MANIFEST_MAX_BYTES = 64_000;

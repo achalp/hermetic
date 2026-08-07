@@ -39,7 +39,7 @@ describe("resolveSpecPlaceholders — $result", () => {
     // flag, so "rates are Yes"-class prose is prevented at the resolver seam.
     const line = '{"text":"Significant: $result:sig"}';
     const out = resolveSpecPlaceholders(line, { sig: true }, {});
-    expect(out).toBe('{"text":"Significant: "}');
+    expect(out).toBe('{"text":""}');
     expect(out).not.toContain("Yes");
   });
 

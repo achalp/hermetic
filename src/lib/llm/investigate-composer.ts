@@ -557,7 +557,7 @@ function buildInvestigateFindingsSection(manifest?: FindingsManifest): string {
   return `
 
 ## Declared Findings (bind these — never restate)
-Bind values via "$finding:<name>" (names are step-qualified, e.g. "$finding:step_2.churn_trend.direction"). Claims a finding supports must bind it; steps whose findings DISAGREE about the same measure must be reconciled or scoped explicitly, never averaged over.
+Bind values via "$finding:<name>" (names are step-qualified, e.g. "$finding:step_2.churn_trend.direction"). Claims a finding supports must bind it; steps whose findings DISAGREE about the same measure must be reconciled or scoped explicitly, never averaged over. These are the AUTHORITATIVE values: when a $result key covers the same quantity, bind the $finding — the results dict may carry stale or divergent duplicates.
 ${JSON.stringify(projections, null, 1)}${omitted.length > 0 ? `\n(${omitted.length} findings omitted for space: ${omitted.join(", ")})` : ""}`;
 }
 

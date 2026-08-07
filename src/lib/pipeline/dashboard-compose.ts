@@ -516,7 +516,7 @@ function buildFindingsSection(manifest?: FindingsManifest): string {
   return `
 
 ## Declared Findings (bind these — never restate)
-The analysis DECLARED these findings; their values bind via "$finding:<name>" (or "$finding:<name>.<field>" for structured ones — value_fields lists the fields). Every claim a finding supports must be bound from it, not paraphrased around it. A finding you deliberately do not narrate should usually still appear in a chart or table.
+The analysis DECLARED these findings; their values bind via "$finding:<name>" (or "$finding:<name>.<field>" for structured ones — value_fields lists the fields). Every claim a finding supports must be bound from it, not paraphrased around it. These are the AUTHORITATIVE values: when a $result key covers the same quantity, bind the $finding — the results dict may carry stale or divergent duplicates (a null result beside a populated finding is exactly that failure). A finding you deliberately do not narrate should usually still appear in a chart or table.
 ${JSON.stringify(projections, null, 1)}${omitted.length > 0 ? `\n(${omitted.length} findings omitted for space: ${omitted.join(", ")})` : ""}`;
 }
 
