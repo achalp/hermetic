@@ -23,6 +23,7 @@ import { once } from "node:events";
 import { logger, serializeError } from "@/lib/logger";
 import { currentPhase } from "@/lib/cost/accumulator";
 import { envConfig } from "@/lib/harness-slot";
+import { getActiveEffort } from "@/lib/runtime-config";
 import {
   responsesJSON,
   responsesSSE,
@@ -284,10 +285,15 @@ const PHASE_EFFORT: Record<string, string> = {
   code_review: "high",
 };
 
-/** Effort resolution: body override → env force → phase policy → "low". */
+/** Effort resolution: body override → settings (runtime-config) → env force
+ *  → phase policy → "low". The settings override sits above phase routing so
+ *  the UI's choice applies to every phase, but below an explicit per-request
+ *  body ask. */
 export function resolveEffort(body: Record<string, unknown>): string | null {
   const fromBody = (body.reasoning as { effort?: unknown } | undefined)?.effort;
   if (typeof fromBody === "string" && EFFORT_LEVELS.has(fromBody)) return fromBody;
+  const fromSettings = getActiveEffort();
+  if (fromSettings && EFFORT_LEVELS.has(fromSettings)) return fromSettings;
   const fromEnv = envConfig().HERMETIC_CLAUDE_CLI_EFFORT;
   if (fromEnv === "default") return null; // defer to the CLI's own default
   if (fromEnv && EFFORT_LEVELS.has(fromEnv)) return fromEnv;

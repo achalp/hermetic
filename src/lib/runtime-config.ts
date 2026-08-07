@@ -78,6 +78,9 @@ export interface RuntimeConfig {
   models?: {
     codeGen?: string;
     uiCompose?: string;
+    /** Claude CLI reasoning-effort override: "auto" (phase-routed default)
+     *  or a fixed level applied to every phase. */
+    effort?: string;
   };
 }
 
@@ -206,6 +209,14 @@ export function clearRuntimeConfigCache(): void {
  * fallback. Every layer that needs "the code-gen model" or "the compose
  * model" without an explicit per-request override resolves through here.
  */
+export const EFFORT_CHOICES = ["auto", "low", "medium", "high"] as const;
+
+/** The user's effort override; "auto" / unset defers to phase routing. */
+export function getActiveEffort(): string | null {
+  const e = getRuntimeConfig().models?.effort;
+  return e && e !== "auto" && (EFFORT_CHOICES as readonly string[]).includes(e) ? e : null;
+}
+
 export function getActiveModels(): { codeGen: string; uiCompose: string } {
   const rc = getRuntimeConfig();
   return {

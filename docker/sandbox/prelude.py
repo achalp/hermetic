@@ -397,6 +397,8 @@ def safe_int(x, default=None):
     f = safe_float(x, None)
     return default if f is None else int(f)
 
+_HERMETIC_RUNTIME_FALLBACK = None
+
 def write_output(results=None, chart_data=None, datasets=None, images=None, findings=None):
     # Write /data/output.json in the required structure. Coerces NaN/Inf/numpy/
     # Timestamp/Decimal to JSON-safe values and caps each dataset at 5000 rows.
@@ -404,6 +406,7 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
     # findings needs NO argument — the declare_finding registry is the truth
     # (spec declared-findings-2026-08-06 §2.1); findings= is an explicit override.
     out = {
+        'runtime_fallback': _HERMETIC_RUNTIME_FALLBACK,
         'results': _to_native(results if results is not None else {}),
         'chart_data': _to_native(chart_data if chart_data is not None else {}),
         'datasets': {},
@@ -583,6 +586,10 @@ try:
     _INFEASIBLE_MSG = _hrt.guards.INFEASIBLE_MSG
     progress(runtime_pkg="hermetic_runtime")
 except Exception as _rt_err:
+    # The marker rides the OUTPUT ENVELOPE so the host can see (and surface)
+    # that every stat helper was a stub — run 88e5d443 shipped 13 null
+    # findings with perfect inputs and only a buried progress line said why.
+    _HERMETIC_RUNTIME_FALLBACK = "%s: %s" % (type(_rt_err).__name__, _rt_err)
     try:
         progress(runtime_pkg="inline-fallback: %s" % _rt_err)
     except Exception:

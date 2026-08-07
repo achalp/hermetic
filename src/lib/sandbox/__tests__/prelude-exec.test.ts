@@ -88,6 +88,7 @@ describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
       "findings",
       "images",
       "results",
+      "runtime_fallback",
     ]);
     expect(out.findings).toEqual([]);
   });

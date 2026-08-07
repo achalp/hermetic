@@ -43,6 +43,7 @@ import {
   lintCheckGating,
   lintNoChecksDeclared,
   lintMethodMismatch,
+  lintNullAncestry,
   namespaceFindings,
 } from "@/lib/findings";
 import {
@@ -706,6 +707,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               ...lintCheckGating(merged),
               ...lintNoChecksDeclared(merged),
               ...lintMethodMismatch(merged),
+              ...lintNullAncestry(merged),
             ];
             if (coherence.length > 0) {
               logger.warn("investigate findings: cross-step coherence issues", {

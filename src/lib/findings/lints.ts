@@ -648,3 +648,34 @@ export function lintMethodMismatch(findings: FindingEntry[]): FindingIssue[] {
   }
   return issues;
 }
+
+// ── Null-ancestry lint (run-25: derived number from a null parent) ───
+
+const isAllNullValue = (v: unknown): boolean => {
+  if (v === null || v === undefined) return true;
+  if (typeof v !== "object" || Array.isArray(v)) return false;
+  const leaves = Object.values(v as Record<string, unknown>);
+  return leaves.length > 0 && leaves.every((x) => x === null);
+};
+
+/** A finding with real values deriving from an all-null ancestor asserts a
+ *  number its own lineage says was never computed ("prices moved 408.1%
+ *  from the last complete observed year" — current_state was null). */
+export function lintNullAncestry(findings: FindingEntry[]): FindingIssue[] {
+  const byName = new Map(findings.map((f) => [f.name, f]));
+  const issues: FindingIssue[] = [];
+  for (const f of findings) {
+    if (isAllNullValue(f.value)) continue;
+    for (const ref of f.derived_from_findings ?? []) {
+      const parent = byName.get(ref) ?? byName.get(ref.replace(/^step_\d+\./, ""));
+      if (parent && isAllNullValue(parent.value)) {
+        issues.push({
+          kind: "derived_from_null",
+          name: f.name,
+          detail: `${f.name} carries values but derives from ${parent.name}, whose value is entirely null — the lineage it claims was never computed; do not narrate it as established`,
+        });
+      }
+    }
+  }
+  return issues;
+}

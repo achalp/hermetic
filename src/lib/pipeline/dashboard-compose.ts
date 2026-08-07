@@ -793,9 +793,26 @@ export async function composeAndStreamDashboard(args: {
     },
   });
 
+  // Duplicate-tile suppression (two runs of 'Total X' twice): the SECOND
+  // StatCard with an identical (label, value) is dropped deterministically.
+  const seenTileSigs = new Set<string>();
   const processLine = (line: string): string | null => {
     const result = finalize(line);
     if (result.skip) return null;
+    const val = result.patch?.value as
+      | { type?: unknown; props?: { label?: unknown; value?: unknown } }
+      | undefined;
+    if (val && typeof val === "object" && val.type === "StatCard") {
+      const sig = JSON.stringify([val.props?.label, val.props?.value]);
+      if (seenTileSigs.has(sig)) {
+        proseLintIssues.set(`duplicate_tile:${sig}`, {
+          kind: "duplicate_tile",
+          detail: `dropped a duplicate headline tile ${sig}`,
+        });
+        return null;
+      }
+      seenTileSigs.add(sig);
+    }
     lineCount++;
     if (result.patch) composedPatches.push(result.patch as PatchLike);
     if (result.line.includes('"$state"')) sawStateBinding = true;

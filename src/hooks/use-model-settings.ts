@@ -41,6 +41,10 @@ export function useModelSettings() {
     }
     return DEFAULT_SANDBOX_RUNTIME;
   });
+  // Reasoning-effort override ("auto" = phase-routed defaults). Server-side
+  // in runtime-config so the CLI transport (and MCP) honor it — same
+  // cross-harness contract as the model selection.
+  const [effort, setEffort] = useState<string>("auto");
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
 
   // Adopt the server-side model selection when one is stored — runtime-config
@@ -51,7 +55,10 @@ export function useModelSettings() {
     fetch("/api/settings", { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { config?: { models?: { codeGen?: string; uiCompose?: string } } } | null) => {
-        const m = data?.config?.models;
+        const m = data?.config?.models as
+          | { codeGen?: string; uiCompose?: string; effort?: string }
+          | undefined;
+        if (m?.effort) setEffort(m.effort);
         if (m?.codeGen && isValidModelId(m.codeGen)) {
           setCodeGenModel(m.codeGen);
           localStorage.setItem(STORAGE_KEYS.codeGenModel, m.codeGen);
@@ -99,6 +106,10 @@ export function useModelSettings() {
     localStorage.setItem(STORAGE_KEYS.codeGenModel, m);
     setActiveModels({ codeGen: m }).catch(() => {});
   }, []);
+  const handleEffortChange = useCallback((e: string) => {
+    setEffort(e);
+    setActiveModels({ effort: e }).catch(() => {});
+  }, []);
   const handleUiComposeModelChange = useCallback((m: ModelId) => {
     setUiComposeModel(m);
     localStorage.setItem(STORAGE_KEYS.uiComposeModel, m);
@@ -114,5 +125,7 @@ export function useModelSettings() {
     handleRuntimeChange,
     handleCodeGenModelChange,
     handleUiComposeModelChange,
+    effort,
+    handleEffortChange,
   };
 }

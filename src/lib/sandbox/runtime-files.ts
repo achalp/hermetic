@@ -1,3 +1,4 @@
+import { readdirSync } from "fs";
 /**
  * Hermetic runtime shipping — the tested Python package under
  * docker/sandbox/hermetic_runtime/ is attached to EVERY sandbox run as
@@ -16,15 +17,16 @@ import { logger } from "@/lib/logger";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import { hermeticPaths } from "@/lib/paths";
 
-const RUNTIME_MODULES = [
-  "__init__.py",
-  "coerce.py",
-  "frames.py",
-  "guards.py",
-  "output.py",
-  "findings.py",
-  "profile.py",
-];
+// Derived from the package directory, never hand-maintained: run 88e5d443
+// shipped without checks.py because this was a hand-edited list — __init__'s
+// import failed in the sandbox, the prelude silently fell back to stubs, and
+// 13 of 17 findings came back null with perfect inputs. Any *.py in the
+// package (minus tests) ships.
+function runtimeModules(): string[] {
+  return readdirSync(runtimeDir())
+    .filter((f) => f.endsWith(".py") && !f.startsWith("test_"))
+    .sort((a, b) => (a === "__init__.py" ? -1 : b === "__init__.py" ? 1 : a.localeCompare(b)));
+}
 
 function runtimeDir(): string {
   return hermeticPaths.sandboxRuntimeAssetsDir();
@@ -49,7 +51,7 @@ export function resetRuntimeFilesCacheForTests(): void {
 export function hermeticRuntimeFiles(): AdditionalFile[] {
   if (cachedFiles) return cachedFiles;
   try {
-    cachedFiles = RUNTIME_MODULES.map((name) => ({
+    cachedFiles = runtimeModules().map((name) => ({
       path: `/data/hermetic_runtime/${name}`,
       content: readFileSync(path.join(runtimeDir(), name), "utf8"),
     }));

@@ -19,6 +19,10 @@ export interface SandboxExecutionResult {
    *  periods. Computed deterministically at data-load time — never by
    *  generated code. Absent when no time column qualified. */
   data_completeness?: unknown;
+  /** Set when hermetic_runtime failed to import in the sandbox and the
+   *  prelude fell back to inline stubs — every stat helper returned None
+   *  dicts. The import error string; findings from such a run are degraded. */
+  runtime_fallback?: string | null;
 }
 
 export interface SandboxExecutionError {

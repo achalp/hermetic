@@ -21,6 +21,8 @@ interface SettingsDrawerProps {
   uiComposeModel: ModelId;
   onCodeGenModelChange: (model: ModelId) => void;
   onUiComposeModelChange: (model: ModelId) => void;
+  effort: string;
+  onEffortChange: (effort: string) => void;
   sandboxRuntime: SandboxRuntimeId;
   onSandboxRuntimeChange: (runtime: SandboxRuntimeId) => void;
   ollamaModel: string | null;
@@ -49,6 +51,8 @@ export function SettingsDrawer({
   uiComposeModel,
   onCodeGenModelChange,
   onUiComposeModelChange,
+  effort,
+  onEffortChange,
   sandboxRuntime,
   onSandboxRuntimeChange,
   ollamaModel,
@@ -69,16 +73,18 @@ export function SettingsDrawer({
 }: SettingsDrawerProps) {
   return (
     <Drawer open={open} onClose={onClose} title="Settings" width={380}>
-      <CollapsibleSection title="Appearance" defaultOpen>
+      <CollapsibleSection title="Appearance" defaultOpen={false}>
         <AppearanceSection />
       </CollapsibleSection>
 
-      <CollapsibleSection title="Inference" defaultOpen>
+      <CollapsibleSection title="Inference" defaultOpen={false}>
         <InferenceSection
           codeGenModel={codeGenModel}
           uiComposeModel={uiComposeModel}
           onCodeGenModelChange={onCodeGenModelChange}
           onUiComposeModelChange={onUiComposeModelChange}
+          effort={effort}
+          onEffortChange={onEffortChange}
           sandboxRuntime={sandboxRuntime}
           onSandboxRuntimeChange={onSandboxRuntimeChange}
           ollamaModel={ollamaModel}

@@ -37,6 +37,7 @@ const SandboxEnvelopeSchema = z.object({
   // declaration in review. Validation happens in lib/findings, not here.
   findings: z.array(z.unknown()).optional(),
   data_completeness: z.unknown().optional(),
+  runtime_fallback: z.string().nullable().optional(),
 });
 
 const NO_OUTPUT_ERROR =

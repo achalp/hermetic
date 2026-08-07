@@ -190,13 +190,17 @@ export async function PUT(request: Request) {
     const m = (body.models ?? {}) as Record<string, unknown>;
     const codeGen = cleanString(m.codeGen);
     const uiCompose = cleanString(m.uiCompose);
+    const effort = cleanString(m.effort);
+    if (effort !== undefined && !["auto", "low", "medium", "high"].includes(effort)) {
+      return Response.json({ error: `Unknown effort level: ${effort}` }, { status: 400 });
+    }
     if (codeGen !== undefined && !isValidModelId(codeGen)) {
       return Response.json({ error: `Unknown model id: ${codeGen}` }, { status: 400 });
     }
     if (uiCompose !== undefined && !isValidModelId(uiCompose)) {
       return Response.json({ error: `Unknown model id: ${uiCompose}` }, { status: 400 });
     }
-    patch.models = { ...rc.models, codeGen, uiCompose };
+    patch.models = { ...rc.models, codeGen, uiCompose, effort };
   }
   if (Object.keys(patch).length > 0) setRuntimeConfig(patch);
 

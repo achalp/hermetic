@@ -15,15 +15,21 @@ describe("hermeticRuntimeFiles", () => {
   it("ships every runtime module under /data/hermetic_runtime/", () => {
     const files = hermeticRuntimeFiles();
     const names = files.map((f) => f.path);
-    expect(names).toEqual([
-      "/data/hermetic_runtime/__init__.py",
-      "/data/hermetic_runtime/coerce.py",
-      "/data/hermetic_runtime/frames.py",
-      "/data/hermetic_runtime/guards.py",
-      "/data/hermetic_runtime/output.py",
-      "/data/hermetic_runtime/findings.py",
-      "/data/hermetic_runtime/profile.py",
-    ]);
+    // Derived from the package directory (run 88e5d443: a hand-maintained
+    // list omitted checks.py and every stat helper silently became a stub).
+    expect(names[0]).toBe("/data/hermetic_runtime/__init__.py");
+    for (const mod of [
+      "checks.py",
+      "coerce.py",
+      "findings.py",
+      "frames.py",
+      "guards.py",
+      "output.py",
+      "profile.py",
+    ]) {
+      expect(names).toContain(`/data/hermetic_runtime/${mod}`);
+    }
+    expect(names.some((n) => n.includes("test_"))).toBe(false);
     for (const f of files) expect(f.content.length).toBeGreaterThan(100);
     // Import purity: the package must not import pandas/numpy at module level
     // (the prelude imports it before user code; a heavy import there would slow

@@ -27,6 +27,7 @@ import {
   lintCheckGating,
   lintNoChecksDeclared,
   lintMethodMismatch,
+  lintNullAncestry,
   lintRangeFabrication,
 } from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
@@ -432,7 +433,20 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           ];
           const validated = validateFindings(merged, { referenceNames });
           findingsManifest = validated.manifest;
+          if (executionResult.runtime_fallback) {
+            logger.error("Sandbox runtime fell back to stubs — findings degraded", {
+              error: executionResult.runtime_fallback,
+            });
+          }
           findingIssues = [
+            ...(executionResult.runtime_fallback
+              ? [
+                  {
+                    kind: "runtime_fallback",
+                    detail: `sandbox runtime failed to import (${executionResult.runtime_fallback}) — statistical helpers were stubs and null findings are a pipeline failure, not a data property`,
+                  },
+                ]
+              : []),
             ...validated.issues,
             ...lintDerivations(validated.manifest.findings),
             ...lintMissingLinkage(validated.manifest.findings),
@@ -440,6 +454,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintCheckGating(validated.manifest.findings),
             ...lintNoChecksDeclared(validated.manifest.findings),
             ...lintMethodMismatch(validated.manifest.findings),
+            ...lintNullAncestry(validated.manifest.findings),
             ...lintTrendContract(validated.manifest.findings),
             ...lintRangeFabrication(validated.manifest.findings, executionResult.data_completeness),
             ...lintCompletenessConflict(

@@ -16,6 +16,8 @@ import {
 interface InferenceSectionProps {
   codeGenModel: ModelId;
   uiComposeModel: ModelId;
+  effort: string;
+  onEffortChange: (effort: string) => void;
   onCodeGenModelChange: (model: ModelId) => void;
   onUiComposeModelChange: (model: ModelId) => void;
   sandboxRuntime: SandboxRuntimeId;
@@ -71,6 +73,8 @@ const S = {
 export function InferenceSection({
   codeGenModel,
   uiComposeModel,
+  effort,
+  onEffortChange,
   onCodeGenModelChange,
   onUiComposeModelChange,
   sandboxRuntime,
@@ -286,6 +290,13 @@ export function InferenceSection({
                 {m.label}
               </option>
             ))}
+          </select>
+          <div style={{ ...S.hint, marginBottom: 6 }}>Reasoning Effort</div>
+          <select value={effort} onChange={(e) => onEffortChange(e.target.value)} style={S.select}>
+            <option value="auto">Auto (per-phase: code/SQL high, compose low)</option>
+            <option value="low">Low — fastest, cheapest</option>
+            <option value="medium">Medium</option>
+            <option value="high">High — deepest reasoning, all phases</option>
           </select>
         </div>
       )}

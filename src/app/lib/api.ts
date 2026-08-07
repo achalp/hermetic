@@ -127,6 +127,7 @@ export async function setActiveSandboxRuntime(sandboxRuntime: string): Promise<v
 export async function setActiveModels(models: {
   codeGen?: string;
   uiCompose?: string;
+  effort?: string;
 }): Promise<void> {
   await fetch("/api/settings", {
     method: "PUT",
