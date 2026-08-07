@@ -329,9 +329,16 @@ function formatInlineNumber(value: number): string {
 const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** "0.9" + "pp" → "0.9 pp"; "%" attaches without a space. Skips appending
- *  when the prose already continues with the same unit word. */
+ *  when the unit word already appears within the next few words of prose —
+ *  not just immediately ("$finding:x cases total cases" came from a guard
+ *  that only looked one word ahead while the composer wrote "total cases"). */
 function withUnit(num: string, unit: string, following: string): string {
-  if (new RegExp(`^\\s*${escapeRegExp(unit)}`, "i").test(following)) return num;
+  const ahead = following
+    .slice(0, 64)
+    .split(/[^\p{L}\p{N}%]+/u)
+    .slice(0, 4);
+  if (ahead.some((w) => w.toLowerCase() === unit.toLowerCase())) return num;
+  if (unit === "%" && /^\s*%/.test(following)) return num;
   return unit === "%" ? `${num}%` : `${num} ${unit}`;
 }
 

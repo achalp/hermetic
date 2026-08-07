@@ -348,3 +348,31 @@ describe("$result suffix units — result-bound prose keeps its units", () => {
     expect(out).not.toContain("%%");
   });
 });
+
+describe("unit guard — nearby unit words suppress appending (run-12 grammar bug)", () => {
+  const findings = { peak_quarterly_cases: { quarter: "2021Q2", value: 53379480 } };
+  const units = { peak_quarterly_cases: "cases" };
+
+  it("does not produce 'cases total cases' when the unit appears a few words ahead", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "The highest-burden quarter was 2021Q2, with $finding:peak_quarterly_cases.value total cases."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("with 53379480 total cases.");
+    expect(out).not.toContain("cases total cases");
+  });
+
+  it("still appends when no unit word is nearby", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "peaked at $finding:peak_quarterly_cases.value in Q2."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("peaked at 53379480 cases in Q2.");
+  });
+});
