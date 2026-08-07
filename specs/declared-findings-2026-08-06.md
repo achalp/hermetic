@@ -153,13 +153,55 @@ machine for certifying wrong answers.
 - **Token cost** — manifest + declarations add modest output; measure in
   the cost-by-phase line before/after.
 
-## 7. Investigate (design now, implement later)
+## 7. Investigate: multi-step and cross-step (designed now, phase 5)
 
-Multi-step runs declare per sub-question; manifests merge with
-step-namespaced names (`s3.rate_vs_volume_split`) and cross-step
-`derived_from` allowed. The composer's citation machinery gains finding
-refs beside step refs. Not in phase 1, but the meta-schema reserves the
-namespace form so single-shot doesn't bake in a shape that fights it.
+Investigate already has the two structures findings need: a planner-declared
+dependency DAG (`depends_on` indices per sub-question, wave-scheduled) and
+step-prefixed result flattening (`step_N_*`) into the composer. Findings
+ride both rather than inventing parallel machinery.
+
+**7.1 Per-step declaration, namespaced merge.** Each sub-question's sandbox
+run declares findings exactly as in §2. The merged manifest namespaces
+entries as `step_N.<name>` (dotted form for `$finding:` paths; aligns with
+the existing `step_N_` flattening convention). Same meta-schema; a name is
+unique within its step.
+
+**7.2 Derivation edges must follow the execution DAG.** A step may declare
+`derived_from: ["step_2.churn_trend"]` only for steps in its `depends_on`
+set — a derivation from a step whose results this step never received is
+either hallucinated lineage or a missing dependency, and both surface
+(advisory). The converse is also informative: a `depends_on` edge with no
+derivation touching it means a dependency was consumed silently. Analytical
+lineage and execution lineage become mutually checking.
+
+**7.3 Cross-step coherence — the lint dimension single-shot doesn't have.**
+Two steps can compute overlapping measures under different filters or
+denominators and disagree (the run-3-vs-run-4 drift, happening WITHIN one
+investigation). Detection: entries from different steps with comparable
+dtype+unit and definitions referencing the same columns, whose values
+materially differ → an advisory _reconciliation_ item delivered to the
+composer and the gap-check. The synthesis must then reconcile or scope
+them (extending the existing SCOPE DISCLOSURE rule) — executive summaries
+stop papering over intra-investigation disagreement.
+
+**7.4 Findings as the investigation's working memory.** The planner,
+re-planner, and gap-check consume the ACCUMULATED manifest (names,
+definitions, tags — not values in metadata mode): next-wave planning sees
+what is already established, avoids re-computing declared findings, and
+targets gaps ("trend and step change declared; no decomposition yet").
+The gap-check goes from prose intuition to structure-assisted enumeration.
+This is the quiet payoff: investigate's working state upgrades from
+accumulated prose to a queryable structure.
+
+**7.5 Synthesis binding.** Executive summary and conclusion bind
+`$finding:step_N.<name>.<field>`; grounding's step-citation machinery
+(citedSteps / uncitedSuccessfulSteps) generalizes to finding-level
+citations, so both "claim without a finding" and "finding no step of the
+story used" report per step.
+
+Phase 1 fixes only what future-proofs this: the dotted namespace form is
+reserved in the meta-schema, and `derived_from` entries may be
+step-qualified. Everything else in this section is phase 5.
 
 ## 8. Phases
 
@@ -171,3 +213,6 @@ namespace form so single-shot doesn't bake in a shape that fights it.
    (helper ratio, tag diversity) + learning-loop wiring.
 4. **Retire** the naming-convention blocks from the code-gen prompt
    (grounded-narrative spec §3 table becomes conventions documentation).
+5. **Investigate** (§7): namespaced merge, DAG-checked derivations,
+   cross-step reconciliation lint, manifest-aware planner/gap-check,
+   synthesis binding.
