@@ -1,64 +1,75 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useBrowserNav, type PageView } from "@/hooks/use-browser-nav";
+import { useBrowserNav, type PageAddress } from "@/hooks/use-browser-nav";
 
-function fire(view: PageView | null) {
+function fire(view: string | null) {
   const ev = new PopStateEvent("popstate", { state: view ? { hermeticView: view } : null });
   window.dispatchEvent(ev);
 }
 
-describe("useBrowserNav — the state machine follows the browser stack", () => {
+const HOME: PageAddress = { view: "home" };
+
+describe("useBrowserNav — every view is URL-addressed by its reconstruction keys", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("adopts the first view, pushes on forward transitions, and encodes the URL", () => {
-    const onPopTo = vi.fn();
+  it("pushes fully-addressed URLs for data and saved results", () => {
     const { rerender } = renderHook(
-      ({ view }: { view: PageView }) => useBrowserNav({ view, onPopTo }),
-      { initialProps: { view: "home" as PageView } }
+      ({ address }: { address: PageAddress }) => useBrowserNav({ address, onPopTo: () => {} }),
+      { initialProps: { address: HOME } as { address: PageAddress } }
     );
-    expect(window.location.search).toBe("");
-    rerender({ view: "data" });
-    expect(window.location.search).toBe("?view=data");
-    rerender({ view: "results" });
-    expect(window.location.search).toBe("?view=results");
+    rerender({ address: { view: "data", csvId: "csv-9" } });
+    expect(window.location.search).toBe("?view=data&csv=csv-9");
+    rerender({ address: { view: "results", entryId: "hist-1", csvId: "csv-9" } });
+    expect(window.location.search).toBe("?restore=hist-1");
   });
 
-  it("includes the restore id for saved results (URL-addressable)", () => {
+  it("upgrades a transitional results URL IN PLACE when the history id arrives", () => {
     const { rerender } = renderHook(
-      ({ view, restoreId }: { view: PageView; restoreId?: string | null }) =>
-        useBrowserNav({ view, restoreId, onPopTo: () => {} }),
-      { initialProps: { view: "home" as PageView, restoreId: null as string | null } }
+      ({ address }: { address: PageAddress }) => useBrowserNav({ address, onPopTo: () => {} }),
+      { initialProps: { address: HOME } as { address: PageAddress } }
     );
-    rerender({ view: "results", restoreId: "abc-123" });
-    expect(window.location.search).toBe("?view=results&restore=abc-123");
+    rerender({ address: { view: "data", csvId: "csv-9" } });
+    const depth = window.history.length;
+    rerender({ address: { view: "results", csvId: "csv-9" } });
+    expect(window.location.search).toBe("?view=results&csv=csv-9");
+    // The save returns: same view, better address — replaceState, not push.
+    rerender({ address: { view: "results", entryId: "hist-7", csvId: "csv-9" } });
+    expect(window.location.search).toBe("?restore=hist-7");
+    expect(window.history.length).toBe(depth + 1);
   });
 
-  it("popstate walks the app back and does not re-push", async () => {
+  it("popstate walks the app back and does not re-push", () => {
     const onPopTo = vi.fn();
     const { rerender } = renderHook(
-      ({ view }: { view: PageView }) => useBrowserNav({ view, onPopTo }),
-      { initialProps: { view: "home" as PageView } }
+      ({ address }: { address: PageAddress }) => useBrowserNav({ address, onPopTo }),
+      { initialProps: { address: HOME } as { address: PageAddress } }
     );
-    rerender({ view: "data" });
-    rerender({ view: "results" });
+    rerender({ address: { view: "data", csvId: "c" } });
+    rerender({ address: { view: "results", csvId: "c" } });
     fire("data");
     expect(onPopTo).toHaveBeenCalledWith("data");
-    fire(null); // oldest entry, no state → home
+    fire(null);
     expect(onPopTo).toHaveBeenCalledWith("home");
   });
 
-  it("suspended transitions (analyzing overlays) are not recorded", () => {
+  it("suspended transitions are not recorded; deep-link URLs are never clobbered", () => {
+    window.history.replaceState(null, "", "/?restore=deep-1");
     const { rerender } = renderHook(
-      ({ view, suspended }: { view: PageView; suspended: boolean }) =>
-        useBrowserNav({ view, suspended, onPopTo: () => {} }),
-      { initialProps: { view: "data" as PageView, suspended: false } }
+      ({ address, suspended }: { address: PageAddress; suspended: boolean }) =>
+        useBrowserNav({ address, suspended, onPopTo: () => {} }),
+      {
+        initialProps: { address: HOME, suspended: false } as {
+          address: PageAddress;
+          suspended: boolean;
+        },
+      }
     );
-    rerender({ view: "results", suspended: true });
-    expect(window.location.search).toBe("?view=data");
-    rerender({ view: "results", suspended: false });
-    expect(window.location.search).toBe("?view=results");
+    // First render must not clobber the pasted deep link.
+    expect(window.location.search).toBe("?restore=deep-1");
+    rerender({ address: { view: "results", csvId: "c" }, suspended: true });
+    expect(window.location.search).toBe("?restore=deep-1");
   });
 });

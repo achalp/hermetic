@@ -16,7 +16,7 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";
-import { loadHistoryEntry, refreshHistoryEntry } from "@/app/lib/api";
+import { loadHistoryEntry, refreshHistoryEntry, getSchemaByCsvId } from "@/app/lib/api";
 
 export function useHistoryRestore(args: {
   dispatch: PageDispatch;
@@ -31,7 +31,20 @@ export function useHistoryRestore(args: {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const restoreId = params.get("restore");
-    if (!restoreId) return;
+    if (!restoreId) {
+      // Data-view address (?view=data&csv=<id> — and ?view=results&csv=<id>,
+      // the transitional pre-save form, which degrades to the data view):
+      // reconstruct the loaded source from its stored schema.
+      const csvParam = params.get("csv");
+      if (csvParam && params.get("view")) {
+        getSchemaByCsvId(csvParam)
+          .then((data) => {
+            if (data?.schema) handleUpload(csvParam, data.schema);
+          })
+          .catch(() => {});
+      }
+      return;
+    }
 
     // Clean up URL
     window.history.replaceState({}, "", "/");

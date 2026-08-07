@@ -109,6 +109,9 @@ export default function Home() {
   const [notebookExportApi, setNotebookExportApi] = useState<NotebookExportApi | null>(null);
   const [effectiveCsvId, setEffectiveCsvId] = useState<string | null>(null);
   const [analysisHistory, setAnalysisHistory] = useState<HistoryEntry[]>([]);
+  // History id of the LIVE analysis on screen (from the background save) —
+  // the reconstruction key that makes the results URL paste-able.
+  const [liveHistoryId, setLiveHistoryId] = useState<string | null>(null);
 
   // Page-level artifacts — uses effectiveCsvId reported by ResponsePanel
   const pageArtifacts = useArtifacts({ csvId: effectiveCsvId });
@@ -210,13 +213,21 @@ export default function Home() {
   // Browser back/forward walks the app's own transitions (use-browser-nav):
   // results -> data -> home, with results URL-addressable via ?restore=.
   useBrowserNav({
-    view: isState4 ? "results" : isState2 ? "data" : "home",
-    restoreId: loadedVizId,
+    address: isState4
+      ? {
+          view: "results",
+          entryId: loadedVizId ?? liveHistoryId,
+          csvId: effectiveCsvId ?? csvId,
+        }
+      : isState2
+        ? { view: "data", csvId: effectiveCsvId ?? csvId }
+        : { view: "home" },
     suspended: isAnalyzing || loadingViz || rerunningViz,
     onPopTo: (target) => {
       if (target === "home") {
         handleReset();
       } else if (target === "data") {
+        setLiveHistoryId(null);
         dispatch({ type: "NEW_ANALYSIS" });
       }
       // "results" forward-nav: only restorable content reloads, handled by
@@ -478,7 +489,13 @@ export default function Home() {
               analysis.complete(entry.spec, entry.question);
               const cid = effectiveCsvId ?? csvId;
               if (cid) {
-                saveHistoryEntry(cid, entry.spec, entry.question).catch(() => {});
+                // The returned id is the results URL's reconstruction key —
+                // useBrowserNav upgrades ?view=results to ?restore=<id>.
+                saveHistoryEntry(cid, entry.spec, entry.question)
+                  .then((r) => {
+                    if (r.meta?.id) setLiveHistoryId(r.meta.id);
+                  })
+                  .catch(() => {});
               }
             }}
             onCost={(cost) => {
