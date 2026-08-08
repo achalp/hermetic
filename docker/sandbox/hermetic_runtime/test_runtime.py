@@ -42,6 +42,10 @@ from .findings import (
     finding_yoy,
     finding_split_comparison,
     finding_superlative,
+    finding_outliers,
+    finding_correlation,
+    finding_distribution,
+    finding_share,
     finding_trend,
 )
 from .output import write_output
@@ -394,6 +398,43 @@ class TestFindingStatHelpers(unittest.TestCase):
         from hermetic_runtime.profile import profile_data_edges
         df = pd.DataFrame({"a": range(100), "b": ["x"] * 100})
         self.assertIsNone(profile_data_edges(df))
+
+    def test_outliers_rolling_mad_flags_errors_protects_attested(self):
+        labels = [str(1970 + i) for i in range(12)]
+        # AGGREGATE series (annual medians) with counts: a spike at a THIN
+        # year is flagged; a well-attested modern median is protected.
+        meds = [5.0, 6.0, 5.5, 6.2, 6.5, 5.8, 6.2, 38.0, 5.9, 74.0, 5.7, 6.0]
+        counts = [400.0] * 7 + [1300.0, 400.0, 52.0, 400.0, 400.0]
+        out = finding_outliers(labels, meds, counts=counts, window=8)
+        flagged = [o["label"] for o in out["outliers"]]
+        self.assertIn("1979", flagged)      # $74 on 52 obs: thin spike
+        self.assertNotIn("1977", flagged)   # $38 on 1,300 obs: attested data
+        self.assertEqual(out["method"], "rolling_mad")
+        # EXTREME series (maxes): counts=None — magnitude alone decides.
+        maxes = [5.0, 6.0, 5.5, 30000.0, 6.5, 5.8, 6.2, 7.0, 5.9, 6.1, 5.7, 6.0]
+        out2 = finding_outliers(labels, maxes, window=8)
+        self.assertIn("1973", [o["label"] for o in out2["outliers"]])
+
+    def test_correlation_fallback_reports_coeffs(self):
+        out = finding_correlation([1, 2, 3, 4, 5], [2, 4, 6, 8, 10])
+        self.assertAlmostEqual(out["pearson_r"], 1.0, places=3)
+        self.assertAlmostEqual(out["spearman_rho"], 1.0, places=3)
+        self.assertEqual(out["n"], 5)
+        self.assertIsNone(finding_correlation([1], [2])["n"])
+
+    def test_distribution_shape_justifies_metric_choice(self):
+        skewed = [1.0] * 20 + [1000.0]
+        out = finding_distribution(skewed)
+        self.assertGreater(out["skew"], 3)
+        self.assertGreater(out["mean"], out["median"])
+        self.assertEqual(out["n"], 21)
+
+    def test_share_must_account_for_everything(self):
+        out = finding_share({"price": 58.0, "volume": 8.3}, total=100.0)
+        self.assertEqual(out["sums_to_100"], False)
+        self.assertAlmostEqual(out["residual_pct"], 33.7, places=1)
+        full = finding_share({"a": 60.0, "b": 40.0})
+        self.assertTrue(full["sums_to_100"])
 
     def test_superlative_is_attestation_weighted(self):
         # Run-39: a 52-item year's $74 must not outrank a 1,217-item year's

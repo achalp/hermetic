@@ -489,6 +489,190 @@ def finding_yoy(period_labels, values):
         return failed
 
 
+def finding_outliers(labels, values, counts=None, window=21, k=3.5):
+    """Outlier screen — rolling MAD (a NAMED, established robust method).
+
+    Retires the calibration-dial saga: MAD is scale-free (no 100x-vs-5x
+    choice), tail-robust (an error cluster cannot raise its own bar — the
+    failure that let $30,000 through a rolling-median baseline), and
+    era-local via the window. Attestation protection is API-level: a value
+    whose count >= max(5, 20% of the median count) is DATA, never an
+    outlier, whatever its magnitude (the failure that deleted a
+    1,217-listing $38 median). Pass counts ONLY for AGGREGATE series
+    (medians/means — n attests the aggregate); for extreme statistics
+    (max/min: a single observation regardless of year n) pass counts=None
+    so magnitude alone decides.
+
+    Returns {"outliers": [{"label", "value", "z"}], "n_flagged", "method",
+    "window", "k"}; degenerate input -> all-None fields. Never raises.
+    """
+    failed = {"outliers": None, "n_flagged": None, "method": "rolling_mad",
+              "window": window, "k": k}
+    try:
+        pts = []
+        ns = list(counts) if counts is not None else None
+        for i, (lab, v) in enumerate(zip(list(labels), list(values))):
+            fv = safe_float(v)
+            n = safe_float(ns[i]) if ns is not None and i < len(ns) else None
+            pts.append((str(lab), fv, n))
+        vals = [p[1] for p in pts if p[1] is not None]
+        if len(vals) < 5:
+            return failed
+        finite_ns = sorted(p[2] for p in pts if p[2] is not None)
+        thin_bar = max(5.0, 0.2 * finite_ns[len(finite_ns) // 2]) if finite_ns else None
+
+        def med(xs):
+            s = sorted(xs)
+            m = len(s)
+            return s[m // 2] if m % 2 else (s[m // 2 - 1] + s[m // 2]) / 2.0
+
+        half = max(2, window // 2)
+        out = []
+        idxs = [i for i, p in enumerate(pts) if p[1] is not None]
+        for pos, i in enumerate(idxs):
+            lab, v, n = pts[i]
+            if thin_bar is not None and n is not None and n >= thin_bar:
+                continue  # attestation protection: well-attested values are data
+            neigh = [pts[j][1] for j in idxs[max(0, pos - half) : pos + half + 1] if j != i]
+            if len(neigh) < 4:
+                continue
+            baseline = med(neigh)
+            mad = med([abs(x - baseline) for x in neigh])
+            if mad == 0:
+                continue
+            z = 0.6745 * (v - baseline) / mad
+            if abs(z) > k:
+                out.append({"label": lab, "value": v, "z": round(z, 1)})
+        return {"outliers": out, "n_flagged": len(out), "method": "rolling_mad",
+                "window": window, "k": k}
+    except Exception:
+        return failed
+
+
+def finding_correlation(x_values, y_values):
+    """Pearson + Spearman between two series (pairwise non-None).
+
+    scipy supplies p-values when importable; the pure-Python fallback
+    reports coefficients with p-values None — never a wrong p. Returns
+    {"pearson_r", "pearson_p", "spearman_rho", "spearman_p", "n"}.
+    Never raises.
+    """
+    failed = {"pearson_r": None, "pearson_p": None, "spearman_rho": None,
+              "spearman_p": None, "n": None}
+    try:
+        pairs = [
+            (safe_float(a), safe_float(b))
+            for a, b in zip(list(x_values), list(y_values))
+        ]
+        pairs = [(a, b) for a, b in pairs if a is not None and b is not None]
+        n = len(pairs)
+        if n < 3:
+            return failed
+        xs = [a for a, _b in pairs]
+        ys = [b for _a, b in pairs]
+        try:
+            from scipy import stats as _st  # type: ignore
+
+            pr = _st.pearsonr(xs, ys)
+            sr = _st.spearmanr(xs, ys)
+            return {"pearson_r": round(float(pr[0]), 4), "pearson_p": float(pr[1]),
+                    "spearman_rho": round(float(sr[0]), 4), "spearman_p": float(sr[1]),
+                    "n": n}
+        except Exception:
+            pass
+
+        def _pearson(a, b):
+            ma = sum(a) / len(a)
+            mb = sum(b) / len(b)
+            cov = sum((u - ma) * (w - mb) for u, w in zip(a, b))
+            va = sum((u - ma) ** 2 for u in a) ** 0.5
+            vb = sum((w - mb) ** 2 for w in b) ** 0.5
+            return cov / (va * vb) if va and vb else None
+
+        def _ranks(a):
+            order = sorted(range(len(a)), key=lambda i: a[i])
+            r = [0.0] * len(a)
+            i = 0
+            while i < len(order):
+                j = i
+                while j + 1 < len(order) and a[order[j + 1]] == a[order[i]]:
+                    j += 1
+                avg = (i + j) / 2.0 + 1
+                for t in range(i, j + 1):
+                    r[order[t]] = avg
+                i = j + 1
+            return r
+
+        pear = _pearson(xs, ys)
+        spear = _pearson(_ranks(xs), _ranks(ys))
+        return {"pearson_r": None if pear is None else round(pear, 4), "pearson_p": None,
+                "spearman_rho": None if spear is None else round(spear, 4),
+                "spearman_p": None, "n": n}
+    except Exception:
+        return failed
+
+
+def finding_distribution(values):
+    """Robust shape summary — the evidence behind a metric choice.
+
+    Returns {"n", "mean", "median", "std", "mad", "skew", "p25", "p75",
+    "min", "max"} (skew = Fisher moment coefficient). A mean/median gap or
+    a large skew is the COMPUTED justification for leading with the
+    median. Never raises.
+    """
+    failed = {"n": None, "mean": None, "median": None, "std": None, "mad": None,
+              "skew": None, "p25": None, "p75": None, "min": None, "max": None}
+    try:
+        xs = sorted(v for v in (safe_float(x) for x in list(values)) if v is not None)
+        n = len(xs)
+        if n < 3:
+            return failed
+
+        def q(p):
+            i = p * (n - 1)
+            lo = int(i)
+            hi = min(lo + 1, n - 1)
+            return xs[lo] + (xs[hi] - xs[lo]) * (i - lo)
+
+        mean = sum(xs) / n
+        median = q(0.5)
+        var = sum((x - mean) ** 2 for x in xs) / n
+        std = var ** 0.5
+        mad = sorted(abs(x - median) for x in xs)[n // 2]
+        skew = (sum((x - mean) ** 3 for x in xs) / n) / (std ** 3) if std else 0.0
+        return {"n": n, "mean": round(mean, 4), "median": round(median, 4),
+                "std": round(std, 4), "mad": round(mad, 4), "skew": round(skew, 2),
+                "p25": round(q(0.25), 4), "p75": round(q(0.75), 4),
+                "min": xs[0], "max": xs[-1]}
+    except Exception:
+        return failed
+
+
+def finding_share(parts, total=None):
+    """Shares of a whole that MUST account for everything.
+
+    parts is a dict of named contributions; total defaults to their sum.
+    Returns {"shares_pct": {name: pct}, "residual_pct", "sums_to_100"} —
+    narrated shares dropping the residual was the 58%+8.3% waterfall that
+    didn't sum. Never raises.
+    """
+    failed = {"shares_pct": None, "residual_pct": None, "sums_to_100": None}
+    try:
+        clean = {str(k): safe_float(v) for k, v in dict(parts).items()}
+        clean = {k: v for k, v in clean.items() if v is not None}
+        if not clean:
+            return failed
+        tot = safe_float(total) if total is not None else sum(clean.values())
+        if not tot:
+            return failed
+        shares = {k: round(v / tot * 100.0, 1) for k, v in clean.items()}
+        residual = round(100.0 - sum(shares.values()), 1)
+        return {"shares_pct": shares, "residual_pct": residual,
+                "sums_to_100": abs(residual) < 1.0}
+    except Exception:
+        return failed
+
+
 def finding_superlative(labels, values, counts=None, kind="max"):
     """Attestation-weighted superlative — the peak/trough among ADEQUATELY
     ATTESTED periods, with the raw extreme reported beside it.
