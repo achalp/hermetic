@@ -41,6 +41,7 @@ from .findings import (
     finding_current_state,
     finding_yoy,
     finding_split_comparison,
+    finding_superlative,
     finding_trend,
 )
 from .output import write_output
@@ -393,6 +394,21 @@ class TestFindingStatHelpers(unittest.TestCase):
         from hermetic_runtime.profile import profile_data_edges
         df = pd.DataFrame({"a": range(100), "b": ["x"] * 100})
         self.assertIsNone(profile_data_edges(df))
+
+    def test_superlative_is_attestation_weighted(self):
+        # Run-39: a 52-item year's $74 must not outrank a 1,217-item year's
+        # $45 as the HEADLINE peak — but the raw extreme stays visible.
+        labels = ["1996", "2000", "2005", "2012"]
+        vals = [74.0, 8.0, 12.0, 45.0]
+        counts = [52.0, 400.0, 600.0, 1217.0]
+        out = finding_superlative(labels, vals, counts=counts)
+        self.assertEqual(out["period"], "2012")
+        self.assertEqual(out["value"], 45.0)
+        self.assertEqual(out["raw_period"], "1996")
+        self.assertEqual(out["raw_value"], 74.0)
+        self.assertEqual(out["thin_periods_skipped"], 1)
+        # Without counts, the raw extreme wins (nothing to weight by).
+        self.assertEqual(finding_superlative(labels, vals)["period"], "1996")
 
     def test_split_comparison_shared_split_point(self):
         labels = [str(1900 + i) for i in range(10)]

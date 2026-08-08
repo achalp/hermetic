@@ -1130,3 +1130,52 @@ export function lintNullZeroMirror(
   }
   return issues;
 }
+
+// ── Thin-superlative lint (run-39: 52-item year crowned the headline) ──
+
+/** A superlative finding whose period's count column sits under 20% of the
+ *  series median count rests on the thinnest data in the corpus — the
+ *  effect-side detector for any calibration that lets a thin peak through. */
+export function lintThinSuperlative(
+  chartData: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const X_KEYS = ["year", "month", "date", "period", "x", "label", "decade"];
+  for (const f of findings) {
+    if (!/peak|max|min|trough|largest|smallest/.test(f.name)) continue;
+    if (f.value === null || typeof f.value !== "object") continue;
+    const fv = f.value as Record<string, unknown>;
+    const period = fv.period ?? fv.year ?? fv.date ?? fv.month;
+    if (period === undefined || fv.value === undefined) continue;
+    for (const v of Object.values(chartData)) {
+      const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+      if (!Array.isArray(rows) || rows.length < 5 || typeof rows[0] !== "object") continue;
+      const cols = Object.keys(rows[0] as Record<string, unknown>);
+      const countCol = cols.find((c) =>
+        /(^|_)(item_count|n_items|count|listings|n_obs|observations)($|_)/.test(c)
+      );
+      const xCol = cols.find((c) => X_KEYS.includes(c.toLowerCase()));
+      if (!countCol || !xCol) continue;
+      const counts = (rows as Record<string, unknown>[])
+        .map((r) => r[countCol])
+        .filter((x): x is number => typeof x === "number")
+        .sort((a, b) => a - b);
+      if (counts.length < 5) continue;
+      const medN = counts[Math.floor(counts.length / 2)];
+      const row = (rows as Record<string, unknown>[]).find(
+        (r) => String(r[xCol]) === String(period)
+      );
+      const n = row?.[countCol];
+      if (typeof n === "number" && n < Math.max(5, 0.2 * medN) && issues.length < 3) {
+        issues.push({
+          kind: "thin_superlative",
+          name: f.name,
+          detail: `${f.name} crowns ${String(period)} on ${n} ${countCol} (series median ${medN}) — the headline superlative rests on the thinnest data in the corpus; use finding_superlative (attestation-weighted) and report the raw extreme beside it`,
+        });
+      }
+      break;
+    }
+  }
+  return issues;
+}

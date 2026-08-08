@@ -489,6 +489,52 @@ def finding_yoy(period_labels, values):
         return failed
 
 
+def finding_superlative(labels, values, counts=None, kind="max"):
+    """Attestation-weighted superlative — the peak/trough among ADEQUATELY
+    ATTESTED periods, with the raw extreme reported beside it.
+
+    The calibration ladder's last rung: no multiplier constant can decide
+    whether a 52-item year's $74 median outranks a 1,217-item year's $45 —
+    dials are data-relative and every chosen dial has failed (100x let
+    $30,000 pass; the same 100x crowned the 52-item year). The OBJECTIVE is
+    pinned instead: a headline superlative must rest on a period with
+    count >= max(5, 20% of the median count); the raw extreme over ALL
+    periods is reported as raw_value/raw_period so nothing is hidden.
+
+    Returns {"period", "value", "n", "raw_period", "raw_value", "raw_n",
+    "thin_periods_skipped"}; degenerate input all-None. Never raises.
+    """
+    failed = {"period": None, "value": None, "n": None, "raw_period": None,
+              "raw_value": None, "raw_n": None, "thin_periods_skipped": None}
+    try:
+        rows = []
+        ns = list(counts) if counts is not None else None
+        for i, (lab, v) in enumerate(zip(list(labels), list(values))):
+            fv = safe_float(v)
+            if fv is None:
+                continue
+            n = safe_float(ns[i]) if ns is not None and i < len(ns) else None
+            rows.append((str(lab), fv, n))
+        if not rows:
+            return failed
+        pick = max if kind != "min" else min
+        raw = pick(rows, key=lambda r: r[1])
+        finite_ns = sorted(r[2] for r in rows if r[2] is not None)
+        if finite_ns:
+            med_n = finite_ns[len(finite_ns) // 2]
+            thin = max(5.0, 0.2 * med_n)
+            attested = [r for r in rows if r[2] is None or r[2] >= thin]
+        else:
+            attested = rows
+        skipped = len(rows) - len(attested)
+        best = pick(attested, key=lambda r: r[1]) if attested else raw
+        return {"period": best[0], "value": best[1], "n": best[2],
+                "raw_period": raw[0], "raw_value": raw[1], "raw_n": raw[2],
+                "thin_periods_skipped": skipped}
+    except Exception:
+        return failed
+
+
 def finding_split_comparison(labels, values, split_at=None):
     """Early-vs-late comparison with the windowing scheme PINNED: midpoint
     split over the OBSERVED (non-None) series.

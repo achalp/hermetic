@@ -558,6 +558,9 @@ def finding_heterogeneity(groups):
     return {'significant': None, 'p_value': None, 'test': 'anova'}
 def declare_check(name, definition, passed=None, evidence=None, severity='caveat', derived_from_columns=None):
     pass
+def finding_superlative(labels, values, counts=None, kind='max'):
+    return {'period': None, 'value': None, 'n': None, 'raw_period': None,
+            'raw_value': None, 'raw_n': None, 'thin_periods_skipped': None}
 def finding_split_comparison(labels, values, split_at=None):
     return {'early_median': None, 'late_median': None, 'early_n': None,
             'late_n': None, 'early_span': None, 'late_span': None,
@@ -589,7 +592,7 @@ try:
     # declare_finding never fills — the spec's E6 silent-loss class) can't occur.
     from hermetic_runtime import (declare_finding, finding_trend, finding_step_change,
         finding_decompose, finding_heterogeneity, finding_current_state, finding_yoy,
-        declare_check, finding_split_comparison)
+        declare_check, finding_split_comparison, finding_superlative)
     from hermetic_runtime import to_native as _to_native
     _hrt.guards.configure(_MEM_LIMIT)
     assert_fits = _hrt.guards.assert_fits

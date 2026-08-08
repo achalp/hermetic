@@ -18,6 +18,7 @@ import {
   lintSeriesConsumption,
   lintUnscreenedSuperlative,
   lintWellAttestedScreened,
+  lintThinSuperlative,
   lintNullZeroMirror,
 } from "@/lib/findings/lints";
 
@@ -663,5 +664,39 @@ describe("screen_missed_superlative — error clusters validating each other (ru
   it("quiet when the peak WAS screened", () => {
     const screenedPeak = { ...peak, value: { year: 1966, value: 10000 } };
     expect(lintUnscreenedSuperlative({ series: rows }, [screenedPeak])).toHaveLength(0);
+  });
+});
+
+describe("lintThinSuperlative — a 52-item year crowned (run-39)", () => {
+  const chartData = {
+    trends: [
+      { year: 1996, median_price: 74, item_count: 52 },
+      { year: 2000, median_price: 8, item_count: 400 },
+      { year: 2005, median_price: 12, item_count: 600 },
+      { year: 2010, median_price: 20, item_count: 800 },
+      { year: 2012, median_price: 45, item_count: 1217 },
+    ],
+  };
+
+  it("flags a peak resting on sub-20%-of-median counts", () => {
+    const peak = {
+      name: "peak_median_price",
+      definition: "highest annual median price",
+      dtype: "superlative",
+      value: { period: "1996", value: 74 },
+    };
+    const issues = lintThinSuperlative(chartData, [peak]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("thin_superlative");
+  });
+
+  it("a well-attested peak passes", () => {
+    const peak = {
+      name: "peak_median_price",
+      definition: "highest annual median price",
+      dtype: "superlative",
+      value: { period: "2012", value: 45 },
+    };
+    expect(lintThinSuperlative(chartData, [peak])).toHaveLength(0);
   });
 });

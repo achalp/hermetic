@@ -34,6 +34,7 @@ import {
   lintScreenScopeMismatch,
   lintUnscreenedSuperlative,
   lintWellAttestedScreened,
+  lintThinSuperlative,
   lintNullZeroMirror,
   lintSeriesConsumption,
   lintResultsProvenance,
@@ -473,6 +474,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintDefinitionContradicted(validated.manifest.findings),
             ...lintResultsProvenance(
               (executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
+            ...lintThinSuperlative(
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
               validated.manifest.findings
             ),
             ...lintWellAttestedScreened(
