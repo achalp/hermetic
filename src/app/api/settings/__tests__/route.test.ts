@@ -22,6 +22,7 @@ vi.mock("@/lib/runtime-config", () => ({
     codeGen: "claude-sonnet-4-6",
     uiCompose: "claude-sonnet-4-6",
   })),
+  getActiveSandboxRuntime: vi.fn(() => "docker"),
 }));
 
 vi.mock("@/lib/secrets", async (importOriginal) => {
@@ -135,6 +136,47 @@ describe("PUT /api/settings", () => {
 });
 
 describe("PUT /api/settings — models block", () => {
+  it("a partial models update preserves fields it does not mention (the clobber bug)", async () => {
+    // Regression: an efforts-only save once wrote `codeGen: undefined` over
+    // the stored model — silently erasing the cross-harness selection and
+    // forking the web (localStorage) and MCP (runtime-config default) onto
+    // different models.
+    const { PUT } = await import("@/app/api/settings/route");
+    await PUT(
+      new Request("http://x/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ models: { codeGen: "claude-sonnet-5" } }),
+      })
+    );
+    await PUT(
+      new Request("http://x/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ models: { efforts: { code_gen: "max" } } }),
+      })
+    );
+    const models = (state.rc as { models?: { codeGen?: string; efforts?: object } }).models;
+    expect(models?.codeGen).toBe("claude-sonnet-5");
+    expect(models?.efforts).toEqual({ code_gen: "max" });
+  });
+
+  it('an explicit "" clears a stored model field', async () => {
+    const { PUT } = await import("@/app/api/settings/route");
+    await PUT(
+      new Request("http://x/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ models: { codeGen: "claude-sonnet-5" } }),
+      })
+    );
+    await PUT(
+      new Request("http://x/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ models: { codeGen: "" } }),
+      })
+    );
+    const models = (state.rc as { models?: { codeGen?: string } }).models;
+    expect(models?.codeGen).toBeUndefined();
+  });
+
   it("persists a valid selection and rejects unknown ids", async () => {
     const { PUT } = await import("@/app/api/settings/route");
     const ok = await PUT(

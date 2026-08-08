@@ -15,7 +15,6 @@ import { parseExcelMeta, sheetToCSV } from "@/lib/excel/parser";
 import { parseGeoJSON, isGeoJSONObject } from "@/lib/geojson/parser";
 import { sanitizeSheetName } from "@/lib/llm/prompts";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import { isValidRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import type { CSVSchema, WorkbookManifest } from "@/lib/contracts/data-schema";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
@@ -33,9 +32,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const runtimeRaw = formData.get("sandbox_runtime") as string | null;
-    const runtime: SandboxRuntimeId =
-      runtimeRaw && isValidRuntimeId(runtimeRaw) ? runtimeRaw : getActiveSandboxRuntime();
+    // Golden source: runtime from shared settings only.
+    const runtime: SandboxRuntimeId = getActiveSandboxRuntime();
 
     // 1. Load saved viz
     const savedViz = await loadSavedVisualization(vizId);

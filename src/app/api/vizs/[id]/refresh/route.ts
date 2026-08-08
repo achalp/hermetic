@@ -16,7 +16,6 @@ import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import { saveHistoryEntry } from "@/lib/history/storage";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
-import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 
 /**
@@ -34,9 +33,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id: vizId } = await params;
     const body = await request.json().catch(() => ({}));
     const warehouseId = body.warehouseId as string | undefined;
-    const runtimeRaw = body.sandboxRuntime as string | undefined;
-    const runtime: SandboxRuntimeId =
-      runtimeRaw && isValidRuntimeId(runtimeRaw) ? runtimeRaw : getActiveSandboxRuntime();
+    // Golden source: runtime from shared settings only.
+    const runtime: SandboxRuntimeId = getActiveSandboxRuntime();
 
     // 1. Load saved viz
     const savedViz = await loadSavedVisualization(vizId);

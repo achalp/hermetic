@@ -1,6 +1,5 @@
 import { patchStreamResponse } from "@/lib/pipeline/patch-stream";
 import { apiError, validationErrorResponse } from "@/app/lib/api-error";
-import { getActiveProvider, providerCapabilities } from "@/lib/llm/client";
 import { validateQueryIds, resolveQuerySources } from "@/lib/pipeline/validate-request";
 import { readJsonBody, parseBody, analysisRequestSchema } from "@/lib/api-schemas";
 import { persistHistoryOnDisconnect } from "@/lib/history/persist-on-disconnect";
@@ -22,25 +21,15 @@ export async function POST(request: Request) {
     if (!parsed.ok) return parsed.response;
     const { prompt, context } = parsed.data;
 
-    // Local providers use their own model ids — skip Claude model-ID
-    // validation. The capability lives in ONE place (providerCapabilities);
-    // the hand-maintained list here had drifted to omit mlx/llama-cpp, whose
-    // Ask requests silently fell back to Claude model ids.
-    let skipModelValidation = false;
-    try {
-      skipModelValidation = providerCapabilities(getActiveProvider()).skipModelValidation;
-    } catch {
-      // No provider configured — will fail later in getModel()
-    }
-
     // ── Shared preamble: ids/question 400s, warehouse 404s, model/runtime
     // resolution (lib/pipeline/validate-request.ts — same module Investigate
-    // uses, so the two routes can't drift again). ──
+    // uses, so the two routes can't drift again). Models/runtime come from
+    // runtime-config only (golden source) — no per-request overrides. ──
     const ids = validateQueryIds(context ?? {}, prompt);
     if (!ids.ok) return validationErrorResponse(ids);
     const { question } = ids;
 
-    const sources = resolveQuerySources(ids, context ?? {}, { skipModelValidation });
+    const sources = resolveQuerySources(ids, context ?? {});
     if (!sources.ok) return validationErrorResponse(sources);
     const { source, codeGenModel, uiComposeModel, sandboxRuntime } = sources;
 

@@ -29,9 +29,6 @@ export interface UseAnalysisStreamArgs {
   reattachRunId: string | null | undefined;
   schemaMode: SchemaMode | undefined;
   composerSight?: string;
-  codeGenModel: string | undefined;
-  uiComposeModel: string | undefined;
-  sandboxRuntime: string | undefined;
   purpose: string | undefined;
   rerunCode?: string | null;
   rerunSql?: string | null;
@@ -58,9 +55,6 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     reattachRunId,
     schemaMode,
     composerSight,
-    codeGenModel,
-    uiComposeModel,
-    sandboxRuntime,
     purpose,
     rerunCode,
     rerunSql,
@@ -206,9 +200,8 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
       question: question,
       schema_mode: schemaMode,
       composer_sight: composerSight === "sighted" ? "sighted" : "blind",
-      code_gen_model: codeGenModel,
-      ui_compose_model: uiComposeModel,
-      sandbox_runtime: sandboxRuntime,
+      // Model/runtime deliberately NOT sent: runtime-config is the golden
+      // source and the server resolves it for every harness identically.
       purpose,
       // When set, the server uses these instead of generating fresh code/SQL
       // (Edit-and-Rerun).

@@ -15,7 +15,6 @@ import { extractSchema } from "@/lib/csv/schema";
 import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
-import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 
 /**
@@ -29,9 +28,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id: historyId } = await params;
     const body = await request.json().catch(() => ({}));
     const warehouseId = body.warehouseId as string | undefined;
-    const runtimeRaw = body.sandboxRuntime as string | undefined;
-    const runtime: SandboxRuntimeId =
-      runtimeRaw && isValidRuntimeId(runtimeRaw) ? runtimeRaw : getActiveSandboxRuntime();
+    // Golden source: runtime from shared settings only.
+    const runtime: SandboxRuntimeId = getActiveSandboxRuntime();
 
     // 1. Load history entry
     const entry = await loadHistoryEntry(historyId);

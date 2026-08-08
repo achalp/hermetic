@@ -10,7 +10,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Spec } from "@/spec/react";
 import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
-import type { SandboxRuntimeId } from "@/lib/constants";
 import type { PageDispatch } from "@/hooks/use-page-state";
 import { loadViz, refreshViz, rerunViz, saveViz } from "@/app/lib/api";
 
@@ -25,7 +24,6 @@ export function useVizActions(args: {
     relationships: SheetRelationship[]
   ) => void;
   warehouseId: string | null;
-  sandboxRuntime: SandboxRuntimeId;
   loadedVizId: string | null;
   /** Auto-save-after-incompatible-rerun inputs (from page state). */
   isAnalyzing: boolean;
@@ -39,7 +37,6 @@ export function useVizActions(args: {
     handleUpload,
     loadWorkbookUpload,
     warehouseId,
-    sandboxRuntime,
     loadedVizId,
     isAnalyzing,
     pendingRerunVizId,
@@ -96,7 +93,7 @@ export function useVizActions(args: {
       window.scrollTo({ top: 0, behavior: "smooth" });
       dispatch({ type: "RERUN_START" });
       try {
-        const result = await rerunViz(vizId, file, sandboxRuntime);
+        const result = await rerunViz(vizId, file);
         if (result.schemaMatch && result.spec) {
           handleUpload(result.csvId, result.schema);
           dispatch({
@@ -115,7 +112,7 @@ export function useVizActions(args: {
         dispatch({ type: "RERUN_ERROR" });
       }
     },
-    [dispatch, handleUpload, sandboxRuntime]
+    [dispatch, handleUpload]
   );
 
   const handleRerunFromToolbar = useCallback(() => {
@@ -131,7 +128,7 @@ export function useVizActions(args: {
         // Brief delay so "loading" stage is visible before the fetch begins
         await new Promise((r) => setTimeout(r, 100));
         dispatch({ type: "REFRESH_STAGE", stage: "executing" });
-        const result = await refreshViz(vizId, warehouseId, sandboxRuntime);
+        const result = await refreshViz(vizId, warehouseId);
         dispatch({ type: "REFRESH_STAGE", stage: "composing" });
         handleUpload(result.csvId, result.schema);
         // RERUN_FAST_SUCCESS clears refreshStage in the reducer.
@@ -148,7 +145,7 @@ export function useVizActions(args: {
         dispatch({ type: "RERUN_ERROR" });
       }
     },
-    [dispatch, handleUpload, warehouseId, sandboxRuntime]
+    [dispatch, handleUpload, warehouseId]
   );
 
   const handleRefreshFromToolbar = useCallback(() => {

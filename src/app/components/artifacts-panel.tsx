@@ -20,7 +20,6 @@ interface ArtifactsPanelProps {
   historyId?: string | null;
   /** csv_id — required to enable Edit-and-Re-run on the Code tab. */
   csvId?: string | null;
-  sandboxRuntime?: string;
   /** Called after a successful artifacts-only re-run. */
   onRerunSuccess?: (artifacts: CachedArtifacts) => void;
   /**
@@ -41,7 +40,6 @@ export function ArtifactsPanel({
   artifacts,
   findings,
   csvId,
-  sandboxRuntime,
   onRerunSuccess,
   onRequestRerun,
   verifiability,
@@ -153,7 +151,6 @@ export function ArtifactsPanel({
               artifacts={artifacts}
               findings={findings}
               csvId={csvId}
-              sandboxRuntime={sandboxRuntime}
               onRerunSuccess={onRerunSuccess}
               onRequestRerun={onRequestRerun}
               verifiability={verifiability}

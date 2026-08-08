@@ -144,7 +144,6 @@ export function PageChrome(props: PageChromeProps) {
         onToggleFullscreen={panels.toggleArtifactsFullscreen}
         artifacts={props.pageArtifacts.artifacts}
         csvId={props.artifactsCsvId}
-        sandboxRuntime={models.sandboxRuntime}
         onRerunSuccess={(newArtifacts) => props.pageArtifacts.setArtifacts(newArtifacts)}
         onRequestRerun={props.onRequestRerun}
         verifiability={props.verifiability}

@@ -18,7 +18,6 @@
 import { getStoredCSV, getCSVContent, getGeoJSONContent } from "@/lib/csv/storage";
 import { runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { logger } from "@/lib/logger";
 import { apiError } from "@/app/lib/api-error";
@@ -35,7 +34,7 @@ export async function POST(request: Request) {
       sql?: string; // for warehouse-sourced analyses, preserved untouched
     };
 
-    const { csv_id, code, sandbox_runtime } = body;
+    const { csv_id, code } = body;
 
     if (!csv_id) {
       return Response.json({ error: "csv_id required" }, { status: 400 });
@@ -56,10 +55,9 @@ export async function POST(request: Request) {
     const csvContent = (await getCSVContent(csv_id)) ?? "";
     const geojsonContent = await getGeoJSONContent(csv_id);
 
-    const runtime: SandboxRuntimeId =
-      sandbox_runtime && isValidRuntimeId(sandbox_runtime)
-        ? sandbox_runtime
-        : getActiveSandboxRuntime();
+    // Golden source: runtime from shared settings only (body.sandbox_runtime
+    // is accepted for back-compat but ignored — see validate-request).
+    const runtime: SandboxRuntimeId = getActiveSandboxRuntime();
 
     let pipelineResult;
     try {

@@ -29,7 +29,6 @@ interface ArtifactsViewerProps {
   /** csv_id — required for re-run. When omitted, the editor is read-only. */
   csvId?: string | null;
   /** Active sandbox runtime, passed through to the rerun endpoint. */
-  sandboxRuntime?: string;
   /** Called after a successful artifacts-only rerun with the fresh artifacts. */
   onRerunSuccess?: (artifacts: CachedArtifacts) => void;
   /**
@@ -201,7 +200,6 @@ export function ArtifactsViewer({
   artifacts,
   findings: findingsProp,
   csvId,
-  sandboxRuntime,
   onRerunSuccess,
   onRequestRerun,
   verifiability,
@@ -363,7 +361,7 @@ export function ArtifactsViewer({
     // Path B (fallback): legacy artifacts-only refresh via /api/query/rerun.
     setRerunState({ kind: "running" });
     try {
-      const result = await rerunCode(csvId, editedCode, sandboxRuntime);
+      const result = await rerunCode(csvId, editedCode);
       onRerunSuccess?.(result.artifacts);
       setRerunState({ kind: "success" });
       setTimeout(() => setRerunState({ kind: "idle" }), 3000);
@@ -372,7 +370,7 @@ export function ArtifactsViewer({
         err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
       setRerunState({ kind: "error", message: msg });
     }
-  }, [csvId, codeIsDirty, editedCode, sandboxRuntime, onRerunSuccess, onRequestRerun]);
+  }, [csvId, codeIsDirty, editedCode, onRerunSuccess, onRequestRerun]);
 
   const handleRerunSql = useCallback(() => {
     if (!sqlIsDirty) return;

@@ -19,6 +19,7 @@ import {
   getRuntimeConfig,
   setRuntimeConfig,
   getActiveModels,
+  getActiveSandboxRuntime,
   type RuntimeConfig,
 } from "@/lib/runtime-config";
 import {
@@ -80,6 +81,7 @@ export function GET() {
         microsandboxUrl: microsandboxUrl() ?? null,
         microsandboxImage: microsandboxImage() ?? null,
         memoryFraction: sandboxMemoryFraction(DEFAULT_SANDBOX_MEMORY_FRACTION),
+        runtime: getActiveSandboxRuntime(),
       },
       retention: {
         maxHistoryEntries: maxHistoryEntries(DEFAULT_MAX_HISTORY),
@@ -217,13 +219,25 @@ export async function PUT(request: Request) {
     if (uiCompose !== undefined && !isValidModelId(uiCompose)) {
       return Response.json({ error: `Unknown model id: ${uiCompose}` }, { status: 400 });
     }
-    patch.models = {
-      ...rc.models,
-      codeGen,
-      uiCompose,
-      effort,
-      ...(efforts !== undefined ? { efforts } : {}),
+    // PARTIAL update: a field ABSENT from the request keeps its stored value;
+    // an explicit "" clears it (cleanString collapses both to undefined, so
+    // distinguish on the raw body). The old unconditional `codeGen,` spread
+    // wrote undefined over the stored model on every efforts-only save —
+    // which silently erased the cross-harness model selection and forked the
+    // web (localStorage) and MCP (runtime-config default) onto different
+    // models.
+    const merged: NonNullable<RuntimeConfig["models"]> = { ...rc.models };
+    const applyField = (key: "codeGen" | "uiCompose" | "effort", raw: unknown, v?: string) => {
+      if (raw === undefined) return; // absent → keep stored
+      if (v === undefined)
+        delete merged[key]; // "" → clear
+      else merged[key] = v;
     };
+    applyField("codeGen", m.codeGen, codeGen);
+    applyField("uiCompose", m.uiCompose, uiCompose);
+    applyField("effort", m.effort, effort);
+    if (efforts !== undefined) merged.efforts = efforts;
+    patch.models = merged;
   }
   if (Object.keys(patch).length > 0) setRuntimeConfig(patch);
 

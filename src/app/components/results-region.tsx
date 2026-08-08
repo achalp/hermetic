@@ -139,9 +139,6 @@ export function ResultsRegion(props: ResultsRegionProps) {
           composerSight={props.composerSight}
           verifiability={props.verifiability}
           historyId={props.historyId}
-          codeGenModel={props.models.codeGenModel}
-          uiComposeModel={props.models.uiComposeModel}
-          sandboxRuntime={props.models.sandboxRuntime}
           purpose={props.purpose}
           onRerun={props.onRerun}
           loadedVizId={pageState.loadedVizId}

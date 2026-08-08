@@ -2,17 +2,22 @@
 
 /**
  * Model / runtime / local-backend selections for the page (extracted from
- * page.tsx, exit audit F1). Choices persist to localStorage so they survive a
- * restart — the value is sent with every query, so client-side is enough.
- * Previously the change handlers only called setState → reverted to the
- * default constant on reload.
+ * page.tsx, exit audit F1).
+ *
+ * GOLDEN SOURCE: runtime-config.json, via /api/settings. This hook is a
+ * MIRROR of the server-side selection, never a second store — the previous
+ * localStorage copy was sent with every request and forked the web onto a
+ * different model than MCP whenever the server-side value was lost (the
+ * settings PUT once clobbered it on every efforts-only save). State here
+ * initializes from the server's EFFECTIVE selection on mount and PUTs
+ * changes back; requests carry no model/runtime fields at all (the server
+ * resolves from runtime-config for every harness).
  */
 import { useCallback, useEffect, useState } from "react";
 import {
   CODE_GEN_MODEL,
   UI_COMPOSE_MODEL,
   DEFAULT_SANDBOX_RUNTIME,
-  STORAGE_KEYS,
   isValidRuntimeId,
   isValidModelId,
 } from "@/lib/constants";
@@ -20,57 +25,41 @@ import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import { getLocalBackendConfig, setActiveSandboxRuntime, setActiveModels } from "@/app/lib/api";
 
 export function useModelSettings() {
-  const [codeGenModel, setCodeGenModel] = useState<ModelId>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem(STORAGE_KEYS.codeGenModel);
-      if (stored && isValidModelId(stored)) return stored;
-    }
-    return CODE_GEN_MODEL;
-  });
-  const [uiComposeModel, setUiComposeModel] = useState<ModelId>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem(STORAGE_KEYS.uiComposeModel);
-      if (stored && isValidModelId(stored)) return stored;
-    }
-    return UI_COMPOSE_MODEL;
-  });
-  const [sandboxRuntime, setSandboxRuntime] = useState<SandboxRuntimeId>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem(STORAGE_KEYS.sandboxRuntime);
-      if (stored && isValidRuntimeId(stored)) return stored;
-    }
-    return DEFAULT_SANDBOX_RUNTIME;
-  });
+  const [codeGenModel, setCodeGenModel] = useState<ModelId>(CODE_GEN_MODEL);
+  const [uiComposeModel, setUiComposeModel] = useState<ModelId>(UI_COMPOSE_MODEL);
+  const [sandboxRuntime, setSandboxRuntime] = useState<SandboxRuntimeId>(DEFAULT_SANDBOX_RUNTIME);
   // Reasoning-effort override ("auto" = phase-routed defaults). Server-side
-  // in runtime-config so the CLI transport (and MCP) honor it — same
-  // cross-harness contract as the model selection.
+  // in runtime-config like everything else here.
   const [effort, setEffort] = useState<string>("auto");
   const [phaseEfforts, setPhaseEfforts] = useState<Record<string, string>>({});
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
 
-  // Adopt the server-side model selection when one is stored — runtime-config
-  // is the cross-harness source of truth (MCP reads it too), so a choice made
-  // in another browser/profile still wins over this tab's stale localStorage.
+  // Adopt the server-side EFFECTIVE selection on mount — the resolved values
+  // (stored choice or default), same ones every run will use.
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/settings", { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { config?: { models?: { codeGen?: string; uiCompose?: string } } } | null) => {
-        const m = data?.config?.models as
-          | { codeGen?: string; uiCompose?: string; effort?: string }
-          | undefined;
-        if (m?.effort) setEffort(m.effort);
-        const eff = (m as { efforts?: Record<string, string> } | undefined)?.efforts;
-        if (eff && typeof eff === "object") setPhaseEfforts(eff);
-        if (m?.codeGen && isValidModelId(m.codeGen)) {
-          setCodeGenModel(m.codeGen);
-          localStorage.setItem(STORAGE_KEYS.codeGenModel, m.codeGen);
+      .then(
+        (
+          data: {
+            config?: { models?: { effort?: string; efforts?: Record<string, string> } };
+            effective?: {
+              models?: { codeGen?: string; uiCompose?: string };
+              sandbox?: { runtime?: string };
+            };
+          } | null
+        ) => {
+          const m = data?.effective?.models;
+          if (m?.codeGen && isValidModelId(m.codeGen)) setCodeGenModel(m.codeGen);
+          if (m?.uiCompose && isValidModelId(m.uiCompose)) setUiComposeModel(m.uiCompose);
+          const rt = data?.effective?.sandbox?.runtime;
+          if (rt && isValidRuntimeId(rt)) setSandboxRuntime(rt);
+          const cfg = data?.config?.models;
+          if (cfg?.effort) setEffort(cfg.effort);
+          if (cfg?.efforts && typeof cfg.efforts === "object") setPhaseEfforts(cfg.efforts);
         }
-        if (m?.uiCompose && isValidModelId(m.uiCompose)) {
-          setUiComposeModel(m.uiCompose);
-          localStorage.setItem(STORAGE_KEYS.uiComposeModel, m.uiCompose);
-        }
-      })
+      )
       .catch(() => {});
     return () => controller.abort();
   }, []);
@@ -95,18 +84,14 @@ export function useModelSettings() {
     return () => controller.abort();
   }, []);
 
+  // Every change persists to the golden source; local state is the
+  // optimistic mirror for the UI.
   const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
     setSandboxRuntime(r);
-    localStorage.setItem(STORAGE_KEYS.sandboxRuntime, r);
     setActiveSandboxRuntime(r).catch(() => {});
   }, []);
-
-  // Model choices persist BOTH client-side (localStorage — instant reload
-  // state) and server-side (runtime-config via /api/settings) so the MCP
-  // server and requests that send no explicit model honor the same choice.
   const handleCodeGenModelChange = useCallback((m: ModelId) => {
     setCodeGenModel(m);
-    localStorage.setItem(STORAGE_KEYS.codeGenModel, m);
     setActiveModels({ codeGen: m }).catch(() => {});
   }, []);
   const handleEffortChange = useCallback((e: string) => {
@@ -124,7 +109,6 @@ export function useModelSettings() {
   }, []);
   const handleUiComposeModelChange = useCallback((m: ModelId) => {
     setUiComposeModel(m);
-    localStorage.setItem(STORAGE_KEYS.uiComposeModel, m);
     setActiveModels({ uiCompose: m }).catch(() => {});
   }, []);
 

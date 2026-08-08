@@ -9,7 +9,6 @@ import { resolveDrillValues, formatFilterValue, type ClickedRecord } from "@/lib
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
-import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import type { TraceStep } from "@/lib/contracts/investigation";
 import { getArtifacts, recomposeInvestigation } from "@/app/lib/api";
@@ -58,9 +57,6 @@ interface ResponsePanelProps {
   composerSight?: string;
   verifiability?: import("@/app/components/verify-tab").VerifiabilityPayload | null;
   historyId?: string | null;
-  codeGenModel?: ModelId;
-  uiComposeModel?: ModelId;
-  sandboxRuntime?: SandboxRuntimeId;
   purpose?: string;
   onRerun?: () => void;
   loadedVizId?: string | null;
@@ -117,9 +113,6 @@ export function ResponsePanel({
   composerSight,
   verifiability,
   historyId,
-  codeGenModel,
-  uiComposeModel,
-  sandboxRuntime,
   purpose = "dashboard",
   onRerun,
   loadedVizId,
@@ -192,9 +185,6 @@ export function ResponsePanel({
     reattachRunId,
     schemaMode,
     composerSight,
-    codeGenModel,
-    uiComposeModel,
-    sandboxRuntime,
     purpose,
     rerunCode,
     rerunSql,
@@ -310,9 +300,7 @@ export function ResponsePanel({
         scope: drillScope,
         compose_cells: viewMode === "notebook",
         schema_mode: schemaMode,
-        code_gen_model: codeGenModel,
-        ui_compose_model: uiComposeModel,
-        sandbox_runtime: sandboxRuntime,
+        // Model/runtime deliberately NOT sent — golden source (runtime-config).
         purpose,
       } satisfies AnalysisRequestContext);
     },
@@ -326,9 +314,6 @@ export function ResponsePanel({
       currentSpecRef,
       currentQuestionRef,
       schemaMode,
-      codeGenModel,
-      uiComposeModel,
-      sandboxRuntime,
       purpose,
       viewMode,
     ]
@@ -618,7 +603,6 @@ export function ResponsePanel({
               isStreaming={isStreaming}
               scrollTarget={citationTarget}
               csvId={effectiveCsvId}
-              sandboxRuntime={sandboxRuntime}
               onStepRerun={handleStepRerun}
               onExportApiChange={onNotebookExportApiChange}
             />

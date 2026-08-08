@@ -287,14 +287,9 @@ export interface RerunResult {
   question?: string;
 }
 
-export async function rerunViz(
-  vizId: string,
-  file: File,
-  sandboxRuntime?: string
-): Promise<RerunResult> {
+export async function rerunViz(vizId: string, file: File): Promise<RerunResult> {
   const formData = new FormData();
   formData.append("file", file);
-  if (sandboxRuntime) formData.append("sandbox_runtime", sandboxRuntime);
 
   const res = await fetch(`/api/vizs/${vizId}/rerun`, {
     method: "POST",
@@ -316,16 +311,12 @@ export interface RefreshResult {
 
 export async function refreshViz(
   vizId: string,
-  warehouseId?: string | null,
-  sandboxRuntime?: string
+  warehouseId?: string | null
 ): Promise<RefreshResult> {
   const res = await fetch(`/api/vizs/${vizId}/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      warehouseId: warehouseId ?? undefined,
-      sandboxRuntime: sandboxRuntime ?? undefined,
-    }),
+    body: JSON.stringify({ warehouseId: warehouseId ?? undefined }),
   });
   return json<RefreshResult>(res);
 }
@@ -501,16 +492,12 @@ export async function loadHistoryEntry(id: string): Promise<LoadedHistory> {
 
 export async function refreshHistoryEntry(
   historyId: string,
-  warehouseId?: string | null,
-  sandboxRuntime?: string
+  warehouseId?: string | null
 ): Promise<RefreshResult> {
   const res = await fetch(`/api/history/${historyId}/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      warehouseId: warehouseId ?? undefined,
-      sandboxRuntime: sandboxRuntime ?? undefined,
-    }),
+    body: JSON.stringify({ warehouseId: warehouseId ?? undefined }),
   });
   return json<RefreshResult>(res);
 }
@@ -849,19 +836,11 @@ export interface RerunArtifactsResult {
   artifacts: CachedArtifacts;
 }
 
-export async function rerunCode(
-  csvId: string,
-  code: string,
-  sandboxRuntime?: string
-): Promise<RerunArtifactsResult> {
+export async function rerunCode(csvId: string, code: string): Promise<RerunArtifactsResult> {
   const res = await fetch("/api/query/rerun", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      csv_id: csvId,
-      code,
-      sandbox_runtime: sandboxRuntime,
-    }),
+    body: JSON.stringify({ csv_id: csvId, code }),
   });
   return json<RerunArtifactsResult>(res);
 }
@@ -878,7 +857,6 @@ export async function rerunInvestigateStep(args: {
   csvId: string;
   stepIndex: number;
   code?: string;
-  sandboxRuntime?: string;
 }): Promise<RerunStepResult> {
   const res = await fetch("/api/query/investigate/rerun-step", {
     method: "POST",
@@ -887,7 +865,6 @@ export async function rerunInvestigateStep(args: {
       csv_id: args.csvId,
       step_index: args.stepIndex,
       code: args.code,
-      sandbox_runtime: args.sandboxRuntime,
     }),
   });
   return json<RerunStepResult>(res);

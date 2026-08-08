@@ -13,13 +13,14 @@
 
 import { applySpecPatch, parseSpecStreamLine, type Spec } from "@/spec/core";
 import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { getActiveModels } from "@/lib/runtime-config";
 import { getStoredCSV } from "@/lib/csv/storage";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { trackRouteCost } from "@/lib/cost/epilogue";
 import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
 import type { TraceStep } from "@/lib/contracts/investigation";
-import { isValidModelId, UI_COMPOSE_MODEL } from "@/lib/constants";
+
 import { logger } from "@/lib/logger";
 import { apiError } from "@/app/lib/api-error";
 
@@ -83,10 +84,8 @@ async function handleRecompose(request: Request) {
       return Response.json({ error: "CSV not found or expired" }, { status: 404 });
     }
 
-    const uiComposeModel =
-      body.ui_compose_model && isValidModelId(body.ui_compose_model)
-        ? body.ui_compose_model
-        : UI_COMPOSE_MODEL;
+    // Golden source: compose model from shared settings only.
+    const uiComposeModel = getActiveModels().uiCompose;
 
     const subResults = trace.steps.map(subResultFromStep);
     const compose = composeInvestigation({

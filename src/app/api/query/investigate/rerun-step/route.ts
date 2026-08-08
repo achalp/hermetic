@@ -35,9 +35,9 @@ import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { randomUUID } from "crypto";
 import type { AdditionalFile } from "@/lib/sandbox";
-import { isValidRuntimeId, isValidModelId, LOCAL_MOUNT_PATH } from "@/lib/constants";
+import { LOCAL_MOUNT_PATH } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
+import { getActiveSandboxRuntime, getActiveModels } from "@/lib/runtime-config";
 import { logger } from "@/lib/logger";
 import { apiError } from "@/app/lib/api-error";
 import { trackRouteCost } from "@/lib/cost/epilogue";
@@ -117,10 +117,8 @@ async function handleRerunStep(request: Request) {
         : `${LOCAL_MOUNT_PATH}/${path.basename(hostPath)}`;
     }
 
-    const runtime: SandboxRuntimeId =
-      body.sandbox_runtime && isValidRuntimeId(body.sandbox_runtime)
-        ? body.sandbox_runtime
-        : getActiveSandboxRuntime();
+    // Golden source: runtime from shared settings only.
+    const runtime: SandboxRuntimeId = getActiveSandboxRuntime();
 
     // Dataflow: feed this step's upstream outputs as /data/step_N.csv so
     // re-running a dependent recomputes against the changed upstream output.
@@ -168,10 +166,8 @@ async function handleRerunStep(request: Request) {
     const chartData = (exec.chart_data ?? {}) as Record<string, unknown>;
 
     // Recompose the notebook cell for the fresh results (best-effort).
-    const uiComposeModel =
-      body.ui_compose_model && isValidModelId(body.ui_compose_model)
-        ? body.ui_compose_model
-        : undefined;
+    // Golden source: compose model from shared settings only.
+    const uiComposeModel = getActiveModels().uiCompose;
     const cellSpec = await composeStepCell({
       stepNo: step.stepNo,
       question: step.question,

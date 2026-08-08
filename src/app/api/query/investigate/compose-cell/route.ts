@@ -11,7 +11,8 @@
  */
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
 import type { Spec } from "@/spec/core";
-import { isValidModelId, type ModelId } from "@/lib/constants";
+import type { ModelId } from "@/lib/constants";
+import { getActiveModels } from "@/lib/runtime-config";
 import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost/accumulator";
 import { appendCostRow } from "@/lib/cost/storage";
 import { getCachedArtifacts, cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -81,10 +82,8 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "steps is required" }, { status: 400 });
   }
 
-  const uiComposeModel: ModelId | undefined =
-    body.ui_compose_model && isValidModelId(body.ui_compose_model)
-      ? (body.ui_compose_model as ModelId)
-      : undefined;
+  // Golden source: compose model from shared settings only.
+  const uiComposeModel = getActiveModels().uiCompose as ModelId;
 
   const originalQuestion = body.original_question ?? "";
   const approach = body.approach ?? "";

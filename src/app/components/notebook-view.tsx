@@ -648,7 +648,6 @@ export function NotebookView({
   isStreaming,
   scrollTarget,
   csvId,
-  sandboxRuntime,
   onStepRerun,
   onExportApiChange,
 }: {
@@ -659,7 +658,6 @@ export function NotebookView({
   scrollTarget?: { stepNo: number; seq: number } | null;
   /** Enables per-cell edit-and-rerun when set (and not streaming). */
   csvId?: string | null;
-  sandboxRuntime?: string;
   /** Notifies the parent after a successful step re-run (e.g. to merge the
    *  fresh step into its artifacts copy and flag the dashboard stale). */
   onStepRerun?: (step: TraceStep, dependents: number[]) => void;
@@ -747,7 +745,6 @@ export function NotebookView({
           csvId,
           stepIndex: index,
           code,
-          sandboxRuntime,
         });
         setOverrides((prev) => new Map(prev).set(index, res.step));
         setStale((prev) => {
@@ -773,7 +770,7 @@ export function NotebookView({
         });
       }
     },
-    [csvId, sandboxRuntime, onStepRerun]
+    [csvId, onStepRerun]
   );
 
   // Re-run every stale cell in ascending index order — depends_on always

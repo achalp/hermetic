@@ -17,13 +17,12 @@
  *   materialized pull) → `preferCsvOverWarehouse`.
  * - Investigate 404s a missing/expired CSV before streaming; Ask reports it
  *   in-stream → `requireStoredCsv`.
- * - Local providers skip Claude model-ID validation in Ask (getModel() uses
- *   the local model directly); Investigate refuses local providers outright
- *   between the two steps → `skipModelValidation`.
+ *
+ * Model/runtime selection has NO options: runtime-config is the single
+ * golden source for every harness (see resolveQuerySources).
  */
 import { getStoredCSV } from "@/lib/csv/storage";
 import { getStoredWarehouse, getWarehouseConnector } from "@/lib/warehouse/storage";
-import { isValidModelId, isValidRuntimeId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime, getActiveModels } from "@/lib/runtime-config";
 
@@ -96,8 +95,6 @@ export function resolveQuerySources(
   ids: { csvId: string | undefined; warehouseId: string | undefined },
   context: QueryRequestContext,
   opts: {
-    /** Skip Claude model-ID validation (local providers use their own IDs). */
-    skipModelValidation?: boolean;
     /** Skip the warehouse lookup when a csv_id is present (Investigate). */
     preferCsvOverWarehouse?: boolean;
     /** 404 a missing/expired CSV before streaming (Investigate). */
@@ -130,24 +127,20 @@ export function resolveQuerySources(
     return fail("csv_id or warehouse_id is required in context", 400);
   }
 
-  // Explicit per-request choice wins; otherwise the SERVER-side selection
-  // (Settings UI via runtime-config) — so a request that sends no model
-  // still honors the user's configured choice, same as MCP.
+  // GOLDEN SOURCE: model and runtime selection comes from runtime-config
+  // (the shared server-side settings) for EVERY harness — web, MCP, CLI,
+  // rerun surfaces. Per-request context fields (code_gen_model, ...) are
+  // deliberately IGNORED here: honoring them let a stale client copy
+  // (browser localStorage) fork the web onto a different model than MCP.
+  // Explicit per-call choice, if ever needed again, belongs as a documented
+  // API parameter resolved THROUGH this function, not around it.
+  void context;
   const activeModels = getActiveModels();
-  const codeGenModel =
-    !opts.skipModelValidation && context.code_gen_model && isValidModelId(context.code_gen_model)
-      ? context.code_gen_model
-      : activeModels.codeGen;
-  const uiComposeModel =
-    !opts.skipModelValidation &&
-    context.ui_compose_model &&
-    isValidModelId(context.ui_compose_model)
-      ? context.ui_compose_model
-      : activeModels.uiCompose;
-  const sandboxRuntime: SandboxRuntimeId =
-    context.sandbox_runtime && isValidRuntimeId(context.sandbox_runtime)
-      ? context.sandbox_runtime
-      : getActiveSandboxRuntime();
-
-  return { ok: true, source, codeGenModel, uiComposeModel, sandboxRuntime };
+  return {
+    ok: true,
+    source,
+    codeGenModel: activeModels.codeGen,
+    uiComposeModel: activeModels.uiCompose,
+    sandboxRuntime: getActiveSandboxRuntime(),
+  };
 }

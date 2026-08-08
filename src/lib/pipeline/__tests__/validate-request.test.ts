@@ -96,3 +96,24 @@ describe("resolveQuerySources — source discrimination", () => {
     expect(out).toMatchObject({ ok: false, status: 400 });
   });
 });
+
+describe("resolveQuerySources — golden-source model/runtime resolution", () => {
+  it("ignores per-request model/runtime fields: runtime-config is the only source", () => {
+    // Regression: honoring context overrides let a stale client copy
+    // (browser localStorage) fork the web onto a different model than MCP.
+    const out = resolveQuerySources(
+      { csvId: "c1", warehouseId: undefined },
+      {
+        code_gen_model: "claude-opus-5",
+        ui_compose_model: "claude-opus-5",
+        sandbox_runtime: "e2b",
+      }
+    );
+    expect(out).toMatchObject({
+      ok: true,
+      codeGenModel: "claude-sonnet-4-6",
+      uiComposeModel: "claude-sonnet-4-6",
+      sandboxRuntime: "docker",
+    });
+  });
+});

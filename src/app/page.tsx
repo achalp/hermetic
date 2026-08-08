@@ -154,7 +154,6 @@ export default function Home() {
     dispatch,
     handleUpload,
     warehouseId: warehouse.warehouseId,
-    sandboxRuntime: models.sandboxRuntime,
   });
 
   // Local/remote/upload/sample source selection — see use-source-select.ts.
@@ -191,7 +190,6 @@ export default function Home() {
     handleUpload,
     loadWorkbookUpload,
     warehouseId: warehouse.warehouseId,
-    sandboxRuntime: models.sandboxRuntime,
     loadedVizId,
     isAnalyzing,
     pendingRerunVizId,
