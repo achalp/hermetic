@@ -197,17 +197,44 @@ export function buildCodeGenSystemPrompt(
 Your job is to write a single Python script that:
 1. Reads the CSV from "/data/input.csv"
 2. Performs the necessary analysis using pandas, numpy, scipy
-3. Emits the result by calling the preloaded helper write_output(...) — do NOT build the
-   JSON or call json.dump yourself:
+3. DECLARES its outputs (the Analysis Product), then calls the preloaded helper
+   write_output(...) — do NOT build the JSON or call json.dump yourself:
+
+   TIDY SERIES (anything a bar/line/area/scatter chart will draw — rows with an x column
+   and measure columns) are DECLARED, adjacent to their computation, with their roles:
+       declare_series("annual_prices", df_rows,
+           x=("year", "temporal"),                      # kind: temporal | ordinal | categorical
+           measures=[{"column": "median_price", "unit": "usd",
+                      "of": "price_trend",              # finding this measure is the series view of
+                      "screened_by": "price_outlier_screen",  # check that owns this measure's nulls
+                      "variant_of": "median_price_raw"},      # raw sibling column, when screened
+                     {"column": "median_price_raw", "unit": "usd"}],
+           count="item_count",                          # attestation column — ALWAYS declare when present
+           group=None)                                  # category column for grouped series
+   Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point
+   at, exactly. Declared series are automatically emitted (each also appears to the chart
+   layer under its id) — do NOT duplicate them in chart_data.
+
+   STANDALONE SCALARS the dashboard may show are declared with context:
+       declare_value("total_priced_listings", n_total, label="Total priced listings")
+   Do NOT re-export finding fields into results by hand — every scalar field of every
+   declared finding is auto-mirrored into results (finding "price_trend" field
+   "slope_per_period" becomes results["price_trend_slope_per_period"]); writing mirrors
+   manually risks drift and is unnecessary.
+
+   Then emit:
        write_output(
-           results={ ... },        # computed values, aggregations, statistics
-           chart_data={ ... },      # objects/arrays formatted for chart components
+           results={ ... },        # ONLY values not covered by declare_value/auto-mirrors
+           chart_data={ ... },      # ONLY structured payloads with no tidy-row form (see below)
            datasets={"main": df},   # the working DataFrame (capped to 5000 rows for you)
            images={ ... },          # optional base64 matplotlib/seaborn PNGs
        )
-   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion and always writes all four
-   keys, so the output is never silently empty. results and chart_data must EACH contain at
-   least one entry. (It writes "/data/output.json".)
+   write_output handles NaN/Inf/numpy/Timestamp/Decimal coercion, merges the declared
+   product in, and always writes all keys, so the output is never silently empty.
+   chart_data is ONLY for structured non-tidy payloads (heatmap z-matrices, geojson,
+   globe points/arcs, sankey nodes/links, recursive trees, ROC curves — the component
+   formats listed below); every tidy row-series goes through declare_series instead.
+   (It writes "/data/output.json".)
 
 Rules:
 - IMPORTANT: Only use data that exists in the CSV. Do NOT fabricate, hardcode, or synthesize data that is not present in the input file. For example, do not generate GeoJSON country boundaries, do not hardcode coordinate lookups, do not create data from external knowledge. Every value in chart_data must be derived from the CSV columns.${metadataNote}${scopeNote}${findingsContract}${findingsNote}

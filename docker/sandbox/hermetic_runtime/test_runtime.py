@@ -30,7 +30,7 @@ try:
 except Exception:
     HAVE_PANDAS = False
 
-from . import findings, guards
+from . import findings, guards, series
 from .coerce import safe_float, safe_int, to_native
 from .checks import declare_check
 from .findings import (
@@ -49,6 +49,7 @@ from .findings import (
     finding_trend,
 )
 from .output import write_output
+from .series import declare_series, declare_value
 
 
 class TestSafeFloat(unittest.TestCase):
@@ -131,6 +132,7 @@ class TestGuards(unittest.TestCase):
 class TestWriteOutput(unittest.TestCase):
     def setUp(self):
         findings.reset_findings()  # leftover declarations must not leak in
+        series.reset_product()
 
     def test_envelope_shape_and_dataset_cap(self):
         real_open = open
@@ -149,8 +151,102 @@ class TestWriteOutput(unittest.TestCase):
             self.assertEqual(out["findings"], [])
             written = json.load(open(f.name))
             self.assertEqual(
-                set(written), {"results", "chart_data", "datasets", "images", "findings", "data_completeness"}
+                set(written),
+                {"results", "chart_data", "datasets", "images", "findings",
+                 "series", "values", "data_completeness"},
             )
+
+
+class TestAnalysisProduct(unittest.TestCase):
+    """declare_series/declare_value + synthesis (specs/analysis-product-2026-08-08.md §1)."""
+
+    def setUp(self):
+        findings.reset_findings()
+        series.reset_product()
+        self.dir = tempfile.mkdtemp(prefix="hermetic-product-")
+        patcher = mock.patch.object(
+            findings, "SIDECAR_PATH", os.path.join(self.dir, "findings.jsonl")
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(findings.reset_findings)
+        self.addCleanup(series.reset_product)
+
+    def _write(self, **kw):
+        real_open = open
+        with tempfile.NamedTemporaryFile("r", suffix=".json") as f:
+            redirect = lambda p, m="r", **k: real_open(f.name, m, **k)  # noqa: E731
+            with mock.patch("builtins.open", side_effect=redirect):
+                return write_output(**kw)
+
+    def test_series_roles_and_chart_synthesis(self):
+        rows = [{"year": 1900 + i, "median_price": 1.0 + i, "n": 50 + i} for i in range(3)]
+        entry = declare_series(
+            "annual_prices",
+            rows,
+            x=("year", "temporal"),
+            measures=[{"column": "median_price", "unit": "usd", "of": "price_trend"}],
+            count="n",
+        )
+        self.assertEqual(entry["roles"]["x"], {"column": "year", "kind": "temporal"})
+        self.assertEqual(entry["roles"]["count"], {"column": "n"})
+        out = self._write()
+        # The legacy view is synthesized — same rows under the series id.
+        self.assertEqual(out["chart_data"]["annual_prices"], entry["rows"])
+        self.assertEqual(out["series"][0]["id"], "annual_prices")
+
+    def test_series_wins_chart_key_collision(self):
+        rows = [{"year": 1900, "v": 1.0}]
+        declare_series("s", rows, x=("year", "temporal"), measures=["v"])
+        out = self._write(chart_data={"s": [{"stale": True}]})
+        self.assertEqual(out["chart_data"]["s"], rows)
+
+    def test_invalid_series_dropped_never_raises(self):
+        # Bad x kind, missing column, no valid measures, garbage rows.
+        self.assertIsNone(declare_series("a", [{"x": 1}], x=("x", "chronological"), measures=["x"]))
+        self.assertIsNone(declare_series("b", [{"x": 1}], x=("y", "ordinal"), measures=["x"]))
+        self.assertIsNone(declare_series("c", [{"x": 1}], x=("x", "ordinal"), measures=["nope"]))
+        self.assertIsNone(declare_series("d", object(), x=("x", "ordinal"), measures=["x"]))
+        self.assertEqual(series.get_series(), [])
+
+    def test_series_rows_capped_with_total(self):
+        rows = [{"i": i, "v": float(i)} for i in range(series.ROWS_CAP + 10)]
+        entry = declare_series("big", rows, x=("i", "ordinal"), measures=["v"])
+        self.assertEqual(len(entry["rows"]), series.ROWS_CAP)
+        self.assertEqual(entry["rows_total"], series.ROWS_CAP + 10)
+
+    @unittest.skipUnless(HAVE_PANDAS, "pandas")
+    def test_series_accepts_dataframe(self):
+        import pandas as pd
+
+        df = pd.DataFrame({"year": [2000, 2001], "v": [1.5, float("nan")]})
+        entry = declare_series("df_series", df, x=("year", "temporal"), measures=["v"])
+        self.assertEqual(len(entry["rows"]), 2)
+        self.assertIsNone(entry["rows"][1]["v"])  # NaN coerced at declaration
+
+    def test_value_context_rule(self):
+        # of= or label= is mandatory; non-scalars are dropped.
+        self.assertIsNotNone(declare_value("total", 42, label="Total priced listings"))
+        self.assertIsNotNone(declare_value("slope", 0.4, of="price_trend.slope_per_period"))
+        self.assertIsNone(declare_value("naked", 7))
+        self.assertIsNone(declare_value("composite", {"a": 1}, label="not a scalar"))
+        self.assertEqual([v["key"] for v in series.get_values()], ["total", "slope"])
+
+    def test_values_and_mirrors_synthesized_into_results(self):
+        declare_value("total", 42, label="Total priced listings")
+        declare_finding(
+            "price_trend",
+            {"direction": "rising", "slope_per_period": 0.4, "detail": {"nested": 1}},
+            definition="direction of median price over the years",
+            dtype="direction",
+        )
+        out = self._write(results={"authored": 1, "price_trend_direction": "authored-wins"})
+        self.assertEqual(out["results"]["total"], 42)
+        # Scalar finding fields auto-mirror; authored keys win; non-scalars don't.
+        self.assertEqual(out["results"]["price_trend_slope_per_period"], 0.4)
+        self.assertEqual(out["results"]["price_trend_direction"], "authored-wins")
+        self.assertNotIn("price_trend_detail", out["results"])
+        self.assertEqual(out["values"][0]["key"], "total")
 
 
 class TestDeclareFinding(unittest.TestCase):

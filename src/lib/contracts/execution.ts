@@ -14,6 +14,15 @@ export interface SandboxExecutionResult {
    *  order (declared-findings spec §2) — validated/merged host-side by
    *  lib/findings; absent for pre-findings runs and findings.mode=off. */
   findings?: unknown[];
+  /** Raw declare_series entries (analysis-product spec §1): tidy rows +
+   *  declared roles. chart_data[series.id] is the synthesized legacy view of
+   *  the same rows — consumers that understand roles should read these.
+   *  Validated host-side by lib/product; absent for legacy envelopes. */
+  series?: unknown[];
+  /** Raw declare_value entries (analysis-product spec §1): standalone scalars
+   *  with mandatory context (of-ref or label). Synthesized into results.
+   *  Absent for legacy envelopes. */
+  values?: unknown[];
   /** Platform-profiled data-edge completeness (hermetic_runtime/profile.py):
    *  time/entity columns, per-day coverage, leading/trailing incomplete
    *  periods. Computed deterministically at data-load time — never by

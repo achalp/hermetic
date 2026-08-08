@@ -36,6 +36,10 @@ const SandboxEnvelopeSchema = z.object({
   // strip an unlisted key, which is exactly how v1 of the spec lost every
   // declaration in review. Validation happens in lib/findings, not here.
   findings: z.array(z.unknown()).optional(),
+  // Analysis-product declarations (spec §1) — RAW like findings; role/context
+  // validation happens in lib/product, not here.
+  series: z.array(z.unknown()).optional(),
+  values: z.array(z.unknown()).optional(),
   data_completeness: z.unknown().optional(),
   runtime_fallback: z.string().nullable().optional(),
 });
@@ -415,6 +419,17 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     images: envelope.data.images ?? {},
     datasets: envelope.data.datasets as Record<string, Record<string, unknown>[]> | undefined,
     ...(envelope.data.findings ? { findings: envelope.data.findings } : {}),
+    ...(envelope.data.series ? { series: envelope.data.series } : {}),
+    ...(envelope.data.values ? { values: envelope.data.values } : {}),
+    // These two were validated but never returned — run-ask-query's
+    // completeness lints and runtime-fallback surfacing read them off the
+    // execution result, so dropping them here silently disabled both.
+    ...(envelope.data.data_completeness !== undefined
+      ? { data_completeness: envelope.data.data_completeness }
+      : {}),
+    ...(envelope.data.runtime_fallback !== undefined
+      ? { runtime_fallback: envelope.data.runtime_fallback }
+      : {}),
     execution_ms: executionMs,
   };
 }

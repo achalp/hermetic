@@ -203,6 +203,63 @@ describe("buildDashboardComposeRequest", () => {
   });
 });
 
+describe("binding catalog — analysis product (spec §2)", () => {
+  const series = [
+    {
+      id: "bars",
+      rows: [{ x: "A", y: 1 }],
+      roles: {
+        x: { column: "x", kind: "categorical" },
+        measures: [{ column: "y", unit: "usd" }],
+      },
+    },
+  ];
+
+  it("declared series get catalog lines instead of inferred shapes", () => {
+    const { userPrompt } = buildDashboardComposeRequest(
+      makeExec({ series, values: [{ key: "total", value: 1234, label: "Total revenue" }] }),
+      baseOpts
+    );
+    expect(userPrompt).toContain("## Series Catalog");
+    expect(userPrompt).toContain('"$chartData:bars" — x: x (categorical)');
+    expect(userPrompt).toContain('"$result:total" — Total revenue');
+    // The declared key must NOT also appear as an inferred shape.
+    expect(userPrompt).not.toContain("## Chart Data Shapes");
+  });
+
+  it("partial adoption: undeclared chart keys keep the legacy shape section", () => {
+    const { userPrompt } = buildDashboardComposeRequest(
+      makeExec({
+        series,
+        chart_data: { bars: [{ x: "A", y: 1 }], heat: { z: [[1]], x_labels: ["a"] } },
+      }),
+      baseOpts
+    );
+    expect(userPrompt).toContain("## Series Catalog");
+    expect(userPrompt).toContain("## Chart Data Shapes");
+    expect(userPrompt).toContain("heat");
+  });
+
+  it("of-carrying values are withheld from the offered results vocabulary", () => {
+    const { userPrompt } = buildDashboardComposeRequest(
+      makeExec({
+        results: { total: 1234, trend_slope: 0.4 },
+        values: [{ key: "trend_slope", value: 0.4, of: "trend.slope" }],
+      }),
+      baseOpts
+    );
+    // Withheld like finding mirrors: present in results, absent from the offer.
+    expect(userPrompt).not.toContain('"trend_slope"');
+    expect(userPrompt).toContain('"total"');
+  });
+
+  it("legacy envelopes (no series) keep the inferred-shape path untouched", () => {
+    const { userPrompt } = buildDashboardComposeRequest(makeExec(), baseOpts);
+    expect(userPrompt).toContain("## Chart Data Shapes");
+    expect(userPrompt).not.toContain("## Series Catalog");
+  });
+});
+
 describe("buildValuesSection — sighted mode (composer-sight spec §1)", () => {
   it("includes finding values, results, and sampled series under the cap", () => {
     const exec = {

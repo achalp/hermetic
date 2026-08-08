@@ -12,8 +12,11 @@
  * Contract generation: bump when the codegen/runtime contracts change
  * materially (an exemplar banked under retired contracts re-seeds retired
  * behavior). Gen 2 = declared-checks + parallel screened columns era.
+ * Gen 3 = analysis product (declare_series roles / declare_value context;
+ * chart_data authoring retired for tidy series) — gen-2 exemplars hand-build
+ * the views the runtime now synthesizes.
  */
-export const CONTRACT_GENERATION = 2;
+export const CONTRACT_GENERATION = 3;
 
 export interface Exemplar {
   id: string;

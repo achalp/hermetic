@@ -44,6 +44,7 @@ export function getCachedArtifacts(csvId: string): CachedArtifacts | undefined {
     // loss class (declared-findings review E6). If you add a CachedArtifacts
     // field, it must appear HERE too.
     findings: entry.findings,
+    series: entry.series,
     investigation: entry.investigation,
   };
 }

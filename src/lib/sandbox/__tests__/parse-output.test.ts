@@ -44,6 +44,40 @@ describe("parseSandboxOutput", () => {
     });
   });
 
+  it("passes through analysis-product and completeness fields", async () => {
+    const series = [
+      {
+        id: "s1",
+        rows: [{ year: 2000, v: 1 }],
+        roles: { x: { column: "year", kind: "temporal" }, measures: [{ column: "v" }] },
+      },
+    ];
+    const values = [{ key: "total", value: 42, label: "Total" }];
+    const result = await parseSandboxOutput({
+      ...base,
+      readFile: io({
+        "/data/output.json": JSON.stringify({
+          results: { total: 42 },
+          chart_data: { s1: [{ year: 2000, v: 1 }] },
+          series,
+          values,
+          data_completeness: { time_min: 2000 },
+          runtime_fallback: "ImportError: nope",
+        }),
+      }),
+    });
+    // series/values ride the envelope raw; data_completeness/runtime_fallback
+    // must reach the result too (they were once validated then dropped, which
+    // silently disabled the completeness lints and fallback surfacing).
+    expect(result).toMatchObject({
+      success: true,
+      series,
+      values,
+      data_completeness: { time_min: 2000 },
+      runtime_fallback: "ImportError: nope",
+    });
+  });
+
   it("falls back to stdout.txt when output.json is absent or empty", async () => {
     const result = await parseSandboxOutput({
       ...base,

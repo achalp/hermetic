@@ -32,6 +32,12 @@ import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import { getPurposePrompt } from "@/lib/purpose-prompts";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { projectManifestForPrompt } from "@/lib/findings/project";
+import {
+  parseProduct,
+  ownedValueKeys,
+  buildSeriesCatalogLines,
+  buildValueCatalogLines,
+} from "@/lib/product";
 import { planHeadlineTiles, buildHeadlineSection } from "@/lib/findings/headline-plan";
 import {
   lintUnitPhrase,
@@ -275,12 +281,19 @@ function buildCorePrompt(
 ): string {
   const imageKeys = Object.keys(executionResult.images);
 
+  // Analysis Product (spec §2): declared series/values carry typed identity
+  // for the composer's bindings — the catalog below replaces shape inference
+  // for every declared series, and of-carrying values are withheld like
+  // finding mirrors (the only path to an owned statistic is its finding).
+  const { product } = parseProduct(executionResult.series, executionResult.values);
+
   // Statistical claims bind THROUGH their finding — mirrored result keys
   // are removed from the offered vocabulary (see mirroredResultKeys).
   const mirrored = mirroredResultKeys(
     (executionResult.results ?? {}) as Record<string, unknown>,
     manifest
   );
+  for (const k of ownedValueKeys(product.values)) mirrored.add(k);
   const offeredResults = Object.fromEntries(
     Object.entries(executionResult.results ?? {}).filter(([k]) => !mirrored.has(k))
   );
@@ -304,21 +317,36 @@ ${JSON.stringify(compactResults)}
 
 ${NARRATIVE_GROUNDING_RULES}`;
 
+  // Declared series get typed catalog lines (roles, units, screen/finding
+  // refs) instead of inferred shapes; undeclared chart keys keep the legacy
+  // shape description so partial adoption degrades per-key, not per-run.
+  const declaredIds = new Set(product.series.map((s) => s.id));
   const chartDataShape = Object.fromEntries(
-    Object.entries(executionResult.chart_data).map(([k, v]) => [
-      k,
-      describeShape(v, schemaMode === "sample"),
-    ])
+    Object.entries(executionResult.chart_data)
+      .filter(([k]) => !declaredIds.has(k))
+      .map(([k, v]) => [k, describeShape(v, schemaMode === "sample")])
   );
+  const seriesCatalog =
+    product.series.length > 0
+      ? `## Series Catalog
+Each entry is a typed chart binding: its x column and kind, each measure with its unit and the finding/check it belongs to, and the count column attesting each row. Bind these by id; the roles are authoritative.
+${buildSeriesCatalogLines(product.series).join("\n")}
+${buildValueCatalogLines(product.values).length > 0 ? `\nDeclared standalone values:\n${buildValueCatalogLines(product.values).join("\n")}` : ""}
+`
+      : "";
+  const chartShapesSection =
+    Object.keys(chartDataShape).length > 0
+      ? `## Chart Data Shapes
+Available keys and their shapes:
+${JSON.stringify(chartDataShape, null, 2)}`
+      : "";
 
   return `## Original Question
 ${question}
 
 ${resultsSection}
 
-## Chart Data Shapes
-Available keys and their shapes:
-${JSON.stringify(chartDataShape, null, 2)}
+${seriesCatalog}${chartShapesSection}
 ${
   useDataController
     ? `

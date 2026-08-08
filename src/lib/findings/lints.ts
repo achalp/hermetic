@@ -5,6 +5,7 @@
  * A wrong-but-visible verdict beats a silently dropped one.
  */
 import type { FindingEntry, FindingIssue } from "@/lib/contracts/findings";
+import type { ProductRolesIndex } from "@/lib/product";
 import { STEP_QUALIFIED_RE } from "./validate";
 
 /**
@@ -734,7 +735,8 @@ export function lintDefinitionContradicted(findings: FindingEntry[]): FindingIss
  */
 export function lintChartConsistency(
   chartData: Record<string, unknown>,
-  findings: FindingEntry[]
+  findings: FindingEntry[],
+  rolesIdx?: ProductRolesIndex
 ): FindingIssue[] {
   const issues: FindingIssue[] = [];
   // Cell map: column -> xValue -> {nulls: series[], values: Map<series, number>}
@@ -748,12 +750,15 @@ export function lintChartConsistency(
   for (const [series, v] of Object.entries(chartData)) {
     const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
     if (!Array.isArray(rows)) continue;
+    // Declared x role beats the well-known-key guess for declared series.
+    const declaredX = rolesIdx?.get(series)?.xCol;
     for (const raw of rows) {
       if (raw === null || typeof raw !== "object") continue;
       const row = raw as Record<string, unknown>;
-      const x = xKeyOf(row);
+      const x = declaredX !== undefined ? String(row[declaredX]) : xKeyOf(row);
       if (x === undefined) continue;
       for (const [col, val] of Object.entries(row)) {
+        if (col === declaredX) continue;
         if (["year", "month", "date", "period", "x", "label"].includes(col)) continue;
         const byX = cells.get(col) ?? new Map();
         cells.set(col, byX);
@@ -844,10 +849,32 @@ export function lintResultsProvenance(
  *  no contract behind it. */
 export function lintUndeclaredScreen(
   chartData: Record<string, unknown>,
-  findings: FindingEntry[]
+  findings: FindingEntry[],
+  rolesIdx?: ProductRolesIndex
 ): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  // Structured path (exact, no morphology): a measure declared as a variant
+  // with no screened_by is a transformation without a contract; a
+  // screened_by naming a check the manifest doesn't carry is a dangling ref.
+  const checkNames = new Set(findings.filter((f) => f.dtype === "check").map((f) => f.name));
+  for (const [key, info] of rolesIdx ?? []) {
+    for (const m of info.measures) {
+      if (m.variant_of !== undefined && m.screened_by === undefined) {
+        issues.push({
+          kind: "undeclared_screen",
+          detail: `series ${key} declares ${m.column} as a variant of ${m.variant_of} with no screened_by — a transformation with no declaration behind it (which rule, what threshold, how many excluded?)`,
+        });
+      } else if (m.screened_by !== undefined && !checkNames.has(m.screened_by)) {
+        issues.push({
+          kind: "undeclared_screen",
+          detail: `series ${key} measure ${m.column} cites screened_by ${m.screened_by}, but no check with that name is declared — the screen reference dangles`,
+        });
+      }
+    }
+  }
   const screenedBases = new Set<string>();
-  for (const v of Object.values(chartData)) {
+  for (const [key, v] of Object.entries(chartData)) {
+    if (rolesIdx?.has(key)) continue; // covered by the structured path above
     const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
     if (!Array.isArray(rows) || rows.length === 0 || typeof rows[0] !== "object") continue;
     for (const col of Object.keys(rows[0] as Record<string, unknown>)) {
@@ -855,7 +882,6 @@ export function lintUndeclaredScreen(
       if (m) screenedBases.add(m[1]);
     }
   }
-  const issues: FindingIssue[] = [];
   for (const base of screenedBases) {
     const tokens = base.split(/_/).filter((t) => t.length > 2);
     const declared = findings.some(
@@ -876,15 +902,53 @@ export function lintUndeclaredScreen(
 
 // ── Screen-scope mismatch + series-consumption lints (run-33) ────────
 
+interface ScreenedColumnEntry {
+  excludedX: Set<string>;
+  rawKeys: Set<string>;
+  screenedKeys: Set<string>;
+  /** Checks declared to own this screen (analysis-product roles) — when
+   *  present, scope lints deref these instead of token-matching. */
+  checkNames: Set<string>;
+}
+
 function screenedColumnMap(
-  chartData: Record<string, unknown>
-): Map<string, { excludedX: Set<string>; rawKeys: Set<string>; screenedKeys: Set<string> }> {
-  const map = new Map<
-    string,
-    { excludedX: Set<string>; rawKeys: Set<string>; screenedKeys: Set<string> }
-  >();
+  chartData: Record<string, unknown>,
+  rolesIdx?: ProductRolesIndex
+): Map<string, ScreenedColumnEntry> {
+  const map = new Map<string, ScreenedColumnEntry>();
   const X_KEYS = ["year", "month", "date", "period", "x", "label", "decade"];
+  const newEntry = (): ScreenedColumnEntry => ({
+    excludedX: new Set<string>(),
+    rawKeys: new Set<string>(),
+    screenedKeys: new Set<string>(),
+    checkNames: new Set<string>(),
+  });
+  // Structured path (analysis-product spec §3): declared screened_by/
+  // variant_of roles say exactly which column is a screen of which, under
+  // which check — no name morphology involved. Keys covered by the roles
+  // index are EXCLUDED from the legacy convention scan below.
+  for (const [key, info] of rolesIdx ?? []) {
+    const v = chartData[key];
+    const rows = Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+    for (const screen of info.screens) {
+      const base = screen.rawCol ?? screen.screenedCol;
+      const entry = map.get(base) ?? newEntry();
+      map.set(base, entry);
+      entry.screenedKeys.add(key);
+      entry.checkNames.add(screen.checkName);
+      for (const row of rows) {
+        if (typeof row !== "object" || row === null) continue;
+        const rawVal = screen.rawCol !== undefined ? row[screen.rawCol] : undefined;
+        const excluded =
+          screen.rawCol !== undefined
+            ? rawVal !== null && rawVal !== undefined && row[screen.screenedCol] === null
+            : row[screen.screenedCol] === null;
+        if (excluded) entry.excludedX.add(String(row[info.xCol]));
+      }
+    }
+  }
   for (const [key, v] of Object.entries(chartData)) {
+    if (rolesIdx?.has(key)) continue;
     const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
     if (!Array.isArray(rows) || rows.length === 0 || typeof rows[0] !== "object") continue;
     const cols = Object.keys(rows[0] as Record<string, unknown>);
@@ -892,11 +956,7 @@ function screenedColumnMap(
       const m = /^(.*?)_screened(_[a-z]+)?$/.exec(col);
       if (!m) continue;
       const base = m[1] + (m[2] ?? "");
-      const entry = map.get(m[1]) ?? {
-        excludedX: new Set<string>(),
-        rawKeys: new Set<string>(),
-        screenedKeys: new Set<string>(),
-      };
+      const entry = map.get(m[1]) ?? newEntry();
       map.set(m[1], entry);
       entry.screenedKeys.add(key);
       const xCol = cols.find((c) => X_KEYS.includes(c.toLowerCase()));
@@ -915,6 +975,23 @@ function screenedColumnMap(
     const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
     if (!Array.isArray(rows) || rows.length === 0 || typeof rows[0] !== "object") continue;
     const cols = Object.keys(rows[0] as Record<string, unknown>);
+    const info = rolesIdx?.get(key);
+    if (info) {
+      // A declared series consumes raw when a measure matches a screened
+      // base and no measure in the same series screens it.
+      for (const m of info.measures) {
+        const base = m.column.replace(/_(usd|pct|pp)$/, "");
+        const entry = map.get(base) ?? map.get(m.column);
+        if (
+          entry &&
+          m.screened_by === undefined &&
+          !info.screens.some((s) => s.rawCol === m.column)
+        ) {
+          entry.rawKeys.add(key);
+        }
+      }
+      continue;
+    }
     for (const col of cols) {
       if (/_screened/.test(col)) continue;
       const base = col.replace(/_(usd|pct|pp)$/, "");
@@ -933,18 +1010,25 @@ function screenedColumnMap(
  *  under one manifest entry. */
 export function lintScreenScopeMismatch(
   chartData: Record<string, unknown>,
-  findings: FindingEntry[]
+  findings: FindingEntry[],
+  rolesIdx?: ProductRolesIndex
 ): FindingIssue[] {
   const issues: FindingIssue[] = [];
-  for (const [base, entry] of screenedColumnMap(chartData)) {
+  for (const [base, entry] of screenedColumnMap(chartData, rolesIdx)) {
     if (entry.excludedX.size === 0) continue;
-    const tokens = base.split(/_/).filter((t) => t.length > 2);
-    const declaring = findings.filter(
-      (f) =>
-        f.dtype === "check" &&
-        /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
-        tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
-    );
+    // Structured path: screened_by names the owning check — dereference it
+    // exactly. Legacy path: token-match check names/definitions.
+    const declaring =
+      entry.checkNames.size > 0
+        ? findings.filter((f) => f.dtype === "check" && entry.checkNames.has(f.name))
+        : findings.filter((f) => {
+            const tokens = base.split(/_/).filter((t) => t.length > 2);
+            return (
+              f.dtype === "check" &&
+              /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
+              tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
+            );
+          });
     if (declaring.length === 0) continue; // undeclared_screen covers that
     const declared = new Set<string>();
     for (const f of declaring) {
@@ -972,9 +1056,12 @@ export function lintScreenScopeMismatch(
 /** A chart consuming the RAW series while a screened sibling exists
  *  elsewhere is an undeclared choice that WILL drift between runs (the
  *  decade rollup silently flipping raw/screened moved the 1980s bar 10x). */
-export function lintSeriesConsumption(chartData: Record<string, unknown>): FindingIssue[] {
+export function lintSeriesConsumption(
+  chartData: Record<string, unknown>,
+  rolesIdx?: ProductRolesIndex
+): FindingIssue[] {
   const issues: FindingIssue[] = [];
-  for (const [base, entry] of screenedColumnMap(chartData)) {
+  for (const [base, entry] of screenedColumnMap(chartData, rolesIdx)) {
     if (entry.rawKeys.size > 0 && entry.screenedKeys.size > 0 && issues.length < 4) {
       issues.push({
         kind: "undeclared_series_choice",
@@ -993,19 +1080,10 @@ export function lintSeriesConsumption(chartData: Record<string, unknown>): Findi
  *  detector, so it survives runs where no screen was declared at all. */
 export function lintUnscreenedSuperlative(
   chartData: Record<string, unknown>,
-  findings: FindingEntry[]
+  findings: FindingEntry[],
+  rolesIdx?: ProductRolesIndex
 ): FindingIssue[] {
   const issues: FindingIssue[] = [];
-  void 0; // (payload-level screen presence no longer suppresses — per-value check below)
-  const _anyScreened = Object.values(chartData).some((v) => {
-    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
-    return (
-      Array.isArray(rows) &&
-      rows.length > 0 &&
-      typeof rows[0] === "object" &&
-      Object.keys(rows[0] as object).some((c) => /_screened/.test(c))
-    );
-  });
   for (const f of findings) {
     if (!/peak|max|largest/.test(f.name) || f.value === null || typeof f.value !== "object")
       continue;
@@ -1014,12 +1092,19 @@ export function lintUnscreenedSuperlative(
     const tokens = f.name
       .split(/[._]/)
       .filter((t) => t.length > 2 && !["peak", "max", "largest"].includes(t));
-    for (const v of Object.values(chartData)) {
+    for (const [key, v] of Object.entries(chartData)) {
       const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
       if (!Array.isArray(rows) || rows.length < 5 || typeof rows[0] !== "object") continue;
-      const col = Object.keys(rows[0] as object).find(
-        (c) => !/_screened/.test(c) && tokens.some((t) => c.includes(t))
-      );
+      const info = rolesIdx?.get(key);
+      // Structured path: a measure declaring of=<finding> is the series view
+      // of this finding — exact linkage, no token matching. Prefer the raw
+      // variant when the of-measure is itself the screened one.
+      const ofMeasure = info?.measures.find((m) => m.of === f.name);
+      const col =
+        (ofMeasure ? (ofMeasure.variant_of ?? ofMeasure.column) : undefined) ??
+        Object.keys(rows[0] as object).find(
+          (c) => !/_screened/.test(c) && tokens.some((t) => c.includes(t))
+        );
       if (!col) continue;
       const nums = (rows as Record<string, unknown>[])
         .map((r) => r[col])
@@ -1034,9 +1119,9 @@ export function lintUnscreenedSuperlative(
         // computed on unscreened data lets errors vouch for each other
         // (1980's \$30,000 cleared 100x because 1966/72/75/77's errors
         // raised the bar).
-        const screenedCol = Object.keys(rows[0] as object).find(
-          (c) => c.startsWith(col) && /_screened/.test(c)
-        );
+        const screenedCol =
+          info?.screens.find((s) => s.rawCol === col)?.screenedCol ??
+          Object.keys(rows[0] as object).find((c) => c.startsWith(col) && /_screened/.test(c));
         const peakRow = (rows as Record<string, unknown>[]).find((r) => r[col] === val);
         const wasScreened = screenedCol && peakRow ? peakRow[screenedCol] === null : false;
         if (!wasScreened) {
@@ -1062,17 +1147,22 @@ export function lintUnscreenedSuperlative(
  *  above the series median is well-attested data: screening it means the
  *  baseline is miscalibrated (a global pooled median on a trending series
  *  flags growth as error). */
-export function lintWellAttestedScreened(chartData: Record<string, unknown>): FindingIssue[] {
+export function lintWellAttestedScreened(
+  chartData: Record<string, unknown>,
+  rolesIdx?: ProductRolesIndex
+): FindingIssue[] {
   const issues: FindingIssue[] = [];
   const X_KEYS = ["year", "month", "date", "period", "x", "label", "decade"];
   for (const [key, v] of Object.entries(chartData)) {
     const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
     if (!Array.isArray(rows) || rows.length < 5 || typeof rows[0] !== "object") continue;
     const cols = Object.keys(rows[0] as Record<string, unknown>);
-    const countCol = cols.find((c) =>
-      /(^|_)(item_count|n_items|count|listings|n_obs|observations)($|_)/.test(c)
-    );
-    const xCol = cols.find((c) => X_KEYS.includes(c.toLowerCase()));
+    // Declared roles are authoritative when this key is a declared series.
+    const info = rolesIdx?.get(key);
+    const countCol =
+      info?.countCol ??
+      cols.find((c) => /(^|_)(item_count|n_items|count|listings|n_obs|observations)($|_)/.test(c));
+    const xCol = info?.xCol ?? cols.find((c) => X_KEYS.includes(c.toLowerCase()));
     if (!countCol || !xCol) continue;
     const counts = (rows as Record<string, unknown>[])
       .map((r) => r[countCol])
@@ -1080,14 +1170,20 @@ export function lintWellAttestedScreened(chartData: Record<string, unknown>): Fi
       .sort((a, b) => a - b);
     if (counts.length < 5) continue;
     const medianCount = counts[Math.floor(counts.length / 2)];
-    for (const col of cols) {
-      const m = /^(.*?)_screened/.exec(col);
-      if (!m) continue;
-      const base = cols.find((c) => c.startsWith(m[1]) && !/_screened/.test(c));
-      if (!base) continue;
+    // Screen pairs: declared roles when available, name morphology otherwise.
+    const pairs = info
+      ? info.screens
+          .filter((s) => s.rawCol !== undefined)
+          .map((s) => ({ screened: s.screenedCol, base: s.rawCol!, label: s.rawCol! }))
+      : cols.flatMap((col) => {
+          const m = /^(.*?)_screened/.exec(col);
+          const base = m && cols.find((c) => c.startsWith(m[1]) && !/_screened/.test(c));
+          return m && base ? [{ screened: col, base, label: m[1] }] : [];
+        });
+    for (const { screened, base, label } of pairs) {
       for (const r of rows as Record<string, unknown>[]) {
         if (
-          r[col] === null &&
+          r[screened] === null &&
           typeof r[base] === "number" &&
           typeof r[countCol] === "number" &&
           (r[countCol] as number) >= medianCount &&
@@ -1095,7 +1191,7 @@ export function lintWellAttestedScreened(chartData: Record<string, unknown>): Fi
         ) {
           issues.push({
             kind: "well_attested_screened",
-            detail: `${key}: ${m[1]} screened out at ${String(r[xCol])} despite ${String(r[countCol])} ${countCol} (>= series median ${medianCount}) — transcription errors are low-n or magnitude-implausible; a well-attested value screened means the baseline is miscalibrated (use a rolling/within-era baseline on trending series, never a global pooled one)`,
+            detail: `${key}: ${label} screened out at ${String(r[xCol])} despite ${String(r[countCol])} ${countCol} (>= series median ${medianCount}) — transcription errors are low-n or magnitude-implausible; a well-attested value screened means the baseline is miscalibrated (use a rolling/within-era baseline on trending series, never a global pooled one)`,
           });
         }
       }
@@ -1146,7 +1242,8 @@ export function lintNullZeroMirror(
  *  effect-side detector for any calibration that lets a thin peak through. */
 export function lintThinSuperlative(
   chartData: Record<string, unknown>,
-  findings: FindingEntry[]
+  findings: FindingEntry[],
+  rolesIdx?: ProductRolesIndex
 ): FindingIssue[] {
   const issues: FindingIssue[] = [];
   const X_KEYS = ["year", "month", "date", "period", "x", "label", "decade"];
@@ -1156,14 +1253,17 @@ export function lintThinSuperlative(
     const fv = f.value as Record<string, unknown>;
     const period = fv.period ?? fv.year ?? fv.date ?? fv.month;
     if (period === undefined || fv.value === undefined) continue;
-    for (const v of Object.values(chartData)) {
+    for (const [key, v] of Object.entries(chartData)) {
       const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
       if (!Array.isArray(rows) || rows.length < 5 || typeof rows[0] !== "object") continue;
       const cols = Object.keys(rows[0] as Record<string, unknown>);
-      const countCol = cols.find((c) =>
-        /(^|_)(item_count|n_items|count|listings|n_obs|observations)($|_)/.test(c)
-      );
-      const xCol = cols.find((c) => X_KEYS.includes(c.toLowerCase()));
+      const info = rolesIdx?.get(key);
+      const countCol =
+        info?.countCol ??
+        cols.find((c) =>
+          /(^|_)(item_count|n_items|count|listings|n_obs|observations)($|_)/.test(c)
+        );
+      const xCol = info?.xCol ?? cols.find((c) => X_KEYS.includes(c.toLowerCase()));
       if (!countCol || !xCol) continue;
       const counts = (rows as Record<string, unknown>[])
         .map((r) => r[countCol])

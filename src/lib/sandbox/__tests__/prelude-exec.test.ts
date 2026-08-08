@@ -78,10 +78,11 @@ describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
     expect(results.pair).toEqual([1, 2]);
   });
 
-  it("always writes the five top-level keys, even for a bare call", () => {
+  it("always writes every top-level key, even for a bare call", () => {
     const out = runPrelude(`write_output()`);
     // findings joined the envelope with the declared-findings feature
-    // (spec §2.1) — empty array for a run that declared nothing.
+    // (spec §2.1); series/values with the analysis product (spec §1) —
+    // empty arrays for a run that declared nothing.
     expect(Object.keys(out).sort()).toEqual([
       "chart_data",
       "data_completeness",
@@ -90,8 +91,27 @@ describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
       "images",
       "results",
       "runtime_fallback",
+      "series",
+      "values",
     ]);
     expect(out.findings).toEqual([]);
+    expect(out.series).toEqual([]);
+    expect(out.values).toEqual([]);
+  });
+
+  it("synthesizes chart_data and results from declared series/values", () => {
+    const out = runPrelude(
+      `declare_series('s', [{'yr': 2000, 'v': 1.5}], x=('yr', 'temporal'), measures=['v'])
+declare_value('total', 42, label='Total rows')
+declare_finding('t', {'slope': 0.4}, 'trend of v over yr', 'trend')
+write_output()`
+    );
+    expect(out.chart_data).toEqual({ s: [{ yr: 2000, v: 1.5 }] });
+    const results = out.results as Record<string, unknown>;
+    expect(results.total).toBe(42);
+    // Scalar finding fields auto-mirror into results (spec §1).
+    expect(results.t_slope).toBe(0.4);
+    expect((out.series as unknown[]).length).toBe(1);
   });
 
   it("caps datasets['main'] at 5000 rows and records the true total in _main_total", () => {

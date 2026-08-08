@@ -33,11 +33,14 @@ from .findings import (
 from .frames import numeric, safe_qcut, to_num
 from .guards import assert_fits
 from .output import write_output
+from .series import declare_series, declare_value, get_series, get_values, reset_product
 
 __all__ = [
     "assert_fits",
     "declare_check",
     "declare_finding",
+    "declare_series",
+    "declare_value",
     "finding_current_state",
     "finding_split_comparison",
     "finding_superlative",
@@ -51,10 +54,13 @@ __all__ = [
     "finding_trend",
     "finding_yoy",
     "get_findings",
+    "get_series",
+    "get_values",
     "guards",
     "profile",
     "numeric",
     "reset_findings",
+    "reset_product",
     "safe_float",
     "safe_int",
     "safe_qcut",

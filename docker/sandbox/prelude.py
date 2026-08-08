@@ -418,7 +418,27 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
         'datasets': {},
         'images': _to_native(images if images is not None else {}),
         'findings': _to_native(findings if findings is not None else _hermetic_findings),
+        'series': _to_native(_hermetic_series),
+        'values': _to_native(_hermetic_values),
     }
+    # Analysis-product synthesis (spec analysis-product-2026-08-08 §1), in
+    # parity with hermetic_runtime.output: declared series/values project into
+    # the legacy views; scalar finding fields auto-mirror into results.
+    for _s in out['series']:
+        out['chart_data'][_s['id']] = _s['rows']
+    for _val in out['values']:
+        out['results'].setdefault(_val['key'], _val['value'])
+    for _fnd in out['findings']:
+        _fname = _fnd.get('name') if isinstance(_fnd, dict) else None
+        if not isinstance(_fname, str):
+            continue
+        _fval = _fnd.get('value')
+        if isinstance(_fval, dict):
+            for _ff, _fv2 in _fval.items():
+                if isinstance(_fv2, (int, float, str, bool, type(None))):
+                    out['results'].setdefault('%s_%s' % (_fname, _ff), _fv2)
+        elif isinstance(_fval, (int, float, str, bool, type(None))):
+            out['results'].setdefault(_fname, _fval)
     try:
         import pandas as _pd
     except Exception:
@@ -584,6 +604,51 @@ def finding_current_state(values, labels=None, window=6, coverage=None):
     return {'period': None, 'value': None, 'pct_from_peak': None,
             'direction': None, 'excluded_trailing': None}
 
+# ── Analysis product, fallback copy (spec analysis-product-2026-08-08 §1) ──
+# Minimal declare_series/declare_value so the names never NameError on a
+# degraded deploy: registry append + coercion. The tested package version
+# (hermetic_runtime.series) adds role/column validation and overrides below.
+_hermetic_series = []
+_hermetic_values = []
+def declare_series(series_id, rows, x, measures, count=None, group=None):
+    try:
+        import pandas as _pd
+        if isinstance(rows, _pd.DataFrame):
+            rows = rows.to_dict(orient='records')
+    except Exception:
+        pass
+    try:
+        if not isinstance(rows, list):
+            return None
+        _xr = x if isinstance(x, dict) else {'column': x[0], 'kind': x[1]} if isinstance(x, (tuple, list)) else {'column': x}
+        _ms = []
+        for _m in measures if isinstance(measures, (list, tuple)) else [measures]:
+            _mr = _m if isinstance(_m, dict) else {'column': _m}
+            if isinstance(_mr.get('column'), str):
+                _ms.append(_mr)
+        _roles = {'x': _xr, 'measures': _ms}
+        if isinstance(count, str):
+            _roles['count'] = {'column': count}
+        if isinstance(group, str):
+            _roles['group'] = {'column': group}
+        _entry = {'id': str(series_id), 'rows': _to_native(rows[:5000]), 'roles': _roles}
+        _hermetic_series.append(_entry)
+        return _entry
+    except Exception:
+        return None
+def declare_value(key, value, label=None, unit=None, of=None):
+    try:
+        if isinstance(value, (dict, list, tuple, set)):
+            return None
+        _entry = {'key': str(key), 'value': _to_native(value)}
+        for _vk, _vv in (('label', label), ('unit', unit), ('of', of)):
+            if isinstance(_vv, str):
+                _entry[_vk] = _vv
+        _hermetic_values.append(_entry)
+        return _entry
+    except Exception:
+        return None
+
 # ── Hermetic runtime package override (auto-injected) ────────────────────────
 # The helper definitions above are the LEGACY INLINE COPY. The host ships the
 # TESTED package (docker/sandbox/hermetic_runtime/) into /data/hermetic_runtime
@@ -605,7 +670,8 @@ try:
     from hermetic_runtime import (declare_finding, finding_trend, finding_step_change,
         finding_decompose, finding_heterogeneity, finding_current_state, finding_yoy,
         declare_check, finding_split_comparison, finding_superlative,
-        finding_outliers, finding_correlation, finding_distribution, finding_share)
+        finding_outliers, finding_correlation, finding_distribution, finding_share,
+        declare_series, declare_value)
     from hermetic_runtime import to_native as _to_native
     _hrt.guards.configure(_MEM_LIMIT)
     assert_fits = _hrt.guards.assert_fits

@@ -40,6 +40,7 @@ import {
   lintResultsProvenance,
 } from "@/lib/findings";
 import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
+import { parseProduct, productRolesIndex } from "@/lib/product";
 import { vetoExemplarByRunId } from "@/lib/learning/exemplars";
 import { getRunId } from "@/lib/run-context";
 import { lintRangeFabrication } from "@/lib/findings";
@@ -432,6 +433,15 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         const mode = findingsMode();
         let findingsManifest: FindingsManifest | undefined;
         let findingIssues: FindingIssue[] = [];
+        // Analysis Product (spec §1): validate the declared series/values and
+        // build the roles index the structured-first lints read in place of
+        // column-name heuristics. Legacy envelopes get an empty index and the
+        // lints fall back to inference.
+        const { product, issues: productIssues } = parseProduct(
+          executionResult.series,
+          executionResult.values
+        );
+        const rolesIdx = productRolesIndex(product.series);
         if (mode !== "off" && Array.isArray(executionResult.findings)) {
           const merged = mergeDeclarations(
             executionResult.findings.filter(
@@ -466,6 +476,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
                 ]
               : []),
             ...validated.issues,
+            ...productIssues,
             ...lintDerivations(validated.manifest.findings),
             ...lintMissingLinkage(validated.manifest.findings),
             ...lintGranularityConflict(validated.manifest.findings),
@@ -480,10 +491,12 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ),
             ...lintThinSuperlative(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
-              validated.manifest.findings
+              validated.manifest.findings,
+              rolesIdx
             ),
             ...lintWellAttestedScreened(
-              (executionResult.chart_data ?? {}) as Record<string, unknown>
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
+              rolesIdx
             ),
             ...lintNullZeroMirror(
               (executionResult.results ?? {}) as Record<string, unknown>,
@@ -491,20 +504,27 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ),
             ...lintUnscreenedSuperlative(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
-              validated.manifest.findings
+              validated.manifest.findings,
+              rolesIdx
             ),
             ...lintScreenScopeMismatch(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
-              validated.manifest.findings
+              validated.manifest.findings,
+              rolesIdx
             ),
-            ...lintSeriesConsumption((executionResult.chart_data ?? {}) as Record<string, unknown>),
+            ...lintSeriesConsumption(
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
+              rolesIdx
+            ),
             ...lintUndeclaredScreen(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
-              validated.manifest.findings
+              validated.manifest.findings,
+              rolesIdx
             ),
             ...lintChartConsistency(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
-              validated.manifest.findings
+              validated.manifest.findings,
+              rolesIdx
             ),
             ...lintTrendContract(validated.manifest.findings),
             ...lintRangeFabrication(validated.manifest.findings, executionResult.data_completeness),
@@ -555,6 +575,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           execution_ms: executionResult.execution_ms ?? 0,
           sql: warehouseSQL,
           ...(findingsManifest ? { findings: findingsManifest } : {}),
+          ...(product.series.length > 0 ? { series: product.series } : {}),
         };
         cacheArtifacts(csvId, cachedArtifactData);
 
