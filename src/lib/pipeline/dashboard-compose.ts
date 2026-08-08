@@ -1131,6 +1131,61 @@ export async function composeAndStreamDashboard(args: {
         }
       }
 
+      // Tier-2 gating (run-36): a failed BLOCKING check that survived the
+      // execution retry ships GATED — a server-injected warning at the top
+      // of the dashboard, never trusted to prose. Reuses the container
+      // attach from tile injection (root element children).
+      const shippedBlockingFailures = (opts.findings?.manifest.findings ?? []).filter(
+        (f) =>
+          f.dtype === "check" &&
+          f.tags?.includes("blocking") &&
+          f.value !== null &&
+          typeof f.value === "object" &&
+          (f.value as Record<string, unknown>).passed === false
+      );
+      if (shippedBlockingFailures.length > 0) {
+        const rootPatch = composedPatches.find((p) => p.path === "/root");
+        const rootId = typeof rootPatch?.value === "string" ? rootPatch.value : null;
+        const rootEl = rootId
+          ? composedPatches.find((p) => p.path === `/elements/${rootId}`)
+          : undefined;
+        const rootChildren = (rootEl?.value as { children?: string[] } | undefined)?.children;
+        if (rootId && Array.isArray(rootChildren)) {
+          emitPatch(
+            JSON.stringify({
+              op: "add",
+              path: "/elements/hermetic_blocking_gate",
+              value: {
+                type: "Annotation",
+                props: {
+                  icon: "alert",
+                  severity: "error",
+                  title: "A blocking data check failed — treat these results as unvalidated",
+                  content: shippedBlockingFailures
+                    .map((f) => `${f.name}: ${f.definition}`)
+                    .join(" · "),
+                },
+                children: [],
+              },
+            })
+          );
+          emitPatch(
+            JSON.stringify({
+              op: "add",
+              path: `/elements/${rootId}/children`,
+              value: ["hermetic_blocking_gate", ...rootChildren],
+            })
+          );
+        }
+        for (const f of shippedBlockingFailures) {
+          proseLintIssues.set(`blocking_check_shipped:${f.name}`, {
+            kind: "blocking_check_shipped",
+            name: f.name,
+            detail: `blocking check ${f.name} FAILED and the run shipped — results are gated as unvalidated`,
+          });
+        }
+      }
+
       // Bounded recompose (ONE pass): severe narrative defects — null
       // bindings that stripped sentences, unfilled slots — go back to the
       // composer as explicit repair instructions. The recursion re-runs the

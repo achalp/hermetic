@@ -96,13 +96,28 @@ export const analyzeInput = {
  * chart_data_truncated_keys; NEVER silently.
  */
 export const FINDINGS_RESPONSE_MAX_ENTRIES = 50;
-export const FINDINGS_RESPONSE_MAX_BYTES = 8_000;
+export const FINDINGS_RESPONSE_MAX_BYTES = 20_000;
 
 export function capFindingsForResponse(manifest: FindingsManifest): {
   findings: FindingsManifest;
   findings_truncated?: { dropped: number; total: number };
 } {
-  let entries = [...manifest.findings];
+  // Priority under the cap (run-36: the response cap dropped 26 of 43 —
+  // it must NEVER drop the check that indicts the run): failed blocking
+  // checks → failed checks → passing checks → findings (smallest first).
+  const rank = (f: (typeof manifest.findings)[number]): number => {
+    const failed =
+      f.value !== null &&
+      typeof f.value === "object" &&
+      (f.value as Record<string, unknown>).passed === false;
+    if (f.dtype === "check" && failed && f.tags?.includes("blocking")) return 0;
+    if (f.dtype === "check" && failed) return 1;
+    if (f.dtype === "check") return 2;
+    return 3;
+  };
+  let entries = [...manifest.findings].sort(
+    (x, y) => rank(x) - rank(y) || JSON.stringify(x.value).length - JSON.stringify(y.value).length
+  );
   const total = entries.length;
   const size = () => Buffer.byteLength(JSON.stringify(entries), "utf-8");
   if (entries.length > FINDINGS_RESPONSE_MAX_ENTRIES || size() > FINDINGS_RESPONSE_MAX_BYTES) {

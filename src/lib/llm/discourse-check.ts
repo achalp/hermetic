@@ -102,6 +102,29 @@ function checkSentence(sentence: string, issues: FindingIssue[]): "keep" | "drop
       detail: `sentence narrates a zero distance-from-peak as a finding (the current period IS the peak): "${sentence.trim().slice(0, 110)}"`,
     });
   }
+  // Joint-motion incoherence: "both/together/likewise" over two direction
+  // words that differ ("P25 rising and P75 flat moved together" — they
+  // didn't; "rising ... likewise flat" is not likewise).
+  if (/\b(?:both|together|likewise|alike|in tandem)\b/i.test(sentence)) {
+    const dirs = new Set(
+      [
+        ...sentence.matchAll(
+          /\b(rising|rose|increasing|falling|fell|declining|decreasing|flat)\b/gi
+        ),
+      ].map((m) => {
+        const w = m[1].toLowerCase();
+        if (["rising", "rose", "increasing"].includes(w)) return "up";
+        if (["falling", "fell", "declining", "decreasing"].includes(w)) return "down";
+        return "flat";
+      })
+    );
+    if (dirs.size > 1) {
+      issues.push({
+        kind: "joint_motion_incoherence",
+        detail: `sentence asserts joint motion over differing directions (${[...dirs].join(" vs ")}): "${sentence.trim().slice(0, 120)}"`,
+      });
+    }
+  }
   const seq = SEQUENCE_RE.exec(sentence);
   if (seq) {
     const before: number[] = [];

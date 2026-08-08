@@ -205,10 +205,24 @@ export function normalizeHeadlineStats(results: Record<string, unknown>): string
     if (n >= 3)
       issues.push(`value ${v} appears in ${n} headline stats — one fact stated ${n} ways`);
   }
+  // Hard dedupe by VALUE (run-36: ten headlines, five facts): keep at most
+  // two occurrences of a value (a peak can legitimately also be the latest);
+  // synonym-label restatements beyond that are dropped.
+  const seenValues = new Map<string, number>();
+  const valueDeduped = deduped.filter((entry) => {
+    const v = JSON.stringify((entry as { value?: unknown } | null)?.value);
+    const n = (seenValues.get(v) ?? 0) + 1;
+    seenValues.set(v, n);
+    if (n > 2) {
+      issues.push(`dropped a third+ restatement of value ${v}`);
+      return false;
+    }
+    return true;
+  });
   const cap = MAX_TILES + 1;
   if (deduped.length > cap) {
     issues.push(`headline_stats capped at ${cap} (was ${deduped.length})`);
   }
-  results.headline_stats = deduped.slice(0, cap);
+  results.headline_stats = valueDeduped.slice(0, cap);
   return issues;
 }

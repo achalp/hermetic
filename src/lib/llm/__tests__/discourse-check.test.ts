@@ -112,3 +112,19 @@ describe("tautological delta prose (run-35: 'sitting 0% below the 2012 peak')", 
     expect(ok.issues.filter((i) => i.kind === "tautological_delta_prose")).toHaveLength(0);
   });
 });
+
+describe("joint-motion incoherence (run-36: 'rising ... likewise flat')", () => {
+  it("flags joint-motion words over differing directions", () => {
+    const { issues } = checkDiscourseLine(
+      '{"content": "Both the affordable end (P25, trend: rising) and the expensive end (P75, trend: flat) moved together across the corpus."}'
+    );
+    expect(issues.some((i) => i.kind === "joint_motion_incoherence")).toBe(true);
+  });
+
+  it("agreeing directions pass", () => {
+    const ok = checkDiscourseLine(
+      '{"content": "Both P25 and P75 are rising together across the observed decades of data."}'
+    );
+    expect(ok.issues.filter((i) => i.kind === "joint_motion_incoherence")).toHaveLength(0);
+  });
+});

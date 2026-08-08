@@ -73,6 +73,40 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     };
   }
 
+  // Check #2a — FAILED BLOCKING CHECK (run-36: the model's own scope check
+  // caught a year-cast that silently discarded 119 years, and the run
+  // shipped anyway). A blocking-severity check the analysis itself declared
+  // and FAILED is the only detector for semantic corruption the platform
+  // cannot see — enforcement is the other half of the checks architecture.
+  // Rides the bounded retry; if the condition is a true data property the
+  // model re-declares at severity "caveat" and the run proceeds gated.
+  const blockingFailures = (Array.isArray(exec.findings) ? exec.findings : []).filter((f) => {
+    const e = f as {
+      dtype?: unknown;
+      tags?: unknown;
+      name?: unknown;
+      definition?: unknown;
+      value?: unknown;
+    };
+    return (
+      e.dtype === "check" &&
+      Array.isArray(e.tags) &&
+      e.tags.includes("blocking") &&
+      e.value !== null &&
+      typeof e.value === "object" &&
+      (e.value as Record<string, unknown>).passed === false
+    );
+  });
+  if (blockingFailures.length > 0) {
+    const f = blockingFailures[0] as { name?: string; definition?: string; value?: unknown };
+    return {
+      ok: false,
+      reason: `The analysis' own BLOCKING check failed: ${f.name} — ${f.definition}. Evidence: ${JSON.stringify(f.value)}.`,
+      suggestedFix:
+        "Fix the defect the check identifies (its evidence names it — e.g. a declared-vs-observed range mismatch means the extraction/filter discarded data; repair the extraction, don't relax the check). If the failed condition is a TRUE property of the data rather than a pipeline defect, re-declare the check with severity='caveat' and keep the analysis honest about it.",
+    };
+  }
+
   // Check #2b — FINDINGS COLLAPSE (menu run, 2026-08-07): most declared
   // findings null-valued while charts carry real series. Observed cause: a
   // data-cleaning step converting legitimate ZEROS to null (a $0 median is

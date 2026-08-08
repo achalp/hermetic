@@ -240,3 +240,31 @@ describe("findings collapse (menu run regression)", () => {
     expect(validateExecutionResult(few).ok).toBe(true);
   });
 });
+
+describe("failed blocking checks fail validation (run-36: detector without sprinkler)", () => {
+  const base = { results: { a: 1 }, chart_data: { c: [{ x: 1 }] }, datasets: {}, execution_ms: 1 };
+  const blockingFail = {
+    name: "scope_string_matches_observed_range",
+    definition: "declared scope matches the observed year range",
+    dtype: "check",
+    tags: ["check", "blocking"],
+    value: { passed: false, scope_declared_range: [1851, 2012], observed_range: [1970, 2012] },
+  };
+
+  it("fails with the check's own evidence in the retry message", () => {
+    const verdict = validateExecutionResult({ ...base, findings: [blockingFail] } as never);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.reason).toContain("scope_string_matches_observed_range");
+      expect(verdict.reason).toContain("1970");
+      expect(verdict.suggestedFix).toContain("severity='caveat'");
+    }
+  });
+
+  it("caveat-severity failures and passing blocking checks do not fail validation", () => {
+    const caveat = { ...blockingFail, tags: ["check", "caveat"] };
+    expect(validateExecutionResult({ ...base, findings: [caveat] } as never).ok).toBe(true);
+    const passing = { ...blockingFail, value: { passed: true } };
+    expect(validateExecutionResult({ ...base, findings: [passing] } as never).ok).toBe(true);
+  });
+});

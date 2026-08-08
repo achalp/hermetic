@@ -13,3 +13,30 @@ describe("capArtifacts — time series downsample, never head-slice", () => {
     }
   });
 });
+
+describe("capFindingsForResponse — failed checks are undroppable (run-36)", () => {
+  it("keeps the failed blocking check when the cap bites", async () => {
+    const { capFindingsForResponse, FINDINGS_RESPONSE_MAX_ENTRIES } =
+      await import("@/mcp/tools/analyze");
+    const bulky = Array.from({ length: FINDINGS_RESPONSE_MAX_ENTRIES + 10 }, (_, i) => ({
+      name: `finding_${i}`,
+      definition: "a bulky finding with a large value payload attached to it",
+      dtype: "trend",
+      value: { data: "x".repeat(400), i },
+    }));
+    const indictment = {
+      name: "scope_check",
+      definition: "declared scope matches observed range",
+      dtype: "check",
+      tags: ["check", "blocking"],
+      value: { passed: false, observed: [1970, 2012] },
+    };
+    const out = capFindingsForResponse({
+      manifest_version: "1.0",
+      findings: [...bulky, indictment],
+    } as never);
+    const names = out.findings.findings.map((f: { name: string }) => f.name);
+    expect(names[0]).toBe("scope_check");
+    expect(out.findings_truncated?.dropped).toBeGreaterThan(0);
+  });
+});
