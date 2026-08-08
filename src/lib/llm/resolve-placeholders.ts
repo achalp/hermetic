@@ -458,9 +458,21 @@ export function resolveSpecPlaceholders(
   findings: Record<string, unknown> = {},
   /** Declared units by finding name — inline numeric bindings render with
    *  the unit attached, so the composer never writes unit words. */
-  findingUnits: Record<string, string> = {}
+  findingUnits: Record<string, string> = {},
+  /** Declared units by RESULT key (analysis-product spec: declare_value
+   *  units + finding-mirror units) — consulted ahead of key-name morphology
+   *  so unit identity comes from the declaration, not the _pct suffix. */
+  declaredUnits: Record<string, string> = {}
 ): string {
-  let processed = repairMetricBindings(line, results);
+  // ── $series alias (analysis-product spec §2) ───────────────────
+  // A declared series' rows ARE chart_data[id] (synthesized, single writer),
+  // so the typed alias resolves through the same table — accepted in string
+  // and object form so a composer that picked up the catalog's series
+  // framing never strands a token.
+  let processed = line
+    .replace(/\$series:/g, "$chartData:")
+    .replace(/\{\s*"\$series"\s*:/g, '{"$chartData":');
+  processed = repairMetricBindings(processed, results);
 
   // ── $finding substitution (declared-findings spec §4.2) ─────────
   // Same three shapes the $result: history proved LLMs emit: object-form,
@@ -646,10 +658,10 @@ export function resolveSpecPlaceholders(
       if (isInlineRefused(value)) return refuseInline(_match);
       if (typeof value === "number") {
         const num = formatInlineNumber(value);
-        // Result keys carry units in their name by convention (_pct/_pp
-        // suffix, pct_ prefix) — render them so result-bound prose doesn't
-        // drop units either.
-        const unit = keyNameUnit(trimmed);
+        // Unit identity: a DECLARED unit (declare_value / finding mirror)
+        // wins; the _pct/_pp/pct_ name convention remains the fallback for
+        // keys nothing declared.
+        const unit = declaredUnits[trimmed] ?? keyNameUnit(trimmed);
         if (!unit) return num;
         return withUnit(num, unit, whole.slice(offset + _match.length));
       }

@@ -68,9 +68,9 @@ the catalog is structure-only; sighted appends the values section as today.
 | **Checks**                                      | `declare_check` unchanged. Screen checks become REFERENCED: a measure's `screened_by` names the check; scope validation dereferences its evidence (excluded x's) instead of parsing `_screened` columns.                                                                                                                                                                                                                                                                  |
 | **Validators**                                  | Roles are validated twice: at declaration (runtime drops invalid series with a sidecar diagnostic) and host-side (`lib/product` re-validates — the degraded prelude fallback skips runtime checks — dropping with an `invalid_series` issue). The chart x-key retry check is unchanged: synthesized series rows satisfy it by construction. Blocking-check, findings-collapse, checks-only: unchanged (fact-layer).                                                       |
 | **Lints**                                       | Structured-first with legacy fallback: screen scope/missed/attested/thin read `roles.count` + `screened_by` deref; series-consumption reads `variant_of`; chart consistency compares measures sharing `of`; provenance = `Value.of` null-check + fact refs. Heuristic paths retained ONLY for legacy envelopes (investigate steps, old runs) — demoted, not deleted. `null_zero_mirror`/`mirror_dropped_value` retire on v2 (mirrors are synthesized — drift impossible). |
-| **Headline plan**                               | Unchanged in v1 — the facts path plans tiles; labeled values reach the composer through the catalog and resolve as ordinary `$result` bindings. Value-planned tiles are recorded as a follow-up.                                                                                                                                                                                                                                                                          |
-| **Resolver/finalizer**                          | UNCHANGED (binding grammar stable). `repairMetricBindings`/mislabel lint demote to legacy defense.                                                                                                                                                                                                                                                                                                                                                                        |
-| **DataController / filtering**                  | UNCHANGED mechanically (datasets injection reads synthesized chart_data). Roles open a follow-up: filters proposed from `group`/categorical roles (recorded, not built).                                                                                                                                                                                                                                                                                                  |
+| **Headline plan**                               | Labeled standalone values JOIN the tile plan (after fact-derived tiles — claims outrank context scalars) and ride the same deterministic missing-tile injection; a declared label upgrades a heuristic tile planning the same binding. Of-carrying values are never planned (they bind via their finding).                                                                                                                                                                |
+| **Resolver/finalizer**                          | Binding grammar stable; `$series:<id>` accepted as a typed ALIAS resolving through the synthesized view (string, object, and nested forms). Declared units (declare_value units + finding-mirror units) drive inline unit rendering AHEAD of `_pct`/`_pp` key-name morphology. `repairMetricBindings`/mislabel lint demote to legacy defense.                                                                                                                             |
+| **DataController / filtering**                  | Filter proposal is roles-FIRST: `group` and categorical-`x` columns are filters by declared intent (relaxed cardinality bar, ranked ahead, marked "(declared dimension)" in the prompt); the <15-distinct heuristic remains for undeclared columns. Datasets injection unchanged.                                                                                                                                                                                         |
 | **Sample/metadata schema modes**                | UNCHANGED — they govern code-gen input, not composer values. Composer sight remains the values switch.                                                                                                                                                                                                                                                                                                                                                                    |
 | **MCP caps / Verify / Findings tabs / exports** | UNCHANGED (consume synthesized views + manifest). `series` added to the artifacts cache passthrough for inspectability.                                                                                                                                                                                                                                                                                                                                                   |
 | **Exemplars/learning**                          | Code containing `declare_series` banks normally; contract gen bumps to 3 (pre-series exemplars stale).                                                                                                                                                                                                                                                                                                                                                                    |
@@ -112,8 +112,17 @@ the catalog is structure-only; sighted appends the values section as today.
   with legacy fallback; headline plan values; artifacts passthrough.
 - **C (contract)**: codegen contract mandates declare_series/declare_value,
   retires chart_data/results authoring guidance; series-first exemplar gen.
-- **Deferred (recorded)**: catalog component-signature type-check; role-
-  driven filter proposals; `$series:` grammar.
+- **D (follow-ups, implemented 2026-08-08)**: component role signatures
+  (`lib/product/signatures.ts` — a small confident map of x-kind
+  requirements per chart component, checked against declared roles on every
+  composed line, advisory `component_role_mismatch`); role-driven filter
+  proposals; `$series:` alias + declared-unit resolution; value-planned
+  headline tiles; investigate per-step product namespacing
+  (`mergeStepProducts`: series/value keys take the composer's `step_N_`
+  data prefix, `of`/`screened_by` refs take the manifest's `step_N.`
+  prefix so the rename follows every reference; the merged roles index
+  keys the merged chart_data, so the full structured lint battery + the
+  Series Catalog + declared units now run for investigations too).
 
 ## 6. Invariants
 
@@ -123,10 +132,15 @@ the catalog is structure-only; sighted appends the values section as today.
   same exposure as today's chart_data; datasets remain client-only).
 - Legacy envelopes (no `series`) take the heuristic paths untouched.
 
-## 7. Out of scope
+## 7. Investigate namespacing (implemented in phase D)
 
-Investigate per-step series namespacing beyond the merge that exists for
-findings (steps ship legacy chart_data in v1 of this spec; recorded).
+Two prefixes, deliberately distinct because the downstream namespaces are:
+data ids (`series.id`, `value.key`) take `step_N_` — the merged
+chart*data/results key form the composer binds; fact references
+(`measure.of`, `measure.screened_by`, `value.of`) take `step_N.` — the
+namespaceFindings manifest form. `variant_of` names a column inside the
+same rows and never renames. Declared units for finding mirrors map
+`step_N.<name>` → `step_N*<name>` to match the merged mirror keys.
 
 ## 8. Implementation record (2026-08-08)
 

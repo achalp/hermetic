@@ -46,8 +46,22 @@ import {
   lintMethodMismatch,
   lintNullAncestry,
   lintDefinitionContradicted,
+  lintThinSuperlative,
+  lintWellAttestedScreened,
+  lintUnscreenedSuperlative,
+  lintScreenScopeMismatch,
+  lintSeriesConsumption,
+  lintUndeclaredScreen,
+  lintChartConsistency,
   namespaceFindings,
 } from "@/lib/findings";
+import {
+  mergeStepProducts,
+  productRolesIndex,
+  declaredUnitMap,
+  buildCatalogSection,
+} from "@/lib/product";
+import { lintComponentSignature } from "@/lib/product/signatures";
 import {
   FINDINGS_MANIFEST_VERSION,
   type FindingEntry,
@@ -724,10 +738,33 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           }
         }
 
+        // ── Analysis Product, investigate shape (spec §7): merge each step's
+        // declared series/values under the composer's step_N_ data prefix,
+        // with of/screened_by refs following the step_N. finding rename —
+        // the roles index then keys the merged chart_data exactly.
+        const { product: investigationProduct, issues: productIssues } = mergeStepProducts(
+          subResults
+            .filter((r) => !r.removed && r.result)
+            .map((r) => ({
+              stepNo: r.index + 1,
+              series: r.result!.executionResult.series,
+              values: r.result!.executionResult.values,
+            }))
+        );
+        const investigateRolesIdx = productRolesIndex(investigationProduct.series);
+        if (productIssues.length > 0) {
+          logger.warn("investigate product: invalid declarations dropped", {
+            issues: productIssues.map((i) => i.detail),
+          });
+        }
+
         cacheArtifacts(csvId, {
           ...topLevel,
           investigation: trace,
           ...(investigationFindings ? { findings: investigationFindings } : {}),
+          ...(investigationProduct.series.length > 0
+            ? { series: investigationProduct.series }
+            : {}),
         });
 
         // Deterministic data-quality surfacing — guarantees degraded / failed
@@ -799,7 +836,15 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           // When the pull hit the row cap, the analysis is over a sample —
           // tell the composer to disclose it.
           sampleRows: materializationSampled ? WAREHOUSE_MAX_ROWS : undefined,
-          extraSection: sightedValuesSection,
+          // Catalog is structure-only (blind-safe); the sighted values
+          // section rides behind it when enabled.
+          extraSection:
+            [
+              buildCatalogSection(investigationProduct)
+                ? `\n\n${buildCatalogSection(investigationProduct)}`
+                : "",
+              sightedValuesSection ?? "",
+            ].join("") || undefined,
         });
 
         // Inject merged data into spec.state so $result/$chartData
@@ -885,6 +930,28 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           Object.entries(investigateFindingValues)
         );
         const proseLintIssues = new Map<string, FindingIssue>();
+        // Structured product lints over the MERGED views (spec §7): with the
+        // roles index keyed to step_N_ chart keys, the same screen/attestation
+        // /consistency battery Ask runs applies to an investigation.
+        {
+          const mergedFindingEntries = investigationFindings?.findings ?? [];
+          for (const issue of [
+            ...productIssues,
+            ...lintThinSuperlative(mergedChartData, mergedFindingEntries, investigateRolesIdx),
+            ...lintWellAttestedScreened(mergedChartData, investigateRolesIdx),
+            ...lintUnscreenedSuperlative(
+              mergedChartData,
+              mergedFindingEntries,
+              investigateRolesIdx
+            ),
+            ...lintScreenScopeMismatch(mergedChartData, mergedFindingEntries, investigateRolesIdx),
+            ...lintSeriesConsumption(mergedChartData, investigateRolesIdx),
+            ...lintUndeclaredScreen(mergedChartData, mergedFindingEntries, investigateRolesIdx),
+            ...lintChartConsistency(mergedChartData, mergedFindingEntries, investigateRolesIdx),
+          ]) {
+            proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
+          }
+        }
         const lintComposedLine = (raw: string) => {
           const lookup = {
             findings: investigateFindingValueMap,
@@ -894,6 +961,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             ...lintUnitPhrase(raw, investigateUnitByName),
             ...lintSentinelInterpolation(raw, lookup),
             ...lintSignedLanguage(raw, lookup),
+            ...lintComponentSignature(raw, investigateRolesIdx),
           ]) {
             proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
           }
@@ -903,6 +971,16 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           chartData: mergedChartData,
           findings: investigateFindingValues,
           findingUnits: Object.fromEntries(investigateUnitByName),
+          // Declared units keyed to the MERGED result namespace: value keys
+          // already carry step_N_; finding mirrors live at step_N_<name>_<field>,
+          // so the step_N. manifest name is mapped to its data-prefix form.
+          declaredUnits: declaredUnitMap(
+            investigationProduct.values,
+            (investigationFindings?.findings ?? []).map((f) => ({
+              name: f.name.replace(/^step_(\d+)\./, "step_$1_"),
+              ...(typeof f.unit === "string" ? { unit: f.unit } : {}),
+            }))
+          ),
         });
 
         let buffer = "";

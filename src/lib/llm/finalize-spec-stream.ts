@@ -41,6 +41,9 @@ export interface SpecFinalizerConfig {
   findings?: Record<string, unknown>;
   /** Declared units by finding name — inline numbers render with the unit. */
   findingUnits?: Record<string, string>;
+  /** Declared units by RESULT key (declare_value / finding mirrors) —
+   *  consulted ahead of the _pct/_pp key-name convention. */
+  declaredUnits?: Record<string, string>;
   /** Ask only: IMAGE_PLACEHOLDER_<key> → base64 data URI. */
   imagePlaceholders?: Record<string, string>;
   /** Enables chart `$state` binding repair (Ask DataController flow). Null/omitted disables it. */
@@ -97,7 +100,8 @@ export function createSpecFinalizer(
       config.results,
       config.chartData,
       config.findings ?? {},
-      config.findingUnits ?? {}
+      config.findingUnits ?? {},
+      config.declaredUnits ?? {}
     );
 
     // 2b. Post-resolution discourse check: relational coherence of prose

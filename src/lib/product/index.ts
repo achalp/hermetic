@@ -104,6 +104,55 @@ export function parseProduct(
   return { product: { series, values }, issues };
 }
 
+/**
+ * Merge per-step products into the investigation namespace (analysis-product
+ * spec §7): series ids and value keys take the composer's `step_N_` data
+ * prefix (matching the merged chart_data/results keys), while finding/check
+ * REFERENCES (`of`, `screened_by`) take the manifest's `step_N.` prefix
+ * (matching namespaceFindings) — the rename follows every reference, so
+ * nothing dangles. `variant_of` names a column inside the same rows and is
+ * untouched. Each step's entries are validated first; issues carry the step.
+ */
+export function mergeStepProducts(
+  steps: Array<{ stepNo: number; series?: unknown[]; values?: unknown[] }>
+): { product: AnalysisProduct; issues: FindingIssue[] } {
+  const series: SeriesEntry[] = [];
+  const values: ValueEntry[] = [];
+  const issues: FindingIssue[] = [];
+  for (const step of steps) {
+    const parsed = parseProduct(step.series, step.values);
+    issues.push(
+      ...parsed.issues.map((i) => ({ ...i, detail: `step ${step.stepNo}: ${i.detail}` }))
+    );
+    const dataPrefix = `step_${step.stepNo}_`;
+    const factPrefix = `step_${step.stepNo}.`;
+    for (const s of parsed.product.series) {
+      series.push({
+        ...s,
+        id: `${dataPrefix}${s.id}`,
+        roles: {
+          ...s.roles,
+          measures: s.roles.measures.map((m) => ({
+            ...m,
+            ...(m.of !== undefined ? { of: `${factPrefix}${m.of}` } : {}),
+            ...(m.screened_by !== undefined
+              ? { screened_by: `${factPrefix}${m.screened_by}` }
+              : {}),
+          })),
+        },
+      });
+    }
+    for (const v of parsed.product.values) {
+      values.push({
+        ...v,
+        key: `${dataPrefix}${v.key}`,
+        ...(v.of !== undefined ? { of: `${factPrefix}${v.of}` } : {}),
+      });
+    }
+  }
+  return { product: { series, values }, issues };
+}
+
 // ── Roles index for structured-first lints ───────────────────────────
 
 export interface SeriesScreenPair {
@@ -152,6 +201,48 @@ export function ownedValueKeys(values: ValueEntry[]): Set<string> {
   return new Set(values.filter((v) => v.of !== undefined).map((v) => v.key));
 }
 
+/** Render form of a declared unit: percentage spellings collapse to the
+ *  symbol (withUnit attaches "%" without a space); everything else passes
+ *  through — the units vocabulary is open by design. */
+function renderUnit(unit: string): string {
+  return /^(pct|percent|percentage|%)$/i.test(unit) ? "%" : unit;
+}
+
+/** Result-key → declared unit, for resolution-time unit rendering ahead of
+ *  key-name morphology (_pct/_pp suffixes): declare_value units by key, and
+ *  each finding's unit on its value mirrors (`name` / `name_value` — the
+ *  fields the finding's own unit describes; other fields keep their
+ *  name-encoded units). */
+export function declaredUnitMap(
+  values: ValueEntry[],
+  findings: Array<{ name: string; unit?: string }> = []
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const f of findings) {
+    if (typeof f.unit !== "string" || f.unit.length === 0) continue;
+    const base = f.name.replace(/^step_\d+\./, "");
+    map[base] = renderUnit(f.unit);
+    map[`${base}_value`] = renderUnit(f.unit);
+  }
+  for (const v of values) {
+    if (typeof v.unit === "string" && v.unit.length > 0) map[v.key] = renderUnit(v.unit);
+  }
+  return map;
+}
+
+/** Columns the analysis DECLARED as category dimensions — group roles and
+ *  categorical x roles. The DataController proposes filters from these ahead
+ *  of cardinality sniffing (a declared dimension is a filter by intent, not
+ *  by distinct-count coincidence). */
+export function roleFilterColumns(series: SeriesEntry[]): Set<string> {
+  const cols = new Set<string>();
+  for (const s of series) {
+    if (s.roles.group) cols.add(s.roles.group.column);
+    if (s.roles.x.kind === "categorical") cols.add(s.roles.x.column);
+  }
+  return cols;
+}
+
 // ── Binding Catalog (spec §2) ────────────────────────────────────────
 
 function describeMeasure(m: SeriesMeasureRole): string {
@@ -188,4 +279,17 @@ export function buildValueCatalogLines(values: ValueEntry[]): string[] {
   return values
     .filter((v) => v.of === undefined)
     .map((v) => `- "$result:${v.key}" — ${v.label ?? v.key}${v.unit ? ` (${v.unit})` : ""}`);
+}
+
+/** The complete Series Catalog prompt block ("" when nothing is declared) —
+ *  shared by the Ask and Investigate composers so the catalog prose can't
+ *  drift between modes. */
+export function buildCatalogSection(product: AnalysisProduct): string {
+  if (product.series.length === 0) return "";
+  const valueLines = buildValueCatalogLines(product.values);
+  return `## Series Catalog
+Each entry is a typed chart binding: its x column and kind, each measure with its unit and the finding/check it belongs to, and the count column attesting each row. Bind these by id; the roles are authoritative.
+${buildSeriesCatalogLines(product.series).join("\n")}
+${valueLines.length > 0 ? `\nDeclared standalone values:\n${valueLines.join("\n")}` : ""}
+`;
 }

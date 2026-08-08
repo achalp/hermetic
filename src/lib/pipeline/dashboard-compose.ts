@@ -35,9 +35,13 @@ import { projectManifestForPrompt } from "@/lib/findings/project";
 import {
   parseProduct,
   ownedValueKeys,
-  buildSeriesCatalogLines,
-  buildValueCatalogLines,
+  roleFilterColumns,
+  declaredUnitMap,
+  productRolesIndex,
+  buildCatalogSection,
 } from "@/lib/product";
+import { lintComponentSignature } from "@/lib/product/signatures";
+import type { AnalysisProduct } from "@/lib/contracts/product";
 import { planHeadlineTiles, buildHeadlineSection } from "@/lib/findings/headline-plan";
 import {
   lintUnitPhrase,
@@ -112,6 +116,9 @@ interface DatasetColumnInfo {
   name: string;
   distinct: number;
   sample: string[];
+  /** True when a declared series role (group / categorical x) named this
+   *  column a category dimension — proposed as a filter by intent. */
+  declared?: boolean;
 }
 
 /** DashboardAnalysis plus the column detail the prompt sections need. */
@@ -122,18 +129,25 @@ interface DatasetAnalysis extends DashboardAnalysis {
 
 /**
  * Inspect the execution result's datasets/results/images: detect filterable
- * columns (categorical, <15 distinct), decide whether a DataController is
- * warranted, flag a sampled /datasets/main, and build the image-placeholder
- * map. Pure derivation — everything downstream (prompt sections, rules,
- * stream-time injection) keys off this one analysis.
+ * columns, decide whether a DataController is warranted, flag a sampled
+ * /datasets/main, and build the image-placeholder map. Pure derivation —
+ * everything downstream (prompt sections, rules, stream-time injection) keys
+ * off this one analysis.
+ *
+ * Filter proposal is roles-first (analysis-product spec §3): columns a
+ * declared series named as group / categorical-x dimensions are filters by
+ * INTENT (relaxed cardinality bar), ranked ahead of the legacy heuristic
+ * (categorical, <15 distinct) which remains for undeclared columns.
  */
-function analyzeDatasets(executionResult: SandboxExecutionResult): DatasetAnalysis {
+function analyzeDatasets(
+  executionResult: SandboxExecutionResult,
+  product: AnalysisProduct
+): DatasetAnalysis {
   const datasets = executionResult.datasets;
   const mainDataset = datasets?.main;
   const hasDataset =
     !!mainDataset && mainDataset.length > 0 && mainDataset.length <= INTERACTIVE_ROW_CAP;
 
-  // Detect filterable columns (categorical with <15 distinct values)
   let datasetColumns: DatasetColumnInfo[] = [];
   if (hasDataset && mainDataset) {
     const allKeys = Object.keys(mainDataset[0] ?? {});
@@ -142,7 +156,14 @@ function analyzeDatasets(executionResult: SandboxExecutionResult): DatasetAnalys
       return { name: col, distinct: values.length, sample: values.slice(0, 8) };
     });
   }
-  const filterableColumns = datasetColumns.filter((c) => c.distinct >= 2 && c.distinct <= 15);
+  const declaredCols = roleFilterColumns(product.series);
+  const declaredFilterable = datasetColumns
+    .filter((c) => declaredCols.has(c.name) && c.distinct >= 2 && c.distinct <= 50)
+    .map((c) => ({ ...c, declared: true }));
+  const heuristicFilterable = datasetColumns.filter(
+    (c) => !declaredCols.has(c.name) && c.distinct >= 2 && c.distinct <= 15
+  );
+  const filterableColumns = [...declaredFilterable, ...heuristicFilterable];
   const useDataController = hasDataset && filterableColumns.length > 0;
 
   // Is /datasets/main a SAMPLE of a larger result? We can't always be sure, so
@@ -277,15 +298,14 @@ function buildCorePrompt(
   question: string,
   schemaMode: SchemaMode,
   useDataController: boolean,
-  manifest?: FindingsManifest
-): string {
-  const imageKeys = Object.keys(executionResult.images);
-
+  manifest: FindingsManifest | undefined,
   // Analysis Product (spec §2): declared series/values carry typed identity
   // for the composer's bindings — the catalog below replaces shape inference
   // for every declared series, and of-carrying values are withheld like
   // finding mirrors (the only path to an owned statistic is its finding).
-  const { product } = parseProduct(executionResult.series, executionResult.values);
+  product: AnalysisProduct
+): string {
+  const imageKeys = Object.keys(executionResult.images);
 
   // Statistical claims bind THROUGH their finding — mirrored result keys
   // are removed from the offered vocabulary (see mirroredResultKeys).
@@ -326,14 +346,7 @@ ${NARRATIVE_GROUNDING_RULES}`;
       .filter(([k]) => !declaredIds.has(k))
       .map(([k, v]) => [k, describeShape(v, schemaMode === "sample")])
   );
-  const seriesCatalog =
-    product.series.length > 0
-      ? `## Series Catalog
-Each entry is a typed chart binding: its x column and kind, each measure with its unit and the finding/check it belongs to, and the count column attesting each row. Bind these by id; the roles are authoritative.
-${buildSeriesCatalogLines(product.series).join("\n")}
-${buildValueCatalogLines(product.values).length > 0 ? `\nDeclared standalone values:\n${buildValueCatalogLines(product.values).join("\n")}` : ""}
-`
-      : "";
+  const seriesCatalog = buildCatalogSection(product);
   const chartShapesSection =
     Object.keys(chartDataShape).length > 0
       ? `## Chart Data Shapes
@@ -370,7 +383,7 @@ function buildDatasetSection(analysis: DatasetAnalysis, schemaMode: SchemaMode):
 ## Dataset Available for Client-Side Filtering
 A dataset with ${mainDataset.length} rows is available at state path /datasets/main.
 Columns: ${datasetColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(", ")}
-Filterable columns (categorical, <15 values): ${schemaMode === "metadata" ? filterableColumns.map((c) => `${c.name} (${c.distinct} distinct)`).join(", ") : filterableColumns.map((c) => `${c.name} [${c.sample.join(", ")}]`).join("; ")}
+Filterable columns (declared category dimensions first, then categorical <15 values): ${schemaMode === "metadata" ? filterableColumns.map((c) => `${c.name}${c.declared ? " (declared dimension)" : ""} (${c.distinct} distinct)`).join(", ") : filterableColumns.map((c) => `${c.name}${c.declared ? " (declared dimension)" : ""} [${c.sample.join(", ")}]`).join("; ")}
 
 Use a DataController component to enable instant client-side filtering. The full dataset is stored at /datasets/main in spec.state. Structured chart_data (geojson, globe, sankey, etc.) is also auto-injected at /datasets/<key>. Charts MUST read from /computed/* state paths using {"$state": "/computed/<name>"} for their data prop — NOT "$chartData:" placeholders.`;
 }
@@ -728,12 +741,16 @@ export function buildDashboardComposeRequest(
   const { question, schema, schemaMode, purpose, priorTurns, drillDownContext, workbookContext } =
     opts;
 
-  const analysis = analyzeDatasets(executionResult);
+  // One parse per request — the prompt sections, headline plan and filter
+  // proposals all read the same validated product.
+  const { product } = parseProduct(executionResult.series, executionResult.values);
+  const analysis = analyzeDatasets(executionResult, product);
 
   const headlinePlan = planHeadlineTiles(
     opts.findings?.manifest.findings ?? [],
     (executionResult.results ?? {}) as Record<string, unknown>,
-    question
+    question,
+    product.values
   );
   const userPrompt =
     buildCorePrompt(
@@ -741,7 +758,8 @@ export function buildDashboardComposeRequest(
       question,
       schemaMode,
       analysis.useDataController,
-      opts.findings?.manifest
+      opts.findings?.manifest,
+      product
     ) +
     buildFindingsSection(opts.findings?.manifest) +
     buildHeadlineSection(headlinePlan) +
@@ -857,10 +875,15 @@ export async function composeAndStreamDashboard(args: {
   const proseLintIssues = new Map<string, FindingIssue>();
   // Recomputed here (pure) for scaffold enforcement — the prompt-side plan
   // is built in buildDashboardComposeRequest with identical inputs.
+  const { product: composedProduct } = parseProduct(executionResult.series, executionResult.values);
+  // Declared roles by chart key — drives the component-signature check on
+  // each composed line (a LineChart over a declared categorical x, etc.).
+  const composeRolesIdx = productRolesIndex(composedProduct.series);
   const headlinePlan = planHeadlineTiles(
     opts.findings?.manifest.findings ?? [],
     (executionResult.results ?? {}) as Record<string, unknown>,
-    opts.question
+    opts.question,
+    composedProduct.values
   );
   // Did the composed spec bind any {"$state": ...} path? When it did in a
   // NON-DataController run (composer drift), the datasets injection below
@@ -873,6 +896,9 @@ export async function composeAndStreamDashboard(args: {
     chartData: executionResult.chart_data,
     findings: findingValues,
     findingUnits: Object.fromEntries(unitByName),
+    // Resolution-time unit identity from declarations (analysis-product):
+    // declare_value units + finding-mirror units beat key-name suffixes.
+    declaredUnits: declaredUnitMap(composedProduct.values, opts.findings?.manifest.findings ?? []),
     imagePlaceholders,
     validStateKeys,
     mutatePatch: (patch) => {
@@ -951,6 +977,7 @@ export async function composeAndStreamDashboard(args: {
       ...lintUnitPhrase(result.raw, unitByName),
       ...lintSentinelInterpolation(result.raw, proseLintLookup),
       ...lintSignedLanguage(result.raw, proseLintLookup),
+      ...lintComponentSignature(result.raw, composeRolesIdx),
     ]) {
       proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
     }

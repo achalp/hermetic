@@ -260,6 +260,84 @@ describe("binding catalog — analysis product (spec §2)", () => {
   });
 });
 
+describe("role-driven filter proposals (analysis-product spec §3)", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({
+    cuisine: `c${i % 20}`, // 20 distinct — over the heuristic bar, under the declared bar
+    era: i % 3 === 0 ? "early" : "late",
+    price: i,
+  }));
+
+  it("a declared group column is proposed even past the heuristic cardinality bar", () => {
+    const { userPrompt, analysis } = buildDashboardComposeRequest(
+      makeExec({
+        datasets: { main: rows },
+        series: [
+          {
+            id: "by_cuisine",
+            rows: [{ cuisine: "c1", price: 2 }],
+            roles: {
+              x: { column: "cuisine", kind: "categorical" },
+              measures: [{ column: "price" }],
+            },
+          },
+        ],
+      }),
+      baseOpts
+    );
+    expect(analysis.useDataController).toBe(true);
+    expect(userPrompt).toContain("cuisine (declared dimension)");
+    // The heuristic column still rides along after the declared one.
+    expect(userPrompt).toContain("era");
+    expect(userPrompt.indexOf("cuisine")).toBeLessThan(userPrompt.indexOf("era ("));
+  });
+
+  it("without declarations the heuristic path is unchanged (20-distinct excluded)", () => {
+    const { userPrompt } = buildDashboardComposeRequest(
+      makeExec({ datasets: { main: rows } }),
+      baseOpts
+    );
+    expect(userPrompt).not.toContain("cuisine (declared dimension)");
+    const filterableLine = userPrompt.split("\n").find((l) => l.startsWith("Filterable columns"))!;
+    expect(filterableLine).not.toContain("cuisine");
+    expect(filterableLine).toContain("era");
+  });
+});
+
+describe("value-planned headline tiles (analysis-product spec §3)", () => {
+  it("labeled declared values join the required-tile plan", () => {
+    const { userPrompt } = buildDashboardComposeRequest(
+      makeExec({
+        values: [
+          { key: "total_priced_listings", value: 9241, label: "Total priced listings" },
+          { key: "owned", value: 3, of: "t.slope" }, // of-ref: never planned
+          { key: "null_val", value: null, label: "Nothing" }, // null: skipped
+        ],
+      }),
+      baseOpts
+    );
+    expect(userPrompt).toContain("## Required Headline Tiles");
+    expect(userPrompt).toContain(
+      '"$result:total_priced_listings" — label like "Total priced listings"'
+    );
+    expect(userPrompt).toContain("(declared-value)");
+    expect(userPrompt).not.toContain("$result:owned");
+    expect(userPrompt).not.toContain("$result:null_val");
+  });
+
+  it("a declared label upgrades a heuristic tile planning the same binding", () => {
+    const { userPrompt } = buildDashboardComposeRequest(
+      makeExec({
+        results: { total_rows: 500 },
+        values: [{ key: "total_rows", value: 500, label: "Menus in corpus" }],
+      }),
+      baseOpts
+    );
+    // One tile for the binding, carrying the declared label, not "Total Rows".
+    expect(userPrompt).toContain('"$result:total_rows" — label like "Menus in corpus"');
+    expect(userPrompt).not.toContain('label like "Total Rows"');
+  });
+});
+
 describe("buildValuesSection — sighted mode (composer-sight spec §1)", () => {
   it("includes finding values, results, and sampled series under the cap", () => {
     const exec = {

@@ -350,6 +350,57 @@ describe("$result suffix units — result-bound prose keeps its units", () => {
   });
 });
 
+describe("$series alias + declared units (analysis-product spec §2)", () => {
+  it("$series:<id> resolves through the synthesized chartData view, all three forms", () => {
+    const rows = [{ yr: 2000, v: 1 }];
+    const stringForm = resolveSpecPlaceholders(
+      '{"data": "$series:annual_prices"}',
+      {},
+      { annual_prices: rows }
+    );
+    expect(JSON.parse(stringForm)).toEqual({ data: rows });
+    const objectForm = resolveSpecPlaceholders(
+      '{"data": {"$series": "annual_prices"}}',
+      {},
+      { annual_prices: rows }
+    );
+    expect(JSON.parse(objectForm)).toEqual({ data: rows });
+    const nested = resolveSpecPlaceholders(
+      '{"z": "$series:heat.z"}',
+      {},
+      { heat: { z: [[1, 2]] } }
+    );
+    expect(JSON.parse(nested)).toEqual({ z: [[1, 2]] });
+  });
+
+  it("declared units beat key-name morphology; convention still the fallback", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Median $result:median_price over $result:coverage_pct of menus"}',
+      { median_price: 24.5, coverage_pct: 61.2 },
+      {},
+      {},
+      {},
+      { median_price: "usd" } // declared via declare_value(unit="usd")
+    );
+    expect(out).toContain("Median 24.5 usd");
+    expect(out).toContain("61.2% of menus"); // _pct fallback untouched
+  });
+
+  it("a declared unit overrides a misleading suffix on the same key", () => {
+    // declare_value(key="growth_pct", unit="pp") — declaration wins.
+    const out = resolveSpecPlaceholders(
+      '{"content": "grew $result:growth_pct since 1900"}',
+      { growth_pct: 3.1 },
+      {},
+      {},
+      {},
+      { growth_pct: "pp" }
+    );
+    expect(out).toContain("grew 3.1 pp since 1900");
+    expect(out).not.toContain("3.1%");
+  });
+});
+
 describe("unit guard — nearby unit words suppress appending (run-12 grammar bug)", () => {
   const findings = { peak_quarterly_cases: { quarter: "2021Q2", value: 53379480 } };
   const units = { peak_quarterly_cases: "cases" };

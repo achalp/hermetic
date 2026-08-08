@@ -3,6 +3,8 @@ import {
   parseProduct,
   productRolesIndex,
   ownedValueKeys,
+  declaredUnitMap,
+  mergeStepProducts,
   buildSeriesCatalogLines,
   buildValueCatalogLines,
 } from "@/lib/product";
@@ -16,6 +18,7 @@ import {
   lintUnscreenedSuperlative,
 } from "@/lib/findings/lints";
 import type { FindingEntry } from "@/lib/contracts/findings";
+import { lintComponentSignature } from "@/lib/product/signatures";
 
 const SERIES: SeriesEntry = {
   id: "annual_prices",
@@ -110,6 +113,115 @@ describe("productRolesIndex / ownedValueKeys", () => {
         { key: "slope", value: 2, of: "t.slope" },
       ])
     ).toEqual(new Set(["slope"]));
+  });
+});
+
+describe("mergeStepProducts (investigate namespacing, spec §7)", () => {
+  it("prefixes data ids with step_N_ and fact refs with step_N. — no dangling refs", () => {
+    const { product, issues } = mergeStepProducts([
+      { stepNo: 2, series: [SERIES], values: [{ key: "total", value: 9, label: "Total" }] },
+      {
+        stepNo: 3,
+        values: [{ key: "slope", value: 0.4, of: "price_trend.slope_per_period" }],
+      },
+    ]);
+    expect(issues).toEqual([]);
+    const s = product.series[0];
+    // Data namespace (underscore) matches the composer's merged chart keys.
+    expect(s.id).toBe("step_2_annual_prices");
+    // Fact namespace (dot) matches namespaceFindings' manifest renames.
+    const screened = s.roles.measures.find((m) => m.column === "price_clean")!;
+    expect(screened.of).toBe("step_2.price_peak");
+    expect(screened.screened_by).toBe("step_2.price_screen");
+    // Column-local refs are untouched by the rename.
+    expect(screened.variant_of).toBe("price");
+    expect(product.values.map((v) => v.key)).toEqual(["step_2_total", "step_3_slope"]);
+    expect(product.values[1].of).toBe("step_3.price_trend.slope_per_period");
+  });
+
+  it("the merged roles index keys the merged chart namespace", () => {
+    const { product } = mergeStepProducts([{ stepNo: 1, series: [SERIES] }]);
+    const idx = productRolesIndex(product.series);
+    const info = idx.get("step_1_annual_prices")!;
+    expect(info.countCol).toBe("n");
+    expect(info.screens[0].checkName).toBe("step_1.price_screen");
+  });
+
+  it("step-tags validation issues from invalid entries", () => {
+    const { product, issues } = mergeStepProducts([
+      { stepNo: 4, values: [{ key: "naked", value: 7 }] },
+    ]);
+    expect(product.values).toEqual([]);
+    expect(issues[0].kind).toBe("invalid_value");
+    expect(issues[0].detail).toMatch(/^step 4:/);
+  });
+});
+
+describe("component role signatures", () => {
+  const catSeries: SeriesEntry = {
+    id: "by_cuisine",
+    rows: [{ cuisine: "french", median_price: 12 }],
+    roles: {
+      x: { column: "cuisine", kind: "categorical" },
+      measures: [{ column: "median_price", unit: "usd" }],
+    },
+  };
+  const idx = productRolesIndex([catSeries, SERIES]);
+  const line = (type: string, binding: string) =>
+    JSON.stringify({
+      op: "add",
+      path: "/elements/c1",
+      value: {
+        type,
+        props: { title: null, data: binding, x_key: "x", y_keys: ["y"] },
+        children: [],
+      },
+    });
+
+  it("flags a LineChart over a declared categorical x", () => {
+    const issues = lintComponentSignature(line("LineChart", "$chartData:by_cuisine"), idx);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("component_role_mismatch");
+    expect(issues[0].detail).toContain("categorical");
+  });
+
+  it("accepts matching kinds, unmapped components, and undeclared keys", () => {
+    // temporal series in a LineChart: fine.
+    expect(lintComponentSignature(line("LineChart", "$chartData:annual_prices"), idx)).toEqual([]);
+    // BarChart has no signature: any x kind is fine.
+    expect(lintComponentSignature(line("BarChart", "$chartData:by_cuisine"), idx)).toEqual([]);
+    // Undeclared chart key: no roles to check against.
+    expect(lintComponentSignature(line("LineChart", "$chartData:mystery"), idx)).toEqual([]);
+  });
+
+  it("checks the $series alias and flags a PieChart over temporal x", () => {
+    const issues = lintComponentSignature(line("PieChart", "$series:annual_prices"), idx);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].detail).toContain("PieChart");
+  });
+});
+
+describe("declaredUnitMap", () => {
+  it("maps value units and finding-mirror units, normalizing pct spellings", () => {
+    const map = declaredUnitMap(
+      [
+        { key: "total", value: 1, label: "Total", unit: "items" },
+        { key: "share", value: 2, label: "Share", unit: "pct" },
+        { key: "unitless", value: 3, label: "X" },
+      ],
+      [
+        { name: "price_peak", unit: "usd" },
+        { name: "step_2.era_delta", unit: "pp" },
+        { name: "no_unit" },
+      ]
+    );
+    expect(map.total).toBe("items");
+    expect(map.share).toBe("%");
+    expect(map.price_peak).toBe("usd");
+    expect(map.price_peak_value).toBe("usd");
+    expect(map.era_delta).toBe("pp"); // step prefix stripped like mirrors
+    expect(map.unitless).toBeUndefined();
+    expect(map.no_unit).toBeUndefined();
   });
 });
 

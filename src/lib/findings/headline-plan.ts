@@ -9,6 +9,7 @@
  * arranges and labels but may not drop tiles. Pure function, no I/O.
  */
 import type { FindingEntry } from "@/lib/contracts/findings";
+import type { ValueEntry } from "@/lib/contracts/product";
 
 export interface HeadlineTile {
   /** Placeholder the tile's value MUST bind ("$finding:x.value", "$result:k"). */
@@ -50,7 +51,8 @@ function periodField(value: Record<string, unknown>): string | undefined {
 export function planHeadlineTiles(
   findings: FindingEntry[],
   results: Record<string, unknown>,
-  question = ""
+  question = "",
+  values: ValueEntry[] = []
 ): HeadlineTile[] {
   const fieldValue = (f: FindingEntry, field: string): unknown =>
     isObj(f.value) ? (f.value as Record<string, unknown>)[field] : f.value;
@@ -156,6 +158,25 @@ export function planHeadlineTiles(
       descriptionBinding: `$finding:${peak.name}.${pf}`,
       reason: "peak",
     });
+  }
+
+  // Declared standalone values (analysis-product spec §3): a labeled scalar
+  // carries exactly what a StatCard needs, so it joins the plan — filling
+  // remaining slots AFTER the fact-derived tiles (statistical claims outrank
+  // context scalars). A declared label UPGRADES a heuristic tile that
+  // already planned the same binding (the declaration is authoritative over
+  // key-name humanization); of-carrying values bind via their finding and
+  // are never planned here.
+  for (const v of values) {
+    if (v.of !== undefined || typeof v.label !== "string") continue;
+    if (v.value === null || v.value === undefined) continue;
+    const binding = `$result:${v.key}`;
+    const existing = tiles.find((t) => t.binding === binding);
+    if (existing) {
+      existing.label = v.label;
+      continue;
+    }
+    add({ binding, label: v.label, reason: "declared-value" });
   }
 
   return tiles;
