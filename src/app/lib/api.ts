@@ -485,17 +485,6 @@ export async function getLearningState<T>(signal?: AbortSignal): Promise<T> {
 }
 
 /** Approve or reject a graduated lesson proposal. */
-export async function decideLearningProposal(
-  id: string,
-  action: "accept" | "reject"
-): Promise<{ ok: boolean; applied: boolean; path?: string }> {
-  const res = await fetch(`/api/learning/proposals/${encodeURIComponent(id)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
-  });
-  return json(res);
-}
 
 export interface LoadedHistory {
   meta: HistoryMeta;

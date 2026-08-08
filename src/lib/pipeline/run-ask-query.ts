@@ -35,7 +35,6 @@ import {
   lintSeriesConsumption,
   lintResultsProvenance,
 } from "@/lib/findings";
-import { recordDatasetConventions } from "@/lib/learning/conventions";
 import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
 import { lintRangeFabrication } from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
@@ -493,29 +492,6 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               executionResult.data_completeness
             ),
           ];
-          // Dataset-convention candidates → the lesson ledger (holistic
-          // learning review: no shadow injection; recurring clean
-          // interpretive checks graduate through the SAME proposal/approval
-          // flow as failure lessons — the loop learns from what held).
-          void recordDatasetConventions({
-            runId: "ask",
-            question,
-            findings: validated.manifest.findings,
-            flaggedNames: new Set(
-              findingIssues
-                .filter((i) =>
-                  [
-                    "definition_contradicted",
-                    "weak_check",
-                    "method_mismatch",
-                    "nonstandard_direction",
-                  ].includes(i.kind)
-                )
-                .map((i) => i.name)
-                .filter((n): n is string => typeof n === "string")
-            ),
-            degraded: !!executionResult.runtime_fallback,
-          });
           diagEvent("findings", {
             mode,
             declared: executionResult.findings.length,

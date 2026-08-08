@@ -152,3 +152,14 @@ export async function retrieveExemplar(input: RetrieveInput): Promise<Exemplar |
   // affinity AND real question similarity.
   return best.score >= 2.5 ? best.e : null;
 }
+
+/** User curation (Learning page): remove a banked exemplar. */
+export async function deleteExemplar(id: string): Promise<boolean> {
+  try {
+    if (!/^[a-f0-9-]{8,40}$/.test(id)) return false;
+    await unlink(join(dir(), `${id}.json`));
+    return true;
+  } catch {
+    return false;
+  }
+}
