@@ -464,6 +464,44 @@ describe("lintChartConsistency — one payload, one policy (run-30)", () => {
       lintChartConsistency(clean, [{ ...peak, value: { year: 1966, value: 10000 } }])
     ).toHaveLength(0);
   });
+
+  it("scopes cells per step: cross-step policy differences are not divergences", () => {
+    // Step 1 screens 1966; step 2 (a different sub-question, different
+    // policy) keeps it. Same column, same x, different steps — legitimate.
+    const crossStep = {
+      step_1_price_trend: [{ year: 1966, max_price: null }],
+      step_2_price_spread: [{ year: 1966, max_price: 10000 }],
+    };
+    expect(lintChartConsistency(crossStep, [])).toHaveLength(0);
+    // The SAME divergence inside one step still flags.
+    const sameStep = {
+      step_1_price_trend: [{ year: 1966, max_price: null }],
+      step_1_price_spread: [{ year: 1966, max_price: 10000 }],
+    };
+    expect(
+      lintChartConsistency(sameStep, []).some((i) => i.kind === "chart_policy_divergence")
+    ).toBe(true);
+  });
+
+  it("checks a step-scoped superlative only against its own step's charts", () => {
+    const peak = {
+      name: "step_2.peak_max_price",
+      definition: "highest recorded dish price in the screened subset",
+      dtype: "superlative",
+      value: { year: 1955, value: 7000 },
+    };
+    // Step 3's unscreened chart exceeds the step-2 peak — different scope,
+    // not a contradiction.
+    const otherStep = { step_3_prices: [{ year: 1966, max_price: 30000 }] };
+    expect(lintChartConsistency(otherStep, [peak])).toHaveLength(0);
+    // The same excess inside step 2's own chart IS a contradiction.
+    const ownStep = { step_2_prices: [{ year: 1966, max_price: 30000 }] };
+    expect(
+      lintChartConsistency(ownStep, [peak]).some(
+        (i) => i.kind === "superlative_contradicted_by_chart"
+      )
+    ).toBe(true);
+  });
 });
 
 describe("lintUndeclaredScreen — every screened series has a contract (run-32)", () => {

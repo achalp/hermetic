@@ -732,6 +732,11 @@ export function lintDefinitionContradicted(findings: FindingEntry[]): FindingIss
  * price_spread_over_time — is the screen applied to some series and not
  * others; and a peak/max superlative naming a smaller value than a chart
  * column beside it ships two answers. Deterministic, advisory.
+ *
+ * "One payload" means one POLICY SCOPE: in an Investigate merge each step is
+ * its own analysis with its own legitimate policies, so cells are compared
+ * only within a step (the step_N_/step_N. prefixes mark the scope), and a
+ * step's superlative is checked only against that step's charts.
  */
 export function lintChartConsistency(
   chartData: Record<string, unknown>,
@@ -739,8 +744,17 @@ export function lintChartConsistency(
   rolesIdx?: ProductRolesIndex
 ): FindingIssue[] {
   const issues: FindingIssue[] = [];
-  // Cell map: column -> xValue -> {nulls: series[], values: Map<series, number>}
-  const cells = new Map<string, Map<string, { nulls: string[]; nums: Map<string, number> }>>();
+  // POLICY SCOPE: one analysis, one policy — but an Investigate run merges
+  // MANY analyses, and different steps legitimately compute the same measure
+  // under different scopes/screens. The step prefix is the deterministic
+  // scope marker on both namespaces (step_N_ on merged chart keys, step_N.
+  // on manifest names), so cells are compared only within their scope.
+  // Single-shot Ask has no prefixes: everything shares scope "" — unchanged.
+  const scopeOfKey = (k: string): string => /^(step_\d+)_/.exec(k)?.[1] ?? "";
+  const scopeOfFinding = (name: string): string => /^(step_\d+)\./.exec(name)?.[1] ?? "";
+  // Cell maps per scope: column -> xValue -> {nulls: series[], nums: Map<series, number>}
+  type ByX = Map<string, { nulls: string[]; nums: Map<string, number> }>;
+  const scopedCells = new Map<string, Map<string, ByX>>();
   const xKeyOf = (row: Record<string, unknown>): string | undefined => {
     for (const k of ["year", "month", "date", "period", "x", "label"]) {
       if (k in row) return String(row[k]);
@@ -750,6 +764,8 @@ export function lintChartConsistency(
   for (const [series, v] of Object.entries(chartData)) {
     const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
     if (!Array.isArray(rows)) continue;
+    const cells = scopedCells.get(scopeOfKey(series)) ?? new Map<string, ByX>();
+    scopedCells.set(scopeOfKey(series), cells);
     // Declared x role beats the well-known-key guess for declared series.
     const declaredX = rolesIdx?.get(series)?.xCol;
     for (const raw of rows) {
@@ -760,9 +776,9 @@ export function lintChartConsistency(
       for (const [col, val] of Object.entries(row)) {
         if (col === declaredX) continue;
         if (["year", "month", "date", "period", "x", "label"].includes(col)) continue;
-        const byX = cells.get(col) ?? new Map();
+        const byX: ByX = cells.get(col) ?? new Map();
         cells.set(col, byX);
-        const cell = byX.get(x) ?? { nulls: [], nums: new Map() };
+        const cell = byX.get(x) ?? { nulls: [] as string[], nums: new Map<string, number>() };
         byX.set(x, cell);
         if (val === null) cell.nulls.push(series);
         else if (typeof val === "number") cell.nums.set(series, val);
@@ -770,23 +786,30 @@ export function lintChartConsistency(
     }
   }
   let divergences = 0;
-  for (const [col, byX] of cells) {
-    for (const [x, cell] of byX) {
-      if (cell.nulls.length > 0 && cell.nums.size > 0 && divergences < 3) {
-        divergences++;
-        const [numSeries, num] = [...cell.nums.entries()][0];
-        issues.push({
-          kind: "chart_policy_divergence",
-          detail: `${col} at ${x} is null in ${cell.nulls[0]} but ${num} in ${numSeries} — the same cell under two policies; a screen applied to some series and not others`,
-        });
+  for (const cells of scopedCells.values()) {
+    for (const [col, byX] of cells) {
+      for (const [x, cell] of byX) {
+        if (cell.nulls.length > 0 && cell.nums.size > 0 && divergences < 3) {
+          divergences++;
+          const [numSeries, num] = [...cell.nums.entries()][0];
+          issues.push({
+            kind: "chart_policy_divergence",
+            detail: `${col} at ${x} is null in ${cell.nulls[0]} but ${num} in ${numSeries} — the same cell under two policies; a screen applied to some series and not others`,
+          });
+        }
       }
     }
   }
-  // Superlative vs chart max: a peak/max finding whose value a chart column exceeds.
+  // Superlative vs chart max: a peak/max finding whose value a chart column
+  // exceeds — checked only against the finding's OWN scope's charts (a
+  // step-2 peak over a screened subset is not contradicted by step-3's
+  // unscreened chart of the full corpus).
   for (const f of findings) {
     if (!/peak|max/.test(f.name) || f.value === null || typeof f.value !== "object") continue;
     const val = (f.value as Record<string, unknown>).value;
     if (typeof val !== "number") continue;
+    const cells = scopedCells.get(scopeOfFinding(f.name));
+    if (!cells) continue;
     const tokens = f.name.split(/[._]/).filter((t) => t.length > 2 && !["peak", "max"].includes(t));
     for (const [col, byX] of cells) {
       if (!tokens.some((t) => col.includes(t))) continue;
