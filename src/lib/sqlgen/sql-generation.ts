@@ -76,6 +76,9 @@ function buildSQLGenSystemPrompt(warehouseType: WarehouseType): string {
 - GRAIN / HIERARCHY (critical for correctness): before SUM/AVG-ing a measure, check what one row IS. A key column whose values are prefix-nested (\`US\`, \`US_CA\`, \`US_CA_06001\` — delimiter-extended prefixes) or that mixes granularities encodes a HIERARCHY: the same fact appears once per level, and aggregating across ALL keys counts it at every level (a 2-3x overcount that looks plausible). Aggregate at ONE level — filter to the grain the question implies (e.g. country-level keys only: \`WHERE key NOT LIKE '%_%'\` or the appropriate prefix depth) — and make that choice visible in the SQL. If you cannot determine the grain, aggregate the finest unambiguous level and say so in a column alias, never silently sum the hierarchy.
 - EDGE PERIODS: when aggregating to periods for a time series, a leading period with a zero/near-empty total (the partial first month before data really starts) is a phantom row that poisons downstream growth-rate math (divide-by-zero on the first delta). Bound the series start at the first period with real data (a WHERE on the start date or HAVING on the period total for the EDGES only — this is a scope bound, not a value filter on interior data). The TRAILING edge has the same problem in reverse: the last day/period of a live dataset is often incomplete (reporting lag — a fraction of sources reported), so for daily-grain pulls either exclude the final 1-2 days or return them so downstream code can apply its completeness guard. When the table has a grouping/entity key (locations, stores, sources), ALSO select a coverage column — count(DISTINCT key) per period — beside the period totals: coverage per period is the sharp completeness signal downstream analysis needs (a 231 -> 3 contributor drop identifies an incomplete period that magnitude tests miss).
 - FILTER BIAS: never add a VALUE filter on the measure the question didn't ask for. \`WHERE measure > 0\` silently drops reporting corrections (negative values are REAL in many datasets) and genuine zero days — biasing sums and averages up and turning "minimum" stats into artifacts of the filter. Filter on SCOPE (time window, entity, level), not on the measure's value.
+- NAME/ENTITY TEXT FILTERS (pinned): a bare substring match is NOT an entity filter — \`LIKE '%tea%'\` also matches steak, steamed, tea(k)ettle, and the "tea" price series it feeds is a steak price series (measured: substring-tea appeared to cost \$9.95 because it was mostly steak). Match on WORD identity: exact name equality against the observed name values, or a word-boundary pattern (delimiter-aware: \`name = 'tea' OR name LIKE 'tea %' OR name LIKE '% tea' OR name LIKE '% tea %'\`, or the dialect's regex with \\b). AND make the match auditable: alongside any pattern-filtered series, also return the top matched DISTINCT names with counts (a small \`matched_name, n\` result set or extra grouping column) so downstream analysis can SEE what the filter actually caught and declare it as a check.
+- MIXED UNITS / CURRENCIES (pinned): if the schema carries a unit/currency column next to a measure, values in different units are DIFFERENT MEASURES — pooling them into one median/sum is meaningless and skews exactly where the minority unit clusters (measured: 3% Deutsche-Mark rows concentrated in two decades moved that era's "dollar" median from \$2.35 to \$4.30). Either restrict to the dominant unit (and return the per-unit row counts so the exclusion share is visible and declarable as a check) or GROUP BY the unit column — never aggregate across units in one figure.
+- EXACT QUANTILES FOR HEADLINE STATISTICS (pinned): ClickHouse \`median()\`/\`quantile()\` are APPROXIMATE (sampling-based) — an invisible method choice on the exact statistic the analysis rests on. Use \`medianExact\`/\`quantileExact\`/\`quantilesExact\` for medians/quartiles feeding findings; approximate variants are for the cost-reduction cases in the scaling rules (large-cardinality work), where the approximation must be disclosed via analysis_scope.
 - WINDOW FUNCTIONS with GROUP BY: when you combine an aggregate query (GROUP BY) with a window function (LAG/LEAD/ROW_NUMBER/SUM() OVER ...), every column inside the window's PARTITION BY / ORDER BY must be a GROUP BY column, an aggregate, or a SELECT alias — NOT a raw column. Common failure: \`LAG(COUNT(*)) OVER (ORDER BY EXTRACT(YEAR FROM created_at))\` errors because \`created_at\` isn't grouped. Fix: GROUP BY the period expression and order the window by it, e.g. \`... GROUP BY EXTRACT(YEAR FROM created_at) AS yr ... LAG(COUNT(*)) OVER (ORDER BY yr)\` (repeat the expression if the dialect rejects the alias).
 - AGGREGATES NEVER GO IN WHERE: WHERE filters raw rows BEFORE grouping, so an aggregate there is illegal (e.g. \`WHERE min(created_at) > ...\` or \`WHERE count(*) > 5\` errors with "Aggregate function ... found in WHERE" / illegal aggregation). To filter on an aggregate, use HAVING after GROUP BY (\`GROUP BY x HAVING count(*) > 5\`), or compute the aggregate in a subquery/CTE and filter it in an outer query. Use WHERE only for conditions on raw, non-aggregated columns.
 - DON'T reference a SELECT alias in WHERE: a column you DEFINE in the SELECT list (e.g. \`dateDiff(...) AS resolution_seconds\`) cannot be used in that same query's WHERE, nor in an outer query whose subquery doesn't also SELECT it (errors with "Identifier ... cannot be resolved"). Either repeat the full expression in the WHERE, or expose the computed column from the subquery's SELECT and filter on it one level up.
@@ -360,6 +363,8 @@ export async function generateSQLWithRepair<T>(args: {
   );
   let lastError: unknown;
 
+  let lastAnnotated = "";
+  let repairsTried = 0;
   for (let attempt = 0; attempt <= maxRepairs; attempt++) {
     try {
       // Pre-execution guards: reject a wrong-but-valid query the engine would run
@@ -380,12 +385,16 @@ export async function generateSQLWithRepair<T>(args: {
     } catch (err) {
       lastError = err;
       const message = err instanceof Error ? err.message : String(err);
+      // Engines report syntax failures by character position/line — useless
+      // to the repair model (it would have to count characters) and to the
+      // user. Excerpt the fragment once; both consumers get it.
+      lastAnnotated = annotateSqlError(sql, message);
       // Surface the exact SQL that failed — otherwise we can only infer query
       // shape (self-join? dropped filter?) from the engine error and row counts.
       logger.warn("Warehouse SQL attempt failed", {
         attempt,
         question: args.question.slice(0, 120),
-        error: message.slice(0, 200),
+        error: lastAnnotated.slice(0, 300),
         sql,
       });
       // A lost network connection is never a SQL bug — repairing/re-running
@@ -411,17 +420,52 @@ export async function generateSQLWithRepair<T>(args: {
       }
       if (attempt === maxRepairs) break;
       args.onAttempt?.(attempt + 1, "repairing");
+      repairsTried++;
       sql = await repairSQL({
         tables: args.tables,
         question: args.question,
         warehouseType: args.warehouseType,
         failedSQL: sql,
-        error: message,
+        error: lastAnnotated,
         model: args.model,
       });
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  // The terminal error must tell the story, not just echo the engine: a bare
+  // "Syntax error: failed at position 648" surfaced after TWO paid repair
+  // attempts read as "no repair ran" and points at nothing (run eb79b66d).
+  const context =
+    repairsTried > 0
+      ? `SQL failed after ${repairsTried} repair attempt${repairsTried === 1 ? "" : "s"} (each repair regenerated the query against the reported error). `
+      : "";
+  throw new Error(`${context}${lastAnnotated || String(lastError)}`);
+}
+
+/**
+ * When an engine error names a character position (ClickHouse: "failed at
+ * position 648") or a line, excerpt the SQL around it with a marker — the
+ * repair prompt and the terminal error both point at the offending text
+ * instead of an offset nobody can dereference.
+ */
+export function annotateSqlError(sql: string, message: string): string {
+  const pos = /\bposition:?\s*(\d+)/i.exec(message);
+  if (pos) {
+    const i = Math.min(Math.max(parseInt(pos[1], 10) - 1, 0), sql.length);
+    const start = Math.max(0, i - 120);
+    const end = Math.min(sql.length, i + 120);
+    const prefix = start > 0 ? "…" : "";
+    const suffix = end < sql.length ? "…" : "";
+    return `${message}\nFailing fragment (position ${pos[1]}): ${prefix}${sql.slice(start, i)}⟨HERE⟩${sql.slice(i, end)}${suffix}`;
+  }
+  const line = /\bline:?\s*(\d+)/i.exec(message);
+  if (line) {
+    const n = parseInt(line[1], 10);
+    const lines = sql.split("\n");
+    if (n >= 1 && n <= lines.length) {
+      return `${message}\nFailing line ${n}: ${lines[n - 1]}`;
+    }
+  }
+  return message;
 }
 
 /** Strip markdown fencing and whitespace from LLM output */

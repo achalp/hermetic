@@ -124,6 +124,33 @@ describe("generateSQLWithRepair", () => {
     expect(repair.messages[0].content[0]).toEqual(gen.messages[0].content[0]);
   });
 
+  it("terminal error names the repair attempts and excerpts the failing fragment", async () => {
+    // Run eb79b66d: two paid repairs, then a bare "Syntax error: failed at
+    // position 648" surfaced — reading as "no repair ran" and pointing at
+    // an offset nobody can dereference.
+    const sql = `SELECT decade, medianExact(price) FROM menu GROUP BY decade ORDER BY BADTOKEN`;
+    queueSQL(sql, sql, sql); // initial + 2 repairs, all the same broken query
+    const pos = sql.indexOf("BADTOKEN") + 1; // engine positions are 1-based
+    const execute = vi.fn().mockRejectedValue(new Error(`Syntax error: failed at position ${pos}`));
+    await expect(
+      generateSQLWithRepair({
+        tables: TABLES,
+        question: "q",
+        warehouseType: "clickhouse",
+        execute,
+      })
+    ).rejects.toThrow(/after 2 repair attempts[\s\S]*⟨HERE⟩BADTOKEN/);
+    expect(execute).toHaveBeenCalledTimes(3);
+    // The repair prompt itself received the annotated fragment, not just
+    // the bare offset — the model repairs what it can see.
+    const repairCall = generateTextMock.mock.calls[1][0] as {
+      messages?: Array<{ content: unknown }>;
+      prompt?: string;
+    };
+    const repairText = JSON.stringify(repairCall);
+    expect(repairText).toContain("⟨HERE⟩BADTOKEN");
+  });
+
   it("bails immediately on a resource-limit error when bailOnResourceError is set (no repair)", async () => {
     queueSQL("SELECT * FROM huge");
     const execute = vi.fn().mockRejectedValue(new Error("Timeout error."));

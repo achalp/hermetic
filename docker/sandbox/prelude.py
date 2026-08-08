@@ -600,7 +600,7 @@ def finding_split_comparison(labels, values, split_at=None):
 def finding_yoy(period_labels, values):
     return {'prior_year': None, 'latest_year': None, 'window_months': None,
             'prior_total': None, 'latest_total': None, 'pct_change': None}
-def finding_current_state(values, labels=None, window=6, coverage=None):
+def finding_current_state(values, labels=None, window=6, coverage=None, counts=None):
     return {'period': None, 'value': None, 'pct_from_peak': None,
             'direction': None, 'excluded_trailing': None}
 

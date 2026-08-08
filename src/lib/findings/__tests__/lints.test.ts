@@ -737,6 +737,27 @@ describe("lintThinSuperlative — a 52-item year crowned (run-39)", () => {
     };
     expect(lintThinSuperlative(chartData, [peak])).toHaveLength(0);
   });
+
+  it("flags a current-state whose endpoint is a thin tail (484-item 2000s decade)", () => {
+    // Same detector, second shape: pct_from_peak measured against an
+    // unattested edge narrates a collection gap as a price decline.
+    const current = {
+      name: "price_current_state",
+      definition: "where the price series ends relative to its peak",
+      dtype: "current_state",
+      value: { period: "1996", value: 74, pct_from_peak: -50.2, direction: "falling" },
+    };
+    const issues = lintThinSuperlative(chartData, [current]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("thin_current_state");
+    expect(issues[0].detail).toContain("counts=");
+    // Well-attested endpoint: quiet.
+    const attested = { ...current, value: { ...current.value, period: "2012" } };
+    expect(lintThinSuperlative(chartData, [attested])).toHaveLength(0);
+    // Null pct_from_peak (walked back / unavailable): quiet.
+    const nulled = { ...current, value: { ...current.value, pct_from_peak: null } };
+    expect(lintThinSuperlative(chartData, [nulled])).toHaveLength(0);
+  });
 });
 
 describe("mirror_dropped_value — results losing a value the manifest carries (run-41)", () => {

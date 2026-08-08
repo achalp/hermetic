@@ -780,20 +780,26 @@ def finding_split_comparison(labels, values, split_at=None):
         return failed
 
 
-def finding_current_state(values, labels=None, window=6, coverage=None):
+def finding_current_state(values, labels=None, window=6, coverage=None, counts=None):
     """Where the series ENDS — from the last COMPLETE observation.
 
     The trailing edge of a live dataset is often incomplete (reporting lag:
     the final day has a fraction of sources reported), and taking it at face
     value turns a truncation artifact into "the series collapsed 99.8%".
 
-    Two completeness tests, walking back from the end:
+    Three completeness tests, walking back from the end:
       - coverage (SHARP, preferred): pass `coverage` — contributors per
         period (count of distinct reporting entities). A period whose
         coverage is < 50% of the max over the window before it is
         incomplete, regardless of its value. Magnitude dilutes under
         rollups (an incomplete month at 58% of trailing mean passes a
         value test); a 231 -> 3 reporting-entity drop is unambiguous.
+      - attestation (SHARP): pass `counts` — observations per period. A
+        trailing period under max(5, 20% of the prior periods' median
+        count) is a thin tail, not a level change — the same bar
+        finding_superlative applies (a 484-item final decade against a
+        multi-thousand-median corpus narrated as "prices fell 50% from
+        peak" is undigitized data, not a decline).
       - magnitude (fallback, always on): value < 30% of the trailing-window
         mean.
 
@@ -816,6 +822,14 @@ def finding_current_state(values, labels=None, window=6, coverage=None):
                     covs = None
             except Exception:
                 covs = None
+        cnts = None
+        if counts is not None:
+            try:
+                cnts = [safe_float(c) for c in list(counts)]
+                if len(cnts) != len(ys):
+                    cnts = None
+            except Exception:
+                cnts = None
         idxs = [i for i, y in enumerate(ys) if y is not None]
         if len(idxs) < 2:
             return failed
@@ -838,11 +852,22 @@ def finding_current_state(values, labels=None, window=6, coverage=None):
                 cov_cur = covs[end]
                 if cov_prior and cov_cur is not None and cov_cur < 0.5 * max(cov_prior):
                     incomplete = True
+            # Attestation: same thin bar as finding_superlative, against the
+            # median count of ALL prior complete periods (not just the
+            # window) — the corpus level is the reference, not the run-up.
+            if not incomplete and cnts is not None:
+                n_cur = cnts[end]
+                prior_n = sorted([cnts[i] for i in prior_i if cnts[i] is not None])
+                if prior_n and n_cur is not None:
+                    med_n = prior_n[len(prior_n) // 2]
+                    if n_cur < max(5.0, 0.2 * med_n):
+                        incomplete = True
             mean = sum(prior) / len(prior)
             cur = ys[end]
             if (
                 not incomplete
                 and covs is None
+                and cnts is None
                 and excluded >= magnitude_only_cap
             ):
                 break

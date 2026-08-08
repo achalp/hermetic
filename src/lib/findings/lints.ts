@@ -1260,9 +1260,12 @@ export function lintNullZeroMirror(
 
 // ── Thin-superlative lint (run-39: 52-item year crowned the headline) ──
 
-/** A superlative finding whose period's count column sits under 20% of the
- *  series median count rests on the thinnest data in the corpus — the
- *  effect-side detector for any calibration that lets a thin peak through. */
+/** A finding whose claimed period sits on a count under 20% of the series
+ *  median rests on the thinnest data in the corpus — the effect-side
+ *  detector for any calibration that lets a thin edge through. Two shapes:
+ *  superlatives (peak/max/min names, run-39's 52-item crowned year) and
+ *  current-state findings (pct_from_peak whose endpoint is a thin tail —
+ *  the 484-item final decade narrated as "prices fell 50% from peak"). */
 export function lintThinSuperlative(
   chartData: Record<string, unknown>,
   findings: FindingEntry[],
@@ -1270,12 +1273,11 @@ export function lintThinSuperlative(
 ): FindingIssue[] {
   const issues: FindingIssue[] = [];
   const X_KEYS = ["year", "month", "date", "period", "x", "label", "decade"];
-  for (const f of findings) {
-    if (!/peak|max|min|trough|largest|smallest/.test(f.name)) continue;
-    if (f.value === null || typeof f.value !== "object") continue;
-    const fv = f.value as Record<string, unknown>;
-    const period = fv.period ?? fv.year ?? fv.date ?? fv.month;
-    if (period === undefined || fv.value === undefined) continue;
+  /** n at `period` vs the series-median count, from the first chart series
+   *  that carries both a count column and the period's row. */
+  const attestationAt = (
+    period: unknown
+  ): { n: number; medN: number; countCol: string } | undefined => {
     for (const [key, v] of Object.entries(chartData)) {
       const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
       if (!Array.isArray(rows) || rows.length < 5 || typeof rows[0] !== "object") continue;
@@ -1292,20 +1294,39 @@ export function lintThinSuperlative(
         .map((r) => r[countCol])
         .filter((x): x is number => typeof x === "number")
         .sort((a, b) => a - b);
-      if (counts.length < 5) continue;
+      if (counts.length < 5) return undefined;
       const medN = counts[Math.floor(counts.length / 2)];
       const row = (rows as Record<string, unknown>[]).find(
         (r) => String(r[xCol]) === String(period)
       );
       const n = row?.[countCol];
-      if (typeof n === "number" && n < Math.max(5, 0.2 * medN) && issues.length < 3) {
-        issues.push({
-          kind: "thin_superlative",
-          name: f.name,
-          detail: `${f.name} crowns ${String(period)} on ${n} ${countCol} (series median ${medN}) — the headline superlative rests on the thinnest data in the corpus; use finding_superlative (attestation-weighted) and report the raw extreme beside it`,
-        });
-      }
-      break;
+      return typeof n === "number" ? { n, medN, countCol } : undefined;
+    }
+    return undefined;
+  };
+  for (const f of findings) {
+    if (f.value === null || typeof f.value !== "object") continue;
+    const fv = f.value as Record<string, unknown>;
+    const period = fv.period ?? fv.year ?? fv.date ?? fv.month;
+    if (period === undefined || issues.length >= 3) continue;
+    const isSuperlative =
+      /peak|max|min|trough|largest|smallest/.test(f.name) && fv.value !== undefined;
+    const isCurrentState = "pct_from_peak" in fv && fv.pct_from_peak !== null;
+    if (!isSuperlative && !isCurrentState) continue;
+    const att = attestationAt(period);
+    if (!att || att.n >= Math.max(5, 0.2 * att.medN)) continue;
+    if (isSuperlative) {
+      issues.push({
+        kind: "thin_superlative",
+        name: f.name,
+        detail: `${f.name} crowns ${String(period)} on ${att.n} ${att.countCol} (series median ${att.medN}) — the headline superlative rests on the thinnest data in the corpus; use finding_superlative (attestation-weighted) and report the raw extreme beside it`,
+      });
+    } else {
+      issues.push({
+        kind: "thin_current_state",
+        name: f.name,
+        detail: `${f.name} ends the series at ${String(period)} on ${att.n} ${att.countCol} (series median ${att.medN}) — pct_from_peak measured against a thin tail narrates a collection gap as a decline; pass counts= to finding_current_state so the unattested edge is excluded`,
+      });
     }
   }
   return issues;

@@ -543,6 +543,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               "blocking_check_shipped",
               "screen_missed_superlative",
               "thin_superlative",
+              "thin_current_state",
               "well_attested_screened",
               "statistic_mislabel",
               "unbacked_superlative",

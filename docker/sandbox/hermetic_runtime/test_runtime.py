@@ -635,6 +635,32 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(out["direction"], "falling")
         self.assertLess(out["pct_from_peak"], 0)
 
+    def test_current_state_thin_tail_excluded_by_attestation(self):
+        # The 484-item 2000s decade (run review 2026-08-08): prices "fell 50%
+        # from peak" because the final bucket held a sliver of the corpus.
+        # counts= applies the superlative thin bar to the series EDGE.
+        values = [1.0, 1.5, 2.0, 4.5, 4.5, 9.5, 4.8]
+        counts = [3000, 5000, 8000, 12000, 9000, 6000, 484]
+        out = finding_current_state(values, labels=list(range(1940, 2010, 10)), counts=counts)
+        self.assertEqual(out["excluded_trailing"], 1)
+        self.assertEqual(out["period"], 1990)
+        self.assertEqual(out["value"], 9.5)
+        # Without counts, the thin tail is taken at face value (magnitude
+        # test alone cannot see it: 4.8 is well above 30% of trailing mean).
+        base = finding_current_state(values, labels=list(range(1940, 2010, 10)))
+        self.assertEqual(base["excluded_trailing"], 0)
+        self.assertEqual(base["period"], 2000)
+
+    def test_current_state_well_attested_tail_kept(self):
+        values = [1.0, 1.5, 2.0, 4.5, 4.5, 9.5, 4.8]
+        counts = [3000, 5000, 8000, 12000, 9000, 6000, 5500]
+        out = finding_current_state(values, counts=counts)
+        self.assertEqual(out["excluded_trailing"], 0)
+        self.assertEqual(out["value"], 4.8)
+        # Length-mismatched counts are ignored, never fatal.
+        bad = finding_current_state(values, counts=[1, 2])
+        self.assertEqual(bad["excluded_trailing"], 0)
+
     def test_current_state_never_raises(self):
         self.assertIsNone(finding_current_state([])["period"])
         self.assertIsNone(finding_current_state([None, None])["period"])
