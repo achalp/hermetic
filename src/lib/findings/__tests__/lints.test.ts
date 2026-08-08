@@ -578,14 +578,20 @@ describe("lintUnscreenedSuperlative — the outlier policy as a detector (run-35
     expect(issues[0].kind).toBe("unscreened_superlative");
   });
 
-  it("quiet when a screened series exists or the peak is proportionate", () => {
-    const withScreen = {
-      ...chartData,
-      screened: [{ year: 1980, max_price_screened: null }],
-    };
-    expect(lintUnscreenedSuperlative(withScreen, [peak])).toHaveLength(0);
+  it("a proportionate peak is quiet; a same-chart screened peak is quiet", () => {
+    // Per-value semantics (run-38): only the VALUE itself being screened
+    // suppresses — a screened series elsewhere in the payload does not
+    // (that was the loophole error clusters hid behind).
     const modest = { ...peak, value: { year: 1955, value: 7 } };
     expect(lintUnscreenedSuperlative(chartData, [modest])).toHaveLength(0);
+    const sameChart = {
+      price_trends: chartData.price_trends.map((r) =>
+        r.year === 1980
+          ? { ...r, max_price_screened: null }
+          : { ...r, max_price_screened: r.max_price }
+      ),
+    };
+    expect(lintUnscreenedSuperlative(sameChart, [peak])).toHaveLength(0);
   });
 });
 
@@ -629,5 +635,33 @@ describe("lintNullZeroMirror — one absence, two representations (run-37)", () 
     expect(issues).toHaveLength(1);
     expect(issues[0].kind).toBe("null_zero_mirror");
     expect(lintNullZeroMirror({ median_price_step_change_delta: null }, [finding])).toHaveLength(0);
+  });
+});
+
+describe("screen_missed_superlative — error clusters validating each other (run-38)", () => {
+  const rows = [
+    { year: 1950, max_price: 5, max_price_screened: 5 },
+    { year: 1955, max_price: 7, max_price_screened: 7 },
+    { year: 1966, max_price: 10000, max_price_screened: null },
+    { year: 1970, max_price: 8, max_price_screened: 8 },
+    { year: 1980, max_price: 30000, max_price_screened: 30000 },
+    { year: 1990, max_price: 9, max_price_screened: 9 },
+  ];
+  const peak = {
+    name: "peak_max_price",
+    definition: "highest recorded price",
+    dtype: "superlative",
+    value: { year: 1980, value: 30000 },
+  };
+
+  it("flags a screen that let the peak through", () => {
+    const issues = lintUnscreenedSuperlative({ series: rows }, [peak]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("screen_missed_superlative");
+  });
+
+  it("quiet when the peak WAS screened", () => {
+    const screenedPeak = { ...peak, value: { year: 1966, value: 10000 } };
+    expect(lintUnscreenedSuperlative({ series: rows }, [screenedPeak])).toHaveLength(0);
   });
 });

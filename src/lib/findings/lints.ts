@@ -819,13 +819,17 @@ export function lintResultsProvenance(
   );
   for (const [key, val] of Object.entries(results)) {
     if (typeof val !== "number") continue;
-    if (!/^(peak|trough|max|min|largest|smallest)_/.test(key)) continue;
+    if (
+      !/^(peak|trough|max|min|largest|smallest)_/.test(key) &&
+      !/_(p_value|slope|slope_per_year|pct_change|r2|r_squared|pearson_r)$/.test(key)
+    )
+      continue;
     const toks = key.split(/[._]/).filter((t) => t.length > 2);
     const backed = findingTokens.some((ft) => toks.filter((t) => ft.has(t)).length >= 2);
     if (!backed && issues.length < 5) {
       issues.push({
         kind: "unbacked_superlative",
-        detail: `results.${key} = ${val} has no finding backing it — a superlative shipped without the provenance the manifest exists to provide`,
+        detail: `results.${key} = ${val} has no finding backing it — a statistical claim shipped without the provenance the manifest exists to provide`,
       });
     }
   }
@@ -992,7 +996,8 @@ export function lintUnscreenedSuperlative(
   findings: FindingEntry[]
 ): FindingIssue[] {
   const issues: FindingIssue[] = [];
-  const anyScreened = Object.values(chartData).some((v) => {
+  void 0; // (payload-level screen presence no longer suppresses — per-value check below)
+  const _anyScreened = Object.values(chartData).some((v) => {
     const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
     return (
       Array.isArray(rows) &&
@@ -1022,12 +1027,27 @@ export function lintUnscreenedSuperlative(
         .sort((a, b) => a - b);
       if (nums.length < 5) continue;
       const median = nums[Math.floor(nums.length / 2)];
-      if (median > 0 && val > 50 * median && !anyScreened && issues.length < 3) {
-        issues.push({
-          kind: "unscreened_superlative",
-          name: f.name,
-          detail: `${f.name} = ${val} is ${Math.round(val / median)}x the median of ${col} with NO screened series in the payload — a magnitude outlier promoted to a finding (prior runs screened this; this run declared no screen at all)`,
-        });
+      if (median > 0 && val > 50 * median && issues.length < 3) {
+        // Was THIS value screened? A screened sibling column with null at
+        // the peak row means yes. A screen that exists but let the peak
+        // through is the cluster-validation failure: a rolling baseline
+        // computed on unscreened data lets errors vouch for each other
+        // (1980's \$30,000 cleared 100x because 1966/72/75/77's errors
+        // raised the bar).
+        const screenedCol = Object.keys(rows[0] as object).find(
+          (c) => c.startsWith(col) && /_screened/.test(c)
+        );
+        const peakRow = (rows as Record<string, unknown>[]).find((r) => r[col] === val);
+        const wasScreened = screenedCol && peakRow ? peakRow[screenedCol] === null : false;
+        if (!wasScreened) {
+          issues.push({
+            kind: screenedCol ? "screen_missed_superlative" : "unscreened_superlative",
+            name: f.name,
+            detail: screenedCol
+              ? `${f.name} = ${val} is ${Math.round(val / median)}x the median of ${col} and the screen let it through — a baseline computed on unscreened data lets error clusters validate each other; iterate the screen or use a robust (trimmed) baseline`
+              : `${f.name} = ${val} is ${Math.round(val / median)}x the median of ${col} with NO screened series in the payload — a magnitude outlier promoted to a finding`,
+          });
+        }
       }
       break;
     }

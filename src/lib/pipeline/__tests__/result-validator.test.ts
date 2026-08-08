@@ -268,3 +268,46 @@ describe("failed blocking checks fail validation (run-36: detector without sprin
     expect(validateExecutionResult({ ...base, findings: [passing] } as never).ok).toBe(true);
   });
 });
+
+describe("checks-only manifest fails validation (run-38 provenance regression)", () => {
+  const base = { results: {}, chart_data: { c: [{ x: 1 }] }, datasets: {}, execution_ms: 1 };
+  const check = (n: string) => ({
+    name: n,
+    definition: "a validation check over the data",
+    dtype: "check",
+    tags: ["check", "caveat"],
+    value: { passed: true, n: 1 },
+  });
+
+  it("fails when results carries stats and the manifest is checks-only", () => {
+    const exec = {
+      ...base,
+      results: {
+        median_trend_p_value: 1.28e-11,
+        avg_trend_slope: 0.2,
+        max_trend_p_value: 0.023,
+        peak_median_price: 38,
+        peak_avg_price: 987,
+        early_late_pct_change: 1280,
+      },
+      findings: [check("a"), check("b"), check("c")],
+    } as never;
+    const verdict = validateExecutionResult(exec);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.reason).toContain("no declared backing");
+  });
+
+  it("passes when findings back the stats", () => {
+    const exec = {
+      ...base,
+      results: { median_trend_p_value: 1e-5, peak_median_price: 38 },
+      findings: [
+        check("a"),
+        { name: "median_trend", definition: "d", dtype: "trend", value: { direction: "rising" } },
+        { name: "peak_median", definition: "d", dtype: "superlative", value: { value: 38 } },
+        { name: "avg_trend", definition: "d", dtype: "trend", value: { direction: "rising" } },
+      ],
+    } as never;
+    expect(validateExecutionResult(exec).ok).toBe(true);
+  });
+});

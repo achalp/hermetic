@@ -107,6 +107,26 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     };
   }
 
+  // Check #2e — CHECKS-ONLY MANIFEST (run-38): results carrying ~20
+  // statistical claims (slopes, p-values, peaks, comparisons) while the
+  // manifest holds checks and nothing else is the biggest provenance
+  // regression shape — every claim unbacked. Rides the bounded retry.
+  const entriesAll = Array.isArray(exec.findings) ? exec.findings : [];
+  const nonCheckFindings = entriesAll.filter(
+    (f) => (f as { dtype?: unknown }).dtype !== "check"
+  ).length;
+  const statKeys = resultKeys.filter((k) =>
+    /_(p_value|slope|pct_change|r2|r_squared|pearson_r)$|^(peak|trough|max|min)_/.test(k)
+  ).length;
+  if (statKeys >= 6 && entriesAll.length >= 3 && nonCheckFindings <= 2) {
+    return {
+      ok: false,
+      reason: `results carries ${statKeys} statistical claims but the findings manifest holds ${nonCheckFindings} non-check findings — the claims have no declared backing.`,
+      suggestedFix:
+        "Declare a finding for every statistical claim results carries (trends with direction/slope/p, superlatives with period+value, comparisons) — checks validate the analysis; findings ARE the analysis. Keep the checks.",
+    };
+  }
+
   // Check #2b — FINDINGS COLLAPSE (menu run, 2026-08-07): most declared
   // findings null-valued while charts carry real series. Observed cause: a
   // data-cleaning step converting legitimate ZEROS to null (a $0 median is

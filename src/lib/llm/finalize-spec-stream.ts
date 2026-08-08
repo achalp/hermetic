@@ -103,7 +103,7 @@ export function createSpecFinalizer(
     // 2b. Post-resolution discourse check: relational coherence of prose
     // AROUND the now-visible values (empty slots, zero-count templates,
     // backwards time). One home for the class — see discourse-check.ts.
-    const discourse = checkDiscourseLine(processed);
+    const discourse = checkDiscourseLine(processed, config.results);
     processed = discourse.line;
 
     // 3-4. Structural passes need the parsed patch. Plain JSON.parse keeps a

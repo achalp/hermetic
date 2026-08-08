@@ -128,3 +128,26 @@ describe("joint-motion incoherence (run-36: 'rising ... likewise flat')", () => 
     expect(ok.issues.filter((i) => i.kind === "joint_motion_incoherence")).toHaveLength(0);
   });
 });
+
+describe("statistic mislabel — the mean quoted as the median (run-38)", () => {
+  const results = {
+    median_price_median_yoy_growth_pct: 0,
+    median_price_mean_yoy_growth_pct: 37.73,
+  };
+
+  it("flags 'median ... 37.73' when 37.73 is the mean and the median differs", () => {
+    const { issues } = checkDiscourseLine(
+      '{"content": "Median year-over-year growth averaged 37.73% across the corpus."}',
+      results
+    );
+    expect(issues.some((i) => i.kind === "statistic_mislabel")).toBe(true);
+  });
+
+  it("correctly-labeled statistics pass", () => {
+    const ok = checkDiscourseLine(
+      '{"content": "Mean year-over-year growth averaged 37.73% across the corpus."}',
+      results
+    );
+    expect(ok.issues.filter((i) => i.kind === "statistic_mislabel")).toHaveLength(0);
+  });
+});

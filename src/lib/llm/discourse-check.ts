@@ -147,10 +147,39 @@ function checkSentence(sentence: string, issues: FindingIssue[]): "keep" | "drop
  * structure is never modified. Returns the (possibly cleaned) line plus
  * advisory issues.
  */
-export function checkDiscourseLine(line: string): DiscourseCheckResult {
+export function checkDiscourseLine(
+  line: string,
+  results?: Record<string, unknown>
+): DiscourseCheckResult {
   const issues: FindingIssue[] = [];
   // Fast path: nothing prose-like.
   if (!/[a-z]{3}/i.test(line)) return { line, issues };
+  // Statistic mislabel (run-38: 'Median YoY growth averaged 37.73%' where
+  // median=0 and MEAN=37.73 — the mean quoted under the median's name, on
+  // the exact statistic where the distinction matters most). Deterministic:
+  // a number near the word median/mean that equals the OTHER statistic's
+  // results value while the named one differs.
+  if (results) {
+    for (const m of line.matchAll(/\b(median|mean|average)\b[^".]{0,60}?(-?\d[\d,]*\.?\d*)/gi)) {
+      const said = m[1].toLowerCase() === "average" ? "mean" : m[1].toLowerCase();
+      const num = parseFloat(m[2].replace(/,/g, ""));
+      if (!Number.isFinite(num) || num === 0) continue;
+      const other = said === "median" ? "mean" : "median";
+      for (const [k, v] of Object.entries(results)) {
+        if (typeof v !== "number" || !k.includes(other)) continue;
+        if (Math.abs(v - num) > Math.abs(v) * 0.001) continue;
+        const sibling = k.replace(other, said);
+        const sibVal = results[sibling];
+        if (typeof sibVal === "number" && Math.abs(sibVal - num) > Math.abs(num) * 0.01) {
+          issues.push({
+            kind: "statistic_mislabel",
+            detail: `prose calls ${num} the ${said}, but it equals results.${k} (the ${other}) while ${sibling} = ${sibVal} — the ${other} quoted under the ${said}'s name`,
+          });
+          break;
+        }
+      }
+    }
+  }
   const cleaned = line.replace(/"((?:[^"\\]|\\.)*)"/g, (whole, inner: string) => {
     if (!/[a-zA-Z]{3}/.test(inner) || inner.length < 40) return whole;
     let text = inner;
