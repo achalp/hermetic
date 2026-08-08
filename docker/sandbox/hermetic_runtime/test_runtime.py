@@ -448,6 +448,7 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(out["raw_period"], "1996")
         self.assertEqual(out["raw_value"], 74.0)
         self.assertEqual(out["thin_periods_skipped"], 1)
+        self.assertAlmostEqual(out["thin_bar"], 120.0, places=0)  # 20% of median count — the bar is REPORTED, mechanism legible
         # Without counts, the raw extreme wins (nothing to weight by).
         self.assertEqual(finding_superlative(labels, vals)["period"], "1996")
 

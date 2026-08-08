@@ -160,14 +160,44 @@ export function checkDiscourseLine(
   // a number near the word median/mean that equals the OTHER statistic's
   // results value while the named one differs.
   if (results) {
-    for (const m of line.matchAll(/\b(median|mean|average)\b[^".]{0,60}?(-?\d[\d,]*\.?\d*)/gi)) {
-      const said = m[1].toLowerCase() === "average" ? "mean" : m[1].toLowerCase();
+    // Metric families: prose naming metric A beside a number that equals a
+    // results key of metric B (while A's own sibling key differs) quotes
+    // the wrong statistic under A's name. Generalized from mean/median
+    // (run-38) to the whole family after run-41 put the IQR slope in the
+    // median-price headline with the median's p-value.
+    const FAMILIES = [
+      "median",
+      "mean",
+      "average",
+      "iqr",
+      "p25",
+      "p75",
+      "max",
+      "min",
+      "spread",
+      "std",
+    ];
+    const canon = (w: string) => (w === "average" ? "mean" : w);
+    const famRe = new RegExp(
+      `\\b(${FAMILIES.join("|")})\\b[^".]{0,80}?(-?\\d[\\d,]*\\.?\\d*)`,
+      "gi"
+    );
+    for (const m of line.matchAll(famRe)) {
+      const said = canon(m[1].toLowerCase());
       const num = parseFloat(m[2].replace(/,/g, ""));
       if (!Number.isFinite(num) || num === 0) continue;
-      const other = said === "median" ? "mean" : "median";
       for (const [k, v] of Object.entries(results)) {
-        if (typeof v !== "number" || !k.includes(other)) continue;
+        if (typeof v !== "number") continue;
         if (Math.abs(v - num) > Math.abs(v) * 0.001) continue;
+        // Which other-family token in k, swapped for `said`, names an
+        // EXISTING sibling? (Keys can contain both words —
+        // median_price_mean_yoy_... — so the swap decides, not inclusion.)
+        const other: string | undefined = FAMILIES.map(canon).find((f: string): boolean => {
+          if (f === said || !k.includes(f)) return false;
+          const cand: string = k.replace(f, said);
+          return cand !== k && cand in results;
+        });
+        if (!other) continue;
         const sibling = k.replace(other, said);
         const sibVal = results[sibling];
         if (typeof sibVal === "number" && Math.abs(sibVal - num) > Math.abs(num) * 0.01) {

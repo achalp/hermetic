@@ -141,7 +141,23 @@ export function capArtifacts(artifacts: {
   const chart: Record<string, unknown> = {};
   const truncated: string[] = [];
   for (const [k, v] of Object.entries(artifacts.chart_data ?? {})) {
-    if (Array.isArray(v) && v.length > CHART_ROW_CAP) {
+    // Grouped/small-multiple data (box plots, per-category points) must not
+    // be downsampled — dropping rows inside a group breaks the element
+    // (run-41: a decade box showed 3 points while n_years said 8). A series
+    // with a low-cardinality category column keeps all rows up to 4x cap.
+    const isGrouped =
+      Array.isArray(v) &&
+      v.length > 0 &&
+      typeof v[0] === "object" &&
+      v[0] !== null &&
+      Object.keys(v[0] as Record<string, unknown>).some((c) => {
+        if (!/decade|category|group|segment|bucket|bin/.test(c.toLowerCase())) return false;
+        const distinct = new Set((v as Record<string, unknown>[]).map((r) => r[c])).size;
+        return distinct >= 2 && distinct <= 24;
+      });
+    if (Array.isArray(v) && isGrouped && v.length <= CHART_ROW_CAP * 4) {
+      chart[k] = v;
+    } else if (Array.isArray(v) && v.length > CHART_ROW_CAP) {
       // Downsample EVENLY, always keeping both endpoints — a head-slice
       // chopped a 142-year price series at 1974 and the reader's headline
       // chart lost the last forty years. For a time series, losing the

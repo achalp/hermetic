@@ -700,3 +700,17 @@ describe("lintThinSuperlative — a 52-item year crowned (run-39)", () => {
     expect(lintThinSuperlative(chartData, [peak])).toHaveLength(0);
   });
 });
+
+describe("mirror_dropped_value — results losing a value the manifest carries (run-41)", () => {
+  it("flags results null beside a non-null finding field", () => {
+    const finding = {
+      name: "median_price_distribution",
+      definition: "robust shape summary of annual medians",
+      dtype: "distribution",
+      value: { skew: 4.25, mean: 5.2, median: 0.9 },
+    };
+    const issues = lintNullZeroMirror({ median_price_distribution_skew: null }, [finding]);
+    expect(issues.some((i) => i.kind === "mirror_dropped_value")).toBe(true);
+    expect(lintNullZeroMirror({ median_price_distribution_skew: 4.25 }, [finding])).toHaveLength(0);
+  });
+});

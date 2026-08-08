@@ -571,7 +571,8 @@ def finding_share(parts, total=None):
     return {'shares_pct': None, 'residual_pct': None, 'sums_to_100': None}
 def finding_superlative(labels, values, counts=None, kind='max'):
     return {'period': None, 'value': None, 'n': None, 'raw_period': None,
-            'raw_value': None, 'raw_n': None, 'thin_periods_skipped': None}
+            'raw_value': None, 'raw_n': None, 'thin_periods_skipped': None,
+            'thin_bar': None}
 def finding_split_comparison(labels, values, split_at=None):
     return {'early_median': None, 'late_median': None, 'early_n': None,
             'late_n': None, 'early_span': None, 'late_span': None,

@@ -689,7 +689,8 @@ def finding_superlative(labels, values, counts=None, kind="max"):
     "thin_periods_skipped"}; degenerate input all-None. Never raises.
     """
     failed = {"period": None, "value": None, "n": None, "raw_period": None,
-              "raw_value": None, "raw_n": None, "thin_periods_skipped": None}
+              "raw_value": None, "raw_n": None, "thin_periods_skipped": None,
+              "thin_bar": None}
     try:
         rows = []
         ns = list(counts) if counts is not None else None
@@ -704,6 +705,7 @@ def finding_superlative(labels, values, counts=None, kind="max"):
         pick = max if kind != "min" else min
         raw = pick(rows, key=lambda r: r[1])
         finite_ns = sorted(r[2] for r in rows if r[2] is not None)
+        thin = None
         if finite_ns:
             med_n = finite_ns[len(finite_ns) // 2]
             thin = max(5.0, 0.2 * med_n)
@@ -714,7 +716,8 @@ def finding_superlative(labels, values, counts=None, kind="max"):
         best = pick(attested, key=lambda r: r[1]) if attested else raw
         return {"period": best[0], "value": best[1], "n": best[2],
                 "raw_period": raw[0], "raw_value": raw[1], "raw_n": raw[2],
-                "thin_periods_skipped": skipped}
+                "thin_periods_skipped": skipped,
+                "thin_bar": None if not finite_ns else round(thin, 1)}
     except Exception:
         return failed
 

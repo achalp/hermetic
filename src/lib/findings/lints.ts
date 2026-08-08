@@ -1115,14 +1115,22 @@ export function lintNullZeroMirror(
   for (const f of findings) {
     if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) continue;
     for (const [field, val] of Object.entries(f.value as Record<string, unknown>)) {
-      if (val !== null) continue;
       const base = f.name.replace(/^step_\d+\./, "");
       for (const rk of [`${base}_${field}`, `${field}`]) {
-        if (rk in results && results[rk] === 0 && issues.length < 4) {
+        if (!(rk in results) || issues.length >= 4) continue;
+        if (val === null && results[rk] === 0) {
           issues.push({
             kind: "null_zero_mirror",
             name: f.name,
             detail: `results.${rk} = 0 while ${f.name}.${field} is null — two representations of the same absence; the results mirror must READ the declared dict (0 asserts a measurement that returned nothing)`,
+          });
+        } else if (val !== null && typeof val === "number" && results[rk] === null) {
+          // Inverse loss (run-41: results.median_price_skewness null while
+          // the manifest's distribution carries skew 4.25).
+          issues.push({
+            kind: "mirror_dropped_value",
+            name: f.name,
+            detail: `results.${rk} is null while ${f.name}.${field} = ${val} — results dropped a value its own manifest carries; the mirror must READ the declared dict`,
           });
         }
       }

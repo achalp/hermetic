@@ -151,3 +151,26 @@ describe("statistic mislabel — the mean quoted as the median (run-38)", () => 
     expect(ok.issues.filter((i) => i.kind === "statistic_mislabel")).toHaveLength(0);
   });
 });
+
+describe("statistic mislabel generalized to metric families (run-41: IQR slope in the median headline)", () => {
+  const results = {
+    median_price_slope_per_period: 0.1092,
+    iqr_price_slope_per_period: 0.0889,
+  };
+
+  it("flags the IQR slope quoted under the median's name", () => {
+    const { issues } = checkDiscourseLine(
+      '{"content": "The median price series is rising over the full priced period (OLS slope 0.0889 per year)."}',
+      results
+    );
+    expect(issues.some((i) => i.kind === "statistic_mislabel")).toBe(true);
+  });
+
+  it("the correct slope under the correct name passes", () => {
+    const ok = checkDiscourseLine(
+      '{"content": "The median price series is rising over the full priced period (OLS slope 0.1092 per year)."}',
+      results
+    );
+    expect(ok.issues.filter((i) => i.kind === "statistic_mislabel")).toHaveLength(0);
+  });
+});
