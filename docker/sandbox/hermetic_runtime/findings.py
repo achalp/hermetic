@@ -219,6 +219,37 @@ def declare_finding(
 # "flat" verdict depending on which libraries the image happens to carry).
 
 
+def _attestation_bar(ns):
+    """The thin-data bar: max(5, 20% of the COUNT-WEIGHTED median period size).
+
+    The reference is where the OBSERVATIONS live, not the median period: a
+    corpus of many sparse periods plus a few massive ones must not let the
+    sparse tail set the bar (a 0.2*period-median bar of 178.8 let a 382-item
+    final year ship as both peak and current state in a series where one year
+    alone holds 124k items). For balanced series the weighted median equals
+    the period median, so the bar is unchanged there. ns: finite numbers,
+    any order. Returns None when empty; never raises.
+    """
+    try:
+        s = sorted(ns)
+        if not s:
+            return None
+        total = float(sum(s))
+        if total <= 0:
+            return max(5.0, 0.2 * s[len(s) // 2])
+        half = total / 2.0
+        acc = 0.0
+        wm = s[-1]
+        for v in s:
+            acc += v
+            if acc >= half:
+                wm = v
+                break
+        return max(5.0, 0.2 * wm)
+    except Exception:
+        return None
+
+
 def _betacf(a, b, x):
     max_iter, eps, fpmin = 300, 3e-12, 1e-300
     qab, qap, qam = a + b, a + 1.0, a - 1.0
@@ -399,8 +430,7 @@ def finding_step_change(values, labels=None, counts=None):
                 ns = [safe_float(c) for c in list(counts)]
                 finite_ns = sorted(n for n in ns if n is not None)
                 if finite_ns and len(ns) == len(ys):
-                    med = finite_ns[len(finite_ns) // 2]
-                    thin = max(5.0, 0.2 * med)
+                    thin = _attestation_bar(finite_ns)
                     n_before = ns[idx - 1]
                     n_after = ns[idx]
                     if (n_before is not None and n_before < thin) or (
@@ -519,7 +549,7 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5):
         if len(vals) < 5:
             return failed
         finite_ns = sorted(p[2] for p in pts if p[2] is not None)
-        thin_bar = max(5.0, 0.2 * finite_ns[len(finite_ns) // 2]) if finite_ns else None
+        thin_bar = _attestation_bar(finite_ns) if finite_ns else None
 
         def med(xs):
             s = sorted(xs)
@@ -707,8 +737,7 @@ def finding_superlative(labels, values, counts=None, kind="max"):
         finite_ns = sorted(r[2] for r in rows if r[2] is not None)
         thin = None
         if finite_ns:
-            med_n = finite_ns[len(finite_ns) // 2]
-            thin = max(5.0, 0.2 * med_n)
+            thin = _attestation_bar(finite_ns)
             attested = [r for r in rows if r[2] is None or r[2] >= thin]
         else:
             attested = rows
@@ -857,11 +886,10 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
             # window) — the corpus level is the reference, not the run-up.
             if not incomplete and cnts is not None:
                 n_cur = cnts[end]
-                prior_n = sorted([cnts[i] for i in prior_i if cnts[i] is not None])
-                if prior_n and n_cur is not None:
-                    med_n = prior_n[len(prior_n) // 2]
-                    if n_cur < max(5.0, 0.2 * med_n):
-                        incomplete = True
+                prior_n = [cnts[i] for i in prior_i if cnts[i] is not None]
+                bar = _attestation_bar(prior_n) if prior_n else None
+                if bar is not None and n_cur is not None and n_cur < bar:
+                    incomplete = True
             mean = sum(prior) / len(prior)
             cur = ys[end]
             if (

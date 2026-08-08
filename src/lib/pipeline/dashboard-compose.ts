@@ -1284,6 +1284,30 @@ export async function composeAndStreamDashboard(args: {
         }
       }
 
+      // A dashboard with ZERO narrative elements is not an answer (observed:
+      // a sonnet-5 compose emitted 5 tiles + 2 charts and no prose, so the
+      // summary every host surface extracts came back empty). Deterministic
+      // detection; repaired via the same bounded recompose as other severe
+      // narrative defects.
+      const PROSE_TYPES = new Set(["TextBlock", "Markdown", "Annotation"]);
+      const hasProse = composedPatches.some((p) => {
+        const v = p.value as { type?: unknown; props?: { content?: unknown } } | undefined;
+        return (
+          v !== undefined &&
+          typeof v === "object" &&
+          PROSE_TYPES.has(String(v.type)) &&
+          typeof v.props?.content === "string" &&
+          v.props.content.trim().length > 0
+        );
+      });
+      if (!hasProse && lineCount > 0) {
+        proseLintIssues.set("no_narrative", {
+          kind: "no_narrative",
+          detail:
+            "the composed dashboard contains NO narrative element — add a TextBlock that answers the question in words, binding the declared findings ($finding:...); tiles and charts alone are not an answer",
+        });
+      }
+
       // Bounded recompose (ONE pass): severe narrative defects — null
       // bindings that stripped sentences, unfilled slots — go back to the
       // composer as explicit repair instructions. The recursion re-runs the
@@ -1293,6 +1317,7 @@ export async function composeAndStreamDashboard(args: {
         "sentinel_interpolation",
         "zero_count_sentence",
         "empty_interpolation",
+        "no_narrative",
       ]);
       const severe = [...proseLintIssues.values()]
         .filter((i) => SEVERE_KINDS.has(i.kind))

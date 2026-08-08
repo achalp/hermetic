@@ -1295,7 +1295,20 @@ export function lintThinSuperlative(
         .filter((x): x is number => typeof x === "number")
         .sort((a, b) => a - b);
       if (counts.length < 5) return undefined;
-      const medN = counts[Math.floor(counts.length / 2)];
+      // COUNT-WEIGHTED median (same bar the runtime's _attestation_bar
+      // applies): the reference is where the observations live — a sparse
+      // tail of small periods must not drag the bar down (a 178.8 bar let a
+      // 382-item year headline a corpus with a 124k-item year in it).
+      const total = counts.reduce((a, b) => a + b, 0);
+      let acc = 0;
+      let medN = counts[counts.length - 1];
+      for (const c of counts) {
+        acc += c;
+        if (acc >= total / 2) {
+          medN = c;
+          break;
+        }
+      }
       const row = (rows as Record<string, unknown>[]).find(
         (r) => String(r[xCol]) === String(period)
       );

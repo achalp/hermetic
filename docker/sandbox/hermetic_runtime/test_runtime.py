@@ -544,9 +544,24 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(out["raw_period"], "1996")
         self.assertEqual(out["raw_value"], 74.0)
         self.assertEqual(out["thin_periods_skipped"], 1)
-        self.assertAlmostEqual(out["thin_bar"], 120.0, places=0)  # 20% of median count — the bar is REPORTED, mechanism legible
+        # 20% of the COUNT-WEIGHTED median period size (the typical item
+        # lives in the 1217-count year: cum [52,452,1052,2269] crosses half
+        # of 2269 at 1217) — the bar is REPORTED, mechanism legible.
+        self.assertAlmostEqual(out["thin_bar"], 243.4, places=1)
         # Without counts, the raw extreme wins (nothing to weight by).
         self.assertEqual(finding_superlative(labels, vals)["period"], "1996")
+
+    def test_attestation_bar_resists_a_sparse_tail(self):
+        # The 178.8-bar failure (menu-price review): many sparse years drag
+        # the PERIOD median down, letting a 382-item final year headline a
+        # corpus whose mass lives in multi-thousand-item years. The weighted
+        # median tracks where the observations are.
+        sparse_heavy = [100.0] * 10 + [5000.0, 8000.0, 124000.0]
+        bar = findings._attestation_bar(sparse_heavy)
+        self.assertGreater(bar, 382)  # the sparse-year headline is refused
+        # Balanced series: weighted median ~ period median, bar unchanged.
+        self.assertAlmostEqual(findings._attestation_bar([100.0] * 9), 20.0, places=1)
+        self.assertIsNone(findings._attestation_bar([]))
 
     def test_split_comparison_shared_split_point(self):
         labels = [str(1900 + i) for i in range(10)]
