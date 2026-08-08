@@ -41,7 +41,6 @@ import { retrieveExemplar } from "@/lib/learning/exemplars";
 import { harvestRun } from "@/lib/learning/harvest";
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
 import { getActiveModels } from "@/lib/runtime-config";
-import { conventionsGuidance } from "@/lib/learning/conventions";
 import { CODE_REVIEW_MODEL, MAX_REVIEW_REDOS, LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
@@ -151,12 +150,6 @@ export async function runPipeline(
   // obviously worth it. A plain CSV question activates nothing → never pays.
   const reviewEnabled = activeSkills.reviewGated;
   let questionGuidance = activeSkills.questionGuidance(skillRenderCtx);
-  // Per-dataset settled conventions (learning/conventions.ts): prior runs'
-  // declared checks ride the un-cached question tail as KEEP-unless-justified
-  // policy — the fix for run-to-run judgment drift (median headline reverting,
-  // slope changing 0.125 -> 0.068 on identical data).
-  const priorConventions = conventionsGuidance(schema.columns.map((c) => c.name));
-  if (priorConventions) questionGuidance += `\n${priorConventions}`;
   // Verified exemplar (learning-loops spec #3): working code from a previous
   // successful run over a similar schema/question, appended to the UN-CACHED
   // question tail (it varies per question — must never enter the cached

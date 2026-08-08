@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hermeticPaths } from "@/lib/paths";
 import { logger } from "@/lib/logger";
-import type { Exemplar } from "@/lib/contracts/learning";
+import { CONTRACT_GENERATION, type Exemplar } from "@/lib/contracts/learning";
 import { schemaFingerprint } from "./fingerprint";
 
 const MAX_EXEMPLARS = 50;
@@ -67,6 +67,7 @@ export async function bankExemplar(input: BankInput): Promise<void> {
     );
     const entry: Exemplar = {
       id: existing?.id ?? randomUUID(),
+      contractGen: CONTRACT_GENERATION,
       runId: input.runId,
       question: input.question,
       schemaFingerprint: fp,
@@ -139,7 +140,9 @@ export function scoreExemplar(e: Exemplar, input: RetrieveInput): number {
 }
 
 export async function retrieveExemplar(input: RetrieveInput): Promise<Exemplar | null> {
-  const all = await listExemplars();
+  // Stale-generation exemplars are never retrieved: code banked under a
+  // retired contract re-seeds retired behavior on similar questions.
+  const all = (await listExemplars()).filter((x) => (x.contractGen ?? 0) === CONTRACT_GENERATION);
   if (all.length === 0) return null;
   const scored = all
     .map((e) => ({ e, score: scoreExemplar(e, input) }))

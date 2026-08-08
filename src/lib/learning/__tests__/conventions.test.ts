@@ -1,106 +1,52 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync } from "fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { setPathRoots } from "@/lib/paths";
-import { saveConventions, conventionsGuidance } from "@/lib/learning/conventions";
+import { describe, it, expect } from "vitest";
+import { conventionCandidates } from "@/lib/learning/conventions";
+import type { FindingEntry } from "@/lib/contracts/findings";
 
-const COLS = ["year", "avg_price", "median_price", "menu_item_count"];
-const check = (name: string, passed: boolean) => ({
+const check = (name: string, definition: string, value: Record<string, unknown>): FindingEntry => ({
   name,
-  definition: `${name} policy settled over the year/median_price columns`,
+  definition,
   dtype: "check",
   tags: ["check", "caveat"],
-  value: { passed, threshold: 124.9 },
+  value: { passed: true, ...value },
 });
 
-describe("per-dataset conventions — judgment survives re-runs", () => {
-  beforeEach(() => {
-    const root = mkdtempSync(join(tmpdir(), "hermetic-conv-"));
-    setPathRoots({ dataRoot: root });
+describe("conventionCandidates — interpretive, clean, measured (learning review)", () => {
+  it("keeps interpretive checks with numeric evidence; drops mechanical ones", () => {
+    const findings = [
+      check("zero_price_semantics", "zero prices mean unrecorded; excluded at record level", {
+        n_zero_years: 48,
+      }),
+      check("primary_metric_choice", "median leads: distribution skew justifies robust stats", {
+        skew_avg: 7.65,
+      }),
+      // Mechanical: re-derived deterministically each run — never persists.
+      check("year_continuity", "years are contiguous in the observed range", { gaps: 0 }),
+      check("row_count_sanity", "row count matches source", { rows: 142 }),
+    ];
+    const names = conventionCandidates(findings, new Set()).map((f) => f.name);
+    expect(names).toContain("zero_price_semantics");
+    expect(names).toContain("primary_metric_choice");
+    expect(names).not.toContain("row_count_sanity");
   });
 
-  it("round-trips checks into a KEEP-unless-justified guidance block", () => {
-    expect(conventionsGuidance(COLS)).toBeNull();
-    saveConventions(
-      COLS,
-      [check("median_headline_choice", true), check("thin_decade_caveat", false)],
-      "how have prices changed"
+  it("lint-flagged checks and evidence-free checks never qualify", () => {
+    const flagged = check(
+      "min_price_boolean_flag",
+      "min_price is a boolean unrecorded-price flag",
+      {
+        is_boolean: false,
+        zero_rows: 140,
+      }
     );
-    const g = conventionsGuidance(COLS);
-    expect(g).toContain("Established Conventions");
-    expect(g).toContain("median_headline_choice");
-    expect(g).toContain("thin_decade_caveat (FAILED last run)");
-    expect(g).toContain("convention_change_");
-    // Different column shape → different dataset → no carry-over.
-    expect(conventionsGuidance(["a", "b"])).toBeNull();
-  });
-
-  it("saves nothing when a run declared no checks", () => {
-    saveConventions(COLS, [
-      { name: "t", definition: "a trend", dtype: "trend", value: { direction: "rising" } },
-    ]);
-    expect(conventionsGuidance(COLS)).toBeNull();
-  });
-});
-
-describe("bad conventions cannot bake in", () => {
-  beforeEach(() => {
-    const root = mkdtempSync(join(tmpdir(), "hermetic-conv2-"));
-    setPathRoots({ dataRoot: root });
-  });
-
-  it("a later run MERGES — it cannot silently overwrite a settled convention", () => {
-    saveConventions(COLS, [check("median_headline_choice", true)]);
-    // A regression run declaring a DIFFERENT check must not erase the prior one.
-    saveConventions(COLS, [check("mean_everywhere", true)]);
-    const g = conventionsGuidance(COLS)!;
-    expect(g).toContain("median_headline_choice");
-    expect(g).toContain("mean_everywhere");
-  });
-
-  it("replacing a convention requires the explicit change protocol", () => {
-    saveConventions(COLS, [check("median_headline_choice", true)]);
-    saveConventions(COLS, [check("convention_change_median_headline_choice", true)]);
-    const g = conventionsGuidance(COLS)!;
-    expect(g).not.toMatch(/- median_headline_choice/);
-    expect(g).toContain("convention_change_median_headline_choice");
-  });
-
-  it("a degraded run writes nothing", () => {
-    saveConventions(COLS, [check("good_policy", true)]);
-    saveConventions(COLS, [check("stub_garbage", true)], "q", { degraded: true });
-    const g = conventionsGuidance(COLS)!;
-    expect(g).toContain("good_policy");
-    expect(g).not.toContain("stub_garbage");
-  });
-
-  it("conventions the model stops re-declaring decay after 5 saves", () => {
-    saveConventions(COLS, [check("fading_policy", true)]);
-    for (let i = 0; i < 6; i++) {
-      saveConventions(COLS, [check("stable_policy", true)]);
-    }
-    const g = conventionsGuidance(COLS)!;
-    expect(g).toContain("stable_policy");
-    expect(g).not.toContain("fading_policy");
-  });
-});
-
-describe("lint-flagged checks never persist (the 9-run boolean flag)", () => {
-  beforeEach(() => {
-    const root = mkdtempSync(join(tmpdir(), "hermetic-conv3-"));
-    setPathRoots({ dataRoot: root });
-  });
-
-  it("excludeNames keeps a contradicted check out of the store", () => {
-    saveConventions(
-      COLS,
-      [check("good_policy", true), check("min_price_boolean_flag", true)],
-      "q",
-      { excludeNames: ["min_price_boolean_flag"] }
-    );
-    const g = conventionsGuidance(COLS)!;
-    expect(g).toContain("good_policy");
-    expect(g).not.toContain("min_price_boolean_flag");
+    expect(conventionCandidates([flagged], new Set(["min_price_boolean_flag"]))).toHaveLength(0);
+    const assertion = check("median_convention", "median is the primary metric", {});
+    expect(conventionCandidates([assertion], new Set())).toHaveLength(0);
+    const nonCheck: FindingEntry = {
+      name: "median_trend",
+      definition: "median convention trend over years",
+      dtype: "trend",
+      value: { direction: "rising", p_value: 0.001 },
+    };
+    expect(conventionCandidates([nonCheck], new Set())).toHaveLength(0);
   });
 });

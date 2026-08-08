@@ -13,7 +13,8 @@
 export type LessonKind =
   | "domain-guidance" // dataset/domain fact → complement-skill guidance line
   | "dialect-fact" // engine/library fact (function names, syntax) → guidance line
-  | "engine-defect"; // contract/shape failures → hermetic fix candidate, never a prompt
+  | "engine-defect" // contract/shape failures → hermetic fix candidate, never a prompt
+  | "dataset-convention"; // recurring clean interpretive CHECK (what held, not what broke)
 
 export interface LessonEvidence {
   runId: string;
@@ -69,6 +70,14 @@ export interface LearnedProposal {
 }
 
 /** A verified success: executed, passed semantic validation, grounded. */
+/**
+ * Contract generation: bump when the codegen/runtime contracts change
+ * materially (an exemplar banked under retired contracts re-seeds retired
+ * behavior — e.g. pre-parallel-columns screen semantics). Gen 2 =
+ * declared-checks + parallel screened columns era (2026-08-07).
+ */
+export const CONTRACT_GENERATION = 2;
+
 export interface Exemplar {
   id: string;
   runId: string;
@@ -82,6 +91,8 @@ export interface Exemplar {
   code: string;
   /** Attempts before success (1 = first try) — retrieval prefers hard-won. */
   attempts: number;
+  /** CONTRACT_GENERATION at bank time; stale generations are not retrieved. */
+  contractGen?: number;
   rowCount: number;
   createdAt: string;
 }

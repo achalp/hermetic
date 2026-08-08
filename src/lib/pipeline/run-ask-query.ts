@@ -35,7 +35,7 @@ import {
   lintSeriesConsumption,
   lintResultsProvenance,
 } from "@/lib/findings";
-import { saveConventions } from "@/lib/learning/conventions";
+import { recordDatasetConventions } from "@/lib/learning/conventions";
 import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
 import { lintRangeFabrication } from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
@@ -493,17 +493,16 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               executionResult.data_completeness
             ),
           ];
-          // Persist this run's checks as the dataset's settled conventions
-          // (drift fix): the next run on the same column shape receives them.
-          saveConventions(
-            stored.schema.columns.map((c) => c.name),
-            validated.manifest.findings,
+          // Dataset-convention candidates → the lesson ledger (holistic
+          // learning review: no shadow injection; recurring clean
+          // interpretive checks graduate through the SAME proposal/approval
+          // flow as failure lessons — the loop learns from what held).
+          void recordDatasetConventions({
+            runId: "ask",
             question,
-            {
-              // Lint-flagged checks never persist as conventions — the store
-              // was faithfully re-injecting min_price_boolean_flag (flagged
-              // definition_contradicted) as a KEEP instruction for 9 runs.
-              excludeNames: findingIssues
+            findings: validated.manifest.findings,
+            flaggedNames: new Set(
+              findingIssues
                 .filter((i) =>
                   [
                     "definition_contradicted",
@@ -513,16 +512,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
                   ].includes(i.kind)
                 )
                 .map((i) => i.name)
-                .filter((n): n is string => typeof n === "string"),
-              // Quality gate: a degraded run must not write conventions —
-              // baking a regression in would make it repeat.
-              degraded:
-                !!executionResult.runtime_fallback ||
-                findingIssues.some((i) =>
-                  ["runtime_fallback", "no_checks_declared"].includes(i.kind)
-                ),
-            }
-          );
+                .filter((n): n is string => typeof n === "string")
+            ),
+            degraded: !!executionResult.runtime_fallback,
+          });
           diagEvent("findings", {
             mode,
             declared: executionResult.findings.length,
