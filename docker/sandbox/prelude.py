@@ -610,6 +610,17 @@ def finding_current_state(values, labels=None, window=6, coverage=None):
 # (hermetic_runtime.series) adds role/column validation and overrides below.
 _hermetic_series = []
 _hermetic_values = []
+
+# Read-only registry getters. Generated code occasionally reads back what it
+# declared (observed: a hallucinated get_findings() call cost a full
+# max-effort codegen retry via the preflight F821) — the names are real
+# package API, harmless, and cheap to expose, so they must never NameError.
+def get_findings():
+    return list(_hermetic_findings)
+def get_series():
+    return list(_hermetic_series)
+def get_values():
+    return list(_hermetic_values)
 def declare_series(series_id, rows, x, measures, count=None, group=None):
     try:
         import pandas as _pd
@@ -671,7 +682,7 @@ try:
         finding_decompose, finding_heterogeneity, finding_current_state, finding_yoy,
         declare_check, finding_split_comparison, finding_superlative,
         finding_outliers, finding_correlation, finding_distribution, finding_share,
-        declare_series, declare_value)
+        declare_series, declare_value, get_findings, get_series, get_values)
     from hermetic_runtime import to_native as _to_native
     _hrt.guards.configure(_MEM_LIMIT)
     assert_fits = _hrt.guards.assert_fits

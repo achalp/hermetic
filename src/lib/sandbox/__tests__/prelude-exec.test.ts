@@ -99,6 +99,23 @@ describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
     expect(out.values).toEqual([]);
   });
 
+  it("registry getters resolve — a read-back never NameErrors (max-effort retry class)", () => {
+    // Observed: generated code called get_findings(); the name existed only
+    // in the package, so the preflight F821 forced a full codegen retry.
+    const out = runPrelude(
+      `declare_finding('t', {'slope': 1.0}, 'trend of v', 'trend')
+declare_series('s', [{'x': 1, 'v': 2.0}], x=('x', 'ordinal'), measures=['v'])
+declare_value('n', 5, label='Rows')
+write_output(results={'n_findings': len(get_findings()),
+                      'n_series': len(get_series()),
+                      'n_values': len(get_values())})`
+    );
+    const results = out.results as Record<string, unknown>;
+    expect(results.n_findings).toBe(1);
+    expect(results.n_series).toBe(1);
+    expect(results.n_values).toBe(1);
+  });
+
   it("synthesizes chart_data and results from declared series/values", () => {
     const out = runPrelude(
       `declare_series('s', [{'yr': 2000, 'v': 1.5}], x=('yr', 'temporal'), measures=['v'])
