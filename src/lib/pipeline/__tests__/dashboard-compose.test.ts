@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildDashboardComposeRequest, buildValuesSection } from "@/lib/pipeline/dashboard-compose";
+import {
+  buildDashboardComposeRequest,
+  buildValuesSection,
+  mirroredResultKeys,
+} from "@/lib/pipeline/dashboard-compose";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
@@ -231,5 +235,45 @@ describe("buildValuesSection — sighted mode (composer-sight spec §1)", () => 
     const exec = { results: { big }, chart_data: {}, datasets: {}, execution_ms: 1 } as never;
     const section = buildValuesSection(exec, undefined);
     expect(section).toContain("omitted for space: results");
+  });
+});
+
+describe("mirroredResultKeys — statistical claims bind through their finding (run-41 root fix)", () => {
+  const manifest = {
+    manifest_version: "1.0",
+    findings: [
+      {
+        name: "median_price_trend",
+        definition: "OLS trend of the annual median price",
+        dtype: "trend",
+        value: { direction: "rising", slope_per_period: 0.1092, p_value: 6.59e-11 },
+      },
+      {
+        name: "peak_median_price",
+        definition: "attested peak of the annual median",
+        dtype: "superlative",
+        value: { period: "2012", value: 38 },
+      },
+    ],
+  } as never;
+  const results = {
+    median_price_trend_slope_per_period: 0.1092,
+    median_price_trend_p_value: 6.59e-11,
+    peak_median_price: 38,
+    total_priced_listings: 1271548,
+    iqr_price_slope_per_period: 0.0889,
+  };
+
+  it("marks finding-field mirrors; leaves standalone keys offered", () => {
+    const mirrored = mirroredResultKeys(results, manifest);
+    expect(mirrored.has("median_price_trend_slope_per_period")).toBe(true);
+    expect(mirrored.has("median_price_trend_p_value")).toBe(true);
+    expect(mirrored.has("peak_median_price")).toBe(true); // .value mirror
+    expect(mirrored.has("total_priced_listings")).toBe(false);
+    expect(mirrored.has("iqr_price_slope_per_period")).toBe(false); // no finding owns it (its own defect)
+  });
+
+  it("no manifest, nothing withheld", () => {
+    expect(mirroredResultKeys(results, undefined).size).toBe(0);
   });
 });

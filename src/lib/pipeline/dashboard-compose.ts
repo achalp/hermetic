@@ -237,27 +237,64 @@ function describeResultsSchema(obj: Record<string, unknown>): Record<string, unk
 // blank lines and return "" when not applicable), so the assembler is a plain
 // concatenation.
 
+/**
+ * Results keys that MIRROR a finding field (root fix for the wrong-key
+ * binding class, run-41): the analysis encodes metric identity in the
+ * FINDINGS — median_price_trend.slope_per_period cannot be confused with
+ * the IQR's — and then re-exports the same numbers as a flat bag of
+ * look-alike \$result keys where median_/iqr_ differ by one morpheme.
+ * Mirrored keys are EXCLUDED from the composer's binding vocabulary: the
+ * only path to a statistic is through the finding that owns it, so the
+ * mislabel is unrepresentable rather than repaired. Mirrors still exist in
+ * results (tiles/back-compat resolve them), they just aren't offered.
+ */
+export function mirroredResultKeys(
+  results: Record<string, unknown>,
+  manifest?: FindingsManifest
+): Set<string> {
+  const mirrored = new Set<string>();
+  for (const f of manifest?.findings ?? []) {
+    if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) continue;
+    const base = f.name.replace(/^step_\d+\./, "");
+    for (const field of Object.keys(f.value as Record<string, unknown>)) {
+      for (const cand of [`${base}_${field}`, `${base}${field === "value" ? "" : "_" + field}`]) {
+        if (cand in results) mirrored.add(cand);
+      }
+    }
+  }
+  return mirrored;
+}
+
 /** Question + results (schema or values) + chart-data shapes + image keys. */
 function buildCorePrompt(
   executionResult: SandboxExecutionResult,
   question: string,
   schemaMode: SchemaMode,
-  useDataController: boolean
+  useDataController: boolean,
+  manifest?: FindingsManifest
 ): string {
   const imageKeys = Object.keys(executionResult.images);
 
+  // Statistical claims bind THROUGH their finding — mirrored result keys
+  // are removed from the offered vocabulary (see mirroredResultKeys).
+  const mirrored = mirroredResultKeys(
+    (executionResult.results ?? {}) as Record<string, unknown>,
+    manifest
+  );
+  const offeredResults = Object.fromEntries(
+    Object.entries(executionResult.results ?? {}).filter(([k]) => !mirrored.has(k))
+  );
+
   // Cap results at 30K chars — these are small scalar aggregations the LLM
   // needs verbatim for StatCard values and TextBlock content.
-  const resultsJson = JSON.stringify(executionResult.results);
+  const resultsJson = JSON.stringify(offeredResults);
   const compactResults =
-    resultsJson.length > 30_000
-      ? truncateValue(executionResult.results, 30_000)
-      : executionResult.results;
+    resultsJson.length > 30_000 ? truncateValue(offeredResults, 30_000) : offeredResults;
 
   const resultsSection =
     schemaMode === "metadata"
       ? `## Analysis Results Schema
-${JSON.stringify(describeResultsSchema(compactResults as Record<string, unknown>))}
+${JSON.stringify(describeResultsSchema(compactResults as Record<string, unknown>))}${mirrored.size > 0 ? `\n(${mirrored.size} statistical keys are NOT listed here — they mirror declared findings; bind those statistics via "$finding:<name>.<field>" so the metric identity travels with the number)` : ""}
 
 ${RESULT_PLACEHOLDER_USAGE}
 
@@ -671,7 +708,13 @@ export function buildDashboardComposeRequest(
     question
   );
   const userPrompt =
-    buildCorePrompt(executionResult, question, schemaMode, analysis.useDataController) +
+    buildCorePrompt(
+      executionResult,
+      question,
+      schemaMode,
+      analysis.useDataController,
+      opts.findings?.manifest
+    ) +
     buildFindingsSection(opts.findings?.manifest) +
     buildHeadlineSection(headlinePlan) +
     buildFailedChecksSection(opts.findings?.manifest) +
