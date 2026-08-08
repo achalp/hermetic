@@ -73,6 +73,15 @@ export interface ConversationTurn {
   sql?: string;
 }
 
+/** Persisted non-blind audit verdict (composer-sight spec §3) — part of the
+ *  history record so it loads/exports along with the other artifacts. */
+export interface PersistedAudit {
+  verdict: "clean" | "issues";
+  findings: Array<{ severity: "high" | "medium" | "low"; claim: string; evidence: string }>;
+  at: number;
+  model: string;
+}
+
 export interface HistoryMeta {
   id: string;
   question: string;

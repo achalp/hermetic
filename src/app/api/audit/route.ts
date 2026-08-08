@@ -2,10 +2,8 @@
  * /api/audit — on-demand non-blind audit (composer-sight spec §3).
  * POST { history_id } runs it; GET ?history_id returns the persisted one.
  */
-import { readFileSync } from "fs";
-import { join } from "path";
 import { apiError } from "@/app/lib/api-error";
-import { hermeticPaths } from "@/lib/paths";
+import { loadHistoryAudit } from "@/lib/history/storage";
 import { auditHistoryEntry } from "@/lib/pipeline/audit";
 
 const ID_RE = /^[a-f0-9-]{8,40}$/;
@@ -31,8 +29,7 @@ export async function GET(request: Request) {
       return Response.json({ error: "history_id required" }, { status: 400 });
     }
     try {
-      const raw = readFileSync(join(hermeticPaths.historyDir(), id, "audit.json"), "utf-8");
-      return Response.json({ audit: JSON.parse(raw) });
+      return Response.json({ audit: (await loadHistoryAudit(id)) ?? null });
     } catch {
       return Response.json({ audit: null });
     }

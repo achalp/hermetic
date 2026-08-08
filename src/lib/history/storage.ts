@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import type { HistoryMeta } from "@/lib/contracts/storage-types";
+import type { HistoryMeta, PersistedAudit } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
@@ -189,19 +189,22 @@ export interface LoadedHistoryEntry {
   schema: CSVSchema;
   artifacts?: CachedArtifacts;
   csvContent?: string;
+  /** Persisted non-blind audit verdict, when one was run for this entry. */
+  audit?: PersistedAudit;
 }
 
 export async function loadHistoryEntry(id: string): Promise<LoadedHistoryEntry> {
   try {
-    const [meta, spec, generatedCode, schema, artifacts, csvContent] = await Promise.all([
+    const [meta, spec, generatedCode, schema, artifacts, csvContent, audit] = await Promise.all([
       store().readRequiredJson<HistoryMeta>(id, RECORD_FILES.meta),
       store().readRequiredJson<Record<string, unknown>>(id, RECORD_FILES.spec),
       store().readRequiredText(id, RECORD_FILES.code),
       store().readRequiredJson<CSVSchema>(id, RECORD_FILES.schema),
       store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts),
       store().readOptionalText(id, RECORD_FILES.source),
+      store().readOptionalJson<PersistedAudit>(id, RECORD_FILES.audit),
     ]);
-    return { meta, spec, generatedCode, schema, artifacts, csvContent };
+    return { meta, spec, generatedCode, schema, artifacts, csvContent, audit };
   } catch (err) {
     // Corrupt ≠ missing: a RecordCorruptError means the entry EXISTS but a
     // required file is unreadable/unparsable — surface which file and why,
@@ -219,6 +222,17 @@ export async function loadHistoryEntry(id: string): Promise<LoadedHistoryEntry> 
 
 export async function deleteHistoryEntry(id: string): Promise<void> {
   await store().delete(id);
+}
+
+/** Persist the non-blind audit verdict as part of the entry's record —
+ *  through the store, never a raw side-file write (a file the record
+ *  contract doesn't know about is invisible to every load/export path). */
+export async function saveHistoryAudit(id: string, audit: PersistedAudit): Promise<void> {
+  await store().writeFiles(id, { [RECORD_FILES.audit]: JSON.stringify(audit, null, 2) });
+}
+
+export async function loadHistoryAudit(id: string): Promise<PersistedAudit | undefined> {
+  return store().readOptionalJson<PersistedAudit>(id, RECORD_FILES.audit);
 }
 
 /**

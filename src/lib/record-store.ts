@@ -21,6 +21,8 @@ export const RECORD_FILES = {
   source: "source.csv",
   artifacts: "artifacts.json",
   workbook: "workbook.json",
+  /** On-demand non-blind audit verdict (composer-sight spec §3). */
+  audit: "audit.json",
 } as const;
 
 export type RecordFile = (typeof RECORD_FILES)[keyof typeof RECORD_FILES];
