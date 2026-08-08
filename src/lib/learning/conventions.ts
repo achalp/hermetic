@@ -79,13 +79,14 @@ export function saveConventions(
   columns: string[],
   findings: FindingEntry[],
   question?: string,
-  opts: { degraded?: boolean } = {}
+  opts: { degraded?: boolean; excludeNames?: string[] } = {}
 ): void {
   try {
     if (opts.degraded) return;
     const now = Date.now();
+    const excluded = new Set(opts.excludeNames ?? []);
     const incoming = findings
-      .filter((f) => f.dtype === "check")
+      .filter((f) => f.dtype === "check" && !excluded.has(f.name))
       .map((f) => ({
         name: f.name,
         definition: f.definition,

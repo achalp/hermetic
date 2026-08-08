@@ -85,3 +85,22 @@ describe("bad conventions cannot bake in", () => {
     expect(g).not.toContain("fading_policy");
   });
 });
+
+describe("lint-flagged checks never persist (the 9-run boolean flag)", () => {
+  beforeEach(() => {
+    const root = mkdtempSync(join(tmpdir(), "hermetic-conv3-"));
+    setPathRoots({ dataRoot: root });
+  });
+
+  it("excludeNames keeps a contradicted check out of the store", () => {
+    saveConventions(
+      COLS,
+      [check("good_policy", true), check("min_price_boolean_flag", true)],
+      "q",
+      { excludeNames: ["min_price_boolean_flag"] }
+    );
+    const g = conventionsGuidance(COLS)!;
+    expect(g).toContain("good_policy");
+    expect(g).not.toContain("min_price_boolean_flag");
+  });
+});

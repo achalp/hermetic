@@ -31,6 +31,8 @@ import {
   lintDefinitionContradicted,
   lintChartConsistency,
   lintUndeclaredScreen,
+  lintScreenScopeMismatch,
+  lintSeriesConsumption,
   lintResultsProvenance,
 } from "@/lib/findings";
 import { saveConventions } from "@/lib/learning/conventions";
@@ -471,6 +473,11 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               (executionResult.results ?? {}) as Record<string, unknown>,
               validated.manifest.findings
             ),
+            ...lintScreenScopeMismatch(
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
+            ...lintSeriesConsumption((executionResult.chart_data ?? {}) as Record<string, unknown>),
             ...lintUndeclaredScreen(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
               validated.manifest.findings
@@ -493,6 +500,20 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             validated.manifest.findings,
             question,
             {
+              // Lint-flagged checks never persist as conventions — the store
+              // was faithfully re-injecting min_price_boolean_flag (flagged
+              // definition_contradicted) as a KEEP instruction for 9 runs.
+              excludeNames: findingIssues
+                .filter((i) =>
+                  [
+                    "definition_contradicted",
+                    "weak_check",
+                    "method_mismatch",
+                    "nonstandard_direction",
+                  ].includes(i.kind)
+                )
+                .map((i) => i.name)
+                .filter((n): n is string => typeof n === "string"),
               // Quality gate: a degraded run must not write conventions —
               // baking a regression in would make it repeat.
               degraded:

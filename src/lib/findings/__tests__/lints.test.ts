@@ -14,6 +14,8 @@ import {
   lintDefinitionContradicted,
   lintChartConsistency,
   lintUndeclaredScreen,
+  lintScreenScopeMismatch,
+  lintSeriesConsumption,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -504,5 +506,47 @@ describe("weak_check — evidence without numbers is a label (run-32)", () => {
     expect(issues.some((i) => i.kind === "weak_check" && i.detail.includes("NUMERIC"))).toBe(true);
     const real = { ...label, value: { ...label.value, early_n: 47, late_n: 47 } };
     expect(lintCheckGating([real])).toHaveLength(0);
+  });
+});
+
+describe("lintScreenScopeMismatch — applied vs declared exclusion sets (run-33)", () => {
+  const chartData = {
+    price_trends: [
+      { year: 1966, max_price: 10000, max_price_screened: null },
+      { year: 1980, max_price: 30000, max_price_screened: null },
+      { year: 2012, max_price: 2500, max_price_screened: 2500 },
+    ],
+  };
+  const declared = {
+    name: "avg_price_outlier_screen",
+    definition: "avg_price and max_price values above threshold excluded as outliers",
+    dtype: "check",
+    tags: ["check", "caveat"],
+    value: { passed: false, excluded_years: [1980, 1999, 2012], threshold: 124.9 },
+  };
+
+  it("flags exclusions outside the declared set", () => {
+    const issues = lintScreenScopeMismatch(chartData, [declared]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("screen_scope_mismatch");
+    expect(issues[0].detail).toContain("1966");
+  });
+
+  it("quiet when applied set is within the declaration", () => {
+    const wider = { ...declared, value: { ...declared.value, excluded_years: [1966, 1980] } };
+    expect(lintScreenScopeMismatch(chartData, [wider])).toHaveLength(0);
+  });
+});
+
+describe("lintSeriesConsumption — raw-vs-screened choice must be declared (run-33)", () => {
+  it("flags a raw-only consumer beside a screened sibling elsewhere", () => {
+    const chartData = {
+      decade_rollup: [{ decade: "1980s", avg_price: 94.67 }],
+      screened_line: [{ year: 1980, avg_price: 836.47, avg_price_screened: null }],
+    };
+    const issues = lintSeriesConsumption(chartData);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("undeclared_series_choice");
+    expect(issues[0].detail).toContain("decade_rollup");
   });
 });

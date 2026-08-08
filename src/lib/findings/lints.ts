@@ -869,3 +869,114 @@ export function lintUndeclaredScreen(
   }
   return issues;
 }
+
+// ── Screen-scope mismatch + series-consumption lints (run-33) ────────
+
+function screenedColumnMap(
+  chartData: Record<string, unknown>
+): Map<string, { excludedX: Set<string>; rawKeys: Set<string>; screenedKeys: Set<string> }> {
+  const map = new Map<
+    string,
+    { excludedX: Set<string>; rawKeys: Set<string>; screenedKeys: Set<string> }
+  >();
+  const X_KEYS = ["year", "month", "date", "period", "x", "label", "decade"];
+  for (const [key, v] of Object.entries(chartData)) {
+    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+    if (!Array.isArray(rows) || rows.length === 0 || typeof rows[0] !== "object") continue;
+    const cols = Object.keys(rows[0] as Record<string, unknown>);
+    for (const col of cols) {
+      const m = /^(.*?)_screened(_[a-z]+)?$/.exec(col);
+      if (!m) continue;
+      const base = m[1] + (m[2] ?? "");
+      const entry = map.get(m[1]) ?? {
+        excludedX: new Set<string>(),
+        rawKeys: new Set<string>(),
+        screenedKeys: new Set<string>(),
+      };
+      map.set(m[1], entry);
+      entry.screenedKeys.add(key);
+      const xCol = cols.find((c) => X_KEYS.includes(c.toLowerCase()));
+      for (const raw of rows as Record<string, unknown>[]) {
+        const baseVal = raw[base] ?? raw[m[1] + "_usd"] ?? raw[m[1]];
+        if (baseVal !== null && baseVal !== undefined && raw[col] === null && xCol) {
+          entry.excludedX.add(String(raw[xCol]));
+        }
+      }
+    }
+  }
+  // Second pass: raw-only consumption — must run AFTER all screened bases
+  // are known (a raw chart earlier in iteration order than its screened
+  // sibling would otherwise be missed).
+  for (const [key, v] of Object.entries(chartData)) {
+    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+    if (!Array.isArray(rows) || rows.length === 0 || typeof rows[0] !== "object") continue;
+    const cols = Object.keys(rows[0] as Record<string, unknown>);
+    for (const col of cols) {
+      if (/_screened/.test(col)) continue;
+      const base = col.replace(/_(usd|pct|pp)$/, "");
+      const entry = map.get(base);
+      if (entry && !cols.some((c) => c.startsWith(base + "_screened"))) {
+        entry.rawKeys.add(key);
+      }
+    }
+  }
+  return map;
+}
+
+/** The screen a *_screened column ACTUALLY applied (base non-null, screened
+ *  null) must match the declared check's evidence set — {1966, 1980}
+ *  applied against a declared {1980, 1999, 2012} is two exclusion sets
+ *  under one manifest entry. */
+export function lintScreenScopeMismatch(
+  chartData: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const [base, entry] of screenedColumnMap(chartData)) {
+    if (entry.excludedX.size === 0) continue;
+    const tokens = base.split(/_/).filter((t) => t.length > 2);
+    const declaring = findings.filter(
+      (f) =>
+        f.dtype === "check" &&
+        /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
+        tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
+    );
+    if (declaring.length === 0) continue; // undeclared_screen covers that
+    const declared = new Set<string>();
+    for (const f of declaring) {
+      const walk = (v: unknown): void => {
+        if (Array.isArray(v)) v.forEach(walk);
+        else if (typeof v === "number") declared.add(String(v));
+        else if (typeof v === "string" && /^\d{3,4}$/.test(v)) declared.add(v);
+        else if (v && typeof v === "object") Object.values(v).forEach(walk);
+      };
+      walk(f.value);
+    }
+    if (declared.size === 0) continue;
+    const outside = [...entry.excludedX].filter((x) => !declared.has(x));
+    if (outside.length > 0) {
+      issues.push({
+        kind: "screen_scope_mismatch",
+        name: declaring[0].name,
+        detail: `${base}_screened excludes {${[...entry.excludedX].join(", ")}} but ${declaring[0].name} declares {${[...declared].join(", ")}} — ${outside.join(", ")} excluded by no declared rule (two exclusion sets, one manifest entry)`,
+      });
+    }
+  }
+  return issues;
+}
+
+/** A chart consuming the RAW series while a screened sibling exists
+ *  elsewhere is an undeclared choice that WILL drift between runs (the
+ *  decade rollup silently flipping raw/screened moved the 1980s bar 10x). */
+export function lintSeriesConsumption(chartData: Record<string, unknown>): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const [base, entry] of screenedColumnMap(chartData)) {
+    if (entry.rawKeys.size > 0 && entry.screenedKeys.size > 0 && issues.length < 4) {
+      issues.push({
+        kind: "undeclared_series_choice",
+        detail: `${[...entry.rawKeys].join(", ")} consume(s) raw ${base} while screened ${base} exists (${[...entry.screenedKeys].join(", ")}) — an element's raw-vs-screened choice must be declared or it drifts between runs`,
+      });
+    }
+  }
+  return issues;
+}
