@@ -16,6 +16,7 @@ import {
   lintUndeclaredScreen,
   lintScreenScopeMismatch,
   lintSeriesConsumption,
+  lintUnscreenedSuperlative,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -548,5 +549,40 @@ describe("lintSeriesConsumption — raw-vs-screened choice must be declared (run
     expect(issues).toHaveLength(1);
     expect(issues[0].kind).toBe("undeclared_series_choice");
     expect(issues[0].detail).toContain("decade_rollup");
+  });
+});
+
+describe("lintUnscreenedSuperlative — the outlier policy as a detector (run-35)", () => {
+  const chartData = {
+    price_trends: [
+      { year: 1950, max_price: 5 },
+      { year: 1955, max_price: 7 },
+      { year: 1960, max_price: 6 },
+      { year: 1966, max_price: 10000 },
+      { year: 1970, max_price: 8 },
+      { year: 1980, max_price: 30000 },
+    ],
+  };
+  const peak = {
+    name: "peak_max_price",
+    definition: "highest recorded dish price in the corpus",
+    dtype: "superlative",
+    value: { year: 1980, value: 30000 },
+  };
+
+  it("flags a raw peak dwarfing its column median with no screened series", () => {
+    const issues = lintUnscreenedSuperlative(chartData, [peak]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("unscreened_superlative");
+  });
+
+  it("quiet when a screened series exists or the peak is proportionate", () => {
+    const withScreen = {
+      ...chartData,
+      screened: [{ year: 1980, max_price_screened: null }],
+    };
+    expect(lintUnscreenedSuperlative(withScreen, [peak])).toHaveLength(0);
+    const modest = { ...peak, value: { year: 1955, value: 7 } };
+    expect(lintUnscreenedSuperlative(chartData, [modest])).toHaveLength(0);
   });
 });

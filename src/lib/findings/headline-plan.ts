@@ -194,6 +194,17 @@ export function normalizeHeadlineStats(results: Record<string, unknown>): string
     seen.add(sig);
     return true;
   });
+  // Redundancy: the same VALUE under 3+ labels is one fact stated many
+  // ways ("Peak Median Price: 38", "Most Recent Median Price: 38", ...).
+  const valueCounts = new Map<string, number>();
+  for (const entry of deduped) {
+    const v = JSON.stringify((entry as { value?: unknown } | null)?.value);
+    valueCounts.set(v, (valueCounts.get(v) ?? 0) + 1);
+  }
+  for (const [v, n] of valueCounts) {
+    if (n >= 3)
+      issues.push(`value ${v} appears in ${n} headline stats — one fact stated ${n} ways`);
+  }
   const cap = MAX_TILES + 1;
   if (deduped.length > cap) {
     issues.push(`headline_stats capped at ${cap} (was ${deduped.length})`);

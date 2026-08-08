@@ -980,3 +980,57 @@ export function lintSeriesConsumption(chartData: Record<string, unknown>): Findi
   }
   return issues;
 }
+
+// ── Unscreened-superlative lint (run-35: screens vanished, raw peak shipped) ──
+
+/** A peak/max finding whose value dwarfs its own chart column's median
+ *  (>50x) with no screened variant anywhere is a transcription error
+ *  promoted to a finding — the outlier-screen policy as a deterministic
+ *  detector, so it survives runs where no screen was declared at all. */
+export function lintUnscreenedSuperlative(
+  chartData: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const anyScreened = Object.values(chartData).some((v) => {
+    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+    return (
+      Array.isArray(rows) &&
+      rows.length > 0 &&
+      typeof rows[0] === "object" &&
+      Object.keys(rows[0] as object).some((c) => /_screened/.test(c))
+    );
+  });
+  for (const f of findings) {
+    if (!/peak|max|largest/.test(f.name) || f.value === null || typeof f.value !== "object")
+      continue;
+    const val = (f.value as Record<string, unknown>).value;
+    if (typeof val !== "number") continue;
+    const tokens = f.name
+      .split(/[._]/)
+      .filter((t) => t.length > 2 && !["peak", "max", "largest"].includes(t));
+    for (const v of Object.values(chartData)) {
+      const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+      if (!Array.isArray(rows) || rows.length < 5 || typeof rows[0] !== "object") continue;
+      const col = Object.keys(rows[0] as object).find(
+        (c) => !/_screened/.test(c) && tokens.some((t) => c.includes(t))
+      );
+      if (!col) continue;
+      const nums = (rows as Record<string, unknown>[])
+        .map((r) => r[col])
+        .filter((x): x is number => typeof x === "number" && x > 0)
+        .sort((a, b) => a - b);
+      if (nums.length < 5) continue;
+      const median = nums[Math.floor(nums.length / 2)];
+      if (median > 0 && val > 50 * median && !anyScreened && issues.length < 3) {
+        issues.push({
+          kind: "unscreened_superlative",
+          name: f.name,
+          detail: `${f.name} = ${val} is ${Math.round(val / median)}x the median of ${col} with NO screened series in the payload — a magnitude outlier promoted to a finding (prior runs screened this; this run declared no screen at all)`,
+        });
+      }
+      break;
+    }
+  }
+  return issues;
+}

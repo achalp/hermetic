@@ -96,3 +96,19 @@ describe("count formatting — parenthesized counts rewritten (run-32, third rec
     expect(ok.issues.filter((i) => i.kind === "count_formatting")).toHaveLength(0);
   });
 });
+
+describe("tautological delta prose (run-35: 'sitting 0% below the 2012 peak')", () => {
+  it("flags a zero distance-from-peak narrated as a finding", () => {
+    const { issues } = checkDiscourseLine(
+      '{"content": "The median ends the series sitting 0% below the 2012 peak of the corpus."}'
+    );
+    expect(issues.some((i) => i.kind === "tautological_delta_prose")).toBe(true);
+  });
+
+  it("real distances pass", () => {
+    const ok = checkDiscourseLine(
+      '{"content": "The median ends the series 61.4% below the 2012 peak of the corpus."}'
+    );
+    expect(ok.issues.filter((i) => i.kind === "tautological_delta_prose")).toHaveLength(0);
+  });
+});

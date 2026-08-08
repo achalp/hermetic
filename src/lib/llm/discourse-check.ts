@@ -94,6 +94,14 @@ function checkSentence(sentence: string, issues: FindingIssue[]): "keep" | "drop
       });
     }
   }
+  // Tautological delta narrated as a finding: "sitting 0% below the 2012
+  // peak" when the current period IS the peak informs nothing.
+  if (/\b0(?:\.0+)?%\s+(?:below|above|from|off)\b[^.]*\bpeak/i.test(sentence)) {
+    issues.push({
+      kind: "tautological_delta_prose",
+      detail: `sentence narrates a zero distance-from-peak as a finding (the current period IS the peak): "${sentence.trim().slice(0, 110)}"`,
+    });
+  }
   const seq = SEQUENCE_RE.exec(sentence);
   if (seq) {
     const before: number[] = [];

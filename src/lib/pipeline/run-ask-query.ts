@@ -32,6 +32,7 @@ import {
   lintChartConsistency,
   lintUndeclaredScreen,
   lintScreenScopeMismatch,
+  lintUnscreenedSuperlative,
   lintSeriesConsumption,
   lintResultsProvenance,
 } from "@/lib/findings";
@@ -470,6 +471,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...lintDefinitionContradicted(validated.manifest.findings),
             ...lintResultsProvenance(
               (executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
+            ...lintUnscreenedSuperlative(
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
               validated.manifest.findings
             ),
             ...lintScreenScopeMismatch(

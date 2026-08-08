@@ -51,6 +51,24 @@ export function summarizeSource(source: McpSource): Record<string, unknown> {
       schema: summarizeCsvSchema(source.schema),
     };
   }
+  // A 66-table warehouse reconnect dumped full per-table columns into the
+  // host (and 4x'd sql_gen input). Beyond a small count, columns are
+  // per-table detail — return names+rows only and point at get_schema.
+  const COMPACT_TABLE_LIMIT = 12;
+  if (source.tables.length > COMPACT_TABLE_LIMIT) {
+    return {
+      kind: "warehouse",
+      label: source.label,
+      ...caps,
+      table_count: source.tables.length,
+      tables: source.tables.slice(0, MAX_TABLES).map((t) => ({
+        schema: t.schema,
+        name: t.name,
+        rows: t.row_count_estimate ?? null,
+      })),
+      note: `column details omitted for ${source.tables.length} tables — call get_schema with a table name`,
+    };
+  }
   const tables = source.tables.slice(0, MAX_TABLES).map((t) => ({
     schema: t.schema,
     name: t.name,
