@@ -163,3 +163,18 @@ export async function deleteExemplar(id: string): Promise<boolean> {
     return false;
   }
 }
+
+/** Quality veto (run-40 review): banking happens at pipeline success, but
+ *  the lint battery runs later — a run flagged with severe advisories must
+ *  not teach. Withdraws the exemplar the run just banked (or refreshed). */
+export async function vetoExemplarByRunId(runId: string): Promise<boolean> {
+  try {
+    const hit = (await listExemplars()).find((x) => x.runId === runId);
+    if (!hit) return false;
+    await unlink(join(dir(), `${hit.id}.json`));
+    logger.info("Learning: exemplar vetoed — run was lint-flagged", { runId, id: hit.id });
+    return true;
+  } catch {
+    return false;
+  }
+}

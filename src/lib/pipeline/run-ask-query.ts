@@ -40,6 +40,8 @@ import {
   lintResultsProvenance,
 } from "@/lib/findings";
 import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
+import { vetoExemplarByRunId } from "@/lib/learning/exemplars";
+import { getRunId } from "@/lib/run-context";
 import { lintRangeFabrication } from "@/lib/findings";
 import type { FindingEntry, FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
@@ -511,6 +513,25 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               executionResult.data_completeness
             ),
           ];
+          // Exemplar quality veto: a run whose lints flagged severe defects
+          // (shipped blocking failure, miscalibrated screens, thin-peak
+          // headlines, mislabeled statistics) must not seed future runs —
+          // the bank's admission bar is execution+validation, which this
+          // week proved passes wrong-but-plausible analyses.
+          {
+            const SEVERE_FOR_BANK = new Set([
+              "blocking_check_shipped",
+              "screen_missed_superlative",
+              "thin_superlative",
+              "well_attested_screened",
+              "statistic_mislabel",
+              "unbacked_superlative",
+              "runtime_fallback",
+            ]);
+            if (findingIssues.some((i) => SEVERE_FOR_BANK.has(i.kind))) {
+              void vetoExemplarByRunId(getRunId() ?? "unknown").catch(() => {});
+            }
+          }
           diagEvent("findings", {
             mode,
             declared: executionResult.findings.length,

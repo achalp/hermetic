@@ -8,6 +8,7 @@ import {
   listExemplars,
   retrieveExemplar,
   deleteExemplar,
+  vetoExemplarByRunId,
 } from "@/lib/learning/exemplars";
 
 beforeEach(() => {
@@ -57,6 +58,26 @@ describe("exemplar retirement-era behavior (learning review)", () => {
       activeSkills: [],
     });
     expect(stale).toBeNull();
+  });
+
+  it("vetoExemplarByRunId withdraws a lint-flagged run's exemplar", async () => {
+    await bankExemplar({
+      runId: "flagged-run",
+      question: "how have prices changed across decades",
+      columns: [
+        { name: "year", dtype: "number" },
+        { name: "price", dtype: "number" },
+      ],
+      detectedDomain: null,
+      activeSkills: [],
+      code: "x=1",
+      attempts: 1,
+      rowCount: 10,
+    });
+    expect(await listExemplars()).toHaveLength(1);
+    expect(await vetoExemplarByRunId("other-run")).toBe(false);
+    expect(await vetoExemplarByRunId("flagged-run")).toBe(true);
+    expect(await listExemplars()).toHaveLength(0);
   });
 
   it("deleteExemplar removes and rejects bad ids", async () => {
