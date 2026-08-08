@@ -457,3 +457,45 @@ describe("inline small-dict rendering — the vanished caveat (run-26)", () => {
     expect(nested).toContain("After.");
   });
 });
+
+describe("repairMetricBindings — bind the metric the prose names (run-41 root fix)", () => {
+  const results = {
+    median_price_slope_per_period: 0.1092,
+    iqr_price_slope_per_period: 0.0889,
+    median_price_trend_p_value: 6.59e-11,
+  };
+
+  it("repairs the wrong-family binding in a median-subject sentence", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "The median price series is rising over the full priced period (OLS slope $result:iqr_price_slope_per_period per year, p = $result:median_price_trend_p_value)."}',
+      results,
+      {}
+    );
+    expect(out).toContain("0.1092");
+    expect(out).not.toContain("0.0889");
+  });
+
+  it("does not repair when the prose names the binding's own family, or names two families", () => {
+    const iqrSentence = resolveSpecPlaceholders(
+      '{"content": "The IQR widened at $result:iqr_price_slope_per_period per year over the period."}',
+      results,
+      {}
+    );
+    expect(iqrSentence).toContain("0.0889");
+    const both = resolveSpecPlaceholders(
+      '{"content": "The median rose faster than the IQR widened, at $result:iqr_price_slope_per_period per year overall."}',
+      results,
+      {}
+    );
+    expect(both).toContain("0.0889");
+  });
+
+  it("does not invent keys — no sibling, no repair", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "The median moved at $result:spread_velocity per year across decades."}',
+      { spread_velocity: 3.2 },
+      {}
+    );
+    expect(out).toContain("3.2");
+  });
+});

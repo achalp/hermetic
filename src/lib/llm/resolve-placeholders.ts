@@ -356,6 +356,75 @@ function renderSmallDictInline(value: unknown): string | null {
   return parts.join(", ");
 }
 
+const METRIC_FAMILIES = [
+  "median",
+  "mean",
+  "average",
+  "iqr",
+  "p25",
+  "p75",
+  "max",
+  "min",
+  "spread",
+  "std",
+];
+const metricCanon = (w: string): string => (w === "average" ? "mean" : w);
+
+/**
+ * Repair a binding to the metric the PROSE names (run-41 root fix): the
+ * composer bound $result:iqr_price_slope_per_period inside "The median
+ * price series is rising (OLS slope ...)". The substitution machinery was
+ * fine — the KEY choice was wrong, and the sentence itself declares the
+ * intent. Conservative repair, all four required:
+ *   1. the sentence names exactly ONE metric family word;
+ *   2. a bound key belongs to a DIFFERENT family;
+ *   3. swapping that family for the named one yields an EXISTING key;
+ *   4. no other binding in the sentence contradicts the named family.
+ * Runs pre-substitution; the mislabel lint remains the backstop for cases
+ * this cannot repair unambiguously.
+ */
+export function repairMetricBindings(line: string, results: Record<string, unknown>): string {
+  if (!line.includes("$result:")) return line;
+  return line.replace(/"((?:[^"\\]|\\.)*)"/g, (whole, inner: string) => {
+    if (!/[a-zA-Z]{3}/.test(inner) || !inner.includes("$result:")) return whole;
+    const sentences = inner.split(/(?<=[.!?])\s+/);
+    let changed = false;
+    const repaired = sentences.map((sentence) => {
+      const proseFams = new Set(
+        [...sentence.matchAll(new RegExp(`\\b(${METRIC_FAMILIES.join("|")})\\b`, "gi"))]
+          .map((m) => metricCanon(m[1].toLowerCase()))
+          // Only words OUTSIDE binding tokens count as prose intent.
+          .filter((_w, i, _a) => true)
+      );
+      // Remove families that only appear inside $result tokens.
+      const tokenText = [...sentence.matchAll(/\$result:[a-zA-Z0-9_.]+/g)]
+        .map((m) => m[0])
+        .join(" ");
+      for (const fam of [...proseFams]) {
+        const inProse = new RegExp(`\\b${fam}\\b`, "i").test(
+          sentence.replace(/\$result:[a-zA-Z0-9_.]+/g, "")
+        );
+        if (!inProse) proseFams.delete(fam);
+      }
+      if (proseFams.size !== 1) return sentence;
+      const named = [...proseFams][0];
+      return sentence.replace(/\$result:([a-zA-Z0-9_.]+)/g, (tok, key: string) => {
+        const fam = METRIC_FAMILIES.map(metricCanon).find((f) => f !== named && key.includes(f));
+        if (!fam) return tok;
+        const sibling = key.replace(fam, named);
+        if (sibling === key || !(sibling in results)) return tok;
+        changed = true;
+        logger.info("resolveSpecPlaceholders: repaired binding to the prose-named metric", {
+          from: key,
+          to: sibling,
+        });
+        return `$result:${sibling}`;
+      });
+    });
+    return changed ? `"${repaired.join(" ")}"` : whole;
+  });
+}
+
 /** Unit encoded in a key/field NAME: "_pct" suffix or "pct_" prefix → "%",
  *  "_pp" suffix → "pp". Applied to the LAST path segment. */
 function keyNameUnit(keyPath: string): string | undefined {
@@ -391,7 +460,7 @@ export function resolveSpecPlaceholders(
    *  the unit attached, so the composer never writes unit words. */
   findingUnits: Record<string, string> = {}
 ): string {
-  let processed = line;
+  let processed = repairMetricBindings(line, results);
 
   // ── $finding substitution (declared-findings spec §4.2) ─────────
   // Same three shapes the $result: history proved LLMs emit: object-form,
