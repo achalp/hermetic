@@ -17,6 +17,8 @@ import {
   lintScreenScopeMismatch,
   lintSeriesConsumption,
   lintUnscreenedSuperlative,
+  lintWellAttestedScreened,
+  lintNullZeroMirror,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -584,5 +586,48 @@ describe("lintUnscreenedSuperlative — the outlier policy as a detector (run-35
     expect(lintUnscreenedSuperlative(withScreen, [peak])).toHaveLength(0);
     const modest = { ...peak, value: { year: 1955, value: 7 } };
     expect(lintUnscreenedSuperlative(chartData, [modest])).toHaveLength(0);
+  });
+});
+
+describe("lintWellAttestedScreened — screening data as error (run-37: 2012/$38)", () => {
+  const chartData = {
+    price_trends: [
+      { year: 1997, median_price: 19, median_price_screened: 19, item_count: 515 },
+      { year: 2000, median_price: 4, median_price_screened: 4, item_count: 300 },
+      { year: 2005, median_price: 6, median_price_screened: 6, item_count: 400 },
+      { year: 2010, median_price: 12, median_price_screened: 12, item_count: 200 },
+      { year: 2012, median_price: 38, median_price_screened: null, item_count: 1312 },
+    ],
+  };
+
+  it("flags a screened value backed by above-median counts", () => {
+    const issues = lintWellAttestedScreened(chartData);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("well_attested_screened");
+    expect(issues[0].detail).toContain("2012");
+  });
+
+  it("quiet when the screened value is thin", () => {
+    const thin = {
+      price_trends: chartData.price_trends.map((r) =>
+        r.year === 2012 ? { ...r, item_count: 3 } : r
+      ),
+    };
+    expect(lintWellAttestedScreened(thin)).toHaveLength(0);
+  });
+});
+
+describe("lintNullZeroMirror — one absence, two representations (run-37)", () => {
+  it("flags results 0 mirroring a null finding field; honest mirrors pass", () => {
+    const finding = {
+      name: "median_price_step_change",
+      definition: "largest persistent step in the median series",
+      dtype: "step_change",
+      value: { period: null, delta: null, direction: null, baseline_spread: 0.4 },
+    };
+    const issues = lintNullZeroMirror({ median_price_step_change_delta: 0 }, [finding]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("null_zero_mirror");
+    expect(lintNullZeroMirror({ median_price_step_change_delta: null }, [finding])).toHaveLength(0);
   });
 });

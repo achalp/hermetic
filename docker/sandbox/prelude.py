@@ -558,7 +558,7 @@ def finding_heterogeneity(groups):
     return {'significant': None, 'p_value': None, 'test': 'anova'}
 def declare_check(name, definition, passed=None, evidence=None, severity='caveat', derived_from_columns=None):
     pass
-def finding_split_comparison(labels, values):
+def finding_split_comparison(labels, values, split_at=None):
     return {'early_median': None, 'late_median': None, 'early_n': None,
             'late_n': None, 'early_span': None, 'late_span': None,
             'multiplier': None}

@@ -489,7 +489,7 @@ def finding_yoy(period_labels, values):
         return failed
 
 
-def finding_split_comparison(labels, values):
+def finding_split_comparison(labels, values, split_at=None):
     """Early-vs-late comparison with the windowing scheme PINNED: midpoint
     split over the OBSERVED (non-None) series.
 
@@ -516,7 +516,15 @@ def finding_split_comparison(labels, values):
         pairs = [(lab, v) for lab, v in pairs if v is not None]
         if len(pairs) < 6:
             return failed
-        mid = len(pairs) // 2
+        if split_at is not None:
+            # Shared split point: ALL split comparisons in a run must divide
+            # at the SAME label — per-metric midpoints over differently-
+            # screened subsets produced 1851-1952 vs 1851-1951 splits whose
+            # multipliers are not comparable.
+            sa = str(split_at)
+            mid = next((i for i, (lab, _v) in enumerate(pairs) if lab >= sa), len(pairs) // 2)
+        else:
+            mid = len(pairs) // 2
         early, late = pairs[:mid], pairs[mid:]
 
         def med(vals):

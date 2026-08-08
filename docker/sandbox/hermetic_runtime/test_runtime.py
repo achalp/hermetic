@@ -394,6 +394,17 @@ class TestFindingStatHelpers(unittest.TestCase):
         df = pd.DataFrame({"a": range(100), "b": ["x"] * 100})
         self.assertIsNone(profile_data_edges(df))
 
+    def test_split_comparison_shared_split_point(self):
+        labels = [str(1900 + i) for i in range(10)]
+        vals = [1.0] * 10
+        a = finding_split_comparison(labels, vals, split_at="1904")
+        self.assertEqual(a["early_span"], "1900-1903")
+        self.assertEqual(a["late_span"], "1904-1909")
+        # A differently-screened series splits at the SAME year.
+        vals2 = [1.0, None, 1.0, 1.0, 1.0, 1.0, None, 1.0, 1.0, 1.0]
+        b = finding_split_comparison(labels, vals2, split_at="1904")
+        self.assertEqual(b["late_span"], "1904-1909")
+
     def test_split_comparison_pinned_midpoint(self):
         labels = [str(1900 + i) for i in range(10)]
         vals = [1.0, 1.0, 3.0, 1.0, 1.0, 8.0, 8.0, 10.0, 8.0, 8.0]

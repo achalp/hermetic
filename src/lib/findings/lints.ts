@@ -1034,3 +1034,79 @@ export function lintUnscreenedSuperlative(
   }
   return issues;
 }
+
+// ── Well-attested-screened lint (run-37: 2012/$38 on 1,312 listings deleted) ──
+
+/** A screen exists to remove transcription errors — which are low-n or
+ *  magnitude-implausible. A screened-out x whose COUNT column is at or
+ *  above the series median is well-attested data: screening it means the
+ *  baseline is miscalibrated (a global pooled median on a trending series
+ *  flags growth as error). */
+export function lintWellAttestedScreened(chartData: Record<string, unknown>): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const X_KEYS = ["year", "month", "date", "period", "x", "label", "decade"];
+  for (const [key, v] of Object.entries(chartData)) {
+    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+    if (!Array.isArray(rows) || rows.length < 5 || typeof rows[0] !== "object") continue;
+    const cols = Object.keys(rows[0] as Record<string, unknown>);
+    const countCol = cols.find((c) =>
+      /(^|_)(item_count|n_items|count|listings|n_obs|observations)($|_)/.test(c)
+    );
+    const xCol = cols.find((c) => X_KEYS.includes(c.toLowerCase()));
+    if (!countCol || !xCol) continue;
+    const counts = (rows as Record<string, unknown>[])
+      .map((r) => r[countCol])
+      .filter((x): x is number => typeof x === "number")
+      .sort((a, b) => a - b);
+    if (counts.length < 5) continue;
+    const medianCount = counts[Math.floor(counts.length / 2)];
+    for (const col of cols) {
+      const m = /^(.*?)_screened/.exec(col);
+      if (!m) continue;
+      const base = cols.find((c) => c.startsWith(m[1]) && !/_screened/.test(c));
+      if (!base) continue;
+      for (const r of rows as Record<string, unknown>[]) {
+        if (
+          r[col] === null &&
+          typeof r[base] === "number" &&
+          typeof r[countCol] === "number" &&
+          (r[countCol] as number) >= medianCount &&
+          issues.length < 3
+        ) {
+          issues.push({
+            kind: "well_attested_screened",
+            detail: `${key}: ${m[1]} screened out at ${String(r[xCol])} despite ${String(r[countCol])} ${countCol} (>= series median ${medianCount}) — transcription errors are low-n or magnitude-implausible; a well-attested value screened means the baseline is miscalibrated (use a rolling/within-era baseline on trending series, never a global pooled one)`,
+          });
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+/** Two representations of one absence: a finding field is null while its
+ *  mirrored results key is 0 (run-37: step_change_delta 0 in results, null
+ *  in the finding) — the mirror must be read, not re-defaulted. */
+export function lintNullZeroMirror(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const f of findings) {
+    if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) continue;
+    for (const [field, val] of Object.entries(f.value as Record<string, unknown>)) {
+      if (val !== null) continue;
+      const base = f.name.replace(/^step_\d+\./, "");
+      for (const rk of [`${base}_${field}`, `${field}`]) {
+        if (rk in results && results[rk] === 0 && issues.length < 4) {
+          issues.push({
+            kind: "null_zero_mirror",
+            name: f.name,
+            detail: `results.${rk} = 0 while ${f.name}.${field} is null — two representations of the same absence; the results mirror must READ the declared dict (0 asserts a measurement that returned nothing)`,
+          });
+        }
+      }
+    }
+  }
+  return issues;
+}
