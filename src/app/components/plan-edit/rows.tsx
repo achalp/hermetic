@@ -64,6 +64,27 @@ export const Icon = {
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
+  columns: () => (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" {...stroke}>
+      <rect x="3" y="5" width="8" height="14" rx="1" />
+      <rect x="13" y="5" width="8" height="14" rx="1" />
+    </svg>
+  ),
+  fullWidth: () => (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" {...stroke}>
+      <rect x="3" y="5" width="18" height="14" rx="1" />
+    </svg>
+  ),
+  up: () => (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" {...stroke}>
+      <polyline points="18 15 12 9 6 15" />
+    </svg>
+  ),
+  down: () => (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" {...stroke}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  ),
   spinner: () => (
     <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" {...stroke}>
       <path d="M21 12a9 9 0 11-6.2-8.56" />
@@ -84,17 +105,22 @@ export function DropZone({
   onDropItem: (beforeId: string | null) => void;
 }) {
   const [over, setOver] = useState(false);
-  if (!active) return <div className="h-1" />;
+  // ALWAYS mounted with a constant shape: swapping this element in/out when
+  // a drag starts mutates the DOM mid-dragstart, and Chrome CANCELS the
+  // native drag session — the "reorder does not work" bug. `active` only
+  // gates behavior and paint, never structure.
   return (
     <div
-      className="-my-0.5 flex h-2 items-center"
+      className="flex h-2 items-center"
       data-dropzone={beforeId ?? "end"}
       onDragOver={(e) => {
+        if (!active) return;
         e.preventDefault();
         setOver(true);
       }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
+        if (!active) return;
         e.preventDefault();
         setOver(false);
         onDropItem(beforeId);
@@ -103,8 +129,8 @@ export function DropZone({
       <div
         className="w-full rounded transition-all"
         style={{
-          height: over ? 3 : 1,
-          background: over ? "var(--color-accent)" : "transparent",
+          height: over && active ? 3 : 1,
+          background: over && active ? "var(--color-accent)" : "transparent",
         }}
       />
     </div>
@@ -120,6 +146,9 @@ export function SectionRow({
   onToggleHidden,
   onRemove,
   onEdit,
+  onMoveUp,
+  onMoveDown,
+  onToggleWidth,
 }: {
   section: Section;
   pending: boolean;
@@ -130,12 +159,23 @@ export function SectionRow({
   onToggleHidden: () => void;
   onRemove?: () => void;
   onEdit?: () => void;
+  /** Keyboard/click reorder — the always-reliable fallback beside drag. */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  /** Half/full layout toggle (charts, tables, tiles). */
+  onToggleWidth?: () => void;
 }) {
   const s = section;
   return (
     <div
       draggable={!s.hidden}
-      onDragStart={onDragStart}
+      onDragStart={(e) => {
+        // Chrome needs data + a DEFERRED state update: a synchronous React
+        // re-render during dragstart cancels the native drag.
+        e.dataTransfer.setData("text/plain", s.id);
+        e.dataTransfer.effectAllowed = "move";
+        setTimeout(onDragStart, 0);
+      }}
       onDragEnd={onDragEnd}
       className={`group flex items-start gap-2 rounded-md border border-border-default px-2 py-1.5 text-xs transition-colors hover:border-border-strong ${
         s.hidden ? "opacity-45" : "cursor-grab active:cursor-grabbing"
@@ -153,6 +193,25 @@ export function SectionRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-t-tertiary opacity-0 transition-opacity group-hover:opacity-100">
+        {onMoveUp && (
+          <button title="Move up" onClick={onMoveUp} className="hover:text-t-primary">
+            <Icon.up />
+          </button>
+        )}
+        {onMoveDown && (
+          <button title="Move down" onClick={onMoveDown} className="hover:text-t-primary">
+            <Icon.down />
+          </button>
+        )}
+        {onToggleWidth && (
+          <button
+            title={s.width === "half" ? "Make full width" : "Make half width (pairs side-by-side)"}
+            onClick={onToggleWidth}
+            className="hover:text-t-primary"
+          >
+            {s.width === "half" ? <Icon.fullWidth /> : <Icon.columns />}
+          </button>
+        )}
         {editable && onEdit && (
           <button title="Edit text" onClick={onEdit} className="hover:text-t-primary">
             <Icon.pencil />

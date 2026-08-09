@@ -136,6 +136,11 @@ interface ElementRendererProps {
   registry: ComponentRegistry;
   loading?: boolean;
   fallback?: ComponentRenderer;
+  /** The element's id in spec.elements. When set, the rendered output is
+   *  wrapped in a layout-neutral display:contents node stamped with
+   *  data-spec-element, so tooling (edit overlays, tests) can locate
+   *  rendered elements without affecting layout. */
+  elementKey?: string;
 }
 
 /**
@@ -148,6 +153,7 @@ const ElementRenderer = React.memo(function ElementRenderer({
   registry,
   loading,
   fallback,
+  elementKey,
 }: ElementRendererProps) {
   const repeatScope = useRepeatScope();
   const { ctx } = useVisibility();
@@ -265,22 +271,32 @@ const ElementRenderer = React.memo(function ElementRenderer({
           registry={registry}
           loading={loading}
           fallback={fallback}
+          elementKey={childKey}
         />
       );
     })
   );
 
+  const rendered = (
+    <Component
+      element={resolvedElement}
+      emit={emit}
+      on={on}
+      bindings={elementBindings}
+      loading={loading}
+    >
+      {children}
+    </Component>
+  );
   return (
     <ElementErrorBoundary elementType={resolvedElement.type}>
-      <Component
-        element={resolvedElement}
-        emit={emit}
-        on={on}
-        bindings={elementBindings}
-        loading={loading}
-      >
-        {children}
-      </Component>
+      {elementKey ? (
+        <div style={{ display: "contents" }} data-spec-element={elementKey}>
+          {rendered}
+        </div>
+      ) : (
+        rendered
+      )}
     </ElementErrorBoundary>
   );
 });
@@ -373,6 +389,7 @@ export function Renderer({ spec, registry, loading, fallback }: RendererProps) {
       registry={registry}
       loading={loading}
       fallback={fallback}
+      elementKey={spec.root}
     />
   );
 }

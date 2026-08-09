@@ -19,6 +19,8 @@ import { HomeTopBar } from "@/app/components/results-toolbar";
 import { ResultsRegion } from "@/app/components/results-region";
 import { PageChrome } from "@/app/components/page-chrome";
 import { PlanEditPanel } from "@/app/components/plan-edit/panel";
+import { DashboardEditOverlay } from "@/app/components/plan-edit/overlay";
+import { usePlanEdit } from "@/hooks/use-plan-edit";
 import { WarehouseConnecting, HomeHero, AskScreen } from "@/app/components/home/home-screens";
 import { buildDatasetLabel, buildSourceLabel } from "@/app/components/data-rail-derive";
 import type { NotebookExportApi } from "@/app/components/notebook-view";
@@ -143,6 +145,14 @@ export default function Home() {
   // History id of the LIVE analysis on screen (from the background save) —
   // the reconstruction key that makes the results URL paste-able.
   const [liveHistoryId, setLiveHistoryId] = useState<string | null>(null);
+
+  // Shared plan-edit state for the panel + the dashboard overlay.
+  const planEdit = usePlanEdit({
+    csvId: effectiveCsvId ?? csvId,
+    historyId: liveHistoryId,
+    open: showPlanEditor,
+    onSpecUpdated: (spec) => dispatch({ type: "PLAN_EDIT_APPLIED", spec }),
+  });
 
   // Page-level artifacts — uses effectiveCsvId reported by ResponsePanel
   const pageArtifacts = useArtifacts({ csvId: effectiveCsvId });
@@ -380,14 +390,15 @@ export default function Home() {
       />
 
       {/* Settings drawer, data rail, artifacts sheet, schedule popover */}
-      {/* Plan edit panel — the governed mutation grammar's web surface. */}
+      {/* Plan editing — ONE shared state drives both the side panel and
+          direct manipulation on the dashboard (same optimistic sections,
+          same undo history). */}
       <PlanEditPanel
-        csvId={effectiveCsvId ?? csvId}
-        historyId={liveHistoryId}
+        edit={planEdit}
         open={showPlanEditor && isState4}
         onClose={() => setShowPlanEditor(false)}
-        onSpecUpdated={(spec) => dispatch({ type: "PLAN_EDIT_APPLIED", spec })}
       />
+      <DashboardEditOverlay edit={planEdit} enabled={showPlanEditor && isState4} />
 
       <PageChrome
         panels={panels}
@@ -436,7 +447,17 @@ export default function Home() {
 
       {/* Main Content (blurs when any panel is open) */}
       <MainContent blurred={panels.anyPanelOpen} railVisible={hasData}>
-        <main id="main-content">
+        <main
+          id="main-content"
+          // Edit mode makes ROOM for the panel instead of overlaying: with
+          // the dashboard partially underneath it, the overlay's floating
+          // toolbar rendered beneath the panel and its buttons were
+          // unclickable on any element wider than the visible strip.
+          style={{
+            paddingRight: showPlanEditor && isState4 ? 432 : undefined,
+            transition: "padding-right 0.25s ease",
+          }}
+        >
           {/* Saved Visualizations Panel */}
           {showSaved && (
             <div className="mb-6">

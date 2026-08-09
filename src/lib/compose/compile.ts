@@ -147,13 +147,44 @@ export function compileDashboard(input: CompileInput): string[] {
     ...children.filter((id) => !order.includes(id)),
   ];
 
+  // 6. Widths (the one-column-to-two-column edit): consecutive "half"
+  //    elements pair into a two-column LayoutGrid row; a lone half spans
+  //    full (never a hole). Row ids derive from their FIRST member so the
+  //    grouping is stable across recompiles.
+  const widths = overlay.widths ?? {};
+  const finalChildren: string[] = [];
+  let pendingHalf: string[] = [];
+  const flushRow = () => {
+    if (pendingHalf.length === 1) finalChildren.push(pendingHalf[0]);
+    else if (pendingHalf.length === 2) {
+      const rowId = `compiled_row_${pendingHalf[0]}`;
+      patches.push({
+        op: "add",
+        path: `/elements/${rowId}`,
+        value: { type: "LayoutGrid", props: { columns: 2 }, children: [...pendingHalf] },
+      });
+      finalChildren.push(rowId);
+    }
+    pendingHalf = [];
+  };
+  for (const id of ordered) {
+    if (widths[id] === "half") {
+      pendingHalf.push(id);
+      if (pendingHalf.length === 2) flushRow();
+    } else {
+      flushRow();
+      finalChildren.push(id);
+    }
+  }
+  flushRow();
+
   const root: SpecPatchLine = {
     op: "add",
     path: "/elements/compiled_root",
     value: {
       type: "LayoutColumn",
       props: { title: null },
-      children: ordered,
+      children: finalChildren,
     },
   };
 

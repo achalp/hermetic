@@ -45,6 +45,10 @@ export interface PlanOverlay {
    *  precision table, unit split) the user opted in. Every shown view is
    *  still a pure projection of declared rows. */
   shown?: string[];
+  /** Per-element layout width: "half" elements pair with their next half
+   *  neighbor into a two-column row at compile time (the one-column-to-
+   *  two-column edit); absent/"full" spans the column. */
+  widths?: Record<string, "half" | "full">;
 }
 
 export interface PlanDocument {
@@ -64,6 +68,7 @@ export type PlanMutation =
   | { kind: "add_node"; node: { op: PlanOp; refs: string[]; text?: string }; before?: string }
   | { kind: "remove_node"; id: string }
   | { kind: "set_insight"; text: string }
+  | { kind: "set_width"; id: string; width: "half" | "full" }
   /** Restore a whole {plan, overlay} snapshot — the UNDO primitive. Still
    *  governed: the restored plan passes the same validator as any edit
    *  (mode/purpose are preserved from the current document). */

@@ -192,6 +192,59 @@ describe("edit grammar — views, shown overlay, purpose survival", () => {
     expect(hidden.doc.overlay.hidden).toContain("table_annual_prices");
   });
 
+  it("set_width pairs consecutive halves into a two-column row at compile", () => {
+    const withWidths = applyMutations(
+      DOC,
+      [
+        { kind: "set_width", id: "chart_annual_prices", width: "half" },
+        { kind: "set_width", id: "table_annual_prices", width: "half" },
+      ],
+      new Set(["chart_annual_prices", "table_annual_prices"])
+    );
+    expect(withWidths.errors).toEqual([]);
+    expect(withWidths.doc.overlay.widths).toEqual({
+      chart_annual_prices: "half",
+      table_annual_prices: "half",
+    });
+    // Back to full removes the entry (absent = full).
+    const back = applyMutations(
+      withWidths.doc,
+      [{ kind: "set_width", id: "chart_annual_prices", width: "full" }],
+      new Set(["chart_annual_prices"])
+    );
+    expect(back.doc.overlay.widths).toEqual({ table_annual_prices: "half" });
+    // Compile: halves pair into a LayoutGrid row; a lone half spans full.
+    const plan = { nodes: [{ id: "n_answer", op: "ANSWER" as const, refs: ["price_trend"] }] };
+    const lines = compileDashboard({
+      manifest: MANIFEST,
+      product: PRODUCT,
+      plan,
+      overlay: {
+        shown: ["table_annual_prices"],
+        widths: { chart_annual_prices: "half", table_annual_prices: "half" },
+      },
+      headlinePlan: [],
+      question: "q",
+    });
+    const joined = lines.join("\n");
+    expect(joined).toContain("compiled_row_chart_annual_prices");
+    const root = JSON.parse(lines[lines.length - 2]) as { value: { children: string[] } };
+    expect(root.value.children).toContain("compiled_row_chart_annual_prices");
+    expect(root.value.children).not.toContain("chart_annual_prices"); // inside the row
+    // Lone half (pair broken): renders full, no row wrapper, no hole.
+    const lone = compileDashboard({
+      manifest: MANIFEST,
+      product: PRODUCT,
+      plan,
+      overlay: { widths: { chart_annual_prices: "half" } },
+      headlinePlan: [],
+      question: "q",
+    });
+    const loneRoot = JSON.parse(lone[lone.length - 2]) as { value: { children: string[] } };
+    expect(loneRoot.value.children).toContain("chart_annual_prices");
+    expect(lone.join("\n")).not.toContain("compiled_row_");
+  });
+
   it("restore_document replays a snapshot — the undo primitive, still governed", () => {
     const removed = applyMutations(DOC, [{ kind: "remove_node", id: "n_i" }]);
     expect(removed.doc.plan.nodes).toHaveLength(1);

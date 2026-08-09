@@ -672,6 +672,7 @@ export interface PlanEditSurface {
     label: string;
     preview?: string;
     hidden: boolean;
+    width: "half" | "full";
   }[];
   claims: {
     name: string;

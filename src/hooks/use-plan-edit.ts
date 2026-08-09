@@ -152,6 +152,15 @@ export function usePlanEdit(args: {
     [apply]
   );
 
+  /** The one-column-to-two-column edit: half elements pair into rows. */
+  const setWidth = useCallback(
+    (id: string, width: "half" | "full") => {
+      setSections((prev) => prev.map((s) => (s.id === id ? { ...s, width } : s)));
+      void apply([{ kind: "set_width", id, width }], { pendingId: id });
+    },
+    [apply]
+  );
+
   return {
     surface,
     sections,
@@ -168,5 +177,8 @@ export function usePlanEdit(args: {
     saveInsight,
     addClaim,
     addView,
+    setWidth,
   };
 }
+
+export type PlanEdit = ReturnType<typeof usePlanEdit>;

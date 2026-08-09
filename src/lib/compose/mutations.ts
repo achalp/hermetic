@@ -36,6 +36,7 @@ export function applyMutations(
       order: [...(doc.overlay.order ?? [])],
       hidden: [...(doc.overlay.hidden ?? [])],
       shown: [...(doc.overlay.shown ?? [])],
+      widths: { ...(doc.overlay.widths ?? {}) },
     },
   };
   const errors: string[] = [];
@@ -106,6 +107,16 @@ export function applyMutations(
         else applied++;
         break;
       }
+      case "set_width": {
+        if (!targetable(m.id)) {
+          errors.push(`set_width: unknown element ${m.id}`);
+          break;
+        }
+        if (m.width === "full") delete next.overlay.widths![m.id];
+        else next.overlay.widths![m.id] = m.width;
+        applied++;
+        break;
+      }
       case "restore_document": {
         // Undo: replace plan+overlay wholesale from a snapshot. mode and
         // purpose stay from the live document; the caller's re-validation
@@ -115,6 +126,7 @@ export function applyMutations(
           order: [...(m.overlay.order ?? [])],
           hidden: [...(m.overlay.hidden ?? [])],
           shown: [...(m.overlay.shown ?? [])],
+          widths: { ...(m.overlay.widths ?? {}) },
         };
         applied++;
         break;

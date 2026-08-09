@@ -192,6 +192,8 @@ export interface EditSection {
   /** Realized sentence preview for nodes (truncated). */
   preview?: string;
   hidden: boolean;
+  /** Layout width (overlay.widths) — "half" pairs into two-column rows. */
+  width: "half" | "full";
 }
 
 export interface EditSurface {
@@ -240,14 +242,37 @@ export async function getEditSurface(
     regimes: artifacts.regimes,
   });
   const root = JSON.parse(lines[lines.length - 2]) as { value?: { children?: string[] } };
-  const visible = root.value?.children ?? [];
+  // Half-width elements compile inside compiled_row_* grid wrappers —
+  // expand them so the edit surface always lists the REAL elements.
+  const rowChildren = new Map<string, string[]>();
+  for (const line of lines) {
+    const p = JSON.parse(line) as { path?: string; value?: { children?: string[] } };
+    if (p.path?.startsWith("/elements/compiled_row_")) {
+      rowChildren.set(p.path.slice("/elements/".length), p.value?.children ?? []);
+    }
+  }
+  const visible = (root.value?.children ?? []).flatMap((id) => rowChildren.get(id) ?? [id]);
 
+  const widthOf = (id: string): "half" | "full" => doc.overlay.widths?.[id] ?? "full";
   const sectionFor = (id: string, isHidden: boolean): EditSection | null => {
     if (id === "compiled_check_banner")
-      return { id, kind: "banner", label: "Failed-check banner", hidden: isHidden };
-    if (id === "tile_grid") return { id, kind: "tiles", label: "Headline tiles", hidden: isHidden };
+      return {
+        id,
+        kind: "banner",
+        label: "Failed-check banner",
+        hidden: isHidden,
+        width: widthOf(id),
+      };
+    if (id === "tile_grid")
+      return { id, kind: "tiles", label: "Headline tiles", hidden: isHidden, width: widthOf(id) };
     if (id === "compiled_evidence_break")
-      return { id, kind: "banner", label: "Evidence divider", hidden: isHidden };
+      return {
+        id,
+        kind: "banner",
+        label: "Evidence divider",
+        hidden: isHidden,
+        width: widthOf(id),
+      };
     const node = doc.plan.nodes.find((n) => n.id === id);
     if (node) {
       const text = realizeNode(node, byName) ?? node.text ?? "";
@@ -260,6 +285,7 @@ export async function getEditSurface(
         // never binding syntax (the panel's rows mirror the dashboard).
         preview: resolvePreviewText(text, findings).slice(0, 200),
         hidden: isHidden,
+        width: widthOf(id),
       };
     }
     const view = viewById.get(id);
@@ -269,6 +295,7 @@ export async function getEditSurface(
         kind: "view",
         label: `${view.kind === "table" ? "Table" : "Chart"}: ${humanizeId(view.seriesId)}${view.kind === "coverage" ? " (coverage)" : view.kind === "unit_split" ? " (unit split)" : ""}`,
         hidden: isHidden,
+        width: widthOf(id),
       };
     }
     return null;

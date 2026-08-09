@@ -13,27 +13,19 @@
  * per-row pending); this file is composition and copy.
  */
 import { useState } from "react";
-import type { Spec } from "@/lib/contracts/spec";
-import { usePlanEdit } from "@/hooks/use-plan-edit";
+import type { PlanEdit } from "@/hooks/use-plan-edit";
 import { DropZone, Icon, SectionRow } from "./rows";
 import { viewBenefit, viewTitle } from "./copy";
 
 export interface PlanEditPanelProps {
-  csvId: string | null;
-  historyId?: string | null;
+  /** The page-owned edit state — shared with the dashboard edit overlay so
+   *  panel and direct manipulation are one undo history, one truth. */
+  edit: PlanEdit;
   open: boolean;
   onClose: () => void;
-  onSpecUpdated: (spec: Spec) => void;
 }
 
-export function PlanEditPanel({
-  csvId,
-  historyId,
-  open,
-  onClose,
-  onSpecUpdated,
-}: PlanEditPanelProps) {
-  const edit = usePlanEdit({ csvId, historyId, open, onSpecUpdated });
+export function PlanEditPanel({ edit, open, onClose }: PlanEditPanelProps) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [editingInsight, setEditingInsight] = useState(false);
   const [insightDraft, setInsightDraft] = useState("");
@@ -125,9 +117,9 @@ export function PlanEditPanel({
             {/* The dashboard, as a list. Order here IS order there. */}
             <div className="flex flex-col">
               <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-t-tertiary">
-                Sections — drag anywhere, changes apply instantly
+                On the dashboard ({visible.length}) — drag, or use the arrows
               </h4>
-              {visible.map((s) => (
+              {visible.map((s, i) => (
                 <div key={s.id}>
                   <DropZone
                     beforeId={s.id}
@@ -150,6 +142,17 @@ export function PlanEditPanel({
                         : undefined
                     }
                     onEdit={s.op === "INSIGHT" ? beginInsightEdit : undefined}
+                    onMoveUp={i > 0 ? () => edit.reorder(s.id, visible[i - 1].id) : undefined}
+                    onMoveDown={
+                      i < visible.length - 1
+                        ? () => edit.reorder(s.id, visible[i + 2]?.id ?? null)
+                        : undefined
+                    }
+                    onToggleWidth={
+                      s.kind === "view" || s.kind === "tiles"
+                        ? () => edit.setWidth(s.id, s.width === "half" ? "full" : "half")
+                        : undefined
+                    }
                   />
                   {s.op === "INSIGHT" && editingInsight && (
                     <div className="mt-1 flex flex-col gap-1 rounded-md border border-border-default p-2">
@@ -218,8 +221,11 @@ export function PlanEditPanel({
             {addableClaims.length > 0 && (
               <div className="flex flex-col gap-1">
                 <h4 className="text-[11px] font-medium uppercase tracking-wide text-t-tertiary">
-                  Untold findings — the analysis computed these; one click adds the sentence
+                  Not on the dashboard yet — findings ({addableClaims.length})
                 </h4>
+                <p className="mb-1 text-[10px] text-t-tertiary">
+                  The analysis computed these; one click adds the sentence shown.
+                </p>
                 {addableClaims.map((c) => (
                   <button
                     key={c.name}
@@ -241,7 +247,7 @@ export function PlanEditPanel({
             {addableViews.length > 0 && (
               <div className="flex flex-col gap-1">
                 <h4 className="text-[11px] font-medium uppercase tracking-wide text-t-tertiary">
-                  More charts from this data
+                  Not on the dashboard yet — charts ({addableViews.length})
                 </h4>
                 {addableViews.map((v) => (
                   <button
