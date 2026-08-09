@@ -32,9 +32,10 @@ const SURFACE = {
       label: "ANSWER: t",
       preview: "Answer.",
       hidden: false,
+      width: "full",
     },
-    { id: "chart_x", kind: "view", label: "Chart: X", hidden: false },
-    { id: "table_x", kind: "view", label: "Table: X", hidden: false },
+    { id: "chart_x", kind: "view", label: "Chart: X", hidden: false, width: "half" },
+    { id: "table_x", kind: "view", label: "Table: X", hidden: false, width: "full" },
   ],
   claims: [],
   views: [],
@@ -79,6 +80,25 @@ describe("usePlanEdit", () => {
     act(() => result.current.reorder("n_a", null));
     await act(async () => {});
     expect(mockPatch).toHaveBeenLastCalledWith("c1", [{ kind: "move", id: "n_a" }], "h1");
+  });
+
+  it("dropping after a half-width element auto-halves the moved one (pair completion)", async () => {
+    const { result } = renderHook(() => usePlanEdit(args()));
+    await act(async () => {});
+    // table_x (full) dropped at the end lands right after chart_x (half):
+    // the move batches a set_width so the pair completes instead of
+    // stranding a lone half. Optimistic width updates immediately too.
+    act(() => result.current.reorder("table_x", null));
+    expect(result.current.sections.find((s) => s.id === "table_x")?.width).toBe("half");
+    await act(async () => {});
+    expect(mockPatch).toHaveBeenLastCalledWith(
+      "c1",
+      [
+        { kind: "move", id: "table_x" },
+        { kind: "set_width", id: "table_x", width: "half" },
+      ],
+      "h1"
+    );
   });
 
   it("every edit arms undo; undo replays the snapshot via restore_document", async () => {

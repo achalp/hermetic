@@ -196,7 +196,10 @@ export function PlanEditPanel({ edit, open, onClose }: PlanEditPanelProps) {
                         : undefined
                     }
                     onToggleWidth={
-                      s.kind === "view" || s.kind === "tiles"
+                      // Charts, tables, tiles, AND text blocks — a sentence
+                      // beside a half-width chart is a natural pairing. Only
+                      // the alert banner and divider stay full-width.
+                      s.kind !== "banner"
                         ? () => edit.setWidth(s.id, s.width === "half" ? "full" : "half")
                         : undefined
                     }

@@ -102,23 +102,35 @@ export function usePlanEdit(args: {
   }, [apply]);
 
   /** Optimistic reorder: move `id` before `beforeId` (null = end) in the
-   *  visible list immediately, then persist. */
+   *  visible list immediately, then persist. PAIRING INTELLIGENCE: dropping
+   *  an element right after a half-width one auto-halves it — the drop
+   *  completes the two-column pair instead of stranding a lone half. */
   const reorder = useCallback(
     (id: string, beforeId: string | null) => {
+      const visible = sections.filter((s) => !s.hidden && s.id !== id);
+      const at = beforeId ? visible.findIndex((s) => s.id === beforeId) : visible.length;
+      const preceding = at > 0 ? visible[at - 1] : undefined;
+      const dragged = sections.find((s) => s.id === id);
+      const autoHalf = preceding?.width === "half" && dragged?.width !== "half";
       setSections((prev) => {
         const next = prev.filter((s) => s.id !== id);
         const moved = prev.find((s) => s.id === id);
         if (!moved) return prev;
-        const at = beforeId ? next.findIndex((s) => s.id === beforeId) : -1;
-        if (at === -1) next.push(moved);
-        else next.splice(at, 0, moved);
+        const placed = autoHalf ? { ...moved, width: "half" as const } : moved;
+        const idx = beforeId ? next.findIndex((s) => s.id === beforeId) : -1;
+        if (idx === -1) next.push(placed);
+        else next.splice(idx, 0, placed);
         return next;
       });
-      void apply([{ kind: "move", id, ...(beforeId ? { before: beforeId } : {}) }], {
-        pendingId: id,
-      });
+      void apply(
+        [
+          { kind: "move", id, ...(beforeId ? { before: beforeId } : {}) },
+          ...(autoHalf ? [{ kind: "set_width", id, width: "half" } as const] : []),
+        ],
+        { pendingId: id }
+      );
     },
-    [apply]
+    [apply, sections]
   );
 
   const toggleHidden = useCallback(

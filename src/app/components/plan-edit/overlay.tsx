@@ -194,7 +194,7 @@ export function DashboardEditOverlay({ edit, enabled }: { edit: PlanEdit; enable
             >
               <Icon.grip />
             </button>
-            {(section.kind === "view" || section.kind === "tiles") && (
+            {section.kind !== "banner" && (
               <button
                 title={section.width === "half" ? "Make full width" : "Make half width"}
                 onClick={() => edit.setWidth(hover.id, section.width === "half" ? "full" : "half")}
