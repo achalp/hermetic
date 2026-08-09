@@ -905,6 +905,33 @@ export function lintUndeclaredScreen(
       if (m) screenedBases.add(m[1]);
     }
   }
+  // The EXECUTED-screen signature, independent of naming convention and of
+  // whether the series was declared: a column null at rows where its _raw
+  // sibling holds a value. Presence of the pair alone proves nothing; the
+  // null-beside-raw divergence is a transformation that RAN (avg_price
+  // null for 1986, avg_price_raw 13.68 — and no screen finding anywhere in
+  // the manifest). Columns whose series declares the variant with a valid
+  // screened_by are exempt — the structured path owns those.
+  for (const [key, v] of Object.entries(chartData)) {
+    const rows = Array.isArray(v) ? v : (v as { rows?: unknown[] } | null)?.rows;
+    if (!Array.isArray(rows) || rows.length === 0 || typeof rows[0] !== "object") continue;
+    const contracted = new Set(
+      (rolesIdx?.get(key)?.screens ?? [])
+        .filter((s) => checkNames.has(s.checkName))
+        .map((s) => s.screenedCol)
+    );
+    const first = rows[0] as Record<string, unknown>;
+    for (const col of Object.keys(first)) {
+      const rm = /^(.*?)_raw$/.exec(col);
+      if (!rm || !(rm[1] in first) || contracted.has(rm[1])) continue;
+      const base = rm[1];
+      const executed = (rows as Record<string, unknown>[]).some(
+        (r) =>
+          (r[base] === null || r[base] === undefined) && r[col] !== null && r[col] !== undefined
+      );
+      if (executed) screenedBases.add(base);
+    }
+  }
   for (const base of screenedBases) {
     const tokens = base.split(/_/).filter((t) => t.length > 2);
     const declared = findings.some(
@@ -1451,6 +1478,127 @@ export function lintThinSuperlative(
         detail: `${f.name} ends the series at ${String(period)} on ${att.n} ${att.countCol} (series median ${att.medN}) — pct_from_peak measured against a thin tail narrates a collection gap as a decline; pass counts= to finding_current_state so the unattested edge is excluded`,
       });
     }
+  }
+  return issues;
+}
+
+// ── Referent-integrity lints (MCP deep-dive review 2026-08-09): prose,
+// results, and executed transformations must all point at declarations
+// that EXIST. Three faces of one defect: a citation naming a finding the
+// manifest doesn't carry, a dispatcher decision shipped as bare results
+// keys, and a screen that executed with no finding declaring it. ──────────
+
+/** Narrative citing a finding id that does not exist ("the trend
+ *  (median_price_trend finding) reflects...") — worse than saying no
+ *  finding is available, because it asserts provenance that is missing.
+ *  SEVERE: the recompose pass must rewrite or drop the citation. */
+export function lintDanglingFindingReference(
+  narrativeTexts: string[],
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  if (narrativeTexts.length === 0) return issues;
+  const names = new Set(findings.map((f) => f.name));
+  const text = narrativeTexts.join("\n");
+  // A snake_case identifier explicitly cited AS a finding/check/screen.
+  const CITE_RE = /\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\s+(?:finding|check|screen)\b/g;
+  const seen = new Set<string>();
+  for (const m of text.matchAll(CITE_RE)) {
+    const name = m[1];
+    if (seen.has(name) || names.has(name) || names.has(name.replace(/^step_\d+\./, ""))) continue;
+    seen.add(name);
+    issues.push({
+      kind: "dangling_finding_reference",
+      name,
+      detail: `narrative cites "${name}" as a finding, but the manifest declares no such finding — the citation asserts provenance that does not exist; name only findings that are actually declared (or state plainly that none is available)`,
+    });
+  }
+  return issues;
+}
+
+/** Dispatcher decisions shipped as bare results keys with no declaration
+ *  behind them (preferred_price_metric / split_at_year / *_policy): the
+ *  decision ran, the reason is unrecorded, and nothing in the manifest can
+ *  be audited for it. Decisions are declared as checks. */
+export function lintOrphanDecisionResult(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const findingTokens = findings.map(
+    (f) => new Set((f.name + "_" + f.definition.toLowerCase()).split(/[^a-z0-9]+/))
+  );
+  for (const key of Object.keys(results)) {
+    if (issues.length >= 4) break;
+    if (!/^(preferred_|split_at)|(_policy|_convention|_method_choice)$/.test(key)) continue;
+    if (/_reason$/.test(key)) continue; // flagged via its base key
+    const toks = key.split(/[._]/).filter((t) => t.length > 2);
+    const backed = findingTokens.some((ft) => toks.filter((t) => ft.has(t)).length >= 2);
+    if (!backed) {
+      issues.push({
+        kind: "orphan_decision_result",
+        name: key,
+        detail: `results.${key} records a methodological decision with no finding behind it — declare the decision as a check (evidence = the dispatcher's dict, reason included) so the choice is auditable; a bare results key outlives its own rationale`,
+      });
+    }
+  }
+  return issues;
+}
+
+/** A trend fit UNWEIGHTED over a series that declares a count role: the
+ *  estimator choice is then whatever the model remembered this run — an
+ *  observed -350.4/yr (weighted, p=1e-12) flipped to -20.2 "flat"
+ *  (unweighted, p=0.09) on identical data. counts= is required when the
+ *  declaration itself says observations-per-period exist. */
+export function lintUnweightedCountedTrend(
+  findings: FindingEntry[],
+  rolesIdx?: ProductRolesIndex
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const counted = [...(rolesIdx ?? [])].filter(([, info]) => info.countCol);
+  if (counted.length === 0) return issues;
+  for (const f of findings) {
+    if (issues.length >= 3) break;
+    if (f.dtype !== "trend" && f.dtype !== "direction") continue;
+    const v = f.value;
+    if (v === null || typeof v !== "object" || Array.isArray(v)) continue;
+    if ((v as Record<string, unknown>).weighted !== false) continue;
+    // Prefer an exact column linkage; fall back to "some counted series
+    // exists" — the advisory names what to pass either way.
+    const cols = new Set(f.derived_from_columns ?? []);
+    const match =
+      counted.find(([, info]) => info.measures.some((m) => cols.has(m.column))) ??
+      (cols.size === 0 ? counted[0] : undefined);
+    if (!match) continue;
+    issues.push({
+      kind: "unweighted_counted_trend",
+      name: f.name,
+      detail: `finding ${f.name} fit an UNWEIGHTED trend while declared series ${match[0]} carries a count role (${match[1].countCol}) — pass counts= so the fit is count-weighted; the estimator must not depend on what this run happened to remember (an identical corpus flipped falling→flat when the weighting toggled)`,
+    });
+  }
+  return issues;
+}
+
+/** A monetary measure grouped by a currency/unit-like column: plotting the
+ *  groups on ONE value axis (Francs at 450 beside Dollars at 0.60) or
+ *  differencing across them is invalid arithmetic — the heterogeneity test
+ *  that fires on such data is the evidence AGAINST pooling, not beside it. */
+export function lintMixedUnitGroupSeries(rolesIdx?: ProductRolesIndex): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  const UNIT_GROUP_RE = /currenc|denomination|unit/i;
+  for (const [id, info] of rolesIdx ?? []) {
+    if (issues.length >= 2) break;
+    if (!info.groupCol || !UNIT_GROUP_RE.test(info.groupCol)) continue;
+    const monetary = info.measures.some(
+      (m) => m.unit && /usd|eur|gbp|\$|dollar|price|amount/i.test(m.unit)
+    );
+    if (!monetary && !info.measures.some((m) => /price|amount|cost|revenue/i.test(m.column)))
+      continue;
+    issues.push({
+      kind: "mixed_unit_group_series",
+      name: id,
+      detail: `series ${id} groups a monetary measure by ${info.groupCol} — different currencies cannot share one value axis or be differenced (a 499.75 "range across currencies" subtracts Lire from Dollars); restrict to the dominant currency (declared) or present per-group panels/shares`,
+    });
   }
   return issues;
 }

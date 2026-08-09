@@ -52,6 +52,7 @@ import {
   lintSentinelInterpolation,
   lintSignedLanguage,
   lintSuperlativeHidesRaw,
+  lintDanglingFindingReference,
 } from "@/lib/findings/lints";
 import type { FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
@@ -732,7 +733,7 @@ function buildFindingsSection(manifest?: FindingsManifest): string {
   return `
 
 ## Declared Findings (bind these — never restate)
-The analysis DECLARED these findings; their values bind via "$finding:<name>" (or "$finding:<name>.<field>" for structured ones — value_fields lists the fields). Every claim a finding supports must be bound from it, not paraphrased around it. These are the AUTHORITATIVE values: when a $result key covers the same quantity, bind the $finding — the results dict may carry stale or divergent duplicates (a null result beside a populated finding is exactly that failure). A finding you deliberately do not narrate should usually still appear in a chart or table.
+The analysis DECLARED these findings; their values bind via "$finding:<name>" (or "$finding:<name>.<field>" for structured ones — value_fields lists the fields). Every claim a finding supports must be bound from it, not paraphrased around it. These are the AUTHORITATIVE values: when a $result key covers the same quantity, bind the $finding — the results dict may carry stale or divergent duplicates (a null result beside a populated finding is exactly that failure). A finding you deliberately do not narrate should usually still appear in a chart or table. NEVER cite internal finding ids in prose ("the trend (median_price_trend finding) shows…") — prose speaks in human terms and binds values; and citing a finding name that is NOT in this list is fabricated provenance, strictly worse than stating plainly that no such finding is available.
 ${JSON.stringify(projections, null, 1)}${omitted.length > 0 ? `\n(${omitted.length} findings omitted for space: ${omitted.join(", ")})` : ""}`;
 }
 
@@ -1355,6 +1356,17 @@ export async function composeAndStreamDashboard(args: {
         proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
       }
 
+      // Prose citing a finding the manifest doesn't declare ("the trend
+      // (median_price_trend finding) reflects…" with no such finding) —
+      // asserted provenance that does not exist. SEVERE: the bounded
+      // recompose rewrites or drops the citation.
+      for (const issue of lintDanglingFindingReference(
+        narrativeTexts,
+        opts.findings?.manifest.findings ?? []
+      )) {
+        proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
+      }
+
       // A dashboard with ZERO narrative elements is not an answer (observed:
       // a sonnet-5 compose emitted 5 tiles + 2 charts and no prose, so the
       // summary every host surface extracts came back empty). Deterministic
@@ -1389,6 +1401,9 @@ export async function composeAndStreamDashboard(args: {
         "zero_count_sentence",
         "empty_interpolation",
         "no_narrative",
+        // Provenance asserted for a finding that does not exist — worse
+        // than saying no finding is available (MCP deep-dive review).
+        "dangling_finding_reference",
       ]);
       const severe = [...proseLintIssues.values()]
         .filter((i) => SEVERE_KINDS.has(i.kind))

@@ -21,7 +21,12 @@ import {
   lintThinSuperlative,
   lintNullZeroMirror,
   lintSuperlativeHidesRaw,
+  lintDanglingFindingReference,
+  lintOrphanDecisionResult,
+  lintUnweightedCountedTrend,
+  lintMixedUnitGroupSeries,
 } from "@/lib/findings/lints";
+import { productRolesIndex } from "@/lib/product";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
   const units = new Map([
@@ -840,5 +845,133 @@ describe("mirror_dropped_value — results losing a value the manifest carries (
     const issues = lintNullZeroMirror({ median_price_distribution_skew: null }, [finding]);
     expect(issues.some((i) => i.kind === "mirror_dropped_value")).toBe(true);
     expect(lintNullZeroMirror({ median_price_distribution_skew: 4.25 }, [finding])).toHaveLength(0);
+  });
+});
+
+describe("referent integrity — prose, results, and executed screens point at real declarations", () => {
+  const FINDINGS = [
+    {
+      name: "item_volume_trend",
+      definition: "OLS trend of items per year",
+      dtype: "trend",
+      value: { direction: "rising", weighted: false },
+    },
+    {
+      name: "currency_restriction",
+      definition: "analysis restricted to the dominant currency; preferred price metric median",
+      dtype: "check",
+      value: { passed: true },
+    },
+  ];
+
+  it("dangling finding citation in prose is flagged; real citations are not", () => {
+    const issues = lintDanglingFindingReference(
+      ["The trend (median_price_trend finding) reflects the dominant currency only."],
+      FINDINGS
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("dangling_finding_reference");
+    expect(issues[0].name).toBe("median_price_trend");
+    expect(
+      lintDanglingFindingReference(["Per the item_volume_trend finding, volume rose."], FINDINGS)
+    ).toHaveLength(0);
+    // Plain snake_case prose without a finding/check citation is not flagged.
+    expect(
+      lintDanglingFindingReference(["column avg_price_raw holds the unscreened values"], FINDINGS)
+    ).toHaveLength(0);
+  });
+
+  it("executed-but-undeclared screen: null beside a _raw sibling with no declaring check", () => {
+    const chartData = {
+      prices_by_year: [
+        { year: 1985, avg_price: 12.1, avg_price_raw: 12.1 },
+        { year: 1986, avg_price: null, avg_price_raw: 13.68 },
+      ],
+    };
+    const issues = lintUndeclaredScreen(chartData, []);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("undeclared_screen");
+    expect(issues[0].detail).toContain("avg_price");
+    // A declaring check quiets it; a pair with NO divergence proves nothing.
+    const check = {
+      name: "avg_price_outlier_screen",
+      definition: "outlier screen over avg_price: rolling-MAD, flagged years nulled",
+      dtype: "check",
+      value: { passed: false, n_excluded: 1 },
+    };
+    expect(lintUndeclaredScreen(chartData, [check])).toHaveLength(0);
+    const clean = {
+      prices_by_year: [{ year: 1986, avg_price: 13.68, avg_price_raw: 13.68 }],
+    };
+    expect(lintUndeclaredScreen(clean, [])).toHaveLength(0);
+  });
+
+  it("orphan decision results are flagged; declared decisions are not", () => {
+    const results = {
+      preferred_price_metric: "median_price",
+      preferred_price_metric_reason: "heavy tail",
+      split_at_year: 1940,
+      median_price_1950: 0.65,
+    };
+    const issues = lintOrphanDecisionResult(results, FINDINGS);
+    const kinds = issues.map((i) => i.name);
+    expect(kinds).toContain("split_at_year");
+    // The _reason key rides its base key — flagged once, not twice.
+    expect(kinds).not.toContain("preferred_price_metric_reason");
+    // A finding sharing the decision's tokens backs it.
+    const declared = [
+      ...FINDINGS,
+      {
+        name: "preferred_price_metric_choice",
+        definition: "metric choice: median over mean under heavy tail",
+        dtype: "check",
+        value: { passed: true },
+      },
+    ];
+    expect(lintOrphanDecisionResult(results, declared).map((i) => i.name)).not.toContain(
+      "preferred_price_metric"
+    );
+  });
+
+  it("unweighted trend over a counted series is flagged; weighted is quiet", () => {
+    const series = [
+      {
+        id: "dish_counts",
+        rows: [{ year: 1900, dishes: 100, n: 500 }],
+        roles: {
+          x: { column: "year", kind: "temporal" },
+          measures: [{ column: "dishes" }],
+          count: { column: "n" },
+        },
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rolesIdx = productRolesIndex(series as any);
+    const unweighted = lintUnweightedCountedTrend(FINDINGS, rolesIdx);
+    expect(unweighted).toHaveLength(1);
+    expect(unweighted[0].kind).toBe("unweighted_counted_trend");
+    const weightedFinding = [{ ...FINDINGS[0], value: { direction: "falling", weighted: true } }];
+    expect(lintUnweightedCountedTrend(weightedFinding, rolesIdx)).toHaveLength(0);
+    expect(lintUnweightedCountedTrend(FINDINGS, undefined)).toHaveLength(0);
+  });
+
+  it("monetary measure grouped by a currency column is flagged; ordinary groups are not", () => {
+    const mk = (groupCol: string) => [
+      {
+        id: "price_by_top_currency_over_time",
+        rows: [{ year: 1900, median_price: 0.6, currency: "Dollars" }],
+        roles: {
+          x: { column: "year", kind: "temporal" },
+          measures: [{ column: "median_price", unit: "usd" }],
+          group: { column: groupCol },
+        },
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const flagged = lintMixedUnitGroupSeries(productRolesIndex(mk("currency") as any));
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].kind).toBe("mixed_unit_group_series");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(lintMixedUnitGroupSeries(productRolesIndex(mk("segment") as any))).toHaveLength(0);
   });
 });

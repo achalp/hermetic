@@ -40,6 +40,9 @@ import {
   lintUnaggregatedRollup,
   lintSeriesConsumption,
   lintResultsProvenance,
+  lintOrphanDecisionResult,
+  lintUnweightedCountedTrend,
+  lintMixedUnitGroupSeries,
 } from "@/lib/findings";
 import { normalizeHeadlineStats } from "@/lib/findings/headline-plan";
 import { parseProduct, productRolesIndex } from "@/lib/product";
@@ -543,6 +546,12 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               validated.manifest.findings,
               executionResult.data_completeness
             ),
+            ...lintOrphanDecisionResult(
+              (executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
+            ...lintUnweightedCountedTrend(validated.manifest.findings, rolesIdx),
+            ...lintMixedUnitGroupSeries(rolesIdx),
           ];
           // Exemplar quality veto: a run whose lints flagged severe defects
           // (shipped blocking failure, miscalibrated screens, thin-peak
@@ -560,6 +569,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               "unbacked_superlative",
               "runtime_fallback",
               "zero_sentinel_unapplied",
+              // Referent-integrity class (MCP deep-dive review): an executed
+              // screen with no declaration, and decisions with no finding.
+              "undeclared_screen",
+              "orphan_decision_result",
             ]);
             if (findingIssues.some((i) => SEVERE_FOR_BANK.has(i.kind))) {
               void vetoExemplarByRunId(getRunId() ?? "unknown").catch(() => {});

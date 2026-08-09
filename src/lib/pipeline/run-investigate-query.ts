@@ -53,6 +53,10 @@ import {
   lintScreenScopeMismatch,
   lintSeriesConsumption,
   lintUndeclaredScreen,
+  lintDanglingFindingReference,
+  lintOrphanDecisionResult,
+  lintUnweightedCountedTrend,
+  lintMixedUnitGroupSeries,
   lintChartConsistency,
   namespaceFindings,
 } from "@/lib/findings";
@@ -1021,6 +1025,12 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             ...lintSeriesConsumption(mergedChartData, investigateRolesIdx),
             ...lintUndeclaredScreen(mergedChartData, mergedFindingEntries, investigateRolesIdx),
             ...lintChartConsistency(mergedChartData, mergedFindingEntries, investigateRolesIdx),
+            ...lintOrphanDecisionResult(
+              mergedResults as Record<string, unknown>,
+              mergedFindingEntries
+            ),
+            ...lintUnweightedCountedTrend(mergedFindingEntries, investigateRolesIdx),
+            ...lintMixedUnitGroupSeries(investigateRolesIdx),
           ]) {
             proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
           }
@@ -1094,6 +1104,15 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         for (const issue of lintSuperlativeHidesRaw(
           investigationFindings?.findings ?? [],
           narrativeTexts
+        )) {
+          proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
+        }
+
+        // Prose citing a finding the manifest doesn't declare — same
+        // referent-integrity scan as Ask.
+        for (const issue of lintDanglingFindingReference(
+          narrativeTexts,
+          investigationFindings?.findings ?? []
         )) {
           proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
         }
