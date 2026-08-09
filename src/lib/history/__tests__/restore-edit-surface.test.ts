@@ -11,8 +11,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setPathRoots } from "@/lib/paths";
-import { saveHistoryEntry, loadArtifactsByHistoryId } from "@/lib/history/storage";
-import { getEditSurface } from "@/lib/compose/edit";
+import {
+  saveHistoryEntry,
+  loadArtifactsByHistoryId,
+  loadHistoryEntry,
+} from "@/lib/history/storage";
+import { editDashboard, getEditSurface } from "@/lib/compose/edit";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 
@@ -86,5 +90,32 @@ describe("restored compiled dashboards remain editable", () => {
 
     // Without the history id, the fresh csvId resolves nothing — the bug.
     expect(await getEditSurface("freshly-minted-csv-id")).toBeNull();
+  });
+
+  it("edits persist the RECOMPILED spec to the record, not just the plan doc", async () => {
+    // Without this, every restore replayed the pre-edit rendering forever:
+    // the plan carried the edits while spec.json stayed frozen at compile
+    // time (including pre-fix narrative prose).
+    const meta = await saveHistoryEntry({
+      question: "what is churn?",
+      spec: { root: "old_root", elements: {} },
+      generatedCode: "print(1)",
+      schema,
+      artifacts: ARTIFACTS,
+      sourceFile: "churn.csv",
+      sourceType: "upload",
+      executionMs: 5,
+    });
+    const result = await editDashboard(
+      "another-fresh-csv-id",
+      [{ kind: "set_insight", text: "Edited synthesis." }],
+      meta.id
+    );
+    expect(result.ok).toBe(true);
+    const entry = await loadHistoryEntry(meta.id);
+    // The record's spec is now the recompiled one — restore shows the edit.
+    expect(entry.spec.root).toBe("compiled_root");
+    expect(JSON.stringify(entry.spec)).toContain("Edited synthesis.");
+    expect(entry.artifacts?.plan?.plan.nodes.some((n) => n.op === "INSIGHT")).toBe(true);
   });
 });

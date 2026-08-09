@@ -273,13 +273,28 @@ export async function loadArtifactsByHistoryId(
 }
 
 /** Overwrite a history entry's artifacts by its own id (see
- *  loadArtifactsByHistoryId — the restore-then-edit persistence path). */
+ *  loadArtifactsByHistoryId — the restore-then-edit persistence path).
+ *  When `spec` is given, the RENDERED spec persists alongside — an edit
+ *  that recompiles the dashboard but only persists the plan doc leaves
+ *  the record's spec.json stale, so every restore showed the pre-edit
+ *  (and pre-fix) rendering while the plan carried the edits. */
 export async function updateArtifactsByHistoryId(
   historyId: string,
-  artifacts: CachedArtifacts
+  artifacts: CachedArtifacts,
+  spec?: Record<string, unknown>
 ): Promise<boolean> {
   try {
-    await store().writeFiles(historyId, { [RECORD_FILES.artifacts]: JSON.stringify(artifacts) });
+    const files: Record<string, string> = {
+      [RECORD_FILES.artifacts]: JSON.stringify(artifacts),
+    };
+    if (spec) {
+      files[RECORD_FILES.spec] = JSON.stringify(
+        { ...spec, hermeticSpecVersion: HERMETIC_SPEC_VERSION },
+        null,
+        2
+      );
+    }
+    await store().writeFiles(historyId, files);
     return true;
   } catch {
     return false;

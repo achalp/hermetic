@@ -11,9 +11,9 @@ import type { PlanDocument, PlanMutation } from "@/lib/contracts/plan";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
+  findHistoryIdByCsvId,
   loadArtifactsByCsvId,
   loadArtifactsByHistoryId,
-  updateArtifactsByCsvId,
   updateArtifactsByHistoryId,
 } from "@/lib/history/storage";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
@@ -204,10 +204,13 @@ export async function editDashboard(
 
   const next = { ...artifacts, plan: doc };
   cacheArtifacts(csvId, next);
-  // Persist to the record: by the entry's own id when known (restored
-  // sessions — the fresh csvId matches no record), else by csvId.
-  if (historyId) await updateArtifactsByHistoryId(historyId, next);
-  else await updateArtifactsByCsvId(csvId, next).catch(() => false);
+  // Persist to the record — plan doc AND the recompiled spec (without the
+  // spec, restores replayed the pre-edit rendering forever): by the
+  // entry's own id when known (restored sessions — the fresh csvId
+  // matches no record), else by csvId.
+  const specRecord = spec as unknown as Record<string, unknown>;
+  const hid = historyId ?? (await findHistoryIdByCsvId(csvId));
+  if (hid) await updateArtifactsByHistoryId(hid, next, specRecord);
   return { ok: true, errors, spec, doc };
 }
 
