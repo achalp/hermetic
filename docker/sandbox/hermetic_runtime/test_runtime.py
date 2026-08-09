@@ -280,22 +280,41 @@ class TestRegimes(unittest.TestCase):
         self.assertEqual(regimes.profile_regimes(object()), {})
 
     def test_matrix_completeness_meta(self):
-        # (a) every regime named in a matrix cell has a diagnostic path in
-        # the profiler's flag vocabulary; (b) every claim type in the
-        # findings library has a matrix row. Empty cells are inspection
-        # findings, not run findings (spec 2).
+        # FULL CLOSURE (amendment §8): (a) the matrix's regime vocabulary
+        # IS the profiler's flag vocabulary; (b) every claim type in the
+        # findings library has a row; (c) every row carries EVERY regime
+        # key — a cell is a response string or an explicit None (deliberate
+        # N/A), never absent. Sparse rows were how the zero-sentinel gap
+        # hid: absence was ambiguous between "addressed" and "never
+        # audited". "Is the set exhaustive?" is now answered by inspection.
         diagnosable = {"ZERO_INFLATED", "HEAVY_TAIL", "CONTAMINATED",
                        "COUNT_SKEWED", "THIN_PERIODS", "THIN_EDGE",
                        "SHORT_SERIES", "DISCRETE", "TIED", "NEGATIVE_VALUED",
                        "NON_MONOTONE_X", "MONETARY"}
+        self.assertEqual(set(regimes._ALL_REGIMES), diagnosable)
         for claim, cells in regimes.REGIME_MATRIX.items():
-            for regime in cells:
-                self.assertIn(regime, diagnosable, "%s.%s" % (claim, regime))
+            self.assertEqual(set(cells), diagnosable,
+                             "row %s is not closed over the regime set" % claim)
+            for regime, response in cells.items():
+                self.assertTrue(response is None or isinstance(response, str),
+                                "%s.%s" % (claim, regime))
         claim_types = {"trend", "step_change", "comparison", "superlative",
                        "current_state", "outliers", "correlation",
                        "distribution", "share", "decompose",
                        "heterogeneity", "check"}
         self.assertEqual(set(regimes.REGIME_MATRIX), claim_types)
+
+    def test_matrix_zero_inflated_rows_match_the_implementation(self):
+        # The cells that claim "(implemented)" for ZERO_INFLATED are exactly
+        # the claim types whose finding_* functions take a unit= screen —
+        # the matrix must not drift from the code it describes.
+        implemented = {c for c, cells in regimes.REGIME_MATRIX.items()
+                       if cells["ZERO_INFLATED"] is not None
+                       and "(implemented" in cells["ZERO_INFLATED"]}
+        self.assertEqual(implemented, {"trend", "step_change", "comparison",
+                                       "superlative", "current_state",
+                                       "outliers", "correlation",
+                                       "distribution", "heterogeneity"})
 
     def test_profiler_bar_equals_claims_bar(self):
         # The profile's attestation bar and the claim functions' bar are the
@@ -989,12 +1008,65 @@ class TestZeroTotalization(unittest.TestCase):
         self.assertIn("n_zero_excluded", finding_split_comparison(["a"], [1.0]))
         self.assertIn("n_zero_excluded", finding_outliers(None, None))
         self.assertIn("n_zero_excluded", finding_distribution([1.0]))
+        self.assertIn("n_zero_excluded", finding_step_change([]))
+        self.assertIn("n_zero_excluded", finding_yoy("garbage", None))
+        self.assertIn("n_zero_excluded", finding_correlation([1], [2]))
+        self.assertIn("n_zero_excluded", finding_heterogeneity(None))
 
     def test_all_zero_monetary_series_degrades_not_flat(self):
         # Every value screened out -> too few points -> direction None,
         # never a confident "flat" over an empty fit.
         out = finding_trend([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], unit="usd")
         self.assertIsNone(out["direction"])
+
+    def test_step_change_trailing_zero_is_not_a_regime_change(self):
+        # The gap that motivated extending the screen past the first six:
+        # a trailing $0.00 sentinel year passes ALL THREE gates (delta -8
+        # vs spread 1; before-level representative; the single post point
+        # sits below the midpoint trivially) and counts= cannot save it —
+        # sentinel years are often well-attested rows of unpriced items.
+        vals = [5.0, 6.0, 7.0, 8.0, 8.0, 0.0]
+        hazard = finding_step_change(vals)
+        self.assertEqual(hazard["period"], 5)  # the phantom step, proven
+        self.assertEqual(hazard["direction"], "down")
+        screened = finding_step_change(vals, unit="usd")
+        self.assertIsNone(screened["period"])
+        self.assertEqual(screened["n_zero_excluded"], 1)
+
+    def test_heterogeneity_pooled_zero_screen(self):
+        groups = {"a": [0.0, 0.0, 5.0, 5.2, 4.9, 5.1],
+                  "b": [9.0, 9.2, 0.0, 8.9, 9.1]}
+        out = finding_heterogeneity(groups, unit="usd")
+        self.assertEqual(out["n_zero_excluded"], 3)
+        self.assertTrue(out["significant"])  # clean groups clearly differ
+        self.assertEqual(finding_heterogeneity(groups)["n_zero_excluded"], 0)
+
+    def test_yoy_all_sentinel_month_drops_from_both_windows(self):
+        # Zeros are sum-neutral but WINDOW-relevant: a month whose only
+        # entries are sentinel zeros must not count as "reported".
+        labels = ["2020-%02d" % m for m in range(1, 13)] + [
+            "2021-%02d" % m for m in range(1, 11)]
+        vals = [100.0] * 12 + [300.0, 300.0, 0.0, 0.0] + [300.0] * 6
+        out = finding_yoy(labels, vals, unit="usd")
+        self.assertEqual(out["window_months"], [1, 2, 5, 6, 7, 8, 9, 10])
+        self.assertEqual(out["prior_total"], 800.0)
+        self.assertEqual(out["latest_total"], 2400.0)
+        self.assertEqual(out["pct_change"], 200.0)
+        self.assertEqual(out["n_zero_excluded"], 2)
+        # Without unit=, the zero months stay in the overlap and deflate it.
+        kept = finding_yoy(labels, vals)
+        self.assertEqual(kept["window_months"], list(range(1, 11)))
+        self.assertEqual(kept["n_zero_excluded"], 0)
+
+    def test_correlation_screens_each_axis_pairwise(self):
+        xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        ys = [2.0, 4.0, 6.0, 0.0, 10.0, 12.0, 14.0, 0.0, 18.0, 20.0]
+        out = finding_correlation(xs, ys, y_unit="usd")
+        self.assertEqual(out["n"], 8)  # screened members drop their pairs
+        self.assertEqual(out["n_zero_excluded"], 2)
+        self.assertAlmostEqual(out["pearson_r"], 1.0, places=3)
+        # Without the screen the zeros distort the fit.
+        self.assertLess(finding_correlation(xs, ys)["pearson_r"], 0.9)
 
 
 class TestImportPurity(unittest.TestCase):

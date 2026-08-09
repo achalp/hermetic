@@ -158,3 +158,31 @@ the platform must not silently rewrite series data the reader will chart.
 Gates decide emphasis and computation, never visibility: excluded zeros
 are always countable in the payload, and the record-level exclusion
 remains a declared, checkable action of the generated code.
+
+## 8. Amendment (2026-08-09): full closure — all twelve helpers, all 144 cells
+
+Auditing "is the six-function set exhaustive?" answered itself: it wasn't,
+and the matrix couldn't say so — only the `trend` row carried a
+ZERO_INFLATED cell, and a sparse row is ambiguous between "addressed
+elsewhere" and "never audited". Two changes:
+
+**Four more helpers threaded.** `finding_step_change` (a trailing $0.00
+sentinel passes all three step gates and `counts=` cannot save it — a
+proven phantom regime change, now the motivating test),
+`finding_heterogeneity` (pooled policy decision, applied per group — one
+policy per measure, never per group), `finding_yoy` (zeros are
+sum-neutral but window-relevant: an all-sentinel month drops from BOTH
+overlap windows), and `finding_correlation` (per-axis `x_unit=`/`y_unit=`;
+a screened member drops its pair). `finding_share` and
+`finding_decompose` are decided N/A, recorded in their matrix cells: a
+zero part/term genuinely contributes nothing to a sum, which is exactly
+what the sentinel means there.
+
+**The matrix is closed.** Every row now carries every regime key; each
+cell is a response string — tagged (implemented) / (upstream) / (caveat)
+/ (accepted) — or an explicit None for deliberate N/A. The meta-test
+asserts full closure (row key-sets equal the profiler's flag vocabulary)
+and pins the ZERO_INFLATED "(implemented)" cells to exactly the claim
+types whose functions carry the screen, so matrix and code cannot drift
+apart silently. Coverage questions are now inspection results, not
+review findings.

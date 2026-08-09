@@ -80,15 +80,15 @@ export function realizeClaim(f: FindingEntry): string {
         return `Split at ${b(n, "split_at" in v ? "split_at" : "early_span")}: ${b(n, "early_median")} early (${b(n, "early_span")}) vs ${b(n, "late_median")} late (${b(n, "late_span")}) — a ${b(n, "multiplier")}× change.${zeroClause(n, v)}`;
       }
       if ("pct_change" in v) {
-        return `${cap(label)}: ${b(n, "pct_change")} from ${b(n, "prior_year")} to ${b(n, "latest_year")} over the ${b(n, "window_months")} overlapping months.`;
+        return `${cap(label)}: ${b(n, "pct_change")} from ${b(n, "prior_year")} to ${b(n, "latest_year")} over the ${b(n, "window_months")} overlapping months.${zeroClause(n, v)}`;
       }
       return generic(f);
     }
     case "step_change": {
       if (v.period === null || v.period === undefined) {
-        return `No persistent step change was detected in ${label} — level shifts did not survive the persistence and spread gates.`;
+        return `No persistent step change was detected in ${label} — level shifts did not survive the persistence and spread gates.${zeroClause(n, v)}`;
       }
-      return `${cap(label)}: a ${b(n, "direction")} step of ${b(n, "delta")} at ${b(n, "period")} (baseline spread ${b(n, "baseline_spread")}).`;
+      return `${cap(label)}: a ${b(n, "direction")} step of ${b(n, "delta")} at ${b(n, "period")} (baseline spread ${b(n, "baseline_spread")}).${zeroClause(n, v)}`;
     }
     case "distribution": {
       let s = `${cap(label)}: median ${b(n, "median")}, mean ${b(n, "mean")}, skew ${b(n, "skew")}`;
@@ -96,7 +96,7 @@ export function realizeClaim(f: FindingEntry): string {
       return s + "." + zeroClause(n, v);
     }
     case "correlation": {
-      return `${cap(label)}: Pearson r = ${b(n, "pearson_r")} (p = ${b(n, "pearson_p")}), Spearman ρ = ${b(n, "spearman_rho")} (p = ${b(n, "spearman_p")}), n = ${b(n, "n")}.`;
+      return `${cap(label)}: Pearson r = ${b(n, "pearson_r")} (p = ${b(n, "pearson_p")}), Spearman ρ = ${b(n, "spearman_rho")} (p = ${b(n, "spearman_p")}), n = ${b(n, "n")}.${zeroClause(n, v)}`;
     }
     case "share": {
       return `${cap(label)}: shares ${b(n, "shares_pct")} with residual ${b(n, "residual_pct")}.`;

@@ -566,8 +566,9 @@ def declare_finding(name, value, definition, dtype, unit=None,
 def finding_trend(values, unit=None):
     return {'direction': None, 'slope_per_period': None, 'p_value': None,
             'slope_ci95': None, 'n_zero_excluded': None}
-def finding_step_change(values, labels=None, counts=None):
-    return {'period': None, 'delta': None, 'direction': None, 'baseline_spread': None}
+def finding_step_change(values, labels=None, counts=None, unit=None):
+    return {'period': None, 'delta': None, 'direction': None, 'baseline_spread': None,
+            'n_zero_excluded': None}
 def finding_decompose(total_change, terms):
     try:
         _out = {str(_k): _v for _k, _v in dict(terms).items()}
@@ -576,16 +577,17 @@ def finding_decompose(total_change, terms):
     _out['dominant'] = None
     _out['residual'] = None
     return _out
-def finding_heterogeneity(groups):
-    return {'significant': None, 'p_value': None, 'test': 'anova'}
+def finding_heterogeneity(groups, unit=None):
+    return {'significant': None, 'p_value': None, 'test': 'anova',
+            'n_zero_excluded': None}
 def declare_check(name, definition, passed=None, evidence=None, severity='caveat', derived_from_columns=None):
     pass
 def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
     return {'outliers': None, 'n_flagged': None, 'method': 'rolling_mad',
             'window': window, 'k': k, 'n_zero_excluded': None}
-def finding_correlation(x_values, y_values):
+def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
     return {'pearson_r': None, 'pearson_p': None, 'spearman_rho': None,
-            'spearman_p': None, 'n': None}
+            'spearman_p': None, 'n': None, 'n_zero_excluded': None}
 def finding_distribution(values, unit=None):
     return {'n': None, 'mean': None, 'median': None, 'std': None, 'mad': None,
             'skew': None, 'p25': None, 'p75': None, 'min': None, 'max': None,
@@ -600,9 +602,10 @@ def finding_split_comparison(labels, values, split_at=None, unit=None):
     return {'early_median': None, 'late_median': None, 'early_n': None,
             'late_n': None, 'early_span': None, 'late_span': None,
             'multiplier': None, 'n_zero_excluded': None}
-def finding_yoy(period_labels, values):
+def finding_yoy(period_labels, values, unit=None):
     return {'prior_year': None, 'latest_year': None, 'window_months': None,
-            'prior_total': None, 'latest_total': None, 'pct_change': None}
+            'prior_total': None, 'latest_total': None, 'pct_change': None,
+            'n_zero_excluded': None}
 def finding_current_state(values, labels=None, window=6, coverage=None, counts=None,
                           unit=None):
     return {'period': None, 'value': None, 'pct_from_peak': None,

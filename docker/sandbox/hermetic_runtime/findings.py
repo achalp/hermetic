@@ -428,7 +428,7 @@ def finding_trend(values, unit=None):
         return failed
 
 
-def finding_step_change(values, labels=None, counts=None):
+def finding_step_change(values, labels=None, counts=None, unit=None):
     """Largest single-period level shift, if it stands out AND persists.
 
     Returns {"period", "delta", "direction", "baseline_spread"} where period
@@ -450,10 +450,19 @@ def finding_step_change(values, labels=None, counts=None):
         REPLACED another; an oscillating series (a wave that re-crosses the
         break — e.g. a decline followed by a higher peak) is not a regime
         change, and fitting a break to a wave's downslope reports a
-        structural inflection that does not exist. Never raises.
+        structural inflection that does not exist.
+
+    ALWAYS pass unit= for monetary measures: a trailing $0.00 sentinel
+    year manufactures a full-magnitude down-step that PASSES all three
+    gates (the single post point sits below the midpoint trivially, and
+    counts= cannot save it — sentinel years are often well-attested rows
+    of unpriced items). zero_policy runs internally; the screen is
+    reported as n_zero_excluded. Never raises.
     """
-    failed = {"period": None, "delta": None, "direction": None, "baseline_spread": None}
+    failed = {"period": None, "delta": None, "direction": None,
+              "baseline_spread": None, "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         ys = [safe_float(v) for v in list(values)]
         deltas = [
             None if (ys[i - 1] is None or ys[i] is None) else ys[i] - ys[i - 1]
@@ -464,7 +473,8 @@ def finding_step_change(values, labels=None, counts=None):
             return failed
         m = len(spread)
         median = spread[m // 2] if m % 2 else (spread[m // 2 - 1] + spread[m // 2]) / 2.0
-        no_step = {"period": None, "delta": None, "direction": None, "baseline_spread": median}
+        no_step = {"period": None, "delta": None, "direction": None,
+                   "baseline_spread": median, "n_zero_excluded": n_zx}
         best_i, best_d = None, None
         for i, d in enumerate(deltas):
             if d is not None and (best_d is None or abs(d) > abs(best_d)):
@@ -517,12 +527,12 @@ def finding_step_change(values, labels=None, counts=None):
                 period = idx
         direction = "up" if best_d > 0 else "down"
         return {"period": period, "delta": best_d, "direction": direction,
-                "baseline_spread": median}
+                "baseline_spread": median, "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
 
-def finding_yoy(period_labels, values):
+def finding_yoy(period_labels, values, unit=None):
     """Like-for-like year-over-year growth — the ONLY valid YoY on partial years.
 
     Comparing raw calendar-year totals when the latest year is incomplete
@@ -535,14 +545,24 @@ def finding_yoy(period_labels, values):
     data are compared over the intersection of their reported months.
 
     Returns {"prior_year", "latest_year", "window_months", "prior_total",
-    "latest_total", "pct_change"} — window_months is the sorted overlapping
-    month list (e.g. [1..10]), recorded for audit. Degenerate inputs
-    (fewer than two years, empty overlap, zero prior total) return all-None
-    fields. Never raises.
+    "latest_total", "pct_change", "n_zero_excluded"} — window_months is the
+    sorted overlapping month list (e.g. [1..10]), recorded for audit.
+    Degenerate inputs (fewer than two years, empty overlap, zero prior
+    total) return all-None fields.
+
+    ALWAYS pass unit= for monetary measures. Zeros are neutral in a SUM,
+    but not in the WINDOW: a month whose only entries are sentinel zeros
+    counted as a "reported" month and stayed in the like-for-like overlap.
+    With unit= the screen (zero_policy, internal) nulls sentinel zeros, an
+    all-sentinel month drops out of the totals, and the intersection then
+    excludes it from BOTH years — unrecorded months cannot anchor a
+    comparison. Reported as n_zero_excluded. Never raises.
     """
     failed = {"prior_year": None, "latest_year": None, "window_months": None,
-              "prior_total": None, "latest_total": None, "pct_change": None}
+              "prior_total": None, "latest_total": None, "pct_change": None,
+              "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, labels=period_labels, unit=unit)
         import re as _re
         totals = {}
         for label, v in zip(list(period_labels), list(values)):
@@ -570,11 +590,11 @@ def finding_yoy(period_labels, values):
         if prior_total == 0:
             return {"prior_year": prior, "latest_year": latest, "window_months": months,
                     "prior_total": prior_total, "latest_total": latest_total,
-                    "pct_change": None}
+                    "pct_change": None, "n_zero_excluded": n_zx}
         pct = (latest_total - prior_total) / abs(prior_total) * 100.0
         return {"prior_year": prior, "latest_year": latest, "window_months": months,
                 "prior_total": prior_total, "latest_total": latest_total,
-                "pct_change": round(pct, 1)}
+                "pct_change": round(pct, 1), "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
@@ -646,17 +666,27 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
         return failed
 
 
-def finding_correlation(x_values, y_values):
+def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
     """Pearson + Spearman between two series (pairwise non-None).
 
     scipy supplies p-values when importable; the pure-Python fallback
     reports coefficients with p-values None — never a wrong p. Returns
-    {"pearson_r", "pearson_p", "spearman_rho", "spearman_p", "n"}.
+    {"pearson_r", "pearson_p", "spearman_rho", "spearman_p", "n",
+    "n_zero_excluded"}.
+
+    ALWAYS pass x_unit=/y_unit= for monetary series (two inputs, so the
+    unit is per axis): sentinel zeros in either series manufacture
+    spurious correlation structure. zero_policy runs internally per axis;
+    a screened member drops its PAIR (the existing pairwise-non-None
+    rule), and n_zero_excluded counts zeros screened across both inputs.
     Never raises.
     """
     failed = {"pearson_r": None, "pearson_p": None, "spearman_rho": None,
-              "spearman_p": None, "n": None}
+              "spearman_p": None, "n": None, "n_zero_excluded": None}
     try:
+        x_values, n_zx_x = _zero_screen(x_values, unit=x_unit)
+        y_values, n_zx_y = _zero_screen(y_values, unit=y_unit)
+        n_zx = n_zx_x + n_zx_y
         pairs = [
             (safe_float(a), safe_float(b))
             for a, b in zip(list(x_values), list(y_values))
@@ -674,7 +704,7 @@ def finding_correlation(x_values, y_values):
             sr = _st.spearmanr(xs, ys)
             return {"pearson_r": round(float(pr[0]), 4), "pearson_p": float(pr[1]),
                     "spearman_rho": round(float(sr[0]), 4), "spearman_p": float(sr[1]),
-                    "n": n}
+                    "n": n, "n_zero_excluded": n_zx}
         except Exception:
             pass
 
@@ -704,7 +734,7 @@ def finding_correlation(x_values, y_values):
         spear = _pearson(_ranks(xs), _ranks(ys))
         return {"pearson_r": None if pear is None else round(pear, 4), "pearson_p": None,
                 "spearman_rho": None if spear is None else round(spear, 4),
-                "spearman_p": None, "n": n}
+                "spearman_p": None, "n": n, "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
@@ -1109,19 +1139,42 @@ def finding_decompose(total_change, terms):
         return {"dominant": None, "residual": None}
 
 
-def finding_heterogeneity(groups):
-    """One-way ANOVA across named groups → {"significant", "p_value", "test"}.
+def finding_heterogeneity(groups, unit=None):
+    """One-way ANOVA across named groups → {"significant", "p_value", "test",
+    "n_zero_excluded"}.
 
     significant = p < 0.05 that the group means differ. scipy's f_oneway when
     importable, else a pure-python F test with the exact p (same math). Never
-    raises → {"significant": None, "p_value": None, "test": "anova"} when
+    raises → {"significant": None, "p_value": None, "test": "anova", ...} when
     fewer than two usable groups or the test degenerates.
+
+    ALWAYS pass unit= for monetary measures: sentinel zeros drag group
+    means toward zero and inflate within-group variance — significance can
+    flip either way. The zero policy is decided ONCE over the POOLED
+    values (one policy per measure, never per group) and applied to every
+    group; the screen is reported as n_zero_excluded.
     """
-    failed = {"significant": None, "p_value": None, "test": "anova"}
+    failed = {"significant": None, "p_value": None, "test": "anova",
+              "n_zero_excluded": None}
     try:
-        samples = []
+        norm = []
         for _name, vals in dict(groups).items():
-            clean = [f for f in (safe_float(v) for v in list(vals)) if f is not None]
+            try:
+                norm.append(list(vals))
+            except Exception:
+                continue
+        n_zx = 0
+        if unit is not None and norm:
+            flat = [v for vals in norm for v in vals]
+            screened, n_zx = _zero_screen(flat, unit=unit)
+            if n_zx:
+                pos = 0
+                for i, vals in enumerate(norm):
+                    norm[i] = screened[pos:pos + len(vals)]
+                    pos += len(vals)
+        samples = []
+        for vals in norm:
+            clean = [f for f in (safe_float(v) for v in vals) if f is not None]
             if len(clean) >= 2:
                 samples.append(clean)
         if len(samples) < 2:
@@ -1139,7 +1192,8 @@ def finding_heterogeneity(groups):
             p = _anova_p(samples)
         if p is None:
             return failed
-        return {"significant": bool(p < 0.05), "p_value": p, "test": "anova"}
+        return {"significant": bool(p < 0.05), "p_value": p, "test": "anova",
+                "n_zero_excluded": n_zx}
     except Exception:
         return failed
 

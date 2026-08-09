@@ -144,58 +144,181 @@ def profile_regimes(values, counts=None, labels=None, unit=None):
         return {}
 
 
-# ── The matrix (spec §1): claim type x regime -> response ────────────────
-# THE completeness artifact: every cell either names its response or is
-# explicitly None (not applicable). The meta-test asserts every regime
-# named here has a diagnostic and every claim type has a row — empty cells
-# are found by inspection, never by production runs.
+# ── The matrix (spec §1, closed per amendment §8): claim type x regime ───
+# THE completeness artifact, FULLY CLOSED: every row carries every regime
+# key, each cell a response string or explicitly None (deliberate N/A —
+# the regime cannot corrupt this claim, or the hazard belongs to another
+# claim's row). The meta-test asserts full closure, so "is the set
+# exhaustive?" is answered by inspection, never by asking or by a
+# production run. A sparse row was exactly how the zero-sentinel gap hid:
+# absence was ambiguous between "addressed elsewhere" and "never audited".
+#
+# Response tags: (implemented) = enforced inside the claim function;
+# (upstream) = enforced by another layer (contract, lints, SQL, another
+# claim); (caveat) = profile flag -> composer caveat, not refused in-code;
+# (accepted) = known limitation, documented and visible in outputs.
+_ALL_REGIMES = ("ZERO_INFLATED", "HEAVY_TAIL", "CONTAMINATED",
+                "COUNT_SKEWED", "THIN_PERIODS", "THIN_EDGE", "SHORT_SERIES",
+                "DISCRETE", "TIED", "NEGATIVE_VALUED", "NON_MONOTONE_X",
+                "MONETARY")
+
 REGIME_MATRIX = {
     "trend": {
-        "HEAVY_TAIL": "CI mandatory (slope_ci95); median-based series preferred",
-        "SHORT_SERIES": "degrade: direction None under n<3; report without verdict n<8",
-        "ZERO_INFLATED": "sentinel adjudication BEFORE fitting (zero_policy)",
-        "NON_MONOTONE_X": "sort or refuse — a trend over unordered x is undefined",
+        "ZERO_INFLATED": "zero screen inside unit= (implemented: _zero_screen before the fit)",
+        "HEAVY_TAIL": "CI mandatory (slope_ci95, implemented); median-based series preferred (upstream)",
+        "CONTAMINATED": "screen the measure with finding_outliers — same policy — before fitting (upstream)",
+        "COUNT_SKEWED": "fit is count-blind: aggregates weigh equally; attestation governs emphasis claims, not the slope (accepted)",
+        "THIN_PERIODS": "mitigate via screened/attested series; thin-period noise widens slope_ci95 (accepted)",
+        "THIN_EDGE": "endpoint claims delegate to current_state; edge sensitivity carried by slope_ci95 (accepted)",
+        "SHORT_SERIES": "degrade: direction None under n<3; report without verdict n<8 (implemented)",
+        "DISCRETE": None,  # OLS is defined regardless of cardinality
+        "TIED": None,
+        "NEGATIVE_VALUED": None,  # the fit is sign-indifferent
+        "NON_MONOTONE_X": "sort or refuse — a trend over unordered x is undefined (caveat)",
+        "MONETARY": "modifier: with ZERO_INFLATED enables sentinel exclusion (zero_policy)",
     },
     "step_change": {
+        "ZERO_INFLATED": "zero screen inside unit= (implemented) — a trailing $0 sentinel manufactures a full-magnitude down-step that passes all three gates",
+        "HEAVY_TAIL": "spike-reversion gate (implemented): an outlier before-level cannot host a step",
+        "CONTAMINATED": "magnitude gate is spread-relative (3x median |delta|) + spike-reversion gate (implemented)",
+        "COUNT_SKEWED": "edge-period counts gate (implemented: counts= in finding_step_change)",
         "THIN_PERIODS": "edge-period counts gate (implemented: counts= in finding_step_change)",
-        "SHORT_SERIES": "degrade: no step verdict",
+        "THIN_EDGE": "counts= gate refuses a step landing on a thin trailing period (implemented)",
+        "SHORT_SERIES": "degrade: no step verdict (implemented)",
+        "DISCRETE": None,
+        "TIED": None,
+        "NEGATIVE_VALUED": "direction bound from delta sign (implemented) — never inferred from context",
+        "NON_MONOTONE_X": "deltas over unordered x are undefined (caveat)",
+        "MONETARY": "modifier: with ZERO_INFLATED enables sentinel exclusion (zero_policy)",
     },
     "comparison": {
-        "COUNT_SKEWED": "both windows must be attested; spans AND n comparable",
-        "MONETARY": "single-unit restriction upstream (currency check)",
+        "ZERO_INFLATED": "zero screen inside unit= (implemented: split_comparison; yoy — an all-sentinel month drops from BOTH windows)",
+        "HEAVY_TAIL": "median-based by construction (early/late medians, implemented)",
+        "CONTAMINATED": "medians robust to point contamination; screen the measure upstream for level claims",
+        "COUNT_SKEWED": "both windows must be attested; spans AND n comparable (upstream: contract)",
+        "THIN_PERIODS": "early_n/late_n reported — imbalance visible, never silent (implemented)",
+        "THIN_EDGE": "yoy restricts both years to overlapping months (implemented)",
+        "SHORT_SERIES": "degrade: all-None under n<6 (split) / <2 years (yoy) (implemented)",
+        "DISCRETE": None,
+        "TIED": None,
+        "NEGATIVE_VALUED": "multiplier None when early median is 0; signed medians make ratios treacherous — report both levels (accepted)",
+        "NON_MONOTONE_X": "split assumes ordered labels (caveat)",
+        "MONETARY": "single-unit restriction upstream (currency check); modifier for the zero screen",
     },
     "superlative": {
+        "ZERO_INFLATED": "zero screen inside unit= (implemented) — a $0 sentinel cannot be crowned kind='min'",
+        "HEAVY_TAIL": None,  # the extreme IS the claim; validity handled by CONTAMINATED/attestation
+        "CONTAMINATED": "screen the measure before crowning an extreme (upstream)",
         "COUNT_SKEWED": "attestation bar (implemented: _attestation_bar); raw ALWAYS beside",
-        "THIN_PERIODS": "thin periods cannot host the attested extreme",
-        "CONTAMINATED": "screen the measure before crowning an extreme",
+        "THIN_PERIODS": "thin periods cannot host the attested extreme (implemented)",
+        "THIN_EDGE": "same attestation bar covers a thin trailing period (implemented)",
+        "SHORT_SERIES": None,  # an extreme is valid at any n; degenerate input -> all-None
+        "DISCRETE": "ties for the extreme: first-encountered wins, deterministic (implemented)",
+        "TIED": "ties for the extreme: first-encountered wins, deterministic (implemented)",
+        "NEGATIVE_VALUED": None,  # max/min are sign-agnostic
+        "NON_MONOTONE_X": None,  # order-free statistic
+        "MONETARY": "modifier: with ZERO_INFLATED enables sentinel exclusion (zero_policy)",
     },
     "current_state": {
-        "THIN_EDGE": "walk back with excluded_reason; latest_* always reported",
-        "COUNT_SKEWED": "attestation-consistent reference peak",
+        "ZERO_INFLATED": "zero screen inside unit= (implemented) — a trailing $0 year is unrecorded, not an endpoint",
+        "HEAVY_TAIL": "direction vs prior-window MEDIAN — robust recent level (implemented)",
+        "CONTAMINATED": "attestation-consistent reference peak; magnitude walk-back capped at 2 (implemented)",
+        "COUNT_SKEWED": "attestation-consistent reference peak (implemented)",
+        "THIN_PERIODS": "attestation gate on the walk-back (implemented: counts=)",
+        "THIN_EDGE": "walk back with excluded_reason; latest_* always reported (implemented)",
+        "SHORT_SERIES": "degrade: all-None under n<2 (implemented)",
+        "DISCRETE": None,
+        "TIED": None,
+        "NEGATIVE_VALUED": "pct_from_peak uses |peak| denominator (implemented)",
+        "NON_MONOTONE_X": "walk-back assumes chronological order (caveat)",
+        "MONETARY": "modifier: with ZERO_INFLATED enables sentinel exclusion (zero_policy)",
     },
     "outliers": {
-        "COUNT_SKEWED": "attestation protection (well-attested never flagged)",
-        "HEAVY_TAIL": "rolling MAD (scale-free) — the reason the method is pinned",
+        "ZERO_INFLATED": "zero screen inside unit= (implemented) — sentinels are encodings, not anomalies",
+        "HEAVY_TAIL": "rolling MAD (scale-free) — the reason the method is pinned (implemented)",
+        "CONTAMINATED": "the claim exists to catch this; MAD is tail-robust — an error cluster cannot raise its own bar (implemented)",
+        "COUNT_SKEWED": "attestation protection: well-attested values are never flagged (implemented)",
+        "THIN_PERIODS": "thin values remain flaggable — attestation protects, never exempts the thin (implemented)",
+        "THIN_EDGE": None,  # edge completeness is current_state's claim
+        "SHORT_SERIES": "degrade: all-None under n<5 (implemented)",
+        "DISCRETE": "MAD=0 neighborhoods are skipped, never divided by (implemented)",
+        "TIED": "MAD=0 neighborhoods are skipped, never divided by (implemented)",
+        "NEGATIVE_VALUED": None,
+        "NON_MONOTONE_X": "era-local window assumes ordered x (caveat)",
+        "MONETARY": "modifier: with ZERO_INFLATED enables sentinel exclusion (zero_policy)",
     },
     "correlation": {
-        "CONTAMINATED": "Spearman over Pearson (rank-robust); report both",
-        "TIED": "ties inflate Pearson; prefer Spearman/Kendall semantics",
-        "SHORT_SERIES": "p-values unreliable; report n prominently",
+        "ZERO_INFLATED": "zero screen inside x_unit=/y_unit= (implemented); a screened member drops its pair",
+        "HEAVY_TAIL": "Spearman reported beside Pearson (implemented)",
+        "CONTAMINATED": "Spearman over Pearson (rank-robust); report both (implemented)",
+        "COUNT_SKEWED": None,  # raw pairs, no counts surface; aggregate-input correlations inherit upstream attestation
+        "THIN_PERIODS": None,
+        "THIN_EDGE": None,
+        "SHORT_SERIES": "p-values unreliable; report n prominently (implemented: n in payload)",
+        "DISCRETE": "rank averaging handles ties; prefer Spearman semantics (implemented)",
+        "TIED": "ties inflate Pearson; prefer Spearman/Kendall semantics (caveat)",
+        "NEGATIVE_VALUED": None,
+        "NON_MONOTONE_X": None,  # order-free statistic
+        "MONETARY": "modifier: per-axis units (x_unit=/y_unit=) enable the zero screen",
     },
     "distribution": {
-        "DISCRETE": "quartiles collapse under low cardinality; report distinct_share",
+        "ZERO_INFLATED": "zero screen inside unit= (implemented) — $0 sentinels are not the distribution's floor",
+        "HEAVY_TAIL": None,  # the claim MEASURES this: skew and mean/median gap are its outputs
+        "CONTAMINATED": "min/max reported raw so contamination is visible; median/MAD beside moments (implemented)",
+        "COUNT_SKEWED": None,  # raw values, no counts surface
+        "THIN_PERIODS": None,
+        "THIN_EDGE": None,
+        "SHORT_SERIES": "degrade: all-None under n<3; n reported (implemented)",
+        "DISCRETE": "quartiles collapse under low cardinality; report distinct_share (caveat)",
+        "TIED": "modal mass distorts quantile interpolation; report modal_share (caveat)",
+        "NEGATIVE_VALUED": None,
+        "NON_MONOTONE_X": None,
+        "MONETARY": "modifier: with ZERO_INFLATED enables sentinel exclusion (zero_policy)",
     },
     "share": {
-        "NEGATIVE_VALUED": "shares of signed quantities need explicit residual handling",
+        "ZERO_INFLATED": None,  # decided N/A: a zero part contributes nothing to a sum — matches sentinel semantics; share 0 is the honest rendering
+        "HEAVY_TAIL": None,
+        "CONTAMINATED": "parts are aggregates — screen the measure upstream before sharing",
+        "COUNT_SKEWED": None,
+        "THIN_PERIODS": None,
+        "THIN_EDGE": None,
+        "SHORT_SERIES": None,
+        "DISCRETE": None,
+        "TIED": None,
+        "NEGATIVE_VALUED": "shares of signed quantities need explicit residual handling (implemented: residual_pct + sums_to_100)",
+        "NON_MONOTONE_X": None,
+        "MONETARY": "single-unit restriction upstream — pooled-currency parts are invalid",
     },
     "decompose": {
-        "NEGATIVE_VALUED": "signed terms: dominant by |magnitude|, residual disclosed",
+        "ZERO_INFLATED": None,  # decided N/A: terms are computed contributions; zero = genuinely contributed nothing
+        "HEAVY_TAIL": None,
+        "CONTAMINATED": "residual exposes mis-specification — terms that don't explain the change leave a large residual (implemented)",
+        "COUNT_SKEWED": None,
+        "THIN_PERIODS": None,
+        "THIN_EDGE": None,
+        "SHORT_SERIES": None,
+        "DISCRETE": None,
+        "TIED": None,
+        "NEGATIVE_VALUED": "signed terms: dominant by |magnitude|, residual disclosed (implemented)",
+        "NON_MONOTONE_X": None,
+        "MONETARY": "single-unit restriction upstream — mixed-currency terms are invalid",
     },
     "heterogeneity": {
-        "SHORT_SERIES": "ANOVA over tiny groups: report group ns",
-        "TIED": "variance assumptions degrade under heavy ties",
+        "ZERO_INFLATED": "zero screen inside unit= (implemented) — pooled policy, applied per group",
+        "HEAVY_TAIL": "variance-based F degrades under heavy tails — p is evidence, not a verdict alone (accepted)",
+        "CONTAMINATED": "a contaminated group inflates within-group variance — screen the measure upstream",
+        "COUNT_SKEWED": None,  # groups, not counted periods
+        "THIN_PERIODS": None,
+        "THIN_EDGE": None,
+        "SHORT_SERIES": "ANOVA over tiny groups: report group ns (upstream: contract)",
+        "DISCRETE": None,
+        "TIED": "variance assumptions degrade under heavy ties (caveat)",
+        "NEGATIVE_VALUED": None,
+        "NON_MONOTONE_X": None,  # groups are unordered
+        "MONETARY": "modifier: with ZERO_INFLATED enables sentinel exclusion (zero_policy)",
     },
-    "check": {},  # checks ARE the response layer; no dispatch applies
+    # Checks ARE the response layer; no dispatch applies to any regime.
+    "check": {r: None for r in _ALL_REGIMES},
 }
 
 
