@@ -258,6 +258,34 @@ export async function loadArtifactsByCsvId(csvId: string): Promise<CachedArtifac
   return store().readOptionalJson<CachedArtifacts>(id, RECORD_FILES.artifacts);
 }
 
+/** Load a history entry's persisted artifacts by its OWN id — the restore
+ *  path's key. A restore re-registers the CSV under a FRESH csvId, so every
+ *  csvId-keyed lookup dead-ends for restored analyses; the history id is
+ *  the stable key the ?restore= flow actually has. */
+export async function loadArtifactsByHistoryId(
+  historyId: string
+): Promise<CachedArtifacts | undefined> {
+  try {
+    return await store().readOptionalJson<CachedArtifacts>(historyId, RECORD_FILES.artifacts);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Overwrite a history entry's artifacts by its own id (see
+ *  loadArtifactsByHistoryId — the restore-then-edit persistence path). */
+export async function updateArtifactsByHistoryId(
+  historyId: string,
+  artifacts: CachedArtifacts
+): Promise<boolean> {
+  try {
+    await store().writeFiles(historyId, { [RECORD_FILES.artifacts]: JSON.stringify(artifacts) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Overwrite the persisted artifacts.json for the most recent run under `csvId`.
  * Used to durably persist lazily-composed notebook cell specs back onto the

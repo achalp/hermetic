@@ -19,13 +19,22 @@ import { getPlanSurface, patchPlan, type PlanEditSurface, ApiError } from "@/app
 
 export interface PlanEditPanelProps {
   csvId: string | null;
+  /** History id of the displayed analysis — the stable key for restored
+   *  sessions, whose csvId is freshly minted and maps to no record. */
+  historyId?: string | null;
   open: boolean;
   onClose: () => void;
   /** Receives the recompiled spec after every applied mutation batch. */
   onSpecUpdated: (spec: Spec) => void;
 }
 
-export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditPanelProps) {
+export function PlanEditPanel({
+  csvId,
+  historyId,
+  open,
+  onClose,
+  onSpecUpdated,
+}: PlanEditPanelProps) {
   const [surface, setSurface] = useState<PlanEditSurface | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -39,14 +48,14 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
   const refresh = useCallback(async () => {
     if (!csvId) return;
     try {
-      const s = await getPlanSurface(csvId);
+      const s = await getPlanSurface(csvId, historyId);
       setSurface(s);
       setLoadFailed(false);
     } catch {
       setLoadFailed(true);
     }
     setLoaded(true);
-  }, [csvId]);
+  }, [csvId, historyId]);
 
   useEffect(() => {
     if (open) {
@@ -64,7 +73,7 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
       setBusy(true);
       setError(null);
       try {
-        const result = await patchPlan(csvId, mutations);
+        const result = await patchPlan(csvId, mutations, historyId);
         onSpecUpdated(result.spec);
         await refresh();
       } catch (e) {
@@ -73,7 +82,7 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
         setBusy(false);
       }
     },
-    [csvId, busy, onSpecUpdated, refresh]
+    [csvId, historyId, busy, onSpecUpdated, refresh]
   );
 
   if (!open) return null;

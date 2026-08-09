@@ -10,7 +10,12 @@ import { applySpecPatch, parseSpecStreamLine, type Spec } from "@/spec/core";
 import type { PlanDocument, PlanMutation } from "@/lib/contracts/plan";
 import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { loadArtifactsByCsvId, updateArtifactsByCsvId } from "@/lib/history/storage";
+import {
+  loadArtifactsByCsvId,
+  loadArtifactsByHistoryId,
+  updateArtifactsByCsvId,
+  updateArtifactsByHistoryId,
+} from "@/lib/history/storage";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { planHeadlineTiles } from "@/lib/findings/headline-plan";
 import { declaredUnitMap, parseProduct } from "@/lib/product";
@@ -40,11 +45,26 @@ function viewsFor(artifacts: CachedArtifacts): DerivedView[] {
   });
 }
 
+/** Artifacts for a dataset: live cache first, then the history record —
+ *  by the entry's OWN id when the caller has one (the ?restore= flow runs
+ *  under a fresh csvId that maps to no record), else by csvId. */
+async function resolveArtifacts(
+  csvId: string,
+  historyId?: string | null
+): Promise<CachedArtifacts | undefined> {
+  return (
+    getCachedArtifacts(csvId) ??
+    (historyId ? await loadArtifactsByHistoryId(historyId) : undefined) ??
+    (await loadArtifactsByCsvId(csvId))
+  );
+}
+
 export async function editDashboard(
   csvId: string,
-  mutations: PlanMutation[]
+  mutations: PlanMutation[],
+  historyId?: string | null
 ): Promise<EditDashboardResult> {
-  const artifacts = getCachedArtifacts(csvId) ?? (await loadArtifactsByCsvId(csvId));
+  const artifacts = await resolveArtifacts(csvId, historyId);
   if (!artifacts) return { ok: false, errors: ["no cached analysis for this dataset"] };
   if (!artifacts.plan || !artifacts.findings) {
     return {
@@ -108,7 +128,10 @@ export async function editDashboard(
 
   const next = { ...artifacts, plan: doc };
   cacheArtifacts(csvId, next);
-  await updateArtifactsByCsvId(csvId, next).catch(() => false);
+  // Persist to the record: by the entry's own id when known (restored
+  // sessions — the fresh csvId matches no record), else by csvId.
+  if (historyId) await updateArtifactsByHistoryId(historyId, next);
+  else await updateArtifactsByCsvId(csvId, next).catch(() => false);
   return { ok: true, errors, spec, doc };
 }
 
@@ -143,8 +166,11 @@ export interface EditSurface {
   views: { id: string; kind: string; seriesId: string; reason: string; shipped: boolean }[];
 }
 
-export async function getEditSurface(csvId: string): Promise<EditSurface | null> {
-  const artifacts = getCachedArtifacts(csvId) ?? (await loadArtifactsByCsvId(csvId));
+export async function getEditSurface(
+  csvId: string,
+  historyId?: string | null
+): Promise<EditSurface | null> {
+  const artifacts = await resolveArtifacts(csvId, historyId);
   if (!artifacts?.plan || !artifacts.findings) return null;
   const doc = artifacts.plan;
   const findings = artifacts.findings.findings;

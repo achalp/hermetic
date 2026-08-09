@@ -6,6 +6,8 @@ import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { appendConversationTurn, buildTurnFromArtifacts } from "@/lib/pipeline/conversation-cache";
+import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { v4 as uuidv4 } from "uuid";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -49,6 +51,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         csvId,
         buildTurnFromArtifacts(entry.meta.question, entry.artifacts, entry.spec)
       );
+      // Seed the ARTIFACTS cache under the fresh csvId too — every
+      // csvId-keyed server capability (plan editing, artifacts fallback)
+      // dead-ended after restore because the new id mapped to nothing
+      // (the same seeding the conversation cache already gets).
+      cacheArtifacts(csvId, entry.artifacts as CachedArtifacts);
     }
 
     return NextResponse.json({

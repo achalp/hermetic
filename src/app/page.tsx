@@ -383,6 +383,7 @@ export default function Home() {
       {/* Plan edit panel — the governed mutation grammar's web surface. */}
       <PlanEditPanel
         csvId={effectiveCsvId ?? csvId}
+        historyId={liveHistoryId}
         open={showPlanEditor && isState4}
         onClose={() => setShowPlanEditor(false)}
         onSpecUpdated={(spec) => dispatch({ type: "PLAN_EDIT_APPLIED", spec })}

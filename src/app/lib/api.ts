@@ -679,9 +679,11 @@ export interface PlanEditSurface {
 
 export async function getPlanSurface(
   csvId: string,
+  historyId?: string | null,
   signal?: AbortSignal
 ): Promise<PlanEditSurface | null> {
-  const res = await fetch(`/api/plan?csv_id=${encodeURIComponent(csvId)}`, { signal });
+  const hid = historyId ? `&history_id=${encodeURIComponent(historyId)}` : "";
+  const res = await fetch(`/api/plan?csv_id=${encodeURIComponent(csvId)}${hid}`, { signal });
   // null means "this dashboard has no plan" (not compiled) — a FAILED
   // request must throw instead: conflating the two made a transient 500
   // render as "switch to the compiled composer" on a compiled dashboard.
@@ -692,12 +694,13 @@ export async function getPlanSurface(
 
 export async function patchPlan(
   csvId: string,
-  mutations: import("@/lib/contracts/plan").PlanMutation[]
+  mutations: import("@/lib/contracts/plan").PlanMutation[],
+  historyId?: string | null
 ): Promise<{ spec: Spec; plan: import("@/lib/contracts/plan").PlanDocument }> {
   const res = await fetch("/api/plan", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ csv_id: csvId, mutations }),
+    body: JSON.stringify({ csv_id: csvId, mutations, history_id: historyId ?? undefined }),
   });
   return json<{ spec: Spec; plan: import("@/lib/contracts/plan").PlanDocument }>(res);
 }

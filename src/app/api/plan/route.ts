@@ -11,11 +11,14 @@ import type { PlanMutation } from "@/lib/contracts/plan";
 
 export async function GET(request: Request) {
   try {
-    const csvId = new URL(request.url).searchParams.get("csv_id");
+    const url = new URL(request.url);
+    const csvId = url.searchParams.get("csv_id");
     if (!csvId) return Response.json({ error: "csv_id required" }, { status: 400 });
     // The full edit surface (sections in effective order, un-narrated
     // claims, view catalog with reasons) — the plan doc rides inside it.
-    const surface = await getEditSurface(csvId);
+    // history_id keys restored analyses (their csvId is freshly minted at
+    // restore and maps to no record).
+    const surface = await getEditSurface(csvId, url.searchParams.get("history_id"));
     return Response.json({ plan: surface?.doc ?? null, surface });
   } catch (err) {
     return apiError("/api/plan", err, "Failed to read plan");
@@ -26,13 +29,14 @@ export async function PATCH(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
       csv_id?: string;
+      history_id?: string;
       mutations?: PlanMutation[];
     };
     if (!body.csv_id) return Response.json({ error: "csv_id required" }, { status: 400 });
     if (!Array.isArray(body.mutations) || body.mutations.length === 0) {
       return Response.json({ error: "mutations required" }, { status: 400 });
     }
-    const result = await editDashboard(body.csv_id, body.mutations);
+    const result = await editDashboard(body.csv_id, body.mutations, body.history_id);
     if (!result.ok) return Response.json({ error: result.errors.join("; ") }, { status: 422 });
     return Response.json({ ok: true, spec: result.spec, plan: result.doc });
   } catch (err) {
