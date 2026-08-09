@@ -4,10 +4,12 @@ Hermetic is an open-source, local-first AI data analyst: ask questions of your d
 
 - **Sources**: CSV, Excel, GeoJSON, and Parquet files (single files, Hive-partitioned folders, and cloud Parquet on S3/HTTPS at billion-row scale) — or direct connections to PostgreSQL, BigQuery, ClickHouse, Snowflake, Databricks, Trino, and Hive.
 - **Analysis**: single-question dashboards, conversational follow-ups, and a multi-step **Investigate** agent; every narrative number is checked against what the analysis actually computed.
-- **Teachable**: drop-in **skills** (markdown guidance + tested Python helpers) carry your team's definitions and methods, enforced by a pre-execution review gate.
-- **Durable**: analyses persist, restore, re-run against fresh data, refresh on a cron, and export — including as a **single self-contained interactive HTML file** you can share anywhere.
-- **Agent-ready**: hermetic is also an **MCP server** — Claude Desktop, Claude Code, or any MCP host can drive the same pipeline as tools while data and execution stay on your machine.
-- **Models**: cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama.
+- **Honest by construction**: the analysis **declares its findings and checks as typed claims**, a tested statistical runtime applies regime-aware judgment (zero sentinels, thin-data attestation, robust-test dispatch) as **total functions rather than model discretion**, and an optional **compiled composer** builds the dashboard deterministically from those claims — every sentence a binding, fabrication unrepresentable. A Verify panel and an on-demand adversarial audit show the receipts.
+- **Editable results**: compiled dashboards are live documents — reorder sections, hide/show elements, edit the insight paragraph, narrate an un-told claim, or add charts from a derived catalog, all through one governed edit grammar shared by the web UI and MCP.
+- **Teachable**: drop-in **skills** (markdown guidance + tested Python helpers) carry your team's definitions and methods, enforced by a pre-execution review gate — and a curated **learning** loop keeps exemplars from past successful runs (lint-flagged runs are vetoed from teaching).
+- **Durable**: analyses persist, restore, re-run against fresh data, refresh on a cron, and export — including as a **single self-contained interactive HTML file** you can share anywhere. Views are URL-addressable; a results link reconstructs the analysis.
+- **Agent-ready**: hermetic is also an **MCP server** — Claude Desktop, Claude Code, or any MCP host can drive the same pipeline as tools (including auditing and editing dashboards) while data and execution stay on your machine.
+- **Models**: cloud LLMs (Anthropic, AWS Bedrock, Google Vertex, OpenAI-compatible — the Claude 5 family selectable per task), your own Claude subscription via the Claude CLI (no API key), or local models via MLX, llama.cpp, or Ollama, with per-phase reasoning-effort control.
 
 ![Home screen with file upload, warehouse connect, and saved connections](docs/home.png)
 
@@ -29,11 +31,18 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 **Shape over samples.** Instead of sending rows to the LLM, Hermetic extracts the schema (column names, types, distributions, ranges, cardinality, correlations) and shares only that metadata as context. The LLM never sees actual data rows by default. This keeps data private, reduces token usage, and forces the model to reason about structure rather than memorize values.
 
-**Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated sandbox (Docker, microVM, or cloud), and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data.
+**Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated sandbox (Docker, microVM, or cloud), and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data. (A **composer sight** setting can optionally let the composer see computed values to sharpen phrasing — the binding discipline is unchanged either way, and the Verify panel records which mode ran.)
+
+**Claims, not prose.** The generated analysis doesn't just compute — it **declares** what it found. `declare_finding` records each claim (name, typed value, plain-language definition) adjacent to the computation that produced it; `declare_check` records the data-quality checks the model designed for this dataset, with computed evidence, executed as code; `declare_series`/`declare_value` declare the chart data with **roles** (which column is time, which are measures, their units, the observation count, the raw-vs-screened variants). Narrative binds these claims (`$finding:` placeholders resolved server-side) instead of restating them, a lint battery cross-checks prose, results, charts, and claims against each other, and anything shipped that points at a declaration which doesn't exist — a cited finding, an executed screen, a methodological decision — is flagged or repaired before it reaches you.
+
+**Statistics as total functions.** The judgment calls that make analyses subtly wrong — is a `$0.00` price a real value or an unrecorded-value sentinel? can a 52-observation year headline a series whose typical year has 600? is the mean valid under this skew? which correlation coefficient survives these ties? — are not left to per-run model discretion. A tested statistical runtime (`docker/sandbox/hermetic_runtime`) profiles every declared series into a **regime profile** (zero inflation, heavy tails, contamination, count skew, thin edges, short series, ties…), and a closed **regime matrix** — every claim type × every regime, all cells explicit, the rendered table generated from the code and drift-pinned by tests — maps each hazard to its response. Where possible the response is enforced _inside_ the claim function: sentinel zeros are excluded automatically when a measure's unit is monetary, trends become count-weighted least squares when observation counts exist, heavy-tailed group comparisons dispatch to Kruskal–Wallis, provably disordered series are refused rather than fit, and thin periods are gated by a relative attestation bar. The claim layer cannot disagree with the declared policy, and identical data cannot produce different verdicts run to run.
 
 **Sandboxed execution.** Code runs in containers or microVMs with no access to the host filesystem. Docker containers run with networking disabled (`--network none`) by default; network is enabled only when the generated code actually reads a remote data source (cloud Parquet over `s3://`/`https://`), and those runs use a fresh ephemeral container rather than the shared warm one. Data is passed in via stdin and results are read from stdout. Warm sandbox modes (Docker, Microsandbox) reuse the underlying container across queries for speed but clear working data between runs. E2B creates a fresh cloud sandbox each time (network posture is E2B's).
 
-**Adaptive UI.** The LLM composes a declarative render spec (an owned, vendored fork of JSON-Render — `src/spec`), a layout of charts, stat cards, tables, annotations, and filters, tailored to each question. A bar chart for comparisons, a line chart for trends, stat cards for KPIs, a treemap for composition. The UI adapts to the question rather than using a fixed template.
+**Adaptive UI, two composer architectures.** Dashboards are declarative render specs (an owned, vendored fork of JSON-Render — `src/spec`): charts, stat cards, tables, annotations, and filters tailored to each question. Two composers can produce that spec, selectable in Settings:
+
+- **Generative** (default): the LLM composes the layout freely from result schemas, with the lint battery and a bounded repair pass guarding the output.
+- **Compiled**: one small LLM call plans the _narrative_ as typed speech-act nodes (ANSWER / TREND / PEAK / ENDPOINT / CONTRAST / CAVEAT / one free-prose INSIGHT), and everything else is compiled deterministically — sentences are realized from templates whose honesty clauses (raw-beside-attested, exclusion reasons, confidence intervals) are structural, charts derive from the declared series' roles via a **view catalog** (unit-split axes, observations-per-period coverage companions forced in when thin-data regimes fire, precision tables for document styles), and depth scales with the chosen output style. A caveat can only reference a declared check; a fabricated mechanism has no syntax to exist in. Compiled dashboards are also what the editing surface edits.
 
 ## Quick Start
 
@@ -43,7 +52,7 @@ cd hermetic
 ./start.sh
 ```
 
-The setup script checks prerequisites, installs dependencies, sets up your chosen sandbox runtime, and starts the dev server. It will prompt you for an API key and let you choose between Docker and Microsandbox.
+The setup script checks prerequisites, installs dependencies, sets up your chosen sandbox runtime, and starts the dev server. It will prompt you for an API key and let you choose between Docker and Microsandbox. For CI or scripted setups, `./start.sh --headless` (or `-y`) accepts defaults and skips every interactive question.
 
 It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP server — see [Using from Claude](#using-from-claude-mcp-server).
 
@@ -126,8 +135,18 @@ It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP ser
 - **Start in one drag.** Drag a file straight onto the home screen (or click to browse), and see real example dashboards — the kind Hermetic generates — before you upload anything. The start screen leads with the privacy guarantee: the model writes the analysis code, but never sees your rows.
 - **Show your work.** Every analysis includes a plain-English methodology explanation — how many rows were analyzed, which columns were used, what operations were performed.
 - **Grounded numbers.** Every figure in a dashboard's narrative is checked against what the analysis actually computed; any number that traces to no result is flagged with a "verify this" caveat instead of being presented as fact. Applies to both single-shot dashboards and Investigate.
-- **Four output styles.** Choose how results are framed: Dashboard (at-a-glance grid), Brief (bottom-line-up-front), Report (formal sectioned document), or Deep dive (exhaustive multi-angle). Slides (PPTX / Reveal deck) is an export format.
+- **Four output styles.** Choose how results are framed: Dashboard (at-a-glance grid), Brief (bottom-line-up-front), Report (formal sectioned document), or Deep dive (exhaustive multi-angle). Slides (PPTX / Reveal deck) is an export format. The style is stamped into each analysis' record, so a restored dashboard's style picker always shows what it was actually run with. In compiled mode the style also scales narrative depth and which charts ship (a deep dive narrates every claim with signal; a brief stays on the bottom line).
+- **Edit the dashboard.** On compiled dashboards, an **Edit** toggle opens a panel: drag sections to reorder, hide or show any element, edit the synthesis paragraph, narrate a claim the story skipped, or add a chart from the derived catalog (each candidate view explains why it exists). Edits recompile instantly with no LLM call and persist with the analysis.
 - **Light / Dark / System mode.** Toggle between light and dark themes, or follow your OS preference.
+
+### Trust & Verification
+
+- **Declared findings and checks.** The analysis declares what it found and which data-quality checks it ran — as typed claims with computed evidence, not prose. Failed checks surface as a banner and bindable caveats; a "blocking" check that fails gates the run's results as unvalidated instead of shipping them quietly.
+- **Regime-aware statistics.** Sentinel zeros, thin trailing periods, heavy tails, mixed currencies, disordered axes — each declared series is profiled and the hazards are answered inside the statistics library itself (see [Philosophy](#philosophy)), with the applied policy disclosed in the output (`n_zero_excluded`, attestation bars, `weighted` fits, which test ran).
+- **Verify panel.** Every analysis carries a machine-readable verifiability record — composer mode, findings declared vs. cited, failed checks, headline tiles planned vs. delivered, prose advisories, and a grounding report tracing each narrative figure to its computation. Exportable as JSON.
+- **Non-blind audit.** One click runs an adversarial review over the derived artifacts (never raw rows): a second model tries to break the dashboard's story against its own numbers. The verdict persists as part of the analysis record and survives restore — it has caught real miscalibrations the lint battery shared blind spots with.
+- **Lint battery + bounded repair.** Dozens of coherence lints cross-check narrative, results, charts, and claims — dangling citations, silently executed screens, orphaned methodological decisions, unit mismatches, contradictory verdicts, thin-data headlines. Severe narrative defects trigger one bounded recompose pass with explicit repair instructions; the rest surface as advisories.
+- **Curated learning.** Successful runs can seed future ones as exemplars — but only through a quality gate (runs with severe lint findings are vetoed from teaching) and a `/learning` page where you review and curate what the engine keeps.
 
 ### Agentic Analysis
 
@@ -135,7 +154,8 @@ It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP ser
 - **Per-run diagnostics.** Every Investigate (and Ask) run writes one structured JSON record to `data/diagnostics/<date>.jsonl` — materialization (rows, sampled, Parquet, SQL repairs), per sub-question (path, escalations + reason, retries + error classes, status), an aggregate summary, plus cost and call count. A `/diagnostics` page aggregates the records — runs per day, failure modes ranked by frequency, escalations, recent failures with run ids — so "why did this run cost or behave this way" is answerable from data, not guesswork.
 - **Multi-retry with reflection.** When generated code fails, the pipeline retries up to three times, carrying the full history of failed attempts forward. A reflection prompt kicks in after two failures so the model sees what it tried and why it broke, not just the original prompt.
 - **Scheduled runs.** Saved dashboards can be scheduled with node-cron. Schedule popover anchored to the dashboard toolbar, schedule pills on saved-viz cards with edit/delete in place — a dashboard you built last week refreshes itself every Monday morning.
-- **Persistent history.** Every analysis auto-saves to disk (generated code, results, visualizations). History survives restarts. Browse from a dedicated page, restore any previous result instantly, or re-run it against fresh data.
+- **Persistent history.** Every analysis auto-saves to disk (generated code, results, visualizations, the verifiability record, and any audit verdict — one record, no side-files). History survives restarts. Browse from a dedicated page, restore any previous result instantly, or re-run it against fresh data. Saved visualizations record the history entry they came from, so a restored viz keeps its audit and provenance.
+- **URL-addressable views.** Browser back/forward walks the app's own transitions (results → data → home), and a results URL carries its reconstruction key — paste it in a new tab and the analysis restores.
 
 ### Skills — teach it your domain
 
@@ -177,7 +197,10 @@ It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP ser
 
 ### Configuration
 
-- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints, or the **Claude CLI** — use your own `claude` login (Pro/Max subscription or API billing) with no API key. The chosen model persists across restarts.
+- **Multiple LLM providers.** Anthropic, AWS Bedrock, Google Vertex AI, OpenAI-compatible endpoints, or the **Claude CLI** — use your own `claude` login (Pro/Max subscription or API billing) with no API key. The Claude 5 family (Sonnet 5, Opus 5, …) is selectable per task: separate model pickers for code generation and dashboard composition.
+- **One golden source for settings.** Model choices, sandbox runtime, composer architecture, and effort levels live in `data/runtime-config.json` and are resolved server-side for **every** harness — web, MCP, and CLI always run the same configuration (the browser is a mirror, not a second store).
+- **Per-phase reasoning effort.** Set one global effort level, or override it per pipeline phase (code-gen vs. compose vs. review vs. planning) from Settings — analytical phases can think hard while classification stays cheap.
+- **Composer architecture.** Switch between the generative and compiled composers from Settings (see [Philosophy](#philosophy)); the compiled path is what enables deterministic recompiles and dashboard editing.
 - **Local models.** MLX (Apple Silicon), llama.cpp, or Ollama. Detect, download, and activate models from the Settings drawer.
 - **Four themes.** Focus (emerald, default), Stamen (cartographic), Info is Beautiful (vivid), Pentagram (reductive). Each with light and dark variants.
 - **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
@@ -186,7 +209,7 @@ It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP ser
 
 Hermetic doubles as a [Model Context Protocol](https://modelcontextprotocol.io) server: any MCP host — Claude Desktop, Claude Code, or another MCP-speaking agent — gets hermetic's pipeline as tools while data, execution, and dashboards stay on your machine.
 
-- **14 tools**: `analyze` (the full pipeline as one call), `analyze_start`/`analyze_status`/`analyze_result`/`analyze_cancel` (the same pipeline as a background job with long-poll progress — for hosts that cancel long tool calls), `connect_source`, `get_schema`, `run_sql`, `run_analysis` (host-authored Python in the sandbox), `verify_narrative`, `persist_dashboard`, `export_dashboard`, `list_sources`, plus `dashboard_data` (internal, app-only — feeds the inline MCP Apps viewer).
+- **17 tools**: `analyze` (the full pipeline as one call, with `composer_sight` and output-style options), `analyze_start`/`analyze_status`/`analyze_result`/`analyze_cancel` (the same pipeline as a background job with long-poll progress — for hosts that cancel long tool calls), `connect_source`, `get_schema`, `run_sql`, `run_analysis` (host-authored Python in the sandbox), `verify_narrative`, `audit_analysis` (the on-demand non-blind audit as a tool), `get_dashboard_plan` / `edit_dashboard` (read a compiled dashboard's edit surface — sections, un-narrated claims, the derived view catalog — and edit it through the same governed mutation grammar as the web UI), `persist_dashboard`, `export_dashboard`, `list_sources`, plus `dashboard_data` (internal, app-only — feeds the inline MCP Apps viewer).
 - **Embedded viewer**: dashboard links work with nothing else running (loopback-only server inside the MCP process), with the app's full theming and a download button.
 - **Inline dashboards (MCP Apps)**: hosts that support the [MCP Apps extension](https://modelcontextprotocol.io/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp) (Claude Desktop, VS Code, Goose) render `analyze`/`persist_dashboard` results as an interactive dashboard **inside the chat** — the spec travels as `structuredContent` to a sandboxed iframe (never into model context), and the viewer template is fully self-contained (no external requests). Text-only hosts see exactly the old JSON responses.
 - **Trust model**: guards sit on authorship — host-written SQL passes a read-only gate before any connector sees it, host-written Python runs with networking denied, host-written specs validate against the catalog in enforcing mode. Every call lands in an audit log; the egress allowlist is proven in CI by an exfiltration canary.
@@ -455,17 +478,34 @@ src/
                         introspection + FK inference, dbt metadata
     sqlgen/             Dialect-aware SQL generation + self-healing repair
     llm/                LLM client & transports (incl. Claude CLI), prompts, planners/composers
+    findings/           Declared-findings grammar: validation, coherence lints (the battery),
+                        manifest projection, headline planning
+    product/            Analysis Product: declared series/values with roles, the Binding
+                        Catalog, component role signatures, roles index
+    compose/            The compiled composer: plan DSL + validator, planner call,
+                        deterministic realizer, view catalog, scaffold, mutation grammar,
+                        edit surface (specs/narrative-compiler-2026-08-09.md)
+    learning/           Exemplar bank + quality veto (user-curated at /learning)
     skills/             Skill system: triggers, guidance, review rules, helpers (docs/creating-skills.md)
     pipeline/           Orchestration: Ask/Investigate runners, retry loops, review gate,
-                        patch streaming, run control, grounding verification, caches
+                        patch streaming, run control, grounding verification, audit, caches
     sandbox/            Execution: Docker / E2B / Microsandbox, capability descriptors,
                         egress allowlist (CI-proven exfiltration canary), lifecycle
     export/             Single-file HTML export assembler
     history/, saved/, cost/, diagnostics/   Persistence, scheduling, cost capture, run records
   cli/                  CLI harness (ask, render) — the architecture canary, runs in CI
-  mcp/                  MCP server harness: 9 tools, audit log, error taxonomy,
+  mcp/                  MCP server harness: 17 tools, audit log, error taxonomy,
     viewer/             embedded dashboard viewer + export bundles (esbuild, no Next)
   harness/              Boot seam shared by non-Next harnesses (env config snapshot)
+docker/sandbox/
+  hermetic_runtime/     The tested Python statistical runtime shipped into every sandbox run:
+                        declare_finding/declare_check/declare_series, the claim library
+                        (finding_trend, finding_superlative, finding_current_state, …),
+                        regime profiling + the closed regime matrix (regimes.py), guards,
+                        output envelope — pure-python exact p-values, ~100 unit tests
+specs/                  Design records with principal-engineer/data-scientist reviews —
+                        declared findings, analysis product, regime matrix (the generated
+                        matrix table is drift-pinned by tests), narrative compiler
 ```
 
 ### How It Works
@@ -474,14 +514,15 @@ src/
 
 1. **Load.** CSV, Excel (multi-sheet), GeoJSON, JSON, or Parquet file is parsed, schema extracted, and stored in memory (Parquet stays on disk and is bind-mounted into the sandbox).
 2. **Query.** User question + schema (and prior conversation history, if any) sent to your configured LLM for Python code generation, along with guidance from any skills whose triggers match the schema or question.
-3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, scikit-learn, and DuckDB (plus any active skills' helper modules under `skill_lib`). When a review gate is active, an LLM critic lints the code against the skills' rules first and regenerates on findings. Failures retry up to 3× with a reflection prompt after the second attempt.
-4. **Compose.** Execution results sent to the LLM for UI composition as a render spec.
-5. **Render.** The spec is streamed to the browser and rendered as interactive React components. Every analysis auto-saves to persistent history.
+3. **Execute.** Generated code runs in a sandboxed Python environment with pandas, numpy, scipy, scikit-learn, and DuckDB, plus the **hermetic runtime** — the tested statistical package the code declares its findings, checks, and series through (regime profiling and the claim library live here) — and any active skills' helper modules under `skill_lib`. When a review gate is active, an LLM critic lints the code against the skills' rules first and regenerates on findings. Failures retry up to 3× with a reflection prompt after the second attempt.
+4. **Validate.** The declared-findings manifest is validated and the lint battery cross-checks claims, results, chart data, and regime profiles; severe defects (a failed blocking check, an unapplied declared policy) gate or retry before anything composes.
+5. **Compose.** The generative composer streams a render spec from result schemas and the findings manifest — or the compiled composer plans the narrative in one small call and compiles everything else deterministically. Either way the same finalizer resolves bindings, renders declared units, and runs the discourse checks; a verifiability record is stamped into the spec.
+6. **Render.** The spec is streamed to the browser and rendered as interactive React components. Every analysis auto-saves to persistent history (record + verifiability + any audit verdict), and compiled dashboards stay editable in place.
 
 **Warehouse queries** add two steps before the standard pipeline:
 
-1. **SQL Generation.** User question + all table schemas (columns, types, PKs, FKs, dbt descriptions if present) sent to the LLM to generate a dialect-aware SQL query.
-2. **SQL Execution.** Query runs against the warehouse. Results flow as CSV into the standard pipeline (steps 2–5 above).
+1. **SQL Generation.** User question + all table schemas (columns, types, PKs, FKs, dbt descriptions if present) sent to the LLM to generate a dialect-aware SQL query — under a contract that pins the traps SQL runs kept falling into (word-boundary name filters with a matched-names audit, exact quantiles, single-currency restriction with the exclusion declared, rollups that actually aggregate).
+2. **SQL Execution.** Query runs against the warehouse. Failures are repaired with the engine's error annotated at the exact failing position in the SQL. Results flow as CSV into the standard pipeline (steps 2–6 above).
 
 **Investigate** runs a higher-level loop on top of the standard pipeline:
 
@@ -505,8 +546,9 @@ pnpm lint:fix        # ESLint with auto-fix
 pnpm format          # Prettier format
 pnpm format:check    # Prettier check
 pnpm type-check      # TypeScript check
-pnpm test            # Run tests
+pnpm test            # Run tests (vitest, ~2,400 tests)
 pnpm test:watch      # Tests in watch mode
+python3 -m unittest docker.sandbox.hermetic_runtime.test_runtime   # Sandbox statistical runtime tests
 pnpm cli ask ...     # CLI harness (no web server)
 pnpm mcp             # MCP server over stdio
 pnpm mcp:build-viewer  # Build the embedded viewer + export bundles
