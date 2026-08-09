@@ -335,3 +335,56 @@ in the compact styles METHOD closes the document rather than opening
 it, so the bottom line stays on top. An answer with no visible method
 reads as unsourced at any depth — the depth dimension scales how much
 document ships, never whether the reader can see how it was reached.
+
+## 14.2 Amendment (2026-08-09): closing the generative gap — salvage, group views, quiet verification
+
+User mandate, comparing the two composers on the same question: "I want
+the prose and layout quality of generative but the determinism and
+verifiability of compiled." Offline replay of the reviewed run found
+the three root causes; none was "the planner writes worse prose" — the
+planner's own attempt-2 document was exactly the wanted shape.
+
+**Per-node salvage (`salvagePlan`).** The observed prose cliff: the
+planner authored a full document, slipped once (a literal "2024", free
+text on CAVEATs), failed validation twice, and the WHOLE document fell
+back to the template grab-bag. All-or-nothing recovery was the defect.
+Salvage repairs what it can and drops only what it must: invalid
+authored text → stripped (that node speaks its template); text on
+CAVEATs → stripped; unknown refs → dropped; a text-required op left
+textless or a node left refless → dropped; no surviving ANSWER → a
+template ANSWER injected; extra ANSWERs → demoted to NOTE. The result
+re-validates before use; only schema-level wreckage still reaches
+`defaultPlan`. One bad node now degrades one node, never the document.
+
+**Group-matrix views.** A series with a declared `group` role was drawn
+through the flat single-line path — 48 long rows of 4 segments as one
+sawtooth line (the reviewed "Segment Churn Rate" defect). The honest
+primary for a group series is the matrix: `pivotGroupMatrix` projects
+the declared rows into a HeatMap (x periods × group rows, first-seen
+order, `show_values` ≤ 60 cells), keeping the stable `chart_<sid>` id
+so anchors and overlays are unaffected. The pivot must be COMPLETE —
+a missing (group × period) cell falls through to the flat family
+rather than inventing hole values. This retires §10's group-split
+deferral for the matrix case.
+
+**Layout defaults.** `viewDefaultWidths`: when two or more charts ship,
+they default to half width and the existing pairing machinery lays
+them into two-column rows (the generative side-by-side the compiled
+stack lacked); tables always span; a lone half spans full;
+`overlay.widths` wins in either direction, and the edit surface
+resolves widths through the same helper so the panel reports what
+actually renders. Catalog charts also carry a deterministic
+`color_map` from the same named palette the generative composer uses.
+
+**Quiet verification.** The reviewed compiled run wore a "5 numbers
+could not be traced" banner — all five were binding-resolved figures
+(CI bounds, a p-value) that live only in the findings manifest, plus a
+mantissa clipped off scientific notation. Both grounding call sites now
+trace declared-findings values, and NUMBER_RE parses exponents whole
+("1.56e-15", never a dangling 1.56). The mode built for verifiability
+must not be the one wearing the loudest warning.
+
+Deferred, recorded: a deterministic DataController (interactive
+group/period filters compiled from declared roles — the last piece of
+generative-layout parity) and legend label humanization (needs a
+label-map prop in the chart grammar).

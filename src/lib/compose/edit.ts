@@ -22,7 +22,7 @@ import { declaredUnitMap, parseProduct } from "@/lib/product";
 import { validatePlan, opForDtype } from "./plan";
 import { applyMutations } from "./mutations";
 import { compileDashboard } from "./compile";
-import { deriveViews, type DerivedView } from "./views";
+import { deriveViews, viewDefaultWidths, type DerivedView } from "./views";
 import { realizeClaim, realizeNode } from "./realizer";
 import { humanizeId } from "./scaffold";
 import type { FindingEntry } from "@/lib/contracts/findings";
@@ -293,7 +293,13 @@ export async function getEditSurface(
   }
   const visible = (root.value?.children ?? []).flatMap((id) => rowChildren.get(id) ?? [id]);
 
-  const widthOf = (id: string): "half" | "full" => doc.overlay.widths?.[id] ?? "full";
+  // Same width resolution as the compiler: catalog defaults under the
+  // overlay — the panel must report the width the dashboard actually renders.
+  const defaultWidths = viewDefaultWidths(
+    views.filter((v) => (v.shipped || shown.has(v.id)) && !hidden.has(v.id))
+  );
+  const widthOf = (id: string): "half" | "full" =>
+    doc.overlay.widths?.[id] ?? defaultWidths[id] ?? "full";
   const sectionFor = (id: string, isHidden: boolean): EditSection | null => {
     if (id === "compiled_check_banner")
       return {

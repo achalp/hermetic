@@ -61,6 +61,8 @@ export function viewBenefit(v: ViewInfo): string {
       return "The exact figures behind the charts, as a table.";
     case "unit_split":
       return "These measures use a different unit, so they get their own axis.";
+    case "group_matrix":
+      return "Every group and period in one grid — where the differences concentrate.";
     default:
       return "The main view of this data.";
   }
@@ -75,6 +77,8 @@ export function viewTitle(v: ViewInfo): string {
       return `Table of ${name}`;
     case "unit_split":
       return `${name} (separate axis)`;
+    case "group_matrix":
+      return `Heatmap of ${name}`;
     default:
       return name;
   }

@@ -56,6 +56,30 @@ describe("collectGroundedValues", () => {
     const grounded = collectGroundedValues({ count: "1,234" }, {});
     expect(grounded).toContain(1234);
   });
+
+  it("traces declared-findings values (the compiled-binding corpus)", () => {
+    // Compiled narrative binds figures that live ONLY in the manifest —
+    // CI bounds, p-values. The churn-run review flagged 5 such figures as
+    // untraceable on the mode built for verifiability.
+    const grounded = collectGroundedValues(
+      {},
+      {
+        findings: [{ direction: "rising", slope_ci95: [0.8262, 0.9261], p_value: 1.56e-15 }],
+      }
+    );
+    expect(grounded).toContain(0.8262);
+    expect(grounded).toContain(0.9261);
+    expect(grounded).toContain(1.56e-15);
+  });
+});
+
+describe("scientific notation in narrative figures", () => {
+  it("extracts the full exponent value, not a dangling mantissa", () => {
+    const nums = extractNumbers("the trend holds at p = 1.56e-15 overall");
+    expect(nums.some((n) => n.value === 1.56e-15)).toBe(true);
+    // The mantissa alone must NOT be reported as a separate 1.56 token.
+    expect(nums.some((n) => n.value === 1.56)).toBe(false);
+  });
 });
 
 describe("extractNumbers", () => {

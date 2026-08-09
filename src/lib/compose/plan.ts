@@ -221,6 +221,110 @@ export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidati
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * Per-node salvage (spec §14.2): validation failures degrade the OFFENDING
+ * node, never the document. Before this, two failed planner attempts threw
+ * away the whole authored document — one literal "2024" anywhere collapsed
+ * a 12-node narrative to the template grab-bag (the observed quality
+ * cliff). Salvage repairs what it can and drops only what it must:
+ *  - invalid authored text → text stripped, node speaks its template
+ *  - text on a CAVEAT → stripped (caveats render their check's fields)
+ *  - unknown refs → dropped from the node; non-check refs off CAVEATs too
+ *  - a text-required op left textless, or a node left refless → dropped
+ *  - no ANSWER survives → a template ANSWER is injected (defaultPlan's rule)
+ * The result is re-validated by the caller; only structural wreckage
+ * (schema-level) still falls back to the full default plan.
+ */
+export function salvagePlan(
+  plan: Plan,
+  findings: FindingEntry[]
+): { plan: Plan; repairs: string[] } {
+  const byName = new Map(findings.map((f) => [f.name, f]));
+  const repairs: string[] = [];
+  const nodes: PlanNode[] = [];
+  const seen = new Set<string>();
+  let insightKept = false;
+  for (const n of plan.nodes) {
+    if (seen.has(n.id)) {
+      repairs.push(`dropped duplicate node id ${n.id}`);
+      continue;
+    }
+    seen.add(n.id);
+    const node: PlanNode = { ...n };
+    const unknown = node.refs.filter((r) => !byName.has(r));
+    if (unknown.length > 0) {
+      repairs.push(`node ${n.id} (${n.op}): dropped unknown refs ${unknown.join(", ")}`);
+      node.refs = node.refs.filter((r) => byName.has(r));
+    }
+    if (node.op === "CAVEAT") {
+      if (node.text !== undefined) {
+        repairs.push(`CAVEAT ${n.id}: stripped free text (unrepresentable)`);
+        delete node.text;
+      }
+      const checks = node.refs.filter((r) => CHECK_DTYPES.has(byName.get(r)!.dtype));
+      if (checks.length < node.refs.length) {
+        repairs.push(`CAVEAT ${n.id}: dropped non-check refs`);
+        node.refs = checks;
+      }
+    } else if (node.op === "INSIGHT") {
+      if (!node.text?.trim() || insightKept) {
+        repairs.push(`dropped INSIGHT ${n.id} (${insightKept ? "second insight" : "no text"})`);
+        continue;
+      }
+      const errs = validateNodeText(
+        node.text,
+        [...node.refs, ...findings.map((f) => f.name)],
+        findings
+      );
+      if (errs.length > 0) {
+        repairs.push(`dropped INSIGHT ${n.id}: ${errs[0]}`);
+        continue;
+      }
+      insightKept = true;
+    } else if (node.text !== undefined) {
+      const errs = validateNodeText(node.text, node.refs, findings);
+      if (errs.length > 0) {
+        repairs.push(
+          `node ${n.id} (${n.op}): authored text invalid (${errs[0]}) — template fallback`
+        );
+        delete node.text;
+      }
+    }
+    if (node.op !== "CAVEAT" && node.op !== "INSIGHT") {
+      if (TEXT_REQUIRED_OPS.has(node.op) && !node.text?.trim()) {
+        repairs.push(`dropped ${node.op} ${n.id} — no valid authored text`);
+        continue;
+      }
+      if (node.refs.length === 0 && !REFLESS_OPS.has(node.op)) {
+        repairs.push(`dropped ${node.op} ${n.id} — no valid refs`);
+        continue;
+      }
+    }
+    if (node.op === "CAVEAT" && node.refs.length === 0) {
+      repairs.push(`dropped CAVEAT ${n.id} — no valid check refs`);
+      continue;
+    }
+    nodes.push(node);
+  }
+  const answers = nodes.filter((n) => n.op === "ANSWER");
+  if (answers.length === 0) {
+    const primary =
+      findings.find((f) => f.tags?.includes("question-primary")) ??
+      findings.find((f) => !CHECK_DTYPES.has(f.dtype)) ??
+      findings[0];
+    if (primary) {
+      nodes.unshift({ id: nextPlanNodeId(), op: "ANSWER", refs: [primary.name] });
+      repairs.push("injected template ANSWER node (none survived)");
+    }
+  } else if (answers.length > 1) {
+    for (const extra of answers.slice(1)) {
+      extra.op = "NOTE";
+      repairs.push(`demoted extra ANSWER ${extra.id} to NOTE`);
+    }
+  }
+  return { plan: { nodes }, repairs };
+}
+
 /** Deterministic fallback plan — the compiled pipeline can NEVER fail to
  *  produce a dashboard (PE review §4.4): answer on the question-primary or
  *  first non-check claim, caveats for failed checks. Purpose-scaled: under

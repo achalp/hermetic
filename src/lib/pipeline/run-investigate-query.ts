@@ -1162,6 +1162,15 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               grounded.push(...collectGroundedValues({}, s.datasets as Record<string, unknown>));
             }
           }
+          // Declared-findings values (CI bounds, p-values) are computed
+          // results the compiled narrative binds directly — trace them.
+          if (investigationFindings) {
+            grounded.push(
+              ...collectGroundedValues({}, {
+                findings: investigationFindings.findings.map((f) => f.value),
+              } as Record<string, unknown>)
+            );
+          }
           // The materialized row count (and, when capped, the sample size
           // WAREHOUSE_MAX_ROWS) is a legitimate provenance figure the narrative
           // may cite ("based on 1,000,000 rows") — a KNOWN value, not a

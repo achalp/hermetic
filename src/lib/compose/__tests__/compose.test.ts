@@ -5,10 +5,11 @@ import {
   defaultPlan,
   nextPlanNodeId,
   planBudget,
+  salvagePlan as salvage,
   PLAN_OPS,
 } from "@/lib/compose/plan";
 import { buildPlannerSystem } from "@/lib/compose/planner";
-import { deriveViews } from "@/lib/compose/views";
+import { deriveViews, viewDefaultWidths } from "@/lib/compose/views";
 import { getEditSurface, resolvePreviewText } from "@/lib/compose/edit";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
@@ -456,6 +457,168 @@ describe("edit surface — one read for the editing UI (web panel + MCP)", () =>
     expect(resolvePreviewText("driven by $finding:t.dom", fs)).toBe("driven by rate effect");
     // Unresolvable tokens stay intact — never guessed.
     expect(resolvePreviewText("$finding:ghost.x", fs)).toBe("$finding:ghost.x");
+  });
+});
+
+describe("planner salvage — one bad node degrades one node, never the document", () => {
+  const authored = (text: string) => text;
+  const basePlan = {
+    nodes: [
+      {
+        id: "s1",
+        op: "ANSWER" as const,
+        refs: ["price_trend"],
+        text: authored("Prices are $finding:price_trend.direction across the window."),
+      },
+      {
+        id: "s2",
+        op: "PEAK" as const,
+        refs: ["price_peak"],
+        text: authored("The peak arrived in 1998 with force."), // literal year → invalid
+      },
+      { id: "s3", op: "CAVEAT" as const, refs: ["zero_screen"], text: "coverage collapsed" },
+      { id: "s4", op: "NOTE" as const, refs: ["ghost_claim"] },
+      {
+        id: "s5",
+        op: "METHOD" as const,
+        refs: ["price_trend"],
+        text: authored("Slopes were fit per period and screened."),
+      },
+      { id: "s6", op: "SECTION" as const, refs: [] }, // text-required, none → dropped
+    ],
+  };
+
+  it("strips invalid text, keeps the node; drops only irreparable nodes", () => {
+    const vp = validatePlan;
+    const { plan, repairs } = salvage(basePlan, FINDINGS);
+    const byId = new Map(plan.nodes.map((n) => [n.id, n]));
+    // Valid authored text survives untouched.
+    expect(byId.get("s1")?.text).toContain("$finding:price_trend.direction");
+    // Literal-digit text is stripped — the node falls back to its template.
+    expect(byId.get("s2")).toBeDefined();
+    expect(byId.get("s2")?.text).toBeUndefined();
+    // CAVEAT free text stripped, caveat kept.
+    expect(byId.get("s3")).toBeDefined();
+    expect(byId.get("s3")?.text).toBeUndefined();
+    // Unknown-ref node and textless SECTION dropped.
+    expect(byId.has("s4")).toBe(false);
+    expect(byId.has("s6")).toBe(false);
+    // METHOD with valid text survives.
+    expect(byId.get("s5")?.text).toContain("Slopes were fit");
+    // The salvaged plan validates — the document ships authored.
+    expect(vp(plan, FINDINGS).ok).toBe(true);
+    expect(repairs.length).toBeGreaterThan(0);
+  });
+
+  it("injects a template ANSWER when none survives; demotes extras", () => {
+    const noAnswer = salvage(
+      { nodes: [{ id: "n1", op: "TREND" as const, refs: ["price_trend"] }] },
+      FINDINGS
+    );
+    expect(noAnswer.plan.nodes.some((n) => n.op === "ANSWER")).toBe(true);
+    expect(validatePlan(noAnswer.plan, FINDINGS).ok).toBe(true);
+    const twoAnswers = salvage(
+      {
+        nodes: [
+          { id: "a1", op: "ANSWER" as const, refs: ["price_trend"] },
+          { id: "a2", op: "ANSWER" as const, refs: ["price_peak"] },
+        ],
+      },
+      FINDINGS
+    );
+    expect(twoAnswers.plan.nodes.filter((n) => n.op === "ANSWER").length).toBe(1);
+    expect(twoAnswers.plan.nodes.find((n) => n.id === "a2")?.op).toBe("NOTE");
+  });
+});
+
+describe("group-series views — the matrix is the honest primary", () => {
+  const GROUPED: AnalysisProduct = {
+    series: [
+      {
+        id: "segment_churn",
+        rows: [
+          { month: "2024-01", segment: "A", rate: 1.5 },
+          { month: "2024-01", segment: "B", rate: 2.5 },
+          { month: "2024-02", segment: "A", rate: 1.7 },
+          { month: "2024-02", segment: "B", rate: 2.9 },
+        ],
+        roles: {
+          x: { column: "month", kind: "temporal" },
+          group: { column: "segment" },
+          measures: [{ column: "rate", unit: "pct" }],
+        },
+      },
+    ],
+    values: [],
+  };
+
+  it("pivots a complete group series into a HeatMap primary", () => {
+    const views = deriveViews({ series: GROUPED.series });
+    const matrix = views.find((v) => v.kind === "group_matrix");
+    expect(matrix?.id).toBe("chart_segment_churn");
+    expect(matrix?.shipped).toBe(true);
+    const props = (matrix?.patch.value as { props: Record<string, unknown> }).props;
+    expect(props.z).toEqual([
+      [1.5, 1.7],
+      [2.5, 2.9],
+    ]);
+    expect(props.x_labels).toEqual(["2024-01", "2024-02"]);
+    expect(props.y_labels).toEqual(["A", "B"]);
+    // The flat single-line chart is NOT derived for this series — a grouped
+    // long series through a flat line is the sawtooth defect.
+    expect(views.some((v) => v.seriesId === "segment_churn" && v.kind === "primary")).toBe(false);
+  });
+
+  it("an incomplete pivot falls through to the flat family, never invents holes", () => {
+    const holey = {
+      ...GROUPED.series[0],
+      rows: GROUPED.series[0].rows.slice(0, 3), // B missing in 2024-02
+    };
+    const views = deriveViews({ series: [holey] });
+    expect(views.some((v) => v.kind === "group_matrix")).toBe(false);
+    expect(views.some((v) => v.kind === "primary")).toBe(true);
+  });
+
+  it("two or more charts default to half width and pair into rows; overlay wins", () => {
+    const twoCharts: AnalysisProduct = {
+      series: [PRODUCT.series[0], GROUPED.series[0]],
+      values: [],
+    };
+    const views = deriveViews({ series: twoCharts.series }).filter((v) => v.shipped);
+    const defaults = viewDefaultWidths(views);
+    expect(defaults["chart_annual_prices"]).toBe("half");
+    expect(defaults["chart_segment_churn"]).toBe("half");
+    // A single shipped chart stays full — nothing to pair with.
+    expect(viewDefaultWidths(views.filter((v) => v.id === "chart_annual_prices"))).toEqual({});
+    // Compile pairs the two default-half charts into one two-column row.
+    const lines = compileDashboard({
+      manifest: MANIFEST,
+      product: twoCharts,
+      plan: { nodes: [{ id: "a", op: "ANSWER", refs: ["price_trend"] }] },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    const rows = lines.filter((l) => l.includes("compiled_row_"));
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]).toContain("chart_annual_prices");
+    // Overlay full-width overrides the catalog default.
+    const overridden = compileDashboard({
+      manifest: MANIFEST,
+      product: twoCharts,
+      plan: { nodes: [{ id: "a", op: "ANSWER", refs: ["price_trend"] }] },
+      overlay: { widths: { chart_annual_prices: "full", chart_segment_churn: "full" } },
+      headlinePlan: [],
+      question: "q",
+    });
+    expect(overridden.filter((l) => l.includes("compiled_row_")).length).toBe(0);
+  });
+
+  it("catalog charts carry a deterministic color map (not default red)", () => {
+    const views = deriveViews({ series: [PRODUCT.series[0]] });
+    const primary = views.find((v) => v.kind === "primary");
+    const props = (primary?.patch.value as { props: Record<string, unknown> }).props;
+    expect(props.color_map).toMatchObject({ median: "indigo" });
   });
 });
 

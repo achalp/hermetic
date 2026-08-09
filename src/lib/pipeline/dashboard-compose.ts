@@ -1144,6 +1144,18 @@ export async function composeAndStreamDashboard(args: {
       );
       const datasets = executionResult.datasets as Record<string, unknown> | undefined;
       if (datasets) grounded.push(...collectGroundedValues({}, datasets));
+      // Declared-findings values are computed results too: compiled-mode
+      // narrative binds figures (CI bounds, p-values) that live ONLY in the
+      // manifest — without this, the mode built for verifiability wore the
+      // loudest "could not be traced" banner (churn-run review: 5 flagged
+      // figures, all binding-resolved).
+      if (opts.findings) {
+        grounded.push(
+          ...collectGroundedValues({}, {
+            findings: opts.findings.manifest.findings.map((f) => f.value),
+          } as Record<string, unknown>)
+        );
+      }
       // §3.5 question-primary heuristic, deliberately low-noise: the finding
       // tagged "question-primary", else the one whose full name (tokens) the
       // question contains. A miss counts only when the finding is bound in

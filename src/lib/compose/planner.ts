@@ -13,7 +13,14 @@ import { projectManifestForPrompt } from "@/lib/findings/project";
 import { logger } from "@/lib/logger";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import type { Plan } from "@/lib/contracts/plan";
-import { PLAN_OPS, defaultPlan, nextPlanNodeId, planBudget, validatePlan } from "./plan";
+import {
+  PLAN_OPS,
+  defaultPlan,
+  nextPlanNodeId,
+  planBudget,
+  salvagePlan,
+  validatePlan,
+} from "./plan";
 
 const PlannerResponse = z.object({
   nodes: z
@@ -67,6 +74,7 @@ export async function generatePlan(args: {
   const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}\n\nWrite the narrative.`;
   const errors: string[] = [];
   let feedback = "";
+  let lastParsed: Plan | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await withPhase("compose", () =>
@@ -89,6 +97,7 @@ export async function generatePlan(args: {
       const plan: Plan = {
         nodes: parsed.data.nodes.map((n) => ({ id: nextPlanNodeId(), ...n })),
       };
+      lastParsed = plan;
       const v = validatePlan(plan, args.findings);
       if (v.ok) return { plan, plannerErrors: errors };
       errors.push(...v.errors.map((e) => `attempt ${attempt}: ${e}`));
@@ -96,6 +105,21 @@ export async function generatePlan(args: {
     } catch (err) {
       errors.push(`attempt ${attempt}: ${err instanceof Error ? err.message : String(err)}`);
       feedback = "";
+    }
+  }
+  // Per-node salvage (plan.ts): a failed validation degrades the offending
+  // nodes, never the document — the all-or-nothing fallback was the quality
+  // cliff (one literal year anywhere collapsed the whole authored narrative
+  // to templates). Only schema-level wreckage still reaches defaultPlan.
+  if (lastParsed) {
+    const { plan: salvaged, repairs } = salvagePlan(lastParsed, args.findings);
+    if (salvaged.nodes.length > 0 && validatePlan(salvaged, args.findings).ok) {
+      logger.warn("Planner plan salvaged node-by-node", {
+        repairs: repairs.slice(0, 6),
+        kept: salvaged.nodes.length,
+        of: lastParsed.nodes.length,
+      });
+      return { plan: salvaged, plannerErrors: [...errors, ...repairs.map((r) => `salvage: ${r}`)] };
     }
   }
   logger.warn("Planner failed validation twice — using the deterministic default plan", {

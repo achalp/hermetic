@@ -11,7 +11,7 @@ import type { Plan, PlanOverlay } from "@/lib/contracts/plan";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
 import { realizeNode } from "./realizer";
 import { failedCheckBanner, tileElement, humanizeId, type SpecPatchLine } from "./scaffold";
-import { deriveViews } from "./views";
+import { deriveViews, viewDefaultWidths } from "./views";
 
 export interface CompileInput {
   manifest: FindingsManifest;
@@ -184,7 +184,13 @@ export function compileDashboard(input: CompileInput): string[] {
   //    elements pair into a two-column LayoutGrid row; a lone half spans
   //    full (never a hole). Row ids derive from their FIRST member so the
   //    grouping is stable across recompiles.
-  const widths = overlay.widths ?? {};
+  // Catalog layout defaults under the user's overlay: charts pair into
+  // two-column rows by default (viewDefaultWidths); an explicit
+  // overlay.widths entry always wins, in either direction.
+  const widths: Record<string, string> = {
+    ...viewDefaultWidths(shippedViews),
+    ...(overlay.widths ?? {}),
+  };
   const finalChildren: string[] = [];
   let pendingHalf: string[] = [];
   const flushRow = () => {

@@ -146,8 +146,10 @@ export function collectNarrativeStrings(value: unknown, depth = 0, out: string[]
 // following word is consumed as a multiplier ("12 months" → 12M, "5 buyers" →
 // 5B), inflating the value and producing false ungrounded flags. `bn` is
 // listed before `b` so it wins the alternation.
+// Scientific notation is part of the number, not a suffix: "p = 1.56e-15"
+// must extract 1.56e-15, not a dangling 1.56 that traces to nothing.
 const NUMBER_RE =
-  /(\$|€|£)?\s?(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)(?:(bn|k|m|b|t)(?![a-z]))?\s?(%)?/gi;
+  /(\$|€|£)?\s?(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?(?:[eE]-?\d+)?)(?:(bn|k|m|b|t)(?![a-z]))?\s?(%)?/gi;
 
 function suffixScale(suffix: string | undefined): number {
   switch ((suffix ?? "").toLowerCase()) {
@@ -174,8 +176,10 @@ export function extractNumbers(text: string): ExtractedNumber[] {
     const base = Number(cleaned);
     if (!Number.isFinite(base)) continue;
     const scale = suffixScale(suffix);
-    const dot = cleaned.indexOf(".");
-    const decimals = dot === -1 ? 0 : cleaned.length - dot - 1;
+    // Displayed precision: fraction digits of the mantissa (exponent aside).
+    const mantissa = cleaned.split(/[eE]/)[0];
+    const dot = mantissa.indexOf(".");
+    const decimals = dot === -1 ? 0 : mantissa.length - dot - 1;
     out.push({
       raw: raw.trim(),
       value: base * scale,
