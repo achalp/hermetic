@@ -68,6 +68,7 @@ export function GET() {
       sandbox: rc.sandbox ?? {},
       retention: rc.retention ?? {},
       models: rc.models ?? {},
+      composer: rc.composer ?? {},
     },
     effective: {
       providers: {
@@ -238,6 +239,20 @@ export async function PUT(request: Request) {
     applyField("effort", m.effort, effort);
     if (efforts !== undefined) merged.efforts = efforts;
     patch.models = merged;
+  }
+  if (body.composer !== undefined) {
+    const c = (body.composer ?? {}) as Record<string, unknown>;
+    const mode = cleanString(c.mode);
+    if (mode !== undefined && mode !== "generative" && mode !== "compiled") {
+      return Response.json({ error: `Unknown composer mode: ${mode}` }, { status: 400 });
+    }
+    const mergedComposer = { ...rc.composer };
+    if (c.mode !== undefined) {
+      if (mode === undefined)
+        delete mergedComposer.mode; // "" clears
+      else mergedComposer.mode = mode;
+    }
+    patch.composer = mergedComposer;
   }
   if (Object.keys(patch).length > 0) setRuntimeConfig(patch);
 

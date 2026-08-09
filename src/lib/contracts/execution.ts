@@ -23,6 +23,10 @@ export interface SandboxExecutionResult {
    *  with mandatory context (of-ref or label). Synthesized into results.
    *  Absent for legacy envelopes. */
   values?: unknown[];
+  /** Regime profiles per declared series (regime-matrix spec §2): the
+   *  deterministic diagnostics + fired flags explaining WHY methods were
+   *  chosen. Absent for legacy envelopes. */
+  regimes?: Record<string, unknown>;
   /** Platform-profiled data-edge completeness (hermetic_runtime/profile.py):
    *  time/entity columns, per-day coverage, leading/trailing incomplete
    *  periods. Computed deterministically at data-load time — never by

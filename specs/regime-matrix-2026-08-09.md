@@ -1,0 +1,130 @@
+# The Regime Matrix: statistical validity as a total, inspectable function
+
+**Status: spec + reviews 2026-08-09; implementation same day. Companion to
+claims-api (which it completes) and analysis-product (whose roles make it
+self-wiring). Validated in advance by an in-memory simulation over run
+92480eac's actuals (scratchpad/simulate-claims-compiler.py): the simulated
+dispatch independently reproduced the post-fix production values (attested
+peak 1998/$10/n=731, walk-back 10, reason=attestation).**
+
+## 0. Diagnosis
+
+Every statistical failure on record is a correct statistic misused under a
+data regime its method didn't fit — never a missing implementation. The
+judgment ("is zero a sentinel here? is the mean valid? is this year thin?")
+lives in contract prose the model re-derives per run, which is why the zero
+decision FLIPPED between two identical runs. The universe of _validity
+conditions_ is enumerable — every stats text lists each test family's
+assumptions — so the judgment can be closed in code:
+
+**claims × regimes, with a deterministic response per cell.**
+
+## 1. The three enumerations
+
+**Claim types (bounded, ~12)** — trend, step_change, comparison (split/yoy),
+superlative, current_state, outliers/screen, correlation, distribution,
+share, decompose, heterogeneity, check. The boundedness argument: these are
+the grammar of analytical assertion (level, change, extremum, composition,
+association, dispersion, position-in-time); new types require a spec
+amendment, same posture as series role kinds.
+
+**Regimes (bounded, ~12)** — each with a deterministic diagnostic computed
+from the data:
+
+| Regime          | Diagnostic                                                  | Threshold  |
+| --------------- | ----------------------------------------------------------- | ---------- |
+| ZERO_INFLATED   | zero share of a measure                                     | > 5%       |
+| HEAVY_TAIL      | moment skewness                                             | > 2        |
+| CONTAMINATED    | max/median tail ratio                                       | > 50       |
+| COUNT_SKEWED    | count mean/median dispersion                                | > 3        |
+| THIN_PERIODS    | periods under the attestation bar (max(5, .2·med, .1·mean)) | any        |
+| THIN_EDGE       | trailing run of thin periods                                | > 0        |
+| SHORT_SERIES    | n_periods                                                   | < 8        |
+| DISCRETE        | distinct-value share                                        | < 10%      |
+| TIED            | modal-value share                                           | > 30%      |
+| NEGATIVE_VALUED | negative share                                              | > 0        |
+| NON_MONOTONE_X  | x not strictly increasing                                   | bool       |
+| MONETARY        | declared unit is a currency                                 | from roles |
+
+**Responses (three kinds)** — per cell: _method dispatch_ (median not mean;
+Spearman not Pearson), _degrade with the violated regime named_, or _attach
+a machine caveat field_. Never silent.
+
+## 2. The artifact: `hermetic_runtime/regimes.py`
+
+- `profile_regimes(values, counts=None, labels=None, unit=None) -> dict` —
+  all diagnostics + fired flags. Pure, never-raise, ~O(n).
+- `REGIME_MATRIX: {claim_type: {regime: response_description}}` — the
+  machine-readable matrix. THE completeness artifact: every cell is
+  implemented or explicitly `None` (not applicable, with the reasoning in
+  the table itself). A meta-test asserts (a) every matrix regime has a
+  diagnostic key in the profile, (b) every claim type in the findings
+  library appears as a matrix row — empty cells are found by INSPECTION,
+  not by runs.
+- Dispatch helpers the claim functions and generated code call:
+  `select_center(profile)` ("median"|"mean" + reason),
+  `zero_policy(profile)` ("sentinel_exclude"|"keep" + reason — the rule
+  that flipped between runs becomes one function),
+  `attestation_bar` (already shared).
+- **Self-wiring**: `write_output` profiles every declared series that
+  carries a count/measure role (values from the measure column, counts from
+  the count role) and ships `regimes[series_id]` in the envelope. The model
+  never passes what the roles already declare.
+
+## 3. Cascade
+
+- **Claim functions**: already carry proto-diagnostics (degenerate gates,
+  attestation, coverage); they now share the profiler's primitives. No
+  return-shape changes beyond what shipped this week.
+- **Envelope/host**: `regimes` rides the envelope (raw, like findings);
+  parse-output passes it through; artifacts cache/history persist it; the
+  composer (spec 2) and the audit receive WHY methods were chosen.
+- **Contract**: shrinks — ZERO SENTINEL, SKEWED MONEY, attestation prose
+  become "call the dispatcher" references. (Deletion deferred one
+  generation: teach both, then cut, same pattern as prior consolidations.)
+- **MCP**: profile visible via the envelope in artifacts; a
+  `profile_regimes` MCP tool is NOT added (the profile is per-series data,
+  already in artifacts) — spec 2 adds the tools where interaction lives.
+
+## 4. Principal-engineer review
+
+1. **Threshold brittleness** — thresholds (5%, 2, 50, 3) are matrix DATA,
+   not scattered constants; each cites its motivating run in the table.
+   Changing one is a one-line diff with a visible blast radius.
+2. **Double computation drift** — claim functions computing their own gates
+   vs the profiler: converged on shared primitives (`_attestation_bar` is
+   already the single source); the meta-test pins that the profile's bar
+   equals the claims' bar on the same input.
+3. **Never-raise discipline** — profiler failure degrades to `{}` +
+   `flags: []`; a profiling bug must not kill an analysis (repo invariant).
+4. **Envelope growth** — profile is O(#series × #diagnostics) scalars,
+   trivial; no rows duplicated.
+5. **Fallback prelude** — stub returns `{}`; degraded deploys lose regime
+   flags, never NameError (getter-exposure lesson applied).
+
+## 5. Principal-data-scientist review
+
+1. **Moment skewness on small n is noisy** — acceptable: it gates a
+   _caveat/dispatch_, not a hypothesis test; SHORT_SERIES fires alongside
+   and dampens (matrix cells for SHORT_SERIES override tail dispatches to
+   "report, don't decide").
+2. **The 5% zero bar** — a zero-inflated measure at 4.9% slips through;
+   mitigation: the zero_policy response reports the share REGARDLESS, so
+   the composer/audit see near-threshold cases; the threshold gates only
+   the automatic exclusion.
+3. **Attestation bar** — the median+mean-floor formula survived one
+   over-correction cycle (weighted median rejected by audit); the DS review
+   endorses it with the documented property: balanced ⇒ median term binds;
+   heavy-tailed ⇒ floor tracks mass-per-period. Sensitivity: the sim
+   corpus lands bar≈635 (vs 178 too-lax / 11,297 too-strict).
+4. **MONETARY from roles** — unit strings are open vocabulary; currency
+   detection is a conservative allowlist (usd/eur/gbp/$/€/£/dm/...); a miss
+   degrades to "no MONETARY flag", never a wrong exclusion.
+5. **What stays with the model** — WHICH claims to make about WHICH
+   columns. The matrix closes how, not what. Correct division.
+
+## 6. Test plan
+
+Unit tests per diagnostic (boundary values), matrix meta-test
+(completeness), profiler↔claims bar equality, envelope integration
+(declared series ⇒ regimes shipped), prelude parity.

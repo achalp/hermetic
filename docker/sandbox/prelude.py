@@ -420,6 +420,7 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
         'findings': _to_native(findings if findings is not None else _hermetic_findings),
         'series': _to_native(_hermetic_series),
         'values': _to_native(_hermetic_values),
+        'regimes': {},
     }
     # Analysis-product synthesis (spec analysis-product-2026-08-08 §1), in
     # parity with hermetic_runtime.output: declared series/values project into
@@ -617,6 +618,12 @@ _hermetic_values = []
 # declared (observed: a hallucinated get_findings() call cost a full
 # max-effort codegen retry via the preflight F821) — the names are real
 # package API, harmless, and cheap to expose, so they must never NameError.
+def profile_regimes(values, counts=None, labels=None, unit=None):
+    return {}
+def select_center(profile):
+    return {'center': 'median', 'reason': 'fallback runtime; median is the safe default'}
+def zero_policy(profile):
+    return {'policy': 'keep', 'zero_share': None, 'reason': 'fallback runtime'}
 def get_findings():
     return list(_hermetic_findings)
 def get_series():
@@ -684,7 +691,8 @@ try:
         finding_decompose, finding_heterogeneity, finding_current_state, finding_yoy,
         declare_check, finding_split_comparison, finding_superlative,
         finding_outliers, finding_correlation, finding_distribution, finding_share,
-        declare_series, declare_value, get_findings, get_series, get_values)
+        declare_series, declare_value, get_findings, get_series, get_values,
+        profile_regimes, select_center, zero_policy)
     from hermetic_runtime import to_native as _to_native
     _hrt.guards.configure(_MEM_LIMIT)
     assert_fits = _hrt.guards.assert_fits

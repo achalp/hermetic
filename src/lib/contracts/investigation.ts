@@ -154,6 +154,9 @@ export interface CachedArtifacts {
   /** Validated declared-findings manifest (spec §1); absent pre-findings
    *  and when findings.mode=off. */
   findings?: import("./findings").FindingsManifest;
+  /** Narrative plan document (narrative-compiler spec) — present when the
+   *  dashboard was compiled; the mutation API edits and recompiles it. */
+  plan?: import("./plan").PlanDocument;
   /** Validated declared series with roles (analysis-product spec §1) —
    *  kept for inspectability (Verify/exports); chart_data holds the
    *  synthesized view of the same rows. Absent for legacy envelopes. */

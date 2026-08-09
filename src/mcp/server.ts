@@ -394,6 +394,63 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
   );
 
   server.registerTool(
+    "get_dashboard_plan",
+    {
+      description:
+        "Read a compiled dashboard's narrative plan (typed speech-act nodes + layout overlay). " +
+        "Only available when composer.mode=compiled produced the dashboard. Use before " +
+        "edit_dashboard to see node ids and structure.",
+      inputSchema: {
+        source_id: zAudit.string().describe("source_id (csv id) of the analyzed dataset."),
+      },
+    },
+    withAudit(audit, "get_dashboard_plan", async (args: { source_id: string }) => {
+      const { getDashboardPlan } = await import("@/lib/compose/edit");
+      const plan = getDashboardPlan(args.source_id);
+      if (!plan) {
+        throw new McpToolError(
+          "invalid_input",
+          "no plan document for this source — the dashboard was not compiled (composer.mode)"
+        );
+      }
+      return { plan };
+    })
+  );
+
+  server.registerTool(
+    "edit_dashboard",
+    {
+      description:
+        "Edit a compiled dashboard through the governed mutation grammar and recompile it " +
+        "deterministically (no LLM). Mutations: {kind:'move',id,before?} | {kind:'hide',id} | " +
+        "{kind:'show',id} | {kind:'add_node',node:{op,refs,text?},before?} | " +
+        "{kind:'remove_node',id} | {kind:'set_insight',text}. Same code path as the web UI's " +
+        "plan editor — invariants (one ANSWER, caveats reference checks only) are re-validated.",
+      inputSchema: {
+        source_id: zAudit.string().describe("source_id (csv id) of the analyzed dataset."),
+        mutations: zAudit.array(zAudit.record(zAudit.string(), zAudit.unknown())).min(1),
+      },
+    },
+    withAudit(
+      audit,
+      "edit_dashboard",
+      async (args: { source_id: string; mutations: Record<string, unknown>[] }) => {
+        const { editDashboard } = await import("@/lib/compose/edit");
+        const result = await editDashboard(
+          args.source_id,
+          args.mutations as unknown as import("@/lib/contracts/plan").PlanMutation[]
+        );
+        if (!result.ok) throw new McpToolError("invalid_input", result.errors.join("; "));
+        return {
+          ok: true,
+          plan: result.doc,
+          elements: Object.keys(result.spec?.elements ?? {}).length,
+        };
+      }
+    )
+  );
+
+  server.registerTool(
     "analyze_start",
     {
       description:

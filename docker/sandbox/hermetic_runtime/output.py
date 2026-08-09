@@ -3,6 +3,7 @@
 from .coerce import to_native
 from .findings import get_findings
 from .profile import get_profile
+from .regimes import profile_regimes
 from .series import get_series, get_values
 
 _SCALAR = (int, float, str, bool, type(None))
@@ -46,6 +47,29 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
     """
     series = to_native(get_series())
     values = to_native(get_values())
+    # Regime profiles (spec regime-matrix-2026-08-09 §2): every declared
+    # series with roles is profiled automatically — the model never passes
+    # what the roles already declare. Composer + audit see WHY methods fit.
+    regimes = {}
+    for s in series:
+        try:
+            roles = s.get("roles", {})
+            measures = roles.get("measures", [])
+            if not measures:
+                continue
+            m = measures[0]
+            col = m.get("column")
+            rows_ = s.get("rows", [])
+            vals = [r.get(col) for r in rows_ if isinstance(r, dict)]
+            cnt_col = (roles.get("count") or {}).get("column")
+            cnts = [r.get(cnt_col) for r in rows_ if isinstance(r, dict)] if cnt_col else None
+            x_col = (roles.get("x") or {}).get("column")
+            labs = [r.get(x_col) for r in rows_ if isinstance(r, dict)] if x_col else None
+            prof = profile_regimes(vals, counts=cnts, labels=labs, unit=m.get("unit"))
+            if prof:
+                regimes[s["id"]] = prof
+        except Exception:
+            continue
     findings_out = to_native(findings if findings is not None else get_findings())
     out = {
         "results": to_native(results if results is not None else {}),
@@ -55,6 +79,7 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
         "findings": findings_out,
         "series": series,
         "values": values,
+        "regimes": to_native(regimes),
         "data_completeness": to_native(get_profile()),
     }
     _synthesize(out["results"], out["chart_data"], series, values, findings_out)

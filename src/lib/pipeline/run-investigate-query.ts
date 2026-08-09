@@ -63,6 +63,10 @@ import {
   buildCatalogSection,
 } from "@/lib/product";
 import { lintComponentSignature } from "@/lib/product/signatures";
+import { getComposerMode } from "@/lib/runtime-config";
+import { compileDashboard } from "@/lib/compose/compile";
+import { generatePlan as generateNarrativePlan } from "@/lib/compose/planner";
+import { planHeadlineTiles } from "@/lib/findings/headline-plan";
 import {
   FINDINGS_MANIFEST_VERSION,
   type FindingEntry,
@@ -821,32 +825,79 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             fMode === "on" ? (investigationFindings ?? undefined) : undefined
           );
         })();
-        const compose = composeInvestigation({
-          originalQuestion: question,
-          plan,
-          schema: stored.schema,
-          subResults,
-          // §7.5 synthesis binding — consumers receive the manifest only in
-          // mode "on" (assembled above, before composition).
-          ...(fMode === "on" && investigationFindings ? { findings: investigationFindings } : {}),
-          uiComposeModel,
-          purpose: context.purpose,
-          // Warehouse investigations cover the materialized pull's time
-          // window; surface it so the dashboard states its scope.
-          analysisWindow: warehouseState ? deriveAnalysisWindow(stored.schema) : undefined,
-          // When the pull hit the row cap, the analysis is over a sample —
-          // tell the composer to disclose it.
-          sampleRows: materializationSampled ? WAREHOUSE_MAX_ROWS : undefined,
-          // Catalog is structure-only (blind-safe); the sighted values
-          // section rides behind it when enabled.
-          extraSection:
-            [
-              buildCatalogSection(investigationProduct)
-                ? `\n\n${buildCatalogSection(investigationProduct)}`
-                : "",
-              sightedValuesSection ?? "",
-            ].join("") || undefined,
-        });
+        let investigatePlanDoc: import("@/lib/contracts/plan").PlanDocument | null = null;
+        // Compiled composer (narrative-compiler spec §3): plan + deterministic
+        // compile over the MERGED manifest/product; lines flow through the
+        // same finalize loop below. Legacy merges fall back to generative.
+        const compiledMode =
+          getComposerMode() === "compiled" &&
+          investigationProduct.series.length > 0 &&
+          (investigationFindings?.findings.length ?? 0) > 0;
+        const compose = compiledMode
+          ? (() => {
+              const res: Record<string, unknown> = {};
+              const charts: Record<string, unknown> = {};
+              for (const sub of subResults) {
+                if (sub.removed || !sub.result) continue;
+                const prefix = `step_${sub.index + 1}_`;
+                for (const [k, v] of Object.entries(sub.result.executionResult.results ?? {}))
+                  res[`${prefix}${k}`] = v;
+                for (const [k, v] of Object.entries(sub.result.executionResult.chart_data ?? {}))
+                  charts[`${prefix}${k}`] = v;
+              }
+              return {
+                initialState: { results: res, chart_data: charts },
+                textStream: (async function* () {
+                  const { plan } = await generateNarrativePlan({
+                    findings: investigationFindings!.findings,
+                    question,
+                    model: uiComposeModel,
+                  });
+                  investigatePlanDoc = { plan, overlay: {}, mode: "compiled" as const };
+                  yield compileDashboard({
+                    manifest: investigationFindings!,
+                    product: investigationProduct,
+                    plan,
+                    overlay: {},
+                    headlinePlan: planHeadlineTiles(
+                      investigationFindings!.findings,
+                      res,
+                      question,
+                      investigationProduct.values
+                    ),
+                    question,
+                  }).join("\n") + "\n";
+                })(),
+              };
+            })()
+          : composeInvestigation({
+              originalQuestion: question,
+              plan,
+              schema: stored.schema,
+              subResults,
+              // §7.5 synthesis binding — consumers receive the manifest only in
+              // mode "on" (assembled above, before composition).
+              ...(fMode === "on" && investigationFindings
+                ? { findings: investigationFindings }
+                : {}),
+              uiComposeModel,
+              purpose: context.purpose,
+              // Warehouse investigations cover the materialized pull's time
+              // window; surface it so the dashboard states its scope.
+              analysisWindow: warehouseState ? deriveAnalysisWindow(stored.schema) : undefined,
+              // When the pull hit the row cap, the analysis is over a sample —
+              // tell the composer to disclose it.
+              sampleRows: materializationSampled ? WAREHOUSE_MAX_ROWS : undefined,
+              // Catalog is structure-only (blind-safe); the sighted values
+              // section rides behind it when enabled.
+              extraSection:
+                [
+                  buildCatalogSection(investigationProduct)
+                    ? `\n\n${buildCatalogSection(investigationProduct)}`
+                    : "",
+                  sightedValuesSection ?? "",
+                ].join("") || undefined,
+            });
 
         // Inject merged data into spec.state so $result/$chartData
         // placeholders resolve client-side
@@ -1010,6 +1061,11 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             ingestComposedLine(r.raw, r.patch);
             emit(r.line + "\n");
           }
+        }
+
+        if (investigatePlanDoc) {
+          const prior = getCachedArtifacts(csvId);
+          if (prior) cacheArtifacts(csvId, { ...prior, plan: investigatePlanDoc });
         }
 
         // Screened superlatives narrated without their raw extreme —

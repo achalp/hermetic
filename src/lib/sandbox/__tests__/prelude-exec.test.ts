@@ -89,6 +89,7 @@ describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
       "datasets",
       "findings",
       "images",
+      "regimes",
       "results",
       "runtime_fallback",
       "series",

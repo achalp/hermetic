@@ -75,6 +75,10 @@ export interface RuntimeConfig {
    * localStorage). Validated against AVAILABLE_MODELS on read AND write —
    * a stale id from an old config falls back to the defaults.
    */
+  /** Composer architecture (narrative-compiler spec): "generative" (the
+   *  LLM writes the dashboard; default during burn-in) or "compiled" (the
+   *  LLM writes a typed plan; code compiles the dashboard). */
+  composer?: { mode?: string };
   models?: {
     codeGen?: string;
     uiCompose?: string;
@@ -226,6 +230,11 @@ export function getActiveEffort(phase?: string | null): string | null {
   if (valid(perPhase)) return perPhase;
   if (valid(m?.effort)) return m.effort as string;
   return null;
+}
+
+export function getComposerMode(): "generative" | "compiled" {
+  const m = getRuntimeConfig().composer?.mode;
+  return m === "compiled" ? "compiled" : "generative";
 }
 
 export function getActiveModels(): { codeGen: string; uiCompose: string } {

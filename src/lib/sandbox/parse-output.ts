@@ -40,6 +40,8 @@ const SandboxEnvelopeSchema = z.object({
   // validation happens in lib/product, not here.
   series: z.array(z.unknown()).optional(),
   values: z.array(z.unknown()).optional(),
+  // Regime profiles per declared series (regime-matrix spec §2) — RAW.
+  regimes: z.record(z.string(), z.unknown()).optional(),
   data_completeness: z.unknown().optional(),
   runtime_fallback: z.string().nullable().optional(),
 });
@@ -421,6 +423,7 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     ...(envelope.data.findings ? { findings: envelope.data.findings } : {}),
     ...(envelope.data.series ? { series: envelope.data.series } : {}),
     ...(envelope.data.values ? { values: envelope.data.values } : {}),
+    ...(envelope.data.regimes ? { regimes: envelope.data.regimes } : {}),
     // These two were validated but never returned — run-ask-query's
     // completeness lints and runtime-fallback surfacing read them off the
     // execution result, so dropping them here silently disabled both.

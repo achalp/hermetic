@@ -41,6 +41,10 @@ import {
   buildCatalogSection,
 } from "@/lib/product";
 import { lintComponentSignature } from "@/lib/product/signatures";
+import { getComposerMode } from "@/lib/runtime-config";
+import { compileDashboard } from "@/lib/compose/compile";
+import { generatePlan as generateNarrativePlan } from "@/lib/compose/planner";
+import type { PlanDocument, PlanOverlay } from "@/lib/contracts/plan";
 import type { AnalysisProduct } from "@/lib/contracts/product";
 import { planHeadlineTiles, buildHeadlineSection } from "@/lib/findings/headline-plan";
 import {
@@ -77,6 +81,8 @@ export interface DashboardComposeOpts {
    *  the first pass, injected as explicit repair instructions. Presence of
    *  this field also acts as the recursion guard. */
   repairAdvisories?: string[];
+  /** Compiled mode: an existing user overlay to honor on recompile. */
+  planOverlay?: PlanOverlay;
   question: string;
   schema: CSVSchema;
   schemaMode: SchemaMode;
@@ -807,6 +813,8 @@ export async function composeAndStreamDashboard(args: {
   isClosed: () => boolean;
   /** Called just before the LLM stream begins (e.g. to emit a progress event). */
   onComposing?: () => void;
+  /** Compiled mode: receives the plan document for persistence/editing. */
+  onPlanDocument?: (doc: PlanDocument) => void;
 }): Promise<void> {
   const { executionResult, opts, uiComposeModel, emit, isClosed, onComposing } = args;
   const { userPrompt, customRules, analysis } = buildDashboardComposeRequest(executionResult, opts);
@@ -814,14 +822,57 @@ export async function composeAndStreamDashboard(args: {
 
   onComposing?.();
 
-  const llmResult = streamText({
-    model: getModel(uiComposeModel),
-    system: cachedSystem(catalog.prompt({ customRules })),
-    prompt: userPrompt,
-    temperature: 0,
-    maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-  });
-  const textStream = llmResult.textStream;
+  // Composer architecture (narrative-compiler spec §3): "compiled" replaces
+  // the generative dashboard stream with a typed PLAN call + deterministic
+  // compilation — the lines still flow through the SAME finalizer below, so
+  // resolution, units, discourse checks and every post-pass are one stack.
+  // Requires a declared-series product + manifest; legacy envelopes fall
+  // back to generative (logged).
+  const modeProduct = parseProduct(executionResult.series, executionResult.values).product;
+  const compiledMode =
+    getComposerMode() === "compiled" &&
+    modeProduct.series.length > 0 &&
+    (opts.findings?.manifest.findings.length ?? 0) > 0;
+  if (getComposerMode() === "compiled" && !compiledMode) {
+    logger.info("Compiled composer requested but envelope is legacy — using generative", {
+      series: modeProduct.series.length,
+      findings: opts.findings?.manifest.findings.length ?? 0,
+    });
+  }
+  let compiledPlanDoc: PlanDocument | null = null;
+  const textStream: AsyncIterable<string> = compiledMode
+    ? (async function* () {
+        // Body runs lazily at first iteration — headlinePlan/product consts
+        // below are initialized by then.
+        const findingsList = opts.findings!.manifest.findings;
+        const { plan } = await generateNarrativePlan({
+          findings: findingsList,
+          question: opts.question,
+          model: uiComposeModel,
+        });
+        compiledPlanDoc = { plan, overlay: opts.planOverlay ?? {}, mode: "compiled" };
+        const lines = compileDashboard({
+          manifest: opts.findings!.manifest,
+          product: modeProduct,
+          plan,
+          overlay: compiledPlanDoc.overlay,
+          headlinePlan: planHeadlineTiles(
+            findingsList,
+            (executionResult.results ?? {}) as Record<string, unknown>,
+            opts.question,
+            modeProduct.values
+          ),
+          question: opts.question,
+        });
+        yield lines.join("\n") + "\n";
+      })()
+    : streamText({
+        model: getModel(uiComposeModel),
+        system: cachedSystem(catalog.prompt({ customRules })),
+        prompt: userPrompt,
+        temperature: 0,
+        maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+      }).textStream;
 
   let buffer = "";
   let stateInjected = false;
@@ -1012,6 +1063,8 @@ export async function composeAndStreamDashboard(args: {
       const result = processLine(buffer.trim());
       if (result !== null) emitPatch(result);
     }
+
+    if (compiledPlanDoc) args.onPlanDocument?.(compiledPlanDoc);
 
     // Warn-only: flag components that read a /computed/<key> nothing produces —
     // they render empty (blank table/map). Tracked in logs, spec left untouched.
@@ -1370,6 +1423,7 @@ export async function composeAndStreamDashboard(args: {
       const checks = (opts.findings?.manifest.findings ?? []).filter((f) => f.dtype === "check");
       const verifiability = {
         composerSight: opts.sight === "sighted" ? "sighted" : "blind",
+        composerMode: compiledMode ? "compiled" : "generative",
         findings: {
           declared: (opts.findings?.manifest.findings ?? []).length,
           cited: citedFindings.size,

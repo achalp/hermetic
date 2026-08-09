@@ -30,7 +30,7 @@ try:
 except Exception:
     HAVE_PANDAS = False
 
-from . import findings, guards, series
+from . import findings, guards, regimes, series
 from .coerce import safe_float, safe_int, to_native
 from .checks import declare_check
 from .findings import (
@@ -153,7 +153,7 @@ class TestWriteOutput(unittest.TestCase):
             self.assertEqual(
                 set(written),
                 {"results", "chart_data", "datasets", "images", "findings",
-                 "series", "values", "data_completeness"},
+                 "series", "values", "regimes", "data_completeness"},
             )
 
 
@@ -247,6 +247,97 @@ class TestAnalysisProduct(unittest.TestCase):
         self.assertEqual(out["results"]["price_trend_direction"], "authored-wins")
         self.assertNotIn("price_trend_detail", out["results"])
         self.assertEqual(out["values"][0]["key"], "total")
+
+
+class TestRegimes(unittest.TestCase):
+    """Regime profiler + matrix (specs/regime-matrix-2026-08-09.md)."""
+
+    # The simulation corpus shape: heavy-tailed counts, zero-inflated
+    # monetary measure, thin trailing edge.
+    VALUES = [0.0, 0.3, 0.35, 0.4, 0.45, 0.5, 0.9, 1.5, 4.5, 9.5, 26.0]
+    COUNTS = [900, 9000, 186000, 12000, 9000, 8000, 5000, 3000, 1500, 700, 382]
+
+    def test_profile_diagnoses_the_menu_corpus_regimes(self):
+        prof = regimes.profile_regimes(
+            self.VALUES, counts=self.COUNTS,
+            labels=list(range(1900, 2011, 11)), unit="usd")
+        for f in ("ZERO_INFLATED", "HEAVY_TAIL", "COUNT_SKEWED", "THIN_EDGE", "MONETARY"):
+            self.assertIn(f, prof["flags"], f)
+        self.assertGreater(prof["attestation_bar"], 382)
+        self.assertEqual(prof["trailing_thin_run"], 3)
+
+    def test_profile_of_a_benign_series_fires_nothing_heavy(self):
+        prof = regimes.profile_regimes(
+            [10.5, 11.2, 12.1, 11.8, 12.5, 13.0, 12.8, 13.5, 14.1, 13.9],
+            counts=[100] * 10, unit="count")
+        self.assertNotIn("HEAVY_TAIL", prof["flags"])
+        self.assertNotIn("ZERO_INFLATED", prof["flags"])
+        self.assertNotIn("COUNT_SKEWED", prof["flags"])
+
+    def test_profile_never_raises(self):
+        self.assertEqual(regimes.profile_regimes(None), {})
+        self.assertEqual(regimes.profile_regimes([1.0]), {})
+        self.assertEqual(regimes.profile_regimes(object()), {})
+
+    def test_matrix_completeness_meta(self):
+        # (a) every regime named in a matrix cell has a diagnostic path in
+        # the profiler's flag vocabulary; (b) every claim type in the
+        # findings library has a matrix row. Empty cells are inspection
+        # findings, not run findings (spec 2).
+        diagnosable = {"ZERO_INFLATED", "HEAVY_TAIL", "CONTAMINATED",
+                       "COUNT_SKEWED", "THIN_PERIODS", "THIN_EDGE",
+                       "SHORT_SERIES", "DISCRETE", "TIED", "NEGATIVE_VALUED",
+                       "NON_MONOTONE_X", "MONETARY"}
+        for claim, cells in regimes.REGIME_MATRIX.items():
+            for regime in cells:
+                self.assertIn(regime, diagnosable, "%s.%s" % (claim, regime))
+        claim_types = {"trend", "step_change", "comparison", "superlative",
+                       "current_state", "outliers", "correlation",
+                       "distribution", "share", "decompose",
+                       "heterogeneity", "check"}
+        self.assertEqual(set(regimes.REGIME_MATRIX), claim_types)
+
+    def test_profiler_bar_equals_claims_bar(self):
+        # The profile's attestation bar and the claim functions' bar are the
+        # SAME function on the same input (PE review: no drift).
+        prof = regimes.profile_regimes(self.VALUES, counts=self.COUNTS)
+        self.assertAlmostEqual(
+            prof["attestation_bar"],
+            round(findings._attestation_bar([float(c) for c in self.COUNTS]), 1))
+
+    def test_zero_policy_is_deterministic(self):
+        # The decision that flipped between two identical runs, closed.
+        prof = regimes.profile_regimes(self.VALUES, counts=self.COUNTS, unit="usd")
+        out = regimes.zero_policy(prof)
+        self.assertEqual(out["policy"], "sentinel_exclude")
+        nonmonetary = regimes.profile_regimes(self.VALUES, counts=self.COUNTS, unit="items")
+        self.assertEqual(regimes.zero_policy(nonmonetary)["policy"], "keep")
+        self.assertEqual(regimes.zero_policy({})["policy"], "keep")
+
+    def test_select_center_demotes_the_mean_under_heavy_tails(self):
+        prof = regimes.profile_regimes(self.VALUES, unit="usd")
+        self.assertEqual(regimes.select_center(prof)["center"], "median")
+        benign = regimes.profile_regimes([10.0, 11.0, 12.0, 11.5, 10.5, 11.8, 12.2, 11.1])
+        self.assertEqual(regimes.select_center(benign)["center"], "mean")
+
+    def test_write_output_ships_regime_profiles_for_declared_series(self):
+        findings.reset_findings()
+        series.reset_product()
+        self.addCleanup(findings.reset_findings)
+        self.addCleanup(series.reset_product)
+        rows = [{"yr": 1900 + i, "price": v, "n": c}
+                for i, (v, c) in enumerate(zip(self.VALUES, self.COUNTS))]
+        declare_series("prices", rows, x=("yr", "temporal"),
+                       measures=[{"column": "price", "unit": "usd"}], count="n")
+        real_open = open
+        with tempfile.NamedTemporaryFile("r", suffix=".json") as f:
+            redirect = lambda p, m="r", **kw: real_open(f.name, m, **kw)  # noqa: E731
+            with mock.patch("builtins.open", side_effect=redirect):
+                out = write_output()
+            prof = out["regimes"]["prices"]
+            self.assertIn("MONETARY", prof["flags"])
+            self.assertIn("ZERO_INFLATED", prof["flags"])
+            self.assertGreater(prof["attestation_bar"], 382)
 
 
 class TestDeclareFinding(unittest.TestCase):

@@ -14,7 +14,7 @@ import { runWithDiagnostics } from "@/lib/diagnostics/run-diagnostics";
 import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
-import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
+import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import {
   findingsMode,
   mergeDeclarations,
@@ -607,11 +607,19 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             priorTurns,
             drillDownContext,
             workbookContext,
+            // Recompiles honor the user's existing overlay (edit continuity).
+            planOverlay: getCachedArtifacts(csvId)?.plan?.overlay,
           },
           uiComposeModel,
           emit,
           isClosed: stream.isClosed,
           onComposing: () => emitProgress("composing", stepOffset + 3),
+          // Compiled mode: persist the plan document beside the artifacts so
+          // the mutation API (/api/plan, MCP edit_dashboard) can edit it.
+          onPlanDocument: (doc) => {
+            const prior = getCachedArtifacts(csvId);
+            if (prior) cacheArtifacts(csvId, { ...prior, plan: doc });
+          },
         });
       } catch (pipelineErr) {
         const errMsg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);

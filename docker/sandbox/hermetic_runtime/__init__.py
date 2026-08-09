@@ -33,9 +33,11 @@ from .findings import (
 from .frames import numeric, safe_qcut, to_num
 from .guards import assert_fits
 from .output import write_output
+from .regimes import profile_regimes, select_center, zero_policy, REGIME_MATRIX
 from .series import declare_series, declare_value, get_series, get_values, reset_product
 
 __all__ = [
+    "REGIME_MATRIX",
     "assert_fits",
     "declare_check",
     "declare_finding",
@@ -59,11 +61,14 @@ __all__ = [
     "guards",
     "profile",
     "numeric",
+    "profile_regimes",
     "reset_findings",
     "reset_product",
     "safe_float",
     "safe_int",
     "safe_qcut",
+    "select_center",
+    "zero_policy",
     "to_native",
     "to_num",
     "write_output",
