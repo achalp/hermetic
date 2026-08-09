@@ -128,6 +128,18 @@ export function resolvePurpose(purposeId: string | null | undefined): string {
   return DEFAULT_PURPOSE;
 }
 
+/**
+ * The purpose a persisted spec was RUN with — read from the state.__purpose
+ * stamp the compose pipelines emit — resolved to a canonical id. Null when
+ * the record predates the stamp (caller leaves the dropdown untouched
+ * rather than fabricating a style the run may not have used).
+ */
+export function stampedPurpose(spec: unknown): string | null {
+  const state = (spec as { state?: { __purpose?: unknown } } | null | undefined)?.state;
+  const raw = state?.__purpose;
+  return typeof raw === "string" && raw ? resolvePurpose(raw) : null;
+}
+
 export function getPurposePrompt(purposeId: string): string {
   return PURPOSE_MODES[resolvePurpose(purposeId)].prompt;
 }

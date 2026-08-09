@@ -7,6 +7,7 @@ import {
   getPurposePrompt,
   getPurposeMaxSubQuestions,
   getPurposePlanScope,
+  stampedPurpose,
 } from "@/lib/purpose-prompts";
 
 describe("purpose taxonomy", () => {
@@ -91,5 +92,23 @@ describe("purpose taxonomy", () => {
       expect(m.prompt.toLowerCase()).toMatch(/data|question/);
     }
     expect(PURPOSE_MODES.dashboard.prompt).toMatch(/how many|fixed count/i);
+  });
+
+  it("stampedPurpose reads the run's own style from the spec, never fabricates one", () => {
+    // The compose pipelines stamp state.__purpose; the header dropdown
+    // adopts it on restore. A mislabeled dropdown costs a full re-run to
+    // "correct" (its change handler re-runs the question).
+    expect(stampedPurpose({ state: { __purpose: "report" } })).toBe("report");
+    // Legacy alias in an old record resolves to the canonical id.
+    expect(stampedPurpose({ state: { __purpose: "executive-summary" } })).toBe("brief");
+    // Records that predate the stamp (or garbage) → null, dropdown untouched.
+    expect(stampedPurpose({ state: {} })).toBeNull();
+    expect(stampedPurpose({ state: { __purpose: 42 } })).toBeNull();
+    expect(stampedPurpose({})).toBeNull();
+    expect(stampedPurpose(null)).toBeNull();
+    expect(stampedPurpose(undefined)).toBeNull();
+    // An unknown-but-string style degrades to the default, not to null —
+    // the record SAYS it was run with a style; the closest current id wins.
+    expect(stampedPurpose({ state: { __purpose: "nonsense" } })).toBe("dashboard");
   });
 });

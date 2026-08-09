@@ -6,7 +6,7 @@
  * dedicated component. This file only wires them together — if you're adding
  * logic here, it probably belongs in one of the hooks below.
  */
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { SheetPicker } from "@/app/components/sheet-picker";
 import { type QueryMode } from "@/app/components/query-input";
 import { SavedVizsPanel } from "@/app/components/saved-vizs-panel";
@@ -38,7 +38,7 @@ import { useBrowserNav } from "@/hooks/use-browser-nav";
 import { usePanels } from "@/hooks/use-panels";
 import { useHomeComposer } from "@/hooks/use-home-composer";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
-import { DEFAULT_PURPOSE } from "@/lib/purpose-prompts";
+import { DEFAULT_PURPOSE, stampedPurpose } from "@/lib/purpose-prompts";
 import { saveHistoryEntry } from "@/app/lib/api";
 
 export default function Home() {
@@ -110,6 +110,19 @@ export default function Home() {
   // ONE holder for the analysis on screen (M5-5e) — replaces currentSpecRef,
   // currentQuestionRef, and lastCompleteSpec plus their hand-rolled syncs.
   const analysis = useCurrentAnalysis({ loadedSpec, currentQuestion, isAnalyzing });
+
+  // The record carries the style the analysis was RUN with (state.__purpose,
+  // stamped by the compose pipelines) — adopt it whenever the displayed spec
+  // changes, so the header dropdown never claims a different style than the
+  // dashboard on screen. Its change handler re-runs the question, so a
+  // mislabel costs a full run to "correct". Covers every path at once: viz
+  // load, ?restore=, ?rerun_history=, refresh, and live completion; records
+  // that predate the stamp leave the dropdown untouched.
+  const displayedSpec = analysis.freshSpec ?? loadedSpec;
+  useEffect(() => {
+    const stamped = stampedPurpose(displayedSpec);
+    if (stamped) setPurpose(stamped);
+  }, [displayedSpec]);
 
   // Panel chrome open/closed state + mutual exclusion — use-panels.
   const panels = usePanels();

@@ -1395,6 +1395,12 @@ export async function composeAndStreamDashboard(args: {
         });
         return;
       }
+      // The style this run was ACTUALLY composed with, persisted with the
+      // spec (state.__purpose). The header dropdown adopts it on restore —
+      // it re-runs the question on change, so a dropdown mislabeling the
+      // displayed style costs a full run to "correct". Final pass only
+      // (after the bounded-repair recursion decision).
+      emit(JSON.stringify({ op: "add", path: "/state/__purpose", value: opts.purpose }) + "\n");
       const report = verifyGrounding({
         narrativeTexts,
         citedSteps: [],

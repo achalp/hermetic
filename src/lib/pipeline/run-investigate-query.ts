@@ -1142,6 +1142,15 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                 }
               : {}),
           });
+          // The style this run was composed with (same stamp as the Ask
+          // pipeline) — the header dropdown adopts it on restore.
+          emit(
+            JSON.stringify({
+              op: "add",
+              path: "/state/__purpose",
+              value: context.purpose ?? "dashboard",
+            }) + "\n"
+          );
           // Verifiability panel (composer-sight spec §2) — investigate flavor.
           emit(
             JSON.stringify({
