@@ -23,8 +23,39 @@ import { validatePlan, opForDtype } from "./plan";
 import { applyMutations } from "./mutations";
 import { compileDashboard } from "./compile";
 import { deriveViews, type DerivedView } from "./views";
-import { realizeNode } from "./realizer";
+import { realizeClaim, realizeNode } from "./realizer";
 import { humanizeId } from "./scaffold";
+import type { FindingEntry } from "@/lib/contracts/findings";
+
+/** Resolve `$finding:` tokens into readable values for PREVIEW text — the
+ *  edit surface shows users the actual sentences on their dashboard, not
+ *  binding syntax. Display-only (the live spec still resolves through the
+ *  full finalizer); unresolvable tokens are left intact rather than
+ *  guessed. Finding names may themselves be dotted (step_2.churn_rate), so
+ *  resolution matches the LONGEST declared name prefix. */
+export function resolvePreviewText(text: string, findings: FindingEntry[]): string {
+  const names = [...findings].sort((a, b) => b.name.length - a.name.length);
+  const fmt = (v: unknown): string => {
+    if (typeof v === "number") {
+      if (Number.isInteger(v)) return String(v);
+      return String(Math.abs(v) < 1 ? +v.toFixed(4) : +v.toFixed(2));
+    }
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+  };
+  return text.replace(/\$finding:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)/g, (token, path: string) => {
+    const f = names.find((x) => path === x.name || path.startsWith(x.name + "."));
+    if (!f) return token;
+    const rest = path.slice(f.name.length).replace(/^\./, "");
+    let v: unknown = f.value;
+    for (const field of rest ? rest.split(".") : []) {
+      if (v === null || typeof v !== "object") return token;
+      v = (v as Record<string, unknown>)[field];
+    }
+    return fmt(v);
+  });
+}
 
 export interface EditDashboardResult {
   ok: boolean;
@@ -159,8 +190,16 @@ export interface EditSurface {
   doc: PlanDocument;
   sections: EditSection[];
   /** Declared claims: cited = referenced by some plan node; suggestedOp for
-   *  one-click add_node. Checks are omitted (caveats are grammar-governed). */
-  claims: { name: string; dtype: string; cited: boolean; suggestedOp: string }[];
+   *  one-click add_node; preview = the exact resolved sentence adding the
+   *  claim would put on the dashboard. Checks are omitted (caveats are
+   *  grammar-governed). */
+  claims: {
+    name: string;
+    dtype: string;
+    cited: boolean;
+    suggestedOp: string;
+    preview: string;
+  }[];
   /** Full derived view family with reasons — shipped:false entries are the
    *  add-chart picker. */
   views: { id: string; kind: string; seriesId: string; reason: string; shipped: boolean }[];
@@ -209,7 +248,9 @@ export async function getEditSurface(
         kind: "node",
         op: node.op,
         label: node.op === "INSIGHT" ? "Insight" : `${node.op}: ${node.refs.join(", ")}`,
-        preview: text.slice(0, 160),
+        // The preview is the SENTENCE the reader sees — resolved values,
+        // never binding syntax (the panel's rows mirror the dashboard).
+        preview: resolvePreviewText(text, findings).slice(0, 200),
         hidden: isHidden,
       };
     }
@@ -249,6 +290,7 @@ export async function getEditSurface(
         dtype: f.dtype,
         cited: cited.has(f.name),
         suggestedOp: opForDtype(f.dtype),
+        preview: resolvePreviewText(realizeClaim(f), findings).slice(0, 200),
       })),
     views: views.map((v) => ({
       id: v.id,

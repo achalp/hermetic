@@ -192,6 +192,20 @@ describe("edit grammar — views, shown overlay, purpose survival", () => {
     expect(hidden.doc.overlay.hidden).toContain("table_annual_prices");
   });
 
+  it("restore_document replays a snapshot — the undo primitive, still governed", () => {
+    const removed = applyMutations(DOC, [{ kind: "remove_node", id: "n_i" }]);
+    expect(removed.doc.plan.nodes).toHaveLength(1);
+    // Undo: restore the pre-edit snapshot; even a destructive remove_node
+    // comes back, and mode/purpose ride the live document.
+    const undone = applyMutations(removed.doc, [
+      { kind: "restore_document", plan: DOC.plan, overlay: DOC.overlay },
+    ]);
+    expect(undone.errors).toEqual([]);
+    expect(undone.doc.plan.nodes).toHaveLength(2);
+    expect(undone.doc.plan.nodes.map((n) => n.id)).toContain("n_i");
+    expect(undone.doc.purpose).toBe("deep-dive");
+  });
+
   it("view ids are movable with knownElementIds; typos still error", () => {
     const ok = applyMutations(
       DOC,
@@ -261,6 +275,14 @@ describe("edit surface — one read for the editing UI (web panel + MCP)", () =>
     const cov = s!.views.find((v) => v.kind === "coverage");
     expect(cov?.shipped).toBe(false);
     expect(cov?.reason.length).toBeGreaterThan(10);
+    // Previews are RESOLVED sentences — real numbers, never binding syntax
+    // (the panel mirrors what the reader sees, not the IR).
+    const answer = s!.sections.find((x) => x.id === "n_a");
+    expect(answer?.preview).not.toContain("$finding:");
+    expect(answer?.preview).toContain("rising"); // price_trend.direction resolved
+    const peakClaim = s!.claims.find((c) => c.name === "price_peak");
+    expect(peakClaim?.preview).not.toContain("$finding:");
+    expect(peakClaim?.preview).toContain("1998"); // its period, resolved
   });
 });
 

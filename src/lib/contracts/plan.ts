@@ -63,4 +63,8 @@ export type PlanMutation =
   | { kind: "show"; id: string }
   | { kind: "add_node"; node: { op: PlanOp; refs: string[]; text?: string }; before?: string }
   | { kind: "remove_node"; id: string }
-  | { kind: "set_insight"; text: string };
+  | { kind: "set_insight"; text: string }
+  /** Restore a whole {plan, overlay} snapshot — the UNDO primitive. Still
+   *  governed: the restored plan passes the same validator as any edit
+   *  (mode/purpose are preserved from the current document). */
+  | { kind: "restore_document"; plan: Plan; overlay: PlanOverlay };

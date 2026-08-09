@@ -18,7 +18,7 @@ import { type HistoryEntry } from "@/app/components/analysis-history";
 import { HomeTopBar } from "@/app/components/results-toolbar";
 import { ResultsRegion } from "@/app/components/results-region";
 import { PageChrome } from "@/app/components/page-chrome";
-import { PlanEditPanel } from "@/app/components/plan-edit-panel";
+import { PlanEditPanel } from "@/app/components/plan-edit/panel";
 import { WarehouseConnecting, HomeHero, AskScreen } from "@/app/components/home/home-screens";
 import { buildDatasetLabel, buildSourceLabel } from "@/app/components/data-rail-derive";
 import type { NotebookExportApi } from "@/app/components/notebook-view";

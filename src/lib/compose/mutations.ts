@@ -106,6 +106,19 @@ export function applyMutations(
         else applied++;
         break;
       }
+      case "restore_document": {
+        // Undo: replace plan+overlay wholesale from a snapshot. mode and
+        // purpose stay from the live document; the caller's re-validation
+        // applies to the restored plan like any other edit.
+        next.plan = { nodes: m.plan.nodes.map((n) => ({ ...n, refs: [...n.refs] })) };
+        next.overlay = {
+          order: [...(m.overlay.order ?? [])],
+          hidden: [...(m.overlay.hidden ?? [])],
+          shown: [...(m.overlay.shown ?? [])],
+        };
+        applied++;
+        break;
+      }
       case "set_insight": {
         const existing = next.plan.nodes.find((n) => n.op === "INSIGHT");
         if (existing) existing.text = m.text;

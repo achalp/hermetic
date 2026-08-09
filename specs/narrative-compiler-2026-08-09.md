@@ -215,3 +215,34 @@ through PATCH /api/plan — humans, the panel, and MCP models share one
 governed channel, and the recompile re-validates everything. The ANSWER
 node is not removable (the validator would refuse; the panel doesn't
 offer it).
+
+## 12. Amendment (2026-08-09): edit panel redesigned around the four jobs
+
+Design review of the shipped panel ("full of bugs… appears like something
+a stock AI designed") mapped four user jobs and rebuilt around them:
+tidy the story, fix the words, complete the story, recover.
+
+**Language.** Rows mirror the dashboard 1:1 and speak in RESOLVED
+sentences — `resolvePreviewText` substitutes `$finding:` tokens with the
+actual values (longest-declared-name matching for step-qualified names),
+so the panel shows what the reader sees, never op codes, finding ids, or
+binding syntax. "Untold findings" preview the exact sentence one click
+adds; catalog views state their BENEFIT ("how many observations back
+each period"), not their mechanism ("COUNT_SKEWED fired"). All copy in
+one file (plan-edit/copy.ts).
+
+**Interaction.** Drop zones BETWEEN rows with an accent insertion line
+(drop-at-end included — v1 could only drop onto rows); optimistic
+reorder/visibility with server resync on failure; per-row pending
+instead of a panel-wide freeze; one verb per row (hide/show via eye),
+node removal allowed but UNDOABLE; the insight edits inline on its own
+row with a plain-language note about live-number references.
+
+**Undo.** A governed primitive, not a UI trick: `restore_document`
+replays a full {plan, overlay} snapshot through the same validator as
+every edit (mode/purpose preserved). The hook keeps a 20-deep snapshot
+stack; MCP models get the same primitive via edit_dashboard.
+
+**Structure.** usePlanEdit owns all behavior (surface, optimistic
+sections, undo stack, per-action pending); plan-edit/{panel,rows,copy}
+are composition, presentation, and language respectively.

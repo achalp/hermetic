@@ -426,7 +426,9 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
         "Edit a compiled dashboard through the governed mutation grammar and recompile it " +
         "deterministically (no LLM). Mutations: {kind:'move',id,before?} | {kind:'hide',id} | " +
         "{kind:'show',id} | {kind:'add_node',node:{op,refs,text?},before?} | " +
-        "{kind:'remove_node',id} | {kind:'set_insight',text}. Targets are plan-node ids AND " +
+        "{kind:'remove_node',id} | {kind:'set_insight',text} | " +
+        "{kind:'restore_document',plan,overlay} (undo: restore a prior get_dashboard_plan " +
+        "snapshot; re-validated like any edit). Targets are plan-node ids AND " +
         "element ids from get_dashboard_plan (derived views like chart_<id>__counts / " +
         "table_<id>, tile_grid) — 'show' on an unshipped catalog view adds that chart. Same " +
         "code path as the web UI's plan editor — invariants (one ANSWER, caveats reference " +

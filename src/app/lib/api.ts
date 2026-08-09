@@ -673,7 +673,13 @@ export interface PlanEditSurface {
     preview?: string;
     hidden: boolean;
   }[];
-  claims: { name: string; dtype: string; cited: boolean; suggestedOp: string }[];
+  claims: {
+    name: string;
+    dtype: string;
+    cited: boolean;
+    suggestedOp: string;
+    preview: string;
+  }[];
   views: { id: string; kind: string; seriesId: string; reason: string; shipped: boolean }[];
 }
 
