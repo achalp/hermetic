@@ -1464,7 +1464,10 @@ export function lintThinSuperlative(
     const isCurrentState = "pct_from_peak" in fv && fv.pct_from_peak !== null;
     if (!isSuperlative && !isCurrentState) continue;
     const att = attestationAt(period);
-    if (!att || att.n >= Math.max(5, 0.2 * att.medN)) continue;
+    // Same bar family as the runtime's _attestation_bar: the absolute floor
+    // is capped at the median — a period matching the corpus-typical count
+    // is never thin (uniformly small counts must not flag everything).
+    if (!att || att.n >= Math.max(Math.min(5, att.medN), 0.2 * att.medN)) continue;
     if (isSuperlative) {
       issues.push({
         kind: "thin_superlative",

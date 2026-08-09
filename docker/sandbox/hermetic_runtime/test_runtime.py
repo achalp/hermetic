@@ -718,6 +718,40 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertAlmostEqual(findings._attestation_bar([100.0] * 9), 20.0, places=1)
         self.assertIsNone(findings._attestation_bar([]))
 
+    def test_attestation_floor_capped_at_the_typical_count(self):
+        # The churn-audit failure: 12 months uniformly counted 4 (four
+        # segments each, full coverage). A flat floor of 5 declared EVERY
+        # month thin — thinness is RELATIVE; a period matching the typical
+        # count cannot be thin whatever its absolute size.
+        self.assertAlmostEqual(findings._attestation_bar([4.0] * 12), 4.0, places=3)
+        # Genuinely thin edges in a small-count corpus still gate.
+        self.assertGreater(4.0, findings._attestation_bar([4.0] * 11 + [1.0]) - 3.0)  # bar 4; 1 < 4
+        # Large corpora unchanged: min(5, med) == 5 there.
+        self.assertAlmostEqual(findings._attestation_bar([600.0] * 9), 120.0, places=1)
+
+    def test_current_state_uniform_small_counts_keep_the_edge(self):
+        # The audited walk-back: churn 4.25 -> 13.08 over 12 months, every
+        # month with all 4 segments reporting. counts=[4]*12 must NOT
+        # exclude anything — the run reported "current" as of month 2 with
+        # excluded_trailing=10 under the flat floor.
+        values = [4.25, 4.5, 4.7, 4.9, 5.0, 5.05, 5.1, 9.5, 10.8, 11.9, 12.5, 13.08]
+        labels = ["2024-%02d" % m for m in range(1, 13)]
+        out = finding_current_state(values, labels=labels, counts=[4] * 12)
+        self.assertEqual(out["excluded_trailing"], 0)
+        self.assertEqual(out["period"], "2024-12")
+        self.assertEqual(out["value"], 13.08)
+        self.assertEqual(out["pct_from_peak"], 0.0)  # peak IS the latest month
+        self.assertEqual(out["direction"], "rising")
+
+    def test_step_change_fires_under_uniform_small_counts(self):
+        # Same audit, the suppressed step: Jul 5.10 -> Aug 9.50 (~9.5x the
+        # baseline spread) was reported as no-step because counts=[4]*12
+        # made both edge periods "thin" under the flat floor.
+        values = [4.25, 4.5, 4.7, 4.9, 5.0, 5.05, 5.1, 9.5, 10.8, 11.9, 12.5, 13.08]
+        out = finding_step_change(values, counts=[4] * 12)
+        self.assertEqual(out["period"], 7)  # the month the level changed TO
+        self.assertEqual(out["direction"], "up")
+
     def test_split_comparison_shared_split_point(self):
         labels = [str(1900 + i) for i in range(10)]
         vals = [1.0] * 10

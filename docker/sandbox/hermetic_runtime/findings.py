@@ -220,10 +220,10 @@ def declare_finding(
 
 
 def _attestation_bar(ns):
-    """The thin-data bar: max(5, 20% of the median period size, 10% of the
-    MEAN period size).
+    """The thin-data bar: max(min(5, median), 20% of the median period
+    size, 10% of the MEAN period size).
 
-    Two references, because two failure modes:
+    Two relative references, because two failure modes:
       - 0.2 * median guards ordinary corpora (a 52-item year cannot headline
         a series whose typical year holds 600).
       - 0.1 * mean guards HEAVY-TAILED corpora, where a long sparse tail
@@ -232,6 +232,14 @@ def _attestation_bar(ns):
         a 382-item final year headline a corpus with a 124k-item year; the
         mean floor of ~600 refuses it). For balanced series mean < 2*median,
         so the median term dominates and nothing changes.
+    The absolute floor is CAPPED AT THE MEDIAN: thinness is RELATIVE, and a
+    period matching the corpus-typical count cannot be thin whatever its
+    absolute size. A flat floor of 5 declared EVERY month of a uniformly
+    4-counted corpus thin (audited: current_state walked back 10 of 12
+    months to "as of 2024-02" and a 9.5x-spread step change was suppressed,
+    all under full coverage). With the cap, at least the median-sized half
+    of the corpus is always attested — "everything is thin" is
+    unrepresentable.
     A COUNT-WEIGHTED median was tried here and over-corrected (audited:
     thin_bar 11,297 excluded 90% of years and walked current-state back to
     1933) — the mean floor is the gentle version of the same idea.
@@ -243,7 +251,7 @@ def _attestation_bar(ns):
             return None
         med = s[len(s) // 2]
         mean = float(sum(s)) / len(s)
-        return max(5.0, 0.2 * med, 0.1 * mean)
+        return max(min(5.0, med), 0.2 * med, 0.1 * mean)
     except Exception:
         return None
 

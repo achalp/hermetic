@@ -265,3 +265,20 @@ edit REGIME_MATRIX, rerun the generator, never the table.
 | check         | —      | —      | —      | —      | —      | —      | —     | —    | —    | —   | —      | —     |
 
 <!-- MATRIX-TABLE:END -->
+
+## 11. Amendment (2026-08-09): the attestation floor is capped at the median
+
+A web-run audit showed `_attestation_bar`'s flat absolute floor of 5
+declaring EVERY month of a uniformly 4-counted corpus thin (four segments
+per month, full coverage): `finding_current_state` walked back 10 of 12
+months and headlined a rising churn series "as of 2024-02, -2.32% from
+peak" while the real endpoint was 3x higher, and the same bar suppressed
+a 9.5x-spread step change through the edge-counts gate. Thinness is
+RELATIVE: a period matching the corpus-typical count cannot be thin
+whatever its absolute size. The floor is now `min(5, median)` — large
+corpora are unchanged (min binds at 5), and "everything is thin" becomes
+unrepresentable: at least the median-sized half of the corpus always
+clears the bar. The host-side lint bar (lintThinSuperlative) carries the
+same cap. The misuse that fed it is also pinned in the contract: counts=
+is rows-aggregated, coverage= is contributors — a segment count passed as
+counts= misdeclares every period's evidence.
