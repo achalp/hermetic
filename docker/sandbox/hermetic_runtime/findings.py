@@ -220,32 +220,30 @@ def declare_finding(
 
 
 def _attestation_bar(ns):
-    """The thin-data bar: max(5, 20% of the COUNT-WEIGHTED median period size).
+    """The thin-data bar: max(5, 20% of the median period size, 10% of the
+    MEAN period size).
 
-    The reference is where the OBSERVATIONS live, not the median period: a
-    corpus of many sparse periods plus a few massive ones must not let the
-    sparse tail set the bar (a 0.2*period-median bar of 178.8 let a 382-item
-    final year ship as both peak and current state in a series where one year
-    alone holds 124k items). For balanced series the weighted median equals
-    the period median, so the bar is unchanged there. ns: finite numbers,
-    any order. Returns None when empty; never raises.
+    Two references, because two failure modes:
+      - 0.2 * median guards ordinary corpora (a 52-item year cannot headline
+        a series whose typical year holds 600).
+      - 0.1 * mean guards HEAVY-TAILED corpora, where a long sparse tail
+        drags the period median down: the mean is corpus-mass-per-period, so
+        the floor tracks where the observations live (a 178.8 median-bar let
+        a 382-item final year headline a corpus with a 124k-item year; the
+        mean floor of ~600 refuses it). For balanced series mean < 2*median,
+        so the median term dominates and nothing changes.
+    A COUNT-WEIGHTED median was tried here and over-corrected (audited:
+    thin_bar 11,297 excluded 90% of years and walked current-state back to
+    1933) — the mean floor is the gentle version of the same idea.
+    ns: finite numbers, any order. Returns None when empty; never raises.
     """
     try:
         s = sorted(ns)
         if not s:
             return None
-        total = float(sum(s))
-        if total <= 0:
-            return max(5.0, 0.2 * s[len(s) // 2])
-        half = total / 2.0
-        acc = 0.0
-        wm = s[-1]
-        for v in s:
-            acc += v
-            if acc >= half:
-                wm = v
-                break
-        return max(5.0, 0.2 * wm)
+        med = s[len(s) // 2]
+        mean = float(sum(s)) / len(s)
+        return max(5.0, 0.2 * med, 0.1 * mean)
     except Exception:
         return None
 
@@ -325,8 +323,11 @@ def finding_trend(values, unit=None):
     """Least-squares trend over an ordered series → direction/slope/p dict.
 
     Returns {"direction": "rising"|"falling"|"flat", "slope_per_period",
-    "p_value"} (plus "unit" passthrough when given). "flat" means the slope's
-    two-sided t-test p >= 0.05, not slope == 0. Never raises; a series too
+    "p_value", "slope_ci95"} (plus "unit" passthrough when given) —
+    slope_ci95 is the ~95% confidence interval [low, high] (t-based standard
+    error, normal critical value), so a point-estimate slope never ships
+    without its uncertainty. "flat" means the slope's two-sided t-test
+    p >= 0.05, not slope == 0. Never raises; a series too
     short or degenerate for inference → {"direction": None, ...}. DEGENERATE
     GATE: an all-zero series, or one where >50% of inputs were dropped as
     missing, returns direction None — slope 0 / p 1 five findings in a row is
@@ -334,7 +335,8 @@ def finding_trend(values, unit=None):
     turns a pipeline failure into a confident false claim (a series rising
     243 -> 52,868 was narrated as "flat trajectory").
     """
-    failed = {"direction": None, "slope_per_period": None, "p_value": None}
+    failed = {"direction": None, "slope_per_period": None, "p_value": None,
+              "slope_ci95": None}
     try:
         pts = _clean_series(values)
         try:
@@ -354,13 +356,18 @@ def finding_trend(values, unit=None):
         slope = sum((i - mean_x) * (y - mean_y) for i, y in pts) / sxx
         intercept = mean_y - slope * mean_x
         sse = sum((y - (intercept + slope * i)) ** 2 for i, y in pts)
+        ci = None
         if sse <= 1e-30:  # perfect fit: zero residual variance, t undefined
             p = 0.0 if slope != 0 else 1.0
+            ci = [slope, slope]
         else:
-            t = slope / math.sqrt(sse / (n - 2) / sxx)
+            se = math.sqrt(sse / (n - 2) / sxx)
+            t = slope / se
             p = _t_p_two_sided(t, n - 2)
+            ci = [slope - 1.96 * se, slope + 1.96 * se]
         direction = "flat" if p >= 0.05 else ("rising" if slope > 0 else "falling")
-        out = {"direction": direction, "slope_per_period": slope, "p_value": p}
+        out = {"direction": direction, "slope_per_period": slope, "p_value": p,
+               "slope_ci95": ci}
         if unit is not None:
             out["unit"] = unit
         return out
@@ -833,14 +840,21 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
         mean.
 
     Returns {"period", "value", "pct_from_peak", "direction",
-    "excluded_trailing"} — period/value from the last complete observation,
-    pct_from_peak vs the series max (negative below peak), direction the
-    sign of a least-squares slope over the final `window` complete points
-    ("rising"/"falling"/"flat"), excluded_trailing how many tail
-    observations the guards dropped (0 = clean edge). Never raises.
+    "excluded_trailing", "excluded_reason"} — period/value from the last
+    complete observation, pct_from_peak vs the series max (negative below
+    peak; when counts= is given the reference peak considers ATTESTED
+    periods only, the same bar finding_superlative applies — an audited run
+    reported -80% against an unattested 1851 banquet price while the
+    attested-peak finding beside it said 0%: two peaks, one payload),
+    direction the endpoint vs the median of the prior window, and
+    excluded_trailing / excluded_reason how many tail observations the
+    guards dropped and WHICH guard dominated ("attestation" | "coverage" |
+    "magnitude"; None when nothing was excluded) — bind the reason in the
+    caveat rather than inventing a mechanism. Never raises.
     """
     failed = {"period": None, "value": None, "pct_from_peak": None,
-              "direction": None, "excluded_trailing": None}
+              "direction": None, "excluded_trailing": None,
+              "excluded_reason": None}
     try:
         ys = [safe_float(v) for v in list(values)]
         covs = None
@@ -864,6 +878,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
             return failed
         end = idxs[-1]
         excluded = 0
+        reasons = {"coverage": 0, "attestation": 0, "magnitude": 0}
         # Magnitude-ONLY exclusions are capped at 2: the 0.3x-trailing-mean
         # test assumes a roughly stationary level, and on a genuinely
         # DECLININING series it cascades — a run walked back 9 real years
@@ -876,11 +891,13 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
             if len(prior) < 2:
                 break
             incomplete = False
+            reason = None
             if covs is not None:
                 cov_prior = [covs[i] for i in prior_i if covs[i] is not None][-window:]
                 cov_cur = covs[end]
                 if cov_prior and cov_cur is not None and cov_cur < 0.5 * max(cov_prior):
                     incomplete = True
+                    reason = "coverage"
             # Attestation: same thin bar as finding_superlative, against the
             # median count of ALL prior complete periods (not just the
             # window) — the corpus level is the reference, not the run-up.
@@ -890,6 +907,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 bar = _attestation_bar(prior_n) if prior_n else None
                 if bar is not None and n_cur is not None and n_cur < bar:
                     incomplete = True
+                    reason = "attestation"
             mean = sum(prior) / len(prior)
             cur = ys[end]
             if (
@@ -901,15 +919,32 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 break
             if not incomplete and mean > 0 and cur is not None and cur < 0.3 * mean:
                 incomplete = True
+                reason = "magnitude"
             if incomplete:
                 excluded += 1
+                if reason is not None:
+                    reasons[reason] += 1
                 if not prior_i:
                     return failed
                 end = prior_i[-1]
                 continue
             break
         value = ys[end]
-        finite = [y for y in ys[: end + 1] if y is not None]
+        # The reference peak is ATTESTATION-CONSISTENT: with counts provided,
+        # only periods clearing the same bar finding_superlative uses may be
+        # the peak — otherwise this finding and the superlative beside it
+        # report two different peaks for one series.
+        peak_idx = [i for i in idxs if i <= end]
+        if cnts is not None:
+            finite_n = [cnts[i] for i in peak_idx if cnts[i] is not None]
+            bar = _attestation_bar(finite_n) if finite_n else None
+            if bar is not None:
+                attested_idx = [i for i in peak_idx if cnts[i] is None or cnts[i] >= bar]
+                if attested_idx:
+                    peak_idx = attested_idx
+        finite = [ys[i] for i in peak_idx if ys[i] is not None]
+        if not finite:
+            finite = [y for y in ys[: end + 1] if y is not None]
         peak = max(finite)
         pct = None if peak == 0 else (value - peak) / abs(peak) * 100.0
         # Direction = where the ENDPOINT sits relative to the recent level
@@ -935,9 +970,15 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 period = list(labels)[end]
             except Exception:
                 period = end
+        dominant = None
+        if excluded > 0:
+            dominant = max(reasons, key=lambda k: reasons[k])
+            if reasons[dominant] == 0:
+                dominant = None
         return {"period": period, "value": value,
                 "pct_from_peak": None if pct is None else round(pct, 2),
-                "direction": direction, "excluded_trailing": excluded}
+                "direction": direction, "excluded_trailing": excluded,
+                "excluded_reason": dominant}
     except Exception:
         return failed
 

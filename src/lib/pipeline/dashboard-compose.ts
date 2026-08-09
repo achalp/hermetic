@@ -47,6 +47,7 @@ import {
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
+  lintSuperlativeHidesRaw,
 } from "@/lib/findings/lints";
 import type { FindingIssue, FindingsManifest } from "@/lib/contracts/findings";
 import { type ValidStateKeys } from "@/lib/llm/resolve-placeholders";
@@ -716,7 +717,7 @@ function buildCompletenessSection(completeness: unknown): string {
   return `
 
 ## Data Completeness (platform-profiled — MANDATORY caveat)
-The platform profiled the raw data's edges: ${parts.join("; ")}. Any claim about the most recent (or earliest) values MUST carry this caveat, and no ending-state/"collapsed"/"currently" claim may treat the incomplete edge as real. State the caveat once, plainly (e.g. "the final days are excluded as incomplete — reporting is still arriving").`;
+The platform profiled the raw data's edges: ${parts.join("; ")}. Any claim about the most recent (or earliest) values MUST carry this caveat, and no ending-state/"collapsed"/"currently" claim may treat the incomplete edge as real. State the caveat once, plainly, with the cause phrased from THIS dataset's own semantics: a live feed → "reporting is still arriving"; an archival/historical corpus → "collection coverage ends" / "later records are not digitized". Never borrow a mechanism the data cannot have.`;
 }
 
 function buildFindingsSection(manifest?: FindingsManifest): string {
@@ -1282,6 +1283,15 @@ export async function composeAndStreamDashboard(args: {
             detail: `blocking check ${f.name} FAILED and the run shipped — results are gated as unvalidated`,
           });
         }
+      }
+
+      // Screened superlatives narrated without their raw extreme (the
+      // 0.4-vs-26 audit finding): post-resolution narrative scan.
+      for (const issue of lintSuperlativeHidesRaw(
+        opts.findings?.manifest.findings ?? [],
+        narrativeTexts
+      )) {
+        proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
       }
 
       // A dashboard with ZERO narrative elements is not an answer (observed:

@@ -544,22 +544,25 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertEqual(out["raw_period"], "1996")
         self.assertEqual(out["raw_value"], 74.0)
         self.assertEqual(out["thin_periods_skipped"], 1)
-        # 20% of the COUNT-WEIGHTED median period size (the typical item
-        # lives in the 1217-count year: cum [52,452,1052,2269] crosses half
-        # of 2269 at 1217) — the bar is REPORTED, mechanism legible.
-        self.assertAlmostEqual(out["thin_bar"], 243.4, places=1)
+        # max(5, 0.2*median 600, 0.1*mean 567) = 120 — the bar is REPORTED,
+        # mechanism legible; balanced counts bind on the median term.
+        self.assertAlmostEqual(out["thin_bar"], 120.0, places=1)
         # Without counts, the raw extreme wins (nothing to weight by).
         self.assertEqual(finding_superlative(labels, vals)["period"], "1996")
 
-    def test_attestation_bar_resists_a_sparse_tail(self):
+    def test_attestation_bar_resists_a_sparse_tail_without_over_correcting(self):
         # The 178.8-bar failure (menu-price review): many sparse years drag
         # the PERIOD median down, letting a 382-item final year headline a
-        # corpus whose mass lives in multi-thousand-item years. The weighted
-        # median tracks where the observations are.
+        # corpus whose mass lives in multi-thousand-item years. The mean
+        # floor (10% of corpus-mass-per-period) refuses it...
         sparse_heavy = [100.0] * 10 + [5000.0, 8000.0, 124000.0]
         bar = findings._attestation_bar(sparse_heavy)
-        self.assertGreater(bar, 382)  # the sparse-year headline is refused
-        # Balanced series: weighted median ~ period median, bar unchanged.
+        self.assertGreater(bar, 382)
+        # ...WITHOUT the weighted-median over-correction the audit caught
+        # (thin_bar 11,297 excluded 90% of years): well-collected mid-size
+        # periods stay attested.
+        self.assertLess(bar, 5000)
+        # Balanced series: mean < 2*median, the median term binds — unchanged.
         self.assertAlmostEqual(findings._attestation_bar([100.0] * 9), 20.0, places=1)
         self.assertIsNone(findings._attestation_bar([]))
 
@@ -665,6 +668,36 @@ class TestFindingStatHelpers(unittest.TestCase):
         base = finding_current_state(values, labels=list(range(1940, 2010, 10)))
         self.assertEqual(base["excluded_trailing"], 0)
         self.assertEqual(base["period"], 2000)
+
+    def test_current_state_peak_is_attestation_consistent(self):
+        # Audited (-80% vs 0%): the internal peak used the raw series max
+        # (an unattested 1851 banquet price of 2.0) while the superlative
+        # beside it reported the attested peak 0.4 — two peaks, one payload.
+        # With counts=, the reference peak considers attested periods only.
+        values = [2.0, 0.3, 0.35, 0.4, 0.38, 0.4]
+        counts = [40.0, 9000.0, 12000.0, 9000.0, 8000.0, 8500.0]
+        out = finding_current_state(values, counts=counts, window=3)
+        self.assertEqual(out["excluded_trailing"], 0)
+        # peak over attested periods (2.0's n=40 is under the bar) = 0.4.
+        self.assertEqual(out["pct_from_peak"], 0.0)
+        sup = finding_superlative(list(range(len(values))), values, counts=counts)
+        self.assertEqual(sup["value"], 0.4)  # the two claims agree
+
+    def test_current_state_reports_exclusion_mechanism(self):
+        values = [1.0, 1.5, 2.0, 4.5, 4.5, 9.5, 4.8]
+        counts = [3000, 5000, 8000, 12000, 9000, 6000, 484]
+        out = finding_current_state(values, labels=list(range(1940, 2010, 10)), counts=counts)
+        self.assertEqual(out["excluded_reason"], "attestation")
+        clean = finding_current_state(values[:6], counts=counts[:6])
+        self.assertIsNone(clean["excluded_reason"])
+
+    def test_trend_reports_slope_ci(self):
+        out = finding_trend([1.0, 2.1, 2.9, 4.2, 5.1, 5.9, 7.1, 8.0])
+        self.assertEqual(out["direction"], "rising")
+        lo, hi = out["slope_ci95"]
+        self.assertLess(lo, out["slope_per_period"])
+        self.assertGreater(hi, out["slope_per_period"])
+        self.assertGreater(lo, 0)  # significant rise: CI excludes zero
 
     def test_current_state_well_attested_tail_kept(self):
         values = [1.0, 1.5, 2.0, 4.5, 4.5, 9.5, 4.8]

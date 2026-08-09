@@ -20,6 +20,7 @@ import {
   lintWellAttestedScreened,
   lintThinSuperlative,
   lintNullZeroMirror,
+  lintSuperlativeHidesRaw,
 } from "@/lib/findings/lints";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -757,6 +758,43 @@ describe("lintThinSuperlative — a 52-item year crowned (run-39)", () => {
     // Null pct_from_peak (walked back / unavailable): quiet.
     const nulled = { ...current, value: { ...current.value, pct_from_peak: null } };
     expect(lintThinSuperlative(chartData, [nulled])).toHaveLength(0);
+  });
+});
+
+describe("lintSuperlativeHidesRaw — the 0.4-vs-26 audit finding", () => {
+  const peak = {
+    name: "median_price_peak",
+    definition: "attestation-weighted peak of annual median price",
+    dtype: "superlative",
+    value: {
+      period: "1917",
+      value: 0.4,
+      raw_period: "2012",
+      raw_value: 26,
+      thin_periods_skipped: 120,
+    },
+  };
+
+  it("fires when the attested value is narrated and the raw extreme appears nowhere", () => {
+    const issues = lintSuperlativeHidesRaw([peak], ["The series peaked in 1917 at 0.4 usd."]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("superlative_hides_raw");
+    expect(issues[0].detail).toContain("26");
+    expect(issues[0].detail).toContain("120 thin periods skipped");
+  });
+
+  it("quiet when the raw extreme is stated beside the attested value", () => {
+    const text = [
+      "Peaked at 0.4 usd in 1917 among well-covered years; the raw maximum 26 (2012) sits in a thinly-covered year.",
+    ];
+    expect(lintSuperlativeHidesRaw([peak], text)).toHaveLength(0);
+  });
+
+  it("quiet when raw and attested agree, when the value is not narrated, and with no prose", () => {
+    const agree = { ...peak, value: { ...peak.value, raw_value: 0.45 } };
+    expect(lintSuperlativeHidesRaw([agree], ["Peaked at 0.4 usd."])).toHaveLength(0);
+    expect(lintSuperlativeHidesRaw([peak], ["Prices rose steadily."])).toHaveLength(0);
+    expect(lintSuperlativeHidesRaw([peak], [])).toHaveLength(0);
   });
 });
 

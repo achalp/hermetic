@@ -1258,6 +1258,45 @@ export function lintNullZeroMirror(
   return issues;
 }
 
+/** An attestation-screened superlative narrated WITHOUT its raw extreme:
+ *  the audit caught "peaked at 0.4" shipped while the raw max was 65x
+ *  larger with 90% of years screened — the reader sees the screen's output
+ *  but never learns a screen ran. Fires when the attested value appears in
+ *  the narrative, differs materially from raw_value, and the raw value
+ *  appears nowhere. Post-resolution narrative texts; advisory. */
+export function lintSuperlativeHidesRaw(
+  findings: FindingEntry[],
+  narrativeTexts: string[]
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  if (narrativeTexts.length === 0) return issues;
+  const text = narrativeTexts.join("\n");
+  const renders = (v: number): string[] => {
+    const out = [String(v)];
+    if (Number.isInteger(v)) out.push(v.toLocaleString("en-US"));
+    else out.push(v.toFixed(2), v.toFixed(1));
+    return out;
+  };
+  for (const f of findings) {
+    if (f.value === null || typeof f.value !== "object" || issues.length >= 3) continue;
+    const fv = f.value as Record<string, unknown>;
+    const val = fv.value;
+    const raw = fv.raw_value;
+    if (typeof val !== "number" || typeof raw !== "number") continue;
+    if (Math.abs(raw - val) <= 0.2 * Math.max(Math.abs(val), 1e-9)) continue;
+    const valShown = renders(val).some((r) => text.includes(r));
+    const rawShown = renders(raw).some((r) => text.includes(r));
+    if (valShown && !rawShown) {
+      issues.push({
+        kind: "superlative_hides_raw",
+        name: f.name,
+        detail: `${f.name} narrates the attested value ${val} while its raw extreme ${raw} (${String(fv.raw_period ?? "?")}${typeof fv.thin_periods_skipped === "number" ? `, ${fv.thin_periods_skipped} thin periods skipped` : ""}) appears nowhere — the reader sees the screen's output but not the screen; state both values in one sentence`,
+      });
+    }
+  }
+  return issues;
+}
+
 // ── Thin-superlative lint (run-39: 52-item year crowned the headline) ──
 
 /** A finding whose claimed period sits on a count under 20% of the series

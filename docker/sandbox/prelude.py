@@ -563,7 +563,8 @@ def declare_finding(name, value, definition, dtype, unit=None,
 # degraded deploy degrades the STATS, never NameErrors the analysis. The
 # model's own computation and declare_finding still work.
 def finding_trend(values, unit=None):
-    return {'direction': None, 'slope_per_period': None, 'p_value': None}
+    return {'direction': None, 'slope_per_period': None, 'p_value': None,
+            'slope_ci95': None}
 def finding_step_change(values, labels=None, counts=None):
     return {'period': None, 'delta': None, 'direction': None, 'baseline_spread': None}
 def finding_decompose(total_change, terms):
@@ -602,7 +603,7 @@ def finding_yoy(period_labels, values):
             'prior_total': None, 'latest_total': None, 'pct_change': None}
 def finding_current_state(values, labels=None, window=6, coverage=None, counts=None):
     return {'period': None, 'value': None, 'pct_from_peak': None,
-            'direction': None, 'excluded_trailing': None}
+            'direction': None, 'excluded_trailing': None, 'excluded_reason': None}
 
 # ── Analysis product, fallback copy (spec analysis-product-2026-08-08 §1) ──
 # Minimal declare_series/declare_value so the names never NameError on a

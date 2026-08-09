@@ -47,6 +47,7 @@ import {
   lintNullAncestry,
   lintDefinitionContradicted,
   lintThinSuperlative,
+  lintSuperlativeHidesRaw,
   lintWellAttestedScreened,
   lintUnscreenedSuperlative,
   lintScreenScopeMismatch,
@@ -1009,6 +1010,15 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             ingestComposedLine(r.raw, r.patch);
             emit(r.line + "\n");
           }
+        }
+
+        // Screened superlatives narrated without their raw extreme —
+        // post-resolution narrative scan, same as Ask.
+        for (const issue of lintSuperlativeHidesRaw(
+          investigationFindings?.findings ?? [],
+          narrativeTexts
+        )) {
+          proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
         }
 
         // ── Notebook cells: settle and attach ──
