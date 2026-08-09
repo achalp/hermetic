@@ -41,11 +41,14 @@ export function useModelSettings() {
   // Composer architecture (narrative-compiler spec): generative | compiled.
   const [composerMode, setComposerMode] = useState<"generative" | "compiled">("generative");
 
-  // Adopt the server-side EFFECTIVE selection on mount — the resolved values
-  // (stored choice or default), same ones every run will use.
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/settings", { signal: controller.signal })
+  // Adopt the server-side EFFECTIVE selection — the resolved values (stored
+  // choice or default), same ones every run will use. Runs on mount, and
+  // again after any FAILED write: the optimistic mirror must snap back to
+  // server truth instead of displaying a selection that was never persisted
+  // (a "Compiled" pick made while the server was restarting kept showing
+  // Compiled until the next reload revealed it had silently never landed).
+  const adoptServerSettings = useCallback((signal?: AbortSignal) => {
+    return fetch("/api/settings", { signal })
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (
@@ -57,21 +60,27 @@ export function useModelSettings() {
             };
           } | null
         ) => {
-          const m = data?.effective?.models;
+          if (!data) return;
+          const m = data.effective?.models;
           if (m?.codeGen && isValidModelId(m.codeGen)) setCodeGenModel(m.codeGen);
           if (m?.uiCompose && isValidModelId(m.uiCompose)) setUiComposeModel(m.uiCompose);
-          const rt = data?.effective?.sandbox?.runtime;
+          const rt = data.effective?.sandbox?.runtime;
           if (rt && isValidRuntimeId(rt)) setSandboxRuntime(rt);
-          const cfg = data?.config?.models;
-          if (cfg?.effort) setEffort(cfg.effort);
-          if (cfg?.efforts && typeof cfg.efforts === "object") setPhaseEfforts(cfg.efforts);
-          const cm = (data?.config as { composer?: { mode?: string } } | undefined)?.composer?.mode;
-          if (cm === "compiled" || cm === "generative") setComposerMode(cm);
+          const cfg = data.config?.models;
+          setEffort(cfg?.effort ?? "auto");
+          setPhaseEfforts(cfg?.efforts && typeof cfg.efforts === "object" ? cfg.efforts : {});
+          const cm = (data.config as { composer?: { mode?: string } } | undefined)?.composer?.mode;
+          setComposerMode(cm === "compiled" ? "compiled" : "generative");
         }
       )
       .catch(() => {});
-    return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void adoptServerSettings(controller.signal);
+    return () => controller.abort();
+  }, [adoptServerSettings]);
 
   // Reflect the server-side local-backend config (whichever backend is
   // enabled with an active model) into the settings drawer's model field.
@@ -94,36 +103,57 @@ export function useModelSettings() {
   }, []);
 
   // Every change persists to the golden source; local state is the
-  // optimistic mirror for the UI.
-  const handleRuntimeChange = useCallback((r: SandboxRuntimeId) => {
-    setSandboxRuntime(r);
-    setActiveSandboxRuntime(r).catch(() => {});
-  }, []);
-  const handleCodeGenModelChange = useCallback((m: ModelId) => {
-    setCodeGenModel(m);
-    setActiveModels({ codeGen: m }).catch(() => {});
-  }, []);
-  const handleEffortChange = useCallback((e: string) => {
-    setEffort(e);
-    setActiveModels({ effort: e }).catch(() => {});
-  }, []);
-  const handlePhaseEffortChange = useCallback((phase: string, level: string) => {
-    setPhaseEfforts((prev) => {
-      const next = { ...prev };
-      if (level === "auto") delete next[phase];
-      else next[phase] = level;
-      setActiveModels({ efforts: next }).catch(() => {});
-      return next;
-    });
-  }, []);
-  const handleComposerModeChange = useCallback((m: "generative" | "compiled") => {
-    setComposerMode(m);
-    setComposerModeApi(m).catch(() => {});
-  }, []);
-  const handleUiComposeModelChange = useCallback((m: ModelId) => {
-    setUiComposeModel(m);
-    setActiveModels({ uiCompose: m }).catch(() => {});
-  }, []);
+  // optimistic mirror for the UI. A FAILED write re-adopts server truth —
+  // an optimistic value that never landed must not keep displaying as if
+  // it had (the silent-lie window behind "my setting flipped back").
+  const revert = useCallback(() => void adoptServerSettings(), [adoptServerSettings]);
+  const handleRuntimeChange = useCallback(
+    (r: SandboxRuntimeId) => {
+      setSandboxRuntime(r);
+      setActiveSandboxRuntime(r).catch(revert);
+    },
+    [revert]
+  );
+  const handleCodeGenModelChange = useCallback(
+    (m: ModelId) => {
+      setCodeGenModel(m);
+      setActiveModels({ codeGen: m }).catch(revert);
+    },
+    [revert]
+  );
+  const handleEffortChange = useCallback(
+    (e: string) => {
+      setEffort(e);
+      setActiveModels({ effort: e }).catch(revert);
+    },
+    [revert]
+  );
+  const handlePhaseEffortChange = useCallback(
+    (phase: string, level: string) => {
+      setPhaseEfforts((prev) => {
+        const next = { ...prev };
+        if (level === "auto") delete next[phase];
+        else next[phase] = level;
+        setActiveModels({ efforts: next }).catch(revert);
+        return next;
+      });
+    },
+    [revert]
+  );
+  const handleComposerModeChange = useCallback(
+    (m: "generative" | "compiled") => {
+      setComposerMode(m);
+      setComposerModeApi(m).catch(revert);
+    },
+    [revert]
+  );
+  const handleUiComposeModelChange = useCallback(
+    (m: ModelId) => {
+      setUiComposeModel(m);
+      setActiveModels({ uiCompose: m }).catch(revert);
+    },
+    [revert]
+  );
 
   return {
     codeGenModel,

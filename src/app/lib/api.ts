@@ -115,21 +115,26 @@ export async function getRuntimes(signal?: AbortSignal): Promise<RuntimeStatus[]
 
 /** Persist the server-side active sandbox runtime selection. Best-effort. */
 export async function setActiveSandboxRuntime(sandboxRuntime: string): Promise<void> {
-  await fetch("/api/runtimes", {
+  const res = await fetch("/api/runtimes", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sandboxRuntime }),
   });
+  // A non-OK write MUST reject — callers revert their optimistic mirror on
+  // failure, and a resolved 4xx/5xx would leave the UI displaying a
+  // selection that never persisted.
+  if (!res.ok) throw new ApiError(`Failed to persist runtime (${res.status})`, res.status);
 }
 
 /** Persist the model selection server-side (runtime-config) so MCP and
  *  context-less requests honor the same choice. Best-effort. */
 export async function setComposerMode(mode: "generative" | "compiled"): Promise<void> {
-  await fetch("/api/settings", {
+  const res = await fetch("/api/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ composer: { mode } }),
   });
+  if (!res.ok) throw new ApiError(`Failed to persist composer mode (${res.status})`, res.status);
 }
 
 export async function setActiveModels(models: {
@@ -138,11 +143,12 @@ export async function setActiveModels(models: {
   effort?: string;
   efforts?: Record<string, string>;
 }): Promise<void> {
-  await fetch("/api/settings", {
+  const res = await fetch("/api/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ models }),
   });
+  if (!res.ok) throw new ApiError(`Failed to persist model selection (${res.status})`, res.status);
 }
 
 /** Switch the active LLM provider (Settings). */
