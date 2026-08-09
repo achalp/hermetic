@@ -30,6 +30,15 @@ const humanize = (name: string): string =>
     .filter(Boolean)
     .join(" ");
 
+// Zero-policy disclosure (regime-matrix claim-layer totalization): when a
+// claim function screened sentinel zeros internally (unit= was passed and
+// zero_policy fired), the sentence carries the count — an applied policy
+// the reader can't see is the same defect as an unapplied one.
+const zeroClause = (n: string, v: Record<string, unknown>): string =>
+  typeof v.n_zero_excluded === "number" && v.n_zero_excluded > 0
+    ? ` ${b(n, "n_zero_excluded")} zero values were excluded as unrecorded-value sentinels (zero policy).`
+    : "";
+
 /** Realize ONE claim into narrative text (bindings, not values). */
 export function realizeClaim(f: FindingEntry): string {
   const v = fv(f);
@@ -44,7 +53,7 @@ export function realizeClaim(f: FindingEntry): string {
         s += ` (95% CI ${b(n, "slope_ci95.0")} to ${b(n, "slope_ci95.1")})`;
       }
       if ("p_value" in v) s += `, p = ${b(n, "p_value")}`;
-      return s + ".";
+      return s + "." + zeroClause(n, v);
     }
     case "superlative": {
       const pf = periodField(v);
@@ -52,7 +61,7 @@ export function realizeClaim(f: FindingEntry): string {
       if (v.raw_value !== undefined && v.raw_value !== v.value) {
         s += ` The raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`;
       }
-      return s;
+      return s + zeroClause(n, v);
     }
     case "current_state": {
       let s = `Well-covered data ends at ${b(n, "value")} in ${b(n, "period")}`;
@@ -64,11 +73,11 @@ export function realizeClaim(f: FindingEntry): string {
         s += ` The final ${b(n, "excluded_trailing")} periods were excluded (${b(n, "excluded_reason")});`;
         s += ` the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`;
       }
-      return s;
+      return s + zeroClause(n, v);
     }
     case "comparison": {
       if ("early_median" in v) {
-        return `Split at ${b(n, "split_at" in v ? "split_at" : "early_span")}: ${b(n, "early_median")} early (${b(n, "early_span")}) vs ${b(n, "late_median")} late (${b(n, "late_span")}) — a ${b(n, "multiplier")}× change.`;
+        return `Split at ${b(n, "split_at" in v ? "split_at" : "early_span")}: ${b(n, "early_median")} early (${b(n, "early_span")}) vs ${b(n, "late_median")} late (${b(n, "late_span")}) — a ${b(n, "multiplier")}× change.${zeroClause(n, v)}`;
       }
       if ("pct_change" in v) {
         return `${cap(label)}: ${b(n, "pct_change")} from ${b(n, "prior_year")} to ${b(n, "latest_year")} over the ${b(n, "window_months")} overlapping months.`;
@@ -84,7 +93,7 @@ export function realizeClaim(f: FindingEntry): string {
     case "distribution": {
       let s = `${cap(label)}: median ${b(n, "median")}, mean ${b(n, "mean")}, skew ${b(n, "skew")}`;
       if ("p25" in v) s += ` (IQR ${b(n, "p25")}–${b(n, "p75")})`;
-      return s + ".";
+      return s + "." + zeroClause(n, v);
     }
     case "correlation": {
       return `${cap(label)}: Pearson r = ${b(n, "pearson_r")} (p = ${b(n, "pearson_p")}), Spearman ρ = ${b(n, "spearman_rho")} (p = ${b(n, "spearman_p")}), n = ${b(n, "n")}.`;

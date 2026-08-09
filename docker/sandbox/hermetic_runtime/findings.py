@@ -248,6 +248,52 @@ def _attestation_bar(ns):
         return None
 
 
+def _zero_screen(values, counts=None, labels=None, unit=None):
+    """Apply zero_policy INSIDE the claim layer (regime-matrix spec,
+    claim-layer totalization amendment).
+
+    The dispatcher alone was ADVISORY — a run declared a blocking
+    zero-sentinel check citing the policy, reported n_excluded=0, and left
+    12 $0.00 year-rows in every downstream figure. Threading unit= through
+    the claim functions closes that gap the same way counts= closed
+    attestation: the model passes what it KNOWS (the measure's unit), the
+    judgment is deterministic. profile_regimes + zero_policy run here;
+    under "sentinel_exclude" (MONETARY measure, zero share over the bar)
+    zeros become None BEFORE the statistic is computed, and the count is
+    reported back as n_zero_excluded so the narrative can bind it.
+
+    Returns (values_list, n_zero_excluded). unit=None short-circuits to
+    (input, 0) — MONETARY cannot fire without a unit, so there is nothing
+    to profile. Never raises.
+    """
+    try:
+        vals = list(values)
+    except Exception:
+        return values, 0
+    if unit is None:
+        return vals, 0
+    try:
+        # Lazy import: regimes.py imports _attestation_bar from this module
+        # at module level, so the reverse edge must resolve at call time.
+        from .regimes import profile_regimes, zero_policy
+
+        prof = profile_regimes(vals, counts=counts, labels=labels, unit=unit)
+        if zero_policy(prof).get("policy") != "sentinel_exclude":
+            return vals, 0
+        screened = []
+        n_excluded = 0
+        for v in vals:
+            fv = safe_float(v)
+            if fv is not None and fv == 0:
+                screened.append(None)
+                n_excluded += 1
+            else:
+                screened.append(v)
+        return screened, n_excluded
+    except Exception:
+        return vals, 0
+
+
 def _betacf(a, b, x):
     max_iter, eps, fpmin = 300, 3e-12, 1e-300
     qab, qap, qam = a + b, a + 1.0, a - 1.0
@@ -323,7 +369,8 @@ def finding_trend(values, unit=None):
     """Least-squares trend over an ordered series → direction/slope/p dict.
 
     Returns {"direction": "rising"|"falling"|"flat", "slope_per_period",
-    "p_value", "slope_ci95"} (plus "unit" passthrough when given) —
+    "p_value", "slope_ci95", "n_zero_excluded"} (plus "unit" passthrough
+    when given) —
     slope_ci95 is the ~95% confidence interval [low, high] (t-based standard
     error, normal critical value), so a point-estimate slope never ships
     without its uncertainty. "flat" means the slope's two-sided t-test
@@ -334,10 +381,16 @@ def finding_trend(values, unit=None):
     the signature of a regression over nulled data, and labeling it "flat"
     turns a pipeline failure into a confident false claim (a series rising
     243 -> 52,868 was narrated as "flat trajectory").
+
+    ALWAYS pass unit= for monetary measures: zero_policy runs internally
+    (_zero_screen) and sentinel zeros are excluded from the fit, reported
+    as n_zero_excluded — the trend and every other unit=-passed claim then
+    share ONE zero policy by construction.
     """
     failed = {"direction": None, "slope_per_period": None, "p_value": None,
-              "slope_ci95": None}
+              "slope_ci95": None, "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, unit=unit)
         pts = _clean_series(values)
         try:
             total = len(list(values))
@@ -367,7 +420,7 @@ def finding_trend(values, unit=None):
             ci = [slope - 1.96 * se, slope + 1.96 * se]
         direction = "flat" if p >= 0.05 else ("rising" if slope > 0 else "falling")
         out = {"direction": direction, "slope_per_period": slope, "p_value": p,
-               "slope_ci95": ci}
+               "slope_ci95": ci, "n_zero_excluded": n_zx}
         if unit is not None:
             out["unit"] = unit
         return out
@@ -526,7 +579,7 @@ def finding_yoy(period_labels, values):
         return failed
 
 
-def finding_outliers(labels, values, counts=None, window=21, k=3.5):
+def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
     """Outlier screen — rolling MAD (a NAMED, established robust method).
 
     Retires the calibration-dial saga: MAD is scale-free (no 100x-vs-5x
@@ -540,12 +593,19 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5):
     (max/min: a single observation regardless of year n) pass counts=None
     so magnitude alone decides.
 
+    ALWAYS pass unit= for monetary measures: sentinel zeros (zero_policy,
+    applied internally) are excluded BEFORE the MAD screen — a $0.00
+    unrecorded-price row is a sentinel, not an outlier, and flagging it as
+    one misreports an encoding as an anomaly. Reported as n_zero_excluded.
+
     Returns {"outliers": [{"label", "value", "z"}], "n_flagged", "method",
-    "window", "k"}; degenerate input -> all-None fields. Never raises.
+    "window", "k", "n_zero_excluded"}; degenerate input -> all-None fields.
+    Never raises.
     """
     failed = {"outliers": None, "n_flagged": None, "method": "rolling_mad",
-              "window": window, "k": k}
+              "window": window, "k": k, "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         pts = []
         ns = list(counts) if counts is not None else None
         for i, (lab, v) in enumerate(zip(list(labels), list(values))):
@@ -581,7 +641,7 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5):
             if abs(z) > k:
                 out.append({"label": lab, "value": v, "z": round(z, 1)})
         return {"outliers": out, "n_flagged": len(out), "method": "rolling_mad",
-                "window": window, "k": k}
+                "window": window, "k": k, "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
@@ -649,17 +709,22 @@ def finding_correlation(x_values, y_values):
         return failed
 
 
-def finding_distribution(values):
+def finding_distribution(values, unit=None):
     """Robust shape summary — the evidence behind a metric choice.
 
     Returns {"n", "mean", "median", "std", "mad", "skew", "p25", "p75",
-    "min", "max"} (skew = Fisher moment coefficient). A mean/median gap or
-    a large skew is the COMPUTED justification for leading with the
-    median. Never raises.
+    "min", "max", "n_zero_excluded"} (skew = Fisher moment coefficient). A
+    mean/median gap or a large skew is the COMPUTED justification for
+    leading with the median. ALWAYS pass unit= for monetary measures:
+    sentinel zeros (zero_policy, applied internally) are excluded before
+    the summary — a min of $0.00 from unrecorded prices is an encoding,
+    not the distribution's floor. Never raises.
     """
     failed = {"n": None, "mean": None, "median": None, "std": None, "mad": None,
-              "skew": None, "p25": None, "p75": None, "min": None, "max": None}
+              "skew": None, "p25": None, "p75": None, "min": None, "max": None,
+              "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, unit=unit)
         xs = sorted(v for v in (safe_float(x) for x in list(values)) if v is not None)
         n = len(xs)
         if n < 3:
@@ -680,7 +745,7 @@ def finding_distribution(values):
         return {"n": n, "mean": round(mean, 4), "median": round(median, 4),
                 "std": round(std, 4), "mad": round(mad, 4), "skew": round(skew, 2),
                 "p25": round(q(0.25), 4), "p75": round(q(0.75), 4),
-                "min": xs[0], "max": xs[-1]}
+                "min": xs[0], "max": xs[-1], "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
@@ -710,7 +775,7 @@ def finding_share(parts, total=None):
         return failed
 
 
-def finding_superlative(labels, values, counts=None, kind="max"):
+def finding_superlative(labels, values, counts=None, kind="max", unit=None):
     """Attestation-weighted superlative — the peak/trough among ADEQUATELY
     ATTESTED periods, with the raw extreme reported beside it.
 
@@ -722,13 +787,20 @@ def finding_superlative(labels, values, counts=None, kind="max"):
     count >= max(5, 20% of the median count); the raw extreme over ALL
     periods is reported as raw_value/raw_period so nothing is hidden.
 
+    ALWAYS pass unit= for monetary measures: sentinel zeros (zero_policy,
+    applied internally) are excluded before the pick — a kind="min" trough
+    of $0.00 from unrecorded prices is an encoding crowned as a price low.
+    Reported as n_zero_excluded.
+
     Returns {"period", "value", "n", "raw_period", "raw_value", "raw_n",
-    "thin_periods_skipped"}; degenerate input all-None. Never raises.
+    "thin_periods_skipped", "thin_bar", "n_zero_excluded"}; degenerate
+    input all-None. Never raises.
     """
     failed = {"period": None, "value": None, "n": None, "raw_period": None,
               "raw_value": None, "raw_n": None, "thin_periods_skipped": None,
-              "thin_bar": None}
+              "thin_bar": None, "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         rows = []
         ns = list(counts) if counts is not None else None
         for i, (lab, v) in enumerate(zip(list(labels), list(values))):
@@ -753,12 +825,13 @@ def finding_superlative(labels, values, counts=None, kind="max"):
         return {"period": best[0], "value": best[1], "n": best[2],
                 "raw_period": raw[0], "raw_value": raw[1], "raw_n": raw[2],
                 "thin_periods_skipped": skipped,
-                "thin_bar": None if not finite_ns else round(thin, 1)}
+                "thin_bar": None if not finite_ns else round(thin, 1),
+                "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
 
-def finding_split_comparison(labels, values, split_at=None):
+def finding_split_comparison(labels, values, split_at=None, unit=None):
     """Early-vs-late comparison with the windowing scheme PINNED: midpoint
     split over the OBSERVED (non-None) series.
 
@@ -770,14 +843,18 @@ def finding_split_comparison(labels, values, split_at=None):
 
     Pass the SAME series (same zero/outlier policy) the headline trend
     uses — feeding this a differently-screened series is the two-zero-
-    policies bug. Returns {"early_median", "late_median", "early_n",
-    "late_n", "early_span", "late_span", "multiplier"}; degenerate input
-    returns all-None. Never raises.
+    policies bug. ALWAYS pass unit= for monetary measures: zero_policy
+    runs internally (same screen as finding_trend), so passing the same
+    unit to both makes one zero policy structural, not a convention.
+    Returns {"early_median", "late_median", "early_n",
+    "late_n", "early_span", "late_span", "multiplier", "n_zero_excluded"};
+    degenerate input returns all-None. Never raises.
     """
     failed = {"early_median": None, "late_median": None, "early_n": None,
               "late_n": None, "early_span": None, "late_span": None,
-              "multiplier": None}
+              "multiplier": None, "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, labels=labels, unit=unit)
         pairs = [
             (str(lab), safe_float(v))
             for lab, v in zip(list(labels), list(values))
@@ -811,12 +888,14 @@ def finding_split_comparison(labels, values, split_at=None):
             "early_span": "%s-%s" % (early[0][0], early[-1][0]),
             "late_span": "%s-%s" % (late[0][0], late[-1][0]),
             "multiplier": mult,
+            "n_zero_excluded": n_zx,
         }
     except Exception:
         return failed
 
 
-def finding_current_state(values, labels=None, window=6, coverage=None, counts=None):
+def finding_current_state(values, labels=None, window=6, coverage=None, counts=None,
+                          unit=None):
     """Where the series ENDS — from the last COMPLETE observation.
 
     The trailing edge of a live dataset is often incomplete (reporting lag:
@@ -860,13 +939,19 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
     vanished entirely, leaving "current state 1933 at $0.40" as the only
     story. Narrate both when they differ ("well-covered data ends {period};
     the latest raw observation is {latest_value} in {latest_period},
-    n={latest_n}"). Never raises.
+    n={latest_n}").
+
+    ALWAYS pass unit= for monetary measures: sentinel zeros (zero_policy,
+    applied internally) are treated as unrecorded — not observations — so
+    a trailing $0.00 year can neither be the endpoint nor latest_*; the
+    screen is reported as n_zero_excluded. Never raises.
     """
     failed = {"period": None, "value": None, "pct_from_peak": None,
               "direction": None, "excluded_trailing": None,
               "excluded_reason": None, "latest_period": None,
-              "latest_value": None, "latest_n": None}
+              "latest_value": None, "latest_n": None, "n_zero_excluded": None}
     try:
+        values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         ys = [safe_float(v) for v in list(values)]
         covs = None
         if coverage is not None:
@@ -1001,7 +1086,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 "direction": direction, "excluded_trailing": excluded,
                 "excluded_reason": dominant,
                 "latest_period": latest_period, "latest_value": ys[last],
-                "latest_n": latest_n}
+                "latest_n": latest_n, "n_zero_excluded": n_zx}
     except Exception:
         return failed
 

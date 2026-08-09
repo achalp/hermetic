@@ -909,6 +909,94 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertFalse(same["significant"])
 
 
+class TestZeroTotalization(unittest.TestCase):
+    """unit= threads the regime profile INTO the claim functions.
+
+    zero_policy was ADVISORY: a run declared a blocking zero-sentinel check
+    citing it, reported n_excluded=0, and left 12 $0.00 year-rows in every
+    downstream figure. With unit= passed, the claim layer is TOTAL — the
+    policy runs inside each finding_* call, sentinel zeros are excluded
+    before the statistic, and n_zero_excluded reports the screen.
+    """
+
+    LABELS = [str(1990 + i) for i in range(10)]
+    # 3 of 10 zeros (30% >> the 5% ZERO_INFLATED bar) on a monetary measure.
+    VALS = [5.0, 0.0, 6.0, 7.0, 0.0, 8.0, 9.0, 0.0, 10.0, 11.0]
+
+    def test_trend_excludes_monetary_sentinel_zeros(self):
+        out = finding_trend(self.VALS, unit="usd")
+        self.assertEqual(out["n_zero_excluded"], 3)
+        self.assertEqual(out["direction"], "rising")
+        self.assertLess(out["p_value"], 0.05)
+        # Without unit= the policy cannot fire (MONETARY needs the unit) —
+        # zeros stay in the fit and the screen reports 0.
+        self.assertEqual(finding_trend(self.VALS)["n_zero_excluded"], 0)
+
+    def test_superlative_min_is_never_a_sentinel_zero(self):
+        # The shipped-$0.00-trough failure: kind="min" over unrecorded
+        # prices crowned an encoding as the price low.
+        out = finding_superlative(self.LABELS, self.VALS, kind="min", unit="usd")
+        self.assertEqual(out["value"], 5.0)
+        self.assertEqual(out["n_zero_excluded"], 3)
+        # Same call without unit=: the zero wins — the old advisory gap.
+        self.assertEqual(finding_superlative(self.LABELS, self.VALS, kind="min")["value"], 0.0)
+
+    def test_non_monetary_zeros_are_data(self):
+        out = finding_distribution([0.0, 0.0, 3.0, 4.0, 5.0, 6.0], unit="items")
+        self.assertEqual(out["n_zero_excluded"], 0)
+        self.assertEqual(out["min"], 0.0)
+
+    def test_zero_share_under_the_bar_is_kept(self):
+        # One zero in 40 (2.5% < 5%): plausibly a real value, kept.
+        vals = [float(i) for i in range(1, 40)] + [0.0]
+        out = finding_distribution(vals, unit="usd")
+        self.assertEqual(out["n_zero_excluded"], 0)
+        self.assertEqual(out["min"], 0.0)
+
+    def test_current_state_treats_trailing_zero_as_unrecorded(self):
+        # A $0.00 final year is not an observation: the endpoint AND
+        # latest_* both land on the last recorded price.
+        vals = [5.0, 6.0, 7.0, 8.0, 9.0, 0.0]
+        out = finding_current_state(vals, labels=self.LABELS[:6], unit="usd")
+        self.assertEqual(out["value"], 9.0)
+        self.assertEqual(out["latest_value"], 9.0)
+        self.assertEqual(out["n_zero_excluded"], 1)
+
+    def test_split_comparison_shares_the_trend_zero_policy(self):
+        # ONE POLICY PER COLUMN, structurally: the same unit= gives the
+        # split comparison the same screen the trend used.
+        out = finding_split_comparison(self.LABELS, self.VALS, unit="usd")
+        self.assertEqual(out["n_zero_excluded"], 3)
+        self.assertGreater(out["early_median"], 0)
+        self.assertGreater(out["late_median"], 0)
+
+    def test_outliers_do_not_flag_sentinel_zeros(self):
+        labels = [str(2000 + i) for i in range(12)]
+        vals = [5.0, 5.2, 0.0, 5.1, 4.9, 5.3, 0.0, 5.0, 5.2, 5.1, 4.8, 5.0]
+        out = finding_outliers(labels, vals, window=8, unit="usd")
+        self.assertEqual(out["n_zero_excluded"], 2)
+        self.assertEqual(out["outliers"], [])
+        # Without unit=: the zeros read as massive negative outliers — an
+        # encoding misreported as an anomaly.
+        raw = finding_outliers(labels, vals, window=8)
+        self.assertGreater(raw["n_flagged"], 0)
+
+    def test_failure_shapes_carry_the_new_key(self):
+        # Prelude-stub parity: degraded runs return the same key set.
+        self.assertIn("n_zero_excluded", finding_trend(None))
+        self.assertIn("n_zero_excluded", finding_superlative(None, None))
+        self.assertIn("n_zero_excluded", finding_current_state([]))
+        self.assertIn("n_zero_excluded", finding_split_comparison(["a"], [1.0]))
+        self.assertIn("n_zero_excluded", finding_outliers(None, None))
+        self.assertIn("n_zero_excluded", finding_distribution([1.0]))
+
+    def test_all_zero_monetary_series_degrades_not_flat(self):
+        # Every value screened out -> too few points -> direction None,
+        # never a confident "flat" over an empty fit.
+        out = finding_trend([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], unit="usd")
+        self.assertIsNone(out["direction"])
+
+
 class TestImportPurity(unittest.TestCase):
     def test_package_import_has_no_heavy_side_effects(self):
         # The prelude imports this before user code; module import must never

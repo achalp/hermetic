@@ -565,7 +565,7 @@ def declare_finding(name, value, definition, dtype, unit=None,
 # model's own computation and declare_finding still work.
 def finding_trend(values, unit=None):
     return {'direction': None, 'slope_per_period': None, 'p_value': None,
-            'slope_ci95': None}
+            'slope_ci95': None, 'n_zero_excluded': None}
 def finding_step_change(values, labels=None, counts=None):
     return {'period': None, 'delta': None, 'direction': None, 'baseline_spread': None}
 def finding_decompose(total_change, terms):
@@ -580,32 +580,35 @@ def finding_heterogeneity(groups):
     return {'significant': None, 'p_value': None, 'test': 'anova'}
 def declare_check(name, definition, passed=None, evidence=None, severity='caveat', derived_from_columns=None):
     pass
-def finding_outliers(labels, values, counts=None, window=21, k=3.5):
+def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
     return {'outliers': None, 'n_flagged': None, 'method': 'rolling_mad',
-            'window': window, 'k': k}
+            'window': window, 'k': k, 'n_zero_excluded': None}
 def finding_correlation(x_values, y_values):
     return {'pearson_r': None, 'pearson_p': None, 'spearman_rho': None,
             'spearman_p': None, 'n': None}
-def finding_distribution(values):
+def finding_distribution(values, unit=None):
     return {'n': None, 'mean': None, 'median': None, 'std': None, 'mad': None,
-            'skew': None, 'p25': None, 'p75': None, 'min': None, 'max': None}
+            'skew': None, 'p25': None, 'p75': None, 'min': None, 'max': None,
+            'n_zero_excluded': None}
 def finding_share(parts, total=None):
     return {'shares_pct': None, 'residual_pct': None, 'sums_to_100': None}
-def finding_superlative(labels, values, counts=None, kind='max'):
+def finding_superlative(labels, values, counts=None, kind='max', unit=None):
     return {'period': None, 'value': None, 'n': None, 'raw_period': None,
             'raw_value': None, 'raw_n': None, 'thin_periods_skipped': None,
-            'thin_bar': None}
-def finding_split_comparison(labels, values, split_at=None):
+            'thin_bar': None, 'n_zero_excluded': None}
+def finding_split_comparison(labels, values, split_at=None, unit=None):
     return {'early_median': None, 'late_median': None, 'early_n': None,
             'late_n': None, 'early_span': None, 'late_span': None,
-            'multiplier': None}
+            'multiplier': None, 'n_zero_excluded': None}
 def finding_yoy(period_labels, values):
     return {'prior_year': None, 'latest_year': None, 'window_months': None,
             'prior_total': None, 'latest_total': None, 'pct_change': None}
-def finding_current_state(values, labels=None, window=6, coverage=None, counts=None):
+def finding_current_state(values, labels=None, window=6, coverage=None, counts=None,
+                          unit=None):
     return {'period': None, 'value': None, 'pct_from_peak': None,
             'direction': None, 'excluded_trailing': None, 'excluded_reason': None,
-            'latest_period': None, 'latest_value': None, 'latest_n': None}
+            'latest_period': None, 'latest_value': None, 'latest_n': None,
+            'n_zero_excluded': None}
 
 # ── Analysis product, fallback copy (spec analysis-product-2026-08-08 §1) ──
 # Minimal declare_series/declare_value so the names never NameError on a

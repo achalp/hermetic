@@ -173,6 +173,41 @@ describe("realizer — honesty clauses live IN the templates", () => {
     expect(text).toContain("$finding:price_trend.p_value");
   });
 
+  it("renders n_zero_excluded when the claim-layer zero screen fired, silent otherwise", () => {
+    // Claim-layer totalization (regime-matrix amendment): a policy the
+    // helper applied must be visible in the sentence it produced.
+    const screened = realizeClaim(
+      F("price_trend_z", "trend", {
+        direction: "rising",
+        slope_per_period: 1,
+        p_value: 0.01,
+        n_zero_excluded: 12,
+      })
+    );
+    expect(screened).toContain("$finding:price_trend_z.n_zero_excluded");
+    expect(screened).toContain("unrecorded-value sentinels");
+    // n_zero_excluded 0 (or absent — pre-totalization payloads) adds nothing.
+    const clean = realizeClaim(
+      F("price_trend_c", "trend", {
+        direction: "rising",
+        slope_per_period: 1,
+        p_value: 0.01,
+        n_zero_excluded: 0,
+      })
+    );
+    expect(clean).not.toContain("n_zero_excluded");
+    expect(realizeClaim(FINDINGS[0])).not.toContain("n_zero_excluded");
+    // The clause spans the unit=-threaded templates, not just trend.
+    const sup = realizeClaim(
+      F("peak_z", "superlative", { period: "x", value: 1, n: 5, n_zero_excluded: 3 })
+    );
+    expect(sup).toContain("$finding:peak_z.n_zero_excluded");
+    const dist = realizeClaim(
+      F("dist_z", "distribution", { median: 1, mean: 2, skew: 3, n_zero_excluded: 2 })
+    );
+    expect(dist).toContain("$finding:dist_z.n_zero_excluded");
+  });
+
   it("checks render definition + scalar evidence bindings, never booleans inline", () => {
     const text = realizeClaim(FINDINGS[3]);
     expect(text).toContain("⚠ FAILED");

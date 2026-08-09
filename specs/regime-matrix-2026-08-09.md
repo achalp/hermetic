@@ -128,3 +128,33 @@ a machine caveat field_. Never silent.
 Unit tests per diagnostic (boundary values), matrix meta-test
 (completeness), profiler↔claims bar equality, envelope integration
 (declared series ⇒ regimes shipped), prelude parity.
+
+## 7. Amendment (2026-08-09): claim-layer totalization
+
+The first compiled run showed the dispatcher alone is ADVISORY: the model
+declared a blocking zero-sentinel check citing `zero_policy`, reported
+`n_excluded=0`, and left 12 $0.00 year-rows in every downstream figure.
+A policy the model must both _call_ and _apply_ is a convention, not a
+contract. Closed by threading `unit=` through the claim functions —
+the same move that made attestation total via `counts=`:
+
+- `finding_trend`, `finding_superlative`, `finding_current_state`,
+  `finding_split_comparison`, `finding_outliers`, `finding_distribution`
+  accept `unit=`. Each runs `profile_regimes` + `zero_policy` internally
+  (`_zero_screen` in findings.py); under `sentinel_exclude` zeros become
+  None before the statistic and the count ships as `n_zero_excluded`
+  (additive return key; None in failure shapes, stub parity included).
+- The realizer renders the screen whenever `n_zero_excluded > 0` — an
+  applied policy the reader can't see is the same defect as an unapplied
+  one.
+- Contract: "ALWAYS pass unit= for monetary measures"; a check's
+  record-level `n_excluded` must agree with the helpers' figure.
+
+**The boundary.** The CLAIM layer is total: pass the unit and the policy
+cannot not-run. The RECORD layer (the model's dataframes, chart series,
+rollups) stays lint- and contract-guarded (`zero_sentinel_unapplied`,
+CHECKS ACT OR FAIL) — the runtime never sees pre-aggregation rows, and
+the platform must not silently rewrite series data the reader will chart.
+Gates decide emphasis and computation, never visibility: excluded zeros
+are always countable in the payload, and the record-level exclusion
+remains a declared, checkable action of the generated code.
