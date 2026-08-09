@@ -23,6 +23,8 @@ interface SettingsDrawerProps {
   onUiComposeModelChange: (model: ModelId) => void;
   effort: string;
   onEffortChange: (effort: string) => void;
+  composerMode: "generative" | "compiled";
+  onComposerModeChange: (mode: "generative" | "compiled") => void;
   phaseEfforts: Record<string, string>;
   onPhaseEffortChange: (phase: string, level: string) => void;
   sandboxRuntime: SandboxRuntimeId;
@@ -55,6 +57,8 @@ export function SettingsDrawer({
   uiComposeModel,
   onCodeGenModelChange,
   onUiComposeModelChange,
+  composerMode,
+  onComposerModeChange,
   effort,
   onEffortChange,
   phaseEfforts,
@@ -95,6 +99,8 @@ export function SettingsDrawer({
           onEffortChange={onEffortChange}
           phaseEfforts={phaseEfforts}
           onPhaseEffortChange={onPhaseEffortChange}
+          composerMode={composerMode}
+          onComposerModeChange={onComposerModeChange}
           sandboxRuntime={sandboxRuntime}
           onSandboxRuntimeChange={onSandboxRuntimeChange}
           ollamaModel={ollamaModel}

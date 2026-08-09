@@ -32,6 +32,8 @@ interface InferenceSectionProps {
   onEffortChange: (effort: string) => void;
   phaseEfforts: Record<string, string>;
   onPhaseEffortChange: (phase: string, level: string) => void;
+  composerMode: "generative" | "compiled";
+  onComposerModeChange: (mode: "generative" | "compiled") => void;
   onCodeGenModelChange: (model: ModelId) => void;
   onUiComposeModelChange: (model: ModelId) => void;
   sandboxRuntime: SandboxRuntimeId;
@@ -91,6 +93,8 @@ export function InferenceSection({
   onEffortChange,
   phaseEfforts,
   onPhaseEffortChange,
+  composerMode,
+  onComposerModeChange,
   onCodeGenModelChange,
   onUiComposeModelChange,
   sandboxRuntime,
@@ -330,6 +334,15 @@ export function InferenceSection({
               </select>
             </div>
           ))}
+          <div style={{ ...S.hint, marginBottom: 6 }}>Composer Architecture</div>
+          <select
+            value={composerMode}
+            onChange={(e) => onComposerModeChange(e.target.value as "generative" | "compiled")}
+            style={S.select}
+          >
+            <option value="generative">Generative (LLM writes the dashboard)</option>
+            <option value="compiled">Compiled (LLM plans, code renders)</option>
+          </select>
         </div>
       )}
 

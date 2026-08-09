@@ -22,7 +22,12 @@ import {
   isValidModelId,
 } from "@/lib/constants";
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
-import { getLocalBackendConfig, setActiveSandboxRuntime, setActiveModels } from "@/app/lib/api";
+import {
+  getLocalBackendConfig,
+  setActiveSandboxRuntime,
+  setActiveModels,
+  setComposerMode as setComposerModeApi,
+} from "@/app/lib/api";
 
 export function useModelSettings() {
   const [codeGenModel, setCodeGenModel] = useState<ModelId>(CODE_GEN_MODEL);
@@ -33,6 +38,8 @@ export function useModelSettings() {
   const [effort, setEffort] = useState<string>("auto");
   const [phaseEfforts, setPhaseEfforts] = useState<Record<string, string>>({});
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
+  // Composer architecture (narrative-compiler spec): generative | compiled.
+  const [composerMode, setComposerMode] = useState<"generative" | "compiled">("generative");
 
   // Adopt the server-side EFFECTIVE selection on mount — the resolved values
   // (stored choice or default), same ones every run will use.
@@ -58,6 +65,8 @@ export function useModelSettings() {
           const cfg = data?.config?.models;
           if (cfg?.effort) setEffort(cfg.effort);
           if (cfg?.efforts && typeof cfg.efforts === "object") setPhaseEfforts(cfg.efforts);
+          const cm = (data?.config as { composer?: { mode?: string } } | undefined)?.composer?.mode;
+          if (cm === "compiled" || cm === "generative") setComposerMode(cm);
         }
       )
       .catch(() => {});
@@ -107,6 +116,10 @@ export function useModelSettings() {
       return next;
     });
   }, []);
+  const handleComposerModeChange = useCallback((m: "generative" | "compiled") => {
+    setComposerMode(m);
+    setComposerModeApi(m).catch(() => {});
+  }, []);
   const handleUiComposeModelChange = useCallback((m: ModelId) => {
     setUiComposeModel(m);
     setActiveModels({ uiCompose: m }).catch(() => {});
@@ -116,6 +129,8 @@ export function useModelSettings() {
     codeGenModel,
     uiComposeModel,
     sandboxRuntime,
+    composerMode,
+    handleComposerModeChange,
     ollamaModel,
     setOllamaModel,
     handleRuntimeChange,

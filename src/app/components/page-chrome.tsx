@@ -66,6 +66,8 @@ export function PageChrome(props: PageChromeProps) {
         onUiComposeModelChange={models.handleUiComposeModelChange}
         effort={models.effort}
         onEffortChange={models.handleEffortChange}
+        composerMode={models.composerMode}
+        onComposerModeChange={models.handleComposerModeChange}
         phaseEfforts={models.phaseEfforts}
         onPhaseEffortChange={models.handlePhaseEffortChange}
         sandboxRuntime={models.sandboxRuntime}
