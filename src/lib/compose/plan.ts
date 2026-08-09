@@ -84,6 +84,52 @@ export interface PlanValidation {
 
 const CHECK_DTYPES = new Set(["check", "screen"]);
 
+const BINDING_RE = /\$finding:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)/g;
+
+/** Validate AUTHORED narrative text (narrated compiled mode): every figure
+ *  must be a binding — a literal digit anywhere outside a $finding: token
+ *  is a fabrication vector and rejects the node (it falls back to the
+ *  template). Bindings must resolve to a declared finding (longest-name
+ *  match — names can be dotted) and a real field path, and the finding
+ *  must be among the node's refs so the plan stays honest about sources. */
+export function validateNodeText(text: string, refs: string[], findings: FindingEntry[]): string[] {
+  const errors: string[] = [];
+  const names = [...findings].sort((a, b) => b.name.length - a.name.length);
+  const stripped = text.replace(BINDING_RE, "");
+  if (/[0-9]/.test(stripped)) {
+    errors.push(
+      `literal figures in text ("${stripped.match(/[^\s]*[0-9][^\s]*/)?.[0]}") — every number, year, and percentage must be a $finding:<claim>.<field> binding`
+    );
+  }
+  for (const m of text.matchAll(BINDING_RE)) {
+    const path = m[1];
+    const f = names.find((x) => path === x.name || path.startsWith(x.name + "."));
+    if (!f) {
+      errors.push(`binding ${m[0]} references no declared claim`);
+      continue;
+    }
+    if (!refs.includes(f.name)) {
+      errors.push(`binding ${m[0]} uses claim "${f.name}" — add it to the node's refs`);
+    }
+    const rest = path.slice(f.name.length).replace(/^\./, "");
+    let v: unknown = f.value;
+    let ok = true;
+    for (const field of rest ? rest.split(".") : []) {
+      if (v === null || typeof v !== "object") {
+        ok = false;
+        break;
+      }
+      v = (v as Record<string, unknown>)[field];
+      if (v === undefined) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) errors.push(`binding ${m[0]}: field "${rest}" does not exist on "${f.name}"`);
+  }
+  return errors;
+}
+
 export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidation {
   const errors: string[] = [];
   const parsed = PlanSchema.safeParse(plan);
@@ -106,10 +152,27 @@ export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidati
     seen.add(n.id);
     if (n.op === "INSIGHT") {
       if (!n.text?.trim()) errors.push(`INSIGHT node ${n.id} has no text`);
-      continue; // refs optional for insight
+      else
+        errors.push(
+          ...validateNodeText(n.text, [...n.refs, ...findings.map((f) => f.name)], findings).map(
+            (e) => `INSIGHT node ${n.id}: ${e}`
+          )
+        );
+      continue; // refs optional for insight (bindings may cite any claim)
     }
+    // Narrated compiled mode: any node MAY carry authored narrative text —
+    // EXCEPT caveats (their fields are the only representable mechanism; a
+    // free-text caveat is where fabricated mechanisms live).
     if (n.text !== undefined) {
-      errors.push(`node ${n.id} (${n.op}): free text is only representable on INSIGHT`);
+      if (n.op === "CAVEAT") {
+        errors.push(
+          `CAVEAT node ${n.id}: free text is unrepresentable on caveats — checks render their declared fields verbatim`
+        );
+      } else {
+        errors.push(
+          ...validateNodeText(n.text, n.refs, findings).map((e) => `node ${n.id} (${n.op}): ${e}`)
+        );
+      }
     }
     if (n.refs.length === 0) errors.push(`node ${n.id} (${n.op}) references no claim`);
     for (const ref of n.refs) {

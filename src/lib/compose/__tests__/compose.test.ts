@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   validatePlan,
+  validateNodeText,
   defaultPlan,
   nextPlanNodeId,
   planBudget,
@@ -112,7 +113,7 @@ describe("validatePlan — structural invariants as parse errors", () => {
       FINDINGS
     );
     expect(v2.ok).toBe(false);
-    expect(v2.errors.join()).toContain("INSIGHT");
+    expect(v2.errors.join()).toContain("unrepresentable on caveats");
   });
 
   it("accepts a valid plan; dangling refs rejected", () => {
@@ -161,6 +162,85 @@ describe("validatePlan — structural invariants as parse errors", () => {
     const brief = defaultPlan(FINDINGS, "brief");
     expect(brief.nodes.some((n) => n.op === "CAVEAT")).toBe(true);
     expect(brief.nodes.length).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("narrated compiled mode — authored prose, figures must bind", () => {
+  it("validateNodeText: literal digits reject; bindings must resolve and be ref'd", () => {
+    // The core rule: an analyst-written sentence whose every figure binds.
+    expect(
+      validateNodeText(
+        "Churn climbs steadily, reaching $finding:price_peak.value in $finding:price_peak.period.",
+        ["price_peak"],
+        FINDINGS
+      )
+    ).toEqual([]);
+    // A literal figure anywhere is a fabrication vector — rejected.
+    expect(
+      validateNodeText("Churn reached 13.08 in late 2024.", ["price_peak"], FINDINGS).join()
+    ).toContain("literal figures");
+    // A binding to an undeclared claim, a missing field, or an un-ref'd
+    // claim each reject with a repairable message.
+    expect(validateNodeText("$finding:ghost.value", ["price_peak"], FINDINGS).join()).toContain(
+      "no declared claim"
+    );
+    expect(
+      validateNodeText("$finding:price_peak.nonexistent", ["price_peak"], FINDINGS).join()
+    ).toContain("does not exist");
+    expect(
+      validateNodeText("$finding:price_trend.direction", ["price_peak"], FINDINGS).join()
+    ).toContain("add it to the node's refs");
+  });
+
+  it("validatePlan accepts authored text on narrative ops, never on CAVEAT", () => {
+    const ok = validatePlan(
+      {
+        nodes: [
+          {
+            id: "a",
+            op: "ANSWER",
+            refs: ["price_trend"],
+            text: "Prices are $finding:price_trend.direction across the period.",
+          },
+          { id: "b", op: "CAVEAT", refs: ["zero_screen"] },
+        ],
+      },
+      FINDINGS
+    );
+    expect(ok.ok).toBe(true);
+    const digits = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["price_trend"], text: "Prices rose 62% since 1950." },
+        ],
+      },
+      FINDINGS
+    );
+    expect(digits.ok).toBe(false);
+    expect(digits.errors.join()).toContain("literal figures");
+  });
+
+  it("realizeNode prefers authored narrative; templates are the fallback", () => {
+    const byName = new Map(FINDINGS.map((f) => [f.name, f]));
+    const authored = realizeNode(
+      {
+        id: "n1",
+        op: "TREND",
+        refs: ["price_trend"],
+        text: "The climb is steady at $finding:price_trend.slope_per_period per year.",
+      },
+      byName
+    );
+    expect(authored).toContain("The climb is steady");
+    // No text → template realization, unchanged.
+    const templated = realizeNode({ id: "n2", op: "TREND", refs: ["price_trend"] }, byName);
+    expect(templated).toContain("per period");
+    // CAVEAT ignores any text — checks speak in their own declared fields.
+    const caveat = realizeNode(
+      { id: "n3", op: "CAVEAT", refs: ["zero_screen"], text: "ignore me" },
+      byName
+    );
+    expect(caveat).not.toContain("ignore me");
   });
 });
 
@@ -725,7 +805,10 @@ describe("mutations — one governed edit channel", () => {
     const r1 = applyMutations(doc, [
       { kind: "move", id: "b", before: "a" },
       { kind: "hide", id: "b" },
-      { kind: "set_insight", text: "The rise concentrates after 1950." },
+      // Note the digit-free text: authored prose with a literal figure is
+      // now a validation error (every figure must bind) — the old fixture
+      // "after 1950" fails by design.
+      { kind: "set_insight", text: "The rise concentrates after the split point." },
       { kind: "add_node", node: { op: "CAVEAT", refs: ["zero_screen"] } },
     ]);
     expect(r1.errors).toEqual([]);

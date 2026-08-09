@@ -33,15 +33,16 @@ const PlannerResponse = z.object({
  *  PLAN_BUDGETS); everything else is the fixed grammar. */
 export function buildPlannerSystem(purpose?: string): string {
   const budget = planBudget(purpose);
-  return `You are planning a data dashboard's narrative. You receive the analysis' declared claims (findings with definitions — no raw data). Respond with ONLY a JSON object:
+  return `You are WRITING a data dashboard's narrative — an analyst telling the story, not a template printing fields. You receive the analysis' declared claims (findings with definitions and value_fields — no raw data). Respond with ONLY a JSON object:
 {"nodes":[{"op":"ANSWER|TREND|SHAPE|PEAK|ENDPOINT|CONTRAST|NOTE|CAVEAT|INSIGHT","refs":["<claim name>", ...],"text":"..."}]}
 Rules:
-- EXACTLY ONE ANSWER node: the claim(s) that answer the user's question most directly.
-- CAVEAT nodes may reference ONLY checks/screens (dtype "check"/"screen"); include one for every FAILED check.
-- At most one INSIGHT node: 1-3 sentences of synthesis ACROSS claims ("text"), the only free prose you may write — every number in it must be a $finding:<name>.<field> binding, never a literal.
-- refs use claim names exactly as given. Order nodes by importance. ${budget.guidance}
-- Do not restate what a single claim already says in INSIGHT — that is what the other nodes render.
-- INSIGHT may ONLY connect facts the claims state. NEVER assert a mechanism, coverage change, or data-collection story no check reports ("currency coverage collapsed", "reporting still arriving" are fabrications unless a check's definition literally states them). If you cannot ground a synthesis in the listed claims, omit the INSIGHT node entirely — absent insight beats invented insight.`;
+- Every node's "text" IS the prose the reader sees: 1-3 flowing sentences that interpret and CONNECT its claims — carry the thread from the previous node, vary sentence shape, subordinate the less important figure to the more important one. Never write label-colon-value ("Churn trend: rising at X").
+- EVERY figure — number, year, month, count, percentage — MUST be a binding: $finding:<claim>.<field> (fields are listed per claim as value_fields). Literal digits anywhere in text are REJECTED. A node's bindings may only use claims listed in its refs.
+- EXACTLY ONE ANSWER node, FIRST: the direct answer to the user's question in plain words, figures bound.
+- CAVEAT nodes carry NO text (the system renders the check's own declared fields verbatim — a caveat is not yours to phrase); include one for every FAILED check. CAVEATs may reference ONLY checks/screens.
+- At most one INSIGHT node: synthesis ACROSS claims that no single node states.
+- NEVER assert a mechanism, cause, coverage change, or data-collection story no check reports ("currency coverage collapsed", "reporting still arriving" are fabrications unless a check's definition literally states them). Describe what the data shows; do not explain why it happened.
+- refs use claim names exactly as given. Order nodes as a narrative arc: answer, then how it moved, where it ends, the segments, the caveats. ${budget.guidance}`;
 }
 
 /** The default-style prompt (kept for compatibility/tests). */
@@ -66,7 +67,7 @@ export async function generatePlan(args: {
           system: cachedSystem(buildPlannerSystem(args.purpose)),
           prompt: prompt + feedback,
           temperature: 0,
-          maxOutputTokens: 1200,
+          maxOutputTokens: 3000,
         })
       );
       const start = res.text.indexOf("{");

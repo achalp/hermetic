@@ -246,3 +246,29 @@ stack; MCP models get the same primitive via edit_dashboard.
 **Structure.** usePlanEdit owns all behavior (surface, optimistic
 sections, undo stack, per-action pending); plan-edit/{panel,rows,copy}
 are composition, presentation, and language respectively.
+
+## 13. Amendment (2026-08-09): narrated compiled mode — the planner writes the prose
+
+User verdict on template prose: "the compiled dashboard just does not
+have the narrative prose quality of the generative one. I expected that
+the compose llm call will take the clean data and render a narrative."
+That expectation IS the right architecture, and the grammar already
+contained its guardrail: the INSIGHT node's rule — free prose where
+every figure is a binding — generalizes to every narrative node.
+
+The plan call now WRITES the narrative: each node carries authored
+"text", 1-3 flowing sentences that interpret and connect its claims
+(prompted as an analyst telling the story: carry the thread, vary
+sentence shape, never label-colon-value). `validateNodeText` makes
+fabrication unrepresentable in authored prose: literal digits anywhere
+outside a `$finding:` token reject the node; every binding must resolve
+to a declared claim (longest-name match) and a real field path; a
+node's bindings may only use claims in its refs. Validation failures
+feed the existing planner retry, and a node whose text still fails
+falls back to its TEMPLATE realization — the templates demote from the
+voice to the safety net. CAVEATs remain template-only by principle:
+checks speak in their own declared fields, a free-text caveat is where
+fabricated mechanisms live. Same single LLM call (output budget raised
+1200→3000 tokens for narrated nodes); the finalizer resolves authored
+bindings through the identical stack, and the lint battery + grounding
+verification still audit the result.

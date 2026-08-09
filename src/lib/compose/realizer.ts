@@ -164,9 +164,14 @@ function periodField(v: Record<string, unknown>): string | undefined {
 
 const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
-/** Realize a plan node: one paragraph from its referenced claims. */
+/** Realize a plan node: AUTHORED narrative first (narrated compiled mode —
+ *  the planner writes flowing prose whose figures are all bindings, and
+ *  the validator has already enforced that), templates as the per-node
+ *  fallback. CAVEATs never use authored text (checks render their own
+ *  declared fields). */
 export function realizeNode(node: PlanNode, byName: Map<string, FindingEntry>): string | null {
   if (node.op === "INSIGHT") return node.text?.trim() || null;
+  if (node.op !== "CAVEAT" && node.text?.trim()) return node.text.trim();
   const parts: string[] = [];
   for (const ref of node.refs) {
     const f = byName.get(ref);
