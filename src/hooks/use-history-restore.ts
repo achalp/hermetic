@@ -20,8 +20,12 @@ export function useHistoryRestore(args: {
   dispatch: PageDispatch;
   handleUpload: (csvId: string, schema: CSVSchema) => void;
   warehouseId: string | null;
+  /** Reports the restored entry's history id — the audit key. Without this,
+   *  a ?restore= of a history entry left the page with no history id at all
+   *  and the Run-audit button disabled on the very entry it was restored by. */
+  onHistoryId: (id: string | null) => void;
 }): void {
-  const { dispatch, handleUpload, warehouseId } = args;
+  const { dispatch, handleUpload, warehouseId, onHistoryId } = args;
 
   // ── Restore from history (?restore=id) ────────────────────
   useEffect(() => {
@@ -59,6 +63,7 @@ export function useHistoryRestore(args: {
           spec: data.spec,
           artifacts: (data.artifacts as unknown as CachedArtifacts) ?? null,
         });
+        onHistoryId(restoreId);
       })
       .catch((err) => {
         console.error("Failed to restore history entry:", err);
@@ -96,6 +101,8 @@ export function useHistoryRestore(args: {
             spec: result.spec,
             artifacts: (result.artifacts as unknown as CachedArtifacts) ?? null,
           });
+          // The refresh recorded a NEW history entry — that's the audit key.
+          onHistoryId(result.historyId ?? null);
         } else {
           // Warehouse without active connection — just restore
           if (data.csvId) {
@@ -107,6 +114,7 @@ export function useHistoryRestore(args: {
             spec: data.spec,
             artifacts: (data.artifacts as unknown as CachedArtifacts) ?? null,
           });
+          onHistoryId(rerunId);
         }
       })
       .catch(() => {

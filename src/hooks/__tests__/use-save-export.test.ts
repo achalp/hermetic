@@ -74,10 +74,32 @@ describe("useSaveExport", () => {
     expect(mockSaveViz).toHaveBeenCalledWith(
       "csv-1",
       refs.currentSpecRef.current,
-      "What are sales?"
+      "What are sales?",
+      undefined,
+      undefined
     );
     expect(result.current.saveMessage).toBe("Saved!");
     expect(refs.onSaved).toHaveBeenCalled();
+  });
+
+  it("handleSave threads the displayed analysis' history id into the save", async () => {
+    // The audit key: without it a restored viz has no route back to its
+    // history entry, and the Run-audit button dies (separate id namespaces).
+    mockSaveViz.mockResolvedValue({ meta: {} });
+    const refs = makeRefs();
+    const { result } = renderHook(() => useSaveExport({ ...refs, historyId: "hist-42" }));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockSaveViz).toHaveBeenCalledWith(
+      "csv-1",
+      refs.currentSpecRef.current,
+      "What are sales?",
+      undefined,
+      "hist-42"
+    );
   });
 
   it("handleSave shows ApiError message on failure", async () => {

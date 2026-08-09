@@ -273,12 +273,13 @@ export async function saveViz(
   csvId: string,
   spec: unknown,
   question: string,
-  parentVizId?: string
+  parentVizId?: string,
+  historyId?: string | null
 ): Promise<SaveVizResult> {
   const res = await fetch("/api/vizs/save", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ csvId, spec, question, parentVizId }),
+    body: JSON.stringify({ csvId, spec, question, parentVizId, historyId: historyId ?? undefined }),
   });
   return json<SaveVizResult>(res);
 }

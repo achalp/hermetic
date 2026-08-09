@@ -119,6 +119,14 @@ export interface SavedVizMeta {
   localPath?: string;
   /** SQL query for warehouse sources (used during refresh) */
   sql?: string;
+  /**
+   * History-entry id recorded for the same analysis (the audit key). Saved
+   * vizs and history entries are SEPARATE id namespaces — passing a vizId
+   * where a history id is expected disabled/broke the Run-audit button on
+   * restored visualizations. This linkage lets a restored viz reach its
+   * audit; absent on vizs saved before it existed (audit unavailable there).
+   */
+  historyId?: string;
 }
 
 export interface StoredWarehouse {

@@ -43,6 +43,8 @@ export interface SaveInput {
   sourceType?: "upload" | "local" | "warehouse";
   localPath?: string;
   sql?: string;
+  /** History-entry id of the same analysis — the restored viz's audit key. */
+  historyId?: string;
 }
 
 export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta> {
@@ -60,6 +62,7 @@ export async function saveVisualization(input: SaveInput): Promise<SavedVizMeta>
     sourceType: input.sourceType,
     localPath: input.localPath,
     sql: input.sql,
+    historyId: input.historyId,
   };
 
   // Warn-only spec validation (F7 — same policy as history persist): surfaces
@@ -99,6 +102,8 @@ export interface SaveVersionInput {
   sourceType?: "upload" | "local" | "warehouse";
   localPath?: string;
   sql?: string;
+  /** History-entry id of the analysis this version came from. */
+  historyId?: string;
 }
 
 /**
@@ -129,6 +134,8 @@ export async function saveNewVersion(
     sourceType: input.sourceType ?? meta.sourceType,
     localPath: input.localPath ?? meta.localPath,
     sql: input.sql ?? meta.sql,
+    // The audit key follows the latest version's analysis when known.
+    historyId: input.historyId ?? meta.historyId,
   };
 
   // Warn-only spec validation (F7 — same policy as history persist): surfaces

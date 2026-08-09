@@ -142,6 +142,7 @@ export default function Home() {
     currentMode,
     isAnalyzing,
     loadedVizId,
+    historyId: liveHistoryId,
     setPurpose,
     setLlmWarning,
     openSettings: panels.openSettings,
@@ -154,6 +155,7 @@ export default function Home() {
     dispatch,
     handleUpload,
     warehouseId: warehouse.warehouseId,
+    onHistoryId: setLiveHistoryId,
   });
 
   // Local/remote/upload/sample source selection — see use-source-select.ts.
@@ -196,6 +198,7 @@ export default function Home() {
     csvId,
     loadedSpec,
     currentQuestion,
+    onHistoryId: setLiveHistoryId,
   });
 
   // ── Question suggestions (initial + follow-up) — see use-suggestions.ts ──
@@ -228,7 +231,10 @@ export default function Home() {
     address: isState4
       ? {
           view: "results",
-          entryId: loadedVizId ?? liveHistoryId,
+          // The results URL restores via ?restore=<history id> — prefer the
+          // real history id (viz loads adopt it from the saved meta linkage;
+          // the vizId fallback only covers legacy vizs without one).
+          entryId: liveHistoryId ?? loadedVizId,
           csvId: effectiveCsvId ?? csvId,
         }
       : isState2
@@ -364,7 +370,7 @@ export default function Home() {
               | undefined
           )?.__verifiability ?? null
         }
-        historyId={loadedVizId ?? liveHistoryId}
+        historyId={liveHistoryId}
         warehouse={warehouse}
         hasData={hasData}
         schema={schema}
@@ -508,7 +514,7 @@ export default function Home() {
                   | undefined
               )?.__verifiability ?? null
             }
-            historyId={loadedVizId ?? liveHistoryId}
+            historyId={liveHistoryId}
             models={models}
             purpose={purpose}
             onRerun={viz.handleRerunFromToolbar}

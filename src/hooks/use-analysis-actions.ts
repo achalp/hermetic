@@ -24,6 +24,9 @@ interface UseAnalysisActionsArgs {
   currentMode: QueryMode;
   isAnalyzing: boolean;
   loadedVizId: string | null;
+  /** History-entry id of the displayed analysis (the audit key) — persisted
+   *  into the viz meta on save so restores keep their audit. */
+  historyId?: string | null;
   setPurpose: (id: string) => void;
   setLlmWarning: (w: string | null) => void;
   openSettings: () => void;
@@ -40,6 +43,7 @@ export function useAnalysisActions({
   currentMode,
   isAnalyzing,
   loadedVizId,
+  historyId,
   setPurpose,
   setLlmWarning,
   openSettings,
@@ -54,6 +58,7 @@ export function useAnalysisActions({
     currentQuestionRef: analysis.questionRef,
     dashboardRef,
     onSaved,
+    historyId,
   });
 
   // Schedule popover state + auto-save-then-open — use-schedule-popover.

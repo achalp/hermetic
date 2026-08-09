@@ -26,6 +26,10 @@ interface UseSaveExportOptions {
   currentQuestionRef: MutableRefObject<string | null>;
   dashboardRef: MutableRefObject<HTMLDivElement | null>;
   onSaved?: () => void;
+  /** History-entry id of the displayed analysis — persisted into the saved
+   *  viz's meta so a restored viz keeps its audit key (separate namespaces:
+   *  a vizId can never stand in for a history id). */
+  historyId?: string | null;
 }
 
 export function useSaveExport({
@@ -34,6 +38,7 @@ export function useSaveExport({
   currentQuestionRef,
   dashboardRef,
   onSaved,
+  historyId,
 }: UseSaveExportOptions) {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -64,7 +69,9 @@ export function useSaveExport({
       const result = await saveViz(
         csvId,
         currentSpecRef.current,
-        currentQuestionRef.current ?? "Analysis"
+        currentQuestionRef.current ?? "Analysis",
+        undefined,
+        historyId
       );
       setSaveMessage("Saved!");
       setLastSavedVizId(result.meta.vizId);
@@ -77,7 +84,7 @@ export function useSaveExport({
     } finally {
       setSaving(false);
     }
-  }, [csvId, currentSpecRef, currentQuestionRef, onSaved]);
+  }, [csvId, currentSpecRef, currentQuestionRef, onSaved, historyId]);
 
   const exportWith = useCallback(
     async (format: ExportFormat, fn: (el: HTMLElement, title: string) => Promise<void>) => {

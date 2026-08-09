@@ -9,7 +9,7 @@ import { schemaFingerprint } from "@/lib/saved/schema-compat";
 
 export async function POST(request: Request) {
   try {
-    const { csvId, spec, question, parentVizId } = await request.json();
+    const { csvId, spec, question, parentVizId, historyId } = await request.json();
 
     if (!csvId || !spec || !question) {
       return NextResponse.json(
@@ -77,6 +77,7 @@ export async function POST(request: Request) {
         sourceType,
         localPath,
         sql,
+        historyId: typeof historyId === "string" ? historyId : undefined,
       });
       return NextResponse.json({ meta });
     }
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
       sourceType,
       localPath,
       sql,
+      historyId: typeof historyId === "string" ? historyId : undefined,
     });
 
     return NextResponse.json({ meta });

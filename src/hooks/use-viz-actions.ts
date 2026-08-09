@@ -31,6 +31,9 @@ export function useVizActions(args: {
   csvId: string | null;
   loadedSpec: Spec | null;
   currentQuestion: string | null;
+  /** Reports the history-entry id (the audit key) of whatever this hook put
+   *  on screen — null when the path has none, so stale ids never linger. */
+  onHistoryId: (id: string | null) => void;
 }) {
   const {
     dispatch,
@@ -43,6 +46,7 @@ export function useVizActions(args: {
     csvId,
     loadedSpec,
     currentQuestion,
+    onHistoryId,
   } = args;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,12 +75,17 @@ export function useVizActions(args: {
           artifacts: data.artifacts ?? null,
           vizId,
         });
+        // The audit key travels in the viz meta (separate id namespace —
+        // the vizId itself must NEVER stand in for it). Null for vizs saved
+        // before the linkage existed, which also clears any stale id from a
+        // previous live run.
+        onHistoryId(data.meta.historyId ?? null);
       } catch (err) {
         console.error("Load viz failed:", err);
         dispatch({ type: "LOAD_VIZ_ERROR" });
       }
     },
-    [handleUpload, loadWorkbookUpload, dispatch]
+    [handleUpload, loadWorkbookUpload, dispatch, onHistoryId]
   );
 
   const handleRerunViz = useCallback((vizId: string) => {
@@ -94,6 +103,10 @@ export function useVizActions(args: {
       dispatch({ type: "RERUN_START" });
       try {
         const result = await rerunViz(vizId, file);
+        // Either way this is a NEW analysis over new data — the old audit key
+        // no longer describes what's on screen (a live re-stream sets a fresh
+        // one when its background history save completes).
+        onHistoryId(null);
         if (result.schemaMatch && result.spec) {
           handleUpload(result.csvId, result.schema);
           dispatch({
@@ -112,7 +125,7 @@ export function useVizActions(args: {
         dispatch({ type: "RERUN_ERROR" });
       }
     },
-    [dispatch, handleUpload]
+    [dispatch, handleUpload, onHistoryId]
   );
 
   const handleRerunFromToolbar = useCallback(() => {
@@ -138,6 +151,8 @@ export function useVizActions(args: {
           artifacts: result.artifacts ?? null,
           vizId,
         });
+        // A refresh records a NEW history entry — adopt its id as the audit key.
+        onHistoryId(result.historyId ?? null);
       } catch (err) {
         console.error("Refresh failed:", err);
         // RERUN_ERROR clears refreshStage — the stuck-spinner invariant now
@@ -145,7 +160,7 @@ export function useVizActions(args: {
         dispatch({ type: "RERUN_ERROR" });
       }
     },
-    [dispatch, handleUpload, warehouseId]
+    [dispatch, handleUpload, warehouseId, onHistoryId]
   );
 
   const handleRefreshFromToolbar = useCallback(() => {
