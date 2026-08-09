@@ -259,6 +259,30 @@ describe("edit grammar — views, shown overlay, purpose survival", () => {
     expect(undone.doc.purpose).toBe("deep-dive");
   });
 
+  it("the FIRST move on a fresh dashboard anchors to non-node elements via baseOrder", () => {
+    // The shipped "drag and drop doesn't work": with overlay.order empty
+    // (every new run), move's fallback base was plan nodes only, so a drag
+    // anchored to tiles/charts — most of the page — failed "unknown
+    // anchor" while the API returned 200.
+    const baseOrder = ["tile_grid", "n_a", "n_i", "table_annual_prices"];
+    const moved = applyMutations(
+      DOC,
+      [{ kind: "move", id: "table_annual_prices", before: "tile_grid" }],
+      VIEW_IDS,
+      baseOrder
+    );
+    expect(moved.errors).toEqual([]);
+    expect(moved.doc.overlay.order).toEqual(["table_annual_prices", "tile_grid", "n_a", "n_i"]);
+    // Without baseOrder the same move errors — and the caller must FAIL
+    // the edit rather than 200 a silent no-op (editDashboard does).
+    const broken = applyMutations(
+      DOC,
+      [{ kind: "move", id: "table_annual_prices", before: "tile_grid" }],
+      VIEW_IDS
+    );
+    expect(broken.errors).toHaveLength(1);
+  });
+
   it("view ids are movable with knownElementIds; typos still error", () => {
     const ok = applyMutations(
       DOC,

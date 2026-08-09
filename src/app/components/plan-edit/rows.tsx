@@ -6,7 +6,6 @@
  * insertion line, and the SectionRow. No state here beyond hover — the
  * usePlanEdit hook owns behavior.
  */
-import { useState } from "react";
 import type { PlanEditSurface } from "@/app/lib/api";
 import { sectionTag, sectionTitle } from "./copy";
 
@@ -92,45 +91,18 @@ export const Icon = {
   ),
 };
 
-/** Drop target BETWEEN rows: invisible until a drag hovers it, then an
- *  accent insertion line — you always see exactly where it will land.
- *  The last zone (beforeId null) accepts drop-at-end. */
-export function DropZone({
-  beforeId,
-  active,
-  onDropItem,
-}: {
-  beforeId: string | null;
-  active: boolean;
-  onDropItem: (beforeId: string | null) => void;
-}) {
-  const [over, setOver] = useState(false);
-  // ALWAYS mounted with a constant shape: swapping this element in/out when
-  // a drag starts mutates the DOM mid-dragstart, and Chrome CANCELS the
-  // native drag session — the "reorder does not work" bug. `active` only
-  // gates behavior and paint, never structure.
+/** The gap BETWEEN rows: an accent insertion line when the pointer-drag
+ *  targets it. Dumb — the panel computes which gap is nearest; no HTML5
+ *  dnd anywhere (native drag sessions are fragile, browser-cancellable,
+ *  and untestable with synthetic input; pointer events are none of those). */
+export function RowGap({ highlighted }: { highlighted: boolean }) {
   return (
-    <div
-      className="flex h-2 items-center"
-      data-dropzone={beforeId ?? "end"}
-      onDragOver={(e) => {
-        if (!active) return;
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        if (!active) return;
-        e.preventDefault();
-        setOver(false);
-        onDropItem(beforeId);
-      }}
-    >
+    <div className="flex h-2 items-center" data-dropzone={highlighted ? "target" : undefined}>
       <div
         className="w-full rounded transition-all"
         style={{
-          height: over && active ? 3 : 1,
-          background: over && active ? "var(--color-accent)" : "transparent",
+          height: highlighted ? 3 : 1,
+          background: highlighted ? "var(--color-accent)" : "transparent",
         }}
       />
     </div>
@@ -141,8 +113,8 @@ export function SectionRow({
   section,
   pending,
   editable,
-  onDragStart,
-  onDragEnd,
+  onGripPointerDown,
+  beingDragged,
   onToggleHidden,
   onRemove,
   onEdit,
@@ -154,8 +126,9 @@ export function SectionRow({
   pending: boolean;
   /** INSIGHT rows get the pencil. */
   editable: boolean;
-  onDragStart: () => void;
-  onDragEnd: () => void;
+  /** Pointer-drag start on the grip (the panel owns the drag loop). */
+  onGripPointerDown?: (e: React.PointerEvent) => void;
+  beingDragged?: boolean;
   onToggleHidden: () => void;
   onRemove?: () => void;
   onEdit?: () => void;
@@ -168,21 +141,20 @@ export function SectionRow({
   const s = section;
   return (
     <div
-      draggable={!s.hidden}
-      onDragStart={(e) => {
-        // Chrome needs data + a DEFERRED state update: a synchronous React
-        // re-render during dragstart cancels the native drag.
-        e.dataTransfer.setData("text/plain", s.id);
-        e.dataTransfer.effectAllowed = "move";
-        setTimeout(onDragStart, 0);
+      data-row-id={s.id}
+      className="group flex items-start gap-2 rounded-md border border-border-default px-2 py-1.5 text-xs transition-colors hover:border-border-strong"
+      style={{
+        background: "var(--color-surface-2)",
+        opacity: beingDragged ? 0.4 : s.hidden ? 0.45 : undefined,
       }}
-      onDragEnd={onDragEnd}
-      className={`group flex items-start gap-2 rounded-md border border-border-default px-2 py-1.5 text-xs transition-colors hover:border-border-strong ${
-        s.hidden ? "opacity-45" : "cursor-grab active:cursor-grabbing"
-      }`}
-      style={{ background: "var(--color-surface-2)" }}
     >
-      <span className="mt-0.5 shrink-0 text-t-tertiary">
+      <span
+        className={`mt-0.5 shrink-0 touch-none text-t-tertiary ${
+          s.hidden ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
+        onPointerDown={s.hidden ? undefined : onGripPointerDown}
+        title="Drag to reorder"
+      >
         {pending ? <Icon.spinner /> : <Icon.grip />}
       </span>
       <div className="min-w-0 flex-1">

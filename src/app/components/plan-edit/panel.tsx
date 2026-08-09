@@ -12,9 +12,9 @@
  * All behavior lives in usePlanEdit (optimistic ordering, undo stack,
  * per-row pending); this file is composition and copy.
  */
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { PlanEdit } from "@/hooks/use-plan-edit";
-import { DropZone, Icon, SectionRow } from "./rows";
+import { Icon, RowGap, SectionRow } from "./rows";
 import { viewBenefit, viewTitle } from "./copy";
 
 export interface PlanEditPanelProps {
@@ -26,7 +26,61 @@ export interface PlanEditPanelProps {
 }
 
 export function PlanEditPanel({ edit, open, onClose }: PlanEditPanelProps) {
+  // One pointer-based drag loop for the list (same mechanism as the
+  // dashboard overlay — no HTML5 dnd anywhere): pointerdown on a grip
+  // captures the drag, each move picks the nearest row gap, pointerup
+  // applies the reorder.
   const [dragId, setDragId] = useState<string | null>(null);
+  const [insertBefore, setInsertBefore] = useState<string | null | undefined>(undefined);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const beginRowDrag = useCallback(
+    (id: string) => (down: React.PointerEvent) => {
+      down.preventDefault();
+      setDragId(id);
+      let before: string | null | undefined = undefined;
+      const onMove = (e: PointerEvent) => {
+        const rows = [
+          ...(listRef.current?.querySelectorAll("[data-row-id]") ?? []),
+        ] as HTMLElement[];
+        const ids = rows.map((r) => r.getAttribute("data-row-id")!);
+        const selfIdx = ids.indexOf(id);
+        const noop = new Set([id, ids[selfIdx + 1]].filter(Boolean));
+        // Mutable holder (not a narrowed union — TS can't track closure
+        // assignments through forEach).
+        const best = { d: Infinity, before: undefined as string | null | undefined };
+        rows.forEach((r, i) => {
+          const rect = r.getBoundingClientRect();
+          if (!noop.has(ids[i])) {
+            const d = Math.abs(rect.top - e.clientY);
+            if (d < best.d) {
+              best.d = d;
+              best.before = ids[i];
+            }
+          }
+          const below = ids[i + 1] ?? null;
+          if (below === null || !noop.has(below)) {
+            const d = Math.abs(rect.bottom - e.clientY);
+            if (d < best.d) {
+              best.d = d;
+              best.before = below;
+            }
+          }
+        });
+        before = best.before;
+        setInsertBefore(before);
+      };
+      const onUp = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        setDragId(null);
+        setInsertBefore(undefined);
+        if (before !== undefined) edit.reorder(id, before);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+    },
+    [edit]
+  );
   const [editingInsight, setEditingInsight] = useState(false);
   const [insightDraft, setInsightDraft] = useState("");
 
@@ -115,26 +169,19 @@ export function PlanEditPanel({ edit, open, onClose }: PlanEditPanelProps) {
             )}
 
             {/* The dashboard, as a list. Order here IS order there. */}
-            <div className="flex flex-col">
+            <div className="flex flex-col" ref={listRef}>
               <h4 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-t-tertiary">
-                On the dashboard ({visible.length}) — drag, or use the arrows
+                On the dashboard ({visible.length}) — drag the dots, or use the arrows
               </h4>
               {visible.map((s, i) => (
                 <div key={s.id}>
-                  <DropZone
-                    beforeId={s.id}
-                    active={dragId !== null && dragId !== s.id}
-                    onDropItem={(before) => {
-                      if (dragId) edit.reorder(dragId, before);
-                      setDragId(null);
-                    }}
-                  />
+                  <RowGap highlighted={dragId !== null && insertBefore === s.id} />
                   <SectionRow
                     section={s}
                     pending={edit.pendingId === s.id}
                     editable={s.op === "INSIGHT"}
-                    onDragStart={() => setDragId(s.id)}
-                    onDragEnd={() => setDragId(null)}
+                    onGripPointerDown={beginRowDrag(s.id)}
+                    beingDragged={dragId === s.id}
                     onToggleHidden={() => edit.toggleHidden(s.id, s.hidden)}
                     onRemove={
                       s.kind === "node" && s.op !== "ANSWER" && s.op !== "INSIGHT"
@@ -188,15 +235,8 @@ export function PlanEditPanel({ edit, open, onClose }: PlanEditPanelProps) {
                   )}
                 </div>
               ))}
-              {/* Drop at the very end — the affordance v1 lacked. */}
-              <DropZone
-                beforeId={null}
-                active={dragId !== null}
-                onDropItem={(before) => {
-                  if (dragId) edit.reorder(dragId, before);
-                  setDragId(null);
-                }}
-              />
+              {/* Drop-at-end gap. */}
+              <RowGap highlighted={dragId !== null && insertBefore === null} />
             </div>
 
             {hidden.length > 0 && (
@@ -210,8 +250,6 @@ export function PlanEditPanel({ edit, open, onClose }: PlanEditPanelProps) {
                     section={s}
                     pending={edit.pendingId === s.id}
                     editable={false}
-                    onDragStart={() => {}}
-                    onDragEnd={() => {}}
                     onToggleHidden={() => edit.toggleHidden(s.id, s.hidden)}
                   />
                 ))}

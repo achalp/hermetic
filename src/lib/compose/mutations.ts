@@ -24,7 +24,12 @@ export function applyMutations(
    *  derived view ids and structural ids (tile grid, banner). Callers that
    *  know the compile surface pass them so typos still error; absent, only
    *  plan-node ids validate (legacy behavior). */
-  knownElementIds?: Set<string>
+  knownElementIds?: Set<string>,
+  /** The FULL compiled element order (banner, tiles, nodes, views) — the
+   *  base a move starts from when overlay.order is still empty. Without
+   *  it, the first drag on a fresh dashboard anchored to any non-node
+   *  element (tiles, charts — most of the page) failed "unknown anchor". */
+  baseOrder?: string[]
 ): MutationResult {
   const next: PlanDocument = {
     mode: doc.mode,
@@ -52,9 +57,10 @@ export function applyMutations(
           break;
         }
         const order = (next.overlay.order ?? []).filter((x) => x !== m.id);
-        // Overlay order lists every node explicitly once a move happens —
-        // deterministic and stable across recompiles (identity-keyed).
-        const base = order.length > 0 ? order : next.plan.nodes.map((n) => n.id);
+        // Overlay order lists every element explicitly once a move happens —
+        // deterministic and stable across recompiles (identity-keyed). The
+        // first move seeds from the full compiled order when provided.
+        const base = order.length > 0 ? order : (baseOrder ?? next.plan.nodes.map((n) => n.id));
         const withu = base.filter((x) => x !== m.id);
         const at = m.before ? withu.indexOf(m.before) : withu.length;
         if (m.before && at === -1) {

@@ -84,6 +84,37 @@ function viewsFor(artifacts: CachedArtifacts): DerivedView[] {
   });
 }
 
+/** The compiled element order for a doc — the move mutation's base on a
+ *  fresh overlay. Deterministic recompile of the CURRENT doc with row
+ *  wrappers expanded to their real members. */
+function compileOrder(artifacts: CachedArtifacts, doc: PlanDocument): string[] {
+  if (!artifacts.findings) return doc.plan.nodes.map((n) => n.id);
+  const { product } = parseProduct(artifacts.series, undefined);
+  const lines = compileDashboard({
+    manifest: artifacts.findings,
+    product,
+    plan: doc.plan,
+    overlay: doc.overlay,
+    headlinePlan: planHeadlineTiles(
+      artifacts.findings.findings,
+      artifacts.results ?? {},
+      artifacts.question
+    ),
+    question: artifacts.question,
+    purpose: doc.purpose,
+    regimes: artifacts.regimes,
+  });
+  const rowChildren = new Map<string, string[]>();
+  for (const line of lines) {
+    const p = JSON.parse(line) as { path?: string; value?: { children?: string[] } };
+    if (p.path?.startsWith("/elements/compiled_row_")) {
+      rowChildren.set(p.path.slice("/elements/".length), p.value?.children ?? []);
+    }
+  }
+  const root = JSON.parse(lines[lines.length - 2]) as { value?: { children?: string[] } };
+  return (root.value?.children ?? []).flatMap((id) => rowChildren.get(id) ?? [id]);
+}
+
 /** Artifacts for a dataset: live cache first, then the history record —
  *  by the entry's OWN id when the caller has one (the ?restore= flow runs
  *  under a fresh csvId that maps to no record), else by csvId. */
@@ -114,9 +145,15 @@ export async function editDashboard(
     };
   }
   const knownIds = new Set([...viewsFor(artifacts).map((v) => v.id), ...STRUCTURAL_IDS]);
-  const { doc, errors } = applyMutations(artifacts.plan, mutations, knownIds);
+  // The full compiled order seeds the FIRST move on a fresh dashboard
+  // (empty overlay.order): compile the current doc and expand row wrappers.
+  const baseOrder = compileOrder(artifacts, artifacts.plan);
+  const { doc, errors } = applyMutations(artifacts.plan, mutations, knownIds, baseOrder);
+  // Mutation errors FAIL the edit — a 200 that silently applied nothing is
+  // how "drag and drop doesn't work" shipped twice.
+  if (errors.length > 0) return { ok: false, errors };
   const v = validatePlan(doc.plan, artifacts.findings.findings);
-  if (!v.ok) return { ok: false, errors: [...errors, ...v.errors] };
+  if (!v.ok) return { ok: false, errors: v.errors };
 
   const { product } = parseProduct(artifacts.series, undefined);
   const lines = compileDashboard({
