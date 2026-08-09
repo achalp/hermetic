@@ -20,6 +20,13 @@ export const OP_LABEL: Record<string, string> = {
   NOTE: "Note",
   CAVEAT: "Caveat",
   INSIGHT: "Insight",
+  SECTION: "Section",
+  EXPLAIN: "Explainer",
+  CALLOUT: "Callout",
+  METHOD: "Method",
+  CONCLUSION: "Conclusion",
+  NEXT_STEPS: "Next steps",
+  LIMITS: "Left out",
 };
 
 /** The row's tag chip: what KIND of thing this section is. */

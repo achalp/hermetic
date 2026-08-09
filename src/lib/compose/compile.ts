@@ -67,16 +67,32 @@ export function compileDashboard(input: CompileInput): string[] {
 
   // 3. Narrative from the plan, one element per node (identity-keyed so
   //    the overlay survives recompiles). FORM is part of honesty's
-  //    legibility: the ANSWER leads as a styled insight callout, CAVEATs
-  //    render as annotations (visually distinct from body prose — a caveat
-  //    indistinguishable from a sentence is a caveat unread), everything
-  //    else is body text.
+  //    legibility: headings, callouts, annotations, and body prose are
+  //    visually distinct — a caveat indistinguishable from a sentence is
+  //    a caveat unread. Nodes may ANCHOR an element (chart/table): the
+  //    anchored element renders immediately after the node — explainers
+  //    sit above their chart, caveats sit where they apply — and leaves
+  //    the trailing evidence block.
+  const anchored = new Set<string>();
+  const pendingAnchors: { afterNodeId: string; elementId: string }[] = [];
   for (const node of plan.nodes) {
     if (hidden.has(node.id)) continue;
     const text = realizeNode(node, byName);
     if (!text) continue;
     let value: SpecPatchLine["value"];
-    if (node.op === "CAVEAT") {
+    if (node.op === "SECTION") {
+      value = {
+        type: "TextBlock",
+        props: { content: text, variant: "heading" },
+        children: [],
+      };
+    } else if (node.op === "CALLOUT") {
+      value = {
+        type: "Annotation",
+        props: { title: "Worth attention", content: text, severity: "info", icon: "flag" },
+        children: [],
+      };
+    } else if (node.op === "CAVEAT") {
       const failed = node.refs.some((r) => {
         const f = byName.get(r);
         return (
@@ -96,17 +112,19 @@ export function compileDashboard(input: CompileInput): string[] {
         children: [],
       };
     } else {
+      const insightLike = node.op === "ANSWER" || node.op === "INSIGHT" || node.op === "CONCLUSION";
       value = {
         type: "TextBlock",
-        props: {
-          content: text,
-          ...(node.op === "ANSWER" || node.op === "INSIGHT" ? { variant: "insight" } : {}),
-        },
+        props: { content: text, ...(insightLike ? { variant: "insight" } : {}) },
         children: [],
       };
     }
     patches.push({ op: "add", path: `/elements/${node.id}`, value });
     children.push(node.id);
+    if (node.anchor && !hidden.has(node.anchor) && !anchored.has(node.anchor)) {
+      anchored.add(node.anchor);
+      pendingAnchors.push({ afterNodeId: node.id, elementId: node.anchor });
+    }
   }
 
   // 4. Views from declared series roles (views.ts): unit-split primaries,
@@ -119,10 +137,25 @@ export function compileDashboard(input: CompileInput): string[] {
     purpose: input.purpose,
   });
   const shippedViews = views.filter((v) => (v.shipped || shown.has(v.id)) && !hidden.has(v.id));
+  // Anchored views render at their node's position: emit their patches,
+  // splice their ids in after the anchoring node, and drop them from the
+  // evidence block. Anchors naming unknown/unshipped elements are ignored.
+  const shippedIds = new Set(shippedViews.map((v) => v.id));
+  for (const a of pendingAnchors) {
+    if (!shippedIds.has(a.elementId)) continue;
+    const view = shippedViews.find((v) => v.id === a.elementId)!;
+    patches.push(view.patch);
+    const at = children.indexOf(a.afterNodeId);
+    if (at === -1) continue;
+    children.splice(at + 1, 0, a.elementId);
+  }
   // A visual seam between the story and its evidence — without it the
   // narrative reads as a preamble to "a boring list of charts" (first
   // compiled-run review). Identity-keyed so the overlay can hide/move it.
-  if (shippedViews.length > 0 && !hidden.has("compiled_evidence_break")) {
+  // Skipped when every view was anchored into the narrative: a seam with
+  // nothing under it is a dangling label.
+  const evidenceViews = shippedViews.filter((v) => !children.includes(v.id));
+  if (evidenceViews.length > 0 && !hidden.has("compiled_evidence_break")) {
     patches.push({
       op: "add",
       path: "/elements/compiled_evidence_break",
@@ -134,7 +167,7 @@ export function compileDashboard(input: CompileInput): string[] {
     });
     children.push("compiled_evidence_break");
   }
-  for (const v of shippedViews) {
+  for (const v of evidenceViews) {
     patches.push(v.patch);
     children.push(v.id);
   }

@@ -18,7 +18,15 @@ export type PlanOp =
   | "CONTRAST"
   | "NOTE"
   | "CAVEAT" // must reference a check/screen; renders ONLY its fields
-  | "INSIGHT"; // the one free-prose tier-3 node (linted + audited)
+  | "INSIGHT" // cross-claim synthesis (findings-bound, linted, audited)
+  // Document grammar (spec §14) — the report apparatus:
+  | "SECTION" // heading (short title, no refs needed)
+  | "EXPLAIN" // chart explainer — usually anchored to a view
+  | "CALLOUT" // attention block (renders as a flagged annotation)
+  | "METHOD" // how the analysis was done (grounded in claim definitions)
+  | "CONCLUSION" // closing summary (figures bound)
+  | "NEXT_STEPS" // suggested follow-ups (framed as actions, never findings)
+  | "LIMITS"; // what this analysis does NOT cover
 
 export interface PlanNode {
   /** Stable id (ULID-ish) — the overlay and mutations key on it. */
@@ -26,8 +34,15 @@ export interface PlanNode {
   op: PlanOp;
   /** Claim names this node renders/references (finding manifest names). */
   refs: string[];
-  /** INSIGHT only: the free prose (findings-bound, linted, audited). */
+  /** Authored narrative (narrated mode): figures must be $finding:
+   *  bindings — validateNodeText rejects literal digits. CAVEAT never
+   *  carries text. */
   text?: string;
+  /** Element id (chart_/table_/tile_grid) to render IMMEDIATELY AFTER
+   *  this node — how explainers sit above their chart and caveats sit at
+   *  the position they caveat. Unknown anchors are ignored (the element
+   *  stays in the evidence block). */
+  anchor?: string;
 }
 
 export interface Plan {
@@ -65,7 +80,11 @@ export type PlanMutation =
   | { kind: "move"; id: string; before?: string }
   | { kind: "hide"; id: string }
   | { kind: "show"; id: string }
-  | { kind: "add_node"; node: { op: PlanOp; refs: string[]; text?: string }; before?: string }
+  | {
+      kind: "add_node";
+      node: { op: PlanOp; refs: string[]; text?: string; anchor?: string };
+      before?: string;
+    }
   | { kind: "remove_node"; id: string }
   | { kind: "set_insight"; text: string }
   | { kind: "set_width"; id: string; width: "half" | "full" }

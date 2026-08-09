@@ -145,7 +145,7 @@ describe("validatePlan — structural invariants as parse errors", () => {
     // Legacy alias + unknown resolve through the same table as every consumer.
     expect(planBudget("executive-summary").maxNodes).toBe(planBudget("brief").maxNodes);
     expect(planBudget(undefined).maxNodes).toBe(planBudget("dashboard").maxNodes);
-    expect(buildPlannerSystem("deep-dive")).toContain("10-20 nodes");
+    expect(buildPlannerSystem("deep-dive")).toContain("14-28 nodes");
     expect(buildPlannerSystem("deep-dive")).toContain("EVERY non-check claim");
     expect(buildPlannerSystem()).toContain("4-9 nodes");
   });
@@ -786,6 +786,179 @@ describe("compileDashboard — deterministic, identity-keyed, overlay-aware", ()
         roles: { ...PRODUCT.series[0].roles, x: { column: "cuisine", kind: "categorical" } },
       })
     ).toBe("BarChart");
+  });
+});
+
+describe("document grammar — sections, explainers, anchors (spec §14)", () => {
+  const docPlan = {
+    nodes: [
+      {
+        id: "d_method",
+        op: "METHOD" as const,
+        refs: ["price_trend"],
+        text: "Prices were fit per period and screened for sentinel zeros.",
+      },
+      { id: "d_answer", op: "ANSWER" as const, refs: ["price_trend"] },
+      { id: "d_section", op: "SECTION" as const, refs: [], text: "The long arc" },
+      {
+        id: "d_explain",
+        op: "EXPLAIN" as const,
+        refs: ["price_trend"],
+        text: "The line climbs steadily; the slope is $finding:price_trend.slope_per_period per period.",
+        anchor: "chart_annual_prices",
+      },
+      {
+        id: "d_callout",
+        op: "CALLOUT" as const,
+        refs: ["price_peak"],
+        text: "The raw extreme sits on thin coverage — read the attested peak instead.",
+      },
+      {
+        id: "d_conclusion",
+        op: "CONCLUSION" as const,
+        refs: ["price_trend"],
+        text: "Prices rose across the observed window.",
+      },
+      {
+        id: "d_next",
+        op: "NEXT_STEPS" as const,
+        refs: [],
+        text: "Would a per-category split change the story?",
+      },
+      { id: "d_limits", op: "LIMITS" as const, refs: [], text: "No causal claims are made here." },
+    ],
+  };
+
+  it("validatePlan: refless ops stand alone; text-required ops must be authored", () => {
+    const ok = validatePlan(docPlan, FINDINGS);
+    expect(ok.ok).toBe(true);
+    const noText = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["price_trend"] },
+          { id: "s", op: "SECTION", refs: [] },
+        ],
+      },
+      FINDINGS
+    );
+    expect(noText.ok).toBe(false);
+    expect(noText.errors.join()).toContain("requires authored text");
+    // EXPLAIN is not refless — an explainer must say WHICH claims it narrates.
+    const orphanExplain = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["price_trend"] },
+          { id: "e", op: "EXPLAIN", refs: [], text: "The chart shows the rise." },
+        ],
+      },
+      FINDINGS
+    );
+    expect(orphanExplain.ok).toBe(false);
+    expect(orphanExplain.errors.join()).toContain("references no claim");
+  });
+
+  it("compile maps document ops to distinct forms: heading, flag callout, insight close", () => {
+    const lines = compileDashboard({
+      manifest: MANIFEST,
+      product: PRODUCT,
+      plan: docPlan,
+      overlay: {},
+      headlinePlan: [],
+      question: "How have prices changed?",
+    });
+    const byPath = new Map(
+      lines
+        .map(
+          (l) =>
+            JSON.parse(l) as {
+              path: string;
+              value?: { type?: string; props?: Record<string, unknown>; children?: string[] };
+            }
+        )
+        .map((p) => [p.path, p])
+    );
+    expect(byPath.get("/elements/d_section")?.value?.props?.variant).toBe("heading");
+    const callout = byPath.get("/elements/d_callout")?.value;
+    expect(callout?.type).toBe("Annotation");
+    expect(callout?.props?.icon).toBe("flag");
+    expect(callout?.props?.severity).toBe("info");
+    expect(byPath.get("/elements/d_conclusion")?.value?.props?.variant).toBe("insight");
+    expect(byPath.get("/elements/d_method")?.value?.props?.variant).toBeUndefined();
+  });
+
+  it("anchors weave the chart in AFTER its explainer and out of the evidence block", () => {
+    const lines = compileDashboard({
+      manifest: MANIFEST,
+      product: PRODUCT,
+      plan: docPlan,
+      overlay: {},
+      headlinePlan: [],
+      question: "How have prices changed?",
+    });
+    const root = JSON.parse(lines[lines.length - 2]) as { value: { children: string[] } };
+    const kids = root.value.children;
+    expect(kids.indexOf("chart_annual_prices")).toBe(kids.indexOf("d_explain") + 1);
+    // The only shipped view is anchored — no dangling "Evidence" seam.
+    expect(kids).not.toContain("compiled_evidence_break");
+    // The chart's patch is emitted exactly once.
+    expect(lines.filter((l) => l.includes('"/elements/chart_annual_prices"')).length).toBe(1);
+  });
+
+  it("unknown anchors are ignored; unanchored views keep the evidence seam", () => {
+    const plan = {
+      nodes: [
+        { id: "a", op: "ANSWER" as const, refs: ["price_trend"] },
+        {
+          id: "e",
+          op: "EXPLAIN" as const,
+          refs: ["price_trend"],
+          text: "The trend explained.",
+          anchor: "chart_does_not_exist",
+        },
+      ],
+    };
+    const lines = compileDashboard({
+      manifest: MANIFEST,
+      product: PRODUCT,
+      plan,
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    const root = JSON.parse(lines[lines.length - 2]) as { value: { children: string[] } };
+    expect(root.value.children).not.toContain("chart_does_not_exist");
+    // Chart still ships, below the seam.
+    expect(root.value.children.indexOf("compiled_evidence_break")).toBeLessThan(
+      root.value.children.indexOf("chart_annual_prices")
+    );
+  });
+
+  it("realizeNode: document ops without authored text render nothing", () => {
+    const byName = new Map(FINDINGS.map((f) => [f.name, f]));
+    expect(realizeNode({ id: "x", op: "METHOD", refs: ["price_trend"] }, byName)).toBeNull();
+    expect(realizeNode({ id: "y", op: "SECTION", refs: [] }, byName)).toBeNull();
+    // EXPLAIN is narrative-first but falls back to the claim template.
+    expect(realizeNode({ id: "z", op: "EXPLAIN", refs: ["price_trend"] }, byName)).toContain(
+      "$finding:price_trend"
+    );
+  });
+
+  it("planner prompt teaches the document vocabulary and chart anchoring", () => {
+    const sys = buildPlannerSystem("report");
+    for (const word of [
+      "SECTION",
+      "EXPLAIN",
+      "CALLOUT",
+      "METHOD",
+      "CONCLUSION",
+      "NEXT_STEPS",
+      "LIMITS",
+      "anchor",
+    ]) {
+      expect(sys).toContain(word);
+    }
+    expect(planBudget("report").guidance).toContain("METHOD");
+    expect(planBudget("deep-dive").guidance).toContain("CALLOUT");
   });
 });
 

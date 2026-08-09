@@ -82,6 +82,23 @@ function chartPatch(s: SeriesEntry, id: string, title: string, yKeys: string[]):
   };
 }
 
+/** Human title for a view in the PLANNER prompt — what the model anchors
+ *  EXPLAIN/CAVEAT nodes to. Mirrors the edit panel's viewTitle so the same
+ *  chart has the same name everywhere. */
+export function viewPromptTitle(v: DerivedView): string {
+  const name = v.seriesId.replace(/^step_\d+_/, "").replace(/_/g, " ");
+  switch (v.kind) {
+    case "coverage":
+      return `Coverage of ${name} (observations per period)`;
+    case "table":
+      return `Table of ${name}`;
+    case "unit_split":
+      return `${name} (separate axis)`;
+    default:
+      return `${name} (primary chart)`;
+  }
+}
+
 /** Derive the full view family for the product's series. Callers emit only
  *  `shipped` views; the rest document what COULD ship (future UI affordance,
  *  Verify legibility). */

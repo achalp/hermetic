@@ -70,6 +70,7 @@ import { lintComponentSignature } from "@/lib/product/signatures";
 import { getComposerMode } from "@/lib/runtime-config";
 import { compileDashboard } from "@/lib/compose/compile";
 import { generatePlan as generateNarrativePlan } from "@/lib/compose/planner";
+import { deriveViews, viewPromptTitle } from "@/lib/compose/views";
 import { planHeadlineTiles } from "@/lib/findings/headline-plan";
 import {
   FINDINGS_MANIFEST_VERSION,
@@ -865,11 +866,17 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               return {
                 initialState: { results: res, chart_data: charts },
                 textStream: (async function* () {
+                  const shippedViews = deriveViews({
+                    series: investigationProduct.series,
+                    regimes: investigationRegimes,
+                    purpose: context.purpose,
+                  }).filter((v) => v.shipped);
                   const { plan } = await generateNarrativePlan({
                     findings: investigationFindings!.findings,
                     question,
                     model: uiComposeModel,
                     purpose: context.purpose,
+                    views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
                   });
                   investigatePlanDoc = {
                     plan,

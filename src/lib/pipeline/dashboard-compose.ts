@@ -44,6 +44,7 @@ import { lintComponentSignature } from "@/lib/product/signatures";
 import { getComposerMode } from "@/lib/runtime-config";
 import { compileDashboard } from "@/lib/compose/compile";
 import { generatePlan as generateNarrativePlan } from "@/lib/compose/planner";
+import { deriveViews, viewPromptTitle } from "@/lib/compose/views";
 import type { PlanDocument, PlanOverlay } from "@/lib/contracts/plan";
 import type { AnalysisProduct } from "@/lib/contracts/product";
 import { planHeadlineTiles, buildHeadlineSection } from "@/lib/findings/headline-plan";
@@ -846,11 +847,17 @@ export async function composeAndStreamDashboard(args: {
         // Body runs lazily at first iteration — headlinePlan/product consts
         // below are initialized by then.
         const findingsList = opts.findings!.manifest.findings;
+        const shippedViews = deriveViews({
+          series: modeProduct.series,
+          regimes: (executionResult.regimes ?? {}) as Record<string, unknown>,
+          purpose: opts.purpose,
+        }).filter((v) => v.shipped);
         const { plan } = await generateNarrativePlan({
           findings: findingsList,
           question: opts.question,
           model: uiComposeModel,
           purpose: opts.purpose,
+          views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
         });
         compiledPlanDoc = {
           plan,

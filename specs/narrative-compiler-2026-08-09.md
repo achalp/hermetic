@@ -272,3 +272,53 @@ fabricated mechanisms live. Same single LLM call (output budget raised
 1200→3000 tokens for narrated nodes); the finalizer resolves authored
 bindings through the identical stack, and the lint battery + grounding
 verification still audit the result.
+
+## 14. Amendment (2026-08-09): the document grammar — from fact list to analysis
+
+User verdict on the first narrated run: "The texts are a grab bag of
+facts," followed by an eight-point definition of what a compiled
+document owes its reader: full analysis-level prose, chart explainers,
+attention callouts, position-anchored caveats, a conclusion, next
+steps, the method, and what was left out. The narrated mode (§13) gave
+nodes a voice; it did not give the document a SHAPE — the plan grammar
+had ops only for claims, so the planner could not write structure even
+when prompted to.
+
+**New ops.** The grammar gains seven document ops beside the claim ops:
+`SECTION` (a short heading; refless — it titles what follows),
+`EXPLAIN` (narrates a chart), `CALLOUT` (Annotation with a flag icon —
+what deserves attention), `METHOD` (how the analysis was done, grounded
+ONLY in the claims' stated definitions), `CONCLUSION` (renders as an
+insight callout — the answer restated with its strongest figures
+bound), `NEXT_STEPS` (refless; follow-up questions/actions, never
+phrased as findings), and `LIMITS` (refless; what this analysis does
+not cover). `REFLESS_OPS` exempts the three structural ops from the
+refs requirement; `TEXT_REQUIRED_OPS` makes authored text mandatory for
+the ops that ARE their text — with none they realize to nothing, never
+a claim-template dump under a heading. All authored text still passes
+`validateNodeText`: the document grammar widens what can be SAID, not
+what can be fabricated.
+
+**Anchors.** Any node may carry `anchor: <element id>`; compile emits
+the anchored view immediately after the node and removes it from the
+trailing evidence block — this is how an explainer sits ABOVE its chart
+and a caveat sits AT the position it caveats (the user's point 4:
+"caveats that are attached to the position in the report they are
+caveating"). The planner prompt lists shipped views as "## Charts
+(anchor EXPLAIN/CAVEAT nodes to these ids)" — both compiled call sites
+derive them via `deriveViews` and pass `{id, title}` through
+`generatePlan`. Unknown/unshipped anchors are ignored (never an
+error — the plan survives view-family drift); the first node to anchor
+an element wins; the "Evidence" seam is skipped when every view was
+woven into the narrative (a seam with nothing under it is a dangling
+label). The overlay grammar is unchanged: anchored elements keep their
+stable ids, so hide/move/width edits govern them exactly as before.
+
+**Budgets.** report: 12-22 nodes, deep-dive: 14-28 (schema cap 24→32);
+the guidance now prescribes the document arc — METHOD first, ANSWER,
+SECTION-headed parts weaving claims with anchored EXPLAINs and
+position-anchored CAVEATs, then CONCLUSION, NEXT_STEPS, LIMITS.
+Planner output budget 3000→4500. The edit panel labels the new ops
+(Section, Explainer, Callout, Method, Conclusion, Next steps, Left
+out), so the document structure is legible — and editable — in the
+same governed grammar as everything else.

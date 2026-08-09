@@ -22,16 +22,38 @@ export const PLAN_OPS = [
   "NOTE",
   "CAVEAT",
   "INSIGHT",
+  // Document grammar (spec §14):
+  "SECTION",
+  "EXPLAIN",
+  "CALLOUT",
+  "METHOD",
+  "CONCLUSION",
+  "NEXT_STEPS",
+  "LIMITS",
 ] as const;
+
+/** Ops that stand WITHOUT claim refs: a heading titles what follows, and
+ *  next-steps/limits speak about the analysis, not a specific claim. */
+export const REFLESS_OPS = new Set(["SECTION", "NEXT_STEPS", "LIMITS"]);
+/** Ops whose whole content is authored text (no template fallback). */
+export const TEXT_REQUIRED_OPS = new Set([
+  "SECTION",
+  "CALLOUT",
+  "METHOD",
+  "CONCLUSION",
+  "NEXT_STEPS",
+  "LIMITS",
+]);
 
 export const PlanNodeSchema = z.object({
   id: z.string().min(1),
   op: z.enum(PLAN_OPS),
   refs: z.array(z.string()).default([]),
   text: z.string().optional(),
+  anchor: z.string().optional(),
 });
 
-export const PlanSchema = z.object({ nodes: z.array(PlanNodeSchema).min(1).max(24) });
+export const PlanSchema = z.object({ nodes: z.array(PlanNodeSchema).min(1).max(32) });
 
 /**
  * Purpose-scaled plan budgets (the compiled composer's depth dimension).
@@ -53,14 +75,14 @@ export const PLAN_BUDGETS: Record<string, { maxNodes: number; guidance: string }
     guidance: "4-9 nodes total.",
   },
   report: {
-    maxNodes: 14,
+    maxNodes: 22,
     guidance:
-      "8-14 nodes total, ordered like a document: ANSWER first, then the evidence claims section by section (TREND/PEAK/ENDPOINT/SHAPE), CONTRAST where claims tension, CAVEATs, NOTE for secondary results worth recording.",
+      "12-22 nodes, a COMPLETE document: open with METHOD (how the analysis was done, grounded in the claims' definitions), then SECTION-headed parts each weaving claims into flowing prose with EXPLAIN nodes anchored to their charts, CAVEATs anchored at the position they qualify, then CONCLUSION, NEXT_STEPS, and LIMITS to close. CONTRAST where claims tension.",
   },
   "deep-dive": {
-    maxNodes: 20,
+    maxNodes: 28,
     guidance:
-      "10-20 nodes total. Narrate EVERY non-check claim that carries signal — an unnarrated finding is a coverage gap, not brevity. Use CONTRAST for claims in tension, SHAPE for distributions, NOTE for the rest.",
+      "14-28 nodes, an exhaustive document: METHOD up front; SECTION-headed parts; narrate EVERY non-check claim that carries signal — an unnarrated finding is a coverage gap, not brevity; EXPLAIN anchored to every chart; CAVEATs anchored where they apply; CALLOUT for anything that deserves the reader's attention; close with CONCLUSION, NEXT_STEPS, and LIMITS.",
   },
 };
 
@@ -174,7 +196,12 @@ export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidati
         );
       }
     }
-    if (n.refs.length === 0) errors.push(`node ${n.id} (${n.op}) references no claim`);
+    if (n.op !== "CAVEAT" && TEXT_REQUIRED_OPS.has(n.op) && !n.text?.trim()) {
+      errors.push(`node ${n.id} (${n.op}) requires authored text`);
+    }
+    if (n.refs.length === 0 && !REFLESS_OPS.has(n.op)) {
+      errors.push(`node ${n.id} (${n.op}) references no claim`);
+    }
     for (const ref of n.refs) {
       const f = byName.get(ref);
       if (!f) {

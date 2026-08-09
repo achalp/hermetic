@@ -14,6 +14,7 @@
  */
 import type { FindingEntry } from "@/lib/contracts/findings";
 import type { PlanNode } from "@/lib/contracts/plan";
+import { TEXT_REQUIRED_OPS } from "./plan";
 
 const fv = (f: FindingEntry): Record<string, unknown> =>
   f.value !== null && typeof f.value === "object" && !Array.isArray(f.value)
@@ -172,6 +173,9 @@ const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 export function realizeNode(node: PlanNode, byName: Map<string, FindingEntry>): string | null {
   if (node.op === "INSIGHT") return node.text?.trim() || null;
   if (node.op !== "CAVEAT" && node.text?.trim()) return node.text.trim();
+  // Document ops ARE their authored text — with none, they render nothing
+  // (never a claim-template dump under a heading/method/conclusion label).
+  if (TEXT_REQUIRED_OPS.has(node.op)) return null;
   const parts: string[] = [];
   for (const ref of node.refs) {
     const f = byName.get(ref);
