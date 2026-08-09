@@ -30,13 +30,21 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A failed surface FETCH is not "this dashboard isn't compiled" — the two
+  // states render differently (retry vs. the composer-setting explainer).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [insightDraft, setInsightDraft] = useState<string | null>(null);
   const dragId = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!csvId) return;
-    const s = await getPlanSurface(csvId).catch(() => null);
-    setSurface(s);
+    try {
+      const s = await getPlanSurface(csvId);
+      setSurface(s);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true);
+    }
     setLoaded(true);
   }, [csvId]);
 
@@ -44,6 +52,7 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
     if (open) {
       setLoaded(false);
       setError(null);
+      setLoadFailed(false);
       setInsightDraft(null);
       void refresh();
     }
@@ -75,11 +84,12 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
 
   return (
     <div
-      className="fixed right-0 top-14 bottom-0 w-[22rem] overflow-y-auto border-l border-border-default bg-surface-primary p-4 shadow-xl"
-      // Above the data rail's collapsed icon strip (z 180, 48px wide at
-      // right-0) — below it, the panel's row buttons render clipped
-      // underneath the rail.
-      style={{ zIndex: 200 }}
+      className="fixed top-14 bottom-0 w-[22rem] overflow-y-auto border-l border-border-default bg-surface-primary p-4 shadow-xl"
+      // BESIDE the data rail's collapsed icon strip (48px at right-0,
+      // z 180), never over or under it: offset by the strip's width, and
+      // stacked below the rail so expanding it takes precedence. (v1 sat
+      // under the strip and clipped; v2 covered it.)
+      style={{ right: 48, zIndex: 170 }}
       data-testid="plan-edit-panel"
     >
       <div className="mb-3 flex items-center justify-between">
@@ -95,6 +105,22 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
 
       {!loaded ? (
         <p className="text-xs text-t-tertiary">Loading…</p>
+      ) : loadFailed ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs" style={{ color: "var(--color-error-text)" }}>
+            Couldn&apos;t load the dashboard&apos;s plan (server error) — this says nothing about
+            whether it&apos;s editable.
+          </p>
+          <button
+            onClick={() => {
+              setLoaded(false);
+              void refresh();
+            }}
+            className="self-start rounded border border-border-default px-2 py-1 text-xs text-t-primary"
+          >
+            Retry
+          </button>
+        </div>
       ) : !surface ? (
         <p className="text-xs text-t-secondary">
           This dashboard isn&apos;t editable — editing needs the compiled composer. Switch Settings

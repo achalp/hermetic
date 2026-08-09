@@ -682,7 +682,10 @@ export async function getPlanSurface(
   signal?: AbortSignal
 ): Promise<PlanEditSurface | null> {
   const res = await fetch(`/api/plan?csv_id=${encodeURIComponent(csvId)}`, { signal });
-  if (!res.ok) return null;
+  // null means "this dashboard has no plan" (not compiled) — a FAILED
+  // request must throw instead: conflating the two made a transient 500
+  // render as "switch to the compiled composer" on a compiled dashboard.
+  if (!res.ok) throw new ApiError(`Failed to load plan (${res.status})`, res.status);
   const data = (await res.json()) as { surface?: PlanEditSurface | null };
   return data.surface ?? null;
 }
