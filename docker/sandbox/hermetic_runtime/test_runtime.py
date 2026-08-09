@@ -1069,6 +1069,92 @@ class TestZeroTotalization(unittest.TestCase):
         self.assertLess(finding_correlation(xs, ys)["pearson_r"], 0.9)
 
 
+class TestRegimePromotions(unittest.TestCase):
+    """Matrix cells promoted to in-function enforcement (amendment §9):
+    WLS trend, NON_MONOTONE_X refusals, KW dispatch, bindable-shape keys,
+    signed-multiplier gate, preferred-coefficient dispatch."""
+
+    def test_trend_counts_weights_the_fit(self):
+        # A 3-item year cannot steer the slope like six 1,000-item years:
+        # OLS is dragged by the thin outlier year; WLS nearly ignores it.
+        values = [10.0, 10.1, 9.9, 10.05, 9.95, 10.0, 60.0]
+        counts = [1000, 1000, 1000, 1000, 1000, 1000, 3]
+        ols = finding_trend(values)
+        wls = finding_trend(values, counts=counts)
+        self.assertFalse(ols["weighted"])
+        self.assertTrue(wls["weighted"])
+        self.assertGreater(abs(ols["slope_per_period"]), 1.0)
+        self.assertLess(abs(wls["slope_per_period"]), 1.0)
+        self.assertEqual(wls["direction"], "flat")
+
+    def test_trend_refuses_disordered_numeric_labels(self):
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        out = finding_trend(vals, labels=[3, 1, 2, 6, 5, 4])
+        self.assertIsNone(out["direction"])
+        ordered = finding_trend(vals, labels=[1, 2, 3, 4, 5, 6])
+        self.assertEqual(ordered["direction"], "rising")
+
+    def test_order_dependent_claims_refuse_provable_disorder(self):
+        # Numeric labels out of order: the statistic is undefined — refuse.
+        bad = ["1905", "1900", "1903", "1901", "1904", "1902"]
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        self.assertIsNone(finding_split_comparison(bad, vals)["multiplier"])
+        self.assertIsNone(finding_current_state(vals, labels=bad)["period"])
+        self.assertIsNone(
+            finding_step_change(vals + [20.0, 20.5], labels=bad + ["1906", "1907"])["baseline_spread"]
+        )
+        self.assertIsNone(finding_outliers(bad, vals)["outliers"])
+
+    def test_categorical_labels_stay_on_the_caveat_path(self):
+        # Labels the function cannot rank must NOT trigger refusal —
+        # refusing on ["b", "a"] would kill legitimate categorical uses.
+        vals = [10.0, 11.0, 12.0, 11.5, 12.5, 11.8]
+        out = finding_current_state(vals, labels=["b", "a", "c", "e", "d", "f"])
+        self.assertIsNotNone(out["period"])
+
+    def test_distribution_carries_bindable_shape_evidence(self):
+        out = finding_distribution([1.0, 1.0, 1.0, 2.0, 2.0, 3.0])
+        self.assertAlmostEqual(out["distinct_share"], 0.5, places=3)
+        self.assertAlmostEqual(out["modal_share"], 0.5, places=3)
+
+    def test_split_multiplier_requires_positive_medians(self):
+        labels = [str(1900 + i) for i in range(10)]
+        vals = [-5.0] * 5 + [5.0] * 5
+        out = finding_split_comparison(labels, vals)
+        self.assertIsNone(out["multiplier"])  # signed ratio is not growth
+        self.assertEqual(out["early_median"], -5.0)  # levels still reported
+        self.assertEqual(out["late_median"], 5.0)
+
+    def test_correlation_preferred_dispatches_on_regimes(self):
+        xs = [float(i) for i in range(1, 11)]
+        benign = finding_correlation(xs, [2.0 * x for x in xs])
+        self.assertEqual(benign["preferred"], "pearson")
+        heavy = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 1000.0]
+        out = finding_correlation(xs, heavy)
+        self.assertEqual(out["preferred"], "spearman")
+
+    def test_heterogeneity_dispatches_kruskal_wallis_under_heavy_tails(self):
+        groups = {"a": [1.0, 1.0, 1.1, 1.2, 1.15, 200.0],
+                  "b": [10.0, 10.2, 10.1, 10.3, 10.15, 500.0]}
+        out = finding_heterogeneity(groups)
+        self.assertEqual(out["test"], "kruskal_wallis")
+        self.assertTrue(out["significant"])  # ranks separate cleanly
+        self.assertLess(out["p_value"], 0.05)
+        self.assertEqual(out["group_ns"], {"a": 6, "b": 6})
+
+    def test_gammainc_q_matches_chi_square_criticals(self):
+        # chi2(df=1) critical at 3.841 -> p 0.05; Q(1, x) = exp(-x) exactly.
+        self.assertAlmostEqual(findings._gammainc_q(0.5, 3.841 / 2), 0.05, places=3)
+        self.assertAlmostEqual(findings._gammainc_q(1.0, 1.5), math.exp(-1.5), places=9)
+
+    def test_kw_p_matches_the_hand_computed_h(self):
+        # H = 4.348 after tie correction on the fixture above; df=1 ->
+        # p ~ 0.037. Pins the pure-python path against the known value.
+        p = findings._kw_p([[1.0, 1.0, 1.1, 1.2, 1.15, 200.0],
+                            [10.0, 10.2, 10.1, 10.3, 10.15, 500.0]])
+        self.assertAlmostEqual(p, 0.037, places=2)
+
+
 class TestImportPurity(unittest.TestCase):
     def test_package_import_has_no_heavy_side_effects(self):
         # The prelude imports this before user code; module import must never

@@ -186,3 +186,50 @@ and pins the ZERO_INFLATED "(implemented)" cells to exactly the claim
 types whose functions carry the screen, so matrix and code cannot drift
 apart silently. Coverage questions are now inspection results, not
 review findings.
+
+## 9. Amendment (2026-08-09): proactive promotion — every promotable cell promoted
+
+Challenged on why any promotable cell should wait, the audit split the
+non-● cells into promotable-now versus principled-block. Everything
+promotable is now promoted:
+
+**Estimator upgrades (reported numbers change).**
+
+- `finding_trend(values, unit=, labels=, counts=)` — with `counts=` the
+  fit is COUNT-WEIGHTED least squares: COUNT_SKEWED/THIN_PERIODS answered
+  in the estimator instead of a caveat (a 52-item year cannot steer the
+  slope like a 12,000-item year). `weighted` reports which fit ran;
+  missing per-period counts get the median weight — measurements are
+  never dropped for a missing n.
+- `finding_heterogeneity` — the test itself is dispatched from the pooled
+  regime profile: rank-based Kruskal–Wallis (pure-python H + tie
+  correction, chi-square p via a new regularized upper incomplete gamma
+  `_gammainc_q`) under HEAVY_TAIL/CONTAMINATED, ANOVA otherwise; `test`
+  reports which ran. The select_center pattern applied to the test
+  statistic.
+
+**Refusal semantics (NON_MONOTONE_X ▲→●).** `_ordinal_disorder`: an
+all-numeric label sequence with an actual descent PROVES disorder — the
+order-dependent claims (trend via new `labels=`, step_change,
+current_state, outliers, split_comparison) return their no-verdict shape
+rather than fit an undefined statistic. Categorical labels stay on the
+profile-flag/caveat path: refusing on labels the function cannot rank
+would kill legitimate uses. Duplicates allowed (grouped series repeat x).
+yoy is order-free and unaffected.
+
+**Bindable evidence (◐/▲→●).** `finding_distribution` returns
+`distinct_share`/`modal_share` (DISCRETE/TIED caveats bindable, not
+asserted); `finding_heterogeneity` returns `group_ns`;
+`finding_correlation` returns `preferred` (spearman under
+TIED/HEAVY_TAIL/CONTAMINATED on either axis — dispatch decides emphasis,
+both coefficients always reported); `finding_split_comparison` yields
+`multiplier` only when BOTH medians are positive — a signed ratio is not
+a growth figure, the levels carry the story.
+
+**What remains unpromoted, by principle.** (1) Encodings vs measurements:
+the claim layer auto-excludes ENCODINGS (sentinel zeros) but never
+silently distrusts MEASUREMENTS — outlier screens stay declared upstream
+acts whose output also feeds the record layer. (2) Information absence:
+share/decompose currency and row-level cells live where the columns
+exist. (3) check row: checks ARE the response layer. Every surviving
+◐/○/▲ cell now states which principle holds it.

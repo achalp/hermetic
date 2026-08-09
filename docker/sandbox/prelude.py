@@ -563,9 +563,9 @@ def declare_finding(name, value, definition, dtype, unit=None,
 # these stubs return each helper's documented never-raise failure shape so a
 # degraded deploy degrades the STATS, never NameErrors the analysis. The
 # model's own computation and declare_finding still work.
-def finding_trend(values, unit=None):
+def finding_trend(values, unit=None, labels=None, counts=None):
     return {'direction': None, 'slope_per_period': None, 'p_value': None,
-            'slope_ci95': None, 'n_zero_excluded': None}
+            'slope_ci95': None, 'n_zero_excluded': None, 'weighted': False}
 def finding_step_change(values, labels=None, counts=None, unit=None):
     return {'period': None, 'delta': None, 'direction': None, 'baseline_spread': None,
             'n_zero_excluded': None}
@@ -579,7 +579,7 @@ def finding_decompose(total_change, terms):
     return _out
 def finding_heterogeneity(groups, unit=None):
     return {'significant': None, 'p_value': None, 'test': 'anova',
-            'n_zero_excluded': None}
+            'group_ns': None, 'n_zero_excluded': None}
 def declare_check(name, definition, passed=None, evidence=None, severity='caveat', derived_from_columns=None):
     pass
 def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
@@ -587,11 +587,12 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
             'window': window, 'k': k, 'n_zero_excluded': None}
 def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
     return {'pearson_r': None, 'pearson_p': None, 'spearman_rho': None,
-            'spearman_p': None, 'n': None, 'n_zero_excluded': None}
+            'spearman_p': None, 'n': None, 'preferred': None,
+            'n_zero_excluded': None}
 def finding_distribution(values, unit=None):
     return {'n': None, 'mean': None, 'median': None, 'std': None, 'mad': None,
             'skew': None, 'p25': None, 'p75': None, 'min': None, 'max': None,
-            'n_zero_excluded': None}
+            'distinct_share': None, 'modal_share': None, 'n_zero_excluded': None}
 def finding_share(parts, total=None):
     return {'shares_pct': None, 'residual_pct': None, 'sums_to_100': None}
 def finding_superlative(labels, values, counts=None, kind='max', unit=None):

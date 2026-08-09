@@ -48,7 +48,7 @@ export function realizeClaim(f: FindingEntry): string {
     case "direction":
     case "trend": {
       const slopeField = "slope_per_period" in v ? "slope_per_period" : "slope";
-      let s = `${cap(label)}: ${b(n, "direction")} at ${b(n, slopeField)} per period`;
+      let s = `${cap(label)}: ${b(n, "direction")} at ${b(n, slopeField)} per period${v.weighted === true ? " (count-weighted fit)" : ""}`;
       if ("slope_ci95" in v && v.slope_ci95 !== null) {
         s += ` (95% CI ${b(n, "slope_ci95.0")} to ${b(n, "slope_ci95.1")})`;
       }
@@ -96,7 +96,11 @@ export function realizeClaim(f: FindingEntry): string {
       return s + "." + zeroClause(n, v);
     }
     case "correlation": {
-      return `${cap(label)}: Pearson r = ${b(n, "pearson_r")} (p = ${b(n, "pearson_p")}), Spearman ρ = ${b(n, "spearman_rho")} (p = ${b(n, "spearman_p")}), n = ${b(n, "n")}.${zeroClause(n, v)}`;
+      let s = `${cap(label)}: Pearson r = ${b(n, "pearson_r")} (p = ${b(n, "pearson_p")}), Spearman ρ = ${b(n, "spearman_rho")} (p = ${b(n, "spearman_p")}), n = ${b(n, "n")}.`;
+      if (typeof v.preferred === "string") {
+        s += ` The ${b(n, "preferred")} coefficient is the reliable one under this series' regimes.`;
+      }
+      return s + zeroClause(n, v);
     }
     case "share": {
       return `${cap(label)}: shares ${b(n, "shares_pct")} with residual ${b(n, "residual_pct")}.`;

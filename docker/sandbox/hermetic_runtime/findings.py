@@ -357,6 +357,85 @@ def _f_p(f_stat, df1, df2):
     return _betainc_reg(df2 / 2.0, df1 / 2.0, df2 / (df2 + df1 * f_stat))
 
 
+def _gammainc_q(a, x):
+    # Regularized UPPER incomplete gamma Q(a, x) — the chi-square survival
+    # function: P(X²_df >= x) = Q(df/2, x/2). Series for the P-side when
+    # x < a+1, Lentz continued fraction for Q otherwise (same numerical
+    # family as _betacf). Pure python, exact to ~1e-12; None on bad input.
+    if a <= 0 or x < 0:
+        return None
+    if x == 0:
+        return 1.0
+    if x < a + 1.0:
+        ap = a
+        s = 1.0 / a
+        d = s
+        for _ in range(300):
+            ap += 1.0
+            d *= x / ap
+            s += d
+            if abs(d) < abs(s) * 3e-12:
+                break
+        return 1.0 - s * math.exp(-x + a * math.log(x) - math.lgamma(a))
+    fpmin = 1e-300
+    b = x + 1.0 - a
+    c = 1.0 / fpmin
+    d = 1.0 / b
+    h = d
+    for i in range(1, 300):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < fpmin:
+            d = fpmin
+        c = b + an / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 3e-12:
+            break
+    return h * math.exp(-x + a * math.log(x) - math.lgamma(a))
+
+
+def _kw_p(samples):
+    # Kruskal–Wallis H with tie correction; p from the chi-square
+    # approximation (df = k-1) via _gammainc_q. None when degenerate.
+    try:
+        allv = sorted(
+            ((v, gi) for gi, s in enumerate(samples) for v in s), key=lambda t: t[0]
+        )
+        n_total = len(allv)
+        if n_total < 3 or len(samples) < 2:
+            return None
+        ranks = [0.0] * n_total
+        ties = 0.0
+        i = 0
+        while i < n_total:
+            j = i
+            while j + 1 < n_total and allv[j + 1][0] == allv[i][0]:
+                j += 1
+            avg = (i + j) / 2.0 + 1
+            for t in range(i, j + 1):
+                ranks[t] = avg
+            span = j - i + 1
+            ties += span ** 3 - span
+            i = j + 1
+        rank_sums = [0.0] * len(samples)
+        for (v, gi), r in zip(allv, ranks):
+            rank_sums[gi] += r
+        h = (12.0 / (n_total * (n_total + 1))) * sum(
+            rs * rs / len(s) for rs, s in zip(rank_sums, samples)
+        ) - 3.0 * (n_total + 1)
+        denom = 1.0 - ties / float(n_total ** 3 - n_total)
+        if denom <= 0:  # every value identical: no test
+            return None
+        return _gammainc_q((len(samples) - 1) / 2.0, (h / denom) / 2.0)
+    except Exception:
+        return None
+
+
 def _clean_series(values):
     # (index, float) pairs with NaN/None dropped but ORIGINAL spacing kept —
     # a gap in the series must not compress the time axis under the slope.
@@ -365,12 +444,31 @@ def _clean_series(values):
     ]
 
 
-def finding_trend(values, unit=None):
+def _ordinal_disorder(labels):
+    """True when labels PROVE the series is out of order (NON_MONOTONE_X).
+
+    Only an all-numeric label set can prove disorder — categorical labels
+    ("Jan", "east") return False and stay on the profile-flag/caveat path,
+    because refusing on labels the function cannot rank would kill
+    legitimate uses to guard against a mistake it cannot confirm.
+    Duplicates are allowed (grouped series legitimately repeat x); only an
+    actual DESCENT anywhere is disorder. Never raises.
+    """
+    try:
+        labs = [safe_float(x) for x in list(labels)]
+        if not labs or any(x is None for x in labs):
+            return False
+        return any(b < a for a, b in zip(labs, labs[1:]))
+    except Exception:
+        return False
+
+
+def finding_trend(values, unit=None, labels=None, counts=None):
     """Least-squares trend over an ordered series → direction/slope/p dict.
 
     Returns {"direction": "rising"|"falling"|"flat", "slope_per_period",
-    "p_value", "slope_ci95", "n_zero_excluded"} (plus "unit" passthrough
-    when given) —
+    "p_value", "slope_ci95", "n_zero_excluded", "weighted"} (plus "unit"
+    passthrough when given) —
     slope_ci95 is the ~95% confidence interval [low, high] (t-based standard
     error, normal critical value), so a point-estimate slope never ships
     without its uncertainty. "flat" means the slope's two-sided t-test
@@ -386,11 +484,23 @@ def finding_trend(values, unit=None):
     (_zero_screen) and sentinel zeros are excluded from the fit, reported
     as n_zero_excluded — the trend and every other unit=-passed claim then
     share ONE zero policy by construction.
+
+    ALWAYS pass counts= (observations per period) when periods aggregate
+    rows: the fit becomes COUNT-WEIGHTED least squares — a 52-item year
+    cannot steer the slope like a 12,000-item year (the COUNT_SKEWED /
+    THIN_PERIODS response, in the estimator instead of a caveat). The
+    "weighted" flag reports which fit ran; a period with a missing count
+    gets the median weight (measurements are never dropped for a missing
+    n). Pass labels= so a provably disordered series (numeric labels out
+    of order) is REFUSED rather than fit — a trend over unordered x is
+    undefined.
     """
     failed = {"direction": None, "slope_per_period": None, "p_value": None,
-              "slope_ci95": None, "n_zero_excluded": None}
+              "slope_ci95": None, "n_zero_excluded": None, "weighted": False}
     try:
-        values, n_zx = _zero_screen(values, unit=unit)
+        if labels is not None and _ordinal_disorder(labels):
+            return failed
+        values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         pts = _clean_series(values)
         try:
             total = len(list(values))
@@ -401,14 +511,33 @@ def finding_trend(values, unit=None):
         n = len(pts)
         if n < 3:
             return failed
-        mean_x = sum(i for i, _ in pts) / n
-        mean_y = sum(y for _, y in pts) / n
-        sxx = sum((i - mean_x) ** 2 for i, _ in pts)
+        # Weights: counts= turns the estimator into WLS. Weight scale is
+        # irrelevant (a common factor cancels in slope and se) — only the
+        # RELATIVE mass per period matters.
+        ws = None
+        if counts is not None:
+            try:
+                cs = [safe_float(c) for c in list(counts)]
+                if len(cs) == total:
+                    finite = sorted(c for c in cs if c is not None and c > 0)
+                    if finite:
+                        med_w = finite[len(finite) // 2]
+                        ws = [cs[i] if (cs[i] is not None and cs[i] > 0) else med_w
+                              for i, _ in pts]
+            except Exception:
+                ws = None
+        weighted = ws is not None
+        if ws is None:
+            ws = [1.0] * n
+        w_total = sum(ws)
+        mean_x = sum(w * i for w, (i, _) in zip(ws, pts)) / w_total
+        mean_y = sum(w * y for w, (_, y) in zip(ws, pts)) / w_total
+        sxx = sum(w * (i - mean_x) ** 2 for w, (i, _) in zip(ws, pts))
         if sxx == 0:
             return failed
-        slope = sum((i - mean_x) * (y - mean_y) for i, y in pts) / sxx
+        slope = sum(w * (i - mean_x) * (y - mean_y) for w, (i, y) in zip(ws, pts)) / sxx
         intercept = mean_y - slope * mean_x
-        sse = sum((y - (intercept + slope * i)) ** 2 for i, y in pts)
+        sse = sum(w * (y - (intercept + slope * i)) ** 2 for w, (i, y) in zip(ws, pts))
         ci = None
         if sse <= 1e-30:  # perfect fit: zero residual variance, t undefined
             p = 0.0 if slope != 0 else 1.0
@@ -420,7 +549,7 @@ def finding_trend(values, unit=None):
             ci = [slope - 1.96 * se, slope + 1.96 * se]
         direction = "flat" if p >= 0.05 else ("rising" if slope > 0 else "falling")
         out = {"direction": direction, "slope_per_period": slope, "p_value": p,
-               "slope_ci95": ci, "n_zero_excluded": n_zx}
+               "slope_ci95": ci, "n_zero_excluded": n_zx, "weighted": weighted}
         if unit is not None:
             out["unit"] = unit
         return out
@@ -462,6 +591,8 @@ def finding_step_change(values, labels=None, counts=None, unit=None):
     failed = {"period": None, "delta": None, "direction": None,
               "baseline_spread": None, "n_zero_excluded": None}
     try:
+        if labels is not None and _ordinal_disorder(labels):
+            return failed  # deltas over provably unordered x are undefined
         values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         ys = [safe_float(v) for v in list(values)]
         deltas = [
@@ -625,6 +756,8 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
     failed = {"outliers": None, "n_flagged": None, "method": "rolling_mad",
               "window": window, "k": k, "n_zero_excluded": None}
     try:
+        if labels is not None and _ordinal_disorder(labels):
+            return failed  # the era-local window is undefined over unordered x
         values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         pts = []
         ns = list(counts) if counts is not None else None
@@ -679,10 +812,16 @@ def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
     spurious correlation structure. zero_policy runs internally per axis;
     a screened member drops its PAIR (the existing pairwise-non-None
     rule), and n_zero_excluded counts zeros screened across both inputs.
-    Never raises.
+
+    "preferred" is the select_center pattern applied to the coefficient
+    choice: when either axis profiles TIED / HEAVY_TAIL / CONTAMINATED,
+    the rank-based Spearman is the reliable coefficient and the function
+    SAYS so — both are still reported (dispatch decides emphasis, never
+    visibility). Never raises.
     """
     failed = {"pearson_r": None, "pearson_p": None, "spearman_rho": None,
-              "spearman_p": None, "n": None, "n_zero_excluded": None}
+              "spearman_p": None, "n": None, "preferred": None,
+              "n_zero_excluded": None}
     try:
         x_values, n_zx_x = _zero_screen(x_values, unit=x_unit)
         y_values, n_zx_y = _zero_screen(y_values, unit=y_unit)
@@ -697,6 +836,17 @@ def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
             return failed
         xs = [a for a, _b in pairs]
         ys = [b for _a, b in pairs]
+        preferred = "pearson"
+        try:
+            from .regimes import profile_regimes
+
+            hazards = {"TIED", "HEAVY_TAIL", "CONTAMINATED"}
+            fx = set(profile_regimes(xs).get("flags", []))
+            fy = set(profile_regimes(ys).get("flags", []))
+            if (fx | fy) & hazards:
+                preferred = "spearman"
+        except Exception:
+            pass
         try:
             from scipy import stats as _st  # type: ignore
 
@@ -704,7 +854,7 @@ def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
             sr = _st.spearmanr(xs, ys)
             return {"pearson_r": round(float(pr[0]), 4), "pearson_p": float(pr[1]),
                     "spearman_rho": round(float(sr[0]), 4), "spearman_p": float(sr[1]),
-                    "n": n, "n_zero_excluded": n_zx}
+                    "n": n, "preferred": preferred, "n_zero_excluded": n_zx}
         except Exception:
             pass
 
@@ -734,7 +884,8 @@ def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
         spear = _pearson(_ranks(xs), _ranks(ys))
         return {"pearson_r": None if pear is None else round(pear, 4), "pearson_p": None,
                 "spearman_rho": None if spear is None else round(spear, 4),
-                "spearman_p": None, "n": n, "n_zero_excluded": n_zx}
+                "spearman_p": None, "n": n, "preferred": preferred,
+                "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
@@ -743,15 +894,20 @@ def finding_distribution(values, unit=None):
     """Robust shape summary — the evidence behind a metric choice.
 
     Returns {"n", "mean", "median", "std", "mad", "skew", "p25", "p75",
-    "min", "max", "n_zero_excluded"} (skew = Fisher moment coefficient). A
+    "min", "max", "distinct_share", "modal_share", "n_zero_excluded"}
+    (skew = Fisher moment coefficient). A
     mean/median gap or a large skew is the COMPUTED justification for
-    leading with the median. ALWAYS pass unit= for monetary measures:
+    leading with the median. distinct_share/modal_share carry the
+    DISCRETE/TIED evidence in the payload itself — quartiles over a
+    low-cardinality measure collapse, and the caveat must be bindable, not
+    asserted. ALWAYS pass unit= for monetary measures:
     sentinel zeros (zero_policy, applied internally) are excluded before
     the summary — a min of $0.00 from unrecorded prices is an encoding,
     not the distribution's floor. Never raises.
     """
     failed = {"n": None, "mean": None, "median": None, "std": None, "mad": None,
               "skew": None, "p25": None, "p75": None, "min": None, "max": None,
+              "distinct_share": None, "modal_share": None,
               "n_zero_excluded": None}
     try:
         values, n_zx = _zero_screen(values, unit=unit)
@@ -772,10 +928,14 @@ def finding_distribution(values, unit=None):
         std = var ** 0.5
         mad = sorted(abs(x - median) for x in xs)[n // 2]
         skew = (sum((x - mean) ** 3 for x in xs) / n) / (std ** 3) if std else 0.0
+        modal = max(set(xs), key=xs.count)
         return {"n": n, "mean": round(mean, 4), "median": round(median, 4),
                 "std": round(std, 4), "mad": round(mad, 4), "skew": round(skew, 2),
                 "p25": round(q(0.25), 4), "p75": round(q(0.75), 4),
-                "min": xs[0], "max": xs[-1], "n_zero_excluded": n_zx}
+                "min": xs[0], "max": xs[-1],
+                "distinct_share": round(len(set(xs)) / n, 3),
+                "modal_share": round(xs.count(modal) / n, 3),
+                "n_zero_excluded": n_zx}
     except Exception:
         return failed
 
@@ -884,6 +1044,8 @@ def finding_split_comparison(labels, values, split_at=None, unit=None):
               "late_n": None, "early_span": None, "late_span": None,
               "multiplier": None, "n_zero_excluded": None}
     try:
+        if labels is not None and _ordinal_disorder(labels):
+            return failed  # an early/late split over unordered x is undefined
         values, n_zx = _zero_screen(values, labels=labels, unit=unit)
         pairs = [
             (str(lab), safe_float(v))
@@ -911,7 +1073,11 @@ def finding_split_comparison(labels, values, split_at=None, unit=None):
         e_vals = [v for _l, v in early]
         l_vals = [v for _l, v in late]
         e_med, l_med = med(e_vals), med(l_vals)
-        mult = None if e_med == 0 else round(l_med / e_med, 1)
+        # A multiplier is only meaningful between POSITIVE levels: a zero or
+        # signed median makes the ratio treacherous (negative/negative reads
+        # as growth; positive/negative flips sign on a level convention).
+        # Both levels are always reported — narrate those instead.
+        mult = round(l_med / e_med, 1) if (e_med > 0 and l_med > 0) else None
         return {
             "early_median": e_med, "late_median": l_med,
             "early_n": len(early), "late_n": len(late),
@@ -981,6 +1147,8 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
               "excluded_reason": None, "latest_period": None,
               "latest_value": None, "latest_n": None, "n_zero_excluded": None}
     try:
+        if labels is not None and _ordinal_disorder(labels):
+            return failed  # the walk-back assumes chronological order
         values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         ys = [safe_float(v) for v in list(values)]
         covs = None
@@ -1140,13 +1308,20 @@ def finding_decompose(total_change, terms):
 
 
 def finding_heterogeneity(groups, unit=None):
-    """One-way ANOVA across named groups → {"significant", "p_value", "test",
-    "n_zero_excluded"}.
+    """Do the groups differ? → {"significant", "p_value", "test",
+    "group_ns", "n_zero_excluded"}.
 
-    significant = p < 0.05 that the group means differ. scipy's f_oneway when
-    importable, else a pure-python F test with the exact p (same math). Never
-    raises → {"significant": None, "p_value": None, "test": "anova", ...} when
-    fewer than two usable groups or the test degenerates.
+    significant = p < 0.05 that the groups differ. The TEST IS DISPATCHED
+    from the pooled regime profile: under HEAVY_TAIL or CONTAMINATED the
+    variance-based F is not a valid instrument (one $3,050 transcription
+    error owns the within-group variance) and the rank-based
+    Kruskal–Wallis runs instead — "test" reports which ran
+    ("anova" | "kruskal_wallis"), the select_center pattern applied to the
+    test statistic. scipy when importable, else pure-python with exact
+    p-values (_anova_p / _kw_p). group_ns carries each usable group's n in
+    the payload — a verdict over thin groups must be bindable as such,
+    never asserted. Never raises → all-None fields when fewer than two
+    usable groups or the test degenerates.
 
     ALWAYS pass unit= for monetary measures: sentinel zeros drag group
     means toward zero and inflate within-group variance — significance can
@@ -1155,45 +1330,70 @@ def finding_heterogeneity(groups, unit=None):
     group; the screen is reported as n_zero_excluded.
     """
     failed = {"significant": None, "p_value": None, "test": "anova",
-              "n_zero_excluded": None}
+              "group_ns": None, "n_zero_excluded": None}
     try:
         norm = []
-        for _name, vals in dict(groups).items():
+        for name, vals in dict(groups).items():
             try:
-                norm.append(list(vals))
+                norm.append((_safe_name(name), list(vals)))
             except Exception:
                 continue
         n_zx = 0
         if unit is not None and norm:
-            flat = [v for vals in norm for v in vals]
+            flat = [v for _n, vals in norm for v in vals]
             screened, n_zx = _zero_screen(flat, unit=unit)
             if n_zx:
                 pos = 0
-                for i, vals in enumerate(norm):
-                    norm[i] = screened[pos:pos + len(vals)]
+                for i, (name, vals) in enumerate(norm):
+                    norm[i] = (name, screened[pos:pos + len(vals)])
                     pos += len(vals)
         samples = []
-        for vals in norm:
+        group_ns = {}
+        for name, vals in norm:
             clean = [f for f in (safe_float(v) for v in vals) if f is not None]
             if len(clean) >= 2:
                 samples.append(clean)
+                group_ns[name] = len(clean)
         if len(samples) < 2:
             return failed
-        p = None
+        # Dispatch: heavy-tail regimes demote the variance-based F to ranks.
+        test = "anova"
         try:
-            from scipy.stats import f_oneway
+            from .regimes import profile_regimes
 
-            p = float(f_oneway(*samples).pvalue)
-            if p != p:  # NaN (e.g. zero within-group variance) → pure fallback
-                p = None
+            pooled = [v for s in samples for v in s]
+            flags = set(profile_regimes(pooled).get("flags", []))
+            if "HEAVY_TAIL" in flags or "CONTAMINATED" in flags:
+                test = "kruskal_wallis"
         except Exception:
-            p = None
+            pass
+        p = None
+        if test == "kruskal_wallis":
+            try:
+                from scipy.stats import kruskal
+
+                p = float(kruskal(*samples).pvalue)
+                if p != p:
+                    p = None
+            except Exception:
+                p = None
+            if p is None:
+                p = _kw_p(samples)
+        else:
+            try:
+                from scipy.stats import f_oneway
+
+                p = float(f_oneway(*samples).pvalue)
+                if p != p:  # NaN (e.g. zero within-group variance) → fallback
+                    p = None
+            except Exception:
+                p = None
+            if p is None:
+                p = _anova_p(samples)
         if p is None:
-            p = _anova_p(samples)
-        if p is None:
-            return failed
-        return {"significant": bool(p < 0.05), "p_value": p, "test": "anova",
-                "n_zero_excluded": n_zx}
+            return dict(failed, test=test, group_ns=group_ns)
+        return {"significant": bool(p < 0.05), "p_value": p, "test": test,
+                "group_ns": group_ns, "n_zero_excluded": n_zx}
     except Exception:
         return failed
 

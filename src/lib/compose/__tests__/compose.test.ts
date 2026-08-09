@@ -208,6 +208,30 @@ describe("realizer — honesty clauses live IN the templates", () => {
     expect(dist).toContain("$finding:dist_z.n_zero_excluded");
   });
 
+  it("renders the weighted-fit and preferred-coefficient dispatches when present", () => {
+    const wls = realizeClaim(
+      F("price_trend_w", "trend", {
+        direction: "flat",
+        slope_per_period: 0.03,
+        p_value: 0.92,
+        weighted: true,
+      })
+    );
+    expect(wls).toContain("(count-weighted fit)");
+    expect(realizeClaim(FINDINGS[0])).not.toContain("count-weighted");
+    const corr = realizeClaim(
+      F("price_vs_n", "correlation", {
+        pearson_r: 0.5,
+        pearson_p: 0.01,
+        spearman_rho: 0.7,
+        spearman_p: 0.001,
+        n: 40,
+        preferred: "spearman",
+      })
+    );
+    expect(corr).toContain("$finding:price_vs_n.preferred");
+  });
+
   it("checks render definition + scalar evidence bindings, never booleans inline", () => {
     const text = realizeClaim(FINDINGS[3]);
     expect(text).toContain("⚠ FAILED");
