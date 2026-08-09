@@ -38,10 +38,18 @@ export function resolvePreviewText(text: string, findings: FindingEntry[]): stri
   const fmt = (v: unknown): string => {
     if (typeof v === "number") {
       if (Number.isInteger(v)) return String(v);
+      // Tiny magnitudes keep their exponent — rounding 1.08e-12 to "0"
+      // is the p-value sin the contract forbids, in preview form.
+      if (Math.abs(v) < 1e-4) return v.toExponential(2);
       return String(Math.abs(v) < 1 ? +v.toFixed(4) : +v.toFixed(2));
     }
     if (v === null || v === undefined) return "—";
     if (typeof v === "object") return JSON.stringify(v);
+    // Identifier-shaped strings read as prose in a preview ("rate_effect"
+    // → "rate effect").
+    if (typeof v === "string" && /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(v)) {
+      return v.replace(/_/g, " ");
+    }
     return String(v);
   };
   return text.replace(/\$finding:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)/g, (token, path: string) => {

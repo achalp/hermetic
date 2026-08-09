@@ -88,6 +88,7 @@ export function DropZone({
   return (
     <div
       className="-my-0.5 flex h-2 items-center"
+      data-dropzone={beforeId ?? "end"}
       onDragOver={(e) => {
         e.preventDefault();
         setOver(true);
@@ -139,6 +140,7 @@ export function SectionRow({
       className={`group flex items-start gap-2 rounded-md border border-border-default px-2 py-1.5 text-xs transition-colors hover:border-border-strong ${
         s.hidden ? "opacity-45" : "cursor-grab active:cursor-grabbing"
       }`}
+      style={{ background: "var(--color-surface-2)" }}
     >
       <span className="mt-0.5 shrink-0 text-t-tertiary">
         {pending ? <Icon.spinner /> : <Icon.grip />}

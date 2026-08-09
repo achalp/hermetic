@@ -8,7 +8,7 @@ import {
 } from "@/lib/compose/plan";
 import { buildPlannerSystem } from "@/lib/compose/planner";
 import { deriveViews } from "@/lib/compose/views";
-import { getEditSurface } from "@/lib/compose/edit";
+import { getEditSurface, resolvePreviewText } from "@/lib/compose/edit";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
 import { applyMutations } from "@/lib/compose/mutations";
@@ -283,6 +283,16 @@ describe("edit surface — one read for the editing UI (web panel + MCP)", () =>
     const peakClaim = s!.claims.find((c) => c.name === "price_peak");
     expect(peakClaim?.preview).not.toContain("$finding:");
     expect(peakClaim?.preview).toContain("1998"); // its period, resolved
+  });
+
+  it("preview formatting: tiny p-values keep their exponent; identifiers read as prose", () => {
+    // Live E2E caught "(p = 0)" for p=1.08e-12 — the p-value sin in
+    // preview form — and "rate_effect" leaking into a sentence.
+    const fs = [F("t", "direction", { p: 1.9e-12, dom: "rate_effect" })];
+    expect(resolvePreviewText("p = $finding:t.p", fs)).toBe("p = 1.90e-12");
+    expect(resolvePreviewText("driven by $finding:t.dom", fs)).toBe("driven by rate effect");
+    // Unresolvable tokens stay intact — never guessed.
+    expect(resolvePreviewText("$finding:ghost.x", fs)).toBe("$finding:ghost.x");
   });
 });
 

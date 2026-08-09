@@ -53,10 +53,11 @@ export function PlanEditPanel({
 
   return (
     <div
-      className="fixed top-14 bottom-0 flex w-[24rem] flex-col border-l border-border-default bg-surface-primary shadow-xl"
+      className="fixed top-14 bottom-0 flex w-[24rem] flex-col border-l border-border-default bg-surface-1 shadow-xl"
       // Beside the data rail's collapsed strip (48px, z 180); an expanded
-      // rail takes precedence.
-      style={{ right: 48, zIndex: 170 }}
+      // rail takes precedence. Solid theme surface — an undefined bg class
+      // shipped a see-through panel with the dashboard bleeding between rows.
+      style={{ right: 48, zIndex: 170, background: "var(--color-surface-1)" }}
       data-testid="plan-edit-panel"
     >
       {/* Header: title + undo + close. Undo appears once there is history. */}
