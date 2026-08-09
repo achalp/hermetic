@@ -29,7 +29,7 @@ export interface EditDashboardResult {
 }
 
 /** Structural element ids the overlay may also target. */
-const STRUCTURAL_IDS = ["compiled_check_banner", "tile_grid"];
+const STRUCTURAL_IDS = ["compiled_check_banner", "tile_grid", "compiled_evidence_break"];
 
 function viewsFor(artifacts: CachedArtifacts): DerivedView[] {
   const { product } = parseProduct(artifacts.series, undefined);
@@ -173,6 +173,8 @@ export async function getEditSurface(csvId: string): Promise<EditSurface | null>
     if (id === "compiled_check_banner")
       return { id, kind: "banner", label: "Failed-check banner", hidden: isHidden };
     if (id === "tile_grid") return { id, kind: "tiles", label: "Headline tiles", hidden: isHidden };
+    if (id === "compiled_evidence_break")
+      return { id, kind: "banner", label: "Evidence divider", hidden: isHidden };
     const node = doc.plan.nodes.find((n) => n.id === id);
     if (node) {
       const text = realizeNode(node, byName) ?? node.text ?? "";

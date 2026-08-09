@@ -75,7 +75,11 @@ export function PlanEditPanel({ csvId, open, onClose, onSpecUpdated }: PlanEditP
 
   return (
     <div
-      className="fixed right-0 top-14 bottom-0 z-40 w-[22rem] overflow-y-auto border-l border-border-default bg-surface-primary p-4 shadow-xl"
+      className="fixed right-0 top-14 bottom-0 w-[22rem] overflow-y-auto border-l border-border-default bg-surface-primary p-4 shadow-xl"
+      // Above the data rail's collapsed icon strip (z 180, 48px wide at
+      // right-0) — below it, the panel's row buttons render clipped
+      // underneath the rail.
+      style={{ zIndex: 200 }}
       data-testid="plan-edit-panel"
     >
       <div className="mb-3 flex items-center justify-between">

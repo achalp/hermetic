@@ -10,7 +10,7 @@ import type { AnalysisProduct } from "@/lib/contracts/product";
 import type { Plan, PlanOverlay } from "@/lib/contracts/plan";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
 import { realizeNode } from "./realizer";
-import { failedCheckBanner, tileElement, type SpecPatchLine } from "./scaffold";
+import { failedCheckBanner, tileElement, humanizeId, type SpecPatchLine } from "./scaffold";
 import { deriveViews } from "./views";
 
 export interface CompileInput {
@@ -65,17 +65,47 @@ export function compileDashboard(input: CompileInput): string[] {
     children.push("tile_grid");
   }
 
-  // 3. Narrative from the plan, one TextBlock per node (identity-keyed so
-  //    the overlay survives recompiles).
+  // 3. Narrative from the plan, one element per node (identity-keyed so
+  //    the overlay survives recompiles). FORM is part of honesty's
+  //    legibility: the ANSWER leads as a styled insight callout, CAVEATs
+  //    render as annotations (visually distinct from body prose — a caveat
+  //    indistinguishable from a sentence is a caveat unread), everything
+  //    else is body text.
   for (const node of plan.nodes) {
     if (hidden.has(node.id)) continue;
     const text = realizeNode(node, byName);
     if (!text) continue;
-    patches.push({
-      op: "add",
-      path: `/elements/${node.id}`,
-      value: { type: "TextBlock", props: { content: text }, children: [] },
-    });
+    let value: SpecPatchLine["value"];
+    if (node.op === "CAVEAT") {
+      const failed = node.refs.some((r) => {
+        const f = byName.get(r);
+        return (
+          f?.value !== null &&
+          typeof f?.value === "object" &&
+          (f.value as Record<string, unknown>).passed === false
+        );
+      });
+      value = {
+        type: "Annotation",
+        props: {
+          title: `Data check: ${humanizeId(node.refs[0] ?? "caveat")}`,
+          content: text,
+          severity: failed ? "warning" : "info",
+          icon: failed ? "alert" : "check",
+        },
+        children: [],
+      };
+    } else {
+      value = {
+        type: "TextBlock",
+        props: {
+          content: text,
+          ...(node.op === "ANSWER" || node.op === "INSIGHT" ? { variant: "insight" } : {}),
+        },
+        children: [],
+      };
+    }
+    patches.push({ op: "add", path: `/elements/${node.id}`, value });
     children.push(node.id);
   }
 
@@ -88,8 +118,23 @@ export function compileDashboard(input: CompileInput): string[] {
     regimes: input.regimes,
     purpose: input.purpose,
   });
-  for (const v of views) {
-    if ((!v.shipped && !shown.has(v.id)) || hidden.has(v.id)) continue;
+  const shippedViews = views.filter((v) => (v.shipped || shown.has(v.id)) && !hidden.has(v.id));
+  // A visual seam between the story and its evidence — without it the
+  // narrative reads as a preamble to "a boring list of charts" (first
+  // compiled-run review). Identity-keyed so the overlay can hide/move it.
+  if (shippedViews.length > 0 && !hidden.has("compiled_evidence_break")) {
+    patches.push({
+      op: "add",
+      path: "/elements/compiled_evidence_break",
+      value: {
+        type: "SectionBreak",
+        props: { variant: "line", label: "Evidence" },
+        children: [],
+      },
+    });
+    children.push("compiled_evidence_break");
+  }
+  for (const v of shippedViews) {
     patches.push(v.patch);
     children.push(v.id);
   }

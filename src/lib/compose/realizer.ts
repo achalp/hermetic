@@ -39,15 +39,24 @@ const zeroClause = (n: string, v: Record<string, unknown>): string =>
     ? ` ${b(n, "n_zero_excluded")} zero values were excluded as unrecorded-value sentinels (zero policy).`
     : "";
 
-/** Realize ONE claim into narrative text (bindings, not values). */
+/** Realize ONE claim into narrative text (bindings, not values).
+ *
+ * Every dedicated template is SHAPE-GUARDED: the dtype names the template,
+ * but the value's fields decide whether it applies — a finding declared
+ * dtype "direction" whose value is a per-segment dict must fall back to the
+ * generic rendering, not bind fields that don't exist ("Segment
+ * heterogeneity: at per period" was two empty interpolations shipped as a
+ * sentence). */
 export function realizeClaim(f: FindingEntry): string {
   const v = fv(f);
   const n = f.name;
   const label = humanize(n);
+  const has = (...fields: string[]) => fields.every((k) => k in v);
   switch (f.dtype) {
     case "direction":
     case "trend": {
       const slopeField = "slope_per_period" in v ? "slope_per_period" : "slope";
+      if (!has("direction") || !(slopeField in v)) return generic(f);
       let s = `${cap(label)}: ${b(n, "direction")} at ${b(n, slopeField)} per period${v.weighted === true ? " (count-weighted fit)" : ""}`;
       if ("slope_ci95" in v && v.slope_ci95 !== null) {
         s += ` (95% CI ${b(n, "slope_ci95.0")} to ${b(n, "slope_ci95.1")})`;
@@ -56,6 +65,7 @@ export function realizeClaim(f: FindingEntry): string {
       return s + "." + zeroClause(n, v);
     }
     case "superlative": {
+      if (!has("value")) return generic(f);
       const pf = periodField(v);
       let s = `Among well-covered periods, ${label} is ${b(n, "value")}${pf ? ` in ${b(n, pf)}` : ""} (n = ${b(n, "n")}).`;
       if (v.raw_value !== undefined && v.raw_value !== v.value) {
@@ -64,6 +74,7 @@ export function realizeClaim(f: FindingEntry): string {
       return s + zeroClause(n, v);
     }
     case "current_state": {
+      if (!has("value", "period")) return generic(f);
       let s = `Well-covered data ends at ${b(n, "value")} in ${b(n, "period")}`;
       if (v.pct_from_peak !== null && v.pct_from_peak !== undefined) {
         s += ` (${b(n, "pct_from_peak")} vs the attested peak)`;
@@ -77,7 +88,13 @@ export function realizeClaim(f: FindingEntry): string {
     }
     case "comparison": {
       if ("early_median" in v) {
-        return `Split at ${b(n, "split_at" in v ? "split_at" : "early_span")}: ${b(n, "early_median")} early (${b(n, "early_span")}) vs ${b(n, "late_median")} late (${b(n, "late_span")}) — a ${b(n, "multiplier")}× change.${zeroClause(n, v)}`;
+        // The multiplier is None for signed/zero medians — the clause only
+        // renders when the ratio is meaningful (the levels carry the story).
+        const mult =
+          v.multiplier !== null && v.multiplier !== undefined
+            ? ` — a ${b(n, "multiplier")}× change`
+            : "";
+        return `${cap(label)}: median ${b(n, "early_median")} across ${b(n, "early_span")} vs ${b(n, "late_median")} across ${b(n, "late_span")}${mult}.${zeroClause(n, v)}`;
       }
       if ("pct_change" in v) {
         return `${cap(label)}: ${b(n, "pct_change")} from ${b(n, "prior_year")} to ${b(n, "latest_year")} over the ${b(n, "window_months")} overlapping months.${zeroClause(n, v)}`;
@@ -85,17 +102,22 @@ export function realizeClaim(f: FindingEntry): string {
       return generic(f);
     }
     case "step_change": {
+      if (!has("baseline_spread")) return generic(f);
       if (v.period === null || v.period === undefined) {
         return `No persistent step change was detected in ${label} — level shifts did not survive the persistence and spread gates.${zeroClause(n, v)}`;
       }
-      return `${cap(label)}: a ${b(n, "direction")} step of ${b(n, "delta")} at ${b(n, "period")} (baseline spread ${b(n, "baseline_spread")}).${zeroClause(n, v)}`;
+      // "steps up by X" stays grammatical for both directions ("a up step"
+      // did not).
+      return `${cap(label)}: the level steps ${b(n, "direction")} by ${b(n, "delta")} at ${b(n, "period")} (baseline spread ${b(n, "baseline_spread")}).${zeroClause(n, v)}`;
     }
     case "distribution": {
+      if (!has("median", "mean")) return generic(f);
       let s = `${cap(label)}: median ${b(n, "median")}, mean ${b(n, "mean")}, skew ${b(n, "skew")}`;
       if ("p25" in v) s += ` (IQR ${b(n, "p25")}–${b(n, "p75")})`;
       return s + "." + zeroClause(n, v);
     }
     case "correlation": {
+      if (!has("pearson_r", "spearman_rho")) return generic(f);
       let s = `${cap(label)}: Pearson r = ${b(n, "pearson_r")} (p = ${b(n, "pearson_p")}), Spearman ρ = ${b(n, "spearman_rho")} (p = ${b(n, "spearman_p")}), n = ${b(n, "n")}.`;
       if (typeof v.preferred === "string") {
         s += ` The ${b(n, "preferred")} coefficient is the reliable one under this series' regimes.`;
@@ -103,6 +125,7 @@ export function realizeClaim(f: FindingEntry): string {
       return s + zeroClause(n, v);
     }
     case "share": {
+      if (!has("shares_pct")) return generic(f);
       return `${cap(label)}: shares ${b(n, "shares_pct")} with residual ${b(n, "residual_pct")}.`;
     }
     case "screen":

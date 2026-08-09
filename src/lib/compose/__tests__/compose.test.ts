@@ -428,6 +428,56 @@ describe("realizer — honesty clauses live IN the templates", () => {
     expect(corr).toContain("$finding:price_vs_n.preferred");
   });
 
+  it("templates are shape-guarded: a dtype whose value doesn't fit falls back to generic", () => {
+    // First compiled run shipped "Segment heterogeneity: at per period,
+    // p = 2.33e-8" — dtype "direction" with a per-segment dict value bound
+    // trend fields that don't exist. The guard sends it to the generic
+    // definition rendering instead.
+    const het = realizeClaim(
+      F("segment_heterogeneity", "direction", { segments: { smb: 4.8, enterprise: 2.3 } })
+    );
+    expect(het).not.toContain("per period");
+    expect(het).toContain("over the observed period"); // the definition
+    expect(het).toContain("$finding:segment_heterogeneity");
+    // A well-shaped trend still gets its dedicated template.
+    expect(realizeClaim(FINDINGS[0])).toContain("per period");
+  });
+
+  it("step and split sentences are grammatical (no 'a up step', no doubled span)", () => {
+    const step = realizeClaim(
+      F("churn_step", "step_change", {
+        period: "2024-08",
+        delta: 4.4,
+        direction: "up",
+        baseline_spread: 0.46,
+      })
+    );
+    expect(step).toContain("the level steps $finding:churn_step.direction by");
+    expect(step).not.toContain("a $finding:churn_step.direction step");
+    const split = realizeClaim(
+      F("churn_split", "comparison", {
+        early_median: 4.6,
+        late_median: 10.9,
+        early_span: "2024-01-2024-06",
+        late_span: "2024-07-2024-12",
+        multiplier: 2.4,
+      })
+    );
+    expect(split).not.toContain("Split at");
+    expect(split).toContain("across $finding:churn_split.early_span");
+    // A null multiplier (signed medians) drops the ratio clause entirely.
+    const signed = realizeClaim(
+      F("signed_split", "comparison", {
+        early_median: -5,
+        late_median: 5,
+        early_span: "a",
+        late_span: "b",
+        multiplier: null,
+      })
+    );
+    expect(signed).not.toContain("×");
+  });
+
   it("checks render definition + scalar evidence bindings, never booleans inline", () => {
     const text = realizeClaim(FINDINGS[3]);
     expect(text).toContain("⚠ FAILED");
@@ -473,6 +523,38 @@ describe("compileDashboard — deterministic, identity-keyed, overlay-aware", ()
     // Chart carries screened measure AND its raw sibling.
     expect(joined).toContain('"median","median_raw"');
     expect(lines[lines.length - 1]).toContain('"compiled_root"');
+  });
+
+  it("form carries the story: answer callout, caveat annotations, evidence seam", () => {
+    const withCaveat = {
+      ...input,
+      plan: {
+        nodes: [
+          { id: "n_answer", op: "ANSWER" as const, refs: ["price_trend"] },
+          { id: "n_caveat", op: "CAVEAT" as const, refs: ["zero_screen"] },
+        ],
+      },
+    };
+    const lines = compileDashboard(withCaveat);
+    const byPath = new Map(
+      lines
+        .map(
+          (l) =>
+            JSON.parse(l) as {
+              path: string;
+              value?: { type?: string; props?: Record<string, unknown> };
+            }
+        )
+        .map((p) => [p.path, p])
+    );
+    // ANSWER leads as a styled insight callout, not undifferentiated body text.
+    expect(byPath.get("/elements/n_answer")?.value?.props?.variant).toBe("insight");
+    // CAVEATs are visually distinct annotations; zero_screen failed → warning.
+    const caveat = byPath.get("/elements/n_caveat")?.value;
+    expect(caveat?.type).toBe("Annotation");
+    expect(caveat?.props?.severity).toBe("warning");
+    // A seam separates narrative from the chart block.
+    expect(byPath.get("/elements/compiled_evidence_break")?.value?.type).toBe("SectionBreak");
   });
 
   it("purpose + regimes govern the shipped view family; overlay can hide any view", () => {
