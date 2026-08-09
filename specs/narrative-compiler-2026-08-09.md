@@ -142,3 +142,43 @@ set_insight`. `applyMutations(doc, muts)` → new {plan, overlay},
    into the template tests.
 4. Regime caveats (spec 1) surface in CAVEAT templates via check evidence
    fields — the two specs meet exactly here; no prose invents mechanisms.
+
+## 10. Amendment (2026-08-09): purpose depth + the view catalog
+
+The first style-aware review of compiled output found a compiled deep-dive
+"leaner" than its generative counterpart. Root cause: the compiled path
+never received the purpose dimension — the planner hard-coded "4-9 nodes"
+for every style while codegen scaled the ANALYSIS to the style, so a deep
+dive computed deep-dive-sized findings and told a dashboard-sized story;
+and the scaffold collapsed each declared series to exactly one chart while
+the generative composer could draw several views of the same data.
+
+**Purpose threading.** `PLAN_BUDGETS` (plan.ts) is the compiled analog of
+the style FORM prompt: brief 3-5 nodes, dashboard 4-9, report 8-14
+(document-ordered), deep-dive 10-20 with an explicit coverage directive —
+"an unnarrated finding is a coverage gap, not brevity."
+`buildPlannerSystem(purpose)` carries the budget; `defaultPlan` fills to
+it (caveats never cut for budget); both pipelines pass their run purpose;
+`PlanDocument.purpose` records it so edit-path recompiles keep the depth.
+
+**View catalog (views.ts).** A series' roles + regime profile derive a
+FAMILY of candidate views, every one a pure projection of declared rows:
+unit-split primaries (measures with different units never share a y axis
+— ships for every style, the merged chart would be invalid), the coverage
+companion (observations-per-period; FORCED whenever COUNT*SKEWED /
+THIN_PERIODS / THIN_EDGE fired — it is the evidence behind every
+attestation decision, and ships on deep-dive whenever a count role
+exists), and the precision DataTable for report/deep-dive. Selection is
+deterministic (purpose budget + regime flags); ids are stable derivations
+(`chart*<sid>`, `chart*<sid>\_\_u<i>`, `chart*<sid>\__counts`,
+`table_<sid>`) so overlays and mutations survive recompiles, and
+unshipped views are still derived and reasoned — a future UI affordance
+and Verify legibility. `CachedArtifacts.regimes` carries the profiles so
+the edit path derives the same family live compose did.
+
+**Deferred, by limitation not principle:** group-split and two-measure
+scatter views — Line/Bar take flat wide-format data and the compiler does
+not pivot rows. **Out of scope, by principle:** a visual over data the
+model never declared cannot exist in compiled mode (emphasis, never
+fabrication) — the closure is contract pressure ("every view you want
+shipped is a declared series"), not compiler creativity.

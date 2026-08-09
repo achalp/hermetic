@@ -161,6 +161,10 @@ export interface CachedArtifacts {
    *  kept for inspectability (Verify/exports); chart_data holds the
    *  synthesized view of the same rows. Absent for legacy envelopes. */
   series?: import("./product").SeriesEntry[];
+  /** Envelope regime profiles by series id (regime-matrix spec) — the
+   *  edit-path recompile derives the same evidence views live compose did.
+   *  Absent for legacy envelopes. */
+  regimes?: Record<string, unknown>;
   /**
    * Full audit trail for an Investigate run: every sub-question's code +
    * result, the re-planner's decisions, and the narrative grounding verdict.

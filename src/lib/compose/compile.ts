@@ -10,13 +10,8 @@ import type { AnalysisProduct } from "@/lib/contracts/product";
 import type { Plan, PlanOverlay } from "@/lib/contracts/plan";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
 import { realizeNode } from "./realizer";
-import {
-  chartElement,
-  failedCheckBanner,
-  tileElement,
-  humanizeId,
-  type SpecPatchLine,
-} from "./scaffold";
+import { failedCheckBanner, tileElement, type SpecPatchLine } from "./scaffold";
+import { deriveViews } from "./views";
 
 export interface CompileInput {
   manifest: FindingsManifest;
@@ -25,6 +20,10 @@ export interface CompileInput {
   overlay: PlanOverlay;
   headlinePlan: HeadlineTile[];
   question: string;
+  /** Output style — scales the shipped view family (views.ts). */
+  purpose?: string;
+  /** Envelope regime profiles by series id — force evidence views in. */
+  regimes?: Record<string, unknown>;
 }
 
 /** Deterministic compilation to spec patch lines (JSONL strings). */
@@ -80,12 +79,18 @@ export function compileDashboard(input: CompileInput): string[] {
     children.push(node.id);
   }
 
-  // 4. Charts from declared series roles (screened + raw siblings).
-  for (const s of product.series) {
-    const id = `chart_${s.id}`;
-    if (hidden.has(id)) continue;
-    patches.push(chartElement(s));
-    children.push(id);
+  // 4. Views from declared series roles (views.ts): unit-split primaries,
+  //    regime-forced coverage companions, document-style tables. Every view
+  //    is a pure projection of declared rows; the overlay can hide any.
+  const views = deriveViews({
+    series: product.series,
+    regimes: input.regimes,
+    purpose: input.purpose,
+  });
+  for (const v of views) {
+    if (!v.shipped || hidden.has(v.id)) continue;
+    patches.push(v.patch);
+    children.push(v.id);
   }
 
   // 5. Overlay ordering: listed ids first (in overlay order), rest keep

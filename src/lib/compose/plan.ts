@@ -10,6 +10,7 @@
 import { z } from "zod";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import type { Plan, PlanNode, PlanOp } from "@/lib/contracts/plan";
+import { resolvePurpose } from "@/lib/purpose-prompts";
 
 export const PLAN_OPS = [
   "ANSWER",
@@ -31,6 +32,43 @@ export const PlanNodeSchema = z.object({
 });
 
 export const PlanSchema = z.object({ nodes: z.array(PlanNodeSchema).min(1).max(24) });
+
+/**
+ * Purpose-scaled plan budgets (the compiled composer's depth dimension).
+ * The generative composer receives getPurposePrompt(purpose); before this,
+ * the compiled planner hard-coded "4-9 nodes" for every style — a compiled
+ * deep-dive computed deep-dive-sized findings and then told a
+ * dashboard-sized story (the observed "compiled looks leaner" gap). The
+ * budget guidance is the compiled analog of the style FORM prompt; maxNodes
+ * stays under PlanSchema's structural cap of 24.
+ */
+export const PLAN_BUDGETS: Record<string, { maxNodes: number; guidance: string }> = {
+  brief: {
+    maxNodes: 5,
+    guidance:
+      "3-5 nodes total. Lead with ANSWER; keep CAVEATs for failed checks; cut everything that does not serve the bottom line — the reader has 30 seconds.",
+  },
+  dashboard: {
+    maxNodes: 9,
+    guidance: "4-9 nodes total.",
+  },
+  report: {
+    maxNodes: 14,
+    guidance:
+      "8-14 nodes total, ordered like a document: ANSWER first, then the evidence claims section by section (TREND/PEAK/ENDPOINT/SHAPE), CONTRAST where claims tension, CAVEATs, NOTE for secondary results worth recording.",
+  },
+  "deep-dive": {
+    maxNodes: 20,
+    guidance:
+      "10-20 nodes total. Narrate EVERY non-check claim that carries signal — an unnarrated finding is a coverage gap, not brevity. Use CONTRAST for claims in tension, SHAPE for distributions, NOTE for the rest.",
+  },
+};
+
+/** The budget for a (possibly legacy/absent) purpose id — resolves through
+ *  the same alias table as every other purpose consumer. */
+export function planBudget(purpose?: string): { maxNodes: number; guidance: string } {
+  return PLAN_BUDGETS[resolvePurpose(purpose)] ?? PLAN_BUDGETS.dashboard;
+}
 
 let planIdCounter = 0;
 /** Monotonic node id — stable within a document, unique enough across one. */
@@ -94,8 +132,12 @@ export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidati
 
 /** Deterministic fallback plan — the compiled pipeline can NEVER fail to
  *  produce a dashboard (PE review §4.4): answer on the question-primary or
- *  first non-check claim, caveats for failed checks. */
-export function defaultPlan(findings: FindingEntry[]): Plan {
+ *  first non-check claim, caveats for failed checks. Purpose-scaled: under
+ *  report/deep-dive budgets the fallback also narrates the remaining
+ *  non-check claims via opForDtype — a planner failure on a deep-dive must
+ *  not collapse the whole story to one sentence and its caveats. */
+export function defaultPlan(findings: FindingEntry[], purpose?: string): Plan {
+  const budget = planBudget(purpose);
   const nodes: PlanNode[] = [];
   const primary =
     findings.find((f) => f.tags?.includes("question-primary")) ??
@@ -111,6 +153,15 @@ export function defaultPlan(findings: FindingEntry[]): Plan {
     ) {
       nodes.push({ id: nextPlanNodeId(), op: "CAVEAT", refs: [f.name] });
     }
+  }
+  // Depth fill (report/deep-dive have headroom past ANSWER + caveats):
+  // remaining non-check claims in declaration order, each under its
+  // natural op, until the budget is spent. Caveats are never cut for
+  // budget — honesty outranks form.
+  for (const f of findings) {
+    if (nodes.length >= budget.maxNodes) break;
+    if (CHECK_DTYPES.has(f.dtype) || f.name === primary?.name) continue;
+    nodes.push({ id: nextPlanNodeId(), op: opForDtype(f.dtype), refs: [f.name] });
   }
   return { nodes };
 }

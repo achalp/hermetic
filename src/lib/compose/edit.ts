@@ -54,6 +54,11 @@ export async function editDashboard(
       artifacts.question
     ),
     question: artifacts.question,
+    // Recompiles keep the live compile's depth: same style budget (the plan
+    // doc records what the run was composed with) and same regime-forced
+    // evidence views (profiles ride the artifacts).
+    purpose: doc.purpose,
+    regimes: artifacts.regimes,
   });
 
   // Assemble through the SAME finalizer (values, units) as live compose.

@@ -589,6 +589,9 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           sql: warehouseSQL,
           ...(findingsManifest ? { findings: findingsManifest } : {}),
           ...(product.series.length > 0 ? { series: product.series } : {}),
+          ...(executionResult.regimes
+            ? { regimes: executionResult.regimes as Record<string, unknown> }
+            : {}),
         };
         cacheArtifacts(csvId, cachedArtifactData);
 

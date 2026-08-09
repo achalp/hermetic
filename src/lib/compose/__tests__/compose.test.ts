@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { validatePlan, defaultPlan, nextPlanNodeId, PLAN_OPS } from "@/lib/compose/plan";
+import {
+  validatePlan,
+  defaultPlan,
+  nextPlanNodeId,
+  planBudget,
+  PLAN_OPS,
+} from "@/lib/compose/plan";
+import { buildPlannerSystem } from "@/lib/compose/planner";
+import { deriveViews } from "@/lib/compose/views";
 import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
 import { applyMutations } from "@/lib/compose/mutations";
 import { compileDashboard } from "@/lib/compose/compile";
@@ -123,6 +131,92 @@ describe("validatePlan — structural invariants as parse errors", () => {
   it("defaultPlan always validates (the compiled pipeline cannot fail)", () => {
     const p = defaultPlan(FINDINGS);
     expect(validatePlan(p, FINDINGS).ok).toBe(true);
+  });
+
+  it("plan budgets scale with purpose; the planner prompt carries them", () => {
+    // The observed gap: a compiled deep-dive computed deep-dive-sized
+    // findings, then told a dashboard-sized (4-9 node) story.
+    expect(planBudget("brief").maxNodes).toBeLessThan(planBudget("dashboard").maxNodes);
+    expect(planBudget("report").maxNodes).toBeGreaterThan(planBudget("dashboard").maxNodes);
+    expect(planBudget("deep-dive").maxNodes).toBeGreaterThan(planBudget("report").maxNodes);
+    // Legacy alias + unknown resolve through the same table as every consumer.
+    expect(planBudget("executive-summary").maxNodes).toBe(planBudget("brief").maxNodes);
+    expect(planBudget(undefined).maxNodes).toBe(planBudget("dashboard").maxNodes);
+    expect(buildPlannerSystem("deep-dive")).toContain("10-20 nodes");
+    expect(buildPlannerSystem("deep-dive")).toContain("EVERY non-check claim");
+    expect(buildPlannerSystem()).toContain("4-9 nodes");
+  });
+
+  it("defaultPlan fills to the purpose budget; caveats never cut", () => {
+    const deep = defaultPlan(FINDINGS, "deep-dive");
+    expect(validatePlan(deep, FINDINGS).ok).toBe(true);
+    // All three non-check claims narrated (ANSWER + PEAK + ENDPOINT) + caveat.
+    const refs = deep.nodes.flatMap((n) => n.refs);
+    expect(refs).toContain("price_peak");
+    expect(refs).toContain("price_current_state");
+    expect(deep.nodes.some((n) => n.op === "CAVEAT")).toBe(true);
+    // Brief keeps the caveat even at its tight budget.
+    const brief = defaultPlan(FINDINGS, "brief");
+    expect(brief.nodes.some((n) => n.op === "CAVEAT")).toBe(true);
+    expect(brief.nodes.length).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("view catalog — deterministic derivation from roles + regimes", () => {
+  const SERIES = PRODUCT.series[0]; // annual_prices: median(usd)/median_raw + count n
+
+  it("primary keeps its stable id; coverage and table exist unshipped by default", () => {
+    const views = deriveViews({ series: [SERIES] });
+    const byId = new Map(views.map((v) => [v.id, v]));
+    expect(byId.get("chart_annual_prices")?.shipped).toBe(true);
+    expect(byId.get("chart_annual_prices__counts")?.shipped).toBe(false);
+    expect(byId.get("table_annual_prices")?.shipped).toBe(false);
+  });
+
+  it("thin-data regimes force the coverage companion for every purpose", () => {
+    const views = deriveViews({
+      series: [SERIES],
+      regimes: { annual_prices: { flags: ["COUNT_SKEWED", "THIN_EDGE"] } },
+      purpose: "brief",
+    });
+    const cov = views.find((v) => v.kind === "coverage");
+    expect(cov?.shipped).toBe(true);
+    expect(cov?.reason).toContain("COUNT_SKEWED");
+    const patch = cov!.patch.value as { type: string; props: { y_keys: string[] } };
+    expect(patch.type).toBe("BarChart");
+    expect(patch.props.y_keys).toEqual(["n"]);
+  });
+
+  it("deep-dive ships coverage + table; report ships the table", () => {
+    const deep = deriveViews({ series: [SERIES], purpose: "deep-dive" });
+    expect(deep.find((v) => v.kind === "coverage")?.shipped).toBe(true);
+    expect(deep.find((v) => v.kind === "table")?.shipped).toBe(true);
+    const report = deriveViews({ series: [SERIES], purpose: "report" });
+    expect(report.find((v) => v.kind === "table")?.shipped).toBe(true);
+    expect(report.find((v) => v.kind === "coverage")?.shipped).toBe(false);
+  });
+
+  it("mixed units split into separate charts — never one y axis", () => {
+    const mixed = {
+      ...SERIES,
+      roles: {
+        ...SERIES.roles,
+        measures: [
+          { column: "median", unit: "usd" },
+          { column: "n_items", unit: "count" },
+        ],
+      },
+    };
+    const views = deriveViews({ series: [mixed] });
+    const primary = views.find((v) => v.kind === "primary")!;
+    const split = views.find((v) => v.kind === "unit_split")!;
+    expect((primary.patch.value as { props: { y_keys: string[] } }).props.y_keys).toEqual([
+      "median",
+    ]);
+    expect(split.shipped).toBe(true);
+    expect((split.patch.value as { props: { y_keys: string[] } }).props.y_keys).toEqual([
+      "n_items",
+    ]);
   });
 });
 
@@ -277,6 +371,27 @@ describe("compileDashboard — deterministic, identity-keyed, overlay-aware", ()
     // Chart carries screened measure AND its raw sibling.
     expect(joined).toContain('"median","median_raw"');
     expect(lines[lines.length - 1]).toContain('"compiled_root"');
+  });
+
+  it("purpose + regimes govern the shipped view family; overlay can hide any view", () => {
+    const flagged = {
+      ...input,
+      purpose: "report",
+      regimes: { annual_prices: { flags: ["THIN_PERIODS"] } },
+    };
+    const joined = compileDashboard(flagged).join("\n");
+    expect(joined).toContain("chart_annual_prices__counts"); // regime-forced evidence
+    expect(joined).toContain("table_annual_prices"); // document style
+    // Dashboard default with no flags ships neither — byte-compatible depth.
+    const plain = compileDashboard(input).join("\n");
+    expect(plain).not.toContain("__counts");
+    expect(plain).not.toContain("table_annual_prices");
+    // The overlay grammar governs views like every other element.
+    const hiddenCov = compileDashboard({
+      ...flagged,
+      overlay: { hidden: ["chart_annual_prices__counts"] },
+    }).join("\n");
+    expect(hiddenCov).not.toContain("__counts");
   });
 
   it("overlay hides and reorders by stable id, surviving recompiles", () => {

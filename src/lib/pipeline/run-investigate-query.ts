@@ -757,6 +757,16 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             }))
         );
         const investigateRolesIdx = productRolesIndex(investigationProduct.series);
+        // Regime profiles under the same step_N_ prefix as the merged
+        // series ids — keyed for the view catalog and the edit recompile.
+        const investigationRegimes: Record<string, unknown> = {};
+        for (const sub of subResults) {
+          if (sub.removed || !sub.result) continue;
+          for (const [k, v] of Object.entries(
+            (sub.result.executionResult.regimes ?? {}) as Record<string, unknown>
+          ))
+            investigationRegimes[`step_${sub.index + 1}_${k}`] = v;
+        }
         if (productIssues.length > 0) {
           logger.warn("investigate product: invalid declarations dropped", {
             issues: productIssues.map((i) => i.detail),
@@ -769,6 +779,9 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           ...(investigationFindings ? { findings: investigationFindings } : {}),
           ...(investigationProduct.series.length > 0
             ? { series: investigationProduct.series }
+            : {}),
+          ...(Object.keys(investigationRegimes).length > 0
+            ? { regimes: investigationRegimes }
             : {}),
         });
 
@@ -852,8 +865,14 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     findings: investigationFindings!.findings,
                     question,
                     model: uiComposeModel,
+                    purpose: context.purpose,
                   });
-                  investigatePlanDoc = { plan, overlay: {}, mode: "compiled" as const };
+                  investigatePlanDoc = {
+                    plan,
+                    overlay: {},
+                    mode: "compiled" as const,
+                    purpose: context.purpose,
+                  };
                   yield compileDashboard({
                     manifest: investigationFindings!,
                     product: investigationProduct,
@@ -866,6 +885,8 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                       investigationProduct.values
                     ),
                     question,
+                    purpose: context.purpose,
+                    regimes: investigationRegimes,
                   }).join("\n") + "\n";
                 })(),
               };

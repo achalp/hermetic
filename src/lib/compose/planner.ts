@@ -13,7 +13,7 @@ import { projectManifestForPrompt } from "@/lib/findings/project";
 import { logger } from "@/lib/logger";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import type { Plan } from "@/lib/contracts/plan";
-import { PLAN_OPS, defaultPlan, nextPlanNodeId, validatePlan } from "./plan";
+import { PLAN_OPS, defaultPlan, nextPlanNodeId, planBudget, validatePlan } from "./plan";
 
 const PlannerResponse = z.object({
   nodes: z
@@ -25,23 +25,34 @@ const PlannerResponse = z.object({
       })
     )
     .min(1)
-    .max(16),
+    .max(24),
 });
 
-export const PLANNER_SYSTEM = `You are planning a data dashboard's narrative. You receive the analysis' declared claims (findings with definitions — no raw data). Respond with ONLY a JSON object:
+/** Planner system prompt for a style — the node budget and depth directive
+ *  are the PURPOSE dimension of compiled composition (plan.ts
+ *  PLAN_BUDGETS); everything else is the fixed grammar. */
+export function buildPlannerSystem(purpose?: string): string {
+  const budget = planBudget(purpose);
+  return `You are planning a data dashboard's narrative. You receive the analysis' declared claims (findings with definitions — no raw data). Respond with ONLY a JSON object:
 {"nodes":[{"op":"ANSWER|TREND|SHAPE|PEAK|ENDPOINT|CONTRAST|NOTE|CAVEAT|INSIGHT","refs":["<claim name>", ...],"text":"..."}]}
 Rules:
 - EXACTLY ONE ANSWER node: the claim(s) that answer the user's question most directly.
 - CAVEAT nodes may reference ONLY checks/screens (dtype "check"/"screen"); include one for every FAILED check.
 - At most one INSIGHT node: 1-3 sentences of synthesis ACROSS claims ("text"), the only free prose you may write — every number in it must be a $finding:<name>.<field> binding, never a literal.
-- refs use claim names exactly as given. Order nodes by importance. 4-9 nodes total.
+- refs use claim names exactly as given. Order nodes by importance. ${budget.guidance}
 - Do not restate what a single claim already says in INSIGHT — that is what the other nodes render.
 - INSIGHT may ONLY connect facts the claims state. NEVER assert a mechanism, coverage change, or data-collection story no check reports ("currency coverage collapsed", "reporting still arriving" are fabrications unless a check's definition literally states them). If you cannot ground a synthesis in the listed claims, omit the INSIGHT node entirely — absent insight beats invented insight.`;
+}
+
+/** The default-style prompt (kept for compatibility/tests). */
+export const PLANNER_SYSTEM = buildPlannerSystem();
 
 export async function generatePlan(args: {
   findings: FindingEntry[];
   question: string;
   model: string;
+  /** Output style (purpose id) — scales the plan's node budget. */
+  purpose?: string;
 }): Promise<{ plan: Plan; plannerErrors: string[] }> {
   const { projections } = projectManifestForPrompt(args.findings);
   const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}\n\nPlan the narrative.`;
@@ -52,7 +63,7 @@ export async function generatePlan(args: {
       const res = await withPhase("compose", () =>
         generateText({
           model: getModel(args.model),
-          system: cachedSystem(PLANNER_SYSTEM),
+          system: cachedSystem(buildPlannerSystem(args.purpose)),
           prompt: prompt + feedback,
           temperature: 0,
           maxOutputTokens: 1200,
@@ -81,5 +92,5 @@ export async function generatePlan(args: {
   logger.warn("Planner failed validation twice — using the deterministic default plan", {
     errors: errors.slice(0, 4),
   });
-  return { plan: defaultPlan(args.findings), plannerErrors: errors };
+  return { plan: defaultPlan(args.findings, args.purpose), plannerErrors: errors };
 }

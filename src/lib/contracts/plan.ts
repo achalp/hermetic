@@ -47,6 +47,9 @@ export interface PlanDocument {
   overlay: PlanOverlay;
   /** Compose mode that produced the current spec. */
   mode: "generative" | "compiled";
+  /** Output style the run was composed with — recompiles (edit path) keep
+   *  the same plan budget and view family. Absent on pre-purpose docs. */
+  purpose?: string;
 }
 
 export type PlanMutation =

@@ -849,8 +849,14 @@ export async function composeAndStreamDashboard(args: {
           findings: findingsList,
           question: opts.question,
           model: uiComposeModel,
+          purpose: opts.purpose,
         });
-        compiledPlanDoc = { plan, overlay: opts.planOverlay ?? {}, mode: "compiled" };
+        compiledPlanDoc = {
+          plan,
+          overlay: opts.planOverlay ?? {},
+          mode: "compiled",
+          purpose: opts.purpose,
+        };
         const lines = compileDashboard({
           manifest: opts.findings!.manifest,
           product: modeProduct,
@@ -863,6 +869,8 @@ export async function composeAndStreamDashboard(args: {
             modeProduct.values
           ),
           question: opts.question,
+          purpose: opts.purpose,
+          regimes: (executionResult.regimes ?? {}) as Record<string, unknown>,
         });
         yield lines.join("\n") + "\n";
       })()
