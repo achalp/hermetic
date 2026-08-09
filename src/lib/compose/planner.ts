@@ -35,7 +35,8 @@ Rules:
 - CAVEAT nodes may reference ONLY checks/screens (dtype "check"/"screen"); include one for every FAILED check.
 - At most one INSIGHT node: 1-3 sentences of synthesis ACROSS claims ("text"), the only free prose you may write — every number in it must be a $finding:<name>.<field> binding, never a literal.
 - refs use claim names exactly as given. Order nodes by importance. 4-9 nodes total.
-- Do not restate what a single claim already says in INSIGHT — that is what the other nodes render.`;
+- Do not restate what a single claim already says in INSIGHT — that is what the other nodes render.
+- INSIGHT may ONLY connect facts the claims state. NEVER assert a mechanism, coverage change, or data-collection story no check reports ("currency coverage collapsed", "reporting still arriving" are fabrications unless a check's definition literally states them). If you cannot ground a synthesis in the listed claims, omit the INSIGHT node entirely — absent insight beats invented insight.`;
 
 export async function generatePlan(args: {
   findings: FindingEntry[];

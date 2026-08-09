@@ -36,6 +36,8 @@ import {
   lintWellAttestedScreened,
   lintThinSuperlative,
   lintNullZeroMirror,
+  lintRegimePolicy,
+  lintUnaggregatedRollup,
   lintSeriesConsumption,
   lintResultsProvenance,
 } from "@/lib/findings";
@@ -521,6 +523,15 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               validated.manifest.findings,
               rolesIdx
             ),
+            ...lintRegimePolicy(
+              executionResult.regimes as Record<string, unknown> | undefined,
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
+              rolesIdx
+            ),
+            ...lintUnaggregatedRollup(
+              (executionResult.chart_data ?? {}) as Record<string, unknown>,
+              rolesIdx
+            ),
             ...lintChartConsistency(
               (executionResult.chart_data ?? {}) as Record<string, unknown>,
               validated.manifest.findings,
@@ -548,6 +559,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               "statistic_mislabel",
               "unbacked_superlative",
               "runtime_fallback",
+              "zero_sentinel_unapplied",
             ]);
             if (findingIssues.some((i) => SEVERE_FOR_BANK.has(i.kind))) {
               void vetoExemplarByRunId(getRunId() ?? "unknown").catch(() => {});

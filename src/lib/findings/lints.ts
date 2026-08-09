@@ -1308,6 +1308,66 @@ export function lintSuperlativeHidesRaw(
   return issues;
 }
 
+/** The regime envelope makes policy ENFORCEABLE: a series whose profile
+ *  fired ZERO_INFLATED + MONETARY must have had its zeros excluded — a
+ *  blocking check that CLAIMS record-level exclusion while reporting
+ *  n_excluded=0 and leaving 12 $0.00 rows in the series is a check
+ *  validating a filter that never ran (compiled-run review 2026-08-09). */
+export function lintRegimePolicy(
+  regimes: Record<string, unknown> | undefined,
+  chartData: Record<string, unknown>,
+  rolesIdx?: ProductRolesIndex
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const [id, prof] of Object.entries(regimes ?? {})) {
+    if (issues.length >= 3 || prof === null || typeof prof !== "object") continue;
+    const flags = (prof as { flags?: unknown }).flags;
+    if (!Array.isArray(flags) || !flags.includes("ZERO_INFLATED") || !flags.includes("MONETARY"))
+      continue;
+    const rows = chartData[id];
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+    const info = rolesIdx?.get(id);
+    const col = info?.measures[0]?.column;
+    if (!col) continue;
+    const zeros = (rows as Record<string, unknown>[]).filter((r) => r[col] === 0).length;
+    if (zeros > 0) {
+      issues.push({
+        kind: "zero_sentinel_unapplied",
+        name: id,
+        detail: `series ${id}: the regime profile fired ZERO_INFLATED on a monetary measure (zero_share ${String((prof as Record<string, unknown>).zero_share)}), but ${zeros} zero-valued rows remain in ${col} — the sentinel policy was declared, not applied (a check claiming exclusion with n_excluded=0 is validating a filter that never ran); exclude at the record level via zero_policy(profile_regimes(...))`,
+      });
+    }
+  }
+  return issues;
+}
+
+/** An aggregation that didn't aggregate: a declared series whose x repeats
+ *  consecutively with no group role — 34 rows tagged "(1850.999, 1916.0]"
+ *  each carrying a single year's median is a per-year series wearing an
+ *  era costume (and raw pandas Interval strings as labels). */
+export function lintUnaggregatedRollup(
+  chartData: Record<string, unknown>,
+  rolesIdx?: ProductRolesIndex
+): FindingIssue[] {
+  const issues: FindingIssue[] = [];
+  for (const [id, info] of rolesIdx ?? []) {
+    if (issues.length >= 2 || info.groupCol) continue;
+    const rows = chartData[id];
+    if (!Array.isArray(rows) || rows.length < 4) continue;
+    const xs = (rows as Record<string, unknown>[]).map((r) => String(r[info.xCol]));
+    const dupRun = xs.some((x, i) => i > 0 && x === xs[i - 1]);
+    const intervalLabels = xs.some((x) => /^[([][\d.]+, ?[\d.]+[)\]]$/.test(x));
+    if (dupRun || intervalLabels) {
+      issues.push({
+        kind: "unaggregated_rollup",
+        name: id,
+        detail: `series ${id}: ${dupRun ? `x (${info.xCol}) repeats consecutively with no group role — the rollup never grouped (one row per underlying period wearing the bucket label)` : ""}${dupRun && intervalLabels ? "; " : ""}${intervalLabels ? "x labels are raw pandas Interval strings — name the buckets explicitly (e.g. '1850–1916'), str(Interval) is not a label" : ""}`,
+      });
+    }
+  }
+  return issues;
+}
+
 // ── Thin-superlative lint (run-39: 52-item year crowned the headline) ──
 
 /** A finding whose claimed period sits on a count under 20% of the series

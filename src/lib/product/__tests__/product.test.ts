@@ -356,3 +356,71 @@ describe("structured-first lints (roles index paths)", () => {
     expect(issues2[0].kind).toBe("screen_missed_superlative");
   });
 });
+
+describe("regime-policy enforcement lints (compiled-run review 2026-08-09)", () => {
+  it("zero_sentinel_unapplied: declared policy, zeros still present", async () => {
+    const { lintRegimePolicy, lintUnaggregatedRollup } = await import("@/lib/findings/lints");
+    const rows = [
+      { yr: 1859, price: 0, n: 100 },
+      { yr: 1900, price: 0.3, n: 5000 },
+      { yr: 1901, price: 0, n: 200 },
+      { yr: 1902, price: 0.4, n: 4000 },
+    ];
+    const s: SeriesEntry = {
+      id: "annual_prices",
+      rows,
+      roles: {
+        x: { column: "yr", kind: "temporal" },
+        measures: [{ column: "price", unit: "usd" }],
+        count: { column: "n" },
+      },
+    };
+    const idx = productRolesIndex([s]);
+    const regimes = {
+      annual_prices: { zero_share: 0.5, flags: ["ZERO_INFLATED", "MONETARY"] },
+    };
+    const issues = lintRegimePolicy(regimes, { annual_prices: rows }, idx);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("zero_sentinel_unapplied");
+    expect(issues[0].detail).toContain("2 zero-valued rows");
+    // Applied policy (zeros gone): quiet.
+    const clean = rows.filter((r) => r.price !== 0);
+    expect(lintRegimePolicy(regimes, { annual_prices: clean }, idx)).toHaveLength(0);
+    // Non-monetary: quiet.
+    expect(
+      lintRegimePolicy(
+        { annual_prices: { flags: ["ZERO_INFLATED"] } },
+        { annual_prices: rows },
+        idx
+      )
+    ).toHaveLength(0);
+    // Unaggregated rollup: repeated consecutive x + interval labels.
+    const era: SeriesEntry = {
+      id: "price_by_era",
+      rows: [
+        { era: "(1850.999, 1916.0]", median: 0.3 },
+        { era: "(1850.999, 1916.0]", median: 0.35 },
+        { era: "(1850.999, 1916.0]", median: 0.4 },
+        { era: "(1916.0, 1970.0]", median: 0.9 },
+      ],
+      roles: { x: { column: "era", kind: "categorical" }, measures: [{ column: "median" }] },
+    };
+    const eraIssues = lintUnaggregatedRollup({ price_by_era: era.rows }, productRolesIndex([era]));
+    expect(eraIssues).toHaveLength(1);
+    expect(eraIssues[0].kind).toBe("unaggregated_rollup");
+    expect(eraIssues[0].detail).toContain("Interval");
+    // Properly grouped rollup (unique x, named buckets): quiet.
+    const grouped = [
+      { era: "1850-1916", median: 0.33 },
+      { era: "1917-1970", median: 0.9 },
+      { era: "1971-2012", median: 4.5 },
+      { era: "all", median: 0.5 },
+    ];
+    expect(
+      lintUnaggregatedRollup(
+        { price_by_era: grouped },
+        productRolesIndex([{ ...era, rows: grouped }])
+      )
+    ).toHaveLength(0);
+  });
+});
