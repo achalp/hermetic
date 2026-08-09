@@ -40,6 +40,11 @@ export interface PlanOverlay {
   order?: string[];
   /** Node ids hidden from render (claims stay in the manifest/Verify). */
   hidden?: string[];
+  /** View ids FORCE-SHIPPED from the derived catalog (views.ts) — the "add
+   *  chart" affordance: a derived-but-unshipped view (coverage companion,
+   *  precision table, unit split) the user opted in. Every shown view is
+   *  still a pure projection of declared rows. */
+  shown?: string[];
 }
 
 export interface PlanDocument {

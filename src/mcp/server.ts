@@ -397,23 +397,25 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
     "get_dashboard_plan",
     {
       description:
-        "Read a compiled dashboard's narrative plan (typed speech-act nodes + layout overlay). " +
-        "Only available when composer.mode=compiled produced the dashboard. Use before " +
-        "edit_dashboard to see node ids and structure.",
+        "Read a compiled dashboard's edit surface: sections in render order (with node ids), " +
+        "un-narrated claims available for add_node, and the derived view catalog (coverage " +
+        "companions, precision tables, unit splits) with shipped state + reasons — " +
+        "shipped:false views can be added via edit_dashboard {kind:'show',id}. Only available " +
+        "when composer.mode=compiled produced the dashboard. Use before edit_dashboard.",
       inputSchema: {
         source_id: zAudit.string().describe("source_id (csv id) of the analyzed dataset."),
       },
     },
     withAudit(audit, "get_dashboard_plan", async (args: { source_id: string }) => {
-      const { getDashboardPlan } = await import("@/lib/compose/edit");
-      const plan = getDashboardPlan(args.source_id);
-      if (!plan) {
+      const { getEditSurface } = await import("@/lib/compose/edit");
+      const surface = await getEditSurface(args.source_id);
+      if (!surface) {
         throw new McpToolError(
           "invalid_input",
           "no plan document for this source — the dashboard was not compiled (composer.mode)"
         );
       }
-      return { plan };
+      return { plan: surface.doc, ...surface };
     })
   );
 
@@ -424,8 +426,11 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
         "Edit a compiled dashboard through the governed mutation grammar and recompile it " +
         "deterministically (no LLM). Mutations: {kind:'move',id,before?} | {kind:'hide',id} | " +
         "{kind:'show',id} | {kind:'add_node',node:{op,refs,text?},before?} | " +
-        "{kind:'remove_node',id} | {kind:'set_insight',text}. Same code path as the web UI's " +
-        "plan editor — invariants (one ANSWER, caveats reference checks only) are re-validated.",
+        "{kind:'remove_node',id} | {kind:'set_insight',text}. Targets are plan-node ids AND " +
+        "element ids from get_dashboard_plan (derived views like chart_<id>__counts / " +
+        "table_<id>, tile_grid) — 'show' on an unshipped catalog view adds that chart. Same " +
+        "code path as the web UI's plan editor — invariants (one ANSWER, caveats reference " +
+        "checks only) are re-validated.",
       inputSchema: {
         source_id: zAudit.string().describe("source_id (csv id) of the analyzed dataset."),
         mutations: zAudit.array(zAudit.record(zAudit.string(), zAudit.unknown())).min(1),

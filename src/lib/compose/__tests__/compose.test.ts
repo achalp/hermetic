@@ -8,6 +8,8 @@ import {
 } from "@/lib/compose/plan";
 import { buildPlannerSystem } from "@/lib/compose/planner";
 import { deriveViews } from "@/lib/compose/views";
+import { getEditSurface } from "@/lib/compose/edit";
+import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
 import { applyMutations } from "@/lib/compose/mutations";
 import { compileDashboard } from "@/lib/compose/compile";
@@ -159,6 +161,106 @@ describe("validatePlan — structural invariants as parse errors", () => {
     const brief = defaultPlan(FINDINGS, "brief");
     expect(brief.nodes.some((n) => n.op === "CAVEAT")).toBe(true);
     expect(brief.nodes.length).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("edit grammar — views, shown overlay, purpose survival", () => {
+  const DOC = {
+    mode: "compiled" as const,
+    purpose: "deep-dive",
+    plan: {
+      nodes: [
+        { id: "n_a", op: "ANSWER" as const, refs: ["price_trend"] },
+        { id: "n_i", op: "INSIGHT" as const, refs: [], text: "Synthesis." },
+      ],
+    },
+    overlay: {},
+  };
+  const VIEW_IDS = new Set(["chart_annual_prices__counts", "table_annual_prices", "tile_grid"]);
+
+  it("show on a catalog view force-ships it; hide retracts; purpose survives the copy", () => {
+    const shown = applyMutations(DOC, [{ kind: "show", id: "table_annual_prices" }], VIEW_IDS);
+    expect(shown.errors).toEqual([]);
+    expect(shown.doc.overlay.shown).toContain("table_annual_prices");
+    expect(shown.doc.purpose).toBe("deep-dive"); // the depth budget must not reset on edit
+    const hidden = applyMutations(
+      shown.doc,
+      [{ kind: "hide", id: "table_annual_prices" }],
+      VIEW_IDS
+    );
+    expect(hidden.doc.overlay.shown).not.toContain("table_annual_prices");
+    expect(hidden.doc.overlay.hidden).toContain("table_annual_prices");
+  });
+
+  it("view ids are movable with knownElementIds; typos still error", () => {
+    const ok = applyMutations(
+      DOC,
+      [{ kind: "move", id: "chart_annual_prices__counts", before: "n_a" }],
+      VIEW_IDS
+    );
+    expect(ok.errors).toEqual([]);
+    expect(ok.doc.overlay.order?.[0]).toBe("chart_annual_prices__counts");
+    const typo = applyMutations(DOC, [{ kind: "hide", id: "chart_nope" }], VIEW_IDS);
+    expect(typo.errors).toHaveLength(1);
+  });
+
+  it("compile ships a shown catalog view that would not ship by default", () => {
+    const plan = {
+      nodes: [{ id: "n_answer", op: "ANSWER" as const, refs: ["price_trend"] }],
+    };
+    const base = {
+      manifest: MANIFEST,
+      product: PRODUCT,
+      plan,
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    };
+    expect(compileDashboard(base).join("\n")).not.toContain("table_annual_prices");
+    const withShown = compileDashboard({
+      ...base,
+      overlay: { shown: ["table_annual_prices"] },
+    }).join("\n");
+    expect(withShown).toContain("table_annual_prices");
+  });
+});
+
+describe("edit surface — one read for the editing UI (web panel + MCP)", () => {
+  it("exposes sections in render order, uncited claims, and the view catalog", async () => {
+    cacheArtifacts("csv-edit-surface-1", {
+      code: "",
+      question: "How have prices changed?",
+      results: {},
+      chart_data: {},
+      datasets: {},
+      execution_ms: 0,
+      findings: MANIFEST,
+      series: PRODUCT.series,
+      plan: {
+        mode: "compiled",
+        purpose: "report",
+        plan: { nodes: [{ id: "n_a", op: "ANSWER", refs: ["price_trend"] }] },
+        overlay: {},
+      },
+    });
+    const s = await getEditSurface("csv-edit-surface-1");
+    expect(s).not.toBeNull();
+    const ids = s!.sections.map((x) => x.id);
+    expect(ids).toContain("compiled_check_banner"); // zero_screen failed
+    expect(ids).toContain("n_a");
+    expect(ids).toContain("chart_annual_prices");
+    expect(ids).toContain("table_annual_prices"); // report purpose ships the table
+    // Un-narrated claims are offered with a suggested op; checks are not
+    // (caveats stay grammar-governed).
+    const uncited = s!.claims.filter((c) => !c.cited).map((c) => c.name);
+    expect(uncited).toContain("price_peak");
+    expect(s!.claims.map((c) => c.name)).not.toContain("zero_screen");
+    expect(s!.claims.find((c) => c.name === "price_peak")?.suggestedOp).toBe("PEAK");
+    // The unshipped coverage companion is the add-chart affordance, with
+    // its reason attached.
+    const cov = s!.views.find((v) => v.kind === "coverage");
+    expect(cov?.shipped).toBe(false);
+    expect(cov?.reason.length).toBeGreaterThan(10);
   });
 });
 

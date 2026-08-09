@@ -69,6 +69,13 @@ export type PageAction =
   | { type: "RERUN_ERROR" }
   | { type: "CLEAR_PENDING_RERUN" }
   | {
+      /** A plan edit recompiled the dashboard — swap the displayed spec
+       *  without touching artifacts/viz state (ResponsePanel adopts
+       *  loadedSpec changes as the restored display). */
+      type: "PLAN_EDIT_APPLIED";
+      spec: Spec;
+    }
+  | {
       /** Re-run with user-edited Python and/or SQL. At least one must be provided. */
       type: "RERUN_WITH_EDITS";
       question: string;
@@ -188,6 +195,8 @@ export function pageReducer(state: PageState, action: PageAction): PageState {
       return { ...state, rerunningViz: false, refreshStage: null };
     case "CLEAR_PENDING_RERUN":
       return { ...state, pendingRerunVizId: null };
+    case "PLAN_EDIT_APPLIED":
+      return { ...state, loadedSpec: action.spec };
   }
 }
 

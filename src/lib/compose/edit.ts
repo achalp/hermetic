@@ -8,20 +8,36 @@
  */
 import { applySpecPatch, parseSpecStreamLine, type Spec } from "@/spec/core";
 import type { PlanDocument, PlanMutation } from "@/lib/contracts/plan";
+import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { loadArtifactsByCsvId, updateArtifactsByCsvId } from "@/lib/history/storage";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { planHeadlineTiles } from "@/lib/findings/headline-plan";
 import { declaredUnitMap, parseProduct } from "@/lib/product";
-import { validatePlan } from "./plan";
+import { validatePlan, opForDtype } from "./plan";
 import { applyMutations } from "./mutations";
 import { compileDashboard } from "./compile";
+import { deriveViews, type DerivedView } from "./views";
+import { realizeNode } from "./realizer";
+import { humanizeId } from "./scaffold";
 
 export interface EditDashboardResult {
   ok: boolean;
   errors: string[];
   spec?: Spec;
   doc?: PlanDocument;
+}
+
+/** Structural element ids the overlay may also target. */
+const STRUCTURAL_IDS = ["compiled_check_banner", "tile_grid"];
+
+function viewsFor(artifacts: CachedArtifacts): DerivedView[] {
+  const { product } = parseProduct(artifacts.series, undefined);
+  return deriveViews({
+    series: product.series,
+    regimes: artifacts.regimes,
+    purpose: artifacts.plan?.purpose,
+  });
 }
 
 export async function editDashboard(
@@ -38,7 +54,8 @@ export async function editDashboard(
       ],
     };
   }
-  const { doc, errors } = applyMutations(artifacts.plan, mutations);
+  const knownIds = new Set([...viewsFor(artifacts).map((v) => v.id), ...STRUCTURAL_IDS]);
+  const { doc, errors } = applyMutations(artifacts.plan, mutations, knownIds);
   const v = validatePlan(doc.plan, artifacts.findings.findings);
   if (!v.ok) return { ok: false, errors: [...errors, ...v.errors] };
 
@@ -97,4 +114,120 @@ export async function editDashboard(
 
 export function getDashboardPlan(csvId: string): PlanDocument | undefined {
   return getCachedArtifacts(csvId)?.plan;
+}
+
+// ── The edit surface: everything the editing UI (web panel / MCP) needs
+// in one read — sections in effective order, the un-narrated claims
+// available for add_node, and the derived view catalog with reasons for
+// the add-chart picker. Pure projection of the cached artifacts.
+
+export interface EditSection {
+  id: string;
+  kind: "banner" | "tiles" | "node" | "view";
+  /** Plan-node op when kind=node. */
+  op?: string;
+  label: string;
+  /** Realized sentence preview for nodes (truncated). */
+  preview?: string;
+  hidden: boolean;
+}
+
+export interface EditSurface {
+  doc: PlanDocument;
+  sections: EditSection[];
+  /** Declared claims: cited = referenced by some plan node; suggestedOp for
+   *  one-click add_node. Checks are omitted (caveats are grammar-governed). */
+  claims: { name: string; dtype: string; cited: boolean; suggestedOp: string }[];
+  /** Full derived view family with reasons — shipped:false entries are the
+   *  add-chart picker. */
+  views: { id: string; kind: string; seriesId: string; reason: string; shipped: boolean }[];
+}
+
+export async function getEditSurface(csvId: string): Promise<EditSurface | null> {
+  const artifacts = getCachedArtifacts(csvId) ?? (await loadArtifactsByCsvId(csvId));
+  if (!artifacts?.plan || !artifacts.findings) return null;
+  const doc = artifacts.plan;
+  const findings = artifacts.findings.findings;
+  const byName = new Map(findings.map((f) => [f.name, f]));
+  const views = viewsFor(artifacts);
+  const viewById = new Map(views.map((v) => [v.id, v]));
+  const shown = new Set(doc.overlay.shown ?? []);
+  const hidden = new Set(doc.overlay.hidden ?? []);
+
+  // Effective render order comes from the compiler itself — one source.
+  const { product } = parseProduct(artifacts.series, undefined);
+  const lines = compileDashboard({
+    manifest: artifacts.findings,
+    product,
+    plan: doc.plan,
+    overlay: doc.overlay,
+    headlinePlan: planHeadlineTiles(findings, artifacts.results ?? {}, artifacts.question),
+    question: artifacts.question,
+    purpose: doc.purpose,
+    regimes: artifacts.regimes,
+  });
+  const root = JSON.parse(lines[lines.length - 2]) as { value?: { children?: string[] } };
+  const visible = root.value?.children ?? [];
+
+  const sectionFor = (id: string, isHidden: boolean): EditSection | null => {
+    if (id === "compiled_check_banner")
+      return { id, kind: "banner", label: "Failed-check banner", hidden: isHidden };
+    if (id === "tile_grid") return { id, kind: "tiles", label: "Headline tiles", hidden: isHidden };
+    const node = doc.plan.nodes.find((n) => n.id === id);
+    if (node) {
+      const text = realizeNode(node, byName) ?? node.text ?? "";
+      return {
+        id,
+        kind: "node",
+        op: node.op,
+        label: node.op === "INSIGHT" ? "Insight" : `${node.op}: ${node.refs.join(", ")}`,
+        preview: text.slice(0, 160),
+        hidden: isHidden,
+      };
+    }
+    const view = viewById.get(id);
+    if (view) {
+      return {
+        id,
+        kind: "view",
+        label: `${view.kind === "table" ? "Table" : "Chart"}: ${humanizeId(view.seriesId)}${view.kind === "coverage" ? " (coverage)" : view.kind === "unit_split" ? " (unit split)" : ""}`,
+        hidden: isHidden,
+      };
+    }
+    return null;
+  };
+
+  const sections: EditSection[] = [];
+  for (const id of visible) {
+    const s = sectionFor(id, false);
+    if (s) sections.push(s);
+  }
+  // Hidden elements append at the end, marked — visible in the panel so
+  // hiding is reversible without remembering ids.
+  for (const id of hidden) {
+    if (visible.includes(id)) continue;
+    const s = sectionFor(id, true);
+    if (s) sections.push(s);
+  }
+
+  const cited = new Set(doc.plan.nodes.flatMap((n) => n.refs));
+  return {
+    doc,
+    sections,
+    claims: findings
+      .filter((f) => f.dtype !== "check" && f.dtype !== "screen")
+      .map((f) => ({
+        name: f.name,
+        dtype: f.dtype,
+        cited: cited.has(f.name),
+        suggestedOp: opForDtype(f.dtype),
+      })),
+    views: views.map((v) => ({
+      id: v.id,
+      kind: v.kind,
+      seriesId: v.seriesId,
+      reason: v.reason,
+      shipped: v.shipped || shown.has(v.id),
+    })),
+  };
 }

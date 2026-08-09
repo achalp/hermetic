@@ -182,3 +182,36 @@ not pivot rows. **Out of scope, by principle:** a visual over data the
 model never declared cannot exist in compiled mode (emphasis, never
 fabrication) — the closure is contract pressure ("every view you want
 shipped is a declared series"), not compiler creativity.
+
+## 11. Amendment (2026-08-09): the editing surface, revived
+
+The documented capability — move charts, edit narrative, add charts —
+now has its web UI, per design review (all four recommendations
+accepted): compiled-only; INSIGHT free-edit plus node ops; add-chart from
+the derived view catalog only; deterministic editing first with an
+explicit Edit toggle (NL-assist deferred, lands on the same grammar).
+
+**Grammar extensions.** `PlanOverlay.shown` force-ships derived-but-
+unshipped catalog views — the add-chart affordance is `{kind:"show", id}`
+on a view id; `hide` retracts. `applyMutations` takes `knownElementIds`
+so view/structural ids are movable-hideable while typos still error, and
+carries `doc.purpose` through the copy (previously dropped — every edit
+silently reset the depth budget).
+
+**Edit surface (`getEditSurface`).** One read for every editor: sections
+in effective render order (from the compiler itself — one source), with
+op labels and realized-sentence previews; un-narrated claims with
+suggested ops for one-click add_node; the full view family with reasons
+and shipped state. `/api/plan` GET returns it; the MCP
+`get_dashboard_plan` tool returns it, so desktop Claude can edit with
+the same vocabulary the panel uses.
+
+**Web panel.** Toolbar Edit toggle (results state) opens a side sheet:
+drag-to-reorder sections, visibility toggles (hidden sections stay
+listed — reversible without remembering ids), the INSIGHT textarea (the
+one free-prose node), "narrate a claim", and "add a chart" from the
+catalog with each view's reason. Every action is a PlanMutation batch
+through PATCH /api/plan — humans, the panel, and MCP models share one
+governed channel, and the recompile re-validates everything. The ANSWER
+node is not removable (the validator would refuse; the panel doesn't
+offer it).

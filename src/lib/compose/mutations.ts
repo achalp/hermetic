@@ -17,23 +17,36 @@ export interface MutationResult {
   errors: string[];
 }
 
-export function applyMutations(doc: PlanDocument, mutations: PlanMutation[]): MutationResult {
+export function applyMutations(
+  doc: PlanDocument,
+  mutations: PlanMutation[],
+  /** Element ids valid as move/hide/show targets BEYOND plan nodes — the
+   *  derived view ids and structural ids (tile grid, banner). Callers that
+   *  know the compile surface pass them so typos still error; absent, only
+   *  plan-node ids validate (legacy behavior). */
+  knownElementIds?: Set<string>
+): MutationResult {
   const next: PlanDocument = {
     mode: doc.mode,
+    // The purpose rides the document — dropping it on copy silently reset
+    // every recompile's depth budget and view family to dashboard defaults.
+    ...(doc.purpose !== undefined ? { purpose: doc.purpose } : {}),
     plan: { nodes: doc.plan.nodes.map((n) => ({ ...n, refs: [...n.refs] })) },
     overlay: {
       order: [...(doc.overlay.order ?? [])],
       hidden: [...(doc.overlay.hidden ?? [])],
+      shown: [...(doc.overlay.shown ?? [])],
     },
   };
   const errors: string[] = [];
   let applied = 0;
   const ids = () => new Set(next.plan.nodes.map((n) => n.id));
+  const targetable = (id: string) => ids().has(id) || (knownElementIds?.has(id) ?? false);
 
   for (const m of mutations) {
     switch (m.kind) {
       case "move": {
-        if (!ids().has(m.id)) {
+        if (!targetable(m.id)) {
           errors.push(`move: unknown node ${m.id}`);
           break;
         }
@@ -53,16 +66,23 @@ export function applyMutations(doc: PlanDocument, mutations: PlanMutation[]): Mu
         break;
       }
       case "hide": {
-        if (!ids().has(m.id)) {
+        if (!targetable(m.id)) {
           errors.push(`hide: unknown node ${m.id}`);
           break;
         }
         if (!next.overlay.hidden!.includes(m.id)) next.overlay.hidden!.push(m.id);
+        next.overlay.shown = next.overlay.shown!.filter((x) => x !== m.id);
         applied++;
         break;
       }
       case "show": {
         next.overlay.hidden = next.overlay.hidden!.filter((x) => x !== m.id);
+        // Showing a derived-but-unshipped view opts it in (force-ship);
+        // for plan nodes the entry is inert — compile ships un-hidden
+        // nodes regardless.
+        if (knownElementIds?.has(m.id) && !next.overlay.shown!.includes(m.id)) {
+          next.overlay.shown!.push(m.id);
+        }
         applied++;
         break;
       }

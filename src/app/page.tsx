@@ -18,6 +18,7 @@ import { type HistoryEntry } from "@/app/components/analysis-history";
 import { HomeTopBar } from "@/app/components/results-toolbar";
 import { ResultsRegion } from "@/app/components/results-region";
 import { PageChrome } from "@/app/components/page-chrome";
+import { PlanEditPanel } from "@/app/components/plan-edit-panel";
 import { WarehouseConnecting, HomeHero, AskScreen } from "@/app/components/home/home-screens";
 import { buildDatasetLabel, buildSourceLabel } from "@/app/components/data-rail-derive";
 import type { NotebookExportApi } from "@/app/components/notebook-view";
@@ -130,6 +131,9 @@ export default function Home() {
   // Cost footer: last analysis cost + running session total.
   const [lastCost, setLastCost] = useState<CostInfo | null>(null);
   const [sessionCost, setSessionCost] = useState(0);
+
+  // Plan edit panel (compiled dashboards): toolbar Edit toggle.
+  const [showPlanEditor, setShowPlanEditor] = useState(false);
   const [showWarehouseForm, setShowWarehouseForm] = useState(false);
   // Notebook export handlers registered by the active NotebookView (switches
   // the Export menu to notebook formats).
@@ -347,6 +351,8 @@ export default function Home() {
           loadedVizId,
           rerunningViz,
           onRerun: viz.handleRefreshFromToolbar,
+          onEditDashboard: () => setShowPlanEditor((v) => !v),
+          editOpen: showPlanEditor,
           saveExport: actions.saveExport,
           scheduleKind: actions.schedule.scheduleState.kind,
           onScheduleClick: actions.schedule.handleScheduleClick,
@@ -367,6 +373,14 @@ export default function Home() {
       />
 
       {/* Settings drawer, data rail, artifacts sheet, schedule popover */}
+      {/* Plan edit panel — the governed mutation grammar's web surface. */}
+      <PlanEditPanel
+        csvId={effectiveCsvId ?? csvId}
+        open={showPlanEditor && isState4}
+        onClose={() => setShowPlanEditor(false)}
+        onSpecUpdated={(spec) => dispatch({ type: "PLAN_EDIT_APPLIED", spec })}
+      />
+
       <PageChrome
         panels={panels}
         models={models}

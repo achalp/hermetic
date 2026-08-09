@@ -23,6 +23,9 @@ export interface ResultsToolbarProps {
   loadedVizId: string | null;
   rerunningViz: boolean;
   onRerun: () => void;
+  /** Opens the plan edit panel (compiled dashboards). */
+  onEditDashboard?: () => void;
+  editOpen?: boolean;
   saveExport: ReturnType<typeof useSaveExport>;
   scheduleKind: ScheduleState["kind"];
   onScheduleClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
@@ -43,6 +46,8 @@ export function ResultsToolbar({
   loadedVizId,
   rerunningViz,
   onRerun,
+  onEditDashboard,
+  editOpen,
   saveExport,
   scheduleKind,
   onScheduleClick,
@@ -132,6 +137,17 @@ export function ResultsToolbar({
           <div className="hidden sm:block">
             <StyleDropdown selected={purpose} onSelect={onStyleChange} />
           </div>
+          {onEditDashboard && (
+            <button
+              onClick={onEditDashboard}
+              className={`text-sm font-medium transition-colors ${
+                editOpen ? "text-accent" : "text-t-secondary hover:text-accent"
+              }`}
+              title="Edit the dashboard — reorder sections, edit the insight, add charts (compiled dashboards)"
+            >
+              Edit
+            </button>
+          )}
           {loadedVizId && (
             <button
               onClick={onRerun}

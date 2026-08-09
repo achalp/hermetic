@@ -654,6 +654,45 @@ export async function getActiveRuns(): Promise<ActiveRun[]> {
   }
 }
 
+// ── Dashboard plan editing (compiled composer) ────────────────────────
+
+/** The edit surface /api/plan GET returns (see lib/compose/edit.ts). */
+export interface PlanEditSurface {
+  doc: import("@/lib/contracts/plan").PlanDocument;
+  sections: {
+    id: string;
+    kind: "banner" | "tiles" | "node" | "view";
+    op?: string;
+    label: string;
+    preview?: string;
+    hidden: boolean;
+  }[];
+  claims: { name: string; dtype: string; cited: boolean; suggestedOp: string }[];
+  views: { id: string; kind: string; seriesId: string; reason: string; shipped: boolean }[];
+}
+
+export async function getPlanSurface(
+  csvId: string,
+  signal?: AbortSignal
+): Promise<PlanEditSurface | null> {
+  const res = await fetch(`/api/plan?csv_id=${encodeURIComponent(csvId)}`, { signal });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { surface?: PlanEditSurface | null };
+  return data.surface ?? null;
+}
+
+export async function patchPlan(
+  csvId: string,
+  mutations: import("@/lib/contracts/plan").PlanMutation[]
+): Promise<{ spec: Spec; plan: import("@/lib/contracts/plan").PlanDocument }> {
+  const res = await fetch("/api/plan", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csv_id: csvId, mutations }),
+  });
+  return json<{ spec: Spec; plan: import("@/lib/contracts/plan").PlanDocument }>(res);
+}
+
 /** Fetch the stored schema for a csvId (to restore a source on reattach). */
 export async function getSchemaByCsvId(
   csvId: string

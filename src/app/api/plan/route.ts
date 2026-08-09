@@ -6,14 +6,17 @@
  * Identical code path to the MCP edit_dashboard tool.
  */
 import { apiError } from "@/app/lib/api-error";
-import { editDashboard, getDashboardPlan } from "@/lib/compose/edit";
+import { editDashboard, getEditSurface } from "@/lib/compose/edit";
 import type { PlanMutation } from "@/lib/contracts/plan";
 
 export async function GET(request: Request) {
   try {
     const csvId = new URL(request.url).searchParams.get("csv_id");
     if (!csvId) return Response.json({ error: "csv_id required" }, { status: 400 });
-    return Response.json({ plan: getDashboardPlan(csvId) ?? null });
+    // The full edit surface (sections in effective order, un-narrated
+    // claims, view catalog with reasons) — the plan doc rides inside it.
+    const surface = await getEditSurface(csvId);
+    return Response.json({ plan: surface?.doc ?? null, surface });
   } catch (err) {
     return apiError("/api/plan", err, "Failed to read plan");
   }

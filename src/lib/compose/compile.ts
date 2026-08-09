@@ -82,13 +82,14 @@ export function compileDashboard(input: CompileInput): string[] {
   // 4. Views from declared series roles (views.ts): unit-split primaries,
   //    regime-forced coverage companions, document-style tables. Every view
   //    is a pure projection of declared rows; the overlay can hide any.
+  const shown = new Set(overlay.shown ?? []);
   const views = deriveViews({
     series: product.series,
     regimes: input.regimes,
     purpose: input.purpose,
   });
   for (const v of views) {
-    if (!v.shipped || hidden.has(v.id)) continue;
+    if ((!v.shipped && !shown.has(v.id)) || hidden.has(v.id)) continue;
     patches.push(v.patch);
     children.push(v.id);
   }
