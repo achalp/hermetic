@@ -150,48 +150,39 @@ export function getRuntimeConfig(): RuntimeConfig {
   return cached;
 }
 
+/** Backend blocks merged per-field (a partial update keeps other fields). */
+const DEEP_MERGED_KEYS = new Set(["ollama", "mlx", "llamaCpp", "claudeCli"]);
+
 export function setRuntimeConfig(partial: Partial<RuntimeConfig>): RuntimeConfig {
   const current = readFromDisk();
   const merged: RuntimeConfig = { ...current };
 
-  if (partial.ollama !== undefined) {
-    merged.ollama = partial.ollama === null ? undefined : { ...current.ollama, ...partial.ollama };
-  }
-  if (partial.mlx !== undefined) {
-    merged.mlx = partial.mlx === null ? undefined : { ...current.mlx, ...partial.mlx };
-  }
-  if (partial.llamaCpp !== undefined) {
-    merged.llamaCpp =
-      partial.llamaCpp === null ? undefined : { ...current.llamaCpp, ...partial.llamaCpp };
-  }
-  if (partial.claudeCli !== undefined) {
-    merged.claudeCli =
-      partial.claudeCli === null ? undefined : { ...current.claudeCli, ...partial.claudeCli };
-  }
-  if (partial.sandboxRuntime !== undefined) {
-    merged.sandboxRuntime = partial.sandboxRuntime;
-  }
-  if (partial.activeProvider !== undefined) {
-    merged.activeProvider = partial.activeProvider || undefined;
-  }
-  // Settings blocks (lib/settings.ts): REPLACED wholesale, not per-field
-  // merged — the /api/settings route sends the complete block with cleared
-  // fields as `undefined`, and a per-field merge would make clearing
-  // impossible (undefined spreads as "keep the old value").
-  if (partial.providers !== undefined) {
-    merged.providers = partial.providers === null ? undefined : partial.providers;
-  }
-  if (partial.sandbox !== undefined) {
-    merged.sandbox = partial.sandbox === null ? undefined : partial.sandbox;
-  }
-  if (partial.retention !== undefined) {
-    merged.retention = partial.retention === null ? undefined : partial.retention;
-  }
-  if (partial.findings !== undefined) {
-    merged.findings = partial.findings === null ? undefined : partial.findings;
-  }
-  if (partial.models !== undefined) {
-    merged.models = partial.models === null ? undefined : partial.models;
+  // EVERY present key persists — fields the merge doesn't special-case flow
+  // through the generic path instead of silently dropping. The previous
+  // per-field allowlist ate any field it didn't name (composer.mode was
+  // validated by the route, merged, written… nowhere: the setting appeared
+  // to change, took no effect, and reverted on restart).
+  //
+  // Two shapes:
+  //  - DEEP_MERGED_KEYS (local-backend blocks): per-field merge, so a
+  //    partial update keeps the block's other fields; null clears.
+  //  - everything else (settings blocks per lib/settings.ts, composer,
+  //    scalars): REPLACED wholesale — the /api/settings route sends the
+  //    complete block with cleared fields as `undefined`, and a per-field
+  //    merge would make clearing impossible.
+  const m = merged as Record<string, unknown>;
+  const c = current as Record<string, unknown>;
+  for (const [key, value] of Object.entries(partial)) {
+    if (value === undefined) continue;
+    if (value === null) {
+      m[key] = undefined;
+    } else if (DEEP_MERGED_KEYS.has(key)) {
+      m[key] = { ...(c[key] as Record<string, unknown> | undefined), ...(value as object) };
+    } else if (key === "activeProvider") {
+      m[key] = (value as string) || undefined; // "" clears (legacy semantic)
+    } else {
+      m[key] = value;
+    }
   }
 
   // Atomic write: write to tmp then rename

@@ -14,6 +14,7 @@ import {
   clearRuntimeConfigCache,
   getActiveModels,
   getActiveEffort,
+  getComposerMode,
 } from "@/lib/runtime-config";
 import { hermeticPaths, setPathRoots } from "@/lib/paths";
 import { logger } from "@/lib/logger";
@@ -89,6 +90,41 @@ describe("settings blocks (providers/sandbox/retention) persist and clear", () =
     expect(rc.providers?.openaiModel).toBe("llama3.3");
     expect(rc.sandbox?.memoryFraction).toBe(0.5);
     expect(rc.retention).toEqual({ maxRunRecords: 50 });
+  });
+});
+
+describe("setRuntimeConfig never silently drops a field", () => {
+  it("composer.mode persists to disk, takes effect immediately, and survives a cache clear", () => {
+    // The observed bug: the per-field merge allowlist didn't name composer,
+    // so the route validated the change, merged it, and setRuntimeConfig ate
+    // it — the dropdown showed Compiled (optimistic mirror), the run stayed
+    // generative, and a restart reverted the setting.
+    setRuntimeConfig({ composer: { mode: "compiled" } });
+    expect(getComposerMode()).toBe("compiled"); // no restart required
+    clearRuntimeConfigCache();
+    expect(getComposerMode()).toBe("compiled"); // and it's on disk
+    setRuntimeConfig({ composer: {} });
+    clearRuntimeConfigCache();
+    expect(getComposerMode()).toBe("generative");
+  });
+
+  it("a field the merge has no special case for still round-trips (the drop class)", () => {
+    // Future-proofing the CLASS: new RuntimeConfig fields must not require
+    // remembering to extend an allowlist to persist at all.
+    setRuntimeConfig({ future_block: { anything: 1 } } as never);
+    clearRuntimeConfigCache();
+    expect((getRuntimeConfig() as Record<string, unknown>).future_block).toEqual({ anything: 1 });
+    // null still clears; deep-merged backend blocks still merge per-field.
+    setRuntimeConfig({ future_block: null } as never);
+    clearRuntimeConfigCache();
+    expect((getRuntimeConfig() as Record<string, unknown>).future_block).toBeUndefined();
+    setRuntimeConfig({ ollama: { enabled: true, baseUrl: "http://x", activeModel: "m1" } });
+    setRuntimeConfig({ ollama: { activeModel: "m2" } } as never);
+    expect(getRuntimeConfig().ollama).toEqual({
+      enabled: true,
+      baseUrl: "http://x",
+      activeModel: "m2",
+    });
   });
 });
 
