@@ -322,6 +322,54 @@ REGIME_MATRIX = {
 }
 
 
+# ── Rendered view: the matrix as a table, generated never hand-drawn ─────
+# The spec embeds matrix_table()'s output verbatim between MATRIX-TABLE
+# markers and a test pins them equal — the recorded table cannot drift
+# from the code, and an untagged cell renders "?" and fails the meta-test.
+
+_SYMBOL_TAGS = (("modifier", "◆"), ("implemented", "●"), ("upstream", "◐"),
+                ("caveat", "▲"), ("accepted", "○"))
+
+_COLUMN_ABBREV = {"ZERO_INFLATED": "Z_INFL", "HEAVY_TAIL": "H_TAIL",
+                  "CONTAMINATED": "CONTAM", "COUNT_SKEWED": "C_SKEW",
+                  "THIN_PERIODS": "THIN_P", "THIN_EDGE": "THIN_E",
+                  "SHORT_SERIES": "SHORT", "DISCRETE": "DISC",
+                  "TIED": "TIED", "NEGATIVE_VALUED": "NEG",
+                  "NON_MONOTONE_X": "N_MONO", "MONETARY": "MONEY"}
+
+
+def cell_symbol(response):
+    """Symbol for one matrix cell, derived from its tag — None -> "—",
+    untagged prose -> "?" (rejected by the meta-test)."""
+    if response is None:
+        return "—"
+    for tag, symbol in _SYMBOL_TAGS:
+        if tag in response:
+            return symbol
+    return "?"
+
+
+def matrix_table():
+    """The REGIME_MATRIX as a GitHub-flavored markdown symbol table.
+
+    Legend: ● enforced inside the claim function; ◐ enforced upstream
+    (contract/lints/SQL/another claim); ▲ profile flag -> composer caveat;
+    ○ accepted limitation, documented; ◆ modifier (enables a dispatch);
+    — explicit N/A.
+    """
+    cols = list(_ALL_REGIMES)
+    lines = [
+        "| Claim | " + " | ".join(_COLUMN_ABBREV[c] for c in cols) + " |",
+        "|---" * (len(cols) + 1) + "|",
+    ]
+    for claim, cells in REGIME_MATRIX.items():
+        lines.append(
+            "| " + claim + " | "
+            + " | ".join(cell_symbol(cells[c]) for c in cols) + " |"
+        )
+    return "\n".join(lines)
+
+
 # ── Dispatchers: per-run judgment closed into functions ──────────────────
 
 def select_center(profile):

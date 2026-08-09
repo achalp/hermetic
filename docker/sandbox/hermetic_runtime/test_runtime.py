@@ -304,6 +304,36 @@ class TestRegimes(unittest.TestCase):
                        "heterogeneity", "check"}
         self.assertEqual(set(regimes.REGIME_MATRIX), claim_types)
 
+    def test_matrix_cells_are_classifiable_and_table_renders(self):
+        # Every non-None cell must carry a legend tag (implemented /
+        # upstream / caveat / accepted / modifier) — untagged prose renders
+        # "?" and is a hole in the artifact, not a style choice.
+        for claim, cells in regimes.REGIME_MATRIX.items():
+            for regime, response in cells.items():
+                if response is not None:
+                    self.assertNotEqual(
+                        regimes.cell_symbol(response), "?",
+                        "%s.%s has no legend tag: %r" % (claim, regime, response))
+        table = regimes.matrix_table()
+        self.assertNotIn("?", table)
+        # One line per claim row + header + separator.
+        self.assertEqual(len(table.splitlines()), len(regimes.REGIME_MATRIX) + 2)
+
+    def test_matrix_table_recorded_in_spec_verbatim(self):
+        # The spec's §10 table is matrix_table()'s output, embedded between
+        # markers — recorded, and IMPOSSIBLE to drift from the code.
+        spec = os.path.join(os.path.dirname(__file__), "..", "..", "..",
+                            "specs", "regime-matrix-2026-08-09.md")
+        if not os.path.exists(spec):
+            self.skipTest("spec tree not shipped in this environment")
+        with open(spec) as f:
+            text = f.read()
+        begin, end = "<!-- MATRIX-TABLE:BEGIN -->", "<!-- MATRIX-TABLE:END -->"
+        self.assertIn(begin, text)
+        self.assertIn(end, text)
+        recorded = text.split(begin)[1].split(end)[0].strip()
+        self.assertEqual(recorded, regimes.matrix_table())
+
     def test_matrix_zero_inflated_rows_match_the_implementation(self):
         # The cells that claim "(implemented)" for ZERO_INFLATED are exactly
         # the claim types whose finding_* functions take a unit= screen —

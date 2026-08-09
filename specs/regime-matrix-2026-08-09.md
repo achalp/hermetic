@@ -233,3 +233,35 @@ acts whose output also feeds the record layer. (2) Information absence:
 share/decompose currency and row-level cells live where the columns
 exist. (3) check row: checks ARE the response layer. Every surviving
 ◐/○/▲ cell now states which principle holds it.
+
+## 10. The matrix at a glance (generated — do not hand-edit)
+
+Legend: ● enforced inside the claim function · ◐ enforced upstream
+(contract/lints/SQL/another claim) · ▲ profile flag → composer caveat ·
+○ accepted limitation, documented · ◆ modifier (enables a dispatch) ·
+— explicit N/A. The ● cells under N_MONO refuse only PROVABLE disorder
+(all-numeric labels out of order); categorical labels stay on the caveat
+path.
+
+This table is the output of `regimes.matrix_table()`, derived from the
+cell tags. A test pins the block below to the function's output verbatim —
+edit REGIME_MATRIX, rerun the generator, never the table.
+
+<!-- MATRIX-TABLE:BEGIN -->
+
+| Claim         | Z_INFL | H_TAIL | CONTAM | C_SKEW | THIN_P | THIN_E | SHORT | DISC | TIED | NEG | N_MONO | MONEY |
+| ------------- | ------ | ------ | ------ | ------ | ------ | ------ | ----- | ---- | ---- | --- | ------ | ----- |
+| trend         | ●      | ●      | ◐      | ●      | ●      | ●      | ●     | —    | —    | —   | ●      | ◆     |
+| step_change   | ●      | ●      | ●      | ●      | ●      | ●      | ●     | —    | —    | ●   | ●      | ◆     |
+| comparison    | ●      | ●      | ◐      | ◐      | ●      | ●      | ●     | —    | —    | ●   | ●      | ◆     |
+| superlative   | ●      | —      | ◐      | ●      | ●      | ●      | —     | ●    | ●    | —   | —      | ◆     |
+| current_state | ●      | ●      | ●      | ●      | ●      | ●      | ●     | —    | —    | ●   | ●      | ◆     |
+| outliers      | ●      | ●      | ●      | ●      | ●      | —      | ●     | ●    | ●    | —   | ●      | ◆     |
+| correlation   | ●      | ●      | ●      | —      | —      | —      | ●     | ●    | ●    | —   | —      | ◆     |
+| distribution  | ●      | —      | ●      | —      | —      | —      | ●     | ●    | ●    | —   | —      | ◆     |
+| share         | —      | —      | ◐      | —      | —      | —      | —     | —    | —    | ●   | —      | ◐     |
+| decompose     | —      | —      | ●      | —      | —      | —      | —     | —    | —    | ●   | —      | ◐     |
+| heterogeneity | ●      | ●      | ●      | —      | —      | —      | ●     | —    | ▲    | —   | —      | ◆     |
+| check         | —      | —      | —      | —      | —      | —      | —     | —    | —    | —   | —      | —     |
+
+<!-- MATRIX-TABLE:END -->
