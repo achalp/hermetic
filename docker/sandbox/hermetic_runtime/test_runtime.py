@@ -691,6 +691,22 @@ class TestFindingStatHelpers(unittest.TestCase):
         clean = finding_current_state(values[:6], counts=counts[:6])
         self.assertIsNone(clean["excluded_reason"])
 
+    def test_current_state_always_reports_the_raw_endpoint(self):
+        # Review 2026-08-08: a 68-year walk-back erased the $26/2012 endpoint
+        # from the story entirely. The gate decides emphasis, not visibility:
+        # latest_* is the raw final observation, unconditionally.
+        values = [1.0, 1.5, 2.0, 4.5, 4.5, 9.5, 26.0]
+        counts = [3000, 5000, 8000, 12000, 9000, 6000, 382]
+        out = finding_current_state(values, labels=list(range(1940, 2010, 10)), counts=counts)
+        self.assertEqual(out["period"], 1990)  # attested endpoint
+        self.assertEqual(out["latest_period"], 2000)
+        self.assertEqual(out["latest_value"], 26.0)
+        self.assertEqual(out["latest_n"], 382)
+        # Clean edge: latest == attested endpoint.
+        clean = finding_current_state(values[:6], counts=counts[:6])
+        self.assertEqual(clean["latest_value"], clean["value"])
+        self.assertEqual(clean["latest_period"], clean["period"])
+
     def test_trend_reports_slope_ci(self):
         out = finding_trend([1.0, 2.1, 2.9, 4.2, 5.1, 5.9, 7.1, 8.0])
         self.assertEqual(out["direction"], "rising")

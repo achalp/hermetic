@@ -603,7 +603,8 @@ def finding_yoy(period_labels, values):
             'prior_total': None, 'latest_total': None, 'pct_change': None}
 def finding_current_state(values, labels=None, window=6, coverage=None, counts=None):
     return {'period': None, 'value': None, 'pct_from_peak': None,
-            'direction': None, 'excluded_trailing': None, 'excluded_reason': None}
+            'direction': None, 'excluded_trailing': None, 'excluded_reason': None,
+            'latest_period': None, 'latest_value': None, 'latest_n': None}
 
 # ── Analysis product, fallback copy (spec analysis-product-2026-08-08 §1) ──
 # Minimal declare_series/declare_value so the names never NameError on a

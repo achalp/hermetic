@@ -1277,21 +1277,32 @@ export function lintSuperlativeHidesRaw(
     else out.push(v.toFixed(2), v.toFixed(1));
     return out;
   };
+  // The same symmetry in both attestation-gated shapes: a superlative's
+  // raw_value, and a current-state's latest_value (the reviewed run walked
+  // back 68 thin years and the $26/2012 endpoint vanished from the story).
+  const PAIRS: Array<{ rawField: string; periodField: string; scaleField: string }> = [
+    { rawField: "raw_value", periodField: "raw_period", scaleField: "thin_periods_skipped" },
+    { rawField: "latest_value", periodField: "latest_period", scaleField: "excluded_trailing" },
+  ];
   for (const f of findings) {
     if (f.value === null || typeof f.value !== "object" || issues.length >= 3) continue;
     const fv = f.value as Record<string, unknown>;
     const val = fv.value;
-    const raw = fv.raw_value;
-    if (typeof val !== "number" || typeof raw !== "number") continue;
-    if (Math.abs(raw - val) <= 0.2 * Math.max(Math.abs(val), 1e-9)) continue;
-    const valShown = renders(val).some((r) => text.includes(r));
-    const rawShown = renders(raw).some((r) => text.includes(r));
-    if (valShown && !rawShown) {
-      issues.push({
-        kind: "superlative_hides_raw",
-        name: f.name,
-        detail: `${f.name} narrates the attested value ${val} while its raw extreme ${raw} (${String(fv.raw_period ?? "?")}${typeof fv.thin_periods_skipped === "number" ? `, ${fv.thin_periods_skipped} thin periods skipped` : ""}) appears nowhere — the reader sees the screen's output but not the screen; state both values in one sentence`,
-      });
+    if (typeof val !== "number") continue;
+    for (const { rawField, periodField, scaleField } of PAIRS) {
+      const raw = fv[rawField];
+      if (typeof raw !== "number") continue;
+      if (Math.abs(raw - val) <= 0.2 * Math.max(Math.abs(val), 1e-9)) continue;
+      const valShown = renders(val).some((r) => text.includes(r));
+      const rawShown = renders(raw).some((r) => text.includes(r));
+      if (valShown && !rawShown) {
+        issues.push({
+          kind: "superlative_hides_raw",
+          name: f.name,
+          detail: `${f.name} narrates the attested value ${val} while ${rawField} ${raw} (${String(fv[periodField] ?? "?")}${typeof fv[scaleField] === "number" ? `, ${scaleField}=${fv[scaleField]}` : ""}) appears nowhere — the gate may decide what the headline emphasizes, never what the reader can see; state both values`,
+        });
+        break;
+      }
     }
   }
   return issues;

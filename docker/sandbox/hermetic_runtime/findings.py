@@ -840,7 +840,8 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
         mean.
 
     Returns {"period", "value", "pct_from_peak", "direction",
-    "excluded_trailing", "excluded_reason"} — period/value from the last
+    "excluded_trailing", "excluded_reason", "latest_period", "latest_value",
+    "latest_n"} — period/value from the last
     complete observation, pct_from_peak vs the series max (negative below
     peak; when counts= is given the reference peak considers ATTESTED
     periods only, the same bar finding_superlative applies — an audited run
@@ -850,11 +851,21 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
     excluded_trailing / excluded_reason how many tail observations the
     guards dropped and WHICH guard dominated ("attestation" | "coverage" |
     "magnitude"; None when nothing was excluded) — bind the reason in the
-    caveat rather than inventing a mechanism. Never raises.
+    caveat rather than inventing a mechanism.
+
+    latest_* is the RAW final observation, reported unconditionally — the
+    same raw-beside-attested symmetry finding_superlative has. A gate may
+    decide what the headline EMPHASIZES, never what the reader can SEE: a
+    reviewed run walked back 68 thin years and the $26/2012 endpoint
+    vanished entirely, leaving "current state 1933 at $0.40" as the only
+    story. Narrate both when they differ ("well-covered data ends {period};
+    the latest raw observation is {latest_value} in {latest_period},
+    n={latest_n}"). Never raises.
     """
     failed = {"period": None, "value": None, "pct_from_peak": None,
               "direction": None, "excluded_trailing": None,
-              "excluded_reason": None}
+              "excluded_reason": None, "latest_period": None,
+              "latest_value": None, "latest_n": None}
     try:
         ys = [safe_float(v) for v in list(values)]
         covs = None
@@ -975,10 +986,22 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
             dominant = max(reasons, key=lambda k: reasons[k])
             if reasons[dominant] == 0:
                 dominant = None
+        last = idxs[-1]
+        latest_period = last
+        if labels is not None:
+            try:
+                latest_period = list(labels)[last]
+            except Exception:
+                latest_period = last
+        latest_n = None
+        if cnts is not None and cnts[last] is not None:
+            latest_n = cnts[last]
         return {"period": period, "value": value,
                 "pct_from_peak": None if pct is None else round(pct, 2),
                 "direction": direction, "excluded_trailing": excluded,
-                "excluded_reason": dominant}
+                "excluded_reason": dominant,
+                "latest_period": latest_period, "latest_value": ys[last],
+                "latest_n": latest_n}
     except Exception:
         return failed
 

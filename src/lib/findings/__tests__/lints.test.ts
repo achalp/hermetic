@@ -780,7 +780,7 @@ describe("lintSuperlativeHidesRaw — the 0.4-vs-26 audit finding", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0].kind).toBe("superlative_hides_raw");
     expect(issues[0].detail).toContain("26");
-    expect(issues[0].detail).toContain("120 thin periods skipped");
+    expect(issues[0].detail).toContain("thin_periods_skipped=120");
   });
 
   it("quiet when the raw extreme is stated beside the attested value", () => {
@@ -795,6 +795,37 @@ describe("lintSuperlativeHidesRaw — the 0.4-vs-26 audit finding", () => {
     expect(lintSuperlativeHidesRaw([agree], ["Peaked at 0.4 usd."])).toHaveLength(0);
     expect(lintSuperlativeHidesRaw([peak], ["Prices rose steadily."])).toHaveLength(0);
     expect(lintSuperlativeHidesRaw([peak], [])).toHaveLength(0);
+  });
+
+  it("fires for a current-state whose raw endpoint vanished (the 68-year walk-back)", () => {
+    const current = {
+      name: "price_current_state",
+      definition: "attested endpoint of the price series",
+      dtype: "current_state",
+      value: {
+        period: "1933",
+        value: 0.4,
+        pct_from_peak: 0,
+        excluded_trailing: 68,
+        latest_period: "2012",
+        latest_value: 26,
+        latest_n: 382,
+      },
+    };
+    const issues = lintSuperlativeHidesRaw(
+      [current],
+      ["Well-covered data ends in 1933 at 0.4 usd."]
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].detail).toContain("26");
+    expect(issues[0].detail).toContain("excluded_trailing=68");
+    // Quiet when the latest raw observation is stated.
+    expect(
+      lintSuperlativeHidesRaw(
+        [current],
+        ["Well-covered data ends 1933 at 0.4 usd; the latest raw observation is 26 usd (2012)."]
+      )
+    ).toHaveLength(0);
   });
 });
 
