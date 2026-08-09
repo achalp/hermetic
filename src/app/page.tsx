@@ -237,7 +237,14 @@ export default function Home() {
   const hasData = isUploaded || warehouse.isConnected;
   const isState1 = !hasData && !showSheetPicker && !showSaved && !loadingViz && !rerunningViz;
   // hasResults: true when there are results to display (queried or loaded a viz)
-  const hasResults = questionSeq > 0 || !!loadedSpec;
+  // hasResults joins the one-holder principle (M5-5e): a reattached run
+  // (browser reload mid-analysis) completes through analysis.complete() and
+  // sets freshSpec without ever touching questionSeq or loadedSpec — with
+  // only those two checked, a finished dashboard sat on screen while the
+  // page believed it was in the data state: the ENTIRE results toolbar
+  // (Style/Edit/Save/Schedule/Export/Artifacts) hidden and the URL stuck
+  // at ?view=data.
+  const hasResults = questionSeq > 0 || !!loadedSpec || !!analysis.freshSpec;
   const isState2 = hasData && !isAnalyzing && !hasResults;
   const isState3 = isAnalyzing;
   const isState4 = hasData && !isAnalyzing && hasResults;
