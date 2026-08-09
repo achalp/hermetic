@@ -66,13 +66,14 @@ export const PlanSchema = z.object({ nodes: z.array(PlanNodeSchema).min(1).max(3
  */
 export const PLAN_BUDGETS: Record<string, { maxNodes: number; guidance: string }> = {
   brief: {
-    maxNodes: 5,
+    maxNodes: 7,
     guidance:
-      "3-5 nodes total. Lead with ANSWER; keep CAVEATs for failed checks; cut everything that does not serve the bottom line — the reader has 30 seconds.",
+      "4-7 nodes: ANSWER first — the bottom line in plain words. Then ONLY the claims that carry it; CAVEATs for failed checks. Close with a ONE-sentence METHOD (how the analysis was done, from the claims' definitions) and a one-sentence CONCLUSION — even a 30-second read must show how its answer was reached. Cut everything else.",
   },
   dashboard: {
-    maxNodes: 9,
-    guidance: "4-9 nodes total.",
+    maxNodes: 12,
+    guidance:
+      "6-12 nodes: ANSWER first, then the findings that matter, CAVEATs anchored to the chart they qualify, at most one CALLOUT for what deserves attention. Close with a compact METHOD (1-2 sentences) and a CONCLUSION — a dashboard without its method reads as unsourced.",
   },
   report: {
     maxNodes: 22,

@@ -147,7 +147,13 @@ describe("validatePlan — structural invariants as parse errors", () => {
     expect(planBudget(undefined).maxNodes).toBe(planBudget("dashboard").maxNodes);
     expect(buildPlannerSystem("deep-dive")).toContain("14-28 nodes");
     expect(buildPlannerSystem("deep-dive")).toContain("EVERY non-check claim");
-    expect(buildPlannerSystem()).toContain("4-9 nodes");
+    expect(buildPlannerSystem()).toContain("6-12 nodes");
+    // Credibility floor: EVERY style closes with METHOD + CONCLUSION — an
+    // answer with no visible method reads as unsourced at any depth.
+    for (const style of ["brief", "dashboard", "report", "deep-dive"]) {
+      expect(planBudget(style).guidance).toContain("METHOD");
+      expect(planBudget(style).guidance).toContain("CONCLUSION");
+    }
   });
 
   it("defaultPlan fills to the purpose budget; caveats never cut", () => {
@@ -161,7 +167,7 @@ describe("validatePlan — structural invariants as parse errors", () => {
     // Brief keeps the caveat even at its tight budget.
     const brief = defaultPlan(FINDINGS, "brief");
     expect(brief.nodes.some((n) => n.op === "CAVEAT")).toBe(true);
-    expect(brief.nodes.length).toBeLessThanOrEqual(5);
+    expect(brief.nodes.length).toBeLessThanOrEqual(7);
   });
 });
 

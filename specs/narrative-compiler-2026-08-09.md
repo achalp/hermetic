@@ -322,3 +322,16 @@ Planner output budget 3000→4500. The edit panel labels the new ops
 (Section, Explainer, Callout, Method, Conclusion, Next steps, Left
 out), so the document structure is legible — and editable — in the
 same governed grammar as everything else.
+
+**§14.1 — the credibility floor (2026-08-09).** User: "for both
+dashboard and brief, we do need a top line summary and the
+conclusion/methodology. without that, we lose credibility." The
+document arc scales with purpose, but three parts of it are the
+credibility floor and appear at EVERY depth: the ANSWER top line, a
+METHOD (one sentence in brief, 1-2 in dashboard — how the analysis was
+done, from the claims' definitions), and a CONCLUSION. Brief 4-7
+nodes, dashboard 6-12 (with anchored CAVEATs and at most one CALLOUT);
+in the compact styles METHOD closes the document rather than opening
+it, so the bottom line stays on top. An answer with no visible method
+reads as unsourced at any depth — the depth dimension scales how much
+document ships, never whether the reader can see how it was reached.
