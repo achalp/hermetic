@@ -321,7 +321,10 @@ class TestRegimes(unittest.TestCase):
 
     def test_matrix_table_recorded_in_spec_verbatim(self):
         # The spec's §10 table is matrix_table()'s output, embedded between
-        # markers — recorded, and IMPOSSIBLE to drift from the code.
+        # markers — recorded, and IMPOSSIBLE to drift from the code. The
+        # comparison is cell-normalized: prettier pads markdown table
+        # columns on commit, and cosmetic padding is a formatter's job —
+        # every row, column, and symbol is pinned.
         spec = os.path.join(os.path.dirname(__file__), "..", "..", "..",
                             "specs", "regime-matrix-2026-08-09.md")
         if not os.path.exists(spec):
@@ -331,8 +334,17 @@ class TestRegimes(unittest.TestCase):
         begin, end = "<!-- MATRIX-TABLE:BEGIN -->", "<!-- MATRIX-TABLE:END -->"
         self.assertIn(begin, text)
         self.assertIn(end, text)
-        recorded = text.split(begin)[1].split(end)[0].strip()
-        self.assertEqual(recorded, regimes.matrix_table())
+        recorded = text.split(begin)[1].split(end)[0]
+
+        def norm(table):
+            rows = []
+            for line in table.strip().splitlines():
+                cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                rows.append(["---" if c and set(c) <= set("-: ") else c
+                             for c in cells])
+            return rows
+
+        self.assertEqual(norm(recorded), norm(regimes.matrix_table()))
 
     def test_matrix_zero_inflated_rows_match_the_implementation(self):
         # The cells that claim "(implemented)" for ZERO_INFLATED are exactly
