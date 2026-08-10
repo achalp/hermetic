@@ -448,14 +448,22 @@ export function formatOutput(data: Row[], outputDef: OutputDef): unknown {
     return data.length > 0 ? data[0] : {};
   }
 
-  // Pattern B: convert pivoted rows → matrix structure for HeatMap/Surface3D
+  // Pattern B: convert pivoted rows → matrix structure for HeatMap/Surface3D.
+  //
+  // Orientation is Plotly's and the components': z[y][x] — the OUTER index
+  // walks y_labels, the inner walks x_labels (heatmap-chart.tsx reads
+  // z[i][j] over y then x). A pivot emits one row per rowKey with a column
+  // per columnKey, so z is z[rowKey][columnKey] and therefore rowKey is the
+  // Y axis, columnKey the X axis. Labelling it the other way round (the
+  // original) shipped every pivot-fed heatmap transposed against its own
+  // axes — a 4x12 z drawn against 4 x-ticks and 12 y-ticks.
   if (outputDef.format === "matrix") {
     if (data.length === 0) return { z: [], x_labels: [], y_labels: [] };
     const keys = Object.keys(data[0]);
     const rowKeyCol = keys[0]; // first column is the row key
     const valueCols = keys.slice(1);
-    const x_labels = data.map((row) => String(row[rowKeyCol] ?? ""));
-    const y_labels = valueCols;
+    const y_labels = data.map((row) => String(row[rowKeyCol] ?? ""));
+    const x_labels = valueCols;
     const z = data.map((row) => valueCols.map((col) => toNumber(row[col])));
     return { z, x_labels, y_labels };
   }

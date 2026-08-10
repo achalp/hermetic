@@ -22,6 +22,7 @@ interface BarChartProps {
   data: Record<string, unknown>[];
   x_key: string;
   y_keys: string[];
+  label_map?: Record<string, string> | null;
   orientation?: "vertical" | "horizontal" | null;
   stacked?: boolean | null;
   color_map?: Record<string, string> | null;
@@ -193,10 +194,24 @@ export function BarChartComponent({
             ? [
                 {
                   dataFrom: "keys",
+                  // Human display names when the spec supplies them — the
+                  // legend is prose, not schema (same rule as LineChart).
+                  ...(props.label_map
+                    ? {
+                        data: y_keys.map((k, i) => ({
+                          id: k,
+                          label: props.label_map?.[k] ?? k,
+                          color: baseColors[i % baseColors.length],
+                        })),
+                      }
+                    : {}),
                   anchor: "bottom",
                   direction: "row",
                   translateY: veryManyCategories ? 96 : manyCategories ? 66 : 46,
-                  itemWidth: legendItemWidth(hasLegend ? y_keys : [], 200),
+                  itemWidth: legendItemWidth(
+                    hasLegend ? y_keys.map((k) => props.label_map?.[k] ?? k) : [],
+                    200
+                  ),
                   itemHeight: 20,
                   symbolSize: chart.legendSymbolSize,
                 },

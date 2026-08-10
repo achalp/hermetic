@@ -12,6 +12,7 @@ import type { HeadlineTile } from "@/lib/findings/headline-plan";
 import { realizeNode } from "./realizer";
 import { failedCheckBanner, tileElement, humanizeId, type SpecPatchLine } from "./scaffold";
 import { deriveViews, viewDefaultWidths } from "./views";
+import { deriveController, rebindViewPatch } from "./controller";
 
 export interface CompileInput {
   manifest: FindingsManifest;
@@ -136,7 +137,45 @@ export function compileDashboard(input: CompileInput): string[] {
     regimes: input.regimes,
     purpose: input.purpose,
   });
-  const shippedViews = views.filter((v) => (v.shipped || shown.has(v.id)) && !hidden.has(v.id));
+  let shippedViews = views.filter((v) => (v.shipped || shown.has(v.id)) && !hidden.has(v.id));
+
+  // Interactivity (controller.ts): a series that DECLARED a group role has
+  // named its filterable dimension, so the reader gets the same filter bar
+  // the generative composer offers — derived, never written. Views of a
+  // controlled series read from /computed/* instead of carrying inline data;
+  // initial state carries the exact static values, so first paint is
+  // unchanged and interaction is purely additive.
+  const controllers = product.series
+    .map((s) =>
+      deriveController(
+        s,
+        shippedViews.filter((v) => v.seriesId === s.id)
+      )
+    )
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+    .filter((c) => !hidden.has(c.id));
+  if (controllers.length > 0) {
+    const rebind: Record<string, string> = Object.assign({}, ...controllers.map((c) => c.rebind));
+    shippedViews = shippedViews.map((v) =>
+      rebind[v.id] ? { ...v, patch: rebindViewPatch(v.patch, rebind[v.id]) } : v
+    );
+    // State FIRST: the finalizer harvests declared state keys as it streams,
+    // and repairs element bindings against them — a binding emitted before
+    // its key is declared would be "repaired" away.
+    const datasets: Record<string, unknown> = {};
+    const filters: Record<string, unknown> = {};
+    const computed: Record<string, unknown> = {};
+    for (const c of controllers) {
+      Object.assign(datasets, c.state.datasets);
+      Object.assign(filters, c.state.filters);
+      Object.assign(computed, c.state.computed);
+    }
+    patches.push({
+      op: "add",
+      path: "/state",
+      value: { datasets, filters, computed } as unknown as SpecPatchLine["value"],
+    });
+  }
   // Anchored views render at their node's position: emit their patches,
   // splice their ids in after the anchoring node, and drop them from the
   // evidence block. Anchors naming unknown/unshipped elements are ignored.
@@ -167,7 +206,31 @@ export function compileDashboard(input: CompileInput): string[] {
     });
     children.push("compiled_evidence_break");
   }
+  const controllerFor = new Map(controllers.map((c) => [c.seriesId, c]));
+  const emittedControls = new Set<string>();
+  /** A controlled series' filter bar leads its views, wherever they land. */
+  const emitControlsFor = (seriesId: string, into: string[]): void => {
+    const c = controllerFor.get(seriesId);
+    if (!c || emittedControls.has(c.id)) return;
+    emittedControls.add(c.id);
+    patches.push(c.element);
+    into.push(c.id);
+  };
+  for (const a of pendingAnchors) {
+    const v = shippedViews.find((x) => x.id === a.elementId);
+    if (!v) continue;
+    const c = controllerFor.get(v.seriesId);
+    if (!c || emittedControls.has(c.id)) continue;
+    // The anchored view was spliced into the narrative: put its controls
+    // directly above it, not down in the evidence block.
+    const at = children.indexOf(v.id);
+    if (at === -1) continue;
+    emittedControls.add(c.id);
+    patches.push(c.element);
+    children.splice(at, 0, c.id);
+  }
   for (const v of evidenceViews) {
+    emitControlsFor(v.seriesId, children);
     patches.push(v.patch);
     children.push(v.id);
   }
@@ -187,10 +250,14 @@ export function compileDashboard(input: CompileInput): string[] {
   // Catalog layout defaults under the user's overlay: charts pair into
   // two-column rows by default (viewDefaultWidths); an explicit
   // overlay.widths entry always wins, in either direction.
-  const widths: Record<string, string> = {
-    ...viewDefaultWidths(shippedViews),
-    ...(overlay.widths ?? {}),
-  };
+  const catalogWidths = viewDefaultWidths(shippedViews);
+  // A chart anchored to its explainer is that passage's hero — it spans,
+  // rather than pairing with an unrelated chart beside the prose.
+  for (const id of anchored) delete catalogWidths[id];
+  // A controlled chart spans too: its filter bar sits directly above it, and
+  // a control strip wedged between two half charts breaks the row anyway.
+  for (const c of controllers) for (const id of Object.keys(c.rebind)) delete catalogWidths[id];
+  const widths: Record<string, string> = { ...catalogWidths, ...(overlay.widths ?? {}) };
   const finalChildren: string[] = [];
   let pendingHalf: string[] = [];
   const flushRow = () => {
@@ -227,8 +294,15 @@ export function compileDashboard(input: CompileInput): string[] {
     },
   };
 
+  // State leads the stream: the finalizer harvests declared state keys as
+  // patches flow and repairs element bindings against what it has seen, so
+  // a chart bound to /computed/x must not arrive before /state declares it.
+  const ordered_patches = [
+    ...patches.filter((p) => p.path === "/state"),
+    ...patches.filter((p) => p.path !== "/state"),
+  ];
   return [
-    ...patches.map((p) => JSON.stringify(p)),
+    ...ordered_patches.map((p) => JSON.stringify(p)),
     JSON.stringify(root),
     JSON.stringify({ op: "add", path: "/root", value: "compiled_root" }),
   ];

@@ -75,6 +75,10 @@ export interface EditDashboardResult {
 /** Structural element ids the overlay may also target. */
 const STRUCTURAL_IDS = ["compiled_check_banner", "tile_grid", "compiled_evidence_break"];
 
+/** Interactivity elements are ids too — the overlay governs them like any
+ *  other element (a reader who wants the filters gone can hide them). */
+const isControlsId = (id: string): boolean => id.startsWith("controls_");
+
 function viewsFor(artifacts: CachedArtifacts): DerivedView[] {
   const { product } = parseProduct(artifacts.series, undefined);
   return deriveViews({
@@ -225,7 +229,7 @@ export function getDashboardPlan(csvId: string): PlanDocument | undefined {
 
 export interface EditSection {
   id: string;
-  kind: "banner" | "tiles" | "node" | "view";
+  kind: "banner" | "tiles" | "node" | "view" | "controls";
   /** Plan-node op when kind=node. */
   op?: string;
   label: string;
@@ -316,6 +320,14 @@ export async function getEditSurface(
         id,
         kind: "banner",
         label: "Evidence divider",
+        hidden: isHidden,
+        width: widthOf(id),
+      };
+    if (id.startsWith("controls_"))
+      return {
+        id,
+        kind: "controls",
+        label: `Filters: ${humanizeId(id.slice("controls_".length))}`,
         hidden: isHidden,
         width: widthOf(id),
       };

@@ -34,6 +34,7 @@ export function sectionTag(s: Section): string {
   if (s.kind === "node") return OP_LABEL[s.op ?? ""] ?? "Text";
   if (s.kind === "tiles") return "Key numbers";
   if (s.kind === "banner") return s.id === "compiled_evidence_break" ? "Divider" : "Alert";
+  if (s.kind === "controls") return "Filters";
   return s.label.startsWith("Table") ? "Table" : "Chart";
 }
 
@@ -43,6 +44,7 @@ export function sectionTitle(s: Section): string {
   if (s.kind === "tiles") return "Headline stat tiles";
   if (s.id === "compiled_evidence_break") return "“Evidence” section divider";
   if (s.kind === "banner") return "Failed-check alert banner";
+  if (s.kind === "controls") return s.label.replace(/^Filters: /, "Filter controls for ");
   // Server label is "Chart: Monthly Churn Rate (coverage)" — keep the name,
   // translate the parenthetical.
   return s.label

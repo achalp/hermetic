@@ -84,6 +84,20 @@ function colorMap(yKeys: string[]): Record<string, string> {
   return Object.fromEntries(yKeys.map((k, i) => [k, PALETTE[i % PALETTE.length]]));
 }
 
+/** Display names for a series' columns: the legend is prose, not schema.
+ *  A screened measure's raw sibling says so in words ("(unscreened)")
+ *  rather than wearing a "_raw" suffix the reader has to decode. */
+export function measureLabels(s: SeriesEntry): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const m of s.roles.measures) {
+    labels[m.column] = humanizeId(m.column);
+    if (m.variant_of) labels[m.variant_of] = `${humanizeId(m.column)} (unscreened)`;
+  }
+  const countCol = s.roles.count?.column;
+  if (countCol) labels[countCol] = "Observations";
+  return labels;
+}
+
 function chartPatch(s: SeriesEntry, id: string, title: string, yKeys: string[]): SpecPatchLine {
   const type = componentForSeries(s);
   return {
@@ -97,6 +111,7 @@ function chartPatch(s: SeriesEntry, id: string, title: string, yKeys: string[]):
         x_key: s.roles.x.column,
         y_keys: yKeys,
         color_map: colorMap(yKeys),
+        label_map: measureLabels(s),
         ...(type === "LineChart" ? { show_dots: false, curve: "monotone" } : {}),
       },
       children: [],
@@ -274,6 +289,7 @@ export function deriveViews(args: {
               data: `$chartData:${s.id}`,
               x_key: s.roles.x.column,
               y_keys: [countCol],
+              label_map: measureLabels(s),
             },
             children: [],
           },

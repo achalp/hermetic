@@ -10,6 +10,7 @@ import {
 } from "@/lib/compose/plan";
 import { buildPlannerSystem } from "@/lib/compose/planner";
 import { deriveViews, viewDefaultWidths } from "@/lib/compose/views";
+import { deriveController } from "@/lib/compose/controller";
 import { getEditSurface, resolvePreviewText } from "@/lib/compose/edit";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
@@ -580,14 +581,15 @@ describe("group-series views — the matrix is the honest primary", () => {
   });
 
   it("two or more charts default to half width and pair into rows; overlay wins", () => {
+    const second = { ...PRODUCT.series[0], id: "monthly_prices" };
     const twoCharts: AnalysisProduct = {
-      series: [PRODUCT.series[0], GROUPED.series[0]],
+      series: [PRODUCT.series[0], second],
       values: [],
     };
     const views = deriveViews({ series: twoCharts.series }).filter((v) => v.shipped);
     const defaults = viewDefaultWidths(views);
     expect(defaults["chart_annual_prices"]).toBe("half");
-    expect(defaults["chart_segment_churn"]).toBe("half");
+    expect(defaults["chart_monthly_prices"]).toBe("half");
     // A single shipped chart stays full — nothing to pair with.
     expect(viewDefaultWidths(views.filter((v) => v.id === "chart_annual_prices"))).toEqual({});
     // Compile pairs the two default-half charts into one two-column row.
@@ -607,7 +609,7 @@ describe("group-series views — the matrix is the honest primary", () => {
       manifest: MANIFEST,
       product: twoCharts,
       plan: { nodes: [{ id: "a", op: "ANSWER", refs: ["price_trend"] }] },
-      overlay: { widths: { chart_annual_prices: "full", chart_segment_churn: "full" } },
+      overlay: { widths: { chart_annual_prices: "full", chart_monthly_prices: "full" } },
       headlinePlan: [],
       question: "q",
     });
@@ -619,6 +621,118 @@ describe("group-series views — the matrix is the honest primary", () => {
     const primary = views.find((v) => v.kind === "primary");
     const props = (primary?.patch.value as { props: Record<string, unknown> }).props;
     expect(props.color_map).toMatchObject({ median: "indigo" });
+  });
+});
+
+describe("derived interactivity — filters from declared roles (spec §14.3)", () => {
+  const GROUPED_SERIES = {
+    id: "segment_churn",
+    rows: [
+      { month_str: "2024-01", segment: "A", rate: 1.5 },
+      { month_str: "2024-01", segment: "B", rate: 2.5 },
+      { month_str: "2024-02", segment: "A", rate: 1.7 },
+      { month_str: "2024-02", segment: "B", rate: 2.9 },
+    ],
+    roles: {
+      x: { column: "month_str", kind: "temporal" as const },
+      group: { column: "segment" },
+      measures: [{ column: "rate", unit: "pct" }],
+    },
+  };
+
+  it("a declared group role earns a filter bar; an undeclared one does not", () => {
+    const views = deriveViews({ series: [GROUPED_SERIES] }).filter((v) => v.shipped);
+    const c = deriveController(GROUPED_SERIES, views);
+    expect(c?.id).toBe("controls_segment_churn");
+    const props = (c!.element.value as { props: Record<string, unknown> }).props;
+    const filters = props.filters as { label: string; column: string; bindTo: string }[];
+    // Group first, then the x dimension — and labels are prose, not keys:
+    // "month_str" is a storage detail.
+    expect(filters.map((f) => f.label)).toEqual(["Segment", "Month"]);
+    expect(filters[0].bindTo).toBe("/filters/segment_churn__segment");
+    // Scope is stated so the reader knows what responds.
+    expect(String(props.scope_note)).toContain("Other charts");
+    // A series with no group role gets no controller — nothing to filter by.
+    expect(deriveController(PRODUCT.series[0], [])).toBeNull();
+  });
+
+  it("outputs pivot to the matrix orientation the HeatMap reads, pre-populated", () => {
+    const views = deriveViews({ series: [GROUPED_SERIES] }).filter((v) => v.shipped);
+    const c = deriveController(GROUPED_SERIES, views)!;
+    const props = (c.element.value as { props: Record<string, unknown> }).props;
+    const outputs = props.outputs as { statePath: string; format: string; pipeline: unknown[] }[];
+    expect(outputs[0].statePath).toBe("/computed/chart_segment_churn");
+    expect(outputs[0].format).toBe("matrix");
+    expect(outputs[0].pipeline[0]).toMatchObject({
+      op: "pivot",
+      rowKey: "segment", // rowKey → y_labels (the HeatMap contract)
+      columnKey: "month_str",
+      valueKey: "rate",
+    });
+    // First paint equals the static dashboard: initial state carries the
+    // exact pivot the catalog computed, so interactivity is additive.
+    const pre = c.state.computed["chart_segment_churn"] as { y_labels: string[]; z: number[][] };
+    expect(pre.y_labels).toEqual(["A", "B"]);
+    expect(pre.z).toEqual([
+      [1.5, 1.7],
+      [2.5, 2.9],
+    ]);
+    expect(c.state.filters).toEqual({
+      segment_churn__segment: "All",
+      segment_churn__month_str: "All",
+    });
+  });
+
+  it("compile emits state first, controls above their chart, and rebinds it", () => {
+    const lines = compileDashboard({
+      manifest: MANIFEST,
+      product: { series: [GROUPED_SERIES], values: [] },
+      plan: { nodes: [{ id: "a", op: "ANSWER", refs: ["price_trend"] }] },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    // State leads: the finalizer harvests declared keys as patches stream and
+    // repairs bindings against them — a binding before its key is repaired away.
+    const first = JSON.parse(lines[0]) as { path: string; value: Record<string, unknown> };
+    expect(first.path).toBe("/state");
+    expect(Object.keys(first.value.datasets as object)).toContain("segment_churn");
+    const root = JSON.parse(lines[lines.length - 2]) as { value: { children: string[] } };
+    expect(root.value.children.indexOf("controls_segment_churn")).toBe(
+      root.value.children.indexOf("chart_segment_churn") - 1
+    );
+    // The chart now reads controller state instead of inline data.
+    const chart = lines
+      .map((l) => JSON.parse(l) as { path: string; value?: { props?: Record<string, unknown> } })
+      .find((p) => p.path === "/elements/chart_segment_churn");
+    expect(chart?.value?.props?.z).toEqual({ $state: "/computed/chart_segment_churn/z" });
+    // Hiding the controls is an ordinary overlay edit — and then the chart
+    // keeps its own data rather than binding to state nothing produces.
+    const noControls = compileDashboard({
+      manifest: MANIFEST,
+      product: { series: [GROUPED_SERIES], values: [] },
+      plan: { nodes: [{ id: "a", op: "ANSWER", refs: ["price_trend"] }] },
+      overlay: { hidden: ["controls_segment_churn"] },
+      headlinePlan: [],
+      question: "q",
+    });
+    expect(noControls.join()).not.toContain("controls_segment_churn");
+    const staticChart = noControls
+      .map((l) => JSON.parse(l) as { path: string; value?: { props?: Record<string, unknown> } })
+      .find((p) => p.path === "/elements/chart_segment_churn");
+    expect(Array.isArray(staticChart?.value?.props?.z)).toBe(true);
+  });
+
+  it("chart legends read as prose: label_map humanizes every measure", () => {
+    const views = deriveViews({ series: [PRODUCT.series[0]] });
+    const primary = views.find((v) => v.kind === "primary");
+    const props = (primary!.patch.value as { props: Record<string, unknown> }).props;
+    expect(props.label_map).toMatchObject({
+      median: "Median",
+      // The raw sibling says what it is in words, not a "_raw" suffix.
+      median_raw: "Median (unscreened)",
+      n: "Observations",
+    });
   });
 });
 

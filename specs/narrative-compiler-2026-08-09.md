@@ -388,3 +388,56 @@ Deferred, recorded: a deterministic DataController (interactive
 group/period filters compiled from declared roles — the last piece of
 generative-layout parity) and legend label humanization (needs a
 label-map prop in the chart grammar).
+
+## 14.3 Amendment (2026-08-09): derived interactivity + labels as prose
+
+The last two named gaps against the generative composer: its reader gets
+FILTERS ("Segment: All", "Month: All") and its legends read as words,
+while compiled shipped static pictures whose legends read
+"churn_rate_pct_raw". Neither gap needed an LLM — both were derivable
+from what the analysis already declares.
+
+**The controller (compose/controller.ts).** A series that declares a
+`group` role has NAMED its filterable dimension; the client pipeline
+(data-transforms) already has the ops. So `deriveController` emits a
+DataController deterministically: filters for the group column (and the
+x column when its cardinality fits), `pipeline: [{op:"filter"}]`, and
+one output per view of that series — a `pivot`+`matrix` for the group
+matrix, filtered rows otherwise — written to `/computed/<view id>`,
+which the view then reads via `{$state}` instead of inline data.
+Initial state carries the EXACT values the static catalog computed, so
+first paint is byte-identical to the static dashboard and interaction
+is purely additive.
+
+Three properties keep it inside the existing grammar. The controller is
+HEADLESS (no children): it writes global state, so charts stay
+top-level elements the overlay can move, hide, and pair as before. Its
+id (`controls_<sid>`) is a first-class element — hiding it is an
+ordinary edit, and a hidden controller un-binds its views back to
+inline data rather than leaving them pointed at state nothing produces.
+And the compiled stream emits `/state` FIRST, because the finalizer
+harvests declared state keys as patches flow and repairs element
+bindings against what it has seen.
+
+Scope is stated, not implied: `scope_note` on the controller says which
+series it filters and that other charts read other series and do not
+respond. A filter bar whose reach is invisible is a lie of omission —
+the compiled composer can only re-aggregate the rows a series actually
+declares, so it says so. Controlled charts render full width with their
+filter bar directly above; uncontrolled charts still pair two-up.
+
+**Labels as prose (`label_map`).** LineChart/BarChart gain a
+`label_map` prop (column → display name) threaded into the legend and
+tooltip; `measureLabels` derives it from the declared roles, and a
+screened measure's raw sibling says "(unscreened)" in words instead of
+wearing a `_raw` suffix the reader must decode. Filter labels get the
+same treatment (`month_str` → "Month").
+
+**Bug found on the way.** The shared pivot→matrix output labelled its
+axes backwards: it emitted `z[rowKey][columnKey]` (correct for the
+components' Plotly `z[y][x]` contract) while assigning `x_labels` the
+rowKey values and `y_labels` the columnKey values. Every pivot-fed
+heatmap — generative included, e.g. the reviewed churn dashboard —
+rendered transposed against its own axes (a 4×12 z drawn against 4
+x-ticks and 12 y-ticks). Fixed at the source with a regression test
+pinning the orientation to the component contract.

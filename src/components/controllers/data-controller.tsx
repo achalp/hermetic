@@ -32,6 +32,9 @@ export interface DataControllerProps {
    * the user isn't misled. Injected deterministically by the compose layer.
    */
   sample_note?: string | null;
+  /** What these filters govern — a filter bar whose scope is invisible
+   *  reads as controlling the whole page. */
+  scope_note?: string | null;
 }
 
 interface DataControllerComponentProps {
@@ -285,6 +288,7 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
   }, []);
 
   const sampleNote = props.sample_note?.trim() || null;
+  const scopeNote = props.scope_note?.trim() || null;
 
   // fromState mode or no filters: skip filter dropdowns (still surface the
   // sample caveat if one was set).
@@ -300,6 +304,7 @@ export function DataControllerComponent({ props, children }: DataControllerCompo
   return (
     <div className="space-y-4">
       {sampleNote && <SampleCaveat note={sampleNote} />}
+      {scopeNote && <p className="text-xs text-t-tertiary">{scopeNote}</p>}
       {/* Filter dropdowns */}
       <div className="flex flex-wrap gap-3">
         {filters.map((def) => {

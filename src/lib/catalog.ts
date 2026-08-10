@@ -142,6 +142,7 @@ export const catalogComponents = {
       orientation: z.enum(["vertical", "horizontal"]).nullable(),
       stacked: z.boolean().nullable(),
       color_map: z.record(z.string(), z.string()).nullable(),
+      label_map: z.record(z.string(), z.string()).nullable(),
       selects: z
         .object({
           column: z.string(),
@@ -159,11 +160,12 @@ export const catalogComponents = {
       x_key: z.string(),
       y_keys: z.array(z.string()),
       color_map: z.record(z.string(), z.string()).nullable(),
+      label_map: z.record(z.string(), z.string()).nullable(),
       show_dots: z.boolean().nullable(),
       curve: z.enum(["linear", "monotone", "step"]).nullable(),
     }),
     description:
-      "Line chart for trends over time. Each y_key becomes a line. Data should be wide-format: each row has {x_key: value, y_key1: number, y_key2: number, ...}. Pivot long-format data before passing. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.",
+      'Line chart for trends over time. Use label_map to give y_keys human display names in the legend and tooltips (e.g. {"churn_rate_pct": "Churn rate"}) — the reader should never read a column identifier. Each y_key becomes a line. Data should be wide-format: each row has {x_key: value, y_key1: number, y_key2: number, ...}. Pivot long-format data before passing. color_map values can be named colors (indigo, emerald, amber, rose, violet, cyan, orange, pink) or hex codes.',
   },
   AreaChart: {
     props: z.object({
@@ -1130,6 +1132,7 @@ export const catalogComponents = {
         statePath: z.string().optional(),
         fromState: z.record(z.string(), z.string()).optional(),
       }),
+      scope_note: z.string().nullable().optional(),
       filters: z.array(
         z.object({
           key: z.string(),

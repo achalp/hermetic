@@ -349,6 +349,7 @@ export const CORE_SAMPLES: Record<string, Record<string, unknown>> = {
     orientation: null,
     stacked: null,
     color_map: null,
+    label_map: null,
     selects: null,
   },
   LineChart: {
@@ -360,6 +361,7 @@ export const CORE_SAMPLES: Record<string, Record<string, unknown>> = {
     x_key: "day",
     y_keys: ["sessions"],
     color_map: null,
+    label_map: null,
     show_dots: null,
     curve: null,
   },

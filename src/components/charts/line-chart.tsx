@@ -31,6 +31,7 @@ interface LineChartProps {
   data: Record<string, unknown>[];
   x_key: string;
   y_keys: string[];
+  label_map?: Record<string, string> | null;
   color_map?: Record<string, string> | null;
   show_dots?: boolean | null;
   curve?: CurveType | null;
@@ -67,7 +68,14 @@ export function LineChartComponent({
   const raw = unwrapChartData(props.data);
   const data = raw.filter((row) => row[props.x_key] != null);
   const colors = useColorMap(y_keys, props.color_map);
-  const series = toNivoLineSeries(data, props.x_key, y_keys);
+  // Display labels: the legend and tooltip are prose, not schema. A reader
+  // should never have to decode "churn_rate_pct_raw". Colors are positional,
+  // so renaming the series id is safe.
+  const labelFor = (key: string): string => props.label_map?.[key] ?? key;
+  const series = toNivoLineSeries(data, props.x_key, y_keys).map((s) => ({
+    ...s,
+    id: labelFor(s.id),
+  }));
   const curve = CURVE_MAP[props.curve ?? "monotone"];
   const tickValues = pickTickValues(data, props.x_key);
   const hasRotatedLabels = !!tickValues;

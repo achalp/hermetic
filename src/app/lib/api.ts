@@ -667,7 +667,7 @@ export interface PlanEditSurface {
   doc: import("@/lib/contracts/plan").PlanDocument;
   sections: {
     id: string;
-    kind: "banner" | "tiles" | "node" | "view";
+    kind: "banner" | "tiles" | "node" | "view" | "controls";
     op?: string;
     label: string;
     preview?: string;
