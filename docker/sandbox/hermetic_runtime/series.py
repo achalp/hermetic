@@ -60,6 +60,41 @@ def _as_role(spec):
 
 _MEASURE_FIELDS = ("column", "unit", "of", "screened_by", "variant_of")
 
+# How a measure re-aggregates from the raw table (analysis-product §1.4).
+# A declared series ships ALREADY-AGGREGATED rows; nothing in them says how
+# they were built, so the host cannot rebuild the measure for a filtered
+# subset without guessing — and the natural guess is wrong for a ratio
+# (averaging per-group rates is not the pooled rate). Declaring the recipe
+# is what makes deterministic client-side filtering honest: the host replays
+# it at the unfiltered baseline and refuses the recipe unless it reproduces
+# these very rows.
+_AGG_FNS = ("sum", "avg", "min", "max", "count", "ratio")
+
+
+def _as_aggregates(spec, measure_column):
+    """Normalize an `aggregates` role, or None when absent/invalid.
+
+    {"fn": "sum"|"avg"|"min"|"max"|"count", "column"?: <source column>,
+     "from"?: <dataset key>}
+    {"fn": "ratio", "numerator": <col>, "denominator": <col>,
+     "from"?: <dataset key>}
+    """
+    if not isinstance(spec, dict):
+        return None
+    fn = spec.get("fn")
+    if fn not in _AGG_FNS:
+        return None
+    out = {"fn": fn, "from": spec.get("from") if isinstance(spec.get("from"), str) else "main"}
+    if fn == "ratio":
+        num, den = spec.get("numerator"), spec.get("denominator")
+        if not isinstance(num, str) or not isinstance(den, str):
+            return None
+        out["numerator"], out["denominator"] = num, den
+    else:
+        col = spec.get("column")
+        out["column"] = col if isinstance(col, str) else measure_column
+    return out
+
 
 def declare_series(series_id, rows, x, measures, count=None, group=None):
     """Declare a tidy series with roles; write_output emits it (and its
@@ -70,8 +105,12 @@ def declare_series(series_id, rows, x, measures, count=None, group=None):
               (a (column, kind) tuple also works).
     measures  list of measure roles: {"column": ..., "unit"?: ...,
               "of"?: finding_name, "screened_by"?: check_name,
-              "variant_of"?: other_measure_column} — a bare column string
-              means an undecorated measure.
+              "variant_of"?: other_measure_column,
+              "aggregates"?: how the measure rebuilds from the raw table
+              — {"fn": "sum"|"avg"|"min"|"max"|"count", "column"?: src,
+              "from"?: dataset key} or {"fn": "ratio", "numerator": col,
+              "denominator": col, "from"?: dataset key}} — a bare column
+              string means an undecorated measure.
     count     attestation column name (observations behind each row), if any.
     group     category column name for grouped/faceted series, if any.
 
@@ -113,7 +152,19 @@ def declare_series(series_id, rows, x, measures, count=None, group=None):
             if rows and mr["column"] not in columns:
                 _dropped("series_measure", sid, "measure column '%s' not in rows" % mr["column"])
                 continue
-            ms.append({k: mr[k] for k in _MEASURE_FIELDS if isinstance(mr.get(k), str)})
+            role = {k: mr[k] for k in _MEASURE_FIELDS if isinstance(mr.get(k), str)}
+            if "aggregates" in mr:
+                agg = _as_aggregates(mr["aggregates"], mr["column"])
+                if agg is None:
+                    _dropped(
+                        "series_measure",
+                        sid,
+                        "measure '%s' has an invalid aggregates role (fn must be one of %s; "
+                        "ratio needs numerator= and denominator=)" % (mr["column"], _AGG_FNS),
+                    )
+                else:
+                    role["aggregates"] = agg
+            ms.append(role)
         if not ms:
             return _dropped("series", sid, "no valid measures")
 

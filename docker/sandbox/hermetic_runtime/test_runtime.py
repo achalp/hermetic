@@ -209,6 +209,63 @@ class TestAnalysisProduct(unittest.TestCase):
         self.assertIsNone(declare_series("d", object(), x=("x", "ordinal"), measures=["x"]))
         self.assertEqual(series.get_series(), [])
 
+    def test_measure_aggregation_recipe_declared_and_validated(self):
+        # The recipe that makes honest client-side filtering possible: how a
+        # measure rebuilds from the raw table (analysis-product §1.4).
+        entry = declare_series(
+            "monthly_rate",
+            [{"m": "2024-01", "rate_pct": 4.4}],
+            x=("m", "temporal"),
+            measures=[
+                {
+                    "column": "rate_pct",
+                    "unit": "pct",
+                    "aggregates": {
+                        "fn": "ratio",
+                        "numerator": "churned",
+                        "denominator": "active",
+                    },
+                }
+            ],
+        )
+        agg = entry["roles"]["measures"][0]["aggregates"]
+        self.assertEqual(agg["fn"], "ratio")
+        self.assertEqual(agg["numerator"], "churned")
+        self.assertEqual(agg["from"], "main")  # defaults to the working table
+
+    def test_non_ratio_aggregation_defaults_its_source_column(self):
+        entry = declare_series(
+            "totals",
+            [{"m": "2024-01", "revenue": 10.0}],
+            x=("m", "temporal"),
+            measures=[{"column": "revenue", "aggregates": {"fn": "sum"}}],
+        )
+        self.assertEqual(
+            entry["roles"]["measures"][0]["aggregates"],
+            {"fn": "sum", "from": "main", "column": "revenue"},
+        )
+
+    def test_invalid_aggregation_drops_the_recipe_not_the_series(self):
+        # A malformed recipe costs interactivity, never the analysis.
+        entry = declare_series(
+            "s",
+            [{"m": 1, "v": 2.0}],
+            x=("m", "ordinal"),
+            measures=[
+                {"column": "v", "aggregates": {"fn": "median"}},  # unsupported fn
+            ],
+        )
+        self.assertIsNotNone(entry)
+        self.assertNotIn("aggregates", entry["roles"]["measures"][0])
+        # A ratio missing its parts is equally unusable.
+        entry2 = declare_series(
+            "s2",
+            [{"m": 1, "v": 2.0}],
+            x=("m", "ordinal"),
+            measures=[{"column": "v", "aggregates": {"fn": "ratio", "numerator": "a"}}],
+        )
+        self.assertNotIn("aggregates", entry2["roles"]["measures"][0])
+
     def test_series_rows_capped_with_total(self):
         rows = [{"i": i, "v": float(i)} for i in range(series.ROWS_CAP + 10)]
         entry = declare_series("big", rows, x=("i", "ordinal"), measures=["v"])

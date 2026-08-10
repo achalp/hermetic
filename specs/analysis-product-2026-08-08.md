@@ -147,3 +147,53 @@ same rows and never renames. Declared units for finding mirrors map
 See commit series: runtime (series/values registries + synthesis + tests),
 host contracts/parse/validator/catalog/lints (structured-first), contract
 phase C + generation bump, full-suite green.
+
+## §1.4 Amendment (2026-08-09): declared aggregation — the recipe travels with the number
+
+A declared series ships ALREADY-AGGREGATED rows. Nothing in them records
+how they were built, and that gap has a concrete cost: the compiled
+composer cannot rebuild a measure for a filtered subset, so it cannot
+offer the client-side filtering the generative composer offers (which
+the reviewed churn dashboard made visible — "Segment: All" re-aggregated
+the monthly rate from raw counts, while compiled shipped a static line).
+
+The gap is not solvable by inference, and that is the whole point.
+Rebuilding `churn_rate_pct` for one segment requires knowing it is
+`sum(churned)/sum(active)` — averaging the per-segment rates gives
+3.3749% where the analysis computed 4.3463% on the reviewed run, a 22%
+relative error that would move silently with every dropdown change. A
+rate is not averageable; you need its parts. So the analysis that
+computed the number declares how it aggregates:
+
+    measures=[{"column": "churn_rate_pct", "unit": "pct",
+               "aggregates": {"fn": "ratio", "numerator": "churned_customers",
+                              "denominator": "active_customers", "from": "main"}}]
+
+`fn` is sum | avg | min | max | count | ratio; non-ratio recipes default
+their source column to the measure column and their source table to
+"main". A malformed recipe is DROPPED with a sidecar diagnostic — it
+costs interactivity, never the series (runtime convention).
+
+**Trust but verify.** The host does not take the recipe on faith. Before
+any controller ships, `verifyBaseline` replays the recipe over the whole
+raw table and compares the result to the series' own declared rows
+(1e-6 relative tolerance). A recipe that fails to reproduce them is
+refused with the disagreement logged — "at month_str=2024-01,
+churn_rate_pct replays as 3.3749 but the analysis declared 4.3463" —
+and the series stays static. This makes the client-side arithmetic
+checkable against the Python-computed truth before the reader touches
+anything, and turns a mis-declared recipe into lost interactivity
+rather than a wrong number.
+
+Two further refusals keep the feature honest. A view is rebound only
+when the recipe reproduces EVERY column it charts: a filtered screened
+line beside an unfiltered raw sibling is two populations on one axis,
+so a partially-declared series stays static (with a log naming the
+undeclared columns). And a series whose rows were capped at declaration
+time is never re-aggregated, since the baseline replay could not be
+trusted against a truncated declaration.
+
+The filter vocabulary is roles-first, as everywhere else: the offered
+dimensions are the columns some series declared as its `group` role and
+the raw table carries. The analysis names its dimensions; the host does
+not go looking for them.

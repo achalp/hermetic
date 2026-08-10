@@ -107,6 +107,7 @@ function compileOrder(artifacts: CachedArtifacts, doc: PlanDocument): string[] {
     question: artifacts.question,
     purpose: doc.purpose,
     regimes: artifacts.regimes,
+    datasets: artifacts.datasets as Record<string, unknown> | undefined,
   });
   const rowChildren = new Map<string, string[]>();
   for (const line of lines) {
@@ -176,6 +177,7 @@ export async function editDashboard(
     // evidence views (profiles ride the artifacts).
     purpose: doc.purpose,
     regimes: artifacts.regimes,
+    datasets: artifacts.datasets as Record<string, unknown> | undefined,
   });
 
   // Assemble through the SAME finalizer (values, units) as live compose.
@@ -284,6 +286,7 @@ export async function getEditSurface(
     question: artifacts.question,
     purpose: doc.purpose,
     regimes: artifacts.regimes,
+    datasets: artifacts.datasets as Record<string, unknown> | undefined,
   });
   const root = JSON.parse(lines[lines.length - 2]) as { value?: { children?: string[] } };
   // Half-width elements compile inside compiled_row_* grid wrappers —

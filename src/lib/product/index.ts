@@ -18,12 +18,29 @@ import type {
 } from "@/lib/contracts/product";
 import type { FindingIssue } from "@/lib/contracts/findings";
 
+const AggregationSchema = z.union([
+  z.object({
+    fn: z.enum(["sum", "avg", "min", "max", "count"]),
+    column: z.string().min(1),
+    from: z.string().min(1),
+  }),
+  z.object({
+    fn: z.literal("ratio"),
+    numerator: z.string().min(1),
+    denominator: z.string().min(1),
+    from: z.string().min(1),
+  }),
+]);
+
 const MeasureSchema = z.object({
   column: z.string().min(1),
   unit: z.string().optional(),
   of: z.string().optional(),
   screened_by: z.string().optional(),
   variant_of: z.string().optional(),
+  // Malformed recipes are DROPPED, not fatal: a bad aggregates role costs
+  // interactivity for that measure, never the series.
+  aggregates: AggregationSchema.optional().catch(undefined),
 });
 
 const SeriesSchema = z.object({

@@ -10,7 +10,11 @@ import {
 } from "@/lib/compose/plan";
 import { buildPlannerSystem } from "@/lib/compose/planner";
 import { deriveViews, viewDefaultWidths } from "@/lib/compose/views";
-import { deriveController } from "@/lib/compose/controller";
+import {
+  deriveAggregatingController,
+  deriveController,
+  verifyBaseline,
+} from "@/lib/compose/controller";
 import { getEditSurface, resolvePreviewText } from "@/lib/compose/edit";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
@@ -733,6 +737,177 @@ describe("derived interactivity — filters from declared roles (spec §14.3)", 
       median_raw: "Median (unscreened)",
       n: "Observations",
     });
+  });
+});
+
+describe("declared re-aggregation — filter what the series doesn't carry (spec §14.4)", () => {
+  // The real shape from the churn run: a rate series aggregated FROM a raw
+  // segment-month table. The aggregated rows carry no segment column, so
+  // filtering by segment is only possible by rebuilding from the source.
+  const RAW = [
+    { month: "2024-01", segment: "A", active: 400, churned: 8 },
+    { month: "2024-01", segment: "B", active: 100, churned: 14 },
+    { month: "2024-02", segment: "A", active: 400, churned: 12 },
+    { month: "2024-02", segment: "B", active: 100, churned: 18 },
+  ];
+  // Pooled: Jan = 22/500 = 4.4%, Feb = 30/500 = 6%. The average of the
+  // per-segment rates would be 7.75% and 10.5% — a different story entirely.
+  const RATE_SERIES = {
+    id: "monthly_rate",
+    rows: [
+      { month: "2024-01", rate_pct: 4.4 },
+      { month: "2024-02", rate_pct: 6 },
+    ],
+    roles: {
+      x: { column: "month", kind: "temporal" as const },
+      measures: [
+        {
+          column: "rate_pct",
+          unit: "pct",
+          aggregates: {
+            fn: "ratio" as const,
+            numerator: "churned",
+            denominator: "active",
+            from: "main",
+          },
+        },
+      ],
+    },
+  };
+  const GROUPED = {
+    id: "segment_rate",
+    rows: RAW.map((r) => ({ month: r.month, segment: r.segment, rate: 1 })),
+    roles: {
+      x: { column: "month", kind: "temporal" as const },
+      group: { column: "segment" },
+      measures: [{ column: "rate", unit: "pct" }],
+    },
+  };
+  const views = () => deriveViews({ series: [RATE_SERIES] }).filter((v) => v.shipped);
+
+  it("a verified recipe earns filters on a dimension the series never carried", () => {
+    const c = deriveAggregatingController(RATE_SERIES, views(), { main: RAW }, [
+      RATE_SERIES,
+      GROUPED,
+    ]);
+    expect(c).not.toBeNull();
+    const props = (c!.element.value as { props: Record<string, unknown> }).props;
+    // The filter vocabulary is roles-first: "segment" is a dimension ANOTHER
+    // series declared as its group, and the raw table carries it.
+    expect((props.filters as { label: string }[]).map((f) => f.label)).toEqual(["Segment"]);
+    expect(props.source).toEqual({ statePath: "/datasets/main" });
+    // A ratio is rebuilt from its PARTS, never averaged.
+    const pipeline = (props.outputs as { pipeline: Record<string, unknown>[] }[])[0].pipeline;
+    expect(pipeline[0]).toMatchObject({
+      op: "groupBy",
+      columns: ["month"],
+      aggregations: [
+        { column: "churned", fn: "sum", as: "rate_pct__num" },
+        { column: "active", fn: "sum", as: "rate_pct__den" },
+      ],
+    });
+    expect(pipeline[1]).toMatchObject({
+      op: "compute",
+      column: "rate_pct",
+      expression: "percent(rate_pct__num, rate_pct__den)",
+    });
+  });
+
+  it("REFUSES a recipe that does not reproduce the declared rows", () => {
+    // The tempting wrong recipe: average the per-row rates. On this data it
+    // yields 7.75% where the analysis computed 4.4% — the base-rate error
+    // that makes inferred re-aggregation unsafe.
+    const rawWithRates = RAW.map((r) => ({ ...r, row_rate: (100 * r.churned) / r.active }));
+    const wrong = {
+      ...RATE_SERIES,
+      roles: {
+        ...RATE_SERIES.roles,
+        measures: [
+          {
+            column: "rate_pct",
+            unit: "pct",
+            aggregates: { fn: "avg" as const, column: "row_rate", from: "main" },
+          },
+        ],
+      },
+    };
+    const mismatch = verifyBaseline(
+      wrong,
+      rawWithRates,
+      [
+        {
+          op: "groupBy",
+          columns: ["month"],
+          aggregations: [{ column: "row_rate", fn: "avg", as: "rate_pct" }],
+        },
+      ],
+      ["rate_pct"]
+    );
+    expect(mismatch).toContain("the analysis declared 4.4");
+    expect(
+      deriveAggregatingController(wrong, views(), { main: rawWithRates }, [wrong, GROUPED])
+    ).toBeNull();
+  });
+
+  it("declines when the recipe cannot rebuild every charted column", () => {
+    // A screened measure charted beside its raw sibling: rebuilding only one
+    // would draw a filtered line beside an unfiltered one, two populations
+    // on one axis. Static is the honest outcome.
+    const partial = {
+      ...RATE_SERIES,
+      rows: RATE_SERIES.rows.map((r) => ({ ...r, rate_pct_raw: r.rate_pct })),
+      roles: {
+        ...RATE_SERIES.roles,
+        measures: [
+          { ...RATE_SERIES.roles.measures[0], variant_of: "rate_pct_raw" },
+          { column: "rate_pct_raw", unit: "pct" }, // no recipe
+        ],
+      },
+    };
+    const partialViews = deriveViews({ series: [partial] }).filter((v) => v.shipped);
+    expect(
+      deriveAggregatingController(partial, partialViews, { main: RAW }, [partial, GROUPED])
+    ).toBeNull();
+  });
+
+  it("declines without a source table, a recipe, or a dimension to filter by", () => {
+    expect(deriveAggregatingController(RATE_SERIES, views(), undefined, [RATE_SERIES])).toBeNull();
+    expect(
+      deriveAggregatingController(RATE_SERIES, views(), { main: RAW }, [RATE_SERIES])
+    ).toBeNull(); // no group role anywhere
+    const noRecipe = {
+      ...RATE_SERIES,
+      roles: { ...RATE_SERIES.roles, measures: [{ column: "rate_pct", unit: "pct" }] },
+    };
+    expect(
+      deriveAggregatingController(noRecipe, views(), { main: RAW }, [noRecipe, GROUPED])
+    ).toBeNull();
+  });
+
+  it("compile prefers the verified recipe and wires the chart to recomputed state", () => {
+    const lines = compileDashboard({
+      manifest: MANIFEST,
+      product: { series: [RATE_SERIES, GROUPED], values: [] },
+      plan: { nodes: [{ id: "a", op: "ANSWER", refs: ["price_trend"] }] },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+      datasets: { main: RAW },
+    });
+    const byPath = new Map(
+      lines.map((l) => {
+        const p = JSON.parse(l) as { path: string; value?: Record<string, unknown> };
+        return [p.path, p];
+      })
+    );
+    expect(byPath.has("/elements/controls_monthly_rate")).toBe(true);
+    const chart = byPath.get("/elements/chart_monthly_rate")?.value as {
+      props: Record<string, unknown>;
+    };
+    expect(chart.props.data).toEqual({ $state: "/computed/chart_monthly_rate" });
+    // The raw source ships in state so the client can re-aggregate it.
+    const state = byPath.get("/state")?.value as { datasets: Record<string, unknown> };
+    expect(state.datasets.main).toHaveLength(4);
   });
 });
 

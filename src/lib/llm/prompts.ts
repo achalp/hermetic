@@ -212,7 +212,18 @@ Your job is to write a single Python script that:
            count="item_count",                          # attestation column — ALWAYS declare when present
            group=None)                                  # category column for grouped series
    Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point
-   at, exactly. Declared series are automatically emitted (each also appears to the chart
+   at, exactly.
+   AGGREGATION RECIPE — declare it whenever a measure was aggregated FROM the raw table
+   (datasets["main"]), so the dashboard can honestly recompute it for a filtered subset:
+       measures=[{"column": "churn_rate_pct", "unit": "pct",
+                  "aggregates": {"fn": "ratio", "numerator": "churned_customers",
+                                 "denominator": "active_customers", "from": "main"}}]
+       measures=[{"column": "revenue", "unit": "usd",
+                  "aggregates": {"fn": "sum", "column": "order_total", "from": "main"}}]
+   fn is sum | avg | min | max | count | ratio. A RATE/SHARE/PERCENTAGE is always a ratio —
+   name its numerator and denominator columns; averaging per-group rates is NOT the pooled
+   rate, so a rate declared as "avg" will be rejected. The host replays the recipe over the
+   whole table and only enables filtering when it reproduces your declared rows exactly. Declared series are automatically emitted (each also appears to the chart
    layer under its id) — do NOT duplicate them in chart_data.
 
    STANDALONE SCALARS the dashboard may show are declared with context:

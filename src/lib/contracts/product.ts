@@ -13,6 +13,20 @@ export interface SeriesXRole {
   kind: SeriesXKind;
 }
 
+/**
+ * How a measure rebuilds from the raw table (analysis-product §1.4).
+ *
+ * A declared series ships already-aggregated rows; nothing in them records
+ * how they were computed. Without this, re-aggregating a filtered subset is
+ * a guess — and for a ratio the natural guess (averaging per-group rates) is
+ * wrong. With it, the compiled composer can offer honest client-side
+ * filtering: it replays the recipe at the unfiltered baseline and only ships
+ * interactivity when the replay reproduces the declared rows.
+ */
+export type MeasureAggregation =
+  | { fn: "sum" | "avg" | "min" | "max" | "count"; column: string; from: string }
+  | { fn: "ratio"; numerator: string; denominator: string; from: string };
+
 export interface SeriesMeasureRole {
   column: string;
   /** Display/semantic unit ("usd", "pct") — the composer renders it, never prose. */
@@ -23,6 +37,8 @@ export interface SeriesMeasureRole {
   screened_by?: string;
   /** Raw sibling column this measure is a screened/transformed variant of. */
   variant_of?: string;
+  /** Recipe to rebuild this measure from the raw table under a filter. */
+  aggregates?: MeasureAggregation;
 }
 
 export interface SeriesRoles {

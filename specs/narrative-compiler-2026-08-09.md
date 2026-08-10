@@ -441,3 +441,18 @@ heatmap — generative included, e.g. the reviewed churn dashboard —
 rendered transposed against its own axes (a 4×12 z drawn against 4
 x-ticks and 12 y-ticks). Fixed at the source with a regression test
 pinning the orientation to the component contract.
+
+**§14.4 (2026-08-09): filtering what the series does not carry.** The
+controller of §14.3 can only filter a series by columns its own rows
+carry, so an aggregated monthly rate could not be filtered by segment —
+the very thing the generative dashboard did. `deriveAggregatingController`
+closes that gap on top of the declared aggregation recipe
+(analysis-product §1.4): when a series' measures declare how they
+rebuild from a raw table, the controller sources that table instead,
+filters it by the dimensions other series declared as `group` roles, and
+re-runs the declared groupBy/compute on every change — the same recipe
+the generative composer wrote by hand, except declared by the code that
+computed the number and REPLAY-VERIFIED against the declared rows before
+it ships (`verifyBaseline`). A verified recipe wins over the §14.3
+own-rows controller; absent or refused, the series stays static. Both
+paths remain one element id, one overlay handle, one grammar.

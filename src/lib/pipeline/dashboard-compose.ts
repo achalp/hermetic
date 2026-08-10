@@ -879,6 +879,7 @@ export async function composeAndStreamDashboard(args: {
           question: opts.question,
           purpose: opts.purpose,
           regimes: (executionResult.regimes ?? {}) as Record<string, unknown>,
+          datasets: executionResult.datasets as Record<string, unknown> | undefined,
         });
         yield lines.join("\n") + "\n";
       })()

@@ -12,7 +12,7 @@ import type { HeadlineTile } from "@/lib/findings/headline-plan";
 import { realizeNode } from "./realizer";
 import { failedCheckBanner, tileElement, humanizeId, type SpecPatchLine } from "./scaffold";
 import { deriveViews, viewDefaultWidths } from "./views";
-import { deriveController, rebindViewPatch } from "./controller";
+import { deriveAggregatingController, deriveController, rebindViewPatch } from "./controller";
 
 export interface CompileInput {
   manifest: FindingsManifest;
@@ -25,6 +25,9 @@ export interface CompileInput {
   purpose?: string;
   /** Envelope regime profiles by series id — force evidence views in. */
   regimes?: Record<string, unknown>;
+  /** Raw tables from the run (`datasets`) — the source a declared
+   *  `aggregates` recipe re-aggregates from (controller.ts). */
+  datasets?: Record<string, unknown>;
 }
 
 /** Deterministic compilation to spec patch lines (JSONL strings). */
@@ -146,12 +149,16 @@ export function compileDashboard(input: CompileInput): string[] {
   // initial state carries the exact static values, so first paint is
   // unchanged and interaction is purely additive.
   const controllers = product.series
-    .map((s) =>
-      deriveController(
-        s,
-        shippedViews.filter((v) => v.seriesId === s.id)
-      )
-    )
+    .map((s) => {
+      const own = shippedViews.filter((v) => v.seriesId === s.id);
+      // A declared re-aggregation recipe (verified against the series' own
+      // rows) wins: it filters by dimensions the aggregated series does not
+      // even carry. Otherwise fall back to filtering the series' own rows.
+      return (
+        deriveAggregatingController(s, own, input.datasets, product.series) ??
+        deriveController(s, own)
+      );
+    })
     .filter((c): c is NonNullable<typeof c> => c !== null)
     .filter((c) => !hidden.has(c.id));
   if (controllers.length > 0) {
