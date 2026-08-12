@@ -19,6 +19,7 @@ import { streamText } from "ai";
 import type { DrillDownContext } from "@/lib/contracts/analysis-request";
 export type { DrillDownContext };
 import { getModel, cachedSystem } from "@/lib/llm/client";
+import { withPhaseSync } from "@/lib/cost/accumulator";
 import { truncateValue } from "@/lib/llm/truncate-value";
 import {
   RESULT_PLACEHOLDER_USAGE,
@@ -883,13 +884,23 @@ export async function composeAndStreamDashboard(args: {
         });
         yield lines.join("\n") + "\n";
       })()
-    : streamText({
-        model: getModel(uiComposeModel),
-        system: cachedSystem(catalog.prompt({ customRules })),
-        prompt: userPrompt,
-        temperature: 0,
-        maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
-      }).textStream;
+    : // withPhaseSync (not withPhase) because streamText kicks the request off
+      // eagerly and reports usage later, during stream consumption — outside
+      // this scope. The cost middleware captures the phase at request
+      // initiation, which IS inside it. Without this the generative composer's
+      // call — the single largest in a run, ~20k output tokens — lands in the
+      // "other" bucket and no phase policy can reach it.
+      withPhaseSync(
+        "compose",
+        () =>
+          streamText({
+            model: getModel(uiComposeModel),
+            system: cachedSystem(catalog.prompt({ customRules })),
+            prompt: userPrompt,
+            temperature: 0,
+            maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+          }).textStream
+      );
 
   let buffer = "";
   let stateInjected = false;

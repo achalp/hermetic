@@ -22,6 +22,7 @@
 import { generateText } from "ai";
 import { applySpecPatch, parseSpecStreamLine, type Spec } from "@/spec/core";
 import { getModel, cachedSystem } from "@/lib/llm/client";
+import { withPhase } from "@/lib/cost/accumulator";
 import { catalog } from "@/lib/catalog";
 import { describeShape, describeResultsSchema } from "@/lib/llm/investigate-composer";
 import { unwrapScalar } from "@/lib/llm/resolve-placeholders";
@@ -187,13 +188,17 @@ export async function composeStepCell(args: ComposeStepCellArgs): Promise<Spec |
   // no nested objects) and resolve against the same map.
   const flatArgs = { ...args, results: flattenResultScalars(args.results) };
   try {
-    const result = await generateText({
-      model,
-      system: cachedSystem(catalog.prompt({ customRules: [CELL_SYSTEM_PROMPT] })),
-      prompt: buildCellUserPrompt(flatArgs),
-      temperature: 0.2,
-      maxOutputTokens: 8_000, // a cell is ≤6 components; data arrives via placeholders
-    });
+    // Phase-tagged so this lands under "compose" rather than the catch-all
+    // "other" bucket — cost attribution AND effort routing both key off it.
+    const result = await withPhase("compose", () =>
+      generateText({
+        model,
+        system: cachedSystem(catalog.prompt({ customRules: [CELL_SYSTEM_PROMPT] })),
+        prompt: buildCellUserPrompt(flatArgs),
+        temperature: 0.2,
+        maxOutputTokens: 8_000, // a cell is ≤6 components; data arrives via placeholders
+      })
+    );
     const spec = assembleCellSpec(result.text, flatArgs.results, flatArgs.chartData);
     if (!spec) {
       logger.warn("Step-cell compose produced no renderable spec", { stepNo: args.stepNo });

@@ -191,6 +191,43 @@ describe("buildClaudeInvocation", () => {
     expect(stdin).toBe(`${bigSystem}\n\nquestion`);
     expect(systemFolded).toBe(true);
   });
+
+  // Regression guard for the fold that fired on 100% of code-gen calls: the cap
+  // was 32,000 while every buildCodeGenSystemPrompt output is ~58 KB (and the
+  // repair path ~63 KB), so --system-prompt was never passed and Claude Code's
+  // own agent system prompt stayed active — ~8,840 extra input tokens per call,
+  // plus the wrong framing and our instructions demoted from system to user.
+  // Nothing detected it because a fold is silent by design. This pins the real
+  // prompt under the cap; if it ever trips, prefer --system-prompt-file (no size
+  // limit) over raising SYSTEM_ARG_MAX_BYTES past the Linux 131,072 per-arg cap.
+  it("passes the REAL code-gen system prompt as argv, never folded", async () => {
+    const { buildCodeGenSystemPrompt } = await import("@/lib/llm/prompts");
+    for (const mode of ["metadata", "sample"] as const) {
+      for (const hasWorkbook of [false, true]) {
+        for (const purpose of ["dashboard", "brief", "report", "deep-dive"]) {
+          const system = buildCodeGenSystemPrompt(mode, hasWorkbook, "time_series", purpose);
+          const bytes = Buffer.byteLength(system, "utf8");
+          const label = `${mode}/wb=${hasWorkbook}/${purpose} at ${bytes} bytes`;
+          expect(bytes, label).toBeLessThan(SYSTEM_ARG_MAX_BYTES);
+          const { args, systemFolded } = buildClaudeInvocation({
+            model: "claude-sonnet-5",
+            system,
+            prompt: "question",
+            streaming: true,
+          });
+          expect(systemFolded, `${label} folded`).toBe(false);
+          expect(args).toContain("--system-prompt");
+        }
+      }
+    }
+  });
+
+  it("keeps SYSTEM_ARG_MAX_BYTES under the Linux per-argument cap", () => {
+    // MAX_ARG_STRLEN = 32 pages = 131,072 bytes on Linux; macOS has no
+    // comparable per-arg limit. Headroom here is what absorbs prompt growth
+    // (user skills feed into the code-gen system prompt).
+    expect(SYSTEM_ARG_MAX_BYTES).toBeLessThan(131_072);
+  });
 });
 
 // ── claudeCliChildEnv (use the claude.ai login, keep the app's key) ──
@@ -582,13 +619,15 @@ describe("thinking effort", () => {
     expect(resolveEffort({})).toBe("low");
   });
 
-  it("routes reasoning phases to HIGH, formatting phases to LOW", async () => {
+  it("routes reasoning and compose phases to HIGH, the rest to LOW", async () => {
     const { withPhase } = await import("@/lib/cost/accumulator");
     expect(await withPhase("code_gen", async () => resolveEffort({}))).toBe("high");
     expect(await withPhase("sql_gen", async () => resolveEffort({}))).toBe("high");
     expect(await withPhase("sql_repair", async () => resolveEffort({}))).toBe("high");
     expect(await withPhase("code_review", async () => resolveEffort({}))).toBe("high");
-    expect(await withPhase("compose", async () => resolveEffort({}))).toBe("low");
+    // Compose writes the prose the user reads — deliberately HIGH, and the one
+    // non-analysis phase we pay full reasoning for.
+    expect(await withPhase("compose", async () => resolveEffort({}))).toBe("high");
     expect(await withPhase("planner", async () => resolveEffort({}))).toBe("low");
     // Explicit overrides still beat the phase policy.
     expect(

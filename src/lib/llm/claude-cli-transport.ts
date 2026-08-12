@@ -37,8 +37,29 @@ import {
 export const CLAUDE_CLI_REQUEST_TIMEOUT_MS = 10 * 60_000; // 10 minutes
 
 /** Above this system-prompt size we fold it into the stdin prompt instead of
- *  passing `--system-prompt` as an argv (kept well under OS ARG_MAX). */
-export const SYSTEM_ARG_MAX_BYTES = 32_000;
+ *  passing `--system-prompt` as an argv.
+ *
+ *  Sized against the real binding constraint, which is PER-ARGUMENT, not
+ *  ARG_MAX: Linux caps one argv entry at MAX_ARG_STRLEN = 32 pages = 131,072
+ *  bytes; macOS has no comparable per-arg cap (1 MB total for argv+envp, and we
+ *  pass the parent env through). 96 KB leaves ~35 KB of headroom on the tighter
+ *  of the two.
+ *
+ *  This was 32,000, which every code-gen call exceeded: buildCodeGenSystemPrompt
+ *  returns 57,796–59,063 bytes across every mode × workbook × purpose, and the
+ *  repair path adds REPAIR MODE + RETRY_GUIDANCE for ~63,983. So the fold fired
+ *  ALWAYS, and
+ *  a folded prompt means `--system-prompt` is absent — which leaves Claude Code's
+ *  own agent system prompt active. Measured on the 58 KB prompt: 35,029 input
+ *  tokens folded vs 26,189 passed as argv, i.e. ~8,840 tokens of agent scaffolding
+ *  on every single call, plus the wrong framing (an interactive coding agent, when
+ *  we want one Python script) and our instructions demoted from system to user.
+ *
+ *  If a prompt ever does exceed this (user skills flow into the code-gen system
+ *  prompt), the fold still catches it and behaves exactly as before. The CLI also
+ *  documents `--system-prompt-file`, which has no size limit at all — reach for
+ *  that if the fold starts firing again rather than raising this further. */
+export const SYSTEM_ARG_MAX_BYTES = 96_000;
 
 /** `which`/`existsSync` probe timeout. */
 const RESOLVE_TIMEOUT_MS = 3_000;
@@ -106,8 +127,13 @@ export function isClaudeCliAvailable(configuredPath?: string): boolean {
  *   all" form — `--tools <names>` selects from the built-in set, `""` selects
  *   none). The app consumes the CLI's TEXT output and runs code in its own
  *   sandbox, so it never uses those tools — and their schemas otherwise inject
- *   ~18K tokens of scaffolding that is cold-cache-WRITTEN on every distinct call
- *   and dominates CLI cost. Measured: ~18K → ~150 prompt tokens per call. This
+ *   tokens of scaffolding that is cold-cache-WRITTEN on every distinct call.
+ *   Measured on a 4-token reply: 33,983 prompt tokens with no `--tools` flag,
+ *   13,160 with `--tools ""`, and 4,586 once `--system-prompt` also replaces the
+ *   default agent prompt. So `--tools ""` is worth ~20.8K and `--system-prompt`
+ *   a further ~8.6K; the ~4.6K remainder is CLI scaffolding no flag removes.
+ *   (An earlier note here claimed "~18K → ~150 per call" — that credited the
+ *   system-prompt saving to `--tools` and understated the floor by ~30x.) This
  *   governs only built-in tools; MCP connectors are a separate axis, so a future
  *   connector-backed mode can enable those without re-adding this scaffolding.
  * - `--model` selects the model; `--system-prompt` REPLACES Claude Code's
@@ -274,15 +300,23 @@ const DEFAULT_EFFORT = "low";
 /**
  * The phase policy: where the ANALYSIS lives gets full reasoning — generated
  * code and SQL are the product's correctness surface, and the review gate is
- * the guard on skill-supplied code. Compose (layout + placeholder binding),
- * planning, and classification phases stay at low; adjust HERE, not at call
- * sites.
+ * the guard on skill-supplied code. Compose joins them, because the narrative
+ * is what the user reads. Planning and classification phases stay at low;
+ * adjust HERE, not at call sites.
  */
 const PHASE_EFFORT: Record<string, string> = {
   code_gen: "high",
   sql_gen: "high",
   sql_repair: "high",
   code_review: "high",
+  // Compose writes the document the user actually reads — the compiled
+  // composer's narrative plan/insight call and the investigate composer both
+  // run here, and prose quality is the product. Deliberately HIGH: this is the
+  // one non-analysis phase we pay full reasoning for. Note it also covers the
+  // generative composer's spec call (dashboard-compose), which emits JSON
+  // layout rather than prose; split it onto its own phase key if that call's
+  // token spend becomes the thing to cut.
+  compose: "high",
 };
 
 /** Effort resolution: body override → settings (runtime-config) → env force
