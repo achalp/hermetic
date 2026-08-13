@@ -53,6 +53,7 @@ Rules:
 - NEVER assert a mechanism, cause, coverage change, or data-collection story no check reports ("currency coverage collapsed", "reporting still arriving" are fabrications unless a check's definition literally states them). Describe what the data shows; do not explain why it happened.
 - A claim carrying "detected": false found NOTHING — no step change, no peak, no correlation. It has no value_fields and nothing to bind. Either leave it out, or state the non-detection in words ("no persistent step change survived the gates"). NEVER narrate it as though the event occurred.
 - NEVER bind a yes/no field (passed, significant, sums_to_100, weighted...) — a flag is not a word. State the fact it stands for in plain words instead ("shares sum to 100%", "the difference is statistically significant"). Flag fields are omitted from value_fields and a binding to one is REJECTED.
+- A MAPPING field (shares_pct, group_ns, per-group dicts) renders as a full ranked enumeration — "Other at 23.5%, ..., down to Utilities at 1.1%". Bind one ONLY where an enumeration belongs ("spend breaks down as $finding:x.shares_pct"), never in a slot expecting a single figure ("the leading category holds ___ of spend" needs prose or a scalar field, not the whole map), and never twice in one document — say it once, reference it in words after.
 - refs use claim names exactly as given. ${budget.guidance}`;
 }
 

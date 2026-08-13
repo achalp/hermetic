@@ -26,6 +26,7 @@ import {
   lintTrendContract,
   lintCheckGating,
   lintNoChecksDeclared,
+  surfaceUndeclaredFailedChecks,
   lintMethodMismatch,
   lintNullAncestry,
   lintDefinitionContradicted,
@@ -460,6 +461,17 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...merged.map((m) => m.name),
           ];
           const validated = validateFindings(merged, { referenceNames });
+          // Auto-surface undeclared FAILED checks before anything reads the
+          // manifest: a `<x>_passed: false` living only in results is
+          // invisible to the caveat machinery, the banner, and the Verify
+          // panel (two consecutive audits flagged the same silent failure).
+          // Appended in place so the planner, compiler, lints and
+          // verifiability all see one manifest.
+          const surfacedChecks = surfaceUndeclaredFailedChecks(
+            (executionResult.results ?? {}) as Record<string, unknown>,
+            validated.manifest.findings
+          );
+          validated.manifest.findings.push(...surfacedChecks.added);
           findingsManifest = validated.manifest;
           if (executionResult.runtime_fallback) {
             logger.error("Sandbox runtime fell back to stubs — findings degraded", {
@@ -481,6 +493,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
                 ]
               : []),
             ...validated.issues,
+            ...surfacedChecks.issues,
             ...productIssues,
             ...lintDerivations(validated.manifest.findings),
             ...lintMissingLinkage(validated.manifest.findings),

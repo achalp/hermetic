@@ -319,6 +319,64 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
     expect(second).not.toContain("catch-all bucket");
   });
 
+  // Run 093c9785: the planner's heterogeneity sentence bound group_ns, and
+  // the thin-groups rider repeated the identical mapping one sentence later.
+  // A rider whose every binding already appears in the authored text adds
+  // emphasis, not information.
+  it("skips a rider whose bindings the authored text already carries", () => {
+    const het = F("cat_het", "heterogeneity", {
+      significant: true,
+      p_value: 0.0011,
+      test: "kruskal_wallis",
+      group_ns: { Other: 45, Membership: 3, Utilities: 2 },
+    });
+    const byName = new Map([[het.name, het]]);
+    const saidIt = realizeNode(
+      {
+        id: "a",
+        op: "EXPLAIN",
+        refs: ["cat_het"],
+        text: "The test ran across group sizes of $finding:cat_het.group_ns, p = $finding:cat_het.p_value.",
+      },
+      byName,
+      new Set()
+    )!;
+    // The mapping appears ONCE — the rider recognized its binding in the
+    // authored text and stood down.
+    expect(saidIt.match(/\$finding:cat_het\.group_ns/g)).toHaveLength(1);
+    // Without the binding in the prose, the rider still fires.
+    const didNot = realizeNode(
+      {
+        id: "b",
+        op: "EXPLAIN",
+        refs: ["cat_het"],
+        text: "Amounts differ meaningfully by category, p = $finding:cat_het.p_value.",
+      },
+      byName,
+      new Set()
+    )!;
+    expect(didNot).toContain("pools groups of very different sizes");
+    // Pure-prose riders (no bindings) always attach — the catch-all clause
+    // cannot be fingerprinted and the disclosure is the point.
+    const catchall = F("top_cat", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      label_is_catchall: true,
+    });
+    const c = realizeNode(
+      {
+        id: "c",
+        op: "ANSWER",
+        refs: ["top_cat"],
+        text: "Spend concentrated in $finding:top_cat.period.",
+      },
+      new Map([[catchall.name, catchall]]),
+      new Set()
+    )!;
+    expect(c).toContain("catch-all bucket");
+  });
+
   it("heterogeneity gets a dedicated template with a thin-groups rider", () => {
     const het = F("cat_het", "heterogeneity", {
       significant: true,

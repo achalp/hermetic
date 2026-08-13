@@ -1605,3 +1605,67 @@ export function lintMixedUnitGroupSeries(rolesIdx?: ProductRolesIndex): FindingI
   }
   return issues;
 }
+
+/**
+ * Auto-surface undeclared failed checks (run 093c9785, third recurrence of
+ * the class): generated code keeps writing check VERDICTS into bare results
+ * keys — `outlier_transaction_detail_passed: false` beside
+ * `outlier_transaction_detail_n_flagged: 21` — without a declare_check
+ * behind them. A failed check that lives only in results is invisible to
+ * everything that exists to surface it: the caveat machinery, the failed-
+ * check banner, the CAVEAT plan nodes, the Verify panel, the blocking gate.
+ * Two consecutive audits flagged the same silence.
+ *
+ * The fix follows the auto-surfacing precedent (headline-tile injection):
+ * detection alone would be one more advisory nobody reads. A results key
+ * `<name>_passed === false` with no declared finding owning `<name>` is
+ * APPENDED to the manifest as a real check entry — passed: false, evidence
+ * gathered from its sibling `<name>_*` scalars — so every downstream
+ * surface treats it exactly like a declared failure. The definition states
+ * only facts: that the analysis computed the verdict and did not declare
+ * it. Nothing is invented; the mechanism is the absence of a mechanism.
+ *
+ * Passed=true undeclared verdicts are NOT surfaced (a passing check missing
+ * from the manifest costs nothing); they still trip lintResultsProvenance.
+ * Returns the appended entries and one issue per surfaced check — the
+ * issue is the code-quality signal (the model should have declared it),
+ * the entry is the reader's protection.
+ */
+export function surfaceUndeclaredFailedChecks(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): { added: FindingEntry[]; issues: FindingIssue[] } {
+  const added: FindingEntry[] = [];
+  const issues: FindingIssue[] = [];
+  const declared = findings.map((f) => f.name);
+  for (const [key, value] of Object.entries(results ?? {})) {
+    if (!key.endsWith("_passed") || value !== false) continue;
+    const base = key.slice(0, -"_passed".length);
+    if (!base || !/^[a-z][a-z0-9_]*$/.test(base)) continue;
+    // Owned when a declared finding's name prefixes the key — the same rule
+    // the results-mirror synthesis uses to name mirrored fields.
+    if (declared.some((d) => key === `${d}_passed` || key.startsWith(`${d}_`))) continue;
+    if (findings.some((f) => f.name === base)) continue;
+    const evidence: Record<string, unknown> = { passed: false };
+    for (const [k2, v2] of Object.entries(results)) {
+      if (k2 === key || !k2.startsWith(`${base}_`)) continue;
+      const field = k2.slice(base.length + 1);
+      if (v2 === null || typeof v2 !== "object") evidence[field] = v2;
+    }
+    added.push({
+      name: base,
+      dtype: "check",
+      definition:
+        "a data-quality check the analysis computed and reported as FAILED in its results " +
+        "without declaring it — surfaced automatically so the failure reaches the reader",
+      value: evidence,
+      tags: ["check", "caveat", "auto_surfaced"],
+    } as FindingEntry);
+    issues.push({
+      kind: "undeclared_failed_check",
+      name: base,
+      detail: `results carries ${key} = false with no declared check behind it — auto-surfaced as a failed check; the analysis should declare_check("${base}", ...) beside the computation`,
+    });
+  }
+  return { added, issues };
+}

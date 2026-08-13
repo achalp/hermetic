@@ -35,6 +35,7 @@ import {
   lintDerivations,
   lintCrossStepDerivations,
   lintCrossStepReconciliation,
+  surfaceUndeclaredFailedChecks,
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
@@ -85,6 +86,7 @@ import {
 } from "@/lib/pipeline/investigation-trace";
 import {
   collectGroundedValues,
+  collectStringLeaves,
   verifyGrounding,
   extractCitedSteps,
   extractPlaceholderCitedSteps,
@@ -710,6 +712,21 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             );
             const stepNo = idx + 1; // 1-based, = planner index + 1 (§7.0)
             const validated = validateFindings(entries);
+            // Auto-surface this step's undeclared FAILED checks before
+            // namespacing, so a `<x>_passed: false` living only in step
+            // results still reaches the caveat machinery (same rule as the
+            // ask path; see surfaceUndeclaredFailedChecks).
+            const surfaced = surfaceUndeclaredFailedChecks(
+              (r.result?.executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            );
+            if (surfaced.added.length > 0) {
+              validated.manifest.findings.push(...surfaced.added);
+              logger.warn("investigate findings: undeclared failed checks auto-surfaced", {
+                stepNo,
+                checks: surfaced.added.map((f) => f.name),
+              });
+            }
             const dagIssues = lintCrossStepDerivations(
               validated.manifest.findings,
               stepNo,
@@ -1183,6 +1200,17 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             citedSteps: [...citedSteps].sort((a, b) => a - b),
             grounded,
             successfulStepNos: successfulStepNos(trace),
+            // String-carrier exemption: numerals inside bound string values
+            // (payee names, identifiers) are data, not figures. Collected
+            // across every step's results plus the merged findings.
+            stringValues: [
+              ...subResults.flatMap((r) =>
+                collectStringLeaves(r.result?.executionResult.results ?? {})
+              ),
+              ...(investigationFindings
+                ? collectStringLeaves(investigationFindings.findings.map((f) => f.value))
+                : []),
+            ],
             // §7.5: unnarrated findings + cross-step coherence, advisory.
             ...(fMode === "on" && investigationFindings
               ? {

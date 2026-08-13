@@ -87,8 +87,10 @@ export function riderClauses(f: FindingEntry): string[] {
       // otherwise an n = 3 winner here looks equivalent to an n = 3 loser
       // that a stricter sibling bar screened out.
       if (v.bar_relaxed === true) {
+        // Phrased to dodge number-noun agreement: thin_bar is a binding, so
+        // "of 1 observations" was ungrammatical at n = 1 (run 093c9785).
         riders.push(
-          `Attestation here rests on a relaxed bar of ${b(n, "thin_bar")} observations, because the series is uniformly thin.`
+          `Attestation here rests on a bar relaxed to ${b(n, "thin_bar")}, because the series is uniformly thin.`
         );
       }
       break;
@@ -268,19 +270,33 @@ export function realizeNode(
   byName: Map<string, FindingEntry>,
   rideredClaims?: Set<string>
 ): string | null {
+  const authored = node.op !== "CAVEAT" ? node.text?.trim() : undefined;
   const ridersFor = (refs: string[]): string[] => {
     const out: string[] = [];
     for (const ref of refs) {
       if (rideredClaims?.has(ref)) continue;
       const f = byName.get(ref);
       if (!f) continue;
-      const riders = riderClauses(f);
-      if (riders.length > 0) out.push(...riders);
+      for (const rider of riderClauses(f)) {
+        // Within-node dedup (run 093c9785): the planner may have ALREADY
+        // said what the rider says — its heterogeneity sentence bound
+        // group_ns, and the thin-groups rider then repeated the identical
+        // mapping one sentence later. A rider whose every binding already
+        // appears in the authored text adds emphasis, not information —
+        // skip it. Riders with no bindings (pure-prose disclosures like
+        // the catch-all clause) always attach; prose can't be
+        // fingerprinted reliably and the disclosure is the point.
+        const bindings = rider.match(/\$finding:[a-zA-Z0-9_.]+/g) ?? [];
+        const saidAlready =
+          authored !== undefined &&
+          bindings.length > 0 &&
+          bindings.every((t) => authored.includes(t));
+        if (!saidAlready) out.push(rider);
+      }
       rideredClaims?.add(ref);
     }
     return out;
   };
-  const authored = node.op !== "CAVEAT" ? node.text?.trim() : undefined;
   if (node.op === "INSIGHT") {
     if (!authored) return null;
     return [authored, ...ridersFor(node.refs)].join(" ");

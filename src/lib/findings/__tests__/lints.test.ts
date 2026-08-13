@@ -25,7 +25,9 @@ import {
   lintOrphanDecisionResult,
   lintUnweightedCountedTrend,
   lintMixedUnitGroupSeries,
+  surfaceUndeclaredFailedChecks,
 } from "@/lib/findings/lints";
+import type { FindingEntry } from "@/lib/contracts/findings";
 import { productRolesIndex } from "@/lib/product";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -973,5 +975,58 @@ describe("referent integrity — prose, results, and executed screens point at r
     expect(flagged[0].kind).toBe("mixed_unit_group_series");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(lintMixedUnitGroupSeries(productRolesIndex(mk("segment") as any))).toHaveLength(0);
+  });
+});
+
+describe("surfaceUndeclaredFailedChecks — a failed check cannot hide in results (run 093c9785)", () => {
+  const F = (name: string, dtype: string, value: unknown) =>
+    ({ name, dtype, definition: `${name} definition`, value }) as FindingEntry;
+
+  it("appends a real check entry for a *_passed:false with no declaration behind it", () => {
+    // Third recurrence of the class: 21/130 transactions failed detail
+    // reconciliation and no declare_check existed, so the failure was
+    // invisible to the banner, the CAVEATs and the Verify panel — two
+    // consecutive audits flagged the same silence.
+    const results = {
+      outlier_transaction_detail_passed: false,
+      outlier_transaction_detail_n_flagged: 21,
+      total_spend_usd: 4845.87,
+    };
+    const { added, issues } = surfaceUndeclaredFailedChecks(results, [
+      F("amount_sign_convention", "check", { passed: true }),
+    ]);
+    expect(added).toHaveLength(1);
+    expect(added[0].name).toBe("outlier_transaction_detail");
+    expect(added[0].dtype).toBe("check");
+    expect(added[0].tags).toContain("auto_surfaced");
+    // Evidence gathered from the sibling scalars, verdict included.
+    expect(added[0].value).toEqual({ passed: false, n_flagged: 21 });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("undeclared_failed_check");
+  });
+
+  it("leaves declared checks and passing verdicts alone", () => {
+    const results = {
+      // Declared — the finding owns its mirrored keys.
+      category_catchall_audit_passed: false,
+      // Passing — a missing declaration costs the reader nothing.
+      category_assignment_audit_passed: true,
+      category_assignment_audit_other_count: 45,
+    };
+    const { added, issues } = surfaceUndeclaredFailedChecks(results, [
+      F("category_catchall_audit", "check", { passed: false, other_share_pct: 23.49 }),
+    ]);
+    expect(added).toHaveLength(0);
+    expect(issues).toHaveLength(0);
+  });
+
+  it("a prefix-owning finding suppresses surfacing even when names differ", () => {
+    // finding "transaction_amount_outliers" owns
+    // "transaction_amount_outliers_review_passed" by prefix.
+    const results = { transaction_amount_outliers_review_passed: false };
+    const { added } = surfaceUndeclaredFailedChecks(results, [
+      F("transaction_amount_outliers", "screen", { n_flagged: 21 }),
+    ]);
+    expect(added).toHaveLength(0);
   });
 });

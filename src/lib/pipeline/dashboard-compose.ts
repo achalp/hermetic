@@ -63,6 +63,7 @@ import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-a
 import {
   collectNarrativeStrings,
   collectGroundedValues,
+  collectStringLeaves,
   verifyGrounding,
 } from "@/lib/pipeline/grounding";
 import { logger } from "@/lib/logger";
@@ -1524,6 +1525,12 @@ export async function composeAndStreamDashboard(args: {
         citedSteps: [],
         grounded,
         successfulStepNos: [],
+        // String-carrier exemption: numerals embedded in bound string values
+        // (payee names, identifiers) are data, not figures.
+        stringValues: [
+          ...collectStringLeaves(executionResult.results ?? {}),
+          ...collectStringLeaves(findingValues),
+        ],
         // Enables the directional-contradiction check: a story that denies
         // the engine's own computed trend verdict gets flagged.
         results: (executionResult.results ?? {}) as Record<string, unknown>,
