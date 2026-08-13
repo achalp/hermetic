@@ -27,6 +27,7 @@ import {
   lintCheckGating,
   lintNoChecksDeclared,
   surfaceUndeclaredFailedChecks,
+  lintOutlierDetectorDisagreement,
   lintMethodMismatch,
   lintNullAncestry,
   lintDefinitionContradicted,
@@ -494,6 +495,9 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               : []),
             ...validated.issues,
             ...surfacedChecks.issues,
+            ...lintOutlierDetectorDisagreement(
+              (executionResult.results ?? {}) as Record<string, unknown>
+            ),
             ...productIssues,
             ...lintDerivations(validated.manifest.findings),
             ...lintMissingLinkage(validated.manifest.findings),

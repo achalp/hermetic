@@ -1646,7 +1646,12 @@ export function surfaceUndeclaredFailedChecks(
     // the results-mirror synthesis uses to name mirrored fields.
     if (declared.some((d) => key === `${d}_passed` || key.startsWith(`${d}_`))) continue;
     if (findings.some((f) => f.name === base)) continue;
-    const evidence: Record<string, unknown> = { passed: false };
+    // Evidence NESTED under `evidence` — the realizer's check template
+    // renders up to three numeric evidence figures onto the caveat's face
+    // ("n flagged: 89"), and it reads them from v.evidence. Run dfe3ea32's
+    // surfaced caveats shipped without their numbers because the sibling
+    // scalars sat flat on the value.
+    const evidence: Record<string, unknown> = {};
     for (const [k2, v2] of Object.entries(results)) {
       if (k2 === key || !k2.startsWith(`${base}_`)) continue;
       const field = k2.slice(base.length + 1);
@@ -1658,7 +1663,7 @@ export function surfaceUndeclaredFailedChecks(
       definition:
         "a data-quality check the analysis computed and reported as FAILED in its results " +
         "without declaring it — surfaced automatically so the failure reaches the reader",
-      value: evidence,
+      value: { passed: false, ...(Object.keys(evidence).length > 0 ? { evidence } : {}) },
       tags: ["check", "caveat", "auto_surfaced"],
     } as FindingEntry);
     issues.push({
@@ -1668,4 +1673,90 @@ export function surfaceUndeclaredFailedChecks(
     });
   }
   return { added, issues };
+}
+
+/**
+ * Significance contradicted (run dfe3ea32): the narrative asserted "differs
+ * at a statistically significant level" over a heterogeneity claim whose
+ * significant field is FALSE (p = 0.240). Value-aware and line-scoped like
+ * lintSignedLanguage: fires when a sentence claims statistical significance
+ * while a finding BOUND IN THAT LINE carries significant: false — or denies
+ * it over significant: true. Registered in the compose SEVERE set: a false
+ * significance claim is a fabricated verdict, not a style issue, so it
+ * earns the bounded repair pass.
+ */
+export function lintSignificanceMismatch(
+  rawLine: string,
+  lookup: { findings?: ReadonlyMap<string, unknown> }
+): FindingIssue[] {
+  if (!rawLine.includes("$finding:")) return [];
+  const ASSERTS =
+    /\bstatistically\s+significant\b|\bsignificant\s+(?:difference|level|divergence)\b/i;
+  const DENIES =
+    /\b(?:not|no)\s+(?:\w+\s+){0,2}statistically\s+significant\b|\bstatistically\s+insignificant\b/i;
+  const asserts = ASSERTS.test(rawLine) && !DENIES.test(rawLine);
+  const denies = DENIES.test(rawLine);
+  if (!asserts && !denies) return [];
+  const issues: FindingIssue[] = [];
+  for (const m of rawLine.matchAll(/\$finding:([a-zA-Z0-9_]+)/g)) {
+    const base = m[1];
+    const value = lookup.findings?.get(base);
+    if (value === null || typeof value !== "object") continue;
+    const sig = (value as Record<string, unknown>).significant;
+    if (typeof sig !== "boolean") continue;
+    if (asserts && sig === false) {
+      issues.push({
+        kind: "significance_mismatch",
+        name: base,
+        detail: `narrative claims statistical significance beside ${base}, whose computed significant field is FALSE — state the non-significance or drop the claim`,
+      });
+    } else if (denies && sig === true) {
+      issues.push({
+        kind: "significance_mismatch",
+        name: base,
+        detail: `narrative denies statistical significance beside ${base}, whose computed significant field is TRUE`,
+      });
+    }
+    break; // one verdict per line — the bound heterogeneity claim owns it
+  }
+  return issues;
+}
+
+/**
+ * Disagreeing outlier detectors (run dfe3ea32): outlier_transaction_review
+ * flagged 89 of 130 transactions while amount_outliers (rolling-MAD, k=3.5)
+ * flagged 21 on the same data — a 4.2× disagreement, unreconciled. The
+ * code-gen contract already forbids a second ad-hoc detector ("outlier
+ * exclusion must reuse the SAME threshold family"); this makes a violation
+ * visible. Fires when two result families whose names contain "outlier"
+ * report n_flagged counts differing by ≥ 2×.
+ */
+export function lintOutlierDetectorDisagreement(results: Record<string, unknown>): FindingIssue[] {
+  const counts: Array<[string, number]> = [];
+  for (const [k, v] of Object.entries(results ?? {})) {
+    if (!/outlier/i.test(k) || !/n_flagged$|_count$/.test(k)) continue;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) continue;
+    const family = k.replace(/_(n_flagged|count)$/, "");
+    // One entry per family — n_flagged wins over _count when both exist.
+    const existing = counts.findIndex(([f]) => f === family);
+    if (existing >= 0) {
+      if (k.endsWith("n_flagged")) counts[existing] = [family, v];
+      continue;
+    }
+    counts.push([family, v]);
+  }
+  if (counts.length < 2) return [];
+  const nonZero = counts.filter(([, n]) => n > 0);
+  if (nonZero.length < 2) return [];
+  const sorted = [...nonZero].sort((a, b) => a[1] - b[1]);
+  const [minF, minN] = sorted[0];
+  const [maxF, maxN] = sorted[sorted.length - 1];
+  if (maxN / minN < 2) return [];
+  return [
+    {
+      kind: "outlier_detector_disagreement",
+      name: maxF,
+      detail: `two outlier detectors disagree ${(maxN / minN).toFixed(1)}×: ${maxF} flagged ${maxN} vs ${minF} flagged ${minN} — one outlier policy per column (the contract's threshold-family rule); reconcile or drop the second detector`,
+    },
+  ];
 }

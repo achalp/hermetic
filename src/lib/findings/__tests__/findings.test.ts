@@ -226,6 +226,39 @@ describe("projection — the privacy boundary", () => {
     expect(p.value_fields).toBeUndefined();
   });
 
+  // Run dfe3ea32: withholding booleans from value_fields left the values-
+  // blind planner GUESSING verdicts — it wrote "differs at a statistically
+  // significant level" over significant: false. Verdicts now project as
+  // words-stateable data; the flag still never becomes a binding.
+  it("projects boolean verdicts as data while keeping them out of value_fields", () => {
+    const p = projectFinding(
+      entry({
+        name: "weekday_het",
+        dtype: "heterogeneity",
+        value: {
+          significant: false,
+          p_value: 0.24,
+          test: "kruskal_wallis",
+          group_ns: { a: 101, b: 29 },
+        },
+      })
+    );
+    expect(p.verdicts).toEqual({ significant: false });
+    expect(p.value_fields).toEqual(["p_value", "test", "group_ns"]);
+  });
+
+  it("a non-detection projects no verdicts and detected is never a verdict", () => {
+    const p = projectFinding(
+      entry({
+        name: "sc",
+        dtype: "step_change",
+        value: { detected: false, period: null, delta: null, baseline_spread: 118.97 },
+      })
+    );
+    expect(p.detected).toBe(false);
+    expect(p.verdicts).toBeUndefined();
+  });
+
   // Spec §2.M2: a flag has no word for a sentence slot. The planner cannot
   // bind what it is never offered; validatePlan rejects the rest.
   it("boolean leaves never reach value_fields", () => {

@@ -54,6 +54,7 @@ import {
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
+  lintSignificanceMismatch,
   lintSuperlativeHidesRaw,
   lintDanglingFindingReference,
 } from "@/lib/findings/lints";
@@ -1049,6 +1050,7 @@ export async function composeAndStreamDashboard(args: {
       ...lintUnitPhrase(result.raw, unitByName),
       ...lintSentinelInterpolation(result.raw, proseLintLookup),
       ...lintSignedLanguage(result.raw, proseLintLookup),
+      ...lintSignificanceMismatch(result.raw, proseLintLookup),
       ...lintComponentSignature(result.raw, composeRolesIdx),
     ]) {
       proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
@@ -1494,6 +1496,9 @@ export async function composeAndStreamDashboard(args: {
       // elements (orphans are unreferenced and harmless).
       const SEVERE_KINDS = new Set([
         "sentinel_interpolation",
+        // A false significance claim is a fabricated verdict (run dfe3ea32:
+        // "statistically significant" over significant: false) — repairable.
+        "significance_mismatch",
         "zero_count_sentence",
         "empty_interpolation",
         "no_narrative",

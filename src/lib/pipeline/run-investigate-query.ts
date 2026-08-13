@@ -39,6 +39,7 @@ import {
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
+  lintSignificanceMismatch,
   lintMissingLinkage,
   lintGranularityConflict,
   lintTrendContract,
@@ -1068,6 +1069,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             ...lintUnitPhrase(raw, investigateUnitByName),
             ...lintSentinelInterpolation(raw, lookup),
             ...lintSignedLanguage(raw, lookup),
+            ...lintSignificanceMismatch(raw, lookup),
             ...lintComponentSignature(raw, investigateRolesIdx),
           ]) {
             proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);

@@ -358,11 +358,20 @@ const DOWN_WORDS =
 const NEGATION =
   /\b(?:not|no longer|isn't|wasn't|stopped|without|rather than|instead of)\s+(?:\w+\s+){0,2}$/i;
 
+/** Range/position idioms where a direction word carries NO trend claim:
+ *  "transactions falling between 8.56 and 34.75", "values rising above the
+ *  threshold", "readings falling within the band". Run dfe3ea32 fired a
+ *  contradiction advisory on exactly the first of these — the narrative's
+ *  only "falling" was a range idiom, matched against a computed "rising". */
+const RANGE_IDIOM = /^\s+(?:between|within|inside|into|under|below|above|outside|short of)\b/i;
+
 function assertedDirection(text: string): "up" | "down" | null {
   const up = UP_WORDS.exec(text);
   const down = DOWN_WORDS.exec(text);
   const clean = (m: RegExpExecArray | null) =>
-    m !== null && !NEGATION.test(text.slice(Math.max(0, m.index - 40), m.index));
+    m !== null &&
+    !NEGATION.test(text.slice(Math.max(0, m.index - 40), m.index)) &&
+    !RANGE_IDIOM.test(text.slice(m.index + m[0].length, m.index + m[0].length + 16));
   const hasUp = clean(up);
   const hasDown = clean(down);
   // Both directions in one narrative (e.g. "dollars rose while the rate fell")

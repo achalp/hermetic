@@ -107,15 +107,35 @@ export function isNonDetection(entry: FindingEntry): boolean {
   return present.every((k) => obj[k] === null || obj[k] === undefined);
 }
 
+/** Boolean verdicts from the value, projected AS DATA so the planner can
+ *  state them in words. Withholding flags from value_fields (run f47eb42d)
+ *  removed the bad-binding failure mode but created an assertion one: run
+ *  dfe3ea32's planner — values-blind and now denied the flag entirely —
+ *  wrote "differs at a statistically significant level" over
+ *  significant: false. It didn't lie; it guessed, with nothing to guess
+ *  from. A one-bit verdict is what the prose MUST state correctly; the
+ *  blind discipline exists to keep NUMBERS from anchoring prose, not to
+ *  keep verdicts secret. `detected` is excluded (it has its own channel). */
+function verdictFields(value: unknown): Record<string, boolean> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (k !== "detected" && typeof v === "boolean") out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function projectFinding(entry: FindingEntry): FindingProjection {
   const nonDetection = isNonDetection(entry);
   const fields = nonDetection ? undefined : leafFields(entry.value);
+  const verdicts = nonDetection ? undefined : verdictFields(entry.value);
   return {
     name: entry.name,
     definition: scrubNumerals(entry.definition),
     dtype: entry.dtype,
     ...(entry.unit ? { unit: entry.unit } : {}),
     ...(fields ? { value_fields: fields } : {}),
+    ...(verdicts ? { verdicts } : {}),
     ...(nonDetection ? { detected: false as const } : {}),
     ...(entry.tags?.length ? { tags: entry.tags } : {}),
   };

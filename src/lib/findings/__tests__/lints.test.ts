@@ -26,6 +26,8 @@ import {
   lintUnweightedCountedTrend,
   lintMixedUnitGroupSeries,
   surfaceUndeclaredFailedChecks,
+  lintSignificanceMismatch,
+  lintOutlierDetectorDisagreement,
 } from "@/lib/findings/lints";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import { productRolesIndex } from "@/lib/product";
@@ -999,8 +1001,10 @@ describe("surfaceUndeclaredFailedChecks — a failed check cannot hide in result
     expect(added[0].name).toBe("outlier_transaction_detail");
     expect(added[0].dtype).toBe("check");
     expect(added[0].tags).toContain("auto_surfaced");
-    // Evidence gathered from the sibling scalars, verdict included.
-    expect(added[0].value).toEqual({ passed: false, n_flagged: 21 });
+    // Evidence gathered from the sibling scalars, NESTED under `evidence`
+    // so the realizer's check template renders the figures onto the
+    // caveat's face ("n flagged: 21").
+    expect(added[0].value).toEqual({ passed: false, evidence: { n_flagged: 21 } });
     expect(issues).toHaveLength(1);
     expect(issues[0].kind).toBe("undeclared_failed_check");
   });
@@ -1028,5 +1032,81 @@ describe("surfaceUndeclaredFailedChecks — a failed check cannot hide in result
       F("transaction_amount_outliers", "screen", { n_flagged: 21 }),
     ]);
     expect(added).toHaveLength(0);
+  });
+});
+
+describe("lintSignificanceMismatch — a fabricated verdict is severe (run dfe3ea32)", () => {
+  const lookup = {
+    findings: new Map<string, unknown>([
+      ["weekday_het", { significant: false, p_value: 0.24, test: "kruskal_wallis" }],
+      ["category_het", { significant: true, p_value: 0.0011, test: "kruskal_wallis" }],
+    ]),
+  };
+
+  it("fires when prose asserts significance over significant: false", () => {
+    const issues = lintSignificanceMismatch(
+      '{"content": "Weekday and weekend spend differs at a statistically significant level, per $finding:weekday_het.p_value."}',
+      lookup
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("significance_mismatch");
+    expect(issues[0].name).toBe("weekday_het");
+  });
+
+  it("fires when prose denies significance over significant: true", () => {
+    const issues = lintSignificanceMismatch(
+      '{"content": "Categories are not statistically significant, p = $finding:category_het.p_value."}',
+      lookup
+    );
+    expect(issues).toHaveLength(1);
+  });
+
+  it("stays silent on a true assertion, a true denial, and unbound prose", () => {
+    expect(
+      lintSignificanceMismatch(
+        '{"content": "The difference is statistically significant ($finding:category_het.p_value)."}',
+        lookup
+      )
+    ).toHaveLength(0);
+    expect(
+      lintSignificanceMismatch(
+        '{"content": "The split is not statistically significant ($finding:weekday_het.p_value)."}',
+        lookup
+      )
+    ).toHaveLength(0);
+    // No binding in the line — a general remark is not attributable.
+    expect(
+      lintSignificanceMismatch('{"content": "Results are statistically significant."}', lookup)
+    ).toHaveLength(0);
+  });
+});
+
+describe("lintOutlierDetectorDisagreement — one outlier policy per column (run dfe3ea32)", () => {
+  it("fires on two outlier families disagreeing 2x or more", () => {
+    const issues = lintOutlierDetectorDisagreement({
+      amount_outliers_n_flagged: 21,
+      amount_outliers_method: "rolling_mad",
+      outlier_transaction_review_n_flagged: 89,
+      spend_transaction_count: 130,
+    });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("outlier_detector_disagreement");
+    expect(issues[0].detail).toContain("4.2");
+  });
+
+  it("stays silent for one detector, agreeing detectors, or zero counts", () => {
+    expect(lintOutlierDetectorDisagreement({ amount_outliers_n_flagged: 21 })).toHaveLength(0);
+    expect(
+      lintOutlierDetectorDisagreement({
+        amount_outliers_n_flagged: 21,
+        row_outliers_n_flagged: 24,
+      })
+    ).toHaveLength(0);
+    expect(
+      lintOutlierDetectorDisagreement({
+        amount_outliers_n_flagged: 0,
+        review_outliers_n_flagged: 21,
+      })
+    ).toHaveLength(0);
   });
 });

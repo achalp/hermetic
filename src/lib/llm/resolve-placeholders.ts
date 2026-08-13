@@ -379,6 +379,10 @@ const MEASURE_UNIT_FIELDS = new Set([
   "baseline_spread",
   "early_median",
   "late_median",
+  // The current-state rider's raw trailing observation is the measure in
+  // the measure's unit (run dfe3ea32 rendered it bare beside a unit-carrying
+  // attested value in the same sentence).
+  "latest_value",
 ]);
 
 /** Money renders as money: 2 decimal places and thousands separators, always.

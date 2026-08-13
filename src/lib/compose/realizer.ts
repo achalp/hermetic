@@ -97,8 +97,10 @@ export function riderClauses(f: FindingEntry): string[] {
     }
     case "current_state": {
       if (typeof v.excluded_trailing === "number" && v.excluded_trailing > 0) {
+        // Colon-form to dodge number-noun agreement on a binding: "The
+        // final 1 periods were excluded" shipped in run dfe3ea32.
         riders.push(
-          `The final ${b(n, "excluded_trailing")} periods were excluded (${b(n, "excluded_reason")}); the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`
+          `Trailing periods excluded from the series' end: ${b(n, "excluded_trailing")} (${b(n, "excluded_reason")}); the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`
         );
       }
       break;
@@ -164,7 +166,12 @@ function headlineClause(f: FindingEntry): string {
     case "current_state": {
       if (!has("value", "period")) return generic(f);
       let s = `Well-covered data ends at ${b(n, "value")} in ${b(n, "period")}`;
-      if (v.pct_from_peak !== null && v.pct_from_peak !== undefined) {
+      // pct_from_peak of 0 means the current period IS the peak — "sits 0%
+      // off the peak" narrates a tautology as a finding (run dfe3ea32).
+      // Say what it means instead.
+      if (v.pct_from_peak === 0) {
+        s += ` — the attested peak itself`;
+      } else if (v.pct_from_peak !== null && v.pct_from_peak !== undefined) {
         s += ` (${b(n, "pct_from_peak")} vs the attested peak)`;
       }
       return s + ".";

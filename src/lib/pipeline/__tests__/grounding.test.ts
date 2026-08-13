@@ -396,3 +396,46 @@ describe("findings-aware grounding fields (declared-findings §3.4/§3.5)", () =
     expect(clean.unnarratedFindings).toBeUndefined();
   });
 });
+
+describe("assertedDirection — range idioms cast no directional vote", () => {
+  const { assertedDirection } = __testing as unknown as {
+    assertedDirection?: (t: string) => "up" | "down" | null;
+  };
+  const grounded = [8.56, 34.75, 16.64];
+
+  it("'falling between X and Y' is a range, not a trend claim (run dfe3ea32)", () => {
+    // Full-path check through verifyGrounding: the real false positive was
+    // "transactions falling between 8.56 usd and 34.75 usd" contradicting a
+    // computed direction of "rising".
+    const report = verifyGrounding({
+      narrativeTexts: [
+        "with the middle half of transactions falling between 8.56 usd and 34.75 usd",
+      ],
+      citedSteps: [],
+      grounded,
+      successfulStepNos: [],
+      results: { weekly_spend_current_state_direction: "rising" },
+    });
+    expect(report.contradictions).toBeUndefined();
+  });
+
+  it("a genuine directional contradiction still fires", () => {
+    const report = verifyGrounding({
+      narrativeTexts: ["Spending has been falling steadily all month."],
+      citedSteps: [],
+      grounded,
+      successfulStepNos: [],
+      results: { weekly_spend_trend_direction: "rising" },
+    });
+    expect(report.contradictions).toBeDefined();
+    expect(report.contradictions![0]).toContain("falling");
+  });
+
+  // Unit-level guard when the seam is exported; skip cleanly otherwise.
+  it("range prepositions after a direction word void the match", () => {
+    if (!assertedDirection) return;
+    expect(assertedDirection("values falling within the band")).toBeNull();
+    expect(assertedDirection("prices rising above the threshold")).toBeNull();
+    expect(assertedDirection("revenue falling since March")).toBe("down");
+  });
+});
