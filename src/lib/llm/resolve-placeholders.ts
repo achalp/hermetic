@@ -331,9 +331,69 @@ function humanizeIfIdentifier(value: string): string {
   return IDENTIFIER_RE.test(value) ? value.replace(/_/g, " ") : value;
 }
 
+/** Currency units, mirroring the MONETARY allowlist in the sandbox runtime
+ *  (docker/sandbox/hermetic_runtime/regimes.py `_CURRENCIES`). Keep the two in
+ *  step: the runtime decides zero-sentinel policy from it, this decides display
+ *  precision, and a unit in one set but not the other reads inconsistently. */
+const CURRENCY_UNITS = new Set([
+  "usd",
+  "eur",
+  "gbp",
+  "jpy",
+  "dm",
+  "dollar",
+  "dollars",
+  "$",
+  "€",
+  "£",
+  "¥",
+  "cents",
+  "cad",
+  "aud",
+  "chf",
+]);
+
+export function isCurrencyUnit(unit: string | undefined): boolean {
+  return !!unit && CURRENCY_UNITS.has(unit.trim().toLowerCase());
+}
+
+/** Fields that ARE the finding's measure, carried in the measure's own unit,
+ *  and so inherit the finding's declared unit. Deliberately excludes anything
+ *  unitless (n, skew, p_value, n_zero_excluded, *_share) and anything in a
+ *  DERIVED unit (slope_per_period is unit-per-period, multiplier is a ratio). */
+const MEASURE_UNIT_FIELDS = new Set([
+  "value",
+  "raw_value",
+  "median",
+  "mean",
+  "average",
+  "p25",
+  "p75",
+  "min",
+  "max",
+  "std",
+  "mad",
+  "iqr",
+  "spread",
+  "delta",
+  "baseline_spread",
+  "early_median",
+  "late_median",
+]);
+
+/** Money renders as money: 2 decimal places and thousands separators, always.
+ *  A statement analysis shipped "1138.4 usd", "37.2759" and "16.635" into
+ *  prose (run 77051c9d) — parseFloat().toString() drops the cent and the
+ *  grouping, so totals read like float dumps rather than amounts. */
+function formatCurrencyInline(value: number): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** Inline numeric formatting. toFixed(4) rounds tiny magnitudes to 0 — a
- *  p-value of 9e-7 must never narrate as "p = 0". */
-function formatInlineNumber(value: number): string {
+ *  p-value of 9e-7 must never narrate as "p = 0". Pass `unit` so monetary
+ *  bindings get money precision; without it a currency reads as a raw float. */
+function formatInlineNumber(value: number, unit?: string): string {
+  if (isCurrencyUnit(unit)) return formatCurrencyInline(value);
   if (Number.isInteger(value)) return String(value);
   if (value !== 0 && Math.abs(value) < 0.00005) return value.toExponential(2);
   return parseFloat(value.toFixed(4)).toString();
@@ -507,26 +567,42 @@ export function resolveSpecPlaceholders(
         const value = unwrapScalar(raw);
         if (isInlineRefused(value)) return refuseInline(_match);
         if (typeof value === "number") {
-          const num = formatInlineNumber(value);
-          // Unit applies to the finding's MAIN value only: a bare scalar
-          // binding or its conventional `.value` field — never arbitrary
-          // fields (a decomposition's p_value is not in pp). Fields carry
-          // units in their NAME (pct_from_peak, delta_pp) — honor the same
-          // suffix/prefix convention as $result keys so "-61.44 from peak"
-          // renders "-61.44%".
+          // Unit applies to the finding's MAIN value: a bare scalar binding,
+          // its conventional `.value` field, or a field that IS the measure in
+          // the measure's own unit (MEASURE_UNIT_FIELDS) — never arbitrary
+          // fields (a decomposition's p_value is not in pp; skew, n and
+          // n_zero_excluded are unitless). Fields carry units in their NAME
+          // (pct_from_peak, delta_pp) — honor the same suffix/prefix
+          // convention as $result keys so "-61.44 from peak" renders
+          // "-61.44%".
+          const field = trimmed.includes(".") ? trimmed.slice(trimmed.lastIndexOf(".") + 1) : "";
+          const parent = trimmed.includes(".") ? trimmed.slice(0, trimmed.lastIndexOf(".")) : "";
           const unit =
             findingUnits[trimmed] ??
             findingUnits[trimmed.replace(/\.value$/, "")] ??
+            (MEASURE_UNIT_FIELDS.has(field) ? findingUnits[parent] : undefined) ??
             keyNameUnit(trimmed);
+          // Resolve the unit BEFORE formatting: money needs 2dp and grouping,
+          // which the generic float path strips.
+          const num = formatInlineNumber(value, unit);
           return unit ? withUnit(num, unit, whole.slice(offset + _match.length)) : num;
         }
         if (typeof value === "object") {
           // Small flat mappings render as prose ("2010s: 2, 1870s: 1") —
           // refusing them left "Thin decades flagged by the analysis:"
-          // followed by nothing (the token swept to empty). Anything
-          // larger/nested still refuses via the sweep.
+          // followed by nothing (the token swept to empty).
           const prose = renderSmallDictInline(value);
-          return prose ?? _match;
+          if (prose !== null) return prose;
+          // Anything larger/nested REFUSES — and must refuse through the
+          // marker, not by falling through to the final sweep. The sweep
+          // replaces the token with "" and never strips the sentence, which
+          // is how run 77051c9d shipped "…a kruskal wallis test puts a
+          // p-value of 0.0011 on whether these category totals differ by
+          // more than chance, spanning group sizes of " — an 11-entry
+          // group_ns exceeded renderSmallDictInline's 6-leaf bar, swept to
+          // empty, and left the clause hanging mid-sentence. The marker
+          // takes the whole sentence with it.
+          return refuseInline(_match);
         }
         return humanizeIfIdentifier(String(value));
       }

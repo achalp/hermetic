@@ -758,6 +758,46 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertAlmostEqual(out["thin_bar"], 120.0, places=1)
         # Without counts, the raw extreme wins (nothing to weight by).
         self.assertEqual(finding_superlative(labels, vals)["period"], "1996")
+        # A well-attested corpus is not a relaxed one, and "2012" is a period,
+        # not a residue bucket.
+        self.assertIs(out["bar_relaxed"], False)
+        self.assertIs(out["label_is_catchall"], False)
+
+    def test_superlative_reports_a_relaxed_bar_and_a_catchall_winner(self):
+        # Run 77051c9d, both halves. A statement analysis ranked spend by
+        # category (counts median 8 -> bar 5, skipping an n=3 group) AND by
+        # payee (counts nearly all 1, so the median cap collapsed the floor
+        # to 1, crowning an n=3 payee). Same n, opposite treatment, and the
+        # narrative disclosed neither. The bar is series-relative BY DESIGN;
+        # what was missing is saying when its floor was relaxed.
+        cats = ["Other", "Groceries", "Dining", "Membership", "Utilities"]
+        cat_vals = [1138.4, 500.0, 420.0, 300.0, 51.81]
+        cat_ns = [45.0, 15.0, 12.0, 3.0, 2.0]
+        cat = finding_superlative(cats, cat_vals, counts=cat_ns, unit="usd")
+        self.assertAlmostEqual(cat["thin_bar"], 5.0, places=1)
+        self.assertIs(cat["bar_relaxed"], False)
+        # ...and the winner is the unclassified residue, which the claim now
+        # says out loud rather than presenting as a category.
+        self.assertIs(cat["label_is_catchall"], True)
+
+        payees = ["REALTOR ASSOCIATION/ML", "STARBUCKS", "SHELL", "AMAZON"]
+        pay = finding_superlative(payees, [948.0, 12.0, 40.0, 60.0],
+                                  counts=[3.0, 1.0, 1.0, 1.0], unit="usd")
+        self.assertEqual(pay["period"], "REALTOR ASSOCIATION/ML")
+        self.assertAlmostEqual(pay["thin_bar"], 1.0, places=1)
+        self.assertIs(pay["bar_relaxed"], True)
+        self.assertIs(pay["label_is_catchall"], False)
+
+    def test_catchall_detection_is_exact_not_substring(self):
+        # "Other Income" is a real category and must keep its meaning; only
+        # the residue label itself is flagged.
+        for label, expected in (
+            ("Other", True), ("other", True), ("UNKNOWN", True),
+            ("Unclassified", True), ("N/A", True), ("(none)", True),
+            ("Other Income", False), ("Mother", False), ("Groceries", False),
+        ):
+            out = finding_superlative([label, "Zed"], [10.0, 1.0], counts=[9.0, 9.0])
+            self.assertIs(out["label_is_catchall"], expected, msg=label)
 
     def test_attestation_bar_resists_a_sparse_tail_without_over_correcting(self):
         # The 178.8-bar failure (menu-price review): many sparse years drag

@@ -220,6 +220,41 @@ describe("inline sentinel/boolean refusal — value-aware, at the resolver seam"
     expect(out).not.toContain("$finding");
   });
 
+  // Run 77051c9d shipped: "…a kruskal wallis test puts a p-value of 0.0011 on
+  // whether these category totals differ by more than chance, spanning group
+  // sizes of " — an 11-entry group_ns blew past renderSmallDictInline's 6-leaf
+  // bar, fell through to the FINAL SWEEP (which replaces a token with "" and
+  // never strips the sentence), and left the clause hanging. Refusing through
+  // the marker takes the whole sentence instead.
+  it("takes the whole sentence when an oversized dict refuses, not just the token", () => {
+    const groupNs = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`group_${i}`, i + 1]));
+    const line =
+      '{"content": "Categories differ by more than chance, spanning group sizes of $finding:segment_heterogeneity.group_ns. The largest single charge was elsewhere."}';
+    const out = resolveSpecPlaceholders(
+      line,
+      {},
+      {},
+      {
+        segment_heterogeneity: { group_ns: groupNs },
+      }
+    );
+    expect(out).not.toContain("spanning group sizes of");
+    expect(out).not.toContain("$finding");
+    // The unrelated sentence beside it survives.
+    expect(out).toContain("The largest single charge was elsewhere.");
+  });
+
+  it("still renders a SMALL flat dict inline rather than refusing", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "The split was $finding:weekday_weekend_spend_share.shares_pct overall."}',
+      {},
+      {},
+      { weekday_weekend_spend_share: { shares_pct: { weekday: 87.1, weekend: 12.9 } } }
+    );
+    expect(out).toContain("weekday: 87.1");
+    expect(out).toContain("weekend: 12.9");
+  });
+
   it("keeps meaningful words inline and booleans in whole-value form", () => {
     const inline = resolveSpecPlaceholders(
       '{"content": "Churn is $finding:churn_direction over the year."}',
@@ -548,5 +583,74 @@ describe("repairMetricBindings — bind the metric the prose names (run-41 root 
       {}
     );
     expect(out).toContain("3.2");
+  });
+});
+
+// Run 77051c9d narrated a credit-card statement with "1138.4 usd", "37.2759"
+// and "16.635": parseFloat(toFixed(4)).toString() is unit-blind, so it drops
+// the cent and the thousands separator and money reads as a float dump.
+describe("currency bindings render as money", () => {
+  const findings = {
+    top_spending_category: { value: 1138.4, n: 45 },
+    spend_distribution: { mean: 37.2759, median: 16.635, skew: 7.64, n: 130 },
+    daily_spend_trend: { slope_per_period: 0.17652866, p_value: 0.9758887 },
+  };
+  const units = {
+    top_spending_category: "usd",
+    spend_distribution: "usd",
+    daily_spend_trend: "usd",
+  };
+
+  it("gives a currency main value 2dp and thousands separators", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Top category totalled $finding:top_spending_category.value."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("1,138.40");
+    expect(out).not.toContain("1138.4 ");
+  });
+
+  it("carries the unit onto fields that ARE the measure", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Mean $finding:spend_distribution.mean against median $finding:spend_distribution.median."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("37.28");
+    expect(out).toContain("16.64");
+    expect(out).not.toContain("37.2759");
+  });
+
+  it("leaves unitless fields of a currency finding alone", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Skew $finding:spend_distribution.skew over $finding:spend_distribution.n rows, p $finding:daily_spend_trend.p_value."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    // Not money: no 2dp coercion, no currency word, full p-value precision.
+    expect(out).toContain("7.64");
+    expect(out).toContain("130");
+    expect(out).toContain("0.9759");
+    expect(out).not.toContain("7.64 usd");
+    expect(out).not.toContain("130.00");
+  });
+
+  it("does not touch non-currency units", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Churn ended at $finding:churn.value."}',
+      {},
+      {},
+      { churn: { value: 13.08198 } },
+      { churn: "pp" }
+    );
+    expect(out).toContain("13.082");
+    expect(out).not.toContain("13.08 ");
   });
 });

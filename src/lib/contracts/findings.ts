@@ -75,6 +75,11 @@ export interface FindingProjection {
   /** Leaf field names for structured values (so the composer can bind
    *  `$finding:name.field` without seeing values). */
   value_fields?: string[];
+  /** Present and false when the claim's PRIMARY fields are all null — the
+   *  analysis looked and found nothing (no step change, no peak, no
+   *  correlation). Secondary fields are withheld in that case, so there is
+   *  no number left to narrate the non-event with. See projectFinding. */
+  detected?: false;
   tags?: string[];
 }
 

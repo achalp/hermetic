@@ -51,6 +51,7 @@ Rules:
 - CAVEAT nodes carry NO text (the system renders the check's own declared fields verbatim — a caveat is not yours to phrase); include one for every FAILED check, and set its "anchor" to the chart/section it qualifies so it sits WHERE it applies. CAVEATs may reference ONLY checks/screens.
 - At most one INSIGHT node: synthesis ACROSS claims that no single node states.
 - NEVER assert a mechanism, cause, coverage change, or data-collection story no check reports ("currency coverage collapsed", "reporting still arriving" are fabrications unless a check's definition literally states them). Describe what the data shows; do not explain why it happened.
+- A claim carrying "detected": false found NOTHING — no step change, no peak, no correlation. It has no value_fields and nothing to bind. Either leave it out, or state the non-detection in words ("no persistent step change survived the gates"). NEVER narrate it as though the event occurred.
 - refs use claim names exactly as given. ${budget.guidance}`;
 }
 

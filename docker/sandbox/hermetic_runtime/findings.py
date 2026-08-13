@@ -251,7 +251,40 @@ def _attestation_bar(ns):
             return None
         med = s[len(s) // 2]
         mean = float(sum(s)) / len(s)
-        return max(min(5.0, med), 0.2 * med, 0.1 * mean)
+        return max(min(_THIN_FLOOR, med), 0.2 * med, 0.1 * mean)
+    except Exception:
+        return None
+
+
+# The absolute thin-data floor, before the median cap relaxes it. Named so a
+# claim can report WHETHER it was relaxed: two superlatives in one run can
+# legitimately carry different thin_bars (the bar is series-relative), and a
+# reader comparing them cannot otherwise tell that one rested on a softer
+# rule. Audited (run 77051c9d): categories got thin_bar 5 and skipped an n=3
+# group, while payees — nearly all n=1, so the floor collapsed to 1 — crowned
+# an n=3 payee as the month's top. Same n, opposite treatment, silently.
+_THIN_FLOOR = 5.0
+
+# Catch-all bucket labels. A superlative these win is a statement about
+# UNCLASSIFIED residue, not about a real category — audited (run 77051c9d):
+# "Other" (n=45, 35% of transactions) headlined a spend analysis as the
+# month's dominant category with no disclosure that it is the leftovers.
+_CATCHALL_LABELS = {
+    "other", "others", "unknown", "unclassified", "uncategorized",
+    "uncategorised", "misc", "miscellaneous", "n/a", "na", "none",
+    "unspecified", "ungrouped", "unmapped",
+}
+
+
+def _is_catchall_label(label):
+    """True when a label is a residue bucket rather than a real category.
+    Conservative and exact-match after normalisation: a genuine category
+    called "Other Income" keeps its meaning and must not be flagged."""
+    try:
+        if label is None:
+            return None
+        norm = str(label).strip().lower().strip("()[]").strip()
+        return norm in _CATCHALL_LABELS
     except Exception:
         return None
 
@@ -996,7 +1029,8 @@ def finding_superlative(labels, values, counts=None, kind="max", unit=None):
     """
     failed = {"period": None, "value": None, "n": None, "raw_period": None,
               "raw_value": None, "raw_n": None, "thin_periods_skipped": None,
-              "thin_bar": None, "n_zero_excluded": None}
+              "thin_bar": None, "bar_relaxed": None, "label_is_catchall": None,
+              "n_zero_excluded": None}
     try:
         values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         rows = []
@@ -1024,6 +1058,8 @@ def finding_superlative(labels, values, counts=None, kind="max", unit=None):
                 "raw_period": raw[0], "raw_value": raw[1], "raw_n": raw[2],
                 "thin_periods_skipped": skipped,
                 "thin_bar": None if not finite_ns else round(thin, 1),
+                "bar_relaxed": None if not finite_ns else bool(thin < _THIN_FLOOR),
+                "label_is_catchall": _is_catchall_label(best[0]),
                 "n_zero_excluded": n_zx}
     except Exception:
         return failed

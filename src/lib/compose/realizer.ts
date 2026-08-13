@@ -72,6 +72,20 @@ export function realizeClaim(f: FindingEntry): string {
       if (v.raw_value !== undefined && v.raw_value !== v.value) {
         s += ` The raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`;
       }
+      // A catch-all winner is a statement about unclassified residue, not
+      // about a category. Audited (run 77051c9d): "Other" (n = 45, 35% of
+      // transactions) headlined a spend analysis as the dominant category
+      // with nothing saying it was the leftovers.
+      if (v.label_is_catchall === true) {
+        s += ` That leader is a catch-all bucket, so it names unclassified ${label.toLowerCase()} rather than a category in its own right.`;
+      }
+      // The bar is series-relative, so two superlatives in one run can carry
+      // different thin_bars. Say so when this one's floor was relaxed —
+      // otherwise an n = 3 winner here looks equivalent to an n = 3 loser
+      // that a stricter sibling bar screened out.
+      if (v.bar_relaxed === true) {
+        s += ` Attestation here rests on a relaxed bar of ${b(n, "thin_bar")} observations, because the series is uniformly thin.`;
+      }
       return s + zeroClause(n, v);
     }
     case "current_state": {

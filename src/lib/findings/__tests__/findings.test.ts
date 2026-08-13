@@ -166,6 +166,50 @@ describe("projection — the privacy boundary", () => {
     expect(scrubNumerals("churn over 2024 rose 4.4pp")).toBe("churn over 2024 rose ⟨n⟩pp");
   });
 
+  // Run 77051c9d: leafFields drops null leaves, so a step_change that found
+  // NOTHING projected as {value_fields: ["baseline_spread"]} — one bindable
+  // number under a definition promising "the largest period-over-period jump
+  // that stands out and persists". The planner wrote "The sharpest jump
+  // between consecutive days measured 118.97", where 118.97 is baseline_spread
+  // — a SCALE REFERENCE, not a detected delta. Every gate passed: the digit
+  // was a binding, the ref resolved, the field was real and non-null. Binding
+  // discipline proves a number is real; it cannot prove the sentence means the
+  // right thing. So the projection now states the non-detection and withholds
+  // every number, leaving nothing to misuse.
+  it("marks a non-detection and withholds its secondary numbers", () => {
+    const p = projectFinding(
+      entry({
+        name: "daily_spend_step_change",
+        dtype: "step_change",
+        definition: "largest period-over-period jump that stands out and persists",
+        value: { period: null, delta: null, direction: null, baseline_spread: 118.97 },
+      })
+    );
+    expect(p.detected).toBe(false);
+    expect(p.value_fields).toBeUndefined();
+    expect(JSON.stringify(p)).not.toContain("baseline_spread");
+  });
+
+  it("leaves a DETECTED claim's fields alone", () => {
+    const p = projectFinding(
+      entry({
+        name: "daily_spend_step_change",
+        dtype: "step_change",
+        value: { period: "2026-07-09", delta: 118.97, direction: "up", baseline_spread: 40.2 },
+      })
+    );
+    expect(p.detected).toBeUndefined();
+    expect(p.value_fields).toEqual(["period", "delta", "direction", "baseline_spread"]);
+  });
+
+  it("never blanks a dtype it has no primary-field map for", () => {
+    const p = projectFinding(
+      entry({ name: "custom_thing", dtype: "bespoke", value: { a: null, b: 3 } })
+    );
+    expect(p.detected).toBeUndefined();
+    expect(p.value_fields).toEqual(["b"]);
+  });
+
   it("prompt budget drops WHOLE entries, untagged first, and reports omissions", () => {
     const many = Array.from({ length: 200 }, (_, i) =>
       entry({

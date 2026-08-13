@@ -33,13 +33,66 @@ function leafFields(value: unknown): string[] | undefined {
   return keys.length > 0 ? keys : undefined;
 }
 
+/**
+ * The field(s) that carry a claim's ACTUAL result, per dtype. All null ⇒ the
+ * analysis ran and found nothing — a non-detection, not a small effect.
+ *
+ * Why this exists (run 77051c9d): leafFields drops null leaves, so a
+ * step_change that detected nothing projected as
+ * `{name: daily_spend_step_change, value_fields: ["baseline_spread"]}` —
+ * a bindable number sitting under a definition promising "the largest
+ * period-over-period jump that stands out and persists". The planner did the
+ * only thing that shape invites and wrote "The sharpest jump between
+ * consecutive days measured 118.97", where 118.97 is baseline_spread, a SCALE
+ * REFERENCE. Every gate passed: the digit was a binding, the ref resolved, the
+ * field was real and non-null. Binding discipline proves a number is real; it
+ * cannot prove the sentence around it means the right thing.
+ *
+ * So the projection now says the quiet part: `detected: false`, and no
+ * value_fields at all. The planner cannot misuse a number it never receives,
+ * and the realizer's own template already narrates non-detection correctly.
+ */
+const PRIMARY_RESULT_FIELDS: Record<string, string[]> = {
+  step_change: ["period", "delta"],
+  superlative: ["period", "value"],
+  direction: ["direction"],
+  trend: ["direction", "slope_per_period"],
+  current_state: ["period", "value"],
+  comparison: ["early_median", "late_median"],
+  correlation: ["coefficient"],
+  attribution: ["leader_early", "leader_late"],
+  heterogeneity: ["significant"],
+  share: ["shares_pct"],
+  distribution: ["median"],
+  decomposition: ["components"],
+};
+
+/** True when every primary field for this dtype is null/absent — i.e. the
+ *  claim reports a non-detection. Unknown dtypes never qualify (a dtype we
+ *  have no primary map for must not be silently blanked). */
+export function isNonDetection(entry: FindingEntry): boolean {
+  const primary = PRIMARY_RESULT_FIELDS[entry.dtype];
+  if (!primary) return false;
+  const v = entry.value;
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+  const obj = v as Record<string, unknown>;
+  // Only claims that actually CARRY these fields can be non-detections; a
+  // value shaped nothing like the map is a different claim, not an empty one.
+  const present = primary.filter((k) => k in obj);
+  if (present.length === 0) return false;
+  return present.every((k) => obj[k] === null || obj[k] === undefined);
+}
+
 export function projectFinding(entry: FindingEntry): FindingProjection {
+  const nonDetection = isNonDetection(entry);
+  const fields = nonDetection ? undefined : leafFields(entry.value);
   return {
     name: entry.name,
     definition: scrubNumerals(entry.definition),
     dtype: entry.dtype,
     ...(entry.unit ? { unit: entry.unit } : {}),
-    ...(leafFields(entry.value) ? { value_fields: leafFields(entry.value) } : {}),
+    ...(fields ? { value_fields: fields } : {}),
+    ...(nonDetection ? { detected: false as const } : {}),
     ...(entry.tags?.length ? { tags: entry.tags } : {}),
   };
 }
