@@ -28,6 +28,7 @@ import {
   surfaceUndeclaredFailedChecks,
   lintSignificanceMismatch,
   lintOutlierDetectorDisagreement,
+  surfaceUndeclaredScreens,
 } from "@/lib/findings/lints";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import { productRolesIndex } from "@/lib/product";
@@ -1108,5 +1109,68 @@ describe("lintOutlierDetectorDisagreement — one outlier policy per column (run
         review_outliers_n_flagged: 21,
       })
     ).toHaveLength(0);
+  });
+});
+
+describe("surfaceUndeclaredScreens — a computed screen cannot pass silently (run 5872407b)", () => {
+  const F2 = (name: string, dtype: string, value: unknown) =>
+    ({ name, dtype, definition: `${name} definition`, value }) as FindingEntry;
+
+  it("surfaces a results family with screen morphology and no declaration", () => {
+    // The question asked to "identify outliers"; the code ran rolling-MAD
+    // and wrote everything to bare results keys; zero mentions of an
+    // outlier reached the document.
+    const { added, issues } = surfaceUndeclaredScreens(
+      {
+        spend_transaction_outliers_n_flagged: 17,
+        spend_transaction_outliers_method: "rolling_mad",
+        spend_transaction_outliers_window: 21,
+        spend_transaction_outliers_k: 3.5,
+        total_spend_usd: 4845.87,
+      },
+      [F2("amount_sign_convention", "check", { passed: true })]
+    );
+    expect(added).toHaveLength(1);
+    expect(added[0].name).toBe("spend_transaction_outliers");
+    expect(added[0].dtype).toBe("screen");
+    expect(added[0].tags).toContain("auto_surfaced");
+    // Screen semantics: offenders found ⇒ passed false ⇒ banner + CAVEAT.
+    expect(added[0].value).toEqual({
+      passed: false,
+      evidence: { n_flagged: 17, method: "rolling_mad", window: 21, k: 3.5 },
+    });
+    expect(issues[0].kind).toBe("undeclared_screen_computation");
+  });
+
+  it("a clean screen surfaces as passed — visible, not alarming", () => {
+    const { added } = surfaceUndeclaredScreens(
+      { price_outliers_n_flagged: 0, price_outliers_method: "rolling_mad" },
+      []
+    );
+    expect(added).toHaveLength(1);
+    expect((added[0].value as { passed: boolean }).passed).toBe(true);
+  });
+
+  it("declared owners, _passed families, and non-screen shapes stay untouched", () => {
+    // Declared finding owns the family.
+    expect(
+      surfaceUndeclaredScreens(
+        { amount_outliers_n_flagged: 21, amount_outliers_method: "rolling_mad" },
+        [F2("amount_outliers", "screen", { n_flagged: 21 })]
+      ).added
+    ).toHaveLength(0);
+    // A _passed sibling → the checks surfacer owns it (one owner per family).
+    expect(
+      surfaceUndeclaredScreens(
+        {
+          review_outliers_n_flagged: 89,
+          review_outliers_method: "iqr",
+          review_outliers_passed: false,
+        },
+        []
+      ).added
+    ).toHaveLength(0);
+    // n_flagged without a method sibling is not screen morphology.
+    expect(surfaceUndeclaredScreens({ thing_n_flagged: 4 }, []).added).toHaveLength(0);
   });
 });

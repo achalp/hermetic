@@ -36,6 +36,7 @@ import {
   lintCrossStepDerivations,
   lintCrossStepReconciliation,
   surfaceUndeclaredFailedChecks,
+  surfaceUndeclaredScreens,
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
@@ -721,11 +722,15 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               (r.result?.executionResult.results ?? {}) as Record<string, unknown>,
               validated.manifest.findings
             );
-            if (surfaced.added.length > 0) {
-              validated.manifest.findings.push(...surfaced.added);
-              logger.warn("investigate findings: undeclared failed checks auto-surfaced", {
+            const surfacedScr = surfaceUndeclaredScreens(
+              (r.result?.executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            );
+            if (surfaced.added.length > 0 || surfacedScr.added.length > 0) {
+              validated.manifest.findings.push(...surfaced.added, ...surfacedScr.added);
+              logger.warn("investigate findings: undeclared checks/screens auto-surfaced", {
                 stepNo,
-                checks: surfaced.added.map((f) => f.name),
+                checks: [...surfaced.added, ...surfacedScr.added].map((f) => f.name),
               });
             }
             const dagIssues = lintCrossStepDerivations(

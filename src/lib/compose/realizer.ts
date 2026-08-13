@@ -63,7 +63,6 @@ const THIN_GROUP_DISCLOSURE_N = 6;
 export function riderClauses(f: FindingEntry): string[] {
   const v = fv(f);
   const n = f.name;
-  const label = humanize(n);
   const riders: string[] = [];
   switch (f.dtype) {
     case "superlative": {
@@ -72,14 +71,31 @@ export function riderClauses(f: FindingEntry): string[] {
         riders.push(
           `The raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`
         );
+      } else if (
+        typeof v.thin_periods_skipped === "number" &&
+        v.thin_periods_skipped > 0 &&
+        v.thin_bar !== null &&
+        v.thin_bar !== undefined
+      ) {
+        // Silent-disqualification disclosure (run 5872407b): when the raw and
+        // attested winners COINCIDE, the raw-beside-attested rider above never
+        // fires — yet candidates were still screened out. The audited case:
+        // the second-largest dollar category (n = 3) was disqualified under
+        // the bar of 5 and nothing said so, which materially framed "top
+        // category". Colon-form for number-noun agreement.
+        riders.push(
+          `Candidates screened out as thin under the ${b(n, "thin_bar")}-observation attestation bar: ${b(n, "thin_periods_skipped")}.`
+        );
       }
       // A catch-all winner is a statement about unclassified residue, not
-      // about a category. Audited (run 77051c9d): "Other" (n = 45, 35% of
+      // about a real group. Audited (run 77051c9d): "Other" (n = 45, 35% of
       // transactions) headlined a spend analysis as the dominant category
-      // with nothing saying it was the leftovers.
+      // with nothing saying it was the leftovers. Static phrasing — the
+      // earlier label interpolation produced "names unclassified top spend
+      // category", a finding NAME wearing a noun's clothes (run 5872407b).
       if (v.label_is_catchall === true) {
         riders.push(
-          `That leader is a catch-all bucket, so it names unclassified ${label.toLowerCase()} rather than a category in its own right.`
+          `That leader is a catch-all bucket — it aggregates records the analysis could not classify, rather than naming a real group.`
         );
       }
       // The bar is series-relative, so two superlatives in one run can carry

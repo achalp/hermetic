@@ -1661,8 +1661,7 @@ export function surfaceUndeclaredFailedChecks(
       name: base,
       dtype: "check",
       definition:
-        "a data-quality check the analysis computed and reported as FAILED in its results " +
-        "without declaring it — surfaced automatically so the failure reaches the reader",
+        "computed by the analysis but never declared as a check — surfaced so its failure cannot pass silently",
       value: { passed: false, ...(Object.keys(evidence).length > 0 ? { evidence } : {}) },
       tags: ["check", "caveat", "auto_surfaced"],
     } as FindingEntry);
@@ -1759,4 +1758,60 @@ export function lintOutlierDetectorDisagreement(results: Record<string, unknown>
       detail: `two outlier detectors disagree ${(maxN / minN).toFixed(1)}×: ${maxF} flagged ${maxN} vs ${minF} flagged ${minN} — one outlier policy per column (the contract's threshold-family rule); reconcile or drop the second detector`,
     },
   ];
+}
+
+/**
+ * Auto-surface undeclared SCREENS (run 5872407b): the question asked to
+ * "identify outliers", the code ran a rolling-MAD screen and wrote its whole
+ * result to bare results keys (spend_transaction_outliers_n_flagged: 17,
+ * _method, _window, _k) — and no finding, sentence, or caveat ever mentioned
+ * an outlier. surfaceUndeclaredFailedChecks catches `*_passed: false`; a
+ * computed screen carries no verdict key, so it slipped through in its
+ * PASSING form. Third variant of the computed-but-never-declared class.
+ *
+ * A results family with screen morphology — `<base>_n_flagged` (number)
+ * beside `<base>_method` (string) — and no declared finding owning `<base>`
+ * is surfaced as a screen entry. `passed` follows the contract's screen
+ * semantics ("a screen that FOUND offenders reports passed=false with the
+ * offenders as evidence"): n_flagged 0 → true, else false — so a screen
+ * that flagged rows gets the banner and a CAVEAT like any failed check.
+ * Families that carry their own `<base>_passed` key are left to
+ * surfaceUndeclaredFailedChecks (one owner per family).
+ */
+export function surfaceUndeclaredScreens(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): { added: FindingEntry[]; issues: FindingIssue[] } {
+  const added: FindingEntry[] = [];
+  const issues: FindingIssue[] = [];
+  const declared = findings.map((f) => f.name);
+  for (const [key, value] of Object.entries(results ?? {})) {
+    if (!key.endsWith("_n_flagged")) continue;
+    const base = key.slice(0, -"_n_flagged".length);
+    if (!base || !/^[a-z][a-z0-9_]*$/.test(base)) continue;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) continue;
+    if (typeof results[`${base}_method`] !== "string") continue;
+    if (`${base}_passed` in results) continue; // the checks surfacer owns it
+    if (declared.some((d) => key.startsWith(`${d}_`) || d === base)) continue;
+    const evidence: Record<string, unknown> = {};
+    for (const [k2, v2] of Object.entries(results)) {
+      if (!k2.startsWith(`${base}_`)) continue;
+      const field = k2.slice(base.length + 1);
+      if (v2 === null || typeof v2 !== "object") evidence[field] = v2;
+    }
+    added.push({
+      name: base,
+      dtype: "screen",
+      definition:
+        "an outlier screen computed by the analysis but never declared — surfaced so its result cannot pass silently",
+      value: { passed: value === 0, evidence },
+      tags: ["check", "caveat", "auto_surfaced"],
+    } as FindingEntry);
+    issues.push({
+      kind: "undeclared_screen_computation",
+      name: base,
+      detail: `results carries a computed screen (${key} = ${value}, method ${String(results[`${base}_method`])}) with no declared finding behind it — the analysis should declare it via finding_outliers + declare_finding`,
+    });
+  }
+  return { added, issues };
 }

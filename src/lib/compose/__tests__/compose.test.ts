@@ -377,6 +377,54 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
     expect(c).toContain("catch-all bucket");
   });
 
+  // Run 5872407b: the second-largest dollar category (n = 3) was silently
+  // disqualified under the bar of 5, and because the raw and attested
+  // winners coincided, the raw-beside-attested rider never fired — nothing
+  // disclosed the screening that materially framed "top category".
+  it("disqualifications disclose even when the raw and attested winners coincide", () => {
+    const sup = F("top_cat", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      raw_period: "Other",
+      raw_value: 1138.4,
+      raw_n: 45,
+      thin_periods_skipped: 2,
+      thin_bar: 5,
+    });
+    const text = realizeClaim(sup);
+    expect(text).toContain("Candidates screened out as thin");
+    expect(text).toContain("$finding:top_cat.thin_periods_skipped");
+    // With a DIFFERING raw extreme, the fuller raw-beside-attested rider
+    // carries the disclosure instead — never both.
+    const differing = realizeClaim(
+      F("peak", "superlative", {
+        period: "2012",
+        value: 45,
+        n: 1217,
+        raw_period: "1996",
+        raw_value: 74,
+        raw_n: 52,
+        thin_periods_skipped: 1,
+        thin_bar: 120,
+      })
+    );
+    expect(differing).toContain("The raw extreme is");
+    expect(differing).not.toContain("Candidates screened out");
+    // Nothing skipped → no rider.
+    expect(
+      realizeClaim(
+        F("clean", "superlative", {
+          period: "A",
+          value: 1,
+          n: 9,
+          thin_periods_skipped: 0,
+          thin_bar: 5,
+        })
+      )
+    ).not.toContain("Candidates screened out");
+  });
+
   it("heterogeneity gets a dedicated template with a thin-groups rider", () => {
     const het = F("cat_het", "heterogeneity", {
       significant: true,

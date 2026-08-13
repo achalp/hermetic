@@ -27,6 +27,7 @@ import {
   lintCheckGating,
   lintNoChecksDeclared,
   surfaceUndeclaredFailedChecks,
+  surfaceUndeclaredScreens,
   lintOutlierDetectorDisagreement,
   lintMethodMismatch,
   lintNullAncestry,
@@ -473,6 +474,13 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             validated.manifest.findings
           );
           validated.manifest.findings.push(...surfacedChecks.added);
+          // Same rule for computed SCREENS with no verdict key (run 5872407b:
+          // an outlier screen the question literally asked for, invisible).
+          const surfacedScreens = surfaceUndeclaredScreens(
+            (executionResult.results ?? {}) as Record<string, unknown>,
+            validated.manifest.findings
+          );
+          validated.manifest.findings.push(...surfacedScreens.added);
           findingsManifest = validated.manifest;
           if (executionResult.runtime_fallback) {
             logger.error("Sandbox runtime fell back to stubs — findings degraded", {
@@ -495,6 +503,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               : []),
             ...validated.issues,
             ...surfacedChecks.issues,
+            ...surfacedScreens.issues,
             ...lintOutlierDetectorDisagreement(
               (executionResult.results ?? {}) as Record<string, unknown>
             ),
