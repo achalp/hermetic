@@ -17,7 +17,7 @@ import {
 } from "@/lib/compose/controller";
 import { getEditSurface, resolvePreviewText } from "@/lib/compose/edit";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
+import { realizeClaim, realizeNode, realizeNodeTemplate } from "@/lib/compose/realizer";
 import { applyMutations } from "@/lib/compose/mutations";
 import { compileDashboard } from "@/lib/compose/compile";
 import { componentForSeries } from "@/lib/compose/scaffold";
@@ -253,6 +253,108 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
       byName
     );
     expect(caveat).not.toContain("ignore me");
+  });
+
+  // Spec finding-field-roles-2026-08-13 §2.M2: a yes/no flag has no word for
+  // a sentence slot; downstream refusal used to strip the sentence and (run
+  // f47eb42d) empty the node. Rejected at authoring time instead.
+  it("validateNodeText rejects a binding that resolves to a boolean", () => {
+    const withFlag = [
+      ...FINDINGS,
+      F("share_check", "share", { shares_pct: { a: 60, b: 40 }, sums_to_100: true }),
+    ];
+    const errs = validateNodeText(
+      "Shares sum to $finding:share_check.sums_to_100 of the statement.",
+      ["share_check"],
+      withFlag
+    );
+    expect(errs.join()).toContain("yes/no flag");
+    // String verdicts stay bindable by design (direction, preferred, ...).
+    expect(
+      validateNodeText("Prices are $finding:price_trend.direction.", ["price_trend"], FINDINGS)
+    ).toEqual([]);
+  });
+
+  // Spec §2.M4 — the missed root cause of runs 77051c9d/f47eb42d: authored
+  // prose used to REPLACE the template, silencing every honesty rider.
+  it("authored text carries the claim's riders appended, once per document", () => {
+    const catchall = F("top_cat", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      raw_period: "Other",
+      raw_value: 1138.4,
+      raw_n: 45,
+      thin_periods_skipped: 2,
+      thin_bar: 5,
+      label_is_catchall: true,
+    });
+    const byName = new Map([[catchall.name, catchall]]);
+    const ridered = new Set<string>();
+    const first = realizeNode(
+      {
+        id: "a",
+        op: "ANSWER",
+        refs: ["top_cat"],
+        text: "Spend concentrated in $finding:top_cat.period at $finding:top_cat.value.",
+      },
+      byName,
+      ridered
+    );
+    // The authored sentence survives AND the catch-all disclosure rides it.
+    expect(first).toContain("Spend concentrated in");
+    expect(first).toContain("catch-all bucket");
+    // A later node citing the same claim does not repeat the riders.
+    const second = realizeNode(
+      {
+        id: "b",
+        op: "CONCLUSION",
+        refs: ["top_cat"],
+        text: "In sum, $finding:top_cat.period dominated.",
+      },
+      byName,
+      ridered
+    );
+    expect(second).toContain("In sum,");
+    expect(second).not.toContain("catch-all bucket");
+  });
+
+  it("heterogeneity gets a dedicated template with a thin-groups rider", () => {
+    const het = F("cat_het", "heterogeneity", {
+      significant: true,
+      p_value: 0.0011,
+      test: "kruskal_wallis",
+      group_ns: { Other: 45, Groceries: 15, Membership: 3, Utilities: 2 },
+    });
+    const text = realizeClaim(het);
+    expect(text).toContain("$finding:cat_het.test");
+    expect(text).toContain("$finding:cat_het.p_value");
+    // The pooling disclosure fires — smallest group is n = 2 (< 6).
+    expect(text).toContain("pools groups of very different sizes");
+    expect(text).toContain("$finding:cat_het.group_ns");
+    // Balanced groups: no rider.
+    const balanced = realizeClaim(
+      F("even_het", "heterogeneity", {
+        significant: true,
+        p_value: 0.03,
+        test: "anova",
+        group_ns: { a: 40, b: 38, c: 51 },
+      })
+    );
+    expect(balanced).not.toContain("pools groups");
+  });
+
+  // Spec §2.M5's building block: the deterministic floor a resolved-empty
+  // node degrades to. Findings-bound, so it cannot be empty when refs exist.
+  it("realizeNodeTemplate ignores authored text and yields non-empty prose", () => {
+    const byName = new Map(FINDINGS.map((f) => [f.name, f]));
+    const t = realizeNodeTemplate(
+      { id: "x", op: "ANSWER", refs: ["price_trend"], text: "this text is ignored" },
+      byName
+    );
+    expect(t).toBeTruthy();
+    expect(t).not.toContain("this text is ignored");
+    expect(t).toContain("$finding:price_trend");
   });
 });
 

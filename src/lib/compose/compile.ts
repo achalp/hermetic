@@ -79,9 +79,14 @@ export function compileDashboard(input: CompileInput): string[] {
   //    the trailing evidence block.
   const anchored = new Set<string>();
   const pendingAnchors: { afterNodeId: string; elementId: string }[] = [];
+  // Document-scoped rider tracking (spec finding-field-roles §2.M4): each
+  // claim's honesty riders attach at the FIRST node referencing it, so an
+  // authored narrative citing one claim from three nodes carries the
+  // disclosures once, not thrice.
+  const rideredClaims = new Set<string>();
   for (const node of plan.nodes) {
     if (hidden.has(node.id)) continue;
-    const text = realizeNode(node, byName);
+    const text = realizeNode(node, byName, rideredClaims);
     if (!text) continue;
     let value: SpecPatchLine["value"];
     if (node.op === "SECTION") {

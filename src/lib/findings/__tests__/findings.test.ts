@@ -210,6 +210,35 @@ describe("projection — the privacy boundary", () => {
     expect(p.value_fields).toEqual(["b"]);
   });
 
+  // Spec finding-field-roles-2026-08-13 §2.M3 tier 1: the producer declares
+  // the property in the value, and it wins ahead of the legacy dtype table —
+  // including for dtypes the table has never heard of.
+  it("producer-declared detected:false wins, even for unknown dtypes", () => {
+    const p = projectFinding(
+      entry({
+        name: "bespoke_scan",
+        dtype: "bespoke",
+        value: { detected: false, window: null, scale_hint: 42.5 },
+      })
+    );
+    expect(p.detected).toBe(false);
+    // The scale_hint is withheld — no number to misuse (the 118.97 class).
+    expect(p.value_fields).toBeUndefined();
+  });
+
+  // Spec §2.M2: a flag has no word for a sentence slot. The planner cannot
+  // bind what it is never offered; validatePlan rejects the rest.
+  it("boolean leaves never reach value_fields", () => {
+    const p = projectFinding(
+      entry({
+        name: "share_check",
+        dtype: "share",
+        value: { shares_pct: { a: 60, b: 40 }, residual_pct: 0, sums_to_100: true },
+      })
+    );
+    expect(p.value_fields).toEqual(["shares_pct", "residual_pct"]);
+  });
+
   it("prompt budget drops WHOLE entries, untagged first, and reports omissions", () => {
     const many = Array.from({ length: 200 }, (_, i) =>
       entry({

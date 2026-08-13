@@ -52,6 +52,7 @@ Rules:
 - At most one INSIGHT node: synthesis ACROSS claims that no single node states.
 - NEVER assert a mechanism, cause, coverage change, or data-collection story no check reports ("currency coverage collapsed", "reporting still arriving" are fabrications unless a check's definition literally states them). Describe what the data shows; do not explain why it happened.
 - A claim carrying "detected": false found NOTHING — no step change, no peak, no correlation. It has no value_fields and nothing to bind. Either leave it out, or state the non-detection in words ("no persistent step change survived the gates"). NEVER narrate it as though the event occurred.
+- NEVER bind a yes/no field (passed, significant, sums_to_100, weighted...) — a flag is not a word. State the fact it stands for in plain words instead ("shares sum to 100%", "the difference is statistically significant"). Flag fields are omitted from value_fields and a binding to one is REJECTED.
 - refs use claim names exactly as given. ${budget.guidance}`;
 }
 

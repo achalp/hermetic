@@ -536,7 +536,7 @@ def finding_trend(values, unit=None, labels=None, counts=None):
     of order) is REFUSED rather than fit — a trend over unordered x is
     undefined.
     """
-    failed = {"direction": None, "slope_per_period": None, "p_value": None,
+    failed = {"detected": False, "direction": None, "slope_per_period": None, "p_value": None,
               "slope_ci95": None, "n_zero_excluded": None, "weighted": False}
     try:
         if labels is not None and _ordinal_disorder(labels):
@@ -629,7 +629,7 @@ def finding_step_change(values, labels=None, counts=None, unit=None):
     of unpriced items). zero_policy runs internally; the screen is
     reported as n_zero_excluded. Never raises.
     """
-    failed = {"period": None, "delta": None, "direction": None,
+    failed = {"detected": False, "period": None, "delta": None, "direction": None,
               "baseline_spread": None, "n_zero_excluded": None}
     try:
         if labels is not None and _ordinal_disorder(labels):
@@ -645,7 +645,14 @@ def finding_step_change(values, labels=None, counts=None, unit=None):
             return failed
         m = len(spread)
         median = spread[m // 2] if m % 2 else (spread[m // 2 - 1] + spread[m // 2]) / 2.0
-        no_step = {"period": None, "delta": None, "direction": None,
+        # The looked-and-found-nothing result declares itself (spec
+        # finding-field-roles-2026-08-13 §2.M3): "detected": False rides IN
+        # the value, so it survives every copy/spread/serialization and the
+        # projection withholds the secondary numbers. Run 77051c9d narrated
+        # this dict's baseline_spread (118.97, a scale reference) as "the
+        # sharpest jump between consecutive days" — a number the planner
+        # should never have been offered.
+        no_step = {"detected": False, "period": None, "delta": None, "direction": None,
                    "baseline_spread": median, "n_zero_excluded": n_zx}
         best_i, best_d = None, None
         for i, d in enumerate(deltas):
@@ -730,7 +737,7 @@ def finding_yoy(period_labels, values, unit=None):
     excludes it from BOTH years — unrecorded months cannot anchor a
     comparison. Reported as n_zero_excluded. Never raises.
     """
-    failed = {"prior_year": None, "latest_year": None, "window_months": None,
+    failed = {"detected": False, "prior_year": None, "latest_year": None, "window_months": None,
               "prior_total": None, "latest_total": None, "pct_change": None,
               "n_zero_excluded": None}
     try:
@@ -794,7 +801,7 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
     "window", "k", "n_zero_excluded"}; degenerate input -> all-None fields.
     Never raises.
     """
-    failed = {"outliers": None, "n_flagged": None, "method": "rolling_mad",
+    failed = {"detected": False, "outliers": None, "n_flagged": None, "method": "rolling_mad",
               "window": window, "k": k, "n_zero_excluded": None}
     try:
         if labels is not None and _ordinal_disorder(labels):
@@ -860,7 +867,7 @@ def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
     SAYS so — both are still reported (dispatch decides emphasis, never
     visibility). Never raises.
     """
-    failed = {"pearson_r": None, "pearson_p": None, "spearman_rho": None,
+    failed = {"detected": False, "pearson_r": None, "pearson_p": None, "spearman_rho": None,
               "spearman_p": None, "n": None, "preferred": None,
               "n_zero_excluded": None}
     try:
@@ -946,7 +953,7 @@ def finding_distribution(values, unit=None):
     the summary — a min of $0.00 from unrecorded prices is an encoding,
     not the distribution's floor. Never raises.
     """
-    failed = {"n": None, "mean": None, "median": None, "std": None, "mad": None,
+    failed = {"detected": False, "n": None, "mean": None, "median": None, "std": None, "mad": None,
               "skew": None, "p25": None, "p75": None, "min": None, "max": None,
               "distinct_share": None, "modal_share": None,
               "n_zero_excluded": None}
@@ -989,7 +996,7 @@ def finding_share(parts, total=None):
     narrated shares dropping the residual was the 58%+8.3% waterfall that
     didn't sum. Never raises.
     """
-    failed = {"shares_pct": None, "residual_pct": None, "sums_to_100": None}
+    failed = {"detected": False, "shares_pct": None, "residual_pct": None, "sums_to_100": None}
     try:
         clean = {str(k): safe_float(v) for k, v in dict(parts).items()}
         clean = {k: v for k, v in clean.items() if v is not None}
@@ -1027,7 +1034,7 @@ def finding_superlative(labels, values, counts=None, kind="max", unit=None):
     "thin_periods_skipped", "thin_bar", "n_zero_excluded"}; degenerate
     input all-None. Never raises.
     """
-    failed = {"period": None, "value": None, "n": None, "raw_period": None,
+    failed = {"detected": False, "period": None, "value": None, "n": None, "raw_period": None,
               "raw_value": None, "raw_n": None, "thin_periods_skipped": None,
               "thin_bar": None, "bar_relaxed": None, "label_is_catchall": None,
               "n_zero_excluded": None}
@@ -1084,7 +1091,7 @@ def finding_split_comparison(labels, values, split_at=None, unit=None):
     "late_n", "early_span", "late_span", "multiplier", "n_zero_excluded"};
     degenerate input returns all-None. Never raises.
     """
-    failed = {"early_median": None, "late_median": None, "early_n": None,
+    failed = {"detected": False, "early_median": None, "late_median": None, "early_n": None,
               "late_n": None, "early_span": None, "late_span": None,
               "multiplier": None, "n_zero_excluded": None}
     try:
@@ -1186,7 +1193,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
     a trailing $0.00 year can neither be the endpoint nor latest_*; the
     screen is reported as n_zero_excluded. Never raises.
     """
-    failed = {"period": None, "value": None, "pct_from_peak": None,
+    failed = {"detected": False, "period": None, "value": None, "pct_from_peak": None,
               "direction": None, "excluded_trailing": None,
               "excluded_reason": None, "latest_period": None,
               "latest_value": None, "latest_n": None, "n_zero_excluded": None}
@@ -1373,7 +1380,7 @@ def finding_heterogeneity(groups, unit=None):
     values (one policy per measure, never per group) and applied to every
     group; the screen is reported as n_zero_excluded.
     """
-    failed = {"significant": None, "p_value": None, "test": "anova",
+    failed = {"detected": False, "significant": None, "p_value": None, "test": "anova",
               "group_ns": None, "n_zero_excluded": None}
     try:
         norm = []

@@ -799,6 +799,49 @@ class TestFindingStatHelpers(unittest.TestCase):
             out = finding_superlative([label, "Zed"], [10.0, 1.0], counts=[9.0, 9.0])
             self.assertIs(out["label_is_catchall"], expected, msg=label)
 
+    def test_non_detections_declare_themselves(self):
+        # Spec finding-field-roles-2026-08-13 §2.M3: a looked-and-found-
+        # nothing result carries "detected": False IN the value, so the
+        # projection can withhold its secondary numbers. Run 77051c9d
+        # narrated a null step-change's baseline_spread (a scale reference)
+        # as "the sharpest jump between consecutive days" — a number the
+        # composer was only offered because non-detection was invisible.
+        from .findings import (finding_step_change, finding_trend,
+                               finding_split_comparison)
+
+        # The legitimate no-persist branch: real data, no persistent step.
+        flat = [100.0, 101.0, 99.0, 100.5, 100.0, 99.5, 100.2, 100.1]
+        step = finding_step_change(flat, list(range(len(flat))),
+                                   [50.0] * len(flat))
+        self.assertIsNone(step["period"])
+        self.assertIs(step["detected"], False)
+        # baseline_spread stays IN the value (the claim is inspectable);
+        # withholding happens at the projection, not here.
+        self.assertIn("baseline_spread", step)
+
+        # Degenerate input: the failed dict also declares itself.
+        self.assertIs(finding_trend([], [])["detected"], False)
+        self.assertIs(finding_split_comparison([], [])["detected"], False)
+
+        # A DETECTED result never carries the key: absence means found.
+        stepped = [10.0] * 6 + [50.0] * 6
+        found = finding_step_change(stepped, list(range(12)), [100.0] * 12)
+        self.assertIsNotNone(found["period"])
+        self.assertNotIn("detected", found)
+
+    def test_detected_survives_the_dict_spread(self):
+        # THE transport property the design rests on (and the reason the
+        # rejected Claim-subclass design could never work): generated code
+        # routinely rebuilds helper dicts — {**step, "extra": 1} — and a
+        # metadata side-channel dies there. Data in the value does not.
+        flat = [100.0, 101.0, 99.0, 100.5, 100.0, 99.5, 100.2, 100.1]
+        step = finding_step_change(flat, list(range(len(flat))),
+                                   [50.0] * len(flat))
+        rebuilt = {**step, "note": "rebuilt by generated code"}
+        self.assertIs(rebuilt["detected"], False)
+        import json
+        self.assertIs(json.loads(json.dumps(rebuilt))["detected"], False)
+
     def test_attestation_bar_resists_a_sparse_tail_without_over_correcting(self):
         # The 178.8-bar failure (menu-price review): many sparse years drag
         # the PERIOD median down, letting a 382-item final year headline a

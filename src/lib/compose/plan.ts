@@ -148,7 +148,23 @@ export function validateNodeText(text: string, refs: string[], findings: Finding
         break;
       }
     }
-    if (!ok) errors.push(`binding ${m[0]}: field "${rest}" does not exist on "${f.name}"`);
+    if (!ok) {
+      errors.push(`binding ${m[0]}: field "${rest}" does not exist on "${f.name}"`);
+      continue;
+    }
+    // Boolean gate (specs/finding-field-roles-2026-08-13.md §2.M2): a
+    // yes/no flag has no word that belongs in a sentence slot — the
+    // resolver refuses it downstream and the sentence used to strip,
+    // which is how "spend shares sum to $finding:x.sums_to_100 of the
+    // statement" became an EMPTY node (run f47eb42d). Rejected HERE, at
+    // authoring time, the planner retries with an actionable message —
+    // enforcement, not detection. String verdicts (direction,
+    // excluded_reason, preferred) remain bindable by design.
+    if (typeof v === "boolean") {
+      errors.push(
+        `binding ${m[0]} resolves to a yes/no flag — state the fact in words (e.g. "shares sum to 100%") instead of binding the flag`
+      );
+    }
   }
   return errors;
 }

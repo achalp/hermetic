@@ -220,13 +220,19 @@ describe("inline sentinel/boolean refusal — value-aware, at the resolver seam"
     expect(out).not.toContain("$finding");
   });
 
-  // Run 77051c9d shipped: "…a kruskal wallis test puts a p-value of 0.0011 on
-  // whether these category totals differ by more than chance, spanning group
-  // sizes of " — an 11-entry group_ns blew past renderSmallDictInline's 6-leaf
-  // bar, fell through to the FINAL SWEEP (which replaces a token with "" and
-  // never strips the sentence), and left the clause hanging. Refusing through
-  // the marker takes the whole sentence instead.
-  it("takes the whole sentence when an oversized dict refuses, not just the token", () => {
+  // Two real runs, two opposite failures out of the same branch:
+  //   77051c9d — an 11-entry group_ns swept to "", leaving "…spanning group
+  //     sizes of " hanging mid-clause.
+  //   f47eb42d — routing that case through REFUSAL_MARKER instead deleted the
+  //     whole sentence, and because these nodes are often ONE sentence it
+  //     deleted the node: that run shipped an EMPTY ANSWER (shares_pct, an
+  //     11-entry map) and an empty trend EXPLAIN (slope_ci95, a 2-element
+  //     array).
+  // A missing answer is worse than an ugly clause, so the marker route is
+  // reverted and this pins the safer of the two. Both are workarounds — these
+  // values are ordinary English and belong in the value renderer
+  // (specs/finding-field-roles-2026-08-13.md), which supersedes this test.
+  it("keeps the surrounding sentence when an oversized dict cannot render inline", () => {
     const groupNs = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`group_${i}`, i + 1]));
     const line =
       '{"content": "Categories differ by more than chance, spanning group sizes of $finding:segment_heterogeneity.group_ns. The largest single charge was elsewhere."}';
@@ -234,25 +240,39 @@ describe("inline sentinel/boolean refusal — value-aware, at the resolver seam"
       line,
       {},
       {},
-      {
-        segment_heterogeneity: { group_ns: groupNs },
-      }
+      { segment_heterogeneity: { group_ns: groupNs } }
     );
-    expect(out).not.toContain("spanning group sizes of");
+    // The token never leaks...
     expect(out).not.toContain("$finding");
-    // The unrelated sentence beside it survives.
+    // ...but neither sentence is deleted — a node that is one sentence must
+    // not become an empty node.
+    expect(out).toContain("Categories differ by more than chance");
     expect(out).toContain("The largest single charge was elsewhere.");
   });
 
-  it("still renders a SMALL flat dict inline rather than refusing", () => {
+  // The f47eb42d shape reduced: a single-sentence node whose only defect is an
+  // unrenderable binding must still render prose.
+  it("never empties a single-sentence node over an unrenderable binding", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Daily spend moved in a $finding:t.direction direction, with a confidence interval of $finding:t.slope_ci95."}',
+      {},
+      {},
+      { t: { direction: "flat", slope_ci95: [-11.15, 11.51] } }
+    );
+    expect(out).toContain("Daily spend moved in a flat direction");
+    expect(out).not.toContain("$finding");
+    expect(out).not.toMatch(/"content":\s*""/);
+  });
+
+  it("renders a small numeric mapping as ranked prose (value renderer)", () => {
     const out = resolveSpecPlaceholders(
       '{"content": "The split was $finding:weekday_weekend_spend_share.shares_pct overall."}',
       {},
       {},
       { weekday_weekend_spend_share: { shares_pct: { weekday: 87.1, weekend: 12.9 } } }
     );
-    expect(out).toContain("weekday: 87.1");
-    expect(out).toContain("weekend: 12.9");
+    // "k at v" prose, ranked, with the _pct key-name convention supplying %.
+    expect(out).toContain("weekday at 87.1% and weekend at 12.9%");
   });
 
   it("keeps meaningful words inline and booleans in whole-value form", () => {
@@ -512,27 +532,72 @@ describe("field-name units — pct_from_peak renders with % (run-15 leak)", () =
   });
 });
 
-describe("inline small-dict rendering — the vanished caveat (run-26)", () => {
-  it("renders a flat mapping as prose instead of sweeping it to nothing", () => {
+describe("inline value rendering — the vanished caveat (run-26) and the value renderer", () => {
+  it("renders a flat mapping as ranked prose instead of sweeping it to nothing", () => {
     const out = resolveSpecPlaceholders(
       '{"content": "Thin decades flagged by the analysis: $finding:thin_decades.value."}',
       {},
       {},
       { thin_decades: { value: { "2010s": 2, "1870s": 1 } } }
     );
-    expect(out).toContain("Thin decades flagged by the analysis: 2010s: 2, 1870s: 1.");
+    expect(out).toContain("Thin decades flagged by the analysis: 2010s at 2 and 1870s at 1.");
   });
 
-  it("still refuses large or nested objects inline", () => {
-    const big = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, i]));
+  it("renders a LARGE numeric mapping ranked with the minimum surfaced", () => {
+    // 77051c9d's group_ns shape: 11 groups, the thin ones (n = 2) are the
+    // point of the disclosure — the renderer names the minimum, so "8
+    // others" can never hide the n = 2 group the caveat is about.
     const out = resolveSpecPlaceholders(
-      '{"content": "Breakdown: $finding:big.value in detail. Next sentence stands."}',
+      '{"content": "Group sizes: $finding:het.group_ns."}',
       {},
       {},
-      { big: { value: big } }
+      {
+        het: {
+          group_ns: {
+            Other: 45,
+            "Online Shopping": 18,
+            Groceries: 15,
+            Dining: 12,
+            Coffee: 9,
+            Gas: 8,
+            Retail: 7,
+            Healthcare: 6,
+            Parking: 5,
+            Membership: 3,
+            Utilities: 2,
+          },
+        },
+      }
     );
-    expect(out).not.toContain("k0");
-    expect(out).toContain("Next sentence stands.");
+    expect(out).toContain("Other at 45, Online Shopping at 18, Groceries at 15");
+    expect(out).toContain("down to Utilities at 2");
+    expect(out).toContain("with 7 more in between");
+    expect(out).not.toContain("$finding");
+  });
+
+  it("renders a 2-element numeric array as an interval", () => {
+    // f47eb42d's slope_ci95 — refusing this emptied a whole EXPLAIN node.
+    const out = resolveSpecPlaceholders(
+      '{"content": "with a confidence interval of $finding:t.slope_ci95, the trend holds."}',
+      {},
+      {},
+      { t: { slope_ci95: [-11.152661322587706, 11.50571865863085] } }
+    );
+    expect(out).toContain("-11.1527 to 11.5057");
+    expect(out).toContain("the trend holds.");
+  });
+
+  it("renders a short scalar sequence as a list", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Excluded years: $finding:s.excluded."}',
+      {},
+      {},
+      { s: { excluded: [1966, 1972, 1981] } }
+    );
+    expect(out).toContain("Excluded years: 1966, 1972 and 1981.");
+  });
+
+  it("still refuses genuinely unspeakable values without deleting the sentence", () => {
     const nested = resolveSpecPlaceholders(
       '{"content": "Shape: $finding:n.value here. After."}',
       {},
@@ -540,6 +605,9 @@ describe("inline small-dict rendering — the vanished caveat (run-26)", () => {
       { n: { value: { a: { b: 1 } } } }
     );
     expect(nested).not.toContain("[object");
+    expect(nested).not.toContain("$finding");
+    // The sentence survives, token-stripped — never deleted (run f47eb42d).
+    expect(nested).toContain("Shape:");
     expect(nested).toContain("After.");
   });
 });

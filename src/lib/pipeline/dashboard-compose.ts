@@ -43,6 +43,8 @@ import {
 import { lintComponentSignature } from "@/lib/product/signatures";
 import { getComposerMode } from "@/lib/runtime-config";
 import { compileDashboard } from "@/lib/compose/compile";
+import { realizeNodeTemplate } from "@/lib/compose/realizer";
+import { recordFailure } from "@/lib/diagnostics/failure-log";
 import { generatePlan as generateNarrativePlan } from "@/lib/compose/planner";
 import { deriveViews, viewPromptTitle } from "@/lib/compose/views";
 import type { PlanDocument, PlanOverlay } from "@/lib/contracts/plan";
@@ -1082,6 +1084,79 @@ export async function composeAndStreamDashboard(args: {
     }
 
     if (compiledPlanDoc) args.onPlanDocument?.(compiledPlanDoc);
+
+    // ── Post-render invariants (specs/finding-field-roles-2026-08-13.md §2.M5) ──
+    // Plan validation guarantees the credibility floor at AUTHORING time;
+    // nothing used to re-check after resolution, and run f47eb42d shipped a
+    // document whose ANSWER resolved to "" (its one sentence bound an
+    // unrenderable value and was stripped). The verifier saw it and was
+    // advisory. Here, after the full compiled document has been finalized:
+    // any plan node whose element resolved EMPTY degrades to its
+    // deterministic template (findings-bound, cannot be empty for
+    // resolvable refs), re-finalized through the same processLine path so
+    // resolution, lints and citation tracking all apply. An ANSWER that is
+    // STILL empty is a structural failure — recorded, never shipped silent.
+    // Snapshot through a widened alias: TS's flow analysis cannot see the
+    // assignment inside the lazily-evaluated generator above, so reading
+    // `compiledPlanDoc` here narrows to `null` (and `never` under a truthy
+    // guard). The declared type is the truth.
+    const planDoc: PlanDocument | null = compiledPlanDoc as PlanDocument | null;
+    if (planDoc) {
+      const manifestByName = new Map(
+        (opts.findings?.manifest.findings ?? []).map((f) => [f.name, f])
+      );
+      const emptyPlanNodeIds = new Set<string>();
+      for (const patch of composedPatches) {
+        const path = typeof patch.path === "string" ? patch.path : "";
+        const nodeId = path.startsWith("/elements/") ? path.slice("/elements/".length) : "";
+        if (!planDoc.plan.nodes.some((pn) => pn.id === nodeId)) continue;
+        const el = patch.value as { type?: unknown; props?: { content?: unknown } } | undefined;
+        if (!el || typeof el !== "object") continue;
+        if (el.type !== "TextBlock" && el.type !== "Annotation") continue;
+        const content = el.props?.content;
+        if (typeof content === "string" && content.trim() === "") emptyPlanNodeIds.add(nodeId);
+      }
+      for (const node of planDoc.plan.nodes) {
+        if (!emptyPlanNodeIds.has(node.id)) continue;
+        // Riders untracked here on purpose: this node's first rendering
+        // stripped, so its claims' riders never reached the reader.
+        const template = realizeNodeTemplate(node, manifestByName);
+        const replacement = template?.trim() ? template : null;
+        if (replacement) {
+          const line = JSON.stringify({
+            op: "replace",
+            path: `/elements/${node.id}/props/content`,
+            value: replacement,
+          });
+          const finalized = processLine(line);
+          if (finalized !== null) {
+            emitPatch(finalized);
+            proseLintIssues.set(`empty_node_degraded:${node.id}`, {
+              kind: "empty_node_degraded",
+              detail: `${node.op} node resolved empty — degraded to its deterministic template`,
+            });
+            logger.warn("Compiled node resolved empty — degraded to template", {
+              nodeId: node.id,
+              op: node.op,
+            });
+            continue;
+          }
+        }
+        if (node.op === "ANSWER") {
+          logger.error("ANSWER node empty after template degradation", { nodeId: node.id });
+          void recordFailure({
+            stage: "compose",
+            kind: "compose",
+            errorClass: "compose_answer_missing",
+            detail: `ANSWER ${node.id} resolved empty and no template realization was possible (refs: ${node.refs.join(", ")})`,
+          });
+          proseLintIssues.set("compose_answer_missing", {
+            kind: "no_narrative",
+            detail: "the ANSWER resolved empty and could not be re-realized",
+          });
+        }
+      }
+    }
 
     // Warn-only: flag components that read a /computed/<key> nothing produces —
     // they render empty (blank table/map). Tracked in logs, spec left untouched.

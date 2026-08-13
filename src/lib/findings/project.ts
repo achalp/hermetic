@@ -27,8 +27,13 @@ function leafFields(value: unknown): string[] | undefined {
   // field name will bind it, the null then gets refused, the sentence
   // stripped, and a repair pass burned — making null bindings impossible
   // at the projection beats refusing them at the resolver (run-24).
+  // BOOLEAN leaves are excluded for the same reason (spec
+  // finding-field-roles §2.M2): a flag has no word for a sentence slot —
+  // "spend shares sum to Yes" — and the planner cannot bind what it is
+  // never offered. Flags are stated in words or branched on host-side;
+  // validatePlan rejects a boolean binding as the enforcing layer.
   const keys = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== null && v !== undefined)
+    .filter(([, v]) => v !== null && v !== undefined && typeof v !== "boolean")
     .map(([k]) => k);
   return keys.length > 0 ? keys : undefined;
 }
@@ -51,6 +56,13 @@ function leafFields(value: unknown): string[] | undefined {
  * So the projection now says the quiet part: `detected: false`, and no
  * value_fields at all. The planner cannot misuse a number it never receives,
  * and the realizer's own template already narrates non-detection correctly.
+ *
+ * DEMOTED (spec finding-field-roles-2026-08-13 §2.M3): the claim functions
+ * now declare `"detected": False` in the value itself on their null-result
+ * branches, and isNonDetection reads that first. This table remains ONLY as
+ * the fallback for legacy envelopes recorded before the key existed — every
+ * run on disk at the time of the change. Do not extend it for new dtypes;
+ * declare the property at the producer instead.
  */
 const PRIMARY_RESULT_FIELDS: Record<string, string[]> = {
   step_change: ["period", "delta"],
@@ -67,15 +79,27 @@ const PRIMARY_RESULT_FIELDS: Record<string, string[]> = {
   decomposition: ["components"],
 };
 
-/** True when every primary field for this dtype is null/absent — i.e. the
- *  claim reports a non-detection. Unknown dtypes never qualify (a dtype we
- *  have no primary map for must not be silently blanked). */
+/** True when the claim reports a non-detection — the analysis LOOKED and
+ *  found nothing (no step change, no peak, no correlation).
+ *
+ *  Two tiers (spec finding-field-roles-2026-08-13 §2.M3):
+ *   1. PRODUCER-DECLARED: the claim function set `"detected": false` in the
+ *      value on its null-result branch. This is data, so it survives
+ *      to_native, {**spread}, JSON, and investigate namespacing — the
+ *      transport a metadata side-channel could never guarantee.
+ *   2. LEGACY FALLBACK (demoted, kept for every envelope predating the
+ *      key): all of the dtype's primary result fields are null. This
+ *      host-side table re-derives what the producer knows and exists ONLY
+ *      for old records; new claims should never need it.
+ *  Unknown dtypes without the declared key never qualify (a dtype we have
+ *  no primary map for must not be silently blanked). */
 export function isNonDetection(entry: FindingEntry): boolean {
-  const primary = PRIMARY_RESULT_FIELDS[entry.dtype];
-  if (!primary) return false;
   const v = entry.value;
   if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
   const obj = v as Record<string, unknown>;
+  if (obj.detected === false) return true;
+  const primary = PRIMARY_RESULT_FIELDS[entry.dtype];
+  if (!primary) return false;
   // Only claims that actually CARRY these fields can be non-detections; a
   // value shaped nothing like the map is a different claim, not an empty one.
   const present = primary.filter((k) => k in obj);
