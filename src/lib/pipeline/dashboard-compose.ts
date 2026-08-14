@@ -863,6 +863,7 @@ export async function composeAndStreamDashboard(args: {
           model: uiComposeModel,
           purpose: opts.purpose,
           views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
+          series: modeProduct.series,
         });
         compiledPlanDoc = {
           plan,

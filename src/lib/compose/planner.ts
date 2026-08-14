@@ -20,7 +20,11 @@ import {
   planBudget,
   salvagePlan,
   validatePlan,
+  type PlanContext,
 } from "./plan";
+import { COMPONENT_ROLE_SIGNATURES, seriesKindOf } from "@/lib/product/signatures";
+import { P1_COMPILABLE } from "./view-compilers";
+import type { SeriesEntry } from "@/lib/contracts/product";
 
 const PlannerResponse = z.object({
   nodes: z
@@ -30,11 +34,44 @@ const PlannerResponse = z.object({
         refs: z.array(z.string()).default([]),
         text: z.string().optional(),
         anchor: z.string().optional(),
+        component: z.string().optional(),
+        series: z.string().optional(),
       })
     )
     .min(1)
     .max(32),
 });
+
+/** Series summary the planner sees (values-blind: ids, kinds, column NAMES,
+ *  and row counts — never values). */
+export interface PlannerSeriesInfo {
+  id: string;
+  kind: string;
+  xKind: string;
+  columns: string[];
+  measures: number;
+  rows: number;
+}
+
+/** The VIEW catalog — GENERATED from the signature registry so the prompt
+ *  and the licensing rules cannot drift (compiled-view-parity §5). Only
+ *  compilable components are offered. */
+export function buildViewCatalog(): string {
+  const lines: string[] = [];
+  for (const name of [...P1_COMPILABLE].sort()) {
+    const sig = COMPONENT_ROLE_SIGNATURES[name];
+    if (!sig || sig.feeds === "none") continue;
+    const needs: string[] = [];
+    if (sig.feeds === "claim") needs.push(`${(sig.dtypes ?? []).join("/")} claim via refs`);
+    else {
+      needs.push(`${(sig.seriesKinds ?? ["axis"]).join("/")} series`);
+      if (sig.xKinds) needs.push(`${sig.xKinds.join("/")} x`);
+      if (sig.minMeasures) needs.push(`${sig.minMeasures}+ measures`);
+    }
+    lines.push(`- ${name} (${needs.join(", ")}): ${sig.when ?? ""}`);
+  }
+  return lines.join("\n");
+}
 
 /** Planner system prompt for a style — the node budget and depth directive
  *  are the PURPOSE dimension of compiled composition (plan.ts
@@ -57,7 +94,11 @@ Rules:
 - NEVER bind a yes/no field (passed, significant, sums_to_100, weighted...) — a flag is not a word. Each claim's boolean verdicts appear under "verdicts": state them in WORDS and never contradict them — "significant": false means the difference is NOT statistically significant (say so, or stay silent on significance; asserting it is fabrication). A binding to a flag field is REJECTED.
 - NEVER guess the BASIS of a share/percentage binding: "of spend", "of transactions", "of revenue" may be written ONLY when the field's name or its claim's definition states that basis. A field named "other_share_pct" states no basis — a count share narrated as "34.6% of spend" is a fabrication when the spend share is 23.5%. With no stated basis, call it a share plain ("34.6% share") and let the claim's definition carry the meaning.
 - A MAPPING field (shares_pct, group_ns, per-group dicts) renders as a full ranked enumeration — "Other at 23.5%, ..., down to Utilities at 1.1%". Bind one ONLY where an enumeration belongs ("spend breaks down as $finding:x.shares_pct"), never in a slot expecting a single figure ("the leading category holds ___ of spend" needs prose or a scalar field, not the whole map), and never twice in one document — say it once, reference it in words after.
-- refs use claim names exactly as given. ${budget.guidance}`;
+- A VIEW node REQUESTS a visualization: {"op":"VIEW","component":"<from the catalog>","series":"<declared series id>","text":"Plain-words title"} for series-fed components, or {"op":"VIEW","component":"PieChart","refs":["<claim>"],"text":"..."} for claim-fed ones. You choose the FORM; the system compiles the chart from declared data — you never write props or data. At most ${budget.maxViews} VIEW nodes, ONE per series; a VIEW replaces that series' auto-derived chart, so pick a component that tells the story BETTER than a bar/line would (a geo series deserves a map; a distribution claim deserves its histogram; a share claim its pie/treemap; a decomposition its waterfall). Place each VIEW where the reader should meet it, with an EXPLAIN beside it.
+- refs use claim names exactly as given. ${budget.guidance}
+
+## View catalog (VIEW components and what they consume)
+${buildViewCatalog()}`;
 }
 
 /** The default-style prompt (kept for compatibility/tests). */
@@ -71,13 +112,34 @@ export async function generatePlan(args: {
   purpose?: string;
   /** Shipped views the plan may anchor EXPLAIN/CAVEAT nodes to. */
   views?: { id: string; title: string }[];
+  /** Declared series (compiled-view-parity §5) — VIEW licensing context and
+   *  the values-blind series summary the planner chooses views against. */
+  series?: SeriesEntry[];
 }): Promise<{ plan: Plan; plannerErrors: string[] }> {
   const { projections } = projectManifestForPrompt(args.findings);
+  const ctx: PlanContext = {
+    series: args.series,
+    maxViews: planBudget(args.purpose).maxViews,
+  };
   const viewsSection =
     args.views && args.views.length > 0
       ? `\n\n## Charts (anchor EXPLAIN/CAVEAT nodes to these ids)\n${JSON.stringify(args.views)}`
       : "";
-  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}\n\nWrite the narrative.`;
+  const seriesSection =
+    args.series && args.series.length > 0
+      ? `\n\n## Series (VIEW nodes bind these by id)\n${JSON.stringify(
+          args.series.map((s) => ({
+            id: s.id,
+            kind: seriesKindOf(s),
+            x: s.roles.x.column,
+            xKind: s.roles.x.kind,
+            measures: s.roles.measures.map((m) => m.column),
+            ...(s.roles.group ? { group: s.roles.group.column } : {}),
+            rows: s.rows.length,
+          }))
+        )}`
+      : "";
+  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}${seriesSection}\n\nWrite the narrative.`;
   const errors: string[] = [];
   let feedback = "";
   let lastParsed: Plan | null = null;
@@ -104,7 +166,7 @@ export async function generatePlan(args: {
         nodes: parsed.data.nodes.map((n) => ({ id: nextPlanNodeId(), ...n })),
       };
       lastParsed = plan;
-      const v = validatePlan(plan, args.findings);
+      const v = validatePlan(plan, args.findings, ctx);
       if (v.ok) return { plan, plannerErrors: errors };
       errors.push(...v.errors.map((e) => `attempt ${attempt}: ${e}`));
       feedback = `\n\nYour previous plan was INVALID:\n- ${v.errors.join("\n- ")}\nFix these and respond with only the JSON object.`;
@@ -118,8 +180,8 @@ export async function generatePlan(args: {
   // cliff (one literal year anywhere collapsed the whole authored narrative
   // to templates). Only schema-level wreckage still reaches defaultPlan.
   if (lastParsed) {
-    const { plan: salvaged, repairs } = salvagePlan(lastParsed, args.findings);
-    if (salvaged.nodes.length > 0 && validatePlan(salvaged, args.findings).ok) {
+    const { plan: salvaged, repairs } = salvagePlan(lastParsed, args.findings, ctx);
+    if (salvaged.nodes.length > 0 && validatePlan(salvaged, args.findings, ctx).ok) {
       logger.warn("Planner plan salvaged node-by-node", {
         repairs: repairs.slice(0, 6),
         kept: salvaged.nodes.length,

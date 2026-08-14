@@ -26,7 +26,8 @@ export type PlanOp =
   | "METHOD" // how the analysis was done (grounded in claim definitions)
   | "CONCLUSION" // closing summary (figures bound)
   | "NEXT_STEPS" // suggested follow-ups (framed as actions, never findings)
-  | "LIMITS"; // what this analysis does NOT cover
+  | "LIMITS" // what this analysis does NOT cover
+  | "VIEW"; // a requested visualization (compiled-view-parity spec §2)
 
 export interface PlanNode {
   /** Stable id (ULID-ish) — the overlay and mutations key on it. */
@@ -43,6 +44,13 @@ export interface PlanNode {
    *  the position they caveat. Unknown anchors are ignored (the element
    *  stays in the evidence block). */
   anchor?: string;
+  /** VIEW nodes only (compiled-view-parity spec §2): the requested catalog
+   *  component. Licensed against COMPONENT_ROLE_SIGNATURES at validation;
+   *  props are compiled deterministically — never authored. */
+  component?: string;
+  /** VIEW nodes only: the DECLARED series the view renders (series-fed
+   *  components). Claim-fed components use refs instead. */
+  series?: string;
 }
 
 export interface Plan {

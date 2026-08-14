@@ -342,6 +342,10 @@ export function realizeNode(
   byName: Map<string, FindingEntry>,
   rideredClaims?: Set<string>
 ): string | null {
+  // VIEW nodes are charts, not prose: their text is a TITLE, compiled by
+  // view-compilers — realized as narrative it would print the title as a
+  // sentence. Their refs' riders attach at the first PROSE node instead.
+  if (node.op === "VIEW") return null;
   const authored = node.op !== "CAVEAT" ? node.text?.trim() : undefined;
   const ridersFor = (refs: string[]): string[] => {
     const out: string[] = [];

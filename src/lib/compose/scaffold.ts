@@ -20,7 +20,7 @@ export interface SpecPatchLine {
  *  is the same table this selects from). */
 export function componentForSeries(s: SeriesEntry): "LineChart" | "BarChart" {
   const kind = s.roles.x.kind;
-  const line = COMPONENT_ROLE_SIGNATURES.LineChart.xKinds;
+  const line = COMPONENT_ROLE_SIGNATURES.LineChart.xKinds ?? ["temporal", "ordinal"];
   return line.includes(kind) ? "LineChart" : "BarChart";
 }
 

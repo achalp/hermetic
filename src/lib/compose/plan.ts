@@ -11,6 +11,8 @@ import { z } from "zod";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import type { Plan, PlanNode, PlanOp } from "@/lib/contracts/plan";
 import { resolvePurpose } from "@/lib/purpose-prompts";
+import { COMPONENT_ROLE_SIGNATURES, seriesKindOf } from "@/lib/product/signatures";
+import { P1_COMPILABLE } from "./view-compilers";
 
 export const PLAN_OPS = [
   "ANSWER",
@@ -30,11 +32,17 @@ export const PLAN_OPS = [
   "CONCLUSION",
   "NEXT_STEPS",
   "LIMITS",
+  // Visualization request (compiled-view-parity spec §2): the planner picks
+  // WHICH licensed component tells the story; props are compiled, never
+  // authored.
+  "VIEW",
 ] as const;
 
-/** Ops that stand WITHOUT claim refs: a heading titles what follows, and
- *  next-steps/limits speak about the analysis, not a specific claim. */
-export const REFLESS_OPS = new Set(["SECTION", "NEXT_STEPS", "LIMITS"]);
+/** Ops that stand WITHOUT claim refs: a heading titles what follows,
+ *  next-steps/limits speak about the analysis, not a specific claim, and a
+ *  series-fed VIEW binds a series (claim-fed VIEWs enforce refs in the
+ *  VIEW validator instead). */
+export const REFLESS_OPS = new Set(["SECTION", "NEXT_STEPS", "LIMITS", "VIEW"]);
 /** Ops whose whole content is authored text (no template fallback). */
 export const TEXT_REQUIRED_OPS = new Set([
   "SECTION",
@@ -51,6 +59,9 @@ export const PlanNodeSchema = z.object({
   refs: z.array(z.string()).default([]),
   text: z.string().optional(),
   anchor: z.string().optional(),
+  // VIEW nodes (compiled-view-parity §2): requested component + series.
+  component: z.string().optional(),
+  series: z.string().optional(),
 });
 
 export const PlanSchema = z.object({ nodes: z.array(PlanNodeSchema).min(1).max(32) });
@@ -64,24 +75,31 @@ export const PlanSchema = z.object({ nodes: z.array(PlanNodeSchema).min(1).max(3
  * budget guidance is the compiled analog of the style FORM prompt; maxNodes
  * stays under PlanSchema's structural cap of 24.
  */
-export const PLAN_BUDGETS: Record<string, { maxNodes: number; guidance: string }> = {
+export const PLAN_BUDGETS: Record<
+  string,
+  { maxNodes: number; maxViews: number; guidance: string }
+> = {
   brief: {
     maxNodes: 7,
+    maxViews: 2,
     guidance:
       "4-7 nodes: ANSWER first — the bottom line in plain words. Then ONLY the claims that carry it; CAVEATs for failed checks. Close with a ONE-sentence METHOD (how the analysis was done, from the claims' definitions) and a one-sentence CONCLUSION — even a 30-second read must show how its answer was reached. Cut everything else.",
   },
   dashboard: {
     maxNodes: 12,
+    maxViews: 4,
     guidance:
       "6-12 nodes: ANSWER first, then the findings that matter, CAVEATs anchored to the chart they qualify, at most one CALLOUT for what deserves attention. Close with a compact METHOD (1-2 sentences) and a CONCLUSION — a dashboard without its method reads as unsourced.",
   },
   report: {
     maxNodes: 22,
+    maxViews: 8,
     guidance:
       "12-22 nodes, a COMPLETE document: open with METHOD (how the analysis was done, grounded in the claims' definitions), then SECTION-headed parts each weaving claims into flowing prose with EXPLAIN nodes anchored to their charts, CAVEATs anchored at the position they qualify, then CONCLUSION, NEXT_STEPS, and LIMITS to close. CONTRAST where claims tension.",
   },
   "deep-dive": {
     maxNodes: 28,
+    maxViews: 12,
     guidance:
       "14-28 nodes, an exhaustive document: METHOD up front; SECTION-headed parts; narrate EVERY non-check claim that carries signal — an unnarrated finding is a coverage gap, not brevity; EXPLAIN anchored to every chart; CAVEATs anchored where they apply; CALLOUT for anything that deserves the reader's attention; close with CONCLUSION, NEXT_STEPS, and LIMITS.",
   },
@@ -89,7 +107,11 @@ export const PLAN_BUDGETS: Record<string, { maxNodes: number; guidance: string }
 
 /** The budget for a (possibly legacy/absent) purpose id — resolves through
  *  the same alias table as every other purpose consumer. */
-export function planBudget(purpose?: string): { maxNodes: number; guidance: string } {
+export function planBudget(purpose?: string): {
+  maxNodes: number;
+  maxViews: number;
+  guidance: string;
+} {
   return PLAN_BUDGETS[resolvePurpose(purpose)] ?? PLAN_BUDGETS.dashboard;
 }
 
@@ -171,7 +193,20 @@ export function validateNodeText(text: string, refs: string[], findings: Finding
   return errors;
 }
 
-export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidation {
+/** Optional VIEW-validation context (compiled-view-parity §3): the declared
+ *  series the plan may bind and the purpose's view budget. Callers without
+ *  it (edit path, replay) get structural VIEW checks only — shape licensing
+ *  needs the series. */
+export interface PlanContext {
+  series?: import("@/lib/contracts/product").SeriesEntry[];
+  maxViews?: number;
+}
+
+export function validatePlan(
+  plan: Plan,
+  findings: FindingEntry[],
+  ctx?: PlanContext
+): PlanValidation {
   const errors: string[] = [];
   const parsed = PlanSchema.safeParse(plan);
   if (!parsed.success) {
@@ -181,6 +216,7 @@ export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidati
     };
   }
   const byName = new Map(findings.map((f) => [f.name, f]));
+  errors.push(...validateViewNodes(plan, findings, ctx));
   const answers = plan.nodes.filter((n) => n.op === "ANSWER");
   if (answers.length !== 1) {
     errors.push(
@@ -244,6 +280,99 @@ export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidati
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * VIEW-node licensing (compiled-view-parity spec §3): every VIEW must name
+ * a signed, compilable component and satisfy its data-shape signature —
+ * a mismatch is a parse error the planner retries on, never a rendered
+ * defect. Shape licensing (kind/x-kind/arity) runs only when the caller
+ * supplies the declared series (ctx.series); structural rules always run.
+ */
+function validateViewNodes(plan: Plan, findings: FindingEntry[], ctx?: PlanContext): string[] {
+  const errors: string[] = [];
+  const views = plan.nodes.filter((n) => n.op === "VIEW");
+  if (views.length === 0) return errors;
+  const byName = new Map(findings.map((f) => [f.name, f]));
+  const seriesById = ctx?.series ? new Map(ctx.series.map((s) => [s.id, s])) : undefined;
+  const seen = new Set<string>();
+  for (const n of views) {
+    const sig = n.component ? COMPONENT_ROLE_SIGNATURES[n.component] : undefined;
+    if (!n.component || !sig) {
+      errors.push(`VIEW ${n.id}: unknown component "${n.component ?? ""}"`);
+      continue;
+    }
+    if (sig.feeds === "none") {
+      errors.push(
+        `VIEW ${n.id}: ${n.component} is structural/interactive, not a data view — pick a chart component`
+      );
+      continue;
+    }
+    if (!P1_COMPILABLE.has(n.component)) {
+      const alts = [...P1_COMPILABLE].filter(
+        (c) => COMPONENT_ROLE_SIGNATURES[c]?.family === sig.family
+      );
+      errors.push(
+        `VIEW ${n.id}: ${n.component} is not yet compilable in compiled mode${alts.length > 0 ? ` — nearest available: ${alts.join(", ")}` : ""}`
+      );
+      continue;
+    }
+    if (sig.feeds === "claim") {
+      const claim = n.refs.map((r) => byName.get(r)).find((f) => f !== undefined);
+      if (!claim) {
+        errors.push(`VIEW ${n.id}: ${n.component} renders a claim — refs must name one`);
+        continue;
+      }
+      if (sig.dtypes && !n.refs.some((r) => sig.dtypes!.includes(byName.get(r)?.dtype ?? ""))) {
+        errors.push(
+          `VIEW ${n.id}: ${n.component} renders ${sig.dtypes.join("/")} claims — "${claim.name}" is dtype ${claim.dtype}`
+        );
+      }
+      continue;
+    }
+    // Series-fed.
+    if (!n.series) {
+      errors.push(`VIEW ${n.id}: ${n.component} renders a declared series — set "series"`);
+      continue;
+    }
+    if (seen.has(n.series)) {
+      errors.push(
+        `VIEW ${n.id}: series "${n.series}" already has a VIEW — one view per series; say more in prose instead`
+      );
+      continue;
+    }
+    seen.add(n.series);
+    if (!seriesById) continue; // no series context: structural checks only
+    const s = seriesById.get(n.series);
+    if (!s) {
+      errors.push(`VIEW ${n.id}: series "${n.series}" is not declared`);
+      continue;
+    }
+    const kind = seriesKindOf(s);
+    const wanted = sig.seriesKinds ?? ["axis"];
+    if (!wanted.includes(kind)) {
+      errors.push(
+        `VIEW ${n.id}: ${n.component} consumes a ${wanted.join("/")} series — "${n.series}" is ${kind}`
+      );
+      continue;
+    }
+    if (sig.xKinds && !sig.xKinds.includes(s.roles.x.kind)) {
+      errors.push(
+        `VIEW ${n.id}: ${n.component} renders ${sig.xKinds.join("/")} x axes — "${n.series}" declares ${s.roles.x.kind}`
+      );
+    }
+    if (sig.minMeasures !== undefined && s.roles.measures.length < sig.minMeasures) {
+      errors.push(
+        `VIEW ${n.id}: ${n.component} needs ${sig.minMeasures}+ measures — "${n.series}" declares ${s.roles.measures.length}`
+      );
+    }
+  }
+  if (ctx?.maxViews !== undefined && views.length > ctx.maxViews) {
+    errors.push(
+      `${views.length} VIEW nodes exceed this style's budget of ${ctx.maxViews} — keep the strongest`
+    );
+  }
+  return errors;
+}
+
 /** Document-level mapping-once rule (run 9c415dc8): the full category
  *  ranking rendered verbatim in the ANSWER and again in the EXPLAIN. The
  *  planner prompt forbade it; nothing enforced it. A binding that resolves
@@ -292,12 +421,14 @@ function repeatedMappingBindings(
  */
 export function salvagePlan(
   plan: Plan,
-  findings: FindingEntry[]
+  findings: FindingEntry[],
+  ctx?: PlanContext
 ): { plan: Plan; repairs: string[] } {
   const byName = new Map(findings.map((f) => [f.name, f]));
   const repairs: string[] = [];
   const nodes: PlanNode[] = [];
   const seen = new Set<string>();
+  const viewedSeries = new Set<string>();
   let insightKept = false;
   for (const n of plan.nodes) {
     if (seen.has(n.id)) {
@@ -306,6 +437,22 @@ export function salvagePlan(
     }
     seen.add(n.id);
     const node: PlanNode = { ...n };
+    // VIEW salvage (compiled-view-parity §3): an unlicensed view drops —
+    // the derived floor ships in its place, never a broken chart.
+    if (node.op === "VIEW") {
+      if (node.series && viewedSeries.has(node.series)) {
+        repairs.push(`dropped VIEW ${n.id} — series ${node.series} already viewed`);
+        continue;
+      }
+      const errs = validateViewNodes({ nodes: [node] }, findings, ctx);
+      if (errs.length > 0) {
+        repairs.push(`dropped ${errs[0]}`);
+        continue;
+      }
+      if (node.series) viewedSeries.add(node.series);
+      nodes.push(node);
+      continue;
+    }
     const unknown = node.refs.filter((r) => !byName.has(r));
     if (unknown.length > 0) {
       repairs.push(`node ${n.id} (${n.op}): dropped unknown refs ${unknown.join(", ")}`);

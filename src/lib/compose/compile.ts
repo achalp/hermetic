@@ -11,6 +11,7 @@ import type { Plan, PlanOverlay } from "@/lib/contracts/plan";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
 import { realizeNode } from "./realizer";
 import { failedCheckBanner, tileElement, humanizeId, type SpecPatchLine } from "./scaffold";
+import { compileViewNode } from "./view-compilers";
 import { deriveViews, viewDefaultWidths } from "./views";
 import { deriveAggregatingController, deriveController, rebindViewPatch } from "./controller";
 
@@ -84,8 +85,27 @@ export function compileDashboard(input: CompileInput): string[] {
   // authored narrative citing one claim from three nodes carries the
   // disclosures once, not thrice.
   const rideredClaims = new Set<string>();
+  // VIEW nodes (compiled-view-parity §2): planner-requested components,
+  // compiled here from declared roles/claims. A compiled VIEW SUPPRESSES
+  // the derived primary of its series below — one chart per series, the
+  // planner's choice of form; disclosure variants always survive.
+  const seriesById = new Map(product.series.map((s) => [s.id, s]));
+  const viewedSeries = new Set<string>();
   for (const node of plan.nodes) {
     if (hidden.has(node.id)) continue;
+    if (node.op === "VIEW") {
+      const patch = compileViewNode(
+        node,
+        node.series ? seriesById.get(node.series) : undefined,
+        byName
+      );
+      if (patch) {
+        patches.push(patch);
+        children.push(node.id);
+        if (node.series) viewedSeries.add(node.series);
+      }
+      continue;
+    }
     const text = realizeNode(node, byName, rideredClaims);
     if (!text) continue;
     let value: SpecPatchLine["value"];
@@ -146,6 +166,12 @@ export function compileDashboard(input: CompileInput): string[] {
     purpose: input.purpose,
   });
   let shippedViews = views.filter((v) => (v.shipped || shown.has(v.id)) && !hidden.has(v.id));
+  // Planner-viewed series lose their derived PRIMARY only — coverage
+  // companions, unit splits, and tables are disclosure, not style, and
+  // never compete with the planner's choice.
+  shippedViews = shippedViews.filter(
+    (v) => !(v.kind === "primary" && viewedSeries.has(v.seriesId))
+  );
 
   // Interactivity (controller.ts): a series that DECLARED a group role has
   // named its filterable dimension, so the reader gets the same filter bar

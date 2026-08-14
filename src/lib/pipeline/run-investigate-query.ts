@@ -917,6 +917,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     model: uiComposeModel,
                     purpose: context.purpose,
                     views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
+                    series: investigationProduct.series,
                   });
                   investigatePlanDoc = {
                     plan,
