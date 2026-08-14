@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import { catalogComponents } from "@/lib/catalog";
 import { COMPONENT_ROLE_SIGNATURES, seriesKindOf } from "@/lib/product/signatures";
 import { P1_COMPILABLE } from "@/lib/compose/view-compilers";
+import kindContract from "@/lib/product/series-kind-contract.json";
 
 describe("component signature closure", () => {
   const catalog = Object.keys(catalogComponents);
@@ -35,6 +36,36 @@ describe("component signature closure", () => {
     for (const [name, sig] of Object.entries(COMPONENT_ROLE_SIGNATURES)) {
       if (sig.feeds === "none" || !P1_COMPILABLE.has(name)) continue;
       expect(sig.when, `${name} has no when-clause`).toBeTruthy();
+    }
+  });
+});
+
+describe("series-kind contract closure", () => {
+  it("every seriesKind a signature references exists in the kind contract", () => {
+    const kinds = new Set(Object.keys(kindContract.kinds));
+    for (const [name, sig] of Object.entries(COMPONENT_ROLE_SIGNATURES)) {
+      for (const k of sig.seriesKinds ?? []) {
+        expect(kinds.has(k), `${name} references undeclared series kind "${k}"`).toBe(true);
+      }
+    }
+  });
+
+  it("the host mirror and the P1 inference agree on the closed vocabulary", () => {
+    expect(Object.keys(kindContract.kinds).sort()).toEqual([
+      "axis",
+      "curve",
+      "distribution",
+      "flow",
+      "geo",
+      "hierarchy",
+      "matrix",
+      "ohlc",
+      "span",
+      "vector",
+    ]);
+    // A DECLARED kind flows through seriesKindOf untouched for every kind.
+    for (const k of Object.keys(kindContract.kinds)) {
+      expect(seriesKindOf({ kind: k })).toBe(k);
     }
   });
 });

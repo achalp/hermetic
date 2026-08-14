@@ -45,6 +45,9 @@ const MeasureSchema = z.object({
 
 const SeriesSchema = z.object({
   id: z.string().min(1),
+  // Series SHAPE (compiled-view-parity §4): validated at declaration by the
+  // runtime against series-kind-contract.json; absent = "axis".
+  kind: z.string().optional(),
   rows: z.array(z.record(z.string(), z.unknown())),
   roles: z.object({
     x: z.object({

@@ -1526,5 +1526,77 @@ class TestFieldContractExhaustiveness(unittest.TestCase):
         self.assert_covered(dtypes, "decomposition", fixed)
 
 
+class TestSeriesKinds(unittest.TestCase):
+    """declare_series(kind=...) — compiled-view-parity spec §4: per-kind row
+    contracts, rejection with the gap named (never a silent axis fallback),
+    and the host-side JSON mirror staying identical to the runtime dict."""
+
+    def _declare(self, **kw):
+        args = dict(
+            series_id="s1",
+            rows=[{"name": "A", "v": 1.0}],
+            x=("name", "categorical"),
+            measures=[{"column": "v"}],
+        )
+        args.update(kw)
+        return series.declare_series(**args)
+
+    def test_geo_kind_accepts_lat_lng_and_aliases(self):
+        rows = [{"lat": 47.6, "lng": -122.3, "name": "A", "v": 1.0}]
+        out = self._declare(rows=rows, kind="geo")
+        self.assertIsNotNone(out)
+        self.assertEqual(out["kind"], "geo")
+        alias = [{"latitude": 47.6, "lon": -122.3, "name": "A", "v": 1.0}]
+        self.assertIsNotNone(self._declare(rows=alias, kind="geo"))
+
+    def test_kind_contract_violation_rejects_with_the_gap_named(self):
+        # lat without lng: rejected, not silently demoted to axis.
+        rows = [{"lat": 47.6, "name": "A", "v": 1.0}]
+        self.assertIsNone(self._declare(rows=rows, kind="geo"))
+        self.assertIsNone(self._declare(kind="flow"))  # no source/target/weight
+        self.assertIsNone(self._declare(kind="nonsense"))
+
+    def test_default_and_distribution_kinds_carry_no_extra_requirements(self):
+        out = self._declare()
+        self.assertIsNotNone(out)
+        self.assertNotIn("kind", out)  # axis is implicit
+        dist = self._declare(kind="distribution")
+        self.assertIsNotNone(dist)
+        self.assertEqual(dist["kind"], "distribution")
+
+    def test_every_kind_has_an_acceptable_declaration(self):
+        rows_by_kind = {
+            "axis": [{"name": "A", "v": 1.0}],
+            "geo": [{"lat": 1.0, "lng": 2.0, "name": "A", "v": 1.0}],
+            "distribution": [{"name": "A", "v": 1.0}],
+            "hierarchy": [{"parent": "p", "child": "c", "value": 1.0, "name": "A", "v": 1.0}],
+            "flow": [{"source": "a", "target": "b", "weight": 1.0, "name": "A", "v": 1.0}],
+            "matrix": [{"row": "r", "col": "c", "value": 1.0, "name": "A", "v": 1.0}],
+            "curve": [{"x": 0.1, "y": 0.2, "name": "A", "v": 1.0}],
+            "ohlc": [{"open": 1, "high": 2, "low": 0.5, "close": 1.5, "name": "A", "v": 1.0}],
+            "span": [{"label": "t", "start": 0, "end": 1, "name": "A", "v": 1.0}],
+            "vector": [{"x": 0, "y": 0, "angle": 30, "magnitude": 2, "name": "A", "v": 1.0}],
+        }
+        self.assertEqual(set(rows_by_kind), set(series.SERIES_KIND_CONTRACT))
+        for kind, rows in rows_by_kind.items():
+            out = self._declare(series_id=f"k_{kind}", rows=rows, kind=kind)
+            self.assertIsNotNone(out, f"kind {kind} rejected a conforming declaration")
+
+    def test_contract_mirror_matches_the_host_json(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "src", "lib", "product",
+            "series-kind-contract.json",
+        )
+        if not os.path.exists(path):
+            self.skipTest("series-kind-contract.json not reachable (sandbox image)")
+        with open(path) as fh:
+            mirrored = json.load(fh)["kinds"]
+        self.assertEqual(
+            {k: [list(s) for s in v] for k, v in series.SERIES_KIND_CONTRACT.items()},
+            mirrored,
+            "runtime SERIES_KIND_CONTRACT and src/lib/product/series-kind-contract.json drifted",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

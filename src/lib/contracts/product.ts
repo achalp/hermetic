@@ -52,6 +52,13 @@ export interface SeriesRoles {
 
 export interface SeriesEntry {
   id: string;
+  /** Series SHAPE (compiled-view-parity §4): "geo" | "distribution" |
+   *  "hierarchy" | "flow" | "matrix" | "curve" | "ohlc" | "span" |
+   *  "vector"; absent = "axis". Declared via declare_series(kind=...) and
+   *  validated against series-kind-contract.json by the runtime; the
+   *  licensing layer (seriesKindOf) reads it to decide which components a
+   *  VIEW may bind. */
+  kind?: string;
   rows: Record<string, unknown>[];
   roles: SeriesRoles;
   /** True row count when rows were capped at declaration time. */

@@ -25,6 +25,27 @@ _values_registry = []
 X_KINDS = ("temporal", "ordinal", "categorical")
 ROWS_CAP = 5000
 
+# Series-kind row contracts (specs/compiled-view-parity-2026-08-13.md §4):
+# each kind pins the columns its rows MUST carry — each inner list is one
+# required slot, satisfied by any of its aliases. "axis" (the default) has
+# no extra requirements beyond x + measures. Mirrored at
+# src/lib/product/series-kind-contract.json for the host's licensing layer;
+# test_runtime asserts the two stay identical. An unknown kind or a missing
+# contract column REJECTS the declaration with the exact gap named — never
+# a silent axis fallback (spec review R3).
+SERIES_KIND_CONTRACT = {
+    "axis": [],
+    "geo": [["lat", "latitude"], ["lng", "lon", "longitude"]],
+    "distribution": [],  # the value column is the declared measure
+    "hierarchy": [["parent", "path"], ["child", "name", "label"], ["value"]],
+    "flow": [["source"], ["target"], ["weight", "value"]],
+    "matrix": [["row"], ["col"], ["value"]],
+    "curve": [["x"], ["y"]],
+    "ohlc": [["open"], ["high"], ["low"], ["close"]],
+    "span": [["label", "name"], ["start"], ["end"]],
+    "vector": [["x"], ["y"], ["angle", "u"], ["magnitude", "v"]],
+}
+
 
 def get_series():
     """Snapshot of this run's declared series, in declaration order."""
@@ -96,13 +117,22 @@ def _as_aggregates(spec, measure_column):
     return out
 
 
-def declare_series(series_id, rows, x, measures, count=None, group=None):
+def declare_series(series_id, rows, x, measures, count=None, group=None, kind=None):
     """Declare a tidy series with roles; write_output emits it (and its
     synthesized chart_data view) automatically.
 
     rows      DataFrame or list of row dicts — one observation per row.
     x         {"column": ..., "kind": "temporal"|"ordinal"|"categorical"}
               (a (column, kind) tuple also works).
+    kind      the series SHAPE (default "axis"): "geo" (rows carry lat +
+              lng/lon — licenses map views), "distribution" (rows are raw
+              values of the measure — licenses histogram/box/violin),
+              "hierarchy" (parent+child+value), "flow"
+              (source+target+weight), "matrix" (row+col+value), "curve"
+              (x+y[, lo/hi]), "ohlc", "span" (label+start+end), "vector".
+              A kind whose contract columns are missing from the rows is
+              REJECTED with the gap named — declare the columns, never
+              rely on a fallback.
     measures  list of measure roles: {"column": ..., "unit"?: ...,
               "of"?: finding_name, "screened_by"?: check_name,
               "variant_of"?: other_measure_column,
@@ -134,6 +164,24 @@ def declare_series(series_id, rows, x, measures, count=None, group=None):
         for r in rows:
             if isinstance(r, dict):
                 columns.update(r.keys())
+
+        skind = "axis" if kind is None else str(kind)
+        if skind not in SERIES_KIND_CONTRACT:
+            return _dropped(
+                "series",
+                sid,
+                "unknown series kind '%s' — one of %s" % (skind, sorted(SERIES_KIND_CONTRACT)),
+            )
+        if rows:
+            lowered = {c.lower() for c in columns}
+            for slot in SERIES_KIND_CONTRACT[skind]:
+                if not any(alias in lowered for alias in slot):
+                    return _dropped(
+                        "series",
+                        sid,
+                        "kind '%s' requires a column named one of %s in the rows"
+                        % (skind, "/".join(slot)),
+                    )
 
         xr = _as_role(x)
         if not xr or not isinstance(xr.get("column"), str):
@@ -182,6 +230,8 @@ def declare_series(series_id, rows, x, measures, count=None, group=None):
             roles[role_name] = {"column": cr["column"]}
 
         entry = {"id": sid, "rows": rows, "roles": roles}
+        if skind != "axis":
+            entry["kind"] = skind
         if total > ROWS_CAP:
             entry["rows_total"] = total
         _series_registry.append(entry)

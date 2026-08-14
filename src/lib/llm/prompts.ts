@@ -213,6 +213,17 @@ Your job is to write a single Python script that:
            group=None)                                  # category column for grouped series
    Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point
    at, exactly.
+   SERIES KIND — declare the SHAPE when it is not an ordinary axis series (kind="axis" is
+   the default): kind="geo" (rows carry lat + lng/lon columns — licenses the map views),
+   kind="distribution" (rows are the RAW VALUES of the measure — licenses histogram/box/
+   violin; declare one for the sample behind any distribution finding), kind="hierarchy"
+   (parent+child+value), kind="flow" (source+target+weight), kind="matrix" (row+col+value),
+   kind="curve" (x+y[, lo/hi]), kind="ohlc", kind="span" (label+start+end), kind="vector".
+   A kind whose contract columns are missing is REJECTED with the gap named. GEO ANSWERS
+   DECLARE THE MAP SERIES: when the question is spatial (nearest/farthest/where/densest)
+   or the entities the answer names carry coordinates, declare_series(kind="geo") with
+   lat/lng, a label column, and the measure the answer ranks — the compiled dashboard
+   derives its map FROM THIS SERIES; coordinates left in bare chart_data produce no map.
    AGGREGATION RECIPE — declare it whenever a measure was aggregated FROM the raw table
    (datasets["main"]), so the dashboard can honestly recompute it for a filtered subset:
        measures=[{"column": "churn_rate_pct", "unit": "pct",

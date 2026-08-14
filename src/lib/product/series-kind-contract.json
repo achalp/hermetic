@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "comment": "Series-kind row contracts (compiled-view-parity spec §4). Each kind pins the columns its rows must carry: each inner list is one required slot, satisfied by any alias. MIRROR of SERIES_KIND_CONTRACT in docker/sandbox/hermetic_runtime/series.py — the runtime dict is authoritative for declaration-time validation; test_runtime.py asserts the two are identical, and signatures.test.ts asserts every seriesKind a component signature references exists here.",
+  "kinds": {
+    "axis": [],
+    "geo": [
+      ["lat", "latitude"],
+      ["lng", "lon", "longitude"]
+    ],
+    "distribution": [],
+    "hierarchy": [["parent", "path"], ["child", "name", "label"], ["value"]],
+    "flow": [["source"], ["target"], ["weight", "value"]],
+    "matrix": [["row"], ["col"], ["value"]],
+    "curve": [["x"], ["y"]],
+    "ohlc": [["open"], ["high"], ["low"], ["close"]],
+    "span": [["label", "name"], ["start"], ["end"]],
+    "vector": [["x"], ["y"], ["angle", "u"], ["magnitude", "v"]]
+  }
+}
