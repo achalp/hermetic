@@ -855,9 +855,37 @@ export function resolveSpecPlaceholders(
       recordMiss(m, "inline");
       return "";
     });
+    // A stripped token can leave its introducing function word hanging at a
+    // sentence boundary — "sorted into location types via " shipped in run
+    // 9c415dc8 (the planner bound a 62-leaf dict, the renderer refused it,
+    // the sweep took the token). Trim orphaned function words back to a
+    // clean clause end. Runs ONLY when this call actually stripped a token,
+    // so ordinary prose is never touched (and a sentence ending in a bare
+    // preposition is ungrammatical regardless).
+    processed = trimDanglingFunctionWords(processed);
   }
 
   return stripRefusedSentences(processed);
+}
+
+/** Function words that cannot legally end a sentence — the residue an
+ *  inline token strip leaves behind ("…location types via ", "…drawn
+ *  from ."). Trimmed iteratively so "sorted into via " collapses fully;
+ *  a leading comma before the orphan goes with it. Exported for tests. */
+const DANGLING_FUNCTION_WORD =
+  /(?:,\s*)?\b(?:via|of|into|onto|from|by|with|within|under|over|per|at|in|to|as|for|and|or|the|a|an)\s*(?=[.;:!?]\s|[.;:!?]?\s*(?:\\"|"|$))/;
+
+export function trimDanglingFunctionWords(text: string): string {
+  let out = text;
+  const re = new RegExp(DANGLING_FUNCTION_WORD.source, "g");
+  for (let i = 0; i < 5; i++) {
+    const next = out.replace(re, "");
+    if (next === out) break;
+    out = next;
+  }
+  // Collapse the doubled spaces trimming can leave ("types  .") and any
+  // space stranded before end punctuation.
+  return out === text ? text : out.replace(/ {2,}/g, " ").replace(/ +([.;:!?,])/g, "$1");
 }
 
 /**

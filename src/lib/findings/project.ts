@@ -154,9 +154,21 @@ export function projectFinding(entry: FindingEntry): FindingProjection {
   const nonDetection = isNonDetection(entry);
   const isCheckLike = entry.dtype === "check" || entry.dtype === "screen";
   const baseFields = nonDetection ? undefined : leafFields(entry.value);
+  // Check-like claims offer SCALAR fields only (run 9c415dc8): a check's
+  // dict internals (matched_addresses_by_location — 62 leaves, depth 3) are
+  // audit material, never prose material. Offered anyway, the planner bound
+  // it, the resolver refused it, and the token-strip left "sorted into
+  // location types via " hanging mid-sentence. What the planner is never
+  // offered it cannot dangle.
   const fields =
     !nonDetection && isCheckLike
-      ? [...(baseFields ?? []).filter((f) => f !== "evidence"), ...evidenceFields(entry.value)]
+      ? [
+          ...(baseFields ?? []).filter((f) => {
+            const v = (entry.value as Record<string, unknown>)[f];
+            return typeof v !== "object";
+          }),
+          ...evidenceFields(entry.value),
+        ]
       : baseFields;
   const verdicts = nonDetection ? undefined : verdictFields(entry.value);
   return {

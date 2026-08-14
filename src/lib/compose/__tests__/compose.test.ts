@@ -142,6 +142,62 @@ describe("validatePlan — structural invariants as parse errors", () => {
     expect(validatePlan(p, FINDINGS).ok).toBe(true);
   });
 
+  // Run 9c415dc8: the full category ranking rendered verbatim in the ANSWER
+  // and again in the EXPLAIN. The planner prompt forbade a second mapping
+  // enumeration; this makes it a validation error (and a salvage strip).
+  it("a mapping bound in two nodes rejects the plan; salvage strips the repeat", () => {
+    const withShares = [
+      ...FINDINGS,
+      F("cat_shares", "share", { shares_pct: { Other: 23.5, Groceries: 6.3 }, residual_pct: 5 }),
+    ];
+    const twice = {
+      nodes: [
+        {
+          id: "a",
+          op: "ANSWER" as const,
+          refs: ["cat_shares"],
+          text: "Spend breaks down as $finding:cat_shares.shares_pct.",
+        },
+        {
+          id: "b",
+          op: "NOTE" as const,
+          refs: ["cat_shares"],
+          text: "Shares again: $finding:cat_shares.shares_pct.",
+        },
+      ],
+    };
+    const v = validatePlan(twice, withShares);
+    expect(v.ok).toBe(false);
+    expect(v.errors.join()).toContain("already enumerated");
+    // Salvage: the SECOND node loses its text, the document survives, and
+    // the result validates.
+    const { plan: fixed, repairs } = salvage(twice, withShares);
+    expect(repairs.join()).toContain("re-enumerating");
+    expect(fixed.nodes.find((n) => n.id === "b")?.text).toBeUndefined();
+    expect(validatePlan(fixed, withShares).ok).toBe(true);
+    // A scalar field bound twice stays legal — only mappings enumerate.
+    const scalarTwice = validatePlan(
+      {
+        nodes: [
+          {
+            id: "a",
+            op: "ANSWER",
+            refs: ["price_trend"],
+            text: "Rising at $finding:price_trend.slope_per_period.",
+          },
+          {
+            id: "b",
+            op: "NOTE",
+            refs: ["price_trend"],
+            text: "The slope holds at $finding:price_trend.slope_per_period.",
+          },
+        ],
+      },
+      FINDINGS
+    );
+    expect(scalarTwice.ok).toBe(true);
+  });
+
   it("plan budgets scale with purpose; the planner prompt carries them", () => {
     // The observed gap: a compiled deep-dive computed deep-dive-sized
     // findings, then told a dashboard-sized (4-9 node) story.

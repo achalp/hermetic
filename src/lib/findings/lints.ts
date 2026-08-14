@@ -1761,6 +1761,189 @@ export function lintOutlierDetectorDisagreement(results: Record<string, unknown>
 }
 
 /**
+ * Share-basis mismatch (run 9c415dc8, audit high): the narrative wrote "45
+ * amounting to 34.6% of spend" around evidence.other_share_pct — which is
+ * 45/130, a share of TRANSACTION COUNT. The declared spend share for the
+ * same label ("Other" in category_spend_shares.shares_pct) is 23.5%. The
+ * values-blind planner guessed the basis; nothing in the field name stated
+ * one.
+ *
+ * Value-aware and line-scoped like lintSignificanceMismatch: fires when a
+ * sentence asserts a basis noun ("of spend") around a bound share/pct field
+ * whose value MATERIALLY disagrees with a declared shares mapping that (a)
+ * carries that basis word in its claim name and (b) holds an entry for the
+ * same group label. Registered in the compose SEVERE set — a wrong-basis
+ * share overstates concentration by construction, not by style.
+ */
+const BASIS_NOUN =
+  /\bof\s+(?:the\s+|total\s+|all\s+)*(spend|spending|revenue|sales|dollars|amount|transactions?|records?|rows?|count)\b/i;
+
+export function lintShareBasisMismatch(rawLine: string, findings: FindingEntry[]): FindingIssue[] {
+  if (!rawLine.includes("$finding:")) return [];
+  const issues: FindingIssue[] = [];
+  const byName = new Map(findings.map((f) => [f.name, f]));
+  const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+  for (const m of rawLine.matchAll(/\$finding:([a-zA-Z0-9_.]+)/g)) {
+    const path = m[1];
+    const lastSeg = path.split(".").pop() ?? "";
+    if (!/(share|pct|percent)/i.test(lastSeg)) continue;
+    const owner = names.find((n) => path === n || path.startsWith(`${n}.`));
+    if (!owner) continue;
+    let v: unknown = byName.get(owner)!.value;
+    for (const seg of path.slice(owner.length).replace(/^\./, "").split(".").filter(Boolean)) {
+      v = v !== null && typeof v === "object" ? (v as Record<string, unknown>)[seg] : undefined;
+    }
+    if (typeof v !== "number") continue;
+    const start = Math.max(0, (m.index ?? 0) - 40);
+    const window = rawLine.slice(start, (m.index ?? 0) + m[0].length + 60);
+    const basis = BASIS_NOUN.exec(window)?.[1]?.toLowerCase();
+    if (!basis) continue;
+    // The group label the field is a share OF: its name segments minus the
+    // share vocabulary ("evidence.other_share_pct" → "other").
+    const labelTokens = lastSeg
+      .split("_")
+      .filter((t) => t.length > 2 && !/^(share|pct|percent|ratio|evidence)$/i.test(t));
+    if (labelTokens.length === 0) continue;
+    for (const f of findings) {
+      if (f.name === owner) continue;
+      // Only a shares claim whose NAME carries the asserted basis word can
+      // adjudicate ("of spend" ↔ category_spend_shares).
+      if (!f.name.toLowerCase().includes(basis.replace(/s$/, ""))) continue;
+      const fv = f.value;
+      if (fv === null || typeof fv !== "object" || Array.isArray(fv)) continue;
+      const shares = (fv as Record<string, unknown>).shares_pct;
+      if (shares === null || typeof shares !== "object" || Array.isArray(shares)) continue;
+      for (const [label, pct] of Object.entries(shares as Record<string, unknown>)) {
+        if (typeof pct !== "number") continue;
+        const lab = label.toLowerCase();
+        if (!labelTokens.some((t) => lab.includes(t.toLowerCase()))) continue;
+        if (Math.abs(v - pct) > 3) {
+          issues.push({
+            kind: "share_basis_mismatch",
+            name: owner,
+            detail: `narrative asserts "${basis}" as the basis of ${path} (${v}), but ${f.name} declares the ${basis} share of "${label}" as ${pct} — the bound figure is a share of something else (likely a count); drop the basis word or bind the declared share`,
+          });
+          return issues; // one verdict per line
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+/**
+ * Symmetric subset dedup of surfaced check/screen twins (run 9c415dc8): the
+ * in-surfacer dedup compares (n_flagged, method), so a POORER twin that
+ * lacks the method key dodges it — spend_outlier_evidence_{passed,n_flagged}
+ * surfaced beside spend_outlier_screen_* and the banner said 3 failures
+ * while only 2 caveats rendered (the planner skipped the duplicate, which
+ * then sat in unnarratedFindings). Run AFTER both surfacers: an
+ * auto-surfaced entry whose evidence is a SUBSET of a check/screen
+ * sibling's — equal on every shared key, n_flagged present and equal, at
+ * least one substantive name token shared — is the same computation under
+ * a poorer name. Only auto-surfaced entries are ever dropped; a
+ * model-declared claim is never removed by a lint.
+ */
+export function dedupeSurfacedTwins(findings: FindingEntry[]): {
+  removed: string[];
+  issues: FindingIssue[];
+} {
+  const evOf = (f: FindingEntry): Record<string, unknown> | null => {
+    const v = f.value;
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+    const rec = v as Record<string, unknown>;
+    const ev =
+      rec.evidence !== null && typeof rec.evidence === "object" && !Array.isArray(rec.evidence)
+        ? (rec.evidence as Record<string, unknown>)
+        : rec;
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(ev)) {
+      if (k !== "passed" && (val === null || typeof val !== "object")) out[k] = val;
+    }
+    return out;
+  };
+  const tokens = (name: string) => new Set(name.split(/[._]/).filter((t) => t.length > 3));
+  const checkLike = findings.filter(
+    (f) => (f.dtype === "check" || f.dtype === "screen") && evOf(f) !== null
+  );
+  const removed: string[] = [];
+  const issues: FindingIssue[] = [];
+  for (const a of checkLike) {
+    if (!a.tags?.includes("auto_surfaced")) continue;
+    const evA = evOf(a)!;
+    if (typeof evA.n_flagged !== "number") continue;
+    const ta = tokens(a.name);
+    for (const b of checkLike) {
+      if (b === a || removed.includes(b.name)) continue;
+      const evB = evOf(b)!;
+      if (evB.n_flagged !== evA.n_flagged) continue;
+      if (![...tokens(b.name)].some((t) => ta.has(t))) continue;
+      const keysA = Object.keys(evA);
+      const subset = keysA.every((k) => k in evB && evB[k] === evA[k]);
+      // Strict subset, or equal-evidence twin where the OTHER entry wins by
+      // declaration (a declared twin always beats a surfaced one).
+      const poorer =
+        subset &&
+        (keysA.length < Object.keys(evB).length ||
+          (keysA.length === Object.keys(evB).length && !b.tags?.includes("auto_surfaced")));
+      if (poorer) {
+        removed.push(a.name);
+        issues.push({
+          kind: "duplicate_screen_family",
+          name: a.name,
+          detail: `${a.name} duplicates ${b.name} (same n_flagged ${String(evA.n_flagged)}, evidence a subset of its) — one computation surfaced under two names; the poorer twin is dropped`,
+        });
+        break;
+      }
+    }
+  }
+  return { removed, issues };
+}
+
+/**
+ * Mislabeled average (run 9c415dc8, audit medium): results carried
+ * avg_transaction_spend_usd = 16.64 — the distribution's MEDIAN — beside
+ * mean_transaction_spend_usd = 37.28, two "averages" disagreeing 2×. A key
+ * whose name promises a mean but whose value equals a declared median (and
+ * not the mean) is a mislabeled statistic waiting to anchor a wrong
+ * sentence. Deterministic against declared distribution claims; advisory.
+ */
+export function lintMislabeledAverage(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const closeTo = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.02, Math.abs(b) * 0.005);
+  const dists = findings
+    .map((f) => ({ name: f.name, v: f.value as Record<string, unknown> | null }))
+    .filter(
+      (d) =>
+        d.v !== null &&
+        typeof d.v === "object" &&
+        typeof d.v.median === "number" &&
+        typeof d.v.mean === "number"
+    ) as Array<{ name: string; v: { median: number; mean: number } }>;
+  if (dists.length === 0) return [];
+  const issues: FindingIssue[] = [];
+  for (const [key, val] of Object.entries(results ?? {})) {
+    if (!/(^|_)(avg|average|mean)(_|$)/.test(key) || typeof val !== "number") continue;
+    for (const d of dists) {
+      // Only material splits matter: a symmetric distribution's mean ≈ median
+      // makes the label distinction moot.
+      if (closeTo(d.v.mean, d.v.median)) continue;
+      if (closeTo(val, d.v.median) && !closeTo(val, d.v.mean)) {
+        issues.push({
+          kind: "mislabeled_average",
+          name: d.name,
+          detail: `results.${key} = ${val} equals ${d.name}'s MEDIAN (${d.v.median}) while its mean is ${d.v.mean} — a median labeled as an average; rename the key or fix the computation`,
+        });
+        break;
+      }
+    }
+  }
+  return issues;
+}
+
+/**
  * Auto-surface undeclared SCREENS (run 5872407b): the question asked to
  * "identify outliers", the code ran a rolling-MAD screen and wrote its whole
  * result to bare results keys (spend_transaction_outliers_n_flagged: 17,

@@ -311,6 +311,26 @@ describe("projection — the privacy boundary", () => {
     expect(trend.value_fields).toEqual(["direction", "slope_per_period", "evidence"]);
   });
 
+  // Run 9c415dc8: location_classification_audit carried a 62-leaf nested
+  // dict; offered as a field, the planner bound it, the renderer refused it,
+  // and the strip left "sorted into location types via " mid-sentence. A
+  // check's dict internals are audit material, never prose material.
+  it("check-like projections never offer dict leaves", () => {
+    const p = projectFinding(
+      entry({
+        name: "location_classification_audit",
+        dtype: "check",
+        value: {
+          passed: true,
+          matched_addresses_by_location: { a: { x: 1 }, b: { y: 2 } },
+          spend_count: 130,
+          method: "prefix_match",
+        },
+      })
+    );
+    expect(p.value_fields).toEqual(["spend_count", "method"]);
+  });
+
   it("prompt budget drops WHOLE entries, untagged first, and reports omissions", () => {
     const many = Array.from({ length: 200 }, (_, i) =>
       entry({

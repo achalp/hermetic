@@ -28,6 +28,8 @@ import {
   lintNoChecksDeclared,
   surfaceUndeclaredFailedChecks,
   surfaceUndeclaredScreens,
+  dedupeSurfacedTwins,
+  lintMislabeledAverage,
   lintOutlierDetectorDisagreement,
   lintMethodMismatch,
   lintNullAncestry,
@@ -481,6 +483,15 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             validated.manifest.findings
           );
           validated.manifest.findings.push(...surfacedScreens.added);
+          // Symmetric subset dedup (run 9c415dc8): a poorer twin lacking the
+          // method key dodges the in-surfacer dedup — drop it here, after
+          // both surfacers have run.
+          const twins = dedupeSurfacedTwins(validated.manifest.findings);
+          if (twins.removed.length > 0) {
+            validated.manifest.findings = validated.manifest.findings.filter(
+              (f) => !twins.removed.includes(f.name)
+            );
+          }
           findingsManifest = validated.manifest;
           if (executionResult.runtime_fallback) {
             logger.error("Sandbox runtime fell back to stubs — findings degraded", {
@@ -504,8 +515,13 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...validated.issues,
             ...surfacedChecks.issues,
             ...surfacedScreens.issues,
+            ...twins.issues,
             ...lintOutlierDetectorDisagreement(
               (executionResult.results ?? {}) as Record<string, unknown>
+            ),
+            ...lintMislabeledAverage(
+              (executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
             ),
             ...productIssues,
             ...lintDerivations(validated.manifest.findings),

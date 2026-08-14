@@ -29,6 +29,9 @@ import {
   lintSignificanceMismatch,
   lintOutlierDetectorDisagreement,
   surfaceUndeclaredScreens,
+  dedupeSurfacedTwins,
+  lintShareBasisMismatch,
+  lintMislabeledAverage,
 } from "@/lib/findings/lints";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import { productRolesIndex } from "@/lib/product";
@@ -1212,5 +1215,149 @@ describe("surfaceUndeclaredScreens — a computed screen cannot pass silently (r
         [surfacedCheck]
       ).added
     ).toHaveLength(1);
+  });
+});
+
+// Run 9c415dc8: spend_outlier_evidence_{passed,n_flagged} surfaced beside
+// spend_outlier_screen_* — the poorer twin has no method key, so the
+// in-surfacer (n_flagged, method) dedup missed it. Banner said 3 failures,
+// only 2 caveats rendered, the duplicate sat in unnarratedFindings.
+describe("dedupeSurfacedTwins — subset-evidence twins collapse to the richer entry", () => {
+  const F3 = (name: string, dtype: string, value: unknown, tags?: string[]) =>
+    ({ name, dtype, definition: `${name} definition`, value, tags }) as FindingEntry;
+
+  it("drops an auto-surfaced twin whose evidence is a subset of a sibling's", () => {
+    const poor = F3(
+      "spend_outlier_evidence",
+      "check",
+      { passed: false, evidence: { n_flagged: 17 } },
+      ["check", "caveat", "auto_surfaced"]
+    );
+    const rich = F3(
+      "spend_outlier_screen",
+      "screen",
+      { passed: false, evidence: { n_flagged: 17, method: "rolling_mad", window: 21 } },
+      ["check", "caveat", "auto_surfaced"]
+    );
+    const { removed, issues } = dedupeSurfacedTwins([poor, rich]);
+    expect(removed).toEqual(["spend_outlier_evidence"]);
+    expect(issues[0].kind).toBe("duplicate_screen_family");
+    expect(issues[0].detail).toContain("spend_outlier_screen");
+  });
+
+  it("never removes a model-declared claim, and unrelated screens survive", () => {
+    // Declared poorer twin + surfaced richer twin: nothing is dropped
+    // (declared claims are not a lint's to remove; the surfaced entry
+    // carries MORE evidence, so it is not the poorer one either).
+    const declared = F3("spend_outliers", "screen", { passed: false, evidence: { n_flagged: 17 } });
+    const surfacedRich = F3(
+      "spend_outlier_screen",
+      "screen",
+      { passed: false, evidence: { n_flagged: 17, method: "rolling_mad" } },
+      ["auto_surfaced"]
+    );
+    expect(dedupeSurfacedTwins([declared, surfacedRich]).removed).toEqual([]);
+    // Equal counts but NO shared name token: different computations.
+    const a = F3("txn_screen_alpha", "screen", { passed: false, evidence: { n_flagged: 9 } }, [
+      "auto_surfaced",
+    ]);
+    const b = F3("refund_check", "check", { passed: false, evidence: { n_flagged: 9, k: 3 } });
+    expect(dedupeSurfacedTwins([a, b]).removed).toEqual([]);
+    // Equal-evidence twins where the sibling is DECLARED: surfaced one goes.
+    const surfacedEq = F3(
+      "amount_outliers_screen",
+      "screen",
+      { passed: false, evidence: { n_flagged: 5, method: "iqr" } },
+      ["auto_surfaced"]
+    );
+    const declaredEq = F3("amount_outliers", "screen", {
+      passed: false,
+      evidence: { n_flagged: 5, method: "iqr" },
+    });
+    expect(dedupeSurfacedTwins([surfacedEq, declaredEq]).removed).toEqual([
+      "amount_outliers_screen",
+    ]);
+  });
+});
+
+// Run 9c415dc8 audit high: "45 amounting to 34.6% of spend" — 34.6 is the
+// transaction-count share (45/130); the declared spend share of "Other" is
+// 23.5%. The values-blind planner guessed the basis.
+describe("lintShareBasisMismatch — a share's asserted basis must match a declared share", () => {
+  const audit = {
+    name: "category_assignment_audit",
+    dtype: "check",
+    definition: "audit",
+    value: { passed: false, evidence: { other_count: 45, other_share_pct: 34.6 } },
+  } as FindingEntry;
+  const shares = {
+    name: "category_spend_shares",
+    dtype: "share",
+    definition: "shares of spend by category",
+    value: { shares_pct: { Other: 23.5, Groceries: 6.3 }, residual_pct: 0 },
+  } as FindingEntry;
+
+  it("fires when prose asserts a basis the declared share contradicts", () => {
+    const line =
+      '"content": "A slice of transactions, $finding:category_assignment_audit.evidence.other_count amounting to $finding:category_assignment_audit.evidence.other_share_pct of spend, landed in a catch-all."';
+    const issues = lintShareBasisMismatch(line, [audit, shares]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("share_basis_mismatch");
+    expect(issues[0].detail).toContain("23.5");
+  });
+
+  it("stays quiet when the basis agrees, is absent, or no adjudicating claim exists", () => {
+    // Agreeing basis: binding the declared spend share itself.
+    expect(
+      lintShareBasisMismatch(
+        '"content": "Other holds $finding:category_spend_shares.shares_pct of spend."',
+        [audit, shares]
+      )
+    ).toHaveLength(0);
+    // No basis word around the binding.
+    expect(
+      lintShareBasisMismatch(
+        '"content": "a $finding:category_assignment_audit.evidence.other_share_pct share landed in a catch-all"',
+        [audit, shares]
+      )
+    ).toHaveLength(0);
+    // No shares claim carrying the asserted basis word: nothing adjudicates.
+    expect(
+      lintShareBasisMismatch(
+        '"content": "$finding:category_assignment_audit.evidence.other_share_pct of revenue"',
+        [audit, shares]
+      )
+    ).toHaveLength(0);
+  });
+});
+
+// Run 9c415dc8 audit medium: avg_transaction_spend_usd = 16.64 IS the
+// median (16.635); the mean is 37.28. Two "averages" disagreeing 2×.
+describe("lintMislabeledAverage — an avg key equal to the median is mislabeled", () => {
+  const dist = {
+    name: "spend_transaction_distribution",
+    dtype: "distribution",
+    definition: "distribution",
+    value: { n: 130, mean: 37.2759, median: 16.635, std: 85.157 },
+  } as FindingEntry;
+
+  it("fires on a median wearing an average's name", () => {
+    const issues = lintMislabeledAverage(
+      { avg_transaction_spend_usd: 16.64, mean_transaction_spend_usd: 37.28 },
+      [dist]
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("mislabeled_average");
+    expect(issues[0].detail).toContain("avg_transaction_spend_usd");
+  });
+
+  it("stays quiet for true means and near-symmetric distributions", () => {
+    expect(lintMislabeledAverage({ avg_spend: 37.28 }, [dist])).toHaveLength(0);
+    const symmetric = {
+      ...dist,
+      name: "sym",
+      value: { mean: 10.01, median: 10.0 },
+    } as FindingEntry;
+    expect(lintMislabeledAverage({ avg_x: 10.0 }, [symmetric])).toHaveLength(0);
   });
 });

@@ -37,6 +37,7 @@ import {
   lintCrossStepReconciliation,
   surfaceUndeclaredFailedChecks,
   surfaceUndeclaredScreens,
+  dedupeSurfacedTwins,
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
@@ -732,6 +733,17 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               validated.manifest.findings
             );
             validated.manifest.findings.push(...surfacedScr.added);
+            // Symmetric subset dedup (run 9c415dc8) — after both surfacers.
+            const twins = dedupeSurfacedTwins(validated.manifest.findings);
+            if (twins.removed.length > 0) {
+              validated.manifest.findings = validated.manifest.findings.filter(
+                (f) => !twins.removed.includes(f.name)
+              );
+              logger.warn("investigate findings: duplicate surfaced twins dropped", {
+                stepNo,
+                removed: twins.removed,
+              });
+            }
             if (surfaced.added.length > 0 || surfacedScr.added.length > 0) {
               logger.warn("investigate findings: undeclared checks/screens auto-surfaced", {
                 stepNo,

@@ -234,7 +234,44 @@ export function validatePlan(plan: Plan, findings: FindingEntry[]): PlanValidati
   }
   const insights = plan.nodes.filter((n) => n.op === "INSIGHT");
   if (insights.length > 1) errors.push("at most one INSIGHT node (the quarantined free paragraph)");
+  for (const [nodeId, op, token, firstId] of repeatedMappingBindings(plan, findings)) {
+    errors.push(
+      `node ${nodeId} (${op}): mapping ${token} already enumerated in node ${firstId} — a mapping binding renders as the full ranked enumeration; bind it once and reference it in words after`
+    );
+  }
   return { ok: errors.length === 0, errors };
+}
+
+/** Document-level mapping-once rule (run 9c415dc8): the full category
+ *  ranking rendered verbatim in the ANSWER and again in the EXPLAIN. The
+ *  planner prompt forbade it; nothing enforced it. A binding that resolves
+ *  to a plain-object value renders as a full enumeration — the second node
+ *  to bind it prints the same paragraph twice. Yields
+ *  [nodeId, op, token, firstNodeId] per repeat. */
+function repeatedMappingBindings(
+  plan: Plan,
+  findings: FindingEntry[]
+): Array<[string, string, string, string]> {
+  const names = [...findings].sort((a, b) => b.name.length - a.name.length);
+  const seen = new Map<string, string>();
+  const repeats: Array<[string, string, string, string]> = [];
+  for (const n of plan.nodes) {
+    if (!n.text) continue;
+    for (const m of n.text.matchAll(BINDING_RE)) {
+      const path = m[1];
+      const f = names.find((x) => path === x.name || path.startsWith(x.name + "."));
+      if (!f) continue;
+      let v: unknown = f.value;
+      for (const seg of path.slice(f.name.length).replace(/^\./, "").split(".").filter(Boolean)) {
+        v = v !== null && typeof v === "object" ? (v as Record<string, unknown>)[seg] : undefined;
+      }
+      if (v === null || typeof v !== "object" || Array.isArray(v)) continue;
+      const first = seen.get(m[0]);
+      if (first !== undefined && first !== n.id) repeats.push([n.id, n.op, m[0], first]);
+      else seen.set(m[0], n.id);
+    }
+  }
+  return repeats;
 }
 
 /**
@@ -321,6 +358,26 @@ export function salvagePlan(
       continue;
     }
     nodes.push(node);
+  }
+  // Mapping-once salvage: the degraded floor for a repeat enumeration is
+  // losing the offending node's authored text (and the node itself when its
+  // op cannot speak from a template) — never the document.
+  const repeats = repeatedMappingBindings({ nodes }, findings);
+  if (repeats.length > 0) {
+    const drop = new Set<string>();
+    for (const [nodeId, op, token, firstId] of repeats) {
+      const node = nodes.find((x) => x.id === nodeId);
+      if (!node || node.text === undefined) continue;
+      delete node.text;
+      repairs.push(
+        `node ${nodeId} (${op}): stripped text re-enumerating ${token} (first bound in ${firstId})`
+      );
+      if (node.op === "INSIGHT" || TEXT_REQUIRED_OPS.has(node.op)) drop.add(nodeId);
+    }
+    if (drop.size > 0) {
+      for (const id of drop) repairs.push(`dropped node ${id} — textless after mapping-once strip`);
+      for (let i = nodes.length - 1; i >= 0; i--) if (drop.has(nodes[i].id)) nodes.splice(i, 1);
+    }
   }
   const answers = nodes.filter((n) => n.op === "ANSWER");
   if (answers.length === 0) {

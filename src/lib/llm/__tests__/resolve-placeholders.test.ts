@@ -80,6 +80,31 @@ describe("resolveSpecPlaceholders — never leak an unresolved placeholder", () 
     expect(out).toContain("the threshold was");
     expect(out).toContain("percent");
   });
+
+  // Run 9c415dc8: "with address strings sorted into location types via " —
+  // the planner bound a 62-leaf dict, the renderer refused it, the sweep
+  // took the token and left the preposition hanging at the string's end.
+  it("trims the function word a stripped token leaves dangling", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "with address strings sorted into location types via $result:matched_addresses_by_location"}',
+      {},
+      {}
+    );
+    expect(out).not.toContain("$result:");
+    expect(out).not.toMatch(/via\s*"/);
+    expect(out).toContain("sorted into location types");
+    // Mid-paragraph: the orphan sits before a period, not a quote.
+    const mid = resolveSpecPlaceholders(
+      '{"content": "spend was drawn from $result:ghost_breakdown. The rest held steady."}',
+      {},
+      {}
+    );
+    expect(mid).not.toMatch(/from\s*\./);
+    expect(mid).toContain("The rest held steady.");
+    // Prose WITHOUT a strip is never touched, even if oddly phrased.
+    const untouched = resolveSpecPlaceholders('{"content": "what it adds up to."}', {}, {});
+    expect(untouched).toContain("what it adds up to.");
+  });
 });
 
 describe("$finding resolution (declared-findings spec §4.2)", () => {

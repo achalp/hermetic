@@ -55,6 +55,7 @@ import {
   lintSentinelInterpolation,
   lintSignedLanguage,
   lintSignificanceMismatch,
+  lintShareBasisMismatch,
   lintSuperlativeHidesRaw,
   lintDanglingFindingReference,
 } from "@/lib/findings/lints";
@@ -1051,6 +1052,7 @@ export async function composeAndStreamDashboard(args: {
       ...lintSentinelInterpolation(result.raw, proseLintLookup),
       ...lintSignedLanguage(result.raw, proseLintLookup),
       ...lintSignificanceMismatch(result.raw, proseLintLookup),
+      ...lintShareBasisMismatch(result.raw, opts.findings?.manifest.findings ?? []),
       ...lintComponentSignature(result.raw, composeRolesIdx),
     ]) {
       proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
@@ -1499,6 +1501,10 @@ export async function composeAndStreamDashboard(args: {
         // A false significance claim is a fabricated verdict (run dfe3ea32:
         // "statistically significant" over significant: false) — repairable.
         "significance_mismatch",
+        // A wrong-basis share overstates concentration by construction (run
+        // 9c415dc8: a 34.6% count share narrated as "of spend" over a
+        // declared 23.5% spend share) — repairable.
+        "share_basis_mismatch",
         "zero_count_sentence",
         "empty_interpolation",
         "no_narrative",
