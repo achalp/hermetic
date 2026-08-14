@@ -17,6 +17,7 @@ import {
   MANIFEST_MAX_ENTRIES,
 } from "@/lib/findings";
 import type { FindingEntry } from "@/lib/contracts/findings";
+import { fieldClass, contractDtypes } from "@/lib/findings/field-contract";
 
 const entry = (over: Partial<FindingEntry> = {}): FindingEntry => ({
   name: "churn_rate_trend",
@@ -339,6 +340,50 @@ describe("projection — the privacy boundary", () => {
     );
     expect(hit.detected).toBeUndefined();
     expect(hit.value_fields).toContain("evidence.n_flagged");
+  });
+
+  // Field contract (whack-a-mole postmortem): the closed helper vocabulary
+  // is classified once; the projection consults it. The Python side
+  // (test_runtime.py) asserts every helper-emitted field IS classified —
+  // this side asserts the classes are valid and the count rule holds.
+  it("the field contract is well-formed and drives zero-count suppression", () => {
+    const VALID = new Set([
+      "scalar",
+      "unit_scalar",
+      "period",
+      "verdict",
+      "mapping",
+      "interval",
+      "count",
+      "internal",
+      "evidence",
+    ]);
+    for (const dtype of contractDtypes()) {
+      for (const field of ["value", "n_flagged", "shares_pct", "detected"]) {
+        const cls = fieldClass(dtype, field);
+        if (cls !== undefined) expect(VALID.has(cls), `${dtype}.${field}: ${cls}`).toBe(true);
+      }
+    }
+    expect(fieldClass("superlative", "thin_periods_skipped")).toBe("count");
+    expect(fieldClass("outliers", "outliers")).toBe("internal");
+    expect(fieldClass("screen", "outliers")).toBe("internal"); // alias resolves
+    // A zero count is withheld; a positive one is offered.
+    const zero = projectFinding(
+      entry({
+        name: "peak_no_skips",
+        dtype: "superlative",
+        value: { period: "A", value: 10, n: 9, thin_periods_skipped: 0, thin_bar: 5 },
+      })
+    );
+    expect(zero.value_fields).not.toContain("thin_periods_skipped");
+    const some = projectFinding(
+      entry({
+        name: "peak_skips",
+        dtype: "superlative",
+        value: { period: "A", value: 10, n: 9, thin_periods_skipped: 2, thin_bar: 5 },
+      })
+    );
+    expect(some.value_fields).toContain("thin_periods_skipped");
   });
 
   it("check-like projections never offer dict leaves", () => {

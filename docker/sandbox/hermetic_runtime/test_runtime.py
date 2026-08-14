@@ -1450,5 +1450,81 @@ class TestRun_d82a39ce_Fixes(unittest.TestCase):
         self.assertAlmostEqual(out["pct_from_peak"], round(expected, 2))
 
 
+class TestFieldContractExhaustiveness(unittest.TestCase):
+    """Every field a claim helper can emit is CLASSIFIED in the host-side
+    field contract (src/lib/findings/field-contract.json). Eight audited
+    runs discovered projection rules one incident at a time — booleans,
+    dict leaves, zero counts — for fields knowable at declaration time.
+    This test closes the loop: add a field to a helper and it fails here
+    until the contract classifies it."""
+
+    CONTRACT_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "src", "lib", "findings",
+        "field-contract.json",
+    )
+
+    def _contract(self):
+        if not os.path.exists(self.CONTRACT_PATH):
+            self.skipTest("field-contract.json not reachable (sandbox image)")
+        with open(self.CONTRACT_PATH) as fh:
+            return json.load(fh)["dtypes"]
+
+    def _fields_for(self, dtypes, dtype):
+        entry = dtypes[dtype]
+        if "alias" in entry:
+            entry = dtypes[entry["alias"]]
+        return set(entry.get("fields", {}))
+
+    def assert_covered(self, dtypes, dtype, emitted):
+        allowed = self._fields_for(dtypes, dtype)
+        unclassified = set(emitted) - allowed
+        self.assertFalse(
+            unclassified,
+            f"dtype {dtype}: helper emits unclassified field(s) {sorted(unclassified)} — "
+            f"classify them in src/lib/findings/field-contract.json",
+        )
+
+    def test_every_helper_field_is_classified(self):
+        dtypes = self._contract()
+        labels = list(range(2000, 2012))
+        rising = [float(i * 10 + 5) for i in range(12)]
+        counts = [50] * 12
+        cases = [
+            ("trend", findings.finding_trend(rising, labels=labels, counts=counts, unit="usd")),
+            ("trend", findings.finding_trend([1.0])),  # degenerate branch
+            ("step_change", finding_step_change(rising, labels, counts, unit="usd")),
+            ("step_change", finding_step_change([1.0], [2000], [5])),
+            ("current_state", finding_current_state(rising, labels=labels, counts=counts,
+                                                    unit="usd")),
+            ("current_state", finding_current_state([1.0])),
+            ("superlative", finding_superlative(labels, rising, counts=counts, unit="usd")),
+            ("superlative", finding_superlative([], [])),
+            ("outliers", finding_outliers(labels, rising, unit="usd")),
+            ("outliers", finding_outliers([1], [1.0])),
+            ("correlation", findings.finding_correlation(rising, list(reversed(rising)))),
+            ("correlation", findings.finding_correlation([], [])),
+            ("distribution", findings.finding_distribution(rising, unit="usd")),
+            ("distribution", findings.finding_distribution([])),
+            ("comparison", finding_yoy([f"{y}-{m:02d}" for y in (2010, 2011)
+                                        for m in range(1, 13)], rising * 2, unit="usd")),
+            ("comparison", finding_split_comparison(labels, rising, unit="usd")),
+            ("share", findings.finding_share({"a": 60.0, "b": 40.0})),
+            ("heterogeneity", finding_heterogeneity(
+                {"a": rising, "b": [x * 3 for x in rising]}, unit="usd")),
+            ("heterogeneity", finding_heterogeneity({})),
+        ]
+        for dtype, result in cases:
+            self.assertIsInstance(result, dict, dtype)
+            self.assert_covered(dtypes, dtype, result.keys())
+
+    def test_decompose_open_fields_ride_on_an_open_dtype(self):
+        dtypes = self._contract()
+        out = finding_decompose(10.0, {"volume": 6.0, "rate": 4.0})
+        entry = dtypes["decomposition"]
+        self.assertTrue(entry.get("open"), "decomposition carries model-named terms")
+        fixed = set(out) - {"volume", "rate"}
+        self.assert_covered(dtypes, "decomposition", fixed)
+
+
 if __name__ == "__main__":
     unittest.main()

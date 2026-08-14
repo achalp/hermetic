@@ -61,3 +61,4 @@ test-fixtures/llm/*.miss.json
 
 # MCP embedded viewer build artifact
 src/mcp/viewer/dist/
+batch-evals/

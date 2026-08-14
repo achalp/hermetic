@@ -1,0 +1,541 @@
+{
+  "question": "analyze this statement and categorize spend by category, identify outliers and characterize the month by aspects identifiable.",
+  "findings": {
+    "manifest_version": "1.0",
+    "findings": [
+      {
+        "name": "amount_sign_convention",
+        "definition": "verifies spend transactions are the negative amounts and credits/payments are the non-negative amounts, per the statement's sign convention",
+        "dtype": "check",
+        "value": {
+          "passed": true,
+          "spend_count": 130,
+          "credit_count": 3,
+          "zero_amount_count": 0
+        },
+        "tags": ["check", "caveat"],
+        "code_ref": "script.py:122",
+        "redeclarations": 0
+      },
+      {
+        "name": "location_classification_audit",
+        "definition": "top distinct address strings matched into each location type by substring rules",
+        "dtype": "check",
+        "value": {
+          "passed": true,
+          "matched_addresses_by_location": {
+            "Online (Amazon)": {
+              "Amzn.com/bill WA ": 13,
+              "WWW.AMAZON.CO WA ": 4,
+              "AMAZON.COM/MA WA ": 1
+            },
+            "Other City/CA": {
+              "SAN RAMON     CA ": 10,
+              "San Jose      CA ": 10,
+              "650-723-4000  CA ": 3,
+              "DANVILLE      CA ": 3,
+              "SANTA CLARA   CA ": 3,
+              "SAN JOSE      CA ": 3,
+              "312-329-8245  IL ": 3,
+              "310-7735405   CA ": 3,
+              "San Ramon     CA ": 3,
+              "831-459-4543  CA ": 3
+            },
+            "Local (Santa Cruz)": {
+              "SANTA CRUZ    CA ": 30,
+              "Santa Cruz    CA ": 4
+            },
+            "Online (Other)": {
+              "DOORDASH.COM  CA ": 2,
+              "OPENAI.COM    CA ": 1,
+              "gosq.com      CA ": 1,
+              "NETFLIX.COM   CA ": 1
+            }
+          },
+          "unknown_count": 0
+        },
+        "tags": ["check", "caveat"],
+        "code_ref": "script.py:135",
+        "redeclarations": 0
+      },
+      {
+        "name": "spend_transaction_distribution",
+        "definition": "distribution shape of individual spend transaction amounts across the statement",
+        "dtype": "distribution",
+        "unit": "usd",
+        "value": {
+          "n": 130,
+          "mean": 37.2759,
+          "median": 16.635,
+          "std": 85.157,
+          "mad": 9.775,
+          "skew": 7.64,
+          "p25": 8.5625,
+          "p75": 34.745,
+          "min": 1.41,
+          "max": 871,
+          "distinct_share": 0.923,
+          "modal_share": 0.023,
+          "n_zero_excluded": 0
+        },
+        "derived_from_columns": ["spend_usd"],
+        "tags": ["distribution"],
+        "code_ref": "script.py:157",
+        "redeclarations": 0
+      },
+      {
+        "name": "category_spend_shares",
+        "definition": "share of total spend attributable to each spend category",
+        "dtype": "share",
+        "unit": "pct",
+        "value": {
+          "shares_pct": {
+            "Other": 23.5,
+            "Membership & Dues": 19.6,
+            "Online Shopping": 17.9,
+            "Healthcare": 9.4,
+            "Retail & Shopping": 7.3,
+            "Groceries": 6.3,
+            "Gas & Fuel": 6.2,
+            "Dining & Restaurants": 4.6,
+            "Parking & Transportation": 2.5,
+            "Coffee & Cafe": 1.7,
+            "Utilities & Subscriptions": 1.1
+          },
+          "residual_pct": -0.1,
+          "sums_to_100": true
+        },
+        "derived_from_columns": ["category", "spend_usd"],
+        "tags": ["share"],
+        "code_ref": "script.py:185",
+        "redeclarations": 0
+      },
+      {
+        "name": "top_spend_category",
+        "definition": "spend category with the highest total spend across the statement",
+        "dtype": "superlative",
+        "unit": "usd",
+        "value": {
+          "period": "Other",
+          "value": 1138.4,
+          "n": 45,
+          "raw_period": "Other",
+          "raw_value": 1138.4,
+          "raw_n": 45,
+          "thin_periods_skipped": 2,
+          "thin_bar": 5,
+          "bar_relaxed": false,
+          "label_is_catchall": true,
+          "n_zero_excluded": 0
+        },
+        "derived_from_columns": ["category", "spend_usd"],
+        "tags": ["superlative"],
+        "code_ref": "script.py:196",
+        "redeclarations": 0
+      },
+      {
+        "name": "segment_heterogeneity",
+        "definition": "test for whether individual transaction spend differs significantly across spend categories",
+        "dtype": "heterogeneity",
+        "unit": "usd",
+        "value": {
+          "significant": true,
+          "p_value": 0.0011098350992778986,
+          "test": "kruskal_wallis",
+          "group_ns": {
+            "Online Shopping": 18,
+            "Other": 45,
+            "Healthcare": 6,
+            "Gas & Fuel": 8,
+            "Groceries": 15,
+            "Retail & Shopping": 7,
+            "Dining & Restaurants": 12,
+            "Coffee & Cafe": 9,
+            "Utilities & Subscriptions": 2,
+            "Parking & Transportation": 5,
+            "Membership & Dues": 3
+          },
+          "n_zero_excluded": 0
+        },
+        "derived_from_columns": ["category", "spend_usd"],
+        "tags": ["heterogeneity"],
+        "code_ref": "script.py:208",
+        "redeclarations": 0
+      },
+      {
+        "name": "top_spend_location",
+        "definition": "location type (local Santa Cruz, online, or other) with the highest total spend",
+        "dtype": "superlative",
+        "unit": "usd",
+        "value": {
+          "period": "Other City/CA",
+          "value": 3130.28,
+          "n": 73,
+          "raw_period": "Other City/CA",
+          "raw_value": 3130.28,
+          "raw_n": 73,
+          "thin_periods_skipped": 1,
+          "thin_bar": 6.8,
+          "bar_relaxed": false,
+          "label_is_catchall": false,
+          "n_zero_excluded": 0
+        },
+        "derived_from_columns": ["location_type", "spend_usd"],
+        "tags": ["superlative"],
+        "code_ref": "script.py:233",
+        "redeclarations": 0
+      },
+      {
+        "name": "peak_spend_day_of_week",
+        "definition": "day of week with the highest total spend across the statement",
+        "dtype": "superlative",
+        "unit": "usd",
+        "value": {
+          "period": "Thursday",
+          "value": 1512.49,
+          "n": 25,
+          "raw_period": "Thursday",
+          "raw_value": 1512.49,
+          "raw_n": 25,
+          "thin_periods_skipped": 0,
+          "thin_bar": 5,
+          "bar_relaxed": false,
+          "label_is_catchall": false,
+          "n_zero_excluded": 0
+        },
+        "derived_from_columns": ["day_of_week", "spend_usd"],
+        "tags": ["superlative"],
+        "code_ref": "script.py:259",
+        "redeclarations": 0
+      },
+      {
+        "name": "weekday_weekend_spend_share",
+        "definition": "share of total spend occurring on weekdays versus weekends",
+        "dtype": "share",
+        "unit": "pct",
+        "value": {
+          "shares_pct": {
+            "weekday": 87.1,
+            "weekend": 12.9
+          },
+          "residual_pct": 0,
+          "sums_to_100": true
+        },
+        "derived_from_columns": ["is_weekend", "spend_usd"],
+        "tags": ["share"],
+        "code_ref": "script.py:270",
+        "redeclarations": 0
+      },
+      {
+        "name": "daily_spend_trend",
+        "definition": "OLS direction of daily total spend across the statement period",
+        "dtype": "direction",
+        "unit": "usd",
+        "value": {
+          "direction": "flat",
+          "slope_per_period": -0.16731511129179008,
+          "p_value": 0.9784612117479564,
+          "slope_ci95": [-12.182616362885637, 11.847986140302057],
+          "n_zero_excluded": 0,
+          "weighted": true,
+          "unit": "usd"
+        },
+        "derived_from_columns": ["date_label", "spend_usd"],
+        "tags": ["trend"],
+        "code_ref": "script.py:294",
+        "redeclarations": 0
+      },
+      {
+        "name": "weekly_spend_step_change",
+        "definition": "largest week-over-week level shift in total spend, if it stands out and persists",
+        "dtype": "step_change",
+        "unit": "usd",
+        "value": {
+          "detected": false,
+          "period": null,
+          "delta": null,
+          "direction": null,
+          "baseline_spread": 412.585,
+          "n_zero_excluded": 0
+        },
+        "derived_from_columns": ["week_start", "spend_usd"],
+        "tags": ["step_change"],
+        "code_ref": "script.py:310",
+        "redeclarations": 0
+      },
+      {
+        "name": "largest_single_transaction",
+        "definition": "the single largest individual spend transaction recorded on the statement",
+        "dtype": "superlative",
+        "unit": "usd",
+        "value": {
+          "period": "2026-07-09",
+          "value": 871,
+          "n": null,
+          "raw_period": "2026-07-09",
+          "raw_value": 871,
+          "raw_n": null,
+          "thin_periods_skipped": 0,
+          "thin_bar": null,
+          "bar_relaxed": null,
+          "label_is_catchall": false,
+          "n_zero_excluded": 0
+        },
+        "derived_from_columns": ["date_label", "spend_usd"],
+        "tags": ["superlative"],
+        "code_ref": "script.py:354",
+        "redeclarations": 0
+      },
+      {
+        "name": "category_assignment_audit",
+        "dtype": "check",
+        "definition": "computed by the analysis but never declared as a check \u2014 surfaced so its failure cannot pass silently",
+        "value": {
+          "passed": false,
+          "evidence": {
+            "other_count": 45,
+            "other_share_pct": 34.6
+          }
+        },
+        "tags": ["check", "caveat", "auto_surfaced"]
+      },
+      {
+        "name": "spend_outlier_evidence",
+        "dtype": "check",
+        "definition": "computed by the analysis but never declared as a check \u2014 surfaced so its failure cannot pass silently",
+        "value": {
+          "passed": false,
+          "evidence": {
+            "n_flagged": 17
+          }
+        },
+        "tags": ["check", "caveat", "auto_surfaced"]
+      },
+      {
+        "name": "spend_outlier_screen",
+        "dtype": "screen",
+        "definition": "an outlier screen computed by the analysis but never declared \u2014 surfaced so its result cannot pass silently",
+        "value": {
+          "passed": false,
+          "evidence": {
+            "n_flagged": 17,
+            "method": "rolling_mad",
+            "window": 21,
+            "k": 3.5,
+            "n_zero_excluded": 0
+          }
+        },
+        "tags": ["check", "caveat", "auto_surfaced"]
+      }
+    ]
+  },
+  "plan": {
+    "plan": {
+      "nodes": [
+        {
+          "id": "pn_mss8vxya_e",
+          "op": "ANSWER",
+          "refs": [
+            "top_spend_category",
+            "category_spend_shares",
+            "top_spend_location",
+            "peak_spend_day_of_week"
+          ],
+          "text": "Spend this month concentrated in $finding:top_spend_category.period at $finding:top_spend_category.value, part of a breakdown across categories of $finding:category_spend_shares.shares_pct; by venue, $finding:top_spend_location.period spend led at $finding:top_spend_location.value, and $finding:peak_spend_day_of_week.period was the heaviest day of the week at $finding:peak_spend_day_of_week.value."
+        },
+        {
+          "id": "pn_mss8vxya_f",
+          "op": "EXPLAIN",
+          "refs": ["category_spend_shares", "segment_heterogeneity"],
+          "text": "Category shares break down as $finding:category_spend_shares.shares_pct, and the differences across these groups (spanning $finding:segment_heterogeneity.group_ns transactions) are statistically significant rather than noise.",
+          "anchor": "chart_category_spend"
+        },
+        {
+          "id": "pn_mss8vxya_g",
+          "op": "CAVEAT",
+          "refs": ["category_assignment_audit"],
+          "anchor": "chart_category_spend"
+        },
+        {
+          "id": "pn_mss8vxya_h",
+          "op": "NOTE",
+          "refs": ["category_assignment_audit"],
+          "text": "A meaningful slice of transactions, $finding:category_assignment_audit.evidence.other_count amounting to $finding:category_assignment_audit.evidence.other_share_pct of spend, landed in a catch-all rather than a specific category, so the category breakdown above should be read as approximate."
+        },
+        {
+          "id": "pn_mss8vxya_i",
+          "op": "EXPLAIN",
+          "refs": ["top_spend_location", "location_classification_audit"],
+          "text": "$finding:top_spend_location.period spend outweighed the alternatives, drawn from $finding:top_spend_location.n transactions, with address strings sorted into location types via $finding:location_classification_audit.matched_addresses_by_location.",
+          "anchor": "chart_spend_by_location"
+        },
+        {
+          "id": "pn_mss8vxya_j",
+          "op": "EXPLAIN",
+          "refs": ["peak_spend_day_of_week", "weekday_weekend_spend_share"],
+          "text": "$finding:peak_spend_day_of_week.period stood out among individual days, and stepping back to the weekday/weekend split, spend divides as $finding:weekday_weekend_spend_share.shares_pct.",
+          "anchor": "chart_day_of_week_spend"
+        },
+        {
+          "id": "pn_mss8vxya_k",
+          "op": "EXPLAIN",
+          "refs": ["daily_spend_trend"],
+          "text": "Daily totals moved in a $finding:daily_spend_trend.direction direction across the period, a weighted OLS slope of $finding:daily_spend_trend.slope_per_period $finding:daily_spend_trend.unit per day.",
+          "anchor": "chart_daily_spend"
+        },
+        {
+          "id": "pn_mss8vxya_l",
+          "op": "CAVEAT",
+          "refs": ["spend_outlier_screen"],
+          "anchor": "chart_daily_spend"
+        },
+        {
+          "id": "pn_mss8vxya_m",
+          "op": "NOTE",
+          "refs": ["spend_outlier_screen", "largest_single_transaction"],
+          "text": "An outlier screen flagged $finding:spend_outlier_screen.evidence.n_flagged transactions as unusual within its window, the most extreme being the single largest charge of $finding:largest_single_transaction.raw_value on $finding:largest_single_transaction.raw_period."
+        },
+        {
+          "id": "pn_mss8vxya_n",
+          "op": "NOTE",
+          "refs": ["weekly_spend_step_change"],
+          "text": "No persistent week-over-week step change survived the gates, so spend did not show a level shift that held over time."
+        },
+        {
+          "id": "pn_mss8vxya_o",
+          "op": "CAVEAT",
+          "refs": ["amount_sign_convention"],
+          "anchor": "chart_daily_spend"
+        },
+        {
+          "id": "pn_mss8vxya_p",
+          "op": "METHOD",
+          "refs": ["spend_transaction_distribution", "segment_heterogeneity"],
+          "text": "Figures are drawn from $finding:spend_transaction_distribution.n individual spend transactions, with category differences tested via $finding:segment_heterogeneity.test."
+        },
+        {
+          "id": "pn_mss8vxya_q",
+          "op": "CONCLUSION",
+          "refs": ["top_spend_category", "top_spend_location", "peak_spend_day_of_week"],
+          "text": "The month's spend was led by the $finding:top_spend_category.period category, concentrated at $finding:top_spend_location.period locations, and peaked on $finding:peak_spend_day_of_week.period."
+        }
+      ]
+    },
+    "overlay": {},
+    "mode": "compiled",
+    "purpose": "dashboard"
+  },
+  "results": {
+    "segment_range_usd": 1086.59,
+    "weekday_spend_usd": 4222.67,
+    "weekend_spend_usd": 623.2,
+    "total_spend_usd": 4845.87,
+    "total_credits_usd": 5767.72,
+    "net_amount_usd": 921.85,
+    "spend_transaction_count": 130,
+    "credit_transaction_count": 3,
+    "statement_start_date": "2026-06-17",
+    "statement_end_date": "2026-07-16",
+    "statement_span_days": 30,
+    "distinct_payee_count": 98,
+    "distinct_spend_category_count": 11,
+    "avg_transaction_spend_usd": 16.64,
+    "mean_transaction_spend_usd": 37.28,
+    "avg_daily_spend_usd": 161.53,
+    "largest_transaction_payee": "REALTOR ASSOCIATION/ML 312-329-8245 IL",
+    "largest_transaction_category": "Membership & Dues",
+    "category_assignment_audit_passed": false,
+    "category_assignment_audit_other_count": 45,
+    "category_assignment_audit_other_share_pct": 34.6,
+    "amount_sign_convention_passed": true,
+    "amount_sign_convention_spend_count": 130,
+    "amount_sign_convention_credit_count": 3,
+    "amount_sign_convention_zero_amount_count": 0,
+    "location_classification_audit_passed": true,
+    "location_classification_audit_unknown_count": 0,
+    "spend_transaction_distribution_n": 130,
+    "spend_transaction_distribution_mean": 37.2759,
+    "spend_transaction_distribution_median": 16.635,
+    "spend_transaction_distribution_std": 85.157,
+    "spend_transaction_distribution_mad": 9.775,
+    "spend_transaction_distribution_skew": 7.64,
+    "spend_transaction_distribution_p25": 8.5625,
+    "spend_transaction_distribution_p75": 34.745,
+    "spend_transaction_distribution_min": 1.41,
+    "spend_transaction_distribution_max": 871,
+    "spend_transaction_distribution_distinct_share": 0.923,
+    "spend_transaction_distribution_modal_share": 0.023,
+    "spend_transaction_distribution_n_zero_excluded": 0,
+    "category_spend_shares_residual_pct": -0.1,
+    "category_spend_shares_sums_to_100": true,
+    "top_spend_category_period": "Other",
+    "top_spend_category_value": 1138.4,
+    "top_spend_category_n": 45,
+    "top_spend_category_raw_period": "Other",
+    "top_spend_category_raw_value": 1138.4,
+    "top_spend_category_raw_n": 45,
+    "top_spend_category_thin_periods_skipped": 2,
+    "top_spend_category_thin_bar": 5,
+    "top_spend_category_bar_relaxed": false,
+    "top_spend_category_label_is_catchall": true,
+    "top_spend_category_n_zero_excluded": 0,
+    "segment_heterogeneity_significant": true,
+    "segment_heterogeneity_p_value": 0.0011098350992778986,
+    "segment_heterogeneity_test": "kruskal_wallis",
+    "segment_heterogeneity_n_zero_excluded": 0,
+    "top_spend_location_period": "Other City/CA",
+    "top_spend_location_value": 3130.28,
+    "top_spend_location_n": 73,
+    "top_spend_location_raw_period": "Other City/CA",
+    "top_spend_location_raw_value": 3130.28,
+    "top_spend_location_raw_n": 73,
+    "top_spend_location_thin_periods_skipped": 1,
+    "top_spend_location_thin_bar": 6.8,
+    "top_spend_location_bar_relaxed": false,
+    "top_spend_location_label_is_catchall": false,
+    "top_spend_location_n_zero_excluded": 0,
+    "peak_spend_day_of_week_period": "Thursday",
+    "peak_spend_day_of_week_value": 1512.49,
+    "peak_spend_day_of_week_n": 25,
+    "peak_spend_day_of_week_raw_period": "Thursday",
+    "peak_spend_day_of_week_raw_value": 1512.49,
+    "peak_spend_day_of_week_raw_n": 25,
+    "peak_spend_day_of_week_thin_periods_skipped": 0,
+    "peak_spend_day_of_week_thin_bar": 5,
+    "peak_spend_day_of_week_bar_relaxed": false,
+    "peak_spend_day_of_week_label_is_catchall": false,
+    "peak_spend_day_of_week_n_zero_excluded": 0,
+    "weekday_weekend_spend_share_residual_pct": 0,
+    "weekday_weekend_spend_share_sums_to_100": true,
+    "daily_spend_trend_direction": "flat",
+    "daily_spend_trend_slope_per_period": -0.16731511129179008,
+    "daily_spend_trend_p_value": 0.9784612117479564,
+    "daily_spend_trend_n_zero_excluded": 0,
+    "daily_spend_trend_weighted": true,
+    "daily_spend_trend_unit": "usd",
+    "weekly_spend_step_change_detected": false,
+    "weekly_spend_step_change_period": null,
+    "weekly_spend_step_change_delta": null,
+    "weekly_spend_step_change_direction": null,
+    "weekly_spend_step_change_baseline_spread": 412.585,
+    "weekly_spend_step_change_n_zero_excluded": 0,
+    "spend_outlier_screen_n_flagged": 17,
+    "spend_outlier_screen_method": "rolling_mad",
+    "spend_outlier_screen_window": 21,
+    "spend_outlier_screen_k": 3.5,
+    "spend_outlier_screen_n_zero_excluded": 0,
+    "spend_outlier_evidence_passed": false,
+    "spend_outlier_evidence_n_flagged": 17,
+    "largest_single_transaction_period": "2026-07-09",
+    "largest_single_transaction_value": 871,
+    "largest_single_transaction_n": null,
+    "largest_single_transaction_raw_period": "2026-07-09",
+    "largest_single_transaction_raw_value": 871,
+    "largest_single_transaction_raw_n": null,
+    "largest_single_transaction_thin_periods_skipped": 0,
+    "largest_single_transaction_thin_bar": null,
+    "largest_single_transaction_bar_relaxed": null,
+    "largest_single_transaction_label_is_catchall": false,
+    "largest_single_transaction_n_zero_excluded": 0
+  }
+}

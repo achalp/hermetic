@@ -8,6 +8,7 @@
  * numbers; scrubbing costs nothing when it's clean).
  */
 import type { FindingEntry, FindingProjection } from "@/lib/contracts/findings";
+import { fieldClass } from "./field-contract";
 
 /** Prompt budget for the projection block (spec §4.1). */
 export const PROJECTION_MAX_BYTES = 8_000;
@@ -173,7 +174,7 @@ export function projectFinding(entry: FindingEntry): FindingProjection {
   // it, the resolver refused it, and the token-strip left "sorted into
   // location types via " hanging mid-sentence. What the planner is never
   // offered it cannot dangle.
-  const fields =
+  const heuristicFields =
     !nonDetection && isCheckLike
       ? [
           ...(baseFields ?? []).filter((f) => {
@@ -183,6 +184,22 @@ export function projectFinding(entry: FindingEntry): FindingProjection {
           ...evidenceFields(entry.value),
         ]
       : baseFields;
+  // Field-contract consult (whack-a-mole postmortem): classified fields are
+  // filtered by CLASS — internal never offered, a count at 0 is a non-fact
+  // (generalizing the zero-residual rule to thin_periods_skipped,
+  // excluded_trailing, n_zero_excluded, n_flagged...). Unclassified fields
+  // (bespoke findings, check evidence) keep the heuristics above.
+  const fields = heuristicFields?.filter((f) => {
+    if (f.includes(".")) return true; // dotted evidence expansion, already vetted
+    const cls = fieldClass(entry.dtype, f);
+    if (cls === undefined) return true;
+    if (cls === "internal") return false;
+    if (cls === "count") {
+      const v = (entry.value as Record<string, unknown>)[f];
+      return typeof v === "number" ? v > 0 : true;
+    }
+    return true;
+  });
   const verdicts = nonDetection ? undefined : verdictFields(entry.value);
   return {
     name: entry.name,

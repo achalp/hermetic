@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "comment": "The closed field vocabulary of the runtime claim helpers (docker/sandbox/hermetic_runtime/findings.py), classified for the composer projection. Classes: scalar (bindable figure/word) | unit_scalar (scalar carrying the measure's unit) | period (time/category label, bindable) | verdict (boolean; verdicts channel, never bindable) | mapping (dict; enumerable once per document) | interval (two-element range) | count (a count that is a non-fact at 0: bindable only when > 0) | internal (never offered to prose) | evidence (open evidence dict on checks; scalar members expand as dotted fields). A field emitted by a helper but absent here fails the exhaustiveness test (test_runtime.py) until classified; dtypes marked open admit model-declared fields, which fall to the projection heuristics.",
+  "dtypes": {
+    "trend": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "direction": "scalar",
+        "slope_per_period": "scalar",
+        "slope": "scalar",
+        "p_value": "scalar",
+        "slope_ci95": "interval",
+        "n_zero_excluded": "count",
+        "weighted": "verdict",
+        "unit": "internal"
+      }
+    },
+    "direction": { "alias": "trend" },
+    "step_change": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "period": "period",
+        "delta": "unit_scalar",
+        "direction": "scalar",
+        "baseline_spread": "unit_scalar",
+        "n_zero_excluded": "count"
+      }
+    },
+    "current_state": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "period": "period",
+        "value": "unit_scalar",
+        "pct_from_peak": "scalar",
+        "peak_value": "unit_scalar",
+        "peak_period": "period",
+        "direction": "scalar",
+        "excluded_trailing": "count",
+        "excluded_reason": "scalar",
+        "latest_period": "period",
+        "latest_value": "unit_scalar",
+        "latest_n": "scalar",
+        "n_zero_excluded": "count"
+      }
+    },
+    "superlative": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "period": "period",
+        "year": "period",
+        "date": "period",
+        "month": "period",
+        "value": "unit_scalar",
+        "n": "scalar",
+        "raw_period": "period",
+        "raw_value": "unit_scalar",
+        "raw_n": "scalar",
+        "thin_periods_skipped": "count",
+        "thin_bar": "scalar",
+        "bar_relaxed": "verdict",
+        "label_is_catchall": "verdict",
+        "n_zero_excluded": "count"
+      }
+    },
+    "outliers": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "outliers": "internal",
+        "n_flagged": "count",
+        "method": "scalar",
+        "window": "scalar",
+        "k": "scalar",
+        "n_zero_excluded": "count",
+        "passed": "verdict",
+        "evidence": "evidence"
+      }
+    },
+    "screen": { "alias": "outliers" },
+    "check": {
+      "open": true,
+      "fields": {
+        "detected": "verdict",
+        "passed": "verdict",
+        "evidence": "evidence"
+      }
+    },
+    "correlation": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "pearson_r": "scalar",
+        "pearson_p": "scalar",
+        "spearman_rho": "scalar",
+        "spearman_p": "scalar",
+        "n": "scalar",
+        "preferred": "scalar",
+        "n_zero_excluded": "count"
+      }
+    },
+    "distribution": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "n": "scalar",
+        "mean": "unit_scalar",
+        "median": "unit_scalar",
+        "std": "unit_scalar",
+        "mad": "unit_scalar",
+        "skew": "scalar",
+        "p25": "unit_scalar",
+        "p75": "unit_scalar",
+        "min": "unit_scalar",
+        "max": "unit_scalar",
+        "distinct_share": "scalar",
+        "modal_share": "scalar",
+        "n_zero_excluded": "count"
+      }
+    },
+    "comparison": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "prior_year": "period",
+        "latest_year": "period",
+        "window_months": "scalar",
+        "prior_total": "unit_scalar",
+        "latest_total": "unit_scalar",
+        "pct_change": "scalar",
+        "early_median": "unit_scalar",
+        "late_median": "unit_scalar",
+        "early_n": "scalar",
+        "late_n": "scalar",
+        "early_span": "scalar",
+        "late_span": "scalar",
+        "multiplier": "scalar",
+        "n_zero_excluded": "count"
+      }
+    },
+    "share": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "shares_pct": "mapping",
+        "residual_pct": "count",
+        "sums_to_100": "verdict"
+      }
+    },
+    "heterogeneity": {
+      "open": false,
+      "fields": {
+        "detected": "verdict",
+        "significant": "verdict",
+        "p_value": "scalar",
+        "test": "scalar",
+        "group_ns": "mapping",
+        "n_zero_excluded": "count"
+      }
+    },
+    "decomposition": {
+      "open": true,
+      "fields": {
+        "detected": "verdict",
+        "dominant": "scalar",
+        "residual": "count"
+      }
+    },
+    "attribution": { "open": true, "fields": { "detected": "verdict" } }
+  }
+}

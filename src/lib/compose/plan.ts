@@ -415,13 +415,15 @@ export function defaultPlan(findings: FindingEntry[], purpose?: string): Plan {
     findings[0];
   if (primary) nodes.push({ id: nextPlanNodeId(), op: "ANSWER", refs: [primary.name] });
   for (const f of findings) {
-    if (
-      CHECK_DTYPES.has(f.dtype) &&
-      f.value !== null &&
-      typeof f.value === "object" &&
-      (f.value as Record<string, unknown>).passed === false
-    ) {
-      nodes.push({ id: nextPlanNodeId(), op: "CAVEAT", refs: [f.name] });
+    if (CHECK_DTYPES.has(f.dtype) && f.value !== null && typeof f.value === "object") {
+      const v = f.value as Record<string, unknown>;
+      // Screen semantics for verdict-less screens (dtype "outliers"):
+      // offenders found = failed (caught by the invariant suite — a firing
+      // screen with no passed key got no caveat from the fallback plan).
+      const failed =
+        v.passed === false ||
+        (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0);
+      if (failed) nodes.push({ id: nextPlanNodeId(), op: "CAVEAT", refs: [f.name] });
     }
   }
   // Depth fill (report/deep-dive have headroom past ANSWER + caveats):
