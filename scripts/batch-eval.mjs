@@ -42,7 +42,7 @@ async function resolveTarget() {
     const { entries } = await getJson("/api/history");
     const hit = entries.find((e) => e.id.startsWith(fromHistory));
     if (!hit) throw new Error(`no history entry matching ${fromHistory}`);
-    return { csvId: hit.csvId, question: hit.question };
+    return { csvId: hit.csvId, question: hit.question, sourceFile: hit.sourceFile };
   }
   const csvId = opt("csv");
   const question = opt("question");
@@ -53,7 +53,59 @@ async function resolveTarget() {
   return { csvId, question };
 }
 
-/** POST /api/query and drain the patch stream to completion. */
+/** Stale csvIds die with a server restart (the CSV store is in-memory; the
+ *  source registry persists). Re-attach a remote-parquet source by name and
+ *  return the fresh csv_id, or null when nothing matches. */
+async function reattachSource(sourceFile) {
+  try {
+    const { sources } = await getJson("/api/sources/recent");
+    const hit = (sources ?? []).find(
+      (s) => s.kind === "remote-parquet" && (s.name === sourceFile || !sourceFile)
+    );
+    if (!hit?.url) return null;
+    const res = await fetch(`${SERVER}/api/remote-parquet/schema`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: hit.url }),
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.csv_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Build the spec object from the drained patch lines — the same assembly
+ *  the browser client does before it saves history. add/replace only. */
+function assembleSpec(lines) {
+  const spec = {};
+  for (const line of lines) {
+    let p;
+    try {
+      p = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (p.op !== "add" && p.op !== "replace") continue;
+    const segs = String(p.path ?? "")
+      .split("/")
+      .filter(Boolean);
+    if (segs.length === 0) continue;
+    let cur = spec;
+    for (const s of segs.slice(0, -1)) {
+      if (cur[s] === null || typeof cur[s] !== "object") cur[s] = {};
+      cur = cur[s];
+    }
+    cur[segs[segs.length - 1]] = p.value;
+  }
+  return spec;
+}
+
+/** POST /api/query, drain the patch stream, and PERSIST the result: history
+ *  saving is client-driven (the browser saves after rendering; the server
+ *  only saves on mid-run disconnect), so a headless drain that skips this
+ *  loses the whole run — observed on the first geo batch. */
 async function runAnalysis(csvId, question) {
   const res = await fetch(`${SERVER}/api/query`, {
     method: "POST",
@@ -62,11 +114,23 @@ async function runAnalysis(csvId, question) {
   });
   if (!res.ok || !res.body) throw new Error(`POST /api/query -> ${res.status}`);
   const reader = res.body.getReader();
-  // Drain; the run persists to history server-side when the stream ends.
+  const decoder = new TextDecoder();
+  let text = "";
   for (;;) {
-    const { done } = await reader.read();
+    const { done, value } = await reader.read();
     if (done) break;
+    text += decoder.decode(value, { stream: true });
   }
+  const lines = text.split("\n").filter((l) => l.trim() !== "");
+  const spec = assembleSpec(lines);
+  const err = spec.state?.__error;
+  if (typeof err === "string" && err) throw new Error(`analysis error: ${err}`);
+  const save = await fetch(`${SERVER}/api/history/save`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ csvId, spec, question }),
+  });
+  if (!save.ok) console.error(`  history save -> ${save.status}`);
 }
 
 async function newestRunSince(question, sinceMs) {
@@ -142,7 +206,9 @@ function clusterFindings(all) {
 const SEV_RANK = { high: 0, medium: 1, low: 2 };
 
 async function main() {
-  const { csvId, question } = await resolveTarget();
+  const target = await resolveTarget();
+  let { csvId } = target;
+  const { question } = target;
   console.error(`question: ${question}`);
   console.error(`csv: ${csvId}  reps: ${REPS}  server: ${SERVER}`);
 
@@ -151,7 +217,17 @@ async function main() {
     const t0 = Date.now();
     console.error(`\n[${i + 1}/${REPS}] running analysis…`);
     try {
-      await runAnalysis(csvId, question);
+      try {
+        await runAnalysis(csvId, question);
+      } catch (err) {
+        // Stale csvId after a server restart → re-attach the source once.
+        if (!/CSV not found/i.test(String(err))) throw err;
+        const fresh = await reattachSource(target.sourceFile);
+        if (!fresh) throw err;
+        console.error(`  csv expired; re-attached as ${fresh.slice(0, 8)}`);
+        csvId = fresh;
+        await runAnalysis(csvId, question);
+      }
     } catch (err) {
       console.error(`  run failed: ${err.message}`);
       runs.push({ rep: i + 1, error: String(err) });

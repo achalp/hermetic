@@ -67,8 +67,17 @@ def profile_regimes(values, counts=None, labels=None, unit=None):
         prof["tail_ratio"] = round(mx / med, 1) if med > 0 else None
 
         prof["distinct_share"] = round(len(set(finite)) / n, 3)
-        modal = max(finite, key=finite.count)
-        prof["modal_share"] = round(finite.count(modal) / n, 3)
+        # O(n) modal via a counting dict. The previous max(finite,
+        # key=finite.count) was O(n^2) — an O(n) .count() per ELEMENT — and
+        # profile_regimes runs inside _zero_screen for every unit=-passed
+        # claim helper: over the 300,282 nearest-neighbor distances of a
+        # planet-scale run it burned ~20 MINUTES of pure Python per call.
+        # THIS, not the network, was the 45s -> 23min exec regression
+        # (runs 5cda7770/e1c88a71; the scan itself took 40 seconds).
+        _counts = {}
+        for _y in finite:
+            _counts[_y] = _counts.get(_y, 0) + 1
+        prof["modal_share"] = round(max(_counts.values()) / n, 3)
 
         prof["monotone_x"] = True
         if labels is not None:

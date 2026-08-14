@@ -1002,13 +1002,19 @@ def finding_distribution(values, unit=None):
         std = var ** 0.5
         mad = sorted(abs(x - median) for x in xs)[n // 2]
         skew = (sum((x - mean) ** 3 for x in xs) / n) / (std ** 3) if std else 0.0
-        modal = max(set(xs), key=xs.count)
+        # O(n) modal share (same fix as regimes.profile_regimes): the
+        # max(set(xs), key=xs.count) form was O(n * distinct) — quadratic on
+        # continuous measures where nearly every value is distinct.
+        counts = {}
+        for x in xs:
+            counts[x] = counts.get(x, 0) + 1
+        modal_n = max(counts.values())
         return {"n": n, "mean": round(mean, 4), "median": round(median, 4),
                 "std": round(std, 4), "mad": round(mad, 4), "skew": round(skew, 2),
                 "p25": round(q(0.25), 4), "p75": round(q(0.75), 4),
                 "min": xs[0], "max": xs[-1],
                 "distinct_share": round(len(set(xs)) / n, 3),
-                "modal_share": round(xs.count(modal) / n, 3),
+                "modal_share": round(modal_n / n, 3),
                 "n_zero_excluded": n_zx}
     except Exception:
         return failed
