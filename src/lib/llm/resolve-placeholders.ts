@@ -364,6 +364,7 @@ export function isCurrencyUnit(unit: string | undefined): boolean {
 const MEASURE_UNIT_FIELDS = new Set([
   "value",
   "raw_value",
+  "peak_value",
   "median",
   "mean",
   "average",

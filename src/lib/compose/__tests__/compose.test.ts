@@ -540,6 +540,91 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
     expect(withRemainder).toContain("$finding:spend_shares2.residual_pct");
   });
 
+  // Run d82a39ce: the same 5-zero-day exclusion disclosed three times, once
+  // per daily claim. One underlying fact, one disclosure — keyed on the
+  // count and the claim-name root through the shared rideredClaims set.
+  it("the zero-policy rider discloses once per series root, not once per claim", () => {
+    const mk = (name: string) =>
+      F(name, "trend", {
+        direction: "flat",
+        slope_per_period: -0.016,
+        n_zero_excluded: 5,
+      });
+    const a = mk("daily_spend_trend");
+    const c = mk("daily_spend_current");
+    const byName = new Map([
+      [a.name, a],
+      [c.name, c],
+    ]);
+    const disclosed = new Set<string>();
+    const first = realizeNode({ id: "n1", op: "TREND", refs: [a.name] }, byName, disclosed);
+    const second = realizeNode({ id: "n2", op: "NOTE", refs: [c.name] }, byName, disclosed);
+    expect(first).toContain("zero values in daily spend trend were excluded");
+    expect(second).not.toContain("zero values");
+    // A DIFFERENT series root still gets its own disclosure.
+    const other = F("weekly_fees_trend", "trend", {
+      direction: "flat",
+      slope_per_period: 0.1,
+      n_zero_excluded: 5,
+    });
+    const third = realizeNode(
+      { id: "n3", op: "TREND", refs: [other.name] },
+      new Map([[other.name, other]]),
+      disclosed
+    );
+    expect(third).toContain("zero values in weekly fees trend were excluded");
+  });
+
+  // Run d82a39ce: dtype "outliers" is the model's natural name for a
+  // declared screen — it renders through the check template (flat evidence,
+  // screen semantics for failed) and is CAVEAT-eligible.
+  it("dtype outliers renders as a screen and is caveat-eligible", () => {
+    const clean = F("daily_screen", "outliers", {
+      outliers: [],
+      n_flagged: 0,
+      method: "rolling_mad",
+      window: 21,
+      k: 3.5,
+    });
+    const cleanText = realizeClaim(clean);
+    expect(cleanText).not.toContain("FAILED");
+    expect(cleanText).toContain("$finding:daily_screen.n_flagged");
+    const hit = F("txn_screen", "outliers", {
+      outliers: [{ label: "x", value: 871, z: 9 }],
+      n_flagged: 17,
+      method: "rolling_mad",
+      window: 21,
+      k: 3.5,
+    });
+    expect(realizeClaim(hit)).toContain("⚠ FAILED");
+    const v = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["price_trend"] },
+          { id: "b", op: "CAVEAT", refs: ["txn_screen"] },
+        ],
+      },
+      [...FINDINGS, hit]
+    );
+    expect(v.ok).toBe(true);
+  });
+
+  // Run d82a39ce audit: pct_from_peak was unverifiable from the claim
+  // alone. When the value carries peak_value/peak_period, the template
+  // names the peak the percentage is computed against.
+  it("current_state binds its peak when the claim carries it", () => {
+    const cs = F("daily_current", "current_state", {
+      period: "2026-07-16",
+      value: 75.85,
+      pct_from_peak: -91.29,
+      peak_value: 871,
+      peak_period: "2026-07-09",
+    });
+    const text = realizeClaim(cs);
+    expect(text).toContain("$finding:daily_current.peak_value");
+    expect(text).toContain("$finding:daily_current.peak_period");
+  });
+
   it("heterogeneity gets a dedicated template with a thin-groups rider", () => {
     const het = F("cat_het", "heterogeneity", {
       significant: true,

@@ -1564,9 +1564,10 @@ export async function composeAndStreamDashboard(args: {
       // user-reviewable artifact. Always emitted; persisted with the spec.
       // Screens count as checks here (run 31c1cfa9): a surfaced dtype
       // "screen" with passed: false reached the banner and the caveats but
-      // not this panel — banner said 3 failures, panel said 2.
+      // not this panel — banner said 3 failures, panel said 2. dtype
+      // "outliers" is a declared screen (run d82a39ce).
       const checks = (opts.findings?.manifest.findings ?? []).filter(
-        (f) => f.dtype === "check" || f.dtype === "screen"
+        (f) => f.dtype === "check" || f.dtype === "screen" || f.dtype === "outliers"
       );
       const verifiability = {
         composerSight: opts.sight === "sighted" ? "sighted" : "blind",
@@ -1576,12 +1577,16 @@ export async function composeAndStreamDashboard(args: {
           cited: citedFindings.size,
           checks: checks.length,
           failedChecks: checks
-            .filter(
-              (f) =>
-                f.value !== null &&
-                typeof f.value === "object" &&
-                (f.value as Record<string, unknown>).passed === false
-            )
+            .filter((f) => {
+              if (f.value === null || typeof f.value !== "object") return false;
+              const v = f.value as Record<string, unknown>;
+              // Screen semantics for verdict-less screens (dtype "outliers"):
+              // offenders found = failed.
+              return (
+                v.passed === false ||
+                (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0)
+              );
+            })
             .map((f) => f.name),
         },
         headline: {

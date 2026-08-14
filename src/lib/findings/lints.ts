@@ -542,6 +542,11 @@ export function lintRangeFabrication(
 // ── Check-gating lints (declared-checks spec §3) ─────────────────────
 
 const isCheck = (f: FindingEntry): boolean => f.dtype === "check";
+/** Dtypes that can OWN a screen contract (screened_by refs, caveat refs,
+ *  twin dedup): "outliers" is the model's natural dtype for a declared
+ *  outlier screen (run d82a39ce — a properly declared screen was flagged
+ *  as a dangling ref because only "check" qualified). */
+const SCREEN_LIKE_DTYPES = new Set(["check", "screen", "outliers"]);
 const checkPassed = (f: FindingEntry): boolean | null => {
   if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) return null;
   const p = (f.value as Record<string, unknown>).passed;
@@ -879,7 +884,9 @@ export function lintUndeclaredScreen(
   // Structured path (exact, no morphology): a measure declared as a variant
   // with no screened_by is a transformation without a contract; a
   // screened_by naming a check the manifest doesn't carry is a dangling ref.
-  const checkNames = new Set(findings.filter((f) => f.dtype === "check").map((f) => f.name));
+  const checkNames = new Set(
+    findings.filter((f) => SCREEN_LIKE_DTYPES.has(f.dtype)).map((f) => f.name)
+  );
   for (const [key, info] of rolesIdx ?? []) {
     for (const m of info.measures) {
       if (m.variant_of !== undefined && m.screened_by === undefined) {
@@ -936,7 +943,7 @@ export function lintUndeclaredScreen(
     const tokens = base.split(/_/).filter((t) => t.length > 2);
     const declared = findings.some(
       (f) =>
-        f.dtype === "check" &&
+        SCREEN_LIKE_DTYPES.has(f.dtype) &&
         /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
         tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
     );
@@ -1070,11 +1077,11 @@ export function lintScreenScopeMismatch(
     // exactly. Legacy path: token-match check names/definitions.
     const declaring =
       entry.checkNames.size > 0
-        ? findings.filter((f) => f.dtype === "check" && entry.checkNames.has(f.name))
+        ? findings.filter((f) => SCREEN_LIKE_DTYPES.has(f.dtype) && entry.checkNames.has(f.name))
         : findings.filter((f) => {
             const tokens = base.split(/_/).filter((t) => t.length > 2);
             return (
-              f.dtype === "check" &&
+              SCREEN_LIKE_DTYPES.has(f.dtype) &&
               /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
               tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
             );
@@ -1863,9 +1870,7 @@ export function dedupeSurfacedTwins(findings: FindingEntry[]): {
     return out;
   };
   const tokens = (name: string) => new Set(name.split(/[._]/).filter((t) => t.length > 3));
-  const checkLike = findings.filter(
-    (f) => (f.dtype === "check" || f.dtype === "screen") && evOf(f) !== null
-  );
+  const checkLike = findings.filter((f) => SCREEN_LIKE_DTYPES.has(f.dtype) && evOf(f) !== null);
   const removed: string[] = [];
   const issues: FindingIssue[] = [];
   for (const a of checkLike) {

@@ -315,6 +315,32 @@ describe("projection — the privacy boundary", () => {
   // dict; offered as a field, the planner bound it, the renderer refused it,
   // and the strip left "sorted into location types via " mid-sentence. A
   // check's dict internals are audit material, never prose material.
+  // Run d82a39ce: with n_flagged bindable, the planner wrote "flagged 0
+  // anomalous day(s)" and the zero-narration policy deleted the sentence —
+  // the question's outlier component shipped unanswered. A screen that
+  // found nothing is a non-detection: stated in words, it survives.
+  it("a screen that flagged nothing projects as a non-detection", () => {
+    const p = projectFinding(
+      entry({
+        name: "daily_spend_outlier_screen",
+        dtype: "outliers",
+        value: { outliers: [], n_flagged: 0, method: "rolling_mad", window: 21, k: 3.5 },
+      })
+    );
+    expect(p.detected).toBe(false);
+    expect(p.value_fields).toBeUndefined();
+    // A screen WITH offenders keeps its figures bindable.
+    const hit = projectFinding(
+      entry({
+        name: "txn_outlier_screen",
+        dtype: "screen",
+        value: { passed: false, evidence: { n_flagged: 17, method: "rolling_mad" } },
+      })
+    );
+    expect(hit.detected).toBeUndefined();
+    expect(hit.value_fields).toContain("evidence.n_flagged");
+  });
+
   it("check-like projections never offer dict leaves", () => {
     const p = projectFinding(
       entry({

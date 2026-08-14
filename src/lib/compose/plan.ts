@@ -105,7 +105,9 @@ export interface PlanValidation {
   errors: string[];
 }
 
-const CHECK_DTYPES = new Set(["check", "screen"]);
+// "outliers" is the model's natural dtype for a DECLARED outlier screen
+// (run d82a39ce) — screen-like for caveat eligibility and everywhere else.
+const CHECK_DTYPES = new Set(["check", "screen", "outliers"]);
 
 const BINDING_RE = /\$finding:([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)/g;
 

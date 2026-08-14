@@ -1387,5 +1387,68 @@ class TestImportPurity(unittest.TestCase):
         self.assertTrue(math.isfinite(1.0))  # trivially true; anchors the import above
 
 
+class TestRun_d82a39ce_Fixes(unittest.TestCase):
+    """Run d82a39ce (2026-08-13): count-corroborated zeros, robust trailing
+    magnitude, self-verifying peak, screens declaring their non-detection."""
+
+    def test_zero_screen_keeps_count_corroborated_zeros(self):
+        # 5 zero-spend days with transaction_count 0 are REAL no-activity
+        # days — the audit found them excluded as sentinels, biasing the
+        # slope, the outlier screen and the endpoint.
+        vals = [50.0, 0.0, 80.0, 0.0, 60.0, 0.0, 90.0, 70.0, 0.0, 55.0]
+        counts = [3, 0, 4, 0, 2, 0, 5, 3, 0, 2]
+        screened, n_zx = findings._zero_screen(vals, counts=counts, unit="usd")
+        self.assertEqual(n_zx, 0)
+        self.assertEqual(screened, vals)
+        # A zero WITH activity behind it (count > 0) is the sentinel case:
+        # something happened and the value failed to record it.
+        counts_active = [3, 2, 4, 1, 2, 3, 5, 3, 2, 2]
+        screened2, n_zx2 = findings._zero_screen(vals, counts=counts_active, unit="usd")
+        if n_zx2 > 0:  # fires only when the regime profile says sentinel_exclude
+            self.assertEqual(screened2.count(None), n_zx2)
+        # No counts at all: the pre-fix behavior is preserved (pervasive
+        # monetary zeros are sentinel candidates).
+        screened3, n_zx3 = findings._zero_screen(vals, unit="usd")
+        self.assertEqual(screened3.count(None), n_zx3)
+
+    def test_outliers_declare_their_non_detection(self):
+        labels = list(range(30))
+        quiet = [100.0 + (i % 5) for i in range(30)]
+        out = finding_outliers(labels, quiet)
+        self.assertEqual(out["n_flagged"], 0)
+        self.assertIs(out.get("detected"), False)
+        # A screen that FOUND offenders carries no detected key — n_flagged
+        # is the story and stays bindable.
+        spiked = list(quiet)
+        spiked[15] = 5000.0
+        hit = finding_outliers(labels, spiked)
+        self.assertGreater(hit["n_flagged"], 0)
+        self.assertNotIn("detected", hit)
+
+    def test_current_state_magnitude_uses_median_not_mean(self):
+        # The audited series: one 871-dollar day dragged the trailing MEAN
+        # high enough that a normal-range final day (75.85 vs a ~100
+        # median) was evicted as "magnitude", flipping the direction.
+        vals = [120.0, 95.0, 871.0, 110.0, 179.05, 57.71, 107.57, 75.85]
+        out = finding_current_state(vals, window=6)
+        self.assertEqual(out["excluded_trailing"], 0)
+        self.assertEqual(out["value"], 75.85)
+        # A genuinely collapsed tail (reporting lag) is still caught.
+        lag = [120.0, 95.0, 110.0, 100.0, 105.0, 98.0, 102.0, 4.0]
+        out2 = finding_current_state(lag, window=6)
+        self.assertEqual(out2["excluded_trailing"], 1)
+        self.assertEqual(out2["excluded_reason"], "magnitude")
+
+    def test_current_state_carries_its_peak(self):
+        vals = [10.0, 40.0, 30.0, 25.0, 20.0, 18.0]
+        labels = list(range(2020, 2026))
+        out = finding_current_state(vals, labels=labels)
+        self.assertEqual(out["peak_value"], 40.0)
+        self.assertEqual(out["peak_period"], 2021)
+        # pct_from_peak is verifiable FROM the claim alone.
+        expected = (out["value"] - out["peak_value"]) / abs(out["peak_value"]) * 100.0
+        self.assertAlmostEqual(out["pct_from_peak"], round(expected, 2))
+
+
 if __name__ == "__main__":
     unittest.main()

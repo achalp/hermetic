@@ -68,8 +68,15 @@ const THIN_GROUP_DISCLOSURE_N = 6;
  * and undermined the wrong claim's confidence. Labels sit in grammar-safe
  * prepositional slots ("for X", "of X", "in X") so any humanized finding
  * name stays grammatical.
+ *
+ * `disclosed`, when supplied by a document-iterating caller (it is the same
+ * set as rideredClaims — keys are namespaced, claim names carry no ":"),
+ * dedups PER-SERIES disclosures across claims: run d82a39ce disclosed the
+ * same 5 zero-day exclusion three times, once per daily claim. One
+ * underlying fact, one disclosure — keyed on the count and the claim-name
+ * root so distinct series' policies still each get theirs.
  */
-export function riderClauses(f: FindingEntry): string[] {
+export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[] {
   const v = fv(f);
   const n = f.name;
   const label = humanize(n);
@@ -148,7 +155,17 @@ export function riderClauses(f: FindingEntry): string[] {
     }
   }
   const zc = zeroClause(n, v, label).trim();
-  if (zc) riders.push(zc);
+  if (zc) {
+    const fp = `zero:${String(v.n_zero_excluded)}:${n
+      .replace(/^step_\d+\./, "")
+      .split(/[._]/)
+      .slice(0, 2)
+      .join("_")}`;
+    if (!disclosed?.has(fp)) {
+      riders.push(zc);
+      disclosed?.add(fp);
+    }
+  }
   return riders;
 }
 
@@ -160,9 +177,9 @@ export function riderClauses(f: FindingEntry): string[] {
  * generic rendering, not bind fields that don't exist ("Segment
  * heterogeneity: at per period" was two empty interpolations shipped as a
  * sentence). */
-export function realizeClaim(f: FindingEntry): string {
+export function realizeClaim(f: FindingEntry, disclosed?: Set<string>): string {
   const head = headlineClause(f);
-  return [head, ...riderClauses(f)].join(" ");
+  return [head, ...riderClauses(f, disclosed)].join(" ");
 }
 
 /** The HEADLINE sentence for one claim — the part authored text replaces.
@@ -199,7 +216,13 @@ function headlineClause(f: FindingEntry): string {
       if (v.pct_from_peak === 0) {
         s += ` — the attested peak itself`;
       } else if (v.pct_from_peak !== null && v.pct_from_peak !== undefined) {
-        s += ` (${b(n, "pct_from_peak")} vs the attested peak)`;
+        // Self-verifying peak (run d82a39ce audit): the percentage names the
+        // peak it is computed against when the claim carries it.
+        const withPeak =
+          v.peak_value !== null && v.peak_value !== undefined
+            ? ` of ${b(n, "peak_value")}${v.peak_period !== null && v.peak_period !== undefined ? ` in ${b(n, "peak_period")}` : ""}`
+            : "";
+        s += ` (${b(n, "pct_from_peak")} vs the attested peak${withPeak})`;
       }
       return s + ".";
     }
@@ -258,21 +281,30 @@ function headlineClause(f: FindingEntry): string {
       return `${cap(label)}: shares ${b(n, "shares_pct")} with residual ${b(n, "residual_pct")}.`;
     }
     case "screen":
-    case "check": {
+    case "check":
+    case "outliers": {
       // A caveat renders ONLY the check's own fields: the declared
       // definition (a literal — the rule as stated) plus up to three
       // scalar evidence figures as bindings. No free-text mechanism exists
       // to fabricate into; booleans are branched on host-side, never bound
       // inline (the resolver refuses inline booleans by design).
-      const failed = v.passed === false;
-      const ev =
+      // dtype "outliers" (run d82a39ce: the model's natural name for a
+      // declared screen) carries its figures FLAT — n_flagged/window/k on
+      // the value — so the evidence read falls back to top-level scalars,
+      // and "failed" follows screen semantics: offenders found.
+      const failed =
+        v.passed === false ||
+        (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0);
+      const nested =
         v.evidence !== null && typeof v.evidence === "object" && !Array.isArray(v.evidence)
           ? (v.evidence as Record<string, unknown>)
-          : {};
+          : undefined;
+      const ev = nested ?? v;
+      const prefix = nested ? "evidence." : "";
       const evParts = Object.entries(ev)
         .filter(([, x]) => typeof x === "number")
         .slice(0, 3)
-        .map(([k]) => `${humanize(k)}: ${b(n, `evidence.${k}`)}`);
+        .map(([k]) => `${humanize(k)}: ${b(n, `${prefix}${k}`)}`);
       return `${failed ? "⚠ FAILED — " : ""}${f.definition}${evParts.length > 0 ? ` (${evParts.join(", ")})` : ""}.`;
     }
     default:
@@ -317,7 +349,7 @@ export function realizeNode(
       if (rideredClaims?.has(ref)) continue;
       const f = byName.get(ref);
       if (!f) continue;
-      for (const rider of riderClauses(f)) {
+      for (const rider of riderClauses(f, rideredClaims)) {
         // Within-node dedup (run 093c9785): the planner may have ALREADY
         // said what the rider says — its heterogeneity sentence bound
         // group_ns, and the thin-groups rider then repeated the identical
@@ -367,7 +399,7 @@ export function realizeNodeTemplate(
       // repeat only the headline.
       parts.push(headlineClause(f));
     } else {
-      parts.push(realizeClaim(f));
+      parts.push(realizeClaim(f, rideredClaims));
       rideredClaims?.add(ref);
     }
   }

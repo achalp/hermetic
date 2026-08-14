@@ -105,6 +105,18 @@ export function isNonDetection(entry: FindingEntry): boolean {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
   const obj = v as Record<string, unknown>;
   if (obj.detected === false) return true;
+  // Screen morphology with nothing flagged (run d82a39ce): a screen that
+  // found no offenders is a non-detection — offered n_flagged, the planner
+  // wrote "flagged 0 anomalous day(s)" and the zero-narration policy
+  // deleted the sentence, leaving the question's outlier component
+  // unanswered. Stated in words ("flagged no outliers"), it survives.
+  // Covers legacy/model-declared values predating the producer's own
+  // detected: False (finding_outliers now declares it), flat or nested.
+  const ev =
+    obj.evidence !== null && typeof obj.evidence === "object" && !Array.isArray(obj.evidence)
+      ? (obj.evidence as Record<string, unknown>)
+      : obj;
+  if (ev.n_flagged === 0 && typeof ev.method === "string") return true;
   const primary = PRIMARY_RESULT_FIELDS[entry.dtype];
   if (!primary) return false;
   // Only claims that actually CARRY these fields can be non-detections; a
@@ -152,7 +164,8 @@ function evidenceFields(value: unknown): string[] {
 
 export function projectFinding(entry: FindingEntry): FindingProjection {
   const nonDetection = isNonDetection(entry);
-  const isCheckLike = entry.dtype === "check" || entry.dtype === "screen";
+  const isCheckLike =
+    entry.dtype === "check" || entry.dtype === "screen" || entry.dtype === "outliers";
   const baseFields = nonDetection ? undefined : leafFields(entry.value);
   // Check-like claims offer SCALAR fields only (run 9c415dc8): a check's
   // dict internals (matched_addresses_by_location — 62 leaves, depth 3) are

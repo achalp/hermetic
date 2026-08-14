@@ -303,6 +303,13 @@ def _zero_screen(values, counts=None, labels=None, unit=None):
     zeros become None BEFORE the statistic is computed, and the count is
     reported back as n_zero_excluded so the narrative can bind it.
 
+    A zero whose sibling COUNT is also zero is a REAL observation (audited,
+    run d82a39ce): a $0.00 day with transaction_count 0 is a day nothing
+    happened — excluding it as a sentinel biased the slope, the outlier
+    screen and the endpoint of every daily claim in the run. The sentinel
+    reading ("value unrecorded") requires activity the value fails to
+    reflect: count > 0, or no count information at all.
+
     Returns (values_list, n_zero_excluded). unit=None short-circuits to
     (input, 0) — MONETARY cannot fire without a unit, so there is nothing
     to profile. Never raises.
@@ -321,11 +328,21 @@ def _zero_screen(values, counts=None, labels=None, unit=None):
         prof = profile_regimes(vals, counts=counts, labels=labels, unit=unit)
         if zero_policy(prof).get("policy") != "sentinel_exclude":
             return vals, 0
+        cnts = None
+        if counts is not None:
+            try:
+                cnts = list(counts)
+            except Exception:
+                cnts = None
         screened = []
         n_excluded = 0
-        for v in vals:
+        for i, v in enumerate(vals):
             fv = safe_float(v)
             if fv is not None and fv == 0:
+                cv = safe_float(cnts[i]) if cnts is not None and i < len(cnts) else None
+                if cv is not None and cv == 0:
+                    screened.append(v)  # count-corroborated real zero
+                    continue
                 screened.append(None)
                 n_excluded += 1
             else:
@@ -841,8 +858,17 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
             z = 0.6745 * (v - baseline) / mad
             if abs(z) > k:
                 out.append({"label": lab, "value": v, "z": round(z, 1)})
-        return {"outliers": out, "n_flagged": len(out), "method": "rolling_mad",
-                "window": window, "k": k, "n_zero_excluded": n_zx}
+        # A screen that flagged nothing DECLARES the non-detection (run
+        # d82a39ce): with n_flagged bindable, the planner wrote "flagged 0
+        # anomalous day(s)", the zero-narration policy dropped the sentence,
+        # and the question's outlier component shipped unanswered. detected
+        # False routes the claim through the non-detection channel — the
+        # planner states "flagged no outliers" in words instead.
+        result = {"outliers": out, "n_flagged": len(out), "method": "rolling_mad",
+                  "window": window, "k": k, "n_zero_excluded": n_zx}
+        if not out:
+            result["detected"] = False
+        return result
     except Exception:
         return failed
 
@@ -1163,11 +1189,14 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
         multi-thousand-median corpus narrated as "prices fell 50% from
         peak" is undigitized data, not a decline).
       - magnitude (fallback, always on): value < 30% of the trailing-window
-        mean.
+        MEDIAN. Median, not mean (audited, run d82a39ce): one 871-dollar day
+        in the window dragged the mean high enough to evict a normal-range
+        final day (75.85 against a ~100 median), and the exclusion flipped
+        the reported direction.
 
-    Returns {"period", "value", "pct_from_peak", "direction",
-    "excluded_trailing", "excluded_reason", "latest_period", "latest_value",
-    "latest_n"} — period/value from the last
+    Returns {"period", "value", "pct_from_peak", "peak_value", "peak_period",
+    "direction", "excluded_trailing", "excluded_reason", "latest_period",
+    "latest_value", "latest_n"} — period/value from the last
     complete observation, pct_from_peak vs the series max (negative below
     peak; when counts= is given the reference peak considers ATTESTED
     periods only, the same bar finding_superlative applies — an audited run
@@ -1194,6 +1223,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
     screen is reported as n_zero_excluded. Never raises.
     """
     failed = {"detected": False, "period": None, "value": None, "pct_from_peak": None,
+              "peak_value": None, "peak_period": None,
               "direction": None, "excluded_trailing": None,
               "excluded_reason": None, "latest_period": None,
               "latest_value": None, "latest_n": None, "n_zero_excluded": None}
@@ -1253,7 +1283,11 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 if bar is not None and n_cur is not None and n_cur < bar:
                     incomplete = True
                     reason = "attestation"
-            mean = sum(prior) / len(prior)
+            sp_prior = sorted(prior)
+            mid = len(sp_prior) // 2
+            prior_med = (
+                sp_prior[mid] if len(sp_prior) % 2 else (sp_prior[mid - 1] + sp_prior[mid]) / 2.0
+            )
             cur = ys[end]
             if (
                 not incomplete
@@ -1262,7 +1296,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 and excluded >= magnitude_only_cap
             ):
                 break
-            if not incomplete and mean > 0 and cur is not None and cur < 0.3 * mean:
+            if not incomplete and prior_med > 0 and cur is not None and cur < 0.3 * prior_med:
                 incomplete = True
                 reason = "magnitude"
             if incomplete:
@@ -1287,10 +1321,21 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 attested_idx = [i for i in peak_idx if cnts[i] is None or cnts[i] >= bar]
                 if attested_idx:
                     peak_idx = attested_idx
-        finite = [ys[i] for i in peak_idx if ys[i] is not None]
-        if not finite:
-            finite = [y for y in ys[: end + 1] if y is not None]
-        peak = max(finite)
+        finite_idx = [i for i in peak_idx if ys[i] is not None]
+        if not finite_idx:
+            finite_idx = [i for i in range(end + 1) if ys[i] is not None]
+        peak_i = max(finite_idx, key=lambda i: ys[i])
+        peak = ys[peak_i]
+        # The peak the percentage is computed AGAINST rides in the value
+        # (audit, run d82a39ce): pct_from_peak was unverifiable from the
+        # claim alone — every figure a claim reports should carry the
+        # evidence to check it.
+        peak_period = peak_i
+        if labels is not None:
+            try:
+                peak_period = list(labels)[peak_i]
+            except Exception:
+                peak_period = peak_i
         pct = None if peak == 0 else (value - peak) / abs(peak) * 100.0
         # Direction = where the ENDPOINT sits relative to the recent level
         # (median of the prior window) — NOT a tail OLS slope. A slope over
@@ -1332,6 +1377,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
             latest_n = cnts[last]
         return {"period": period, "value": value,
                 "pct_from_peak": None if pct is None else round(pct, 2),
+                "peak_value": peak, "peak_period": peak_period,
                 "direction": direction, "excluded_trailing": excluded,
                 "excluded_reason": dominant,
                 "latest_period": latest_period, "latest_value": ys[last],
