@@ -2,6 +2,7 @@ import { executeSandbox as e2bExecutor } from "./executor";
 import { executeSandbox as dockerExecutor } from "./docker-executor";
 import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
 import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
+import { logger } from "@/lib/logger";
 import { RUNTIME_CAPABILITIES, unsupportedCapabilityError } from "./capabilities";
 import { getWarmManager } from "./warm-sandbox";
 import type { ExecutionResult, AdditionalFile, SandboxRunHooks } from "@/lib/contracts/execution";
@@ -9,7 +10,7 @@ export type { AdditionalFile };
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getStoredCSV } from "@/lib/csv/storage";
-import { deriveAllowedEgressHosts } from "./egress";
+import { egressPolicyFor } from "./egress";
 import { hermeticRuntimeFiles } from "./runtime-files";
 
 /**
@@ -125,22 +126,28 @@ export function executeSandbox(
   // Under "deny" this branch must not fire: network-looking code still runs,
   // but with no network — reads fail inside the jail instead of escaping it.
   if (rt === "docker" && network !== "deny" && codeNeedsNetwork(code)) {
-    // Bucket-scoped egress: when the run's source is a KNOWN remote URL, the
-    // network grant narrows to exactly that source's hosts (internal network
-    // + allowlist gateway — lib/sandbox/egress.ts). Runs without a stored
-    // remote source keep today's open egress (we cannot derive a destination
-    // to scope to).
+    // Egress tiered by what the container HOLDS (egressPolicyFor): a
+    // credential-less public source grants open bridge egress (nothing
+    // secret to exfiltrate; the proxy relay cost a 30x slowdown on
+    // planet-scale scans — run e1c88a71); a source with stored creds gets
+    // the bucket-scoped allowlist; creds with no derivable host fail
+    // CLOSED. Warehouse sources never reach this branch at all — they
+    // materialize host-side and run --network none.
     const stored = csvId ? getStoredCSV(csvId) : undefined;
-    const allowedEgressHosts =
-      opts.allowedEgressHosts ??
-      (stored?.remoteParquetUrl
-        ? deriveAllowedEgressHosts(stored.remoteParquetUrl, stored.remoteCreds)
-        : undefined);
+    const policy = opts.allowedEgressHosts
+      ? ({ mode: "allowlist", hosts: opts.allowedEgressHosts } as const)
+      : egressPolicyFor(stored?.remoteParquetUrl, stored?.remoteCreds);
+    if (policy.mode === "deny") {
+      logger.warn("Remote source has creds but no derivable egress host — network denied", {
+        csvId,
+      });
+    }
     return dockerExecutor(csvContent, code, {
       geojsonContent,
       additionalFiles,
       hooks,
-      allowedEgressHosts,
+      ...(policy.mode === "allowlist" ? { allowedEgressHosts: policy.hosts } : {}),
+      ...(policy.mode === "deny" ? { network: "deny" as const } : {}),
       runId: opts.runId,
     });
   }

@@ -10,7 +10,6 @@
 # Deny is the default: anything not explicitly allowed gets 403 and a log
 # line on stderr.
 import os
-import select
 import socket
 import sys
 import threading
@@ -34,20 +33,38 @@ def allowed(host):
 # opaque read failure. Only a genuinely dead tunnel is reaped.
 IDLE_TIMEOUT_S = int(os.environ.get("PROXY_IDLE_TIMEOUT_S", "1800"))
 
+# Relay buffer: 1 MiB. The original select()-loop pump moved 64 KB per
+# syscall round-trip through the GIL and turned a 45-second planet-scale
+# scan into 25 minutes (run e1c88a71). Blocking recv/send release the GIL,
+# so one thread per direction relays at close to native throughput.
+RELAY_BUF = 1 << 20
 
-def pump(a, b):
+
+def _relay(src, dst):
+    """One direction of a tunnel. On EOF or error, half-close the write side
+    of dst so the peer sees EOF while the reverse direction drains."""
     try:
         while True:
-            r, _, _ = select.select([a, b], [], [], IDLE_TIMEOUT_S)
-            if not r:
+            data = src.recv(RELAY_BUF)
+            if not data:
                 break
-            for s in r:
-                data = s.recv(65536)
-                if not data:
-                    return
-                (b if s is a else a).sendall(data)
+            dst.sendall(data)
     except OSError:
         pass
+    finally:
+        try:
+            dst.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+
+def pump(a, b):
+    a.settimeout(IDLE_TIMEOUT_S)
+    b.settimeout(IDLE_TIMEOUT_S)
+    t = threading.Thread(target=_relay, args=(b, a), daemon=True)
+    t.start()
+    _relay(a, b)
+    t.join()
 
 
 def handle(client):
@@ -73,8 +90,6 @@ def handle(client):
                 return
             upstream = socket.create_connection((host, int(port or 443)), timeout=30)
             client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-            client.settimeout(None)
-            upstream.settimeout(None)
             pump(client, upstream)
             upstream.close()
             return
@@ -91,8 +106,6 @@ def handle(client):
         origin = (url.path or "/") + (f"?{url.query}" if url.query else "")
         rest = head.split(b"\r\n", 1)[1]
         upstream.sendall(f"{method} {origin} HTTP/1.1\r\n".encode("latin1") + rest)
-        client.settimeout(None)
-        upstream.settimeout(None)
         pump(client, upstream)
         upstream.close()
     except OSError as e:
