@@ -1173,4 +1173,44 @@ describe("surfaceUndeclaredScreens — a computed screen cannot pass silently (r
     // n_flagged without a method sibling is not screen morphology.
     expect(surfaceUndeclaredScreens({ thing_n_flagged: 4 }, []).added).toHaveLength(0);
   });
+
+  // Run 31c1cfa9: the model wrote ONE rolling-MAD screen into TWO results
+  // families — spend_outlier_screen_* (verdict key, caught by the checks
+  // surfacer) and spend_outliers_* (screen morphology, caught here). Both
+  // surfaced: "3 data checks failed" and two near-identical caveats for one
+  // computation. Identical (n_flagged, method) against ANY finding already
+  // in the manifest — declared or surfaced — is the same computation under
+  // a second name.
+  it("skips a family whose evidence duplicates a finding already in the manifest", () => {
+    const surfacedCheck = F2("spend_outlier_screen", "check", {
+      passed: false,
+      evidence: { n_flagged: 17, method: "rolling_mad", window: 21 },
+    });
+    const { added, issues } = surfaceUndeclaredScreens(
+      {
+        spend_outliers_n_flagged: 17,
+        spend_outliers_method: "rolling_mad",
+        spend_outliers_window: 21,
+      },
+      [surfacedCheck]
+    );
+    expect(added).toHaveLength(0);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("duplicate_screen_family");
+    expect(issues[0].detail).toContain("spend_outlier_screen");
+    // Evidence living FLAT on a declared screen's value dedups too.
+    expect(
+      surfaceUndeclaredScreens(
+        { amount_outliers_n_flagged: 21, amount_outliers_method: "rolling_mad" },
+        [F2("txn_screen", "screen", { n_flagged: 21, method: "rolling_mad" })]
+      ).added
+    ).toHaveLength(0);
+    // A DIFFERENT count is a different screen — still surfaced.
+    expect(
+      surfaceUndeclaredScreens(
+        { other_outliers_n_flagged: 4, other_outliers_method: "rolling_mad" },
+        [surfacedCheck]
+      ).added
+    ).toHaveLength(1);
+  });
 });

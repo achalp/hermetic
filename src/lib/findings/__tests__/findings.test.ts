@@ -262,6 +262,9 @@ describe("projection — the privacy boundary", () => {
   // Spec §2.M2: a flag has no word for a sentence slot. The planner cannot
   // bind what it is never offered; validatePlan rejects the rest.
   it("boolean leaves never reach value_fields", () => {
+    // residual_pct: 0 is ALSO withheld (run 31c1cfa9): a zero remainder is
+    // the absence of a remainder — the planner bound it as "the remainder
+    // accounted for at 0%". A non-zero residual stays bindable.
     const p = projectFinding(
       entry({
         name: "share_check",
@@ -269,7 +272,43 @@ describe("projection — the privacy boundary", () => {
         value: { shares_pct: { a: 60, b: 40 }, residual_pct: 0, sums_to_100: true },
       })
     );
-    expect(p.value_fields).toEqual(["shares_pct", "residual_pct"]);
+    expect(p.value_fields).toEqual(["shares_pct"]);
+    const withRemainder = projectFinding(
+      entry({
+        name: "share_partial",
+        dtype: "share",
+        value: { shares_pct: { a: 60, b: 30 }, residual_pct: 10 },
+      })
+    );
+    expect(withRemainder.value_fields).toEqual(["shares_pct", "residual_pct"]);
+  });
+
+  // Run 31c1cfa9: the question asked to "identify outliers"; the screen's
+  // figures were caveat-only because the projection offered prose nothing to
+  // bind — leafFields stops at the top level, so a check's nested evidence
+  // scalars were invisible to the planner. Check/screen dtypes expand them
+  // as dotted paths; other dtypes keep the flat projection.
+  it("check/screen projections expand scalar evidence keys as dotted fields", () => {
+    const p = projectFinding(
+      entry({
+        name: "spend_outliers",
+        dtype: "screen",
+        value: {
+          passed: false,
+          evidence: { n_flagged: 17, window: 21, k: 3.5, method: "rolling_mad" },
+        },
+      })
+    );
+    expect(p.value_fields).toEqual(["evidence.n_flagged", "evidence.window", "evidence.k"]);
+    // Non-check dtypes are NOT expanded — a dict leaf stays one opaque field.
+    const trend = projectFinding(
+      entry({
+        name: "some_trend",
+        dtype: "trend",
+        value: { direction: "rising", slope_per_period: 2, evidence: { n_flagged: 3 } },
+      })
+    );
+    expect(trend.value_fields).toEqual(["direction", "slope_per_period", "evidence"]);
   });
 
   it("prompt budget drops WHOLE entries, untagged first, and reports omissions", () => {

@@ -393,7 +393,9 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
       thin_bar: 5,
     });
     const text = realizeClaim(sup);
-    expect(text).toContain("Candidates screened out as thin");
+    // The rider names its subject claim (run 31c1cfa9): deictic phrasings
+    // misattribute when several claims' riders share a node.
+    expect(text).toContain("Candidates screened out of the top cat pick as thin");
     expect(text).toContain("$finding:top_cat.thin_periods_skipped");
     // With a DIFFERING raw extreme, the fuller raw-beside-attested rider
     // carries the disclosure instead — never both.
@@ -409,7 +411,7 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
         thin_bar: 120,
       })
     );
-    expect(differing).toContain("The raw extreme is");
+    expect(differing).toContain("For peak, the raw extreme is");
     expect(differing).not.toContain("Candidates screened out");
     // Nothing skipped → no rider.
     expect(
@@ -423,6 +425,63 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
         })
       )
     ).not.toContain("Candidates screened out");
+  });
+
+  // Run 31c1cfa9's single audit high: the ANSWER referenced BOTH
+  // superlatives, so the merchant's bar-relaxed rider landed right after the
+  // category discussion — and "Attestation here" read as the category's
+  // confidence being undermined (its bar was 5, never relaxed). Riders name
+  // their subject so attribution survives any node placement.
+  it("riders from two claims on one node each name their subject", () => {
+    const cat = F("top_spend_category", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      thin_periods_skipped: 2,
+      thin_bar: 5,
+      label_is_catchall: true,
+    });
+    const merch = F("top_merchant", "superlative", {
+      period: "AcmeMart",
+      value: 812.5,
+      n: 1,
+      thin_bar: 1,
+      bar_relaxed: true,
+    });
+    const byName = new Map([
+      [cat.name, cat],
+      [merch.name, merch],
+    ]);
+    const text = realizeNode(
+      {
+        id: "ans",
+        op: "ANSWER",
+        refs: [cat.name, merch.name],
+        text: "Spending concentrates in $finding:top_spend_category.period at $finding:top_spend_category.value; the leading merchant is $finding:top_merchant.period at $finding:top_merchant.value.",
+      },
+      byName,
+      new Set()
+    );
+    expect(text).toContain("The winner for top spend category is a catch-all bucket");
+    expect(text).toContain("Candidates screened out of the top spend category pick");
+    expect(text).toContain("Attestation for top merchant rests on a bar relaxed to");
+    // No deixis left to misattribute.
+    expect(text).not.toContain("Attestation here");
+    expect(text).not.toContain("That leader");
+  });
+
+  // Run 31c1cfa9: "with the remainder accounted for at 0%" — a zero residual
+  // is the absence of a remainder. The template states exhaustiveness.
+  it("share template states exhaustiveness instead of binding a zero residual", () => {
+    const exhaustive = realizeClaim(
+      F("spend_shares", "share", { shares_pct: { a: 60, b: 40 }, residual_pct: 0 })
+    );
+    expect(exhaustive).toContain("fully account for the total");
+    expect(exhaustive).not.toContain("residual_pct");
+    const withRemainder = realizeClaim(
+      F("spend_shares2", "share", { shares_pct: { a: 60, b: 30 }, residual_pct: 10 })
+    );
+    expect(withRemainder).toContain("$finding:spend_shares2.residual_pct");
   });
 
   it("heterogeneity gets a dedicated template with a thin-groups rider", () => {

@@ -34,6 +34,13 @@ function leafFields(value: unknown): string[] | undefined {
   // validatePlan rejects a boolean binding as the enforcing layer.
   const keys = Object.entries(value as Record<string, unknown>)
     .filter(([, v]) => v !== null && v !== undefined && typeof v !== "boolean")
+    // A ZERO residual/remainder is the absence of a remainder, not a figure
+    // (run 31c1cfa9: "with the remainder accounted for at 0%"). Withheld at
+    // the projection for the same reason nulls and booleans are — the
+    // values-blind planner will bind any field it is offered, and there is
+    // no sentence slot where a bound 0-remainder reads as anything but
+    // noise. The realizer's share template states exhaustiveness in words.
+    .filter(([k, v]) => !(/residual|remainder/i.test(k) && v === 0))
     .map(([k]) => k);
   return keys.length > 0 ? keys : undefined;
 }
@@ -125,16 +132,39 @@ function verdictFields(value: unknown): Record<string, boolean> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** For check/screen claims, the scalar evidence keys as dotted paths —
+ *  `evidence.n_flagged` — so the planner can NARRATE a screen's result in
+ *  prose ("$finding:x.evidence.n_flagged of ⟨n⟩ transactions flagged").
+ *  leafFields stops at the top level, so before this the projection offered
+ *  only the opaque field "evidence": the caveat machinery could render the
+ *  figures but a prose sentence had nothing to bind (run 31c1cfa9 — the
+ *  question asked to "identify outliers"; the answer lived caveat-only).
+ *  Scoped to check/screen dtypes: expanding every nested dict would bloat
+ *  the projection and offer unbindable keys (group labels with spaces). */
+function evidenceFields(value: unknown): string[] {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
+  const ev = (value as Record<string, unknown>).evidence;
+  if (ev === null || ev === undefined || typeof ev !== "object" || Array.isArray(ev)) return [];
+  return Object.entries(ev as Record<string, unknown>)
+    .filter(([k, v]) => typeof v === "number" && /^[a-zA-Z0-9_]+$/.test(k))
+    .map(([k]) => `evidence.${k}`);
+}
+
 export function projectFinding(entry: FindingEntry): FindingProjection {
   const nonDetection = isNonDetection(entry);
-  const fields = nonDetection ? undefined : leafFields(entry.value);
+  const isCheckLike = entry.dtype === "check" || entry.dtype === "screen";
+  const baseFields = nonDetection ? undefined : leafFields(entry.value);
+  const fields =
+    !nonDetection && isCheckLike
+      ? [...(baseFields ?? []).filter((f) => f !== "evidence"), ...evidenceFields(entry.value)]
+      : baseFields;
   const verdicts = nonDetection ? undefined : verdictFields(entry.value);
   return {
     name: entry.name,
     definition: scrubNumerals(entry.definition),
     dtype: entry.dtype,
     ...(entry.unit ? { unit: entry.unit } : {}),
-    ...(fields ? { value_fields: fields } : {}),
+    ...(fields && fields.length > 0 ? { value_fields: fields } : {}),
     ...(verdicts ? { verdicts } : {}),
     ...(nonDetection ? { detected: false as const } : {}),
     ...(entry.tags?.length ? { tags: entry.tags } : {}),

@@ -722,12 +722,17 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               (r.result?.executionResult.results ?? {}) as Record<string, unknown>,
               validated.manifest.findings
             );
+            // Checks additions land BEFORE the screens surfacer runs: its
+            // evidence-equality dedup (run 31c1cfa9) compares candidates
+            // against everything already in the manifest, including what the
+            // checks surfacer just added.
+            validated.manifest.findings.push(...surfaced.added);
             const surfacedScr = surfaceUndeclaredScreens(
               (r.result?.executionResult.results ?? {}) as Record<string, unknown>,
               validated.manifest.findings
             );
+            validated.manifest.findings.push(...surfacedScr.added);
             if (surfaced.added.length > 0 || surfacedScr.added.length > 0) {
-              validated.manifest.findings.push(...surfaced.added, ...surfacedScr.added);
               logger.warn("investigate findings: undeclared checks/screens auto-surfaced", {
                 stepNo,
                 checks: [...surfaced.added, ...surfacedScr.added].map((f) => f.name),

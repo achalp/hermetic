@@ -35,9 +35,9 @@ const humanize = (name: string): string =>
 // claim function screened sentinel zeros internally (unit= was passed and
 // zero_policy fired), the sentence carries the count — an applied policy
 // the reader can't see is the same defect as an unapplied one.
-const zeroClause = (n: string, v: Record<string, unknown>): string =>
+const zeroClause = (n: string, v: Record<string, unknown>, label: string): string =>
   typeof v.n_zero_excluded === "number" && v.n_zero_excluded > 0
-    ? ` ${b(n, "n_zero_excluded")} zero values were excluded as unrecorded-value sentinels (zero policy).`
+    ? ` ${b(n, "n_zero_excluded")} zero values in ${label} were excluded as unrecorded-value sentinels (zero policy).`
     : "";
 
 /** Smallest group size below which a heterogeneity verdict carries a
@@ -59,17 +59,27 @@ const THIN_GROUP_DISCLOSURE_N = 6;
  *
  * Riders are appended to authored text and included in template rendering,
  * so suppressing one is unrepresentable in either mode.
+ *
+ * Every rider NAMES ITS SUBJECT CLAIM (run 31c1cfa9): riders attach at the
+ * first node that references their claim, and a node can reference several
+ * claims — deictic phrasings ("here", "That leader") then read as
+ * qualifying whichever claim was discussed last. The audited case: the
+ * merchant's bar-relaxed-to-1 rider landed after the category discussion
+ * and undermined the wrong claim's confidence. Labels sit in grammar-safe
+ * prepositional slots ("for X", "of X", "in X") so any humanized finding
+ * name stays grammatical.
  */
 export function riderClauses(f: FindingEntry): string[] {
   const v = fv(f);
   const n = f.name;
+  const label = humanize(n);
   const riders: string[] = [];
   switch (f.dtype) {
     case "superlative": {
       if (!("value" in v)) break;
       if (v.raw_value !== undefined && v.raw_value !== null && v.raw_value !== v.value) {
         riders.push(
-          `The raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`
+          `For ${label}, the raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`
         );
       } else if (
         typeof v.thin_periods_skipped === "number" &&
@@ -84,18 +94,19 @@ export function riderClauses(f: FindingEntry): string[] {
         // the bar of 5 and nothing said so, which materially framed "top
         // category". Colon-form for number-noun agreement.
         riders.push(
-          `Candidates screened out as thin under the ${b(n, "thin_bar")}-observation attestation bar: ${b(n, "thin_periods_skipped")}.`
+          `Candidates screened out of the ${label} pick as thin under the ${b(n, "thin_bar")}-observation attestation bar: ${b(n, "thin_periods_skipped")}.`
         );
       }
       // A catch-all winner is a statement about unclassified residue, not
       // about a real group. Audited (run 77051c9d): "Other" (n = 45, 35% of
       // transactions) headlined a spend analysis as the dominant category
-      // with nothing saying it was the leftovers. Static phrasing — the
-      // earlier label interpolation produced "names unclassified top spend
-      // category", a finding NAME wearing a noun's clothes (run 5872407b).
+      // with nothing saying it was the leftovers. The label rides in a
+      // prepositional slot ("for X") — the run-5872407b regression put the
+      // name in a predicate slot ("names unclassified top spend category")
+      // where a finding NAME wore a noun's clothes.
       if (v.label_is_catchall === true) {
         riders.push(
-          `That leader is a catch-all bucket — it aggregates records the analysis could not classify, rather than naming a real group.`
+          `The winner for ${label} is a catch-all bucket — it aggregates records the analysis could not classify, rather than naming a real group.`
         );
       }
       // The bar is series-relative, so two superlatives in one run can carry
@@ -106,7 +117,7 @@ export function riderClauses(f: FindingEntry): string[] {
         // Phrased to dodge number-noun agreement: thin_bar is a binding, so
         // "of 1 observations" was ungrammatical at n = 1 (run 093c9785).
         riders.push(
-          `Attestation here rests on a bar relaxed to ${b(n, "thin_bar")}, because the series is uniformly thin.`
+          `Attestation for ${label} rests on a bar relaxed to ${b(n, "thin_bar")}, because the series is uniformly thin.`
         );
       }
       break;
@@ -116,7 +127,7 @@ export function riderClauses(f: FindingEntry): string[] {
         // Colon-form to dodge number-noun agreement on a binding: "The
         // final 1 periods were excluded" shipped in run dfe3ea32.
         riders.push(
-          `Trailing periods excluded from the series' end: ${b(n, "excluded_trailing")} (${b(n, "excluded_reason")}); the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`
+          `Trailing periods excluded from the end of the ${label} series: ${b(n, "excluded_trailing")} (${b(n, "excluded_reason")}); the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`
         );
       }
       break;
@@ -130,13 +141,13 @@ export function riderClauses(f: FindingEntry): string[] {
           : [];
       if (groups.length > 0 && Math.min(...groups) < THIN_GROUP_DISCLOSURE_N) {
         riders.push(
-          `The test pools groups of very different sizes (group sizes: ${b(n, "group_ns")}) — the smallest contribute only a handful of observations, so treat the verdict as directional for them.`
+          `The ${label} test pools groups of very different sizes (group sizes: ${b(n, "group_ns")}) — the smallest contribute only a handful of observations, so treat the verdict as directional for them.`
         );
       }
       break;
     }
   }
-  const zc = zeroClause(n, v).trim();
+  const zc = zeroClause(n, v, label).trim();
   if (zc) riders.push(zc);
   return riders;
 }
@@ -238,6 +249,12 @@ function headlineClause(f: FindingEntry): string {
     }
     case "share": {
       if (!has("shares_pct")) return generic(f);
+      // A residual of exactly 0 means the shares are exhaustive — "with 0%
+      // left as residual" narrates the absence of a remainder as a figure
+      // (run 31c1cfa9). Say what it means instead.
+      if (v.residual_pct === 0) {
+        return `${cap(label)}: shares ${b(n, "shares_pct")}, which fully account for the total.`;
+      }
       return `${cap(label)}: shares ${b(n, "shares_pct")} with residual ${b(n, "residual_pct")}.`;
     }
     case "screen":

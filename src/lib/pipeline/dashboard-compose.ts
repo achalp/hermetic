@@ -1556,7 +1556,12 @@ export async function composeAndStreamDashboard(args: {
       // Verifiability panel (composer-sight spec §2): the mechanical case
       // that the dashboard says what the analysis computed, as a
       // user-reviewable artifact. Always emitted; persisted with the spec.
-      const checks = (opts.findings?.manifest.findings ?? []).filter((f) => f.dtype === "check");
+      // Screens count as checks here (run 31c1cfa9): a surfaced dtype
+      // "screen" with passed: false reached the banner and the caveats but
+      // not this panel — banner said 3 failures, panel said 2.
+      const checks = (opts.findings?.manifest.findings ?? []).filter(
+        (f) => f.dtype === "check" || f.dtype === "screen"
+      );
       const verifiability = {
         composerSight: opts.sight === "sighted" ? "sighted" : "blind",
         composerMode: compiledMode ? "compiled" : "generative",

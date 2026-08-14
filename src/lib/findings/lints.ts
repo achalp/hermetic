@@ -1790,9 +1790,35 @@ export function surfaceUndeclaredScreens(
     const base = key.slice(0, -"_n_flagged".length);
     if (!base || !/^[a-z][a-z0-9_]*$/.test(base)) continue;
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) continue;
-    if (typeof results[`${base}_method`] !== "string") continue;
+    const method = results[`${base}_method`];
+    if (typeof method !== "string") continue;
     if (`${base}_passed` in results) continue; // the checks surfacer owns it
     if (declared.some((d) => key.startsWith(`${d}_`) || d === base)) continue;
+    // Evidence-equality dedup (run 31c1cfa9): the model wrote ONE rolling-MAD
+    // screen into TWO results families — spend_outlier_screen_* (verdict key
+    // → checks surfacer) and spend_outliers_* (screen morphology → here).
+    // Both surfaced: "3 data checks failed" and two near-identical caveats
+    // for one computation. Identical (n_flagged, method) against any finding
+    // already in the manifest — declared or surfaced — is the same
+    // computation under a second name: skip it, tell the model off.
+    const twin = findings.find((f) => {
+      const v = f.value;
+      if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+      const rec = v as Record<string, unknown>;
+      const ev =
+        rec.evidence !== null && typeof rec.evidence === "object" && !Array.isArray(rec.evidence)
+          ? (rec.evidence as Record<string, unknown>)
+          : rec;
+      return ev.n_flagged === value && ev.method === method;
+    });
+    if (twin) {
+      issues.push({
+        kind: "duplicate_screen_family",
+        name: base,
+        detail: `results family ${base}_* duplicates the screen already carried by ${twin.name} (same n_flagged ${value}, same method "${method}") — one computation written under two names; declare the screen once`,
+      });
+      continue;
+    }
     const evidence: Record<string, unknown> = {};
     for (const [k2, v2] of Object.entries(results)) {
       if (!k2.startsWith(`${base}_`)) continue;
@@ -1810,7 +1836,7 @@ export function surfaceUndeclaredScreens(
     issues.push({
       kind: "undeclared_screen_computation",
       name: base,
-      detail: `results carries a computed screen (${key} = ${value}, method ${String(results[`${base}_method`])}) with no declared finding behind it — the analysis should declare it via finding_outliers + declare_finding`,
+      detail: `results carries a computed screen (${key} = ${value}, method ${method}) with no declared finding behind it — the analysis should declare it via finding_outliers + declare_finding`,
     });
   }
   return { added, issues };
