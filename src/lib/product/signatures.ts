@@ -87,8 +87,8 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   TrendIndicator: {
     family: "stat",
     feeds: "claim",
-    dtypes: ["trend", "direction"],
-    when: "a compact direction+delta chip for one trend claim",
+    dtypes: ["comparison"],
+    when: "a compact current-vs-previous chip for one comparison claim",
   },
   GaugeChart: {
     family: "stat",
@@ -99,8 +99,8 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   BulletChart: {
     family: "stat",
     feeds: "claim",
-    dtypes: ["current_state", "comparison"],
-    when: "actual vs reference level in minimal space",
+    dtypes: ["current_state"],
+    when: "actual vs peak level in minimal space",
   },
   Sparkline: {
     family: "axis",
@@ -338,8 +338,8 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   HeatMap: {
     family: "matrix",
     feeds: "series",
-    seriesKinds: ["matrix", "axis"],
-    when: "a value over two categorical dimensions",
+    seriesKinds: ["matrix"],
+    when: "a value over two categorical dimensions (row+col+value rows)",
   },
   ConfusionMatrix: {
     family: "matrix",
@@ -350,8 +350,8 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   Correlogram: {
     family: "matrix",
     feeds: "series",
-    seriesKinds: ["matrix", "axis"],
-    when: "autocorrelation by lag, or a correlation matrix",
+    seriesKinds: ["axis"],
+    when: "autocorrelation by lag (lag x + one measure)",
   },
   CohortGrid: {
     family: "matrix",
@@ -360,10 +360,10 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     when: "cohort x period retention values",
   },
   SilhouettePlot: {
-    family: "matrix",
+    family: "distribution",
     feeds: "series",
-    seriesKinds: ["matrix", "distribution"],
-    when: "cluster quality per sample",
+    seriesKinds: ["distribution"],
+    when: "cluster quality per sample (needs a group role)",
   },
   ContourChart: {
     family: "matrix",
@@ -459,10 +459,10 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     when: "magnitudes by angular direction",
   },
   TernaryChart: {
-    family: "vector",
+    family: "axis",
     feeds: "series",
-    seriesKinds: ["vector"],
-    when: "three-part compositions on a triangle",
+    minMeasures: 3,
+    when: "three-part compositions on a triangle (three share measures)",
   },
 };
 
