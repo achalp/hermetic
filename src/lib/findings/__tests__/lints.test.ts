@@ -497,6 +497,48 @@ describe("lintChartConsistency — one payload, one policy (run-30)", () => {
     ).toBe(true);
   });
 
+  // Run f62eefbb, two false positives: a per-PAYEE peak (948) and a
+  // per-DAY peak (1027) were both flagged against the per-LOCATION
+  // rollup's 3130 — same measure word, different dimension. The finding's
+  // non-measure tokens must overlap the series KEY before its columns
+  // adjudicate; measure-word-only findings keep the legacy comparison.
+  it("a peak is only contradicted by a chart of its own dimension", () => {
+    const charts = {
+      spend_by_location: [
+        { label: "Other City/CA", total_spend_usd: 3130.28 },
+        { label: "Online (Amazon)", total_spend_usd: 866.9 },
+      ],
+      daily_spend: [
+        { date: "2026-07-09", total_spend_usd: 1027.35 },
+        { date: "2026-07-10", total_spend_usd: 180.2 },
+      ],
+    };
+    const payeePeak = {
+      name: "payee_spend_peak",
+      definition: "largest total spend at a single payee",
+      dtype: "superlative",
+      value: { period: "REALTOR ASSOCIATION", value: 948 },
+    } as FindingEntry;
+    // The location rollup exceeding a payee peak is not a contradiction.
+    expect(
+      lintChartConsistency(charts, [payeePeak]).some(
+        (i) => i.kind === "superlative_contradicted_by_chart"
+      )
+    ).toBe(false);
+    // A DAILY peak understating its own daily chart still flags.
+    const dailyPeakWrong = {
+      name: "daily_spend_peak",
+      definition: "heaviest single day",
+      dtype: "superlative",
+      value: { period: "2026-07-10", value: 180.2 },
+    } as FindingEntry;
+    expect(
+      lintChartConsistency({ daily_spend: charts.daily_spend }, [dailyPeakWrong]).some(
+        (i) => i.kind === "superlative_contradicted_by_chart"
+      )
+    ).toBe(true);
+  });
+
   it("checks a step-scoped superlative only against its own step's charts", () => {
     const peak = {
       name: "step_2.peak_max_price",

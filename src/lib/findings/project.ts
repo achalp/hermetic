@@ -154,12 +154,20 @@ function verdictFields(value: unknown): Record<string, boolean> | undefined {
  *  question asked to "identify outliers"; the answer lived caveat-only).
  *  Scoped to check/screen dtypes: expanding every nested dict would bloat
  *  the projection and offer unbindable keys (group labels with spaces). */
+/** Count-shaped evidence keys — a zero here is the ABSENCE of events, not a
+ *  figure (run f62eefbb: "after excluding 0 zero-amount entries" shipped
+ *  because the dotted evidence expansion bypassed the flat-field zero-count
+ *  suppression). Same rule as the contract's `count` class, applied to the
+ *  open evidence vocabulary by morphology. */
+const COUNT_MORPHOLOGY = /^(n|num)_|_(count|excluded|skipped|flagged|n)$|^n$/;
+
 function evidenceFields(value: unknown): string[] {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
   const ev = (value as Record<string, unknown>).evidence;
   if (ev === null || ev === undefined || typeof ev !== "object" || Array.isArray(ev)) return [];
   return Object.entries(ev as Record<string, unknown>)
     .filter(([k, v]) => typeof v === "number" && /^[a-zA-Z0-9_]+$/.test(k))
+    .filter(([k, v]) => !(v === 0 && COUNT_MORPHOLOGY.test(k)))
     .map(([k]) => `evidence.${k}`);
 }
 

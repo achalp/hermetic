@@ -809,6 +809,27 @@ export function lintChartConsistency(
   // exceeds — checked only against the finding's OWN scope's charts (a
   // step-2 peak over a screened subset is not contradicted by step-3's
   // unscreened chart of the full corpus).
+  // Dimensional compatibility (run f62eefbb, two false positives): a
+  // per-PAYEE peak of 948 was flagged against a per-LOCATION rollup's 3130
+  // — same measure word, different dimension, no contradiction. The
+  // finding's non-measure tokens (payee, daily, weekly...) must overlap the
+  // SERIES KEY before its columns can adjudicate; findings whose names
+  // carry only measure words keep the legacy any-series comparison (the
+  // original max_price catch has no dimension token to demand).
+  const MEASURE_WORDS = new Set([
+    "spend",
+    "price",
+    "usd",
+    "total",
+    "amount",
+    "value",
+    "cost",
+    "revenue",
+    "sales",
+    "sum",
+  ]);
+  const dimTokens = (s: string) =>
+    s.split(/[._]/).filter((t) => t.length > 2 && !MEASURE_WORDS.has(t.toLowerCase()));
   for (const f of findings) {
     if (!/peak|max/.test(f.name) || f.value === null || typeof f.value !== "object") continue;
     const val = (f.value as Record<string, unknown>).value;
@@ -816,15 +837,20 @@ export function lintChartConsistency(
     const cells = scopedCells.get(scopeOfFinding(f.name));
     if (!cells) continue;
     const tokens = f.name.split(/[._]/).filter((t) => t.length > 2 && !["peak", "max"].includes(t));
+    const fDims = dimTokens(f.name).filter((t) => !["peak", "max", "largest"].includes(t));
     for (const [col, byX] of cells) {
       if (!tokens.some((t) => col.includes(t))) continue;
-      let best: { x: string; v: number } | null = null;
+      let best: { x: string; v: number; series: string } | null = null;
       for (const [x, cell] of byX) {
-        for (const v of cell.nums.values()) {
-          if (!best || v > best.v) best = { x, v };
+        for (const [series, v] of cell.nums.entries()) {
+          if (!best || v > best.v) best = { x, v, series };
         }
       }
       if (best && best.v > val * 1.05) {
+        if (fDims.length > 0) {
+          const sDims = new Set(dimTokens(best.series).map((t) => t.toLowerCase()));
+          if (!fDims.some((t) => sDims.has(t.toLowerCase()))) continue;
+        }
         issues.push({
           kind: "superlative_contradicted_by_chart",
           name: f.name,
@@ -1363,7 +1389,22 @@ export function lintRegimePolicy(
     const info = rolesIdx?.get(id);
     const col = info?.measures[0]?.column;
     if (!col) continue;
-    const zeros = (rows as Record<string, unknown>[]).filter((r) => r[col] === 0).length;
+    // Count-corroborated zeros are REAL (runtime _zero_screen, run
+    // d82a39ce): a $0 row whose count column is also 0 is a period nothing
+    // happened — the sentinel policy is SUPPOSED to keep it. Only zeros
+    // with recorded activity (count > 0) or no count information count as
+    // unapplied policy.
+    const countCol =
+      info?.countCol ??
+      Object.keys((rows as Record<string, unknown>[])[0] ?? {}).find((c) =>
+        /(^|_)(n|count|transactions?)$/.test(c)
+      );
+    const zeros = (rows as Record<string, unknown>[]).filter((r) => {
+      if (r[col] !== 0) return false;
+      if (countCol === undefined) return true;
+      const c = r[countCol];
+      return !(typeof c === "number" && c === 0);
+    }).length;
     if (zeros > 0) {
       issues.push({
         kind: "zero_sentinel_unapplied",

@@ -301,6 +301,21 @@ describe("projection — the privacy boundary", () => {
       })
     );
     expect(p.value_fields).toEqual(["evidence.n_flagged", "evidence.window", "evidence.k"]);
+    // Zero-valued COUNT evidence is withheld through the dotted path too
+    // (run f62eefbb: "after excluding 0 zero-amount entries" shipped
+    // because evidence.n_zero_excluded = 0 stayed bindable). Non-count
+    // zeros (a threshold of 0) stay.
+    const zeroCount = projectFinding(
+      entry({
+        name: "screen_zero_evidence",
+        dtype: "screen",
+        value: {
+          passed: false,
+          evidence: { n_flagged: 17, n_zero_excluded: 0, other_count: 0, floor: 0 },
+        },
+      })
+    );
+    expect(zeroCount.value_fields).toEqual(["evidence.n_flagged", "evidence.floor"]);
     // Non-check dtypes are NOT expanded — a dict leaf stays one opaque field.
     const trend = projectFinding(
       entry({

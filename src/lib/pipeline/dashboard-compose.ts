@@ -1569,6 +1569,17 @@ export async function composeAndStreamDashboard(args: {
       const checks = (opts.findings?.manifest.findings ?? []).filter(
         (f) => f.dtype === "check" || f.dtype === "screen" || f.dtype === "outliers"
       );
+      // Citation = bound in prose OR referenced by a plan node (run
+      // f62eefbb): a narrated NON-DETECTION has nothing to bind — "no
+      // persistent step change survived the gates" cites the claim in
+      // words via refs, and binding-only counting reported it unnarrated.
+      const citationPlanDoc: PlanDocument | null = compiledPlanDoc as PlanDocument | null;
+      if (citationPlanDoc) {
+        const declaredNames = new Set((opts.findings?.manifest.findings ?? []).map((f) => f.name));
+        for (const node of citationPlanDoc.plan.nodes) {
+          for (const ref of node.refs) if (declaredNames.has(ref)) citedFindings.add(ref);
+        }
+      }
       const verifiability = {
         composerSight: opts.sight === "sighted" ? "sighted" : "blind",
         composerMode: compiledMode ? "compiled" : "generative",
