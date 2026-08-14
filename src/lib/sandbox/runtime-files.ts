@@ -1,4 +1,4 @@
-import { readdirSync } from "fs";
+import { readdirSync, statSync } from "fs";
 /**
  * Hermetic runtime shipping — the tested Python package under
  * docker/sandbox/hermetic_runtime/ is attached to EVERY sandbox run as
@@ -33,14 +33,26 @@ function runtimeDir(): string {
 }
 
 let cachedFiles: AdditionalFile[] | null = null;
+let cachedStamp = "";
 let warnedMissing = false;
 
 /** Test-only: reset the module caches. */
 export function resetRuntimeFilesCacheForTests(): void {
   cachedFiles = null;
+  cachedStamp = "";
   cachedApi = null;
   cachedExtras = null;
   warnedMissing = false;
+}
+
+/** Fingerprint of the package directory (names + mtimes) — a handful of
+ *  stats per run, so an edited helper reaches the NEXT sandbox without a
+ *  server restart. The stale-cache failure was live and expensive: the
+ *  O(n^2) modal fix (run f4c8d66b) was committed, the long-lived dev server
+ *  kept injecting its cached pre-fix copy, and the validation run burned
+ *  another 22 minutes proving nothing. */
+function runtimeStamp(names: string[]): string {
+  return names.map((n) => `${n}:${statSync(path.join(runtimeDir(), n)).mtimeMs}`).join("|");
 }
 
 /**
@@ -49,12 +61,18 @@ export function resetRuntimeFilesCacheForTests(): void {
  * so a broken deployment degrades instead of failing every run.
  */
 export function hermeticRuntimeFiles(): AdditionalFile[] {
-  if (cachedFiles) return cachedFiles;
   try {
-    cachedFiles = runtimeModules().map((name) => ({
+    const names = runtimeModules();
+    const stamp = runtimeStamp(names);
+    if (cachedFiles && stamp === cachedStamp) return cachedFiles;
+    cachedFiles = names.map((name) => ({
       path: `/data/hermetic_runtime/${name}`,
       content: readFileSync(path.join(runtimeDir(), name), "utf8"),
     }));
+    cachedStamp = stamp;
+    // The prompt sections derive from these contents — refresh with them.
+    cachedApi = null;
+    cachedExtras = null;
   } catch (err) {
     if (!warnedMissing) {
       warnedMissing = true;
