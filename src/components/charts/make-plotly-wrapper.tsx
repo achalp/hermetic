@@ -29,37 +29,37 @@ export interface PlotlyWrapperProps {
 }
 
 /**
- * Re-center hover label text inside its bubble one frame after the hover.
+ * Take finished hover labels out of Plotly's reuse pool.
  *
- * Chrome 151 stopped invalidating layout synchronously when an SVG transform
- * attribute changes: a forced getBoundingClientRect in the same tick returns
- * the PRE-change geometry. Plotly's createHoverText resets a reused label's
- * transform and immediately measures the text to derive its y position, so
- * the measurement is stale by exactly the label's previous offset and the
- * text lands that far outside the bubble (an "empty" hover label). A fresh
- * label (first hover after entering a chart) measures clean, which is why
- * only the second and later events on a reused label go blank. By the next
- * animation frame layout is accurate, so measure the real path/text boxes
- * and shift the text back to the bubble's vertical center.
+ * Chrome 151 defers SVG transform-attribute invalidation past forced reflows:
+ * a getBoundingClientRect in the same tick returns the PRE-change geometry.
+ * Plotly's createHoverText resets a REUSED label's transform and immediately
+ * measures its text to derive the text position, so the measurement is stale
+ * by exactly the label's previous offset and the text lands that far outside
+ * the bubble — an empty-looking hover label from the second event onward. A
+ * FRESH label has no prior layout and measures correctly (the first hover
+ * always renders right), so before every mouse event that could trigger a
+ * hover pass we rename the finished label's class: Plotly's pass no longer
+ * selects it, builds a fresh label, and we drop the retired one. The retired
+ * label keeps rendering between throttled hover passes, so there is no
+ * flicker. This runs in the capture phase so it precedes Plotly's own
+ * bubble-phase handlers on the drag rect.
  */
-function realignHoverText(container: HTMLElement) {
-  for (const ht of container.querySelectorAll("g.hoverlayer g.hovertext")) {
-    const path = ht.querySelector("path");
-    const nums = ht.querySelector("text.nums");
-    if (!path || !nums) continue;
-    const pb = path.getBoundingClientRect();
-    const tb = nums.getBoundingClientRect();
-    if (!pb.height || !tb.height) continue;
-    const scaleY = (nums as SVGGraphicsElement).getScreenCTM()?.d ?? 1;
-    const dy = (pb.top + pb.height / 2 - (tb.top + tb.height / 2)) / scaleY;
-    if (Math.abs(dy) <= 1) continue;
-    // ty0 (the stale-measure term) feeds every text in the label, so shift
-    // the secondary name text by the same amount as the nums text.
-    for (const text of ht.querySelectorAll("text")) {
-      const y = parseFloat(text.getAttribute("y") ?? "0");
-      text.setAttribute("y", String(y + dy));
-    }
+const RETIRED = "hovertext-retired";
+
+function retireHoverLabels(container: HTMLElement | null) {
+  if (!container) return;
+  const live = container.querySelectorAll("g.hoverlayer g.hovertext, g.hoverlayer g.axistext");
+  if (live.length === 0) return;
+  for (const stale of container.querySelectorAll(`g.hoverlayer .${RETIRED}`)) stale.remove();
+  for (const label of live) {
+    label.setAttribute("class", RETIRED);
   }
+}
+
+function clearRetiredHoverLabels(container: HTMLElement | null) {
+  if (!container) return;
+  for (const stale of container.querySelectorAll(`g.hoverlayer .${RETIRED}`)) stale.remove();
 }
 
 /**
@@ -123,26 +123,16 @@ export function makePlotlyWrapper(
       };
     }, []);
 
-    // Fix hover label text stranded by Chrome's stale SVG measurement (see
-    // realignHoverText). Plotly repositions labels during mouse movement, so
-    // schedule one correction per frame while the pointer is over the chart.
+    // Retire labels ahead of every event Plotly's hover pipeline listens to
+    // (see retireHoverLabels). Capture phase runs before Plotly's handlers.
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
-      let raf = 0;
-      const onMove = () => {
-        if (raf) return;
-        raf = requestAnimationFrame(() => {
-          raf = 0;
-          realignHoverText(el);
-        });
-      };
-      el.addEventListener("mousemove", onMove, { passive: true });
-      el.addEventListener("mouseover", onMove, { passive: true });
+      const retire = () => retireHoverLabels(el);
+      const events = ["mousemove", "mouseover", "mouseout", "touchmove", "touchstart"] as const;
+      for (const ev of events) el.addEventListener(ev, retire, { capture: true, passive: true });
       return () => {
-        el.removeEventListener("mousemove", onMove);
-        el.removeEventListener("mouseover", onMove);
-        if (raf) cancelAnimationFrame(raf);
+        for (const ev of events) el.removeEventListener(ev, retire, { capture: true });
       };
     }, []);
 
@@ -155,6 +145,7 @@ export function makePlotlyWrapper(
           layout={mergedLayout}
           config={PLOTLY_CONFIG}
           useResizeHandler
+          onUnhover={() => clearRetiredHoverLabels(containerRef.current)}
           style={{ width: "100%", height: "100%" }}
         />
       </div>
