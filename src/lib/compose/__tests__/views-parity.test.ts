@@ -167,10 +167,11 @@ describe("view compilers — props from declared roles, never authored", () => {
     )!;
     const el = patch.value as { type: string; props: Record<string, unknown> };
     expect(el.type).toBe("MapView");
-    // Strict contract markers, projected from the declared rows.
+    // Contract fields normalized, with the row's OTHER scalar attributes
+    // riding along — the click popup renders them (the pin info box).
     expect(el.props.markers).toEqual([
-      { lat: 47.61, lng: -122.33, label: "A", color: null },
-      { lat: 47.62, lng: -122.35, label: "B", color: null },
+      { lat: 47.61, lng: -122.33, label: "A", color: null, nn_dist_m: 553.8 },
+      { lat: 47.62, lng: -122.35, label: "B", color: null, nn_dist_m: 411.2 },
     ]);
     expect(el.props.title).toBe("Most isolated buildings");
   });

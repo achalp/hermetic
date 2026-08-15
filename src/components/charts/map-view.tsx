@@ -234,6 +234,11 @@ export function MapViewComponent({
   const hoveredFeatureId = useRef<number | null>(null);
 
   const [hoveredMarker, setHoveredMarker] = useState<number | null>(null);
+  // Clicked pin -> the same rich property popup geojson features get: every
+  // extra field the marker row carries (rank, distances, ids). Restores the
+  // pin info box for compiled MapViews, whose data arrives as markers
+  // rather than geojson.
+  const [selectedMarker, setSelectedMarker] = useState<number | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<{
     properties: Record<string, unknown>;
     anchor: [number, number]; // [lat, lng]
@@ -569,6 +574,10 @@ export function MapViewComponent({
                 <div
                   onMouseEnter={() => setHoveredMarker(i)}
                   onMouseLeave={() => setHoveredMarker(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedMarker((prev) => (prev === i ? null : i));
+                  }}
                 >
                   <PinMarker color={color} />
                 </div>
@@ -586,6 +595,68 @@ export function MapViewComponent({
               className="map-marker-tooltip"
             >
               <div className="text-xs text-gray-900">{markers[hoveredMarker].label}</div>
+            </Popup>
+          )}
+
+          {selectedMarker !== null && markers[selectedMarker] && (
+            <Popup
+              latitude={markers[selectedMarker].lat}
+              longitude={markers[selectedMarker].lng}
+              offset={[0, -40] as [number, number]}
+              closeButton={false}
+              closeOnClick={false}
+              maxWidth="280px"
+              className="map-feature-popup"
+            >
+              <div
+                className="text-xs"
+                style={{ minWidth: 180, maxHeight: 220, overflow: "auto" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between pb-1 mb-1 border-b border-gray-200">
+                  <span className="font-semibold text-sm text-gray-900">
+                    {markers[selectedMarker].label ?? "Marker"}
+                  </span>
+                  <button
+                    className="text-gray-400 hover:text-gray-700 ml-2 text-base leading-none"
+                    onClick={() => setSelectedMarker(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+                {(() => {
+                  const m = markers[selectedMarker] as unknown as Record<string, unknown>;
+                  // Position keys are the pin itself (and lon/lng would
+                  // double up post-normalization); the popup shows the
+                  // ATTRIBUTES.
+                  const entries = Object.entries(m).filter(
+                    ([k, v]) =>
+                      !["color", "label", "lat", "lng", "lon", "latitude", "longitude"].includes(
+                        k.toLowerCase()
+                      ) &&
+                      v !== null &&
+                      typeof v !== "object"
+                  );
+                  return entries.length === 0 ? (
+                    <span className="text-gray-400 italic">No properties</span>
+                  ) : (
+                    <table className="w-full">
+                      <tbody>
+                        {entries.map(([key, value]) => (
+                          <tr key={key} className="border-b border-gray-100 last:border-0">
+                            <td className="pr-2 py-1 text-gray-500 font-medium whitespace-nowrap align-top">
+                              {formatPropertyKey(key)}
+                            </td>
+                            <td className="py-1 text-right align-top text-gray-900">
+                              {formatPropertyValue(value)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+              </div>
             </Popup>
           )}
 
