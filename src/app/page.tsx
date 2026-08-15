@@ -145,6 +145,14 @@ export default function Home() {
   // History id of the LIVE analysis on screen (from the background save) —
   // the reconstruction key that makes the results URL paste-able.
   const [liveHistoryId, setLiveHistoryId] = useState<string | null>(null);
+  // Monotonic latch (mirrors useAnalysisStream.lastSeqRef): the background
+  // history-save below is fire-and-forget, so if Q1's save resolves AFTER Q2 is
+  // already on screen, applying Q1's id would key audit/restore/save-into-viz
+  // off the wrong analysis. We snapshot the seq at call time and compare against
+  // the latest here to drop a superseded resolution. Written every render so it
+  // always reflects the analysis currently on screen.
+  const latestQuestionSeqRef = useRef(questionSeq);
+  latestQuestionSeqRef.current = questionSeq;
 
   // Shared plan-edit state for the panel + the dashboard overlay.
   const planEdit = usePlanEdit({
@@ -590,10 +598,14 @@ export default function Home() {
               analysis.complete(entry.spec, entry.question);
               const cid = effectiveCsvId ?? csvId;
               if (cid) {
+                // Snapshot the analysis seq at call time; drop the resolution
+                // if a newer analysis has since completed (superseding guard).
+                const seqAtSave = latestQuestionSeqRef.current;
                 // The returned id is the results URL's reconstruction key —
                 // useBrowserNav upgrades ?view=results to ?restore=<id>.
                 saveHistoryEntry(cid, entry.spec, entry.question)
                   .then((r) => {
+                    if (seqAtSave !== latestQuestionSeqRef.current) return;
                     if (r.meta?.id) setLiveHistoryId(r.meta.id);
                   })
                   .catch(() => {});

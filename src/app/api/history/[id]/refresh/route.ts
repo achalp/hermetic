@@ -6,7 +6,7 @@ import { dirname } from "path";
 import { loadHistoryEntry, saveHistoryEntry } from "@/lib/history/storage";
 import { rehydrateSpec } from "@/lib/saved/rehydrate-spec";
 import { executeSandbox } from "@/lib/sandbox";
-import { getRunId } from "@/lib/run-context";
+import { getRunId, runWithRunId } from "@/lib/run-context";
 import { ensureWarmSandboxReady } from "@/lib/sandbox/warm-sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getWarehouseConnector } from "@/lib/warehouse/storage";
@@ -23,7 +23,16 @@ import type { SandboxRuntimeId } from "@/lib/constants";
  * Re-run a history entry without LLM calls.
  * Same logic as viz refresh but loads from history storage.
  */
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  // Run scope (finding 03): mint a runId so getRunId() inside the handler
+  // resolves — the sandbox run label + cost-row run_id depend on it.
+  return runWithRunId(() => handleRefresh(request, ctx));
+}
+
+async function handleRefresh(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<Response> {
   try {
     const { id: historyId } = await params;
     const body = await request.json().catch(() => ({}));

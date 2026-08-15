@@ -20,6 +20,7 @@ import type { ExportInput } from "@/lib/export/html-export";
 import type { McpDeps } from "../deps";
 import { exportUrl } from "../view-url";
 import { McpToolError } from "../errors";
+import { withToolLog } from "./log";
 
 /** The McpDeps slice export_dashboard consumes (see LivenessDeps for the pattern). */
 export type ExportDashboardDeps = Pick<McpDeps, "loadHistoryEntry" | "exportDashboardHtml">;
@@ -47,6 +48,15 @@ export const exportDashboardInput = {
 };
 
 export async function exportDashboard(
+  deps: ExportDashboardDeps,
+  args: { history_id: string; out_path?: string }
+): Promise<Record<string, unknown>> {
+  return withToolLog("export_dashboard", { history_id: args.history_id }, () =>
+    exportDashboardImpl(deps, args)
+  );
+}
+
+async function exportDashboardImpl(
   deps: ExportDashboardDeps,
   args: { history_id: string; out_path?: string }
 ): Promise<Record<string, unknown>> {

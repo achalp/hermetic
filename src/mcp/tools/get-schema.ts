@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import { getSource, capabilitiesOf, type McpSource } from "../sources";
 import { unknownSource } from "../errors";
+import { withToolLog } from "./log";
 
 export const getSchemaInput = {
   source_id: z.string().describe("A source_id returned by connect_source."),
@@ -89,7 +90,9 @@ export function summarizeSource(source: McpSource): Record<string, unknown> {
 }
 
 export async function getSchema(args: { source_id: string }): Promise<Record<string, unknown>> {
-  const source = getSource(args.source_id);
-  if (!source) throw unknownSource(args.source_id);
-  return { source_id: source.id, ...summarizeSource(source) };
+  return withToolLog("get_schema", { source_id: args.source_id }, async () => {
+    const source = getSource(args.source_id);
+    if (!source) throw unknownSource(args.source_id);
+    return { source_id: source.id, ...summarizeSource(source) };
+  });
 }

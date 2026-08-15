@@ -15,6 +15,7 @@ import { assertSourceLive } from "./liveness";
 import { viewUrl } from "../view-url";
 import { McpToolError, unknownSource } from "../errors";
 import { UI_PAYLOAD_KEY, dashboardUiPayload } from "../app-ui";
+import { withToolLog } from "./log";
 
 /** The McpDeps slice persist_dashboard consumes (see LivenessDeps for the pattern). */
 export type PersistDashboardDeps = Pick<
@@ -38,6 +39,15 @@ export const persistDashboardInput = {
 };
 
 export async function persistDashboard(
+  deps: PersistDashboardDeps,
+  args: { source_id: string; spec: Record<string, unknown>; title: string }
+): Promise<Record<string, unknown>> {
+  return withToolLog("persist_dashboard", { source_id: args.source_id }, () =>
+    persistDashboardImpl(deps, args)
+  );
+}
+
+async function persistDashboardImpl(
   deps: PersistDashboardDeps,
   args: { source_id: string; spec: Record<string, unknown>; title: string }
 ): Promise<Record<string, unknown>> {

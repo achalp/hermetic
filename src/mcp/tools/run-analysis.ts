@@ -19,6 +19,7 @@ import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { CHART_ROW_CAP } from "../caps";
 import { McpToolError, unknownSource } from "../errors";
+import { withToolLog } from "./log";
 
 /** The McpDeps slice run_analysis consumes (see LivenessDeps for the pattern). */
 export type RunAnalysisDeps = Pick<
@@ -81,6 +82,15 @@ function capChartData(chartData: Record<string, unknown>): {
 }
 
 export async function runAnalysis(
+  deps: RunAnalysisDeps,
+  args: { source_id: string; python: string }
+): Promise<Record<string, unknown>> {
+  return withToolLog("run_analysis", { source_id: args.source_id }, () =>
+    runAnalysisImpl(deps, args)
+  );
+}
+
+async function runAnalysisImpl(
   deps: RunAnalysisDeps,
   args: { source_id: string; python: string }
 ): Promise<Record<string, unknown>> {

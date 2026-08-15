@@ -46,31 +46,55 @@ function isRateLimited(ip: string): boolean {
 }
 
 /**
- * Routes that read or resolve HOST-FILESYSTEM paths. All of them get the
- * DNS-rebinding origin guard — previously only /api/local-files/ did, while
- * /api/upload (local path selection) and the query routes (which resolve
- * local mounts via isLocalFile) were uncovered (audit §2.6 middleware gap).
+ * Routes that read or resolve HOST-FILESYSTEM paths OR write credentials. All
+ * of them get the DNS-rebinding origin guard — previously only /api/local-files/
+ * did, while /api/upload (local path selection) and the query routes (which
+ * resolve local mounts via isLocalFile) were uncovered (audit §2.6 middleware
+ * gap). /api/settings (M3) writes provider credentials, so it belongs here too.
  */
-const LOCAL_PATH_ROUTES = ["/api/local-files/", "/api/upload", "/api/query", "/api/warehouse/"];
+const LOCAL_PATH_ROUTES = [
+  "/api/local-files/",
+  "/api/upload",
+  "/api/query",
+  "/api/warehouse/",
+  "/api/settings",
+];
+
+/** True when `value` (an Origin URL, or a bare `host:port`) is a loopback host. */
+function isLoopback(value: string | null, viaUrl: boolean): boolean {
+  if (!value) return false;
+  try {
+    const hostname = viaUrl ? new URL(value).hostname : new URL(`http://${value}`).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Loopback check mirroring lib/local-files/security.ts:validateLocalOrigin (the
+ * middleware can't import it — that module pulls node-only deps unavailable in
+ * the Edge runtime). When an Origin header is present it must be loopback; when
+ * it is absent (same-origin GET, curl, CLI) the Host header must be loopback —
+ * a DNS-rebinding request necessarily carries the attacker's hostname in Host,
+ * so requiring a loopback Host closes that hole the origin-only check left open.
+ */
+function isLocalRequest(request: NextRequest): boolean {
+  const origin = request.headers.get("origin");
+  if (origin) return isLoopback(origin, true);
+  return isLoopback(request.headers.get("host"), false);
+}
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // DNS-rebinding protection: a browser on a malicious page can be tricked
   // into requesting this localhost server with a foreign Origin. Any route
-  // touching host paths or credentials requires a local (or absent — CLI,
-  // curl, same-origin GET) Origin header.
+  // touching host paths or credentials requires a local (or absent-Origin but
+  // loopback-Host — CLI, curl, same-origin GET) request.
   if (LOCAL_PATH_ROUTES.some((r) => pathname.startsWith(r))) {
-    const origin = request.headers.get("origin");
-    if (origin) {
-      try {
-        const url = new URL(origin);
-        if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-          return NextResponse.json({ error: "Local access only" }, { status: 403 });
-        }
-      } catch {
-        return NextResponse.json({ error: "Local access only" }, { status: 403 });
-      }
+    if (!isLocalRequest(request)) {
+      return NextResponse.json({ error: "Local access only" }, { status: 403 });
     }
   }
 

@@ -14,6 +14,7 @@ import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
 import { McpToolError, unknownSource } from "../errors";
+import { withToolLog } from "./log";
 
 /** The McpDeps slice run_sql consumes (see LivenessDeps for the pattern). */
 export type RunSqlDeps = Pick<
@@ -36,6 +37,15 @@ export const runSqlInput = {
 const DEFAULT_MAX_ROWS = 200;
 
 export async function runSql(
+  deps: RunSqlDeps,
+  args: { source_id: string; sql: string; max_rows?: number }
+): Promise<Record<string, unknown>> {
+  return withToolLog("run_sql", { source_id: args.source_id, max_rows: args.max_rows }, () =>
+    runSqlImpl(deps, args)
+  );
+}
+
+async function runSqlImpl(
   deps: RunSqlDeps,
   args: { source_id: string; sql: string; max_rows?: number }
 ): Promise<Record<string, unknown>> {

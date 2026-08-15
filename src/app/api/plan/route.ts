@@ -7,7 +7,7 @@
  */
 import { apiError } from "@/app/lib/api-error";
 import { editDashboard, getEditSurface } from "@/lib/compose/edit";
-import type { PlanMutation } from "@/lib/contracts/plan";
+import { readJsonBody, parseBody, PlanEditSchema } from "@/lib/api-schemas";
 
 export async function GET(request: Request) {
   try {
@@ -27,16 +27,12 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      csv_id?: string;
-      history_id?: string;
-      mutations?: PlanMutation[];
-    };
-    if (!body.csv_id) return Response.json({ error: "csv_id required" }, { status: 400 });
-    if (!Array.isArray(body.mutations) || body.mutations.length === 0) {
-      return Response.json({ error: "mutations required" }, { status: 400 });
-    }
-    const result = await editDashboard(body.csv_id, body.mutations, body.history_id);
+    const read = await readJsonBody(request);
+    if (!read.ok) return read.response;
+    const parsed = parseBody(PlanEditSchema, read.body);
+    if (!parsed.ok) return parsed.response;
+    const { csv_id, history_id, mutations } = parsed.data;
+    const result = await editDashboard(csv_id, mutations, history_id);
     if (!result.ok) return Response.json({ error: result.errors.join("; ") }, { status: 422 });
     return Response.json({ ok: true, spec: result.spec, plan: result.doc });
   } catch (err) {

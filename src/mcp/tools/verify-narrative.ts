@@ -17,6 +17,7 @@ import { assertSourceLive } from "./liveness";
 import { McpToolError, unknownSource } from "../errors";
 import { findingsMode } from "@/lib/findings";
 import { capFindingsForResponse } from "./analyze";
+import { withToolLog } from "./log";
 import type { FindingsManifest } from "@/lib/contracts/findings";
 
 /** The McpDeps slice verify_narrative consumes (see LivenessDeps for the pattern). */
@@ -50,6 +51,20 @@ export const verifyNarrativeInput = {
 };
 
 export async function verifyNarrative(
+  deps: VerifyNarrativeDeps,
+  args: {
+    prose: string;
+    source_id?: string;
+    results?: Record<string, unknown>;
+    chart_data?: Record<string, unknown>;
+  }
+): Promise<Record<string, unknown>> {
+  return withToolLog("verify_narrative", { source_id: args.source_id }, () =>
+    verifyNarrativeImpl(deps, args)
+  );
+}
+
+async function verifyNarrativeImpl(
   deps: VerifyNarrativeDeps,
   args: {
     prose: string;

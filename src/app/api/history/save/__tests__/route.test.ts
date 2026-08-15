@@ -76,4 +76,13 @@ describe("POST /api/history/save", () => {
     expect(json.skipped).toBe(true);
     expect(saveHistoryEntry).not.toHaveBeenCalled();
   });
+
+  // M12: the route now validates the body through zod (parseBody) instead of a
+  // truthiness cast — a shape mismatch is a precise 400, not a downstream fault.
+  it("rejects a malformed body with 400 (csvId wrong type)", async () => {
+    const res = await POST(req({ csvId: 123, spec: { root: {} }, question: "q" }));
+    expect(res.status).toBe(400);
+    // Never reaches the persistence layer.
+    expect(saveHistoryEntry).not.toHaveBeenCalled();
+  });
 });

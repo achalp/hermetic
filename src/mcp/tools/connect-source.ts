@@ -37,6 +37,7 @@ import { registerSource, type McpSource } from "../sources";
 import { persistSources } from "../source-persist";
 import { McpToolError } from "../errors";
 import { summarizeSource } from "./get-schema";
+import { withToolLog } from "./log";
 import { IngestError, type IngestResult } from "@/lib/sources/ingest";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
@@ -238,6 +239,19 @@ async function connectWarehouse(
 }
 
 export async function connectSource(
+  deps: McpDeps,
+  args: { path?: string; url?: string; connection_id?: string; sheet?: string; label?: string }
+): Promise<Record<string, unknown>> {
+  // `via` (not the raw url — it can embed a signed query) identifies the branch.
+  const via = args.url ? "url" : args.path ? "path" : args.connection_id ? "connection_id" : "none";
+  return withToolLog(
+    "connect_source",
+    { via, path: args.path, connection_id: args.connection_id },
+    () => connectSourceImpl(deps, args)
+  );
+}
+
+async function connectSourceImpl(
   deps: McpDeps,
   args: { path?: string; url?: string; connection_id?: string; sheet?: string; label?: string }
 ): Promise<Record<string, unknown>> {

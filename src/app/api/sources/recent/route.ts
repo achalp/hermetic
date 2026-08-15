@@ -7,6 +7,7 @@ import {
   clearRecentSources,
 } from "@/lib/sources/recent-sources";
 import { apiError } from "@/app/lib/api-error";
+import { readJsonBody, parseBody, RecentRenameSchema, RecentDeleteSchema } from "@/lib/api-schemas";
 
 /**
  * List recent file/cloud sources (most-recent first). Returns full entries
@@ -26,11 +27,11 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Local access only" }, { status: 403 });
   }
   try {
-    const { id, name } = await request.json();
-    if (!id || typeof name !== "string") {
-      return NextResponse.json({ error: "id and name are required" }, { status: 400 });
-    }
-    await renameRecentSource(id, name);
+    const read = await readJsonBody(request);
+    if (!read.ok) return read.response;
+    const parsed = parseBody(RecentRenameSchema, read.body);
+    if (!parsed.ok) return parsed.response;
+    await renameRecentSource(parsed.data.id, parsed.data.name);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError("/api/sources/recent", err, "Failed to rename source");
@@ -42,7 +43,11 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Local access only" }, { status: 403 });
   }
   try {
-    const { id, all } = await request.json();
+    const read = await readJsonBody(request);
+    if (!read.ok) return read.response;
+    const parsed = parseBody(RecentDeleteSchema, read.body);
+    if (!parsed.ok) return parsed.response;
+    const { id, all } = parsed.data;
     if (all) {
       await clearRecentSources();
       return NextResponse.json({ ok: true });

@@ -7,7 +7,7 @@ import { storeCSV, storeGeoJSON, storeWorkbookManifest } from "@/lib/csv/storage
 import { loadSavedVisualization, saveNewVersion } from "@/lib/saved/storage";
 import { schemasCompatible, schemaFingerprint } from "@/lib/saved/schema-compat";
 import { executeSandbox } from "@/lib/sandbox";
-import { getRunId } from "@/lib/run-context";
+import { getRunId, runWithRunId } from "@/lib/run-context";
 import { ensureWarmSandboxReady } from "@/lib/sandbox/warm-sandbox";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
@@ -22,7 +22,16 @@ import type { CachedArtifacts } from "@/lib/contracts/investigation";
 import { rehydrateSpec } from "@/lib/saved/rehydrate-spec";
 import type { ParsedCSV } from "@/lib/csv/parser";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  // Run scope (finding 03): mint a runId so getRunId() inside the handler
+  // resolves — the sandbox run label + cost-row run_id depend on it.
+  return runWithRunId(() => handleRerun(request, ctx));
+}
+
+async function handleRerun(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<Response> {
   try {
     const { id: vizId } = await params;
 

@@ -6,17 +6,15 @@ import { getStoredCSV, getCSVContent, getWorkbookManifest } from "@/lib/csv/stor
 import { saveVisualization, saveNewVersion } from "@/lib/saved/storage";
 import type { SavedWorkbook } from "@/lib/saved/storage";
 import { schemaFingerprint } from "@/lib/saved/schema-compat";
+import { readJsonBody, parseBody, VizSaveSchema } from "@/lib/api-schemas";
 
 export async function POST(request: Request) {
   try {
-    const { csvId, spec, question, parentVizId, historyId } = await request.json();
-
-    if (!csvId || !spec || !question) {
-      return NextResponse.json(
-        { error: "csvId, spec, and question are required" },
-        { status: 400 }
-      );
-    }
+    const read = await readJsonBody(request);
+    if (!read.ok) return read.response;
+    const parsed = parseBody(VizSaveSchema, read.body);
+    if (!parsed.ok) return parsed.response;
+    const { csvId, spec, question, parentVizId, historyId } = parsed.data;
 
     // Look up CSV
     const stored = getStoredCSV(csvId);

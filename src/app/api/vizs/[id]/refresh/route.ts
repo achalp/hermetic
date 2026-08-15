@@ -6,7 +6,7 @@ import { dirname } from "path";
 import { loadSavedVisualization } from "@/lib/saved/storage";
 import { rehydrateSpec } from "@/lib/saved/rehydrate-spec";
 import { executeSandbox } from "@/lib/sandbox";
-import { getRunId } from "@/lib/run-context";
+import { getRunId, runWithRunId } from "@/lib/run-context";
 import { ensureWarmSandboxReady } from "@/lib/sandbox/warm-sandbox";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getWarehouseConnector } from "@/lib/warehouse/storage";
@@ -28,7 +28,17 @@ import type { SandboxRuntimeId } from "@/lib/constants";
  *
  * Creates a new history entry with the refreshed results.
  */
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  // Run scope (finding 03): without this getRunId() inside the handler returns
+  // undefined, so the sandbox container carries no run label and the cost row
+  // lands with an empty run_id. runWithRunId mints the id every getRunId() reads.
+  return runWithRunId(() => handleRefresh(request, ctx));
+}
+
+async function handleRefresh(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<Response> {
   try {
     const { id: vizId } = await params;
     const body = await request.json().catch(() => ({}));

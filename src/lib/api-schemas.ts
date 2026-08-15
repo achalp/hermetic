@@ -187,6 +187,52 @@ const investigateScopeSchema = z.object({
   segment_label: z.string().optional(),
 });
 
+// ── write routes: auto-save / persist / plan-edit / recents ──────────────
+// These routes previously hand-cast their bodies (truthiness checks only), so a
+// shape mismatch (a number where a string belongs, a non-array `mutations`)
+// slipped past and surfaced as a downstream 500 instead of a precise 400. The
+// schemas mirror the shapes the routes already destructured — valid input is
+// unchanged; malformed input now gets a 400 from parseBody.
+
+/** POST /api/history/save — background auto-save of the live analysis. */
+export const HistorySaveSchema = z.object({
+  csvId: z.string().min(1),
+  spec: z.record(z.string(), z.unknown()),
+  question: z.string().min(1),
+});
+
+/** POST /api/vizs/save — explicit save (optionally a new version of a viz). */
+export const VizSaveSchema = z.object({
+  csvId: z.string().min(1),
+  spec: z.record(z.string(), z.unknown()),
+  question: z.string().min(1),
+  parentVizId: z.string().optional(),
+  historyId: z.string().optional(),
+});
+
+/**
+ * PATCH /api/plan — governed dashboard mutations. The mutation GRAMMAR is
+ * validated downstream in editDashboard (which returns 422 on a bad mutation),
+ * so elements are accepted structurally here; this only guards the outer shape.
+ */
+export const PlanEditSchema = z.object({
+  csv_id: z.string().min(1),
+  history_id: z.string().nullish(),
+  mutations: z.array(z.custom<import("@/lib/contracts/plan").PlanMutation>()).min(1),
+});
+
+/** PATCH /api/sources/recent — rename a recent source. */
+export const RecentRenameSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+});
+
+/** DELETE /api/sources/recent — remove one recent source, or clear all. */
+export const RecentDeleteSchema = z.object({
+  id: z.string().optional(),
+  all: z.boolean().optional(),
+});
+
 export const analysisRequestSchema: z.ZodType<
   import("@/lib/contracts/analysis-request").AnalysisRequest
 > = z.object({

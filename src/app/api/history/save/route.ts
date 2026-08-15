@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { persistHistoryEntry } from "@/lib/history/persist";
 import { logger } from "@/lib/logger";
+import { readJsonBody, parseBody, HistorySaveSchema } from "@/lib/api-schemas";
 
 export async function POST(request: Request) {
   try {
-    const { csvId, spec, question } = await request.json();
-    if (!csvId || !spec || !question) {
-      return NextResponse.json(
-        { error: "csvId, spec, and question are required" },
-        { status: 400 }
-      );
-    }
+    const read = await readJsonBody(request);
+    if (!read.ok) return read.response;
+    const parsed = parseBody(HistorySaveSchema, read.body);
+    if (!parsed.ok) return parsed.response;
+    const { csvId, spec, question } = parsed.data;
 
     const result = await persistHistoryEntry(csvId, spec, question);
     if (!result.saved) return NextResponse.json({ skipped: true, reason: result.reason });
