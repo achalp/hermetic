@@ -29,6 +29,40 @@ export interface PlotlyWrapperProps {
 }
 
 /**
+ * Re-center hover label text inside its bubble one frame after the hover.
+ *
+ * Chrome 151 stopped invalidating layout synchronously when an SVG transform
+ * attribute changes: a forced getBoundingClientRect in the same tick returns
+ * the PRE-change geometry. Plotly's createHoverText resets a reused label's
+ * transform and immediately measures the text to derive its y position, so
+ * the measurement is stale by exactly the label's previous offset and the
+ * text lands that far outside the bubble (an "empty" hover label). A fresh
+ * label (first hover after entering a chart) measures clean, which is why
+ * only the second and later events on a reused label go blank. By the next
+ * animation frame layout is accurate, so measure the real path/text boxes
+ * and shift the text back to the bubble's vertical center.
+ */
+function realignHoverText(container: HTMLElement) {
+  for (const ht of container.querySelectorAll("g.hoverlayer g.hovertext")) {
+    const path = ht.querySelector("path");
+    const nums = ht.querySelector("text.nums");
+    if (!path || !nums) continue;
+    const pb = path.getBoundingClientRect();
+    const tb = nums.getBoundingClientRect();
+    if (!pb.height || !tb.height) continue;
+    const scaleY = (nums as SVGGraphicsElement).getScreenCTM()?.d ?? 1;
+    const dy = (pb.top + pb.height / 2 - (tb.top + tb.height / 2)) / scaleY;
+    if (Math.abs(dy) <= 1) continue;
+    // ty0 (the stale-measure term) feeds every text in the label, so shift
+    // the secondary name text by the same amount as the nums text.
+    for (const text of ht.querySelectorAll("text")) {
+      const y = parseFloat(text.getAttribute("y") ?? "0");
+      text.setAttribute("y", String(y + dy));
+    }
+  }
+}
+
+/**
  * Builds a themed, lazily-loaded Plotly chart component around a specific
  * Plotly bundle. `loadDist` stays a closure over the caller's dynamic
  * `import()` expressions so each wrapper file keeps its own lazy chunk —
@@ -86,6 +120,29 @@ export function makePlotlyWrapper(
       return () => {
         disposed = true;
         ro.disconnect();
+      };
+    }, []);
+
+    // Fix hover label text stranded by Chrome's stale SVG measurement (see
+    // realignHoverText). Plotly repositions labels during mouse movement, so
+    // schedule one correction per frame while the pointer is over the chart.
+    useEffect(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      let raf = 0;
+      const onMove = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          realignHoverText(el);
+        });
+      };
+      el.addEventListener("mousemove", onMove, { passive: true });
+      el.addEventListener("mouseover", onMove, { passive: true });
+      return () => {
+        el.removeEventListener("mousemove", onMove);
+        el.removeEventListener("mouseover", onMove);
+        if (raf) cancelAnimationFrame(raf);
       };
     }, []);
 
