@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from "@/lib/constants";
 import { THEME_IDS } from "@/components/theme/theme-config";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/theme-context";
+import { HoverJanitor } from "@/components/charts/hover-janitor";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -42,6 +43,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <HoverJanitor />
         <ThemeProvider>
           <a
             href="#main-content"

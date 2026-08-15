@@ -76,30 +76,15 @@ export function HeatMapChartComponent({ props }: { props: HeatMapChartProps }) {
       zmin: props.z_min ?? undefined,
       zmax: props.z_max ?? undefined,
       hoverongaps: false,
+      // In-cell values via texttemplate, not annotations: Plotly picks a
+      // contrasting text color per cell (annotations inherit the layout font
+      // color, which vanishes on dark cells).
+      ...(props.show_values ? { texttemplate: "%{z:.2f}", textfont: { size: 10 } } : {}),
     },
   ];
 
-  const annotations: Partial<Layout>["annotations"] = [];
-  if (props.show_values) {
-    for (let i = 0; i < displayYLabels.length; i++) {
-      for (let j = 0; j < displayXLabels.length; j++) {
-        const val = props.z[i]?.[j];
-        if (val != null) {
-          annotations.push({
-            x: displayXLabels[j],
-            y: displayYLabels[i],
-            text: typeof val === "number" ? val.toFixed(2) : String(val),
-            showarrow: false,
-            font: { size: 10 },
-          });
-        }
-      }
-    }
-  }
-
   const layout: Partial<Layout> = {
     margin: { l: leftMargin, r: 80, t: 10, b: isExpanded ? 120 : 80 },
-    annotations: annotations.length > 0 ? annotations : undefined,
   };
 
   return (
