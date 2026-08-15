@@ -862,6 +862,14 @@ export async function composeAndStreamDashboard(args: {
           "geojson" in ((executionResult.chart_data ?? {}) as Record<string, unknown>)
             ? "geojson"
             : undefined;
+        const declaredPayloads = Array.isArray((executionResult as { payloads?: unknown }).payloads)
+          ? (
+              (executionResult as { payloads?: unknown }).payloads as {
+                id: string;
+                format: string;
+              }[]
+            ).filter((p) => typeof p?.id === "string" && typeof p?.format === "string")
+          : [];
         const { plan } = await generateNarrativePlan({
           findings: findingsList,
           question: opts.question,
@@ -869,6 +877,7 @@ export async function composeAndStreamDashboard(args: {
           purpose: opts.purpose,
           views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
           series: modeProduct.series,
+          payloads: declaredPayloads,
           hasGeojson: geojsonKey !== undefined,
         });
         compiledPlanDoc = {

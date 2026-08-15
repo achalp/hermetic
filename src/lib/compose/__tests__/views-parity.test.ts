@@ -107,14 +107,9 @@ describe("VIEW validation — licensing is blocking", () => {
       CTX
     );
     expect(dtype.errors.join()).toContain("share");
-    // Licensed but not yet compilable names the nearest alternatives.
-    const tail = validatePlan(
-      view({ component: "Dendrogram", series: "daily_spend" }),
-      FINDINGS,
-      CTX
-    );
-    expect(tail.errors.join()).toContain("not yet compilable");
-    expect(tail.errors.join()).toContain("SunburstChart");
+    // Full parity: no licensed-but-uncompilable component remains (the
+    // closure test pins tail === []); the "not yet compilable" branch stays
+    // as the safety net for a future component signed before its compiler.
   });
 
   it("enforces one VIEW per series and the purpose budget", () => {
@@ -364,6 +359,15 @@ const distSeries = mkSeries(
   },
   "distribution"
 );
+const shapSeries = mkSeries(
+  "sh1",
+  [
+    { feature: "age", shap_value: 0.31, feature_value: 42 },
+    { feature: "income", shap_value: -0.12, feature_value: 71000 },
+  ],
+  { x: { column: "feature", kind: "categorical" }, measures: [{ column: "shap_value" }] },
+  "shap"
+);
 const geoSeries = mkSeries(
   "geo1",
   [
@@ -505,8 +509,12 @@ const currentClaim = {
   value: { period: "2026-07", value: 107.5, peak_value: 1027.4, peak_period: "2026-07-09" },
 } as FindingEntry;
 
-/** component → fixture: the series (series-fed) or claim (claim-fed). */
-const FIXTURES_BY_COMPONENT: Record<string, { series?: SeriesEntry; claim?: FindingEntry }> = {
+/** component → fixture: series (series-fed), claim (claim-fed), or a
+ *  declared-payload id (payload-fed). */
+const FIXTURES_BY_COMPONENT: Record<
+  string,
+  { series?: SeriesEntry; claim?: FindingEntry; payload?: string }
+> = {
   BarChart: { series: cat2 },
   LineChart: { series: temporal2 },
   AreaChart: { series: temporal2 },
@@ -534,6 +542,7 @@ const FIXTURES_BY_COMPONENT: Record<string, { series?: SeriesEntry; claim?: Find
   QQPlot: { series: distSeries },
   RidgelineChart: { series: distSeries },
   SilhouettePlot: { series: distSeries },
+  ShapBeeswarm: { series: shapSeries },
   MapView: { series: geoSeries },
   Map3D: { series: geoSeries },
   Globe3D: { series: geoSeries },
@@ -544,6 +553,8 @@ const FIXTURES_BY_COMPONENT: Record<string, { series?: SeriesEntry; claim?: Find
   ContourChart: { series: numMatrix },
   Correlogram: { series: lagSeries },
   SunburstChart: { series: hierSeries },
+  DecisionTree: { series: hierSeries },
+  Dendrogram: { payload: "dendro" },
   SankeyChart: { series: flowSeries },
   ChordChart: { series: flowSeries },
   NetworkGraph: { series: flowSeries },
@@ -566,6 +577,8 @@ const FIXTURES_BY_COMPONENT: Record<string, { series?: SeriesEntry; claim?: Find
   BulletChart: { claim: currentClaim },
   DefinitionList: { claim: currentClaim },
   DataTable: { series: cat2 },
+  PivotTable: { series: grouped },
+  MarimekkoChart: { series: cat2 },
 };
 
 /** Substitute $chartData bindings with the declared rows — what the
@@ -574,8 +587,12 @@ function resolveBindings(props: Record<string, unknown>, series?: SeriesEntry) {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(props)) {
     if (typeof v === "string" && v.startsWith("$chartData:")) {
-      // geojson binds a FeatureCollection object; everything else binds rows.
-      out[k] = k === "geojson" ? { type: "FeatureCollection", features: [] } : (series?.rows ?? []);
+      // geojson binds a FeatureCollection; dendrogram fields bind their
+      // coordinate arrays; everything else binds rows.
+      if (k === "geojson") out[k] = { type: "FeatureCollection", features: [] };
+      else if (k === "icoord" || k === "dcoord") out[k] = [[5, 5, 15, 15]];
+      else if (k === "labels") out[k] = ["a", "b"];
+      else out[k] = series?.rows ?? [];
     } else out[k] = v;
   }
   return out;
@@ -735,6 +752,40 @@ describe("review 2026-08-15 fixes — wiring gaps closed", () => {
     expect(lines.join("\n")).toContain('"$chartData:step_2_geojson"');
   });
 
+  it("payload-fed VIEWs license against declared payloads", () => {
+    const ctx = {
+      series: [],
+      payloads: [{ id: "dendro", format: "dendrogram" }],
+      maxViews: 4,
+    };
+    const plan = (payload?: string) => ({
+      nodes: [
+        { id: "a", op: "ANSWER" as const, refs: ["daily_trend"] },
+        { id: "v1", op: "VIEW" as const, refs: [], component: "Dendrogram", payload },
+      ],
+    });
+    expect(validatePlan(plan("dendro"), FINDINGS, ctx).ok).toBe(true);
+    const missing = validatePlan(plan(undefined), FINDINGS, ctx);
+    expect(missing.errors.join()).toContain('set "payload"');
+    const unknown = validatePlan(plan("ghost"), FINDINGS, ctx);
+    expect(unknown.errors.join()).toContain("not declared");
+    const wrongFormat = validatePlan(plan("dendro"), FINDINGS, {
+      ...ctx,
+      payloads: [{ id: "dendro", format: "tree" }],
+    });
+    expect(wrongFormat.errors.join()).toContain("format tree");
+    // Compiled element binds the payload's fields as dotted chartData paths.
+    const lines = compileDashboard({
+      manifest: { manifest_version: "1", findings: FINDINGS } as FindingsManifest,
+      product: { series: [], values: [] },
+      plan: plan("dendro"),
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    expect(lines.join("\n")).toContain('"$chartData:dendro.icoord"');
+  });
+
   it("validateSpec tolerates the compiled composer's sparse props", () => {
     const byName = new Map([["cat_shares", FINDINGS[0]]]);
     const patch = compileViewNode(
@@ -772,6 +823,7 @@ describe("P3 conformance — every compilable view parses against its catalog sc
         refs: fx.claim ? [fx.claim.name] : [],
         component,
         series: fx.series?.id,
+        payload: fx.payload,
         text: "Test view",
       };
       const patch = compileViewNode(node, fx.series, byName);
@@ -796,13 +848,9 @@ describe("P3 conformance — every compilable view parses against its catalog sc
       .filter(([, sig]) => sig.feeds !== "none")
       .map(([name]) => name);
     const tail = viewFeedable.filter((c) => !COMPILABLE_VIEWS.has(c));
-    // The named remainder — shapes no declarable series carries today.
-    expect(tail.sort()).toEqual([
-      "DecisionTree",
-      "Dendrogram",
-      "MarimekkoChart",
-      "PivotTable",
-      "ShapBeeswarm",
-    ]);
+    // FULL PARITY: every view-feedable component compiles — the last five
+    // closed via prop-mapping (Pivot, Shap, Marimekko, DecisionTree) and
+    // the declared-payload channel (Dendrogram).
+    expect(tail).toEqual([]);
   });
 });

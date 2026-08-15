@@ -34,7 +34,16 @@ from .frames import numeric, safe_qcut, to_num
 from .guards import assert_fits
 from .output import write_output
 from .regimes import profile_regimes, select_center, zero_policy, REGIME_MATRIX
-from .series import declare_series, declare_value, get_series, get_values, reset_product
+from .series import (
+    declare_series,
+    declare_value,
+    declare_payload,
+    declare_dendrogram,
+    get_series,
+    get_values,
+    get_payloads,
+    reset_product,
+)
 
 __all__ = [
     "REGIME_MATRIX",
@@ -43,6 +52,8 @@ __all__ = [
     "declare_finding",
     "declare_series",
     "declare_value",
+    "declare_payload",
+    "declare_dendrogram",
     "finding_current_state",
     "finding_split_comparison",
     "finding_superlative",

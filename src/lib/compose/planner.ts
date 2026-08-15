@@ -36,6 +36,7 @@ const PlannerResponse = z.object({
         anchor: z.string().optional(),
         component: z.string().optional(),
         series: z.string().optional(),
+        payload: z.string().optional(),
       })
     )
     .min(1)
@@ -63,6 +64,8 @@ export function buildViewCatalog(): string {
     if (!sig || sig.feeds === "none") continue;
     const needs: string[] = [];
     if (sig.feeds === "claim") needs.push(`${(sig.dtypes ?? []).join("/")} claim via refs`);
+    else if (sig.feeds === "payload")
+      needs.push(`${(sig.payloadFormats ?? []).join("/")} payload via "payload"`);
     else {
       needs.push(`${(sig.seriesKinds ?? ["axis"]).join("/")} series`);
       if (sig.xKinds) needs.push(`${sig.xKinds.join("/")} x`);
@@ -115,6 +118,8 @@ export async function generatePlan(args: {
   /** Declared series (compiled-view-parity §5) — VIEW licensing context and
    *  the values-blind series summary the planner chooses views against. */
   series?: SeriesEntry[];
+  /** Declared non-tidy payloads (id + format) — payload-fed VIEW context. */
+  payloads?: { id: string; format: string }[];
   /** True when chart_data carries a geojson FeatureCollection — the
    *  document ships a map of it, and the planner must not claim the data
    *  lacks geography (run 8df300b3 did exactly that). */
@@ -123,6 +128,7 @@ export async function generatePlan(args: {
   const { projections } = projectManifestForPrompt(args.findings);
   const ctx: PlanContext = {
     series: args.series,
+    payloads: args.payloads,
     maxViews: planBudget(args.purpose).maxViews,
   };
   const viewsSection =
@@ -143,10 +149,14 @@ export async function generatePlan(args: {
           }))
         )}`
       : "";
+  const payloadsSection =
+    args.payloads && args.payloads.length > 0
+      ? `\n\n## Payloads (payload-fed VIEW nodes bind these by id)\n${JSON.stringify(args.payloads)}`
+      : "";
   const geometrySection = args.hasGeojson
     ? `\n\n## Geometry\nA GeoJSON FeatureCollection of region/polygon geometry is available and the dashboard WILL include a map of it. Never state that the data lacks geographic information; an EXPLAIN about the map is welcome.`
     : "";
-  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}${seriesSection}${geometrySection}\n\nWrite the narrative.`;
+  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}${seriesSection}${payloadsSection}${geometrySection}\n\nWrite the narrative.`;
   const errors: string[] = [];
   let feedback = "";
   let lastParsed: Plan | null = null;

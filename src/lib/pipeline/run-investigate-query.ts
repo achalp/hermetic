@@ -917,6 +917,23 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                   const geojsonKey = Object.keys(charts).find(
                     (k) => k === "geojson" || k.endsWith("_geojson")
                   );
+                  // Declared payloads, step-prefixed like every merged
+                  // chart_data key (their data already lives in `charts`
+                  // under the same prefixed ids).
+                  const mergedPayloads: { id: string; format: string }[] = [];
+                  for (const sub of subResults) {
+                    if (sub.removed || !sub.result) continue;
+                    const pl = (sub.result.executionResult as { payloads?: unknown }).payloads;
+                    if (!Array.isArray(pl)) continue;
+                    for (const p of pl as { id?: unknown; format?: unknown }[]) {
+                      if (typeof p?.id === "string" && typeof p?.format === "string") {
+                        mergedPayloads.push({
+                          id: `step_${sub.index + 1}_${p.id}`,
+                          format: p.format,
+                        });
+                      }
+                    }
+                  }
                   const { plan } = await generateNarrativePlan({
                     findings: investigationFindings!.findings,
                     question,
@@ -924,6 +941,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     purpose: context.purpose,
                     views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
                     series: investigationProduct.series,
+                    payloads: mergedPayloads,
                     hasGeojson: geojsonKey !== undefined,
                   });
                   investigatePlanDoc = {

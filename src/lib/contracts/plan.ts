@@ -51,6 +51,9 @@ export interface PlanNode {
   /** VIEW nodes only: the DECLARED series the view renders (series-fed
    *  components). Claim-fed components use refs instead. */
   series?: string;
+  /** VIEW nodes only: the DECLARED payload id (payload-fed components —
+   *  non-tidy structures declared via declare_payload). */
+  payload?: string;
 }
 
 export interface Plan {

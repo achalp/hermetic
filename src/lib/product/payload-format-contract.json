@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "comment": "Declared-payload format contracts (compiled-view-parity payload channel): non-tidy structures a component consumes, validated by the runtime at declaration (SERIES PAYLOAD_FORMAT_CONTRACT in docker/sandbox/hermetic_runtime/series.py is authoritative; test_runtime asserts the format names match). The host licenses payload-fed VIEWs against these format names.",
+  "formats": {
+    "dendrogram": {
+      "requires": ["icoord", "dcoord", "labels"],
+      "note": "scipy dendrogram coordinates: icoord/dcoord as equal-length lists of 4-number lists, labels as strings; declare_dendrogram(linkage, labels) computes them in-sandbox"
+    }
+  }
+}

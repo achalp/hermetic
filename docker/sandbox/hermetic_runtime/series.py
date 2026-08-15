@@ -21,6 +21,7 @@ from .findings import _safe_name, _sidecar_write
 
 _series_registry = []
 _values_registry = []
+_payloads_registry = []
 
 X_KINDS = ("temporal", "ordinal", "categorical")
 ROWS_CAP = 5000
@@ -44,7 +45,32 @@ SERIES_KIND_CONTRACT = {
     "ohlc": [["open"], ["high"], ["low"], ["close"]],
     "span": [["label", "name"], ["start"], ["end"]],
     "vector": [["x"], ["y"], ["angle", "u"], ["magnitude", "v"]],
+    "shap": [["feature"], ["shap_value"], ["feature_value"]],
 }
+
+# Declared-payload format contracts (compiled-view-parity, payload channel):
+# non-tidy structures a component consumes — validated AT DECLARATION with
+# the gap named, exactly like series kinds. Mirrored at
+# src/lib/product/payload-format-contract.json for the host licensing layer.
+def _check_dendrogram(data):
+    if not isinstance(data, dict):
+        return "payload must be a dict"
+    ic, dc, labels = data.get("icoord"), data.get("dcoord"), data.get("labels")
+    if not isinstance(ic, list) or not isinstance(dc, list) or len(ic) != len(dc):
+        return "icoord and dcoord must be lists of equal length"
+    for arr in list(ic) + list(dc):
+        if not isinstance(arr, list) or len(arr) != 4:
+            return "icoord/dcoord entries must be 4-number lists (scipy dendrogram coords)"
+    if not isinstance(labels, list) or not all(isinstance(x, str) for x in labels):
+        return "labels must be a list of strings"
+    return None
+
+
+PAYLOAD_FORMAT_CONTRACT = {"dendrogram": _check_dendrogram}
+
+
+def get_payloads():
+    return list(_payloads_registry)
 
 
 def get_series():
@@ -61,6 +87,7 @@ def reset_product():
     """Test hook: clear the series/values registries."""
     del _series_registry[:]
     del _values_registry[:]
+    del _payloads_registry[:]
 
 
 def _dropped(kind, name, reason):
@@ -239,6 +266,60 @@ def declare_series(series_id, rows, x, measures, count=None, group=None, kind=No
     except Exception as err:
         try:
             return _dropped("series", series_id, "internal: %s" % err)
+        except Exception:
+            return None
+
+
+def declare_payload(payload_id, data, format):
+    """Declare a NON-TIDY structured payload for a specific visualization
+    (compiled-view-parity payload channel). `format` names the pinned
+    contract the data must satisfy ("dendrogram": scipy icoord/dcoord
+    coordinate lists + labels); an invalid payload is dropped with the gap
+    named — never emitted broken. The payload lands in chart_data under
+    payload_id, and the declaration (id + format) licenses the matching
+    component in the compiled dashboard. Never raises.
+    """
+    try:
+        pid = _safe_name(payload_id)
+        checker = PAYLOAD_FORMAT_CONTRACT.get(format)
+        if checker is None:
+            return _dropped(
+                "payload", pid,
+                "unknown payload format '%s' — one of %s"
+                % (format, sorted(PAYLOAD_FORMAT_CONTRACT)),
+            )
+        native = to_native(data)
+        gap = checker(native)
+        if gap is not None:
+            return _dropped("payload", pid, "format '%s': %s" % (format, gap))
+        entry = {"id": pid, "format": format, "data": native}
+        _payloads_registry.append(entry)
+        return entry
+    except Exception as err:
+        try:
+            return _dropped("payload", payload_id, "internal: %s" % err)
+        except Exception:
+            return None
+
+
+def declare_dendrogram(payload_id, linkage_matrix, labels):
+    """Convenience over declare_payload("...", format="dendrogram"): computes
+    the plot coordinates FROM a scipy linkage matrix in-sandbox, so the
+    declared payload is derived-and-verifiable rather than free-form.
+    Never raises; returns the payload entry or None.
+    """
+    try:
+        from scipy.cluster.hierarchy import dendrogram as _dendro
+
+        d = _dendro(linkage_matrix, labels=[str(x) for x in labels], no_plot=True)
+        return declare_payload(
+            payload_id,
+            {"icoord": d["icoord"], "dcoord": d["dcoord"], "labels": list(d["ivl"])},
+            format="dendrogram",
+        )
+    except Exception as err:
+        try:
+            return _dropped("payload", payload_id, "dendrogram build failed: %s" % err)
         except Exception:
             return None
 

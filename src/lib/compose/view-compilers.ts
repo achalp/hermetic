@@ -60,6 +60,7 @@ export const COMPILABLE_VIEWS = new Set([
   "ECDFChart",
   "QQPlot",
   "RidgelineChart",
+  "ShapBeeswarm",
   "SilhouettePlot",
   // geo
   "MapView",
@@ -74,6 +75,8 @@ export const COMPILABLE_VIEWS = new Set([
   "Correlogram",
   // hierarchy / flow
   "SunburstChart",
+  "DecisionTree",
+  "Dendrogram",
   "SankeyChart",
   "ChordChart",
   "NetworkGraph",
@@ -89,7 +92,8 @@ export const COMPILABLE_VIEWS = new Set([
   "GanttChart",
   "QuiverChart",
   "WindRose",
-  // composition (claim-fed)
+  // composition
+  "MarimekkoChart",
   "PieChart",
   "TreemapChart",
   "FunnelChart",
@@ -100,6 +104,7 @@ export const COMPILABLE_VIEWS = new Set([
   "BulletChart",
   "DefinitionList",
   "DataTable",
+  "PivotTable",
 ]);
 
 /** Back-compat alias (P1 name). */
@@ -311,6 +316,16 @@ export function compileViewNode(
     value: { type: component, props, children: [] },
   });
 
+  // ── Payload-fed components (declared non-tidy structures) ────────
+  if (sig.feeds === "payload") {
+    if (!node.payload) return null;
+    if (component === "Dendrogram") {
+      const b = (field: string) => `$chartData:${node.payload}.${field}`;
+      return el({ title, icoord: b("icoord"), dcoord: b("dcoord"), labels: b("labels") });
+    }
+    return null;
+  }
+
   // ── Claim-fed components ─────────────────────────────────────────
   if (sig.feeds === "claim") {
     // Pick the first ref whose dtype the signature ACCEPTS — the validator
@@ -438,6 +453,24 @@ export function compileViewNode(
     }
 
     case "distribution": {
+      if (component === "ShapBeeswarm") {
+        // Strict contract rows projected from the shap-kind columns.
+        const fCol = slotCol(series, "shap", 0);
+        const sCol = slotCol(series, "shap", 1);
+        const vCol = slotCol(series, "shap", 2);
+        if (!fCol || !sCol || !vCol) return null;
+        const data = rows
+          .map((r) => ({
+            feature: String(r[fCol]),
+            shap_value: num(r[sCol]),
+            feature_value: num(r[vCol]),
+          }))
+          .filter(
+            (d): d is { feature: string; shap_value: number; feature_value: number } =>
+              d.shap_value !== null && d.feature_value !== null
+          );
+        return data.length > 0 ? el({ title, data }) : null;
+      }
       if (ms.length === 0) return null;
       if (component === "SilhouettePlot") {
         if (!groupCol) return null;
@@ -502,9 +535,11 @@ export function compileViewNode(
     }
 
     case "hierarchy": {
-      if (component !== "SunburstChart") return null;
       const tree = buildTree(series, title);
-      return tree ? el({ title, data: tree }) : null;
+      if (!tree) return null;
+      if (component === "SunburstChart") return el({ title, data: tree });
+      if (component === "DecisionTree") return el({ title, tree });
+      return null;
     }
 
     case "flow": {
@@ -675,7 +710,41 @@ export function compileViewNode(
         : null;
     }
 
+    case "composition": {
+      // Series-fed composition: MarimekkoChart — first measure is each
+      // category's width, the remaining measures its segments.
+      if (component !== "MarimekkoChart" || ms.length < 2) return null;
+      return el({
+        title,
+        data: dataBinding,
+        id_key: xCol,
+        value_key: ms[0],
+        dimensions: ms.slice(1).map((c) => ({ id: humanizeId(c), value: c })),
+      });
+    }
+
     case "table": {
+      if (component === "PivotTable") {
+        if (!groupCol || ms.length === 0) return null;
+        // Aggregator from the measure's declared recipe when compatible;
+        // "avg" maps to the pivot's "mean"; a ratio cannot re-aggregate
+        // as a pivot cell, so it falls back to mean of the declared rows.
+        const fn = series.roles.measures[0]?.aggregates?.fn;
+        const aggregator =
+          fn === "avg" || fn === "ratio"
+            ? "mean"
+            : fn === "sum" || fn === "count" || fn === "min" || fn === "max"
+              ? fn
+              : "sum";
+        return el({
+          rows: dataBinding,
+          rowDim: xCol,
+          colDim: groupCol,
+          value: ms[0],
+          aggregator,
+          caption: title,
+        });
+      }
       if (component !== "DataTable") return null;
       const columns = rowKeys(series);
       const cellRows = rows.map((r) =>

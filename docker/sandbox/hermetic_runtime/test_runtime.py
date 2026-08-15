@@ -153,7 +153,7 @@ class TestWriteOutput(unittest.TestCase):
             self.assertEqual(
                 set(written),
                 {"results", "chart_data", "datasets", "images", "findings",
-                 "series", "values", "regimes", "data_completeness"},
+                 "series", "values", "payloads", "regimes", "data_completeness"},
             )
 
 
@@ -1576,6 +1576,8 @@ class TestSeriesKinds(unittest.TestCase):
             "ohlc": [{"open": 1, "high": 2, "low": 0.5, "close": 1.5, "name": "A", "v": 1.0}],
             "span": [{"label": "t", "start": 0, "end": 1, "name": "A", "v": 1.0}],
             "vector": [{"x": 0, "y": 0, "angle": 30, "magnitude": 2, "name": "A", "v": 1.0}],
+            "shap": [{"feature": "age", "shap_value": 0.3, "feature_value": 42.0,
+                      "name": "A", "v": 1.0}],
         }
         self.assertEqual(set(rows_by_kind), set(series.SERIES_KIND_CONTRACT))
         for kind, rows in rows_by_kind.items():
@@ -1596,6 +1598,54 @@ class TestSeriesKinds(unittest.TestCase):
             mirrored,
             "runtime SERIES_KIND_CONTRACT and src/lib/product/series-kind-contract.json drifted",
         )
+
+
+class TestDeclaredPayloads(unittest.TestCase):
+    """declare_payload (compiled-view-parity payload channel): pinned
+    per-format contracts, rejection with the gap named, chart_data + (id,
+    format) emission, and the host-mirror sync."""
+
+    def setUp(self):
+        series.reset_product()
+
+    def test_valid_dendrogram_payload_registers_and_emits(self):
+        data = {"icoord": [[5, 5, 15, 15]], "dcoord": [[0, 1.2, 1.2, 0]],
+                "labels": ["a", "b"]}
+        out = series.declare_payload("cluster_dendro", data, format="dendrogram")
+        self.assertIsNotNone(out)
+        self.assertEqual(out["format"], "dendrogram")
+        self.assertEqual(series.get_payloads()[0]["id"], "cluster_dendro")
+
+    def test_invalid_payloads_reject_with_the_gap_named(self):
+        self.assertIsNone(series.declare_payload("p", {"icoord": [[1, 2, 3, 4]],
+                                                       "dcoord": [], "labels": []},
+                                                 format="dendrogram"))
+        self.assertIsNone(series.declare_payload("p", {"nope": 1}, format="dendrogram"))
+        self.assertIsNone(series.declare_payload("p", {}, format="nonsense"))
+        self.assertEqual(series.get_payloads(), [])
+
+    def test_declare_dendrogram_computes_coords_from_a_linkage(self):
+        try:
+            import numpy as np
+            from scipy.cluster.hierarchy import linkage
+        except Exception:
+            self.skipTest("scipy unavailable on host")
+        pts = np.array([[0.0], [0.1], [5.0], [5.1]])
+        lk = linkage(pts, method="single")
+        out = series.declare_dendrogram("d1", lk, ["a", "b", "c", "d"])
+        self.assertIsNotNone(out)
+        self.assertEqual(len(out["data"]["labels"]), 4)
+
+    def test_payload_contract_mirror_matches_the_host_json(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "src", "lib", "product",
+            "payload-format-contract.json",
+        )
+        if not os.path.exists(path):
+            self.skipTest("payload-format-contract.json not reachable (sandbox image)")
+        with open(path) as fh:
+            mirrored = json.load(fh)["formats"]
+        self.assertEqual(sorted(mirrored), sorted(series.PAYLOAD_FORMAT_CONTRACT))
 
 
 if __name__ == "__main__":

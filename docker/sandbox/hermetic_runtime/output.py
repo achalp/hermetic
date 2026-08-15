@@ -4,7 +4,7 @@ from .coerce import to_native
 from .findings import get_findings
 from .profile import get_profile
 from .regimes import profile_regimes
-from .series import get_series, get_values
+from .series import get_series, get_values, get_payloads
 
 _SCALAR = (int, float, str, bool, type(None))
 
@@ -18,6 +18,10 @@ def _synthesize(results, chart_data, series, values, findings):
     wins over a mirror (back-compat)."""
     for s in series:
         chart_data[s["id"]] = s["rows"]
+    for p in get_payloads():
+        # Declared payloads ride the same chart-data channel; the (id,
+        # format) pair is emitted separately so the host can license views.
+        chart_data.setdefault(p["id"], p["data"])
     for v in values:
         results.setdefault(v["key"], v["value"])
     for f in findings:
@@ -79,6 +83,9 @@ def write_output(results=None, chart_data=None, datasets=None, images=None, find
         "findings": findings_out,
         "series": series,
         "values": values,
+        "payloads": [
+            {"id": p["id"], "format": p["format"]} for p in to_native(get_payloads())
+        ],
         "regimes": to_native(regimes),
         "data_completeness": to_native(get_profile()),
     }

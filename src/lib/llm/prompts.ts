@@ -237,6 +237,13 @@ Your job is to write a single Python script that:
    whole table and only enables filtering when it reproduces your declared rows exactly. Declared series are automatically emitted (each also appears to the chart
    layer under its id) — do NOT duplicate them in chart_data.
 
+   NON-TIDY STRUCTURED PAYLOADS a specific visualization consumes are DECLARED with their
+   format so the dashboard can license the view:
+       declare_payload("cluster_dendro", {"icoord": [...], "dcoord": [...], "labels": [...]},
+                       format="dendrogram")
+       declare_dendrogram("cluster_dendro", linkage_matrix, labels)   # computes the coords via scipy
+   An invalid payload is dropped with the gap named — never emitted broken.
+
    STANDALONE SCALARS the dashboard may show are declared with context:
        declare_value("total_priced_listings", n_total, label="Total priced listings")
    Do NOT re-export finding fields into results by hand — every scalar field of every

@@ -43,9 +43,10 @@ export type SignatureFamily =
 
 export interface ComponentSignature {
   family: SignatureFamily;
-  /** What a VIEW binds: a declared series, a claim (via refs), or nothing —
-   *  `none` components are structural/interactive and never VIEW targets. */
-  feeds: "series" | "claim" | "none";
+  /** What a VIEW binds: a declared series, a claim (via refs), a declared
+   *  payload (non-tidy structures), or nothing — `none` components are
+   *  structural/interactive and never VIEW targets. */
+  feeds: "series" | "claim" | "payload" | "none";
   /** One-line planner guidance; the prompt catalog is generated from it. */
   when?: string;
   /** Axis-family licensing: accepted x kinds (absent = any). */
@@ -58,6 +59,8 @@ export interface ComponentSignature {
   maxMeasures?: number;
   /** Claim-fed licensing: accepted claim dtypes. */
   dtypes?: string[];
+  /** Payload-fed licensing: accepted declared-payload formats. */
+  payloadFormats?: string[];
   /** Series must declare a group role (one line/distribution per group) —
    *  enforced at plan validation so the planner is TOLD, instead of the
    *  compiler silently dropping the node (review 2026-08-15). */
@@ -117,7 +120,8 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   PivotTable: {
     family: "table",
     feeds: "series",
-    when: "rows the reader will re-group interactively",
+    needsGroup: true,
+    when: "an interactive pivot of a grouped series (x by group, re-aggregatable)",
   },
   DefinitionList: {
     family: "table",
@@ -279,8 +283,8 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   ShapBeeswarm: {
     family: "distribution",
     feeds: "series",
-    seriesKinds: ["matrix"],
-    when: "per-feature attribution values (model explanation data)",
+    seriesKinds: ["shap"],
+    when: "per-feature attribution values (shap series: feature + shap_value + feature_value rows)",
   },
   // ── Composition family (parts of a whole; claim-fed) ─────────────
   PieChart: {
@@ -319,8 +323,8 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   MarimekkoChart: {
     family: "composition",
     feeds: "series",
-    seriesKinds: ["matrix"],
-    when: "two-dimensional shares (segment x category)",
+    minMeasures: 2,
+    when: "two-dimensional shares: first measure is each category's width, the rest are its segments",
   },
   // ── Geo family ───────────────────────────────────────────────────
   MapView: {
@@ -390,13 +394,13 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     family: "hierarchy",
     feeds: "series",
     seriesKinds: ["hierarchy"],
-    when: "split rules as a tree",
+    when: "a nested tree of splits/nodes (hierarchy series: parent + child + value rows)",
   },
   Dendrogram: {
     family: "hierarchy",
-    feeds: "series",
-    seriesKinds: ["hierarchy"],
-    when: "hierarchical cluster merges",
+    feeds: "payload",
+    payloadFormats: ["dendrogram"],
+    when: "hierarchical cluster merges (a dendrogram payload — declare_dendrogram(linkage, labels))",
   },
   SankeyChart: {
     family: "flow",

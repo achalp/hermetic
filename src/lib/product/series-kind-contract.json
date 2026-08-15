@@ -14,6 +14,7 @@
     "curve": [["x"], ["y"]],
     "ohlc": [["open"], ["high"], ["low"], ["close"]],
     "span": [["label", "name"], ["start"], ["end"]],
-    "vector": [["x"], ["y"], ["angle", "u"], ["magnitude", "v"]]
+    "vector": [["x"], ["y"], ["angle", "u"], ["magnitude", "v"]],
+    "shap": [["feature"], ["shap_value"], ["feature_value"]]
   }
 }

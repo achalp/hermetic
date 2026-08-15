@@ -60,6 +60,7 @@ describe("series-kind contract closure", () => {
       "hierarchy",
       "matrix",
       "ohlc",
+      "shap",
       "span",
       "vector",
     ]);

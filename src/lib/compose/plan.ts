@@ -62,6 +62,7 @@ export const PlanNodeSchema = z.object({
   // VIEW nodes (compiled-view-parity §2): requested component + series.
   component: z.string().optional(),
   series: z.string().optional(),
+  payload: z.string().optional(),
 });
 
 export const PlanSchema = z.object({ nodes: z.array(PlanNodeSchema).min(1).max(32) });
@@ -199,6 +200,8 @@ export function validateNodeText(text: string, refs: string[], findings: Finding
  *  needs the series. */
 export interface PlanContext {
   series?: import("@/lib/contracts/product").SeriesEntry[];
+  /** Declared non-tidy payloads (id + format) the plan may bind. */
+  payloads?: { id: string; format: string }[];
   maxViews?: number;
 }
 
@@ -313,6 +316,29 @@ function validateViewNodes(plan: Plan, findings: FindingEntry[], ctx?: PlanConte
       errors.push(
         `VIEW ${n.id}: ${n.component} is not yet compilable in compiled mode${alts.length > 0 ? ` — nearest available: ${alts.join(", ")}` : ""}`
       );
+      continue;
+    }
+    if (sig.feeds === "payload") {
+      if (!n.payload) {
+        errors.push(`VIEW ${n.id}: ${n.component} renders a declared payload — set "payload"`);
+        continue;
+      }
+      if (ctx?.payloads) {
+        const decl = ctx.payloads.find((p) => p.id === n.payload);
+        if (!decl) {
+          errors.push(`VIEW ${n.id}: payload "${n.payload}" is not declared`);
+          continue;
+        }
+        if (sig.payloadFormats && !sig.payloadFormats.includes(decl.format)) {
+          errors.push(
+            `VIEW ${n.id}: ${n.component} consumes ${sig.payloadFormats.join("/")} payloads — "${n.payload}" is format ${decl.format}`
+          );
+          continue;
+        }
+      }
+      if (compileViewNode(n, undefined, byName) === null) {
+        errors.push(`VIEW ${n.id}: ${n.component} compiles to nothing from its payload`);
+      }
       continue;
     }
     if (sig.feeds === "claim") {
