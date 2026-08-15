@@ -16,7 +16,7 @@
  * line parsing, usage extraction) is factored out for direct unit testing; the
  * process plumbing is the only impure part.
  */
-import { spawn, execSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Readable } from "node:stream";
 import { once } from "node:events";
@@ -53,7 +53,11 @@ export function resolveClaudeBinary(configuredPath?: string): string {
   if (configuredPath) {
     if (existsSync(configuredPath)) return configuredPath;
     try {
-      const resolved = execSync(`which ${configuredPath}`, {
+      // execFileSync (no shell) — the configured path is a config VALUE, and
+      // `execSync(\`which ${configuredPath}\`)` would run shell metacharacters in
+      // it (`; rm -rf …`, `$(…)`) on every provider probe. execFile passes it as
+      // a single argv, so metacharacters are inert (finding L2).
+      const resolved = execFileSync("which", [configuredPath], {
         encoding: "utf-8",
         timeout: RESOLVE_TIMEOUT_MS,
       }).trim();
@@ -68,7 +72,7 @@ export function resolveClaudeBinary(configuredPath?: string): string {
   }
 
   try {
-    const onPath = execSync("which claude", {
+    const onPath = execFileSync("which", ["claude"], {
       encoding: "utf-8",
       timeout: RESOLVE_TIMEOUT_MS,
     }).trim();

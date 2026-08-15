@@ -23,6 +23,7 @@ import {
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
+import { redactRemoteSecrets } from "@/lib/parquet/duckdb-source";
 import { estimateRun, reportEstimate } from "@/lib/pipeline/estimate";
 import { streamText } from "ai";
 import { withPhaseSync } from "@/lib/cost/accumulator";
@@ -378,15 +379,17 @@ export async function runPipeline(
   code = await reviewAndRevise(code);
 
   // Persist the code BEFORE executing — an OOM/crash during the run must not lose it.
-  // (Records the post-review code — the exact bytes that will run.)
-  recordAttemptCode(attemptIndex, code);
+  // (Records the post-review code — the exact bytes that will run.) Scrub S3
+  // secret literals first (finding M1): a remote-auth script embeds KEY_ID/SECRET
+  // values that must not land in a persisted run record or the debug log below.
+  recordAttemptCode(attemptIndex, redactRemoteSecrets(code));
 
   // Step 2: Execute in sandbox
   logger.debug("Generated code", { chars: code.length, localMount: !!localMountPath });
   if (localMountPath) {
-    logger.info("Local file execution", { localMountPath, fullCode: code });
+    logger.info("Local file execution", { localMountPath, fullCode: redactRemoteSecrets(code) });
   } else if (codeDoesRemoteIo(code)) {
-    logger.info("Remote cloud execution", { fullCode: code });
+    logger.info("Remote cloud execution", { fullCode: redactRemoteSecrets(code) });
   }
   // Up-front duration estimate (a bucketed range, not an ETA) so the user knows
   // a long run is expected — streamed as a progress event before execution.
@@ -525,7 +528,7 @@ export async function runPipeline(
     }
 
     attemptIndex++;
-    recordAttemptCode(attemptIndex, retryCode);
+    recordAttemptCode(attemptIndex, redactRemoteSecrets(retryCode));
 
     onStage?.("executing");
     result = await executeSandbox(csvContent, skillPrelude + retryCode, {

@@ -204,19 +204,28 @@ export function responsesSSE(opts: {
         while (true) {
           // Read with a stall timeout — no data for the whole budget means the
           // server is hung (common MLX/Ollama failure mode with large prompts
-          // or OOM), and waiting forever just hangs the analysis.
-          const readResult = await Promise.race([
-            reader.read(),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () =>
-                  reject(
-                    new Error(`Stream stalled — no data received for ${stallTimeoutMs / 1000}s`)
-                  ),
-                stallTimeoutMs
-              )
-            ),
-          ]);
+          // or OOM), and waiting forever just hangs the analysis. The timer is
+          // cleared the instant the read wins the race — otherwise every read
+          // leaves a live 5-minute timer behind (thousands per generation).
+          let stallTimer: ReturnType<typeof setTimeout> | undefined;
+          const readResult = await (async () => {
+            try {
+              return await Promise.race([
+                reader.read(),
+                new Promise<never>((_, reject) => {
+                  stallTimer = setTimeout(
+                    () =>
+                      reject(
+                        new Error(`Stream stalled — no data received for ${stallTimeoutMs / 1000}s`)
+                      ),
+                    stallTimeoutMs
+                  );
+                }),
+              ]);
+            } finally {
+              clearTimeout(stallTimer);
+            }
+          })();
           const { done, value } = readResult;
           if (done) break;
 
@@ -268,16 +277,30 @@ export function responsesSSE(opts: {
         reader.cancel().catch(() => {});
       }
 
+      // A stream that errored AFTER emitting partial output is a TRUNCATION, not
+      // a success: a half-written Python script still parses and would execute; a
+      // truncated JSONL spec silently drops its conclusion. Presenting that as
+      // "completed" is the bug (finding 05). Distinguish it from the no-output
+      // case, which legitimately completes with the error text as its whole body.
+      // Non-null ⇒ the stream produced partial output and THEN failed (truncation).
+      const truncationText: string | null =
+        streamError !== null && fullText.length > 0 ? streamError : null;
+
       if (streamError && !fullText) {
-        // No output generated — emit the error as text so the user sees it.
+        // No output generated — emit the error as text so the user sees it. This
+        // IS the whole response, not a fragment, so it still completes normally.
         fullText = streamError.trim();
         emitDelta(fullText);
+      } else if (truncationText !== null) {
+        // Keep the partial text in the done events but append the failure reason.
+        emitDelta(truncationText);
+        fullText += truncationText;
       }
 
       const doneItem = {
         id: msgId,
         type: "message",
-        status: "completed",
+        status: truncationText !== null ? "incomplete" : "completed",
         role: "assistant",
         content: [{ type: "output_text", text: fullText, annotations: [], logprobs: [] }],
       };
@@ -304,16 +327,42 @@ export function responsesSSE(opts: {
         output_index: 0,
         item: doneItem,
       });
-      emit("response.completed", {
-        type: "response.completed",
-        sequence_number: seq++,
-        response: {
-          ...baseResponse,
-          status: "completed",
-          output: [doneItem],
-          ...(capturedUsage ? { usage: usageBlock(capturedUsage) } : {}),
-        },
-      });
+
+      if (truncationText !== null) {
+        // Two signals, belt and suspenders: an `error` chunk makes the AI SDK
+        // reject the stream (the `await result.text` in code-generation throws,
+        // so the truncated script never executes and the caller's retry path
+        // engages), and a terminal `response.failed` marks the run's finish
+        // reason as error instead of the misleading "completed".
+        const reason = truncationText.trim();
+        emit("error", {
+          type: "error",
+          sequence_number: seq++,
+          error: { type: "stream_truncated", code: "stream_truncated", message: reason },
+        });
+        emit("response.failed", {
+          type: "response.failed",
+          sequence_number: seq++,
+          response: {
+            ...baseResponse,
+            status: "failed",
+            output: [doneItem],
+            error: { code: "stream_truncated", message: reason },
+            ...(capturedUsage ? { usage: usageBlock(capturedUsage) } : {}),
+          },
+        });
+      } else {
+        emit("response.completed", {
+          type: "response.completed",
+          sequence_number: seq++,
+          response: {
+            ...baseResponse,
+            status: "completed",
+            output: [doneItem],
+            ...(capturedUsage ? { usage: usageBlock(capturedUsage) } : {}),
+          },
+        });
+      }
 
       controller.close();
     },

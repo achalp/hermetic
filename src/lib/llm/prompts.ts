@@ -527,7 +527,17 @@ function formatDataSection(schema: CSVSchema, mode: SchemaMode): string {
 
   const syntheticRows = generateSyntheticRows(schema);
   const syntheticJson = JSON.stringify(syntheticRows, null, 2);
-  return `\n## Sample Rows\n${syntheticJson}`;
+  // NOT real rows: these are fabricated per-column from the statistics, so the
+  // cross-column COMBINATIONS in any given row never occurred in the data. A
+  // distinct heading + disclaimer keeps the model from treating them as real
+  // samples (finding M9) — must differ from the real-sample "## Sample Rows".
+  return (
+    `\n## Synthetic Example Rows\n` +
+    `(Generated from column statistics for FORMAT REFERENCE ONLY — each column's ` +
+    `values are realistic, but the cross-column combinations within a row are ` +
+    `fabricated and are NOT real data. Do not draw conclusions from them.)\n` +
+    syntheticJson
+  );
 }
 
 // ── User prompt (initial query) ───────────────────────────────────

@@ -3,7 +3,7 @@
  * lines previously copy-pasted (and drifted) between ollamaFetch and
  * localOpenAIFetch with zero coverage.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   responsesJSON,
   responsesSSE,
@@ -123,6 +123,51 @@ describe("responsesSSE — event choreography", () => {
     expect(events.at(-1)?.event).toBe("response.completed");
     // …and the failure reason reaches the user as output text.
     expect(fullTextOf(events)).toContain("Server crashed during inference");
+  });
+
+  it("does NOT present a mid-stream failure AFTER partial output as completed (finding 05)", async () => {
+    // A stream that emits a partial (truncated) script and THEN dies must not
+    // finish with response.completed — a half-written Python script parses and
+    // would execute, a truncated JSONL spec loses its conclusion.
+    const upstream = upstreamOf(['{"message":{"content":"import pandas as pd\\nresults = {"}}\n'], {
+      failAfter: new Error("fetch failed: ECONNRESET"),
+    });
+    const res = responsesSSE({ upstream, model: "m", deltaFromLine: ollamaDelta, backend: "test" });
+    const events = await readSSE(res);
+    const types = events.map((e) => e.event);
+
+    // The truncation is surfaced as an error, not a clean completion.
+    expect(types).not.toContain("response.completed");
+    expect(types).toContain("response.failed");
+    expect(types).toContain("error"); // makes the AI SDK reject the stream
+    // The terminal item is flagged incomplete and carries the failure reason.
+    const doneItem = events.find((e) => e.event === "response.output_item.done");
+    expect((doneItem?.data.item as { status: string }).status).toBe("incomplete");
+    expect(fullTextOf(events)).toContain("import pandas as pd"); // partial kept…
+    expect(fullTextOf(events)).toContain("Server crashed during inference"); // …plus marker
+  });
+
+  it("clears each read's stall timer when the read wins — no timer leak (L4)", async () => {
+    vi.useFakeTimers();
+    try {
+      const upstream = upstreamOf([
+        '{"message":{"content":"a"}}\n',
+        '{"message":{"content":"b"}}\n',
+        '{"message":{"content":"c"}}\n',
+      ]);
+      const res = responsesSSE({
+        upstream,
+        model: "m",
+        deltaFromLine: ollamaDelta,
+        backend: "test",
+      });
+      await res.text();
+      // Without the clearTimeout, every reader.read() would leave a live
+      // 5-minute timer behind (thousands per real generation). All cleared → 0.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stall timeout fires with the actual budget in the message", async () => {

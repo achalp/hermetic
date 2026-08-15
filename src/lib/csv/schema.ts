@@ -73,11 +73,32 @@ function inferDtype(values: string[]): CSVColumn["dtype"] {
     // month columns fell to string and the phone pattern claimed them.
   ];
   const allDate = nonEmpty.every(
-    (v) => datePatterns.some((p) => p.test(v.trim())) && !isNaN(Date.parse(v))
+    (v) => datePatterns.some((p) => p.test(v.trim())) && isDateLike(v)
   );
   if (allDate) return "date";
 
   return "string";
+}
+
+/**
+ * Is this string a real date? Date.parse alone reads dashed dates month-first
+ * (US), so a day-first "13-05-2024" (day > 12) parses to NaN and the whole
+ * column falls back to "string" — never reaching the date path (finding M8b).
+ * Accept a value that parses either as-is OR under a day-first / compact
+ * reinterpretation. The pattern gate in inferDtype already rejects non-date
+ * shapes, so this only rescues genuinely date-shaped values.
+ */
+function isDateLike(v: string): boolean {
+  const s = v.trim();
+  if (!isNaN(Date.parse(s))) return true;
+  const eu = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if (eu) {
+    const [, d, mo, y] = eu;
+    if (!isNaN(Date.parse(`${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`))) return true;
+  }
+  const compact = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact && !isNaN(Date.parse(`${compact[1]}-${compact[2]}-${compact[3]}`))) return true;
+  return false;
 }
 
 // ── Numeric metadata ──────────────────────────────────────────────
@@ -224,8 +245,13 @@ const DAY_NAME_RE =
   /\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/i;
 
 function inferGranularity(timestamps: number[]): DateMeta["granularity"] {
-  if (timestamps.length < 2) return "day";
-  const sorted = [...timestamps].sort((a, b) => a - b);
+  // Dedupe BEFORE gap analysis (finding M8c): a daily column with many rows per
+  // day has repeated timestamps, so most adjacent gaps are 0 and the median gap
+  // collapses to 0 → "second" granularity for what is really a daily series. The
+  // granularity is a property of the DISTINCT points on the timeline, not of how
+  // many rows share each point.
+  const sorted = [...new Set(timestamps)].sort((a, b) => a - b);
+  if (sorted.length < 2) return "day";
   const gaps: number[] = [];
   for (let i = 1; i < sorted.length; i++) {
     gaps.push(sorted[i] - sorted[i - 1]);
@@ -244,6 +270,36 @@ function inferGranularity(timestamps: number[]): DateMeta["granularity"] {
   return "year";
 }
 
+/**
+ * Parse a date string USING the detected format instead of Date.parse alone
+ * (finding M8b). Date.parse reads "13-05-2024" with US month-first semantics —
+ * it either yields NaN or the wrong month — so a DD-MM-YYYY column's min/max_date
+ * came out wrong. For the day-first and compact formats Date.parse mishandles we
+ * reorder the components into unambiguous ISO first; everything else (ISO, the
+ * US "/" formats Date.parse already reads correctly, month-name forms) falls
+ * through to Date.parse.
+ */
+function parseDateWithFormat(value: string, format: string): number {
+  const s = value.trim();
+  if (format === "DD-MM-YYYY") {
+    const m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})(.*)$/);
+    if (m) {
+      const [, d, mo, y, rest] = m;
+      const iso = Date.parse(`${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}${rest}`);
+      // If the "day" slot is actually > 12 the reorder yields an invalid month —
+      // the value was month-first after all (US dash-date under an ambiguous
+      // detection), so fall back to the as-is parse rather than dropping it.
+      if (!isNaN(iso)) return iso;
+      return Date.parse(s);
+    }
+  }
+  if (format === "YYYYMMDD") {
+    const m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m) return Date.parse(`${m[1]}-${m[2]}-${m[3]}`);
+  }
+  return Date.parse(s);
+}
+
 function extractDateMeta(rawValues: string[]): DateMeta {
   const nonEmpty = rawValues.filter((v) => v !== "" && v !== null && v !== undefined);
 
@@ -256,8 +312,9 @@ function extractDateMeta(rawValues: string[]): DateMeta {
     }
   }
 
-  // Parse timestamps
-  const timestamps = nonEmpty.map((v) => Date.parse(v)).filter((ts) => !isNaN(ts));
+  // Parse timestamps using the DETECTED format (Date.parse alone misreads
+  // day-first and compact formats — see parseDateWithFormat).
+  const timestamps = nonEmpty.map((v) => parseDateWithFormat(v, format)).filter((ts) => !isNaN(ts));
 
   const sorted = [...timestamps].sort((a, b) => a - b);
   const minDate = sorted.length > 0 ? new Date(sorted[0]).toISOString().split("T")[0] : "unknown";
@@ -560,7 +617,13 @@ export function extractSchema(parsed: ParsedCSV, csvId: string, filename: string
     const values = parsed.data.map((row) => row[name] ?? "");
     const nonEmpty = values.filter((v) => v !== "" && v !== null && v !== undefined);
     const nullCount = values.length - nonEmpty.length;
-    const dtype = inferDtype(values.slice(0, 100));
+    // Infer over ALL values, not just the first 100. extractColumnMeta below runs
+    // over every row, so a head-only dtype guess is a mismatch: a column that is
+    // numeric for 100 rows then turns to strings was typed "number", and those
+    // later non-numeric values were silently dropped by the numeric extractor
+    // (finding M8a). Inference is a few O(n) passes with early exit — cheap on the
+    // CSV path, which is bounded (large datasets materialize to Parquet instead).
+    const dtype = inferDtype(values);
     const meta = extractColumnMeta(dtype, values);
     const sampleValues = nonEmpty.slice(0, MAX_SAMPLE_ROWS);
 

@@ -36,7 +36,14 @@ vi.mock("@/lib/llm/claude-cli-transport", () => ({
   claudeCliFetch: vi.fn(() => vi.fn()),
 }));
 
-import { getActiveProvider, getModel, cachedSystem, providerCapabilities } from "@/lib/llm/client";
+import {
+  getActiveProvider,
+  getModel,
+  cachedSystem,
+  providerCapabilities,
+  VALID_PROVIDERS,
+} from "@/lib/llm/client";
+import { AVAILABLE_PROVIDERS } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { recordCall } from "@/lib/cost/accumulator";
@@ -238,5 +245,14 @@ describe("cachedSystem", () => {
     delete process.env.ANTHROPIC_API_KEY;
     process.env.LLM_PROVIDER = "bedrock";
     expect(cachedSystem("big prompt")).toBe("big prompt"); // plain string elsewhere
+  });
+});
+
+describe("VALID_PROVIDERS ↔ AVAILABLE_PROVIDERS (finding L1)", () => {
+  it("is derived from the Settings-UI list so the two can never drift", () => {
+    // A hand-copied VALID_PROVIDERS meant a provider added to Settings would be
+    // silently rejected by detectActiveProvider. Deriving from AVAILABLE_PROVIDERS
+    // makes them identical by construction — this pins that.
+    expect(VALID_PROVIDERS).toEqual(AVAILABLE_PROVIDERS.map((p) => p.id));
   });
 });

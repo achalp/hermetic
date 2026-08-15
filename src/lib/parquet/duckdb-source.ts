@@ -143,6 +143,21 @@ export function duckdbRemoteAuthSql(creds?: RemoteCreds): string {
 }
 
 /**
+ * Scrub S3 secret literals out of a generated script BEFORE it is logged or
+ * persisted (finding M1). duckdbRemoteAuthSql embeds `KEY_ID '<key>'` and
+ * `SECRET '<secret>'` into the model-authored SQL, and both the "Remote cloud
+ * execution" log (logged whole via meta.fullCode, which the logger's key-name
+ * redaction does not cover) and the persisted attempt-code record would
+ * otherwise carry the raw credentials. Only the quoted VALUES are replaced, so
+ * the script stays readable for debugging; the `CREATE OR REPLACE SECRET <name>`
+ * keyword (no adjacent quote) is untouched. Idempotent and a no-op for scripts
+ * without a secret.
+ */
+export function redactRemoteSecrets(code: string): string {
+  return code.replace(/\b(KEY_ID|SECRET)(\s+)'[^']*'/gi, "$1$2'[redacted]'");
+}
+
+/**
  * Code-gen "Data Location" context for a REMOTE cloud Parquet source read
  * directly via DuckDB httpfs. Reuses the same folder/file context builders as
  * the local path (so a globbed folder gets the "create a view, materialize the

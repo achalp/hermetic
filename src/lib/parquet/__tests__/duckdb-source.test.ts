@@ -8,6 +8,7 @@ import {
   resolveRemoteSource,
   isSafeParquetUrl,
   duckdbRemoteAuthSql,
+  redactRemoteSecrets,
   DUCKDB_CLOUD_PRELUDE,
   duckdbCloudPreludePy,
 } from "@/lib/parquet/duckdb-source";
@@ -263,5 +264,34 @@ describe("resolveRemoteSource", () => {
     });
     expect(localFileContext).toContain("authenticate");
     expect(localFileContext).toContain("CREATE OR REPLACE SECRET hermetic_s3");
+  });
+});
+
+describe("redactRemoteSecrets (finding M1)", () => {
+  it("redacts KEY_ID and SECRET literal values from a generated script", () => {
+    const authSql = duckdbRemoteAuthSql({
+      s3AccessKeyId: "AKIAIOSFODNN7EXAMPLE",
+      s3SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      s3Region: "us-west-2",
+    });
+    const code = `import duckdb\nduckdb.sql("${authSql}")\nduckdb.sql("SELECT * FROM read_parquet('s3://b/x.parquet')")`;
+
+    const redacted = redactRemoteSecrets(code);
+
+    // The credential VALUES are gone…
+    expect(redacted).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(redacted).not.toContain("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+    // …replaced by a placeholder, while the structure stays readable.
+    expect(redacted).toContain("KEY_ID '[redacted]'");
+    expect(redacted).toContain("SECRET '[redacted]'");
+    // Non-secret context is untouched — the SECRET keyword in the statement name
+    // and the region literal survive.
+    expect(redacted).toContain("CREATE OR REPLACE SECRET hermetic_s3");
+    expect(redacted).toContain("us-west-2");
+  });
+
+  it("is a no-op for a script with no embedded secret", () => {
+    const code = `duckdb.sql("SELECT * FROM read_parquet('s3://public/x.parquet')").df()`;
+    expect(redactRemoteSecrets(code)).toBe(code);
   });
 });

@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 
-vi.mock("node:child_process", () => ({ spawn: vi.fn(), execSync: vi.fn() }));
+vi.mock("node:child_process", () => ({ spawn: vi.fn(), execFileSync: vi.fn() }));
 vi.mock("node:fs", () => ({ existsSync: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -19,7 +19,7 @@ vi.mock("@/lib/logger", () => ({
   setRunIdProvider: vi.fn(),
 }));
 
-import { spawn, execSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { logger } from "@/lib/logger";
 import {
@@ -38,7 +38,7 @@ import {
 } from "@/lib/llm/claude-cli-transport";
 
 const mockedSpawn = vi.mocked(spawn);
-const mockedExecSync = vi.mocked(execSync);
+const mockedExecFileSync = vi.mocked(execFileSync);
 const mockedExistsSync = vi.mocked(existsSync);
 
 beforeEach(() => {
@@ -280,31 +280,46 @@ describe("resolveClaudeBinary", () => {
   it("returns a configured path that exists on disk", () => {
     mockedExistsSync.mockReturnValue(true);
     expect(resolveClaudeBinary("/opt/claude")).toBe("/opt/claude");
-    expect(mockedExecSync).not.toHaveBeenCalled();
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it("resolves a configured name via PATH when it is not a file", () => {
     mockedExistsSync.mockReturnValue(false);
-    mockedExecSync.mockReturnValue("/usr/bin/claude\n" as never);
+    mockedExecFileSync.mockReturnValue("/usr/bin/claude\n" as never);
     expect(resolveClaudeBinary("claude")).toBe("/usr/bin/claude");
   });
 
   it("throws an actionable error for an unresolvable configured path", () => {
     mockedExistsSync.mockReturnValue(false);
-    mockedExecSync.mockImplementation(() => {
+    mockedExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
     expect(() => resolveClaudeBinary("/nope/claude")).toThrow(/not found at "\/nope\/claude"/);
   });
 
   it("finds `claude` on PATH when no path is configured", () => {
-    mockedExecSync.mockReturnValue("/usr/local/bin/claude\n" as never);
+    mockedExecFileSync.mockReturnValue("/usr/local/bin/claude\n" as never);
     expect(resolveClaudeBinary()).toBe("/usr/local/bin/claude");
-    expect(mockedExecSync).toHaveBeenCalledWith("which claude", expect.anything());
+    expect(mockedExecFileSync).toHaveBeenCalledWith("which", ["claude"], expect.anything());
+  });
+
+  it("does not run shell metacharacters in a configured path (no shell interpolation)", () => {
+    // Regression for L2: the old execSync(`which ${configuredPath}`) would have
+    // executed the `; touch pwned` in a shell. execFileSync passes the whole
+    // string as ONE argv, so `which` just fails to resolve it — nothing runs.
+    mockedExistsSync.mockReturnValue(false);
+    const evil = "claude; touch /tmp/pwned";
+    mockedExecFileSync.mockImplementation(() => {
+      throw new Error("which: not found");
+    });
+    expect(() => resolveClaudeBinary(evil)).toThrow(/not found/);
+    // The metacharacter string was passed as a single argv element, never a
+    // shell command string.
+    expect(mockedExecFileSync).toHaveBeenCalledWith("which", [evil], expect.anything());
   });
 
   it("throws install guidance when `claude` is not on PATH", () => {
-    mockedExecSync.mockImplementation(() => {
+    mockedExecFileSync.mockImplementation(() => {
       throw new Error("which: no claude");
     });
     expect(() => resolveClaudeBinary()).toThrow(/not found on PATH/);
@@ -313,10 +328,10 @@ describe("resolveClaudeBinary", () => {
 
 describe("isClaudeCliAvailable", () => {
   it("is true when the binary resolves and false when it does not", () => {
-    mockedExecSync.mockReturnValue("/usr/local/bin/claude\n" as never);
+    mockedExecFileSync.mockReturnValue("/usr/local/bin/claude\n" as never);
     expect(isClaudeCliAvailable()).toBe(true);
 
-    mockedExecSync.mockImplementation(() => {
+    mockedExecFileSync.mockImplementation(() => {
       throw new Error("nope");
     });
     expect(isClaudeCliAvailable()).toBe(false);
@@ -327,7 +342,7 @@ describe("isClaudeCliAvailable", () => {
 describe("claudeCliFetch", () => {
   beforeEach(() => {
     // Default: `claude` resolves on PATH.
-    mockedExecSync.mockReturnValue("/usr/local/bin/claude\n" as never);
+    mockedExecFileSync.mockReturnValue("/usr/local/bin/claude\n" as never);
     mockedExistsSync.mockReturnValue(false);
   });
 
@@ -464,7 +479,7 @@ describe("claudeCliFetch", () => {
   });
 
   it("returns a 422 (non-retryable) when the binary cannot be resolved", async () => {
-    mockedExecSync.mockImplementation(() => {
+    mockedExecFileSync.mockImplementation(() => {
       throw new Error("no claude");
     });
     const res = await claudeCliFetch()(

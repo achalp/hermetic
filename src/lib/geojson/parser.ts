@@ -193,15 +193,28 @@ function normalizeFeature(obj: unknown): GeoJSONFeature {
 }
 
 function computeBBox(fc: GeoJSONFeatureCollection): [number, number, number, number] | null {
-  const lngs: number[] = [];
-  const lats: number[] = [];
+  // Accumulate min/max in the walk instead of collecting every coordinate into
+  // arrays and spreading them into Math.min/Math.max (finding L5): the spread
+  // form throws `RangeError: Maximum call stack size exceeded` once a geometry
+  // has more than ~100k coordinates (large polygons / dense LineStrings), which
+  // is exactly when a real GeoJSON has them.
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+  let seen = false;
 
   function collectCoords(coords: unknown): void {
     if (!Array.isArray(coords)) return;
     if (coords.length >= 2 && typeof coords[0] === "number" && typeof coords[1] === "number") {
       // Leaf coordinate: [lng, lat]
-      lngs.push(coords[0]);
-      lats.push(coords[1]);
+      const lng = coords[0];
+      const lat = coords[1];
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      seen = true;
     } else {
       for (const item of coords) {
         collectCoords(item);
@@ -215,7 +228,7 @@ function computeBBox(fc: GeoJSONFeatureCollection): [number, number, number, num
     }
   }
 
-  if (lngs.length === 0) return null;
+  if (!seen) return null;
 
-  return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+  return [minLng, minLat, maxLng, maxLat];
 }

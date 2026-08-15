@@ -127,13 +127,14 @@ describe("inferDtype (via extractSchema)", () => {
     expect(col(schema, "e").dtype).toBe("string");
   });
 
-  it("only samples the first 100 rows for dtype but counts all nulls", () => {
-    // First 100 rows numeric, then non-numeric text afterwards.
+  it("infers dtype over ALL rows, not just the first 100 (finding M8a)", () => {
+    // First 100 rows numeric, then non-numeric text afterwards. Head-only
+    // inference typed this "number" and the numeric extractor silently dropped
+    // the trailing text rows; inferring over every value types it "string".
     const numeric = Array.from({ length: 100 }, (_, i) => String(i + 1));
     const text = ["foo", "bar"];
     const schema = extractSchema(singleColumn("x", [...numeric, ...text]), "id", "f.csv");
-    // dtype derived from first 100 → number
-    expect(col(schema, "x").dtype).toBe("number");
+    expect(col(schema, "x").dtype).toBe("string");
   });
 });
 
@@ -627,5 +628,52 @@ describe("month keys vs the phone pattern (run-4 regression)", () => {
     expect((codes.columns[0].meta as { detected_pattern?: string }).detected_pattern).not.toBe(
       "phone"
     );
+  });
+});
+
+// ── Type-inference robustness (finding M8) ─────────────────────────
+
+describe("dtype inference over all rows (M8a)", () => {
+  it("types a column that turns non-numeric after row 100 as string, not number", () => {
+    // Numeric for the first 100 rows, then a string, then more numbers. Head-only
+    // inference typed this "number" and the numeric extractor dropped the string
+    // rows; inferring over all values types it "string".
+    const values = [...Array(100).fill("42"), "not-a-number", ...Array(20).fill("7")];
+    const schema = extractSchema(singleColumn("mixed", values), "c", "t.csv");
+    expect(col(schema, "mixed").dtype).toBe("string");
+  });
+});
+
+describe("date parsing honors the detected format (M8b)", () => {
+  it("parses a DD-MM-YYYY column with day>12 to the correct min/max_date", () => {
+    const schema = extractSchema(
+      singleColumn("d", ["13-05-2024", "25-12-2024", "01-01-2024"]),
+      "c",
+      "t.csv"
+    );
+    const c = col(schema, "d");
+    expect(c.dtype).toBe("date");
+    const meta = c.meta as DateMeta;
+    expect(meta.format).toBe("DD-MM-YYYY");
+    // Date.parse alone read these month-first (NaN for day>12); format-aware
+    // parsing gets the range right.
+    expect(meta.min_date).toBe("2024-01-01");
+    expect(meta.max_date).toBe("2024-12-25");
+  });
+});
+
+describe("granularity dedupes repeated timestamps (M8c)", () => {
+  it("infers 'day' for a daily column with many rows per day, not 'second'", () => {
+    // 10 distinct days, 50 identical-date rows each. Without deduping, most
+    // adjacent gaps are 0 → median 0 → "second".
+    const values: string[] = [];
+    for (let day = 1; day <= 10; day++) {
+      const ds = `2024-01-${String(day).padStart(2, "0")}`;
+      for (let r = 0; r < 50; r++) values.push(ds);
+    }
+    const schema = extractSchema(singleColumn("dt", values), "c", "t.csv");
+    const meta = col(schema, "dt").meta as DateMeta;
+    expect(meta.kind).toBe("date");
+    expect(meta.granularity).toBe("day");
   });
 });

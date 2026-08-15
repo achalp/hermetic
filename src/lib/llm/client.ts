@@ -4,7 +4,7 @@ import type { SystemModelMessage, TextPart, LanguageModelMiddleware } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
-import { LOCAL_CTX_SIZE, DEFAULT_LOCAL_LLM_ENDPOINTS } from "@/lib/constants";
+import { LOCAL_CTX_SIZE, DEFAULT_LOCAL_LLM_ENDPOINTS, AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import {
@@ -458,16 +458,10 @@ const MODEL_MAP: Record<LLMProviderId, Record<string, string>> = {
  * 2. Auto-detect from available credentials
  * 3. Error if nothing configured
  */
-export const VALID_PROVIDERS = [
-  "anthropic",
-  "claude-cli",
-  "bedrock",
-  "vertex",
-  "openai-compatible",
-  "mlx",
-  "llama-cpp",
-  "ollama",
-] as const;
+// DERIVED from AVAILABLE_PROVIDERS (the Settings-UI list) so the two can never
+// drift (finding L1): a hand-copied list meant adding a provider to Settings
+// while detectActiveProvider silently rejected it. Single source of truth.
+export const VALID_PROVIDERS = AVAILABLE_PROVIDERS.map((p) => p.id);
 
 /**
  * THE provider-detection path (modularization M2-B2) — the only

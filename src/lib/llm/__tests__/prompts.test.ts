@@ -364,4 +364,22 @@ describe("buildCodeGenUserPrompt", () => {
     expect(out).toContain("## Question");
     expect(out).toContain("What is the trend?");
   });
+
+  it("labels synthetic rows distinctly from real samples with a disclaimer (M9)", () => {
+    const s = schema("sales.csv", [catColumn("region")], 7);
+
+    // metadata mode fabricates rows from column stats — it must NOT reuse the
+    // real-sample heading, and must carry the "not real data" disclaimer.
+    const synthetic = buildCodeGenUserPrompt(s, "q", "metadata");
+    expect(synthetic).toContain("## Synthetic Example Rows");
+    expect(synthetic).not.toContain("## Sample Rows");
+    expect(synthetic).toMatch(/NOT real data/i);
+    expect(synthetic).toMatch(/cross-column combinations/i);
+
+    // sample mode shows REAL rows under the plain "## Sample Rows" heading — the
+    // two headings must differ so the model can tell fabricated from real.
+    const real = buildCodeGenUserPrompt(s, "q", "sample");
+    expect(real).toContain("## Sample Rows");
+    expect(real).not.toContain("## Synthetic Example Rows");
+  });
 });
