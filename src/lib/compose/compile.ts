@@ -97,6 +97,16 @@ export function compileDashboard(input: CompileInput): string[] {
   // planner's choice of form; disclosure variants always survive.
   const seriesById = new Map(product.series.map((s) => [s.id, s]));
   const viewedSeries = new Set<string>();
+  // Pre-scan VIEW nodes so an EXPLAIN anchored to a derived primary the
+  // VIEW is about to SUPPRESS re-points at the VIEW's element instead of
+  // dangling (review 2026-08-15: the anchor was silently ignored and the
+  // explainer described a chart that no longer shipped).
+  const viewNodeBySeries = new Map<string, string>();
+  for (const n of plan.nodes) {
+    if (n.op === "VIEW" && n.series && !hidden.has(n.id) && !viewNodeBySeries.has(n.series)) {
+      viewNodeBySeries.set(n.series, n.id);
+    }
+  }
   for (const node of plan.nodes) {
     if (hidden.has(node.id)) continue;
     if (node.op === "VIEW") {
@@ -156,9 +166,14 @@ export function compileDashboard(input: CompileInput): string[] {
     }
     patches.push({ op: "add", path: `/elements/${node.id}`, value });
     children.push(node.id);
-    if (node.anchor && !hidden.has(node.anchor) && !anchored.has(node.anchor)) {
-      anchored.add(node.anchor);
-      pendingAnchors.push({ afterNodeId: node.id, elementId: node.anchor });
+    let anchor = node.anchor;
+    if (anchor?.startsWith("chart_")) {
+      const viewId = viewNodeBySeries.get(anchor.slice("chart_".length));
+      if (viewId) anchor = viewId; // the primary will be suppressed
+    }
+    if (anchor && !hidden.has(anchor) && !anchored.has(anchor)) {
+      anchored.add(anchor);
+      pendingAnchors.push({ afterNodeId: node.id, elementId: anchor });
     }
   }
 
@@ -277,6 +292,19 @@ export function compileDashboard(input: CompileInput): string[] {
     emitControlsFor(v.seriesId, children);
     patches.push(v.patch);
     children.push(v.id);
+  }
+
+  // Anchors that name a VIEW node's element (re-pointed above): the element
+  // already sits in children at the VIEW's plan position — MOVE it directly
+  // after its anchoring node, honoring the explainer-above-chart contract.
+  const viewNodeIds = new Set(viewNodeBySeries.values());
+  for (const a of pendingAnchors) {
+    if (!viewNodeIds.has(a.elementId)) continue;
+    const cur = children.indexOf(a.elementId);
+    const at = children.indexOf(a.afterNodeId);
+    if (cur === -1 || at === -1 || cur === at + 1) continue;
+    children.splice(cur, 1);
+    children.splice(children.indexOf(a.afterNodeId) + 1, 0, a.elementId);
   }
 
   // Region geometry always renders (compiled-view-parity follow-up, run

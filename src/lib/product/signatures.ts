@@ -58,6 +58,10 @@ export interface ComponentSignature {
   maxMeasures?: number;
   /** Claim-fed licensing: accepted claim dtypes. */
   dtypes?: string[];
+  /** Series must declare a group role (one line/distribution per group) —
+   *  enforced at plan validation so the planner is TOLD, instead of the
+   *  compiler silently dropping the node (review 2026-08-15). */
+  needsGroup?: boolean;
 }
 
 export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
@@ -187,12 +191,14 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     family: "axis",
     feeds: "series",
     xKinds: ["temporal", "ordinal"],
+    needsGroup: true,
     when: "rank changes of groups over time (needs a group role)",
   },
   StreamChart: {
     family: "axis",
     feeds: "series",
     xKinds: ["temporal", "ordinal"],
+    needsGroup: true,
     when: "stacked group magnitudes flowing over time (needs a group role)",
   },
   RadarChart: {
@@ -252,6 +258,7 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
   RidgelineChart: {
     family: "distribution",
     feeds: "series",
+    needsGroup: true,
     when: "one distribution per group, stacked (needs a group role)",
   },
   BeeswarmChart: {
@@ -363,6 +370,7 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     family: "distribution",
     feeds: "series",
     seriesKinds: ["distribution"],
+    needsGroup: true,
     when: "cluster quality per sample (needs a group role)",
   },
   ContourChart: {

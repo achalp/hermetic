@@ -1293,6 +1293,28 @@ export type AppCatalog = typeof catalog;
  * day one but never ran against whole specs; this export runs in the render
  * smoke suite for every fixture and (warn-only) on the history persist path.
  */
+const nullableKeysCache = new Map<string, string[]>();
+/** Prop keys of a component that ACCEPT null — probed from the zod shape
+ *  once per type. Used by validateSpec's sparse-props tolerance. */
+function nullablePropKeys(type: string): string[] {
+  const cached = nullableKeysCache.get(type);
+  if (cached) return cached;
+  const keys: string[] = [];
+  const def = (catalogComponents as Record<string, { props?: z.ZodObject<z.ZodRawShape> }>)[type];
+  const shape = def?.props?.shape;
+  if (shape) {
+    for (const [k, field] of Object.entries(shape)) {
+      try {
+        if ((field as z.ZodTypeAny).safeParse(null).success) keys.push(k);
+      } catch {
+        // a field whose parse throws is not nullable-tolerant
+      }
+    }
+  }
+  nullableKeysCache.set(type, keys);
+  return keys;
+}
+
 export function validateSpec(spec: unknown): { success: boolean; error?: string } {
   // Wire-reality tolerance: hermetic's composer omits `children` on leaf
   // elements and the renderer treats that as "no children" — the envelope
@@ -1308,10 +1330,33 @@ export function validateSpec(spec: unknown): { success: boolean; error?: string 
       candidate = {
         ...spec,
         elements: Object.fromEntries(
-          Object.entries(s.elements).map(([k, el]) => [
-            k,
-            el && typeof el === "object" && !("children" in el) ? { ...el, children: [] } : el,
-          ])
+          Object.entries(s.elements).map(([k, el]) => {
+            if (!el || typeof el !== "object") return [k, el];
+            let next = el;
+            if (!("children" in next)) next = { ...next, children: [] };
+            // Second wire-reality tolerance (review 2026-08-15): the schemas
+            // declare presentation props as .nullable() but NOT .optional(),
+            // while the COMPILED composer emits sparse props (absent means
+            // null; the renderer reads props?.x). Every compiled save warned
+            // "spec fails catalog validation" — a false alarm drowning real
+            // regressions. Fill omitted nullable keys with null before
+            // validating; required non-nullable keys stay enforced.
+            const type = next.type;
+            if (typeof type === "string" && next.props && typeof next.props === "object") {
+              const nullable = nullablePropKeys(type);
+              if (nullable.length > 0) {
+                const props = next.props as Record<string, unknown>;
+                const missing = nullable.filter((key) => !(key in props));
+                if (missing.length > 0) {
+                  next = {
+                    ...next,
+                    props: { ...props, ...Object.fromEntries(missing.map((m) => [m, null])) },
+                  };
+                }
+              }
+            }
+            return [k, next];
+          })
         ),
       };
     }

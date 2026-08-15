@@ -308,7 +308,14 @@ export function compileViewNode(
 
   // ── Claim-fed components ─────────────────────────────────────────
   if (sig.feeds === "claim") {
-    const claim = node.refs.map((r) => byName.get(r)).find((f) => f !== undefined);
+    // Pick the first ref whose dtype the signature ACCEPTS — the validator
+    // passes when ANY ref matches, so first-found could grab a trend claim
+    // for a PieChart and silently compile nothing (review 2026-08-15).
+    const candidates = node.refs
+      .map((r) => byName.get(r))
+      .filter((f): f is FindingEntry => f !== undefined);
+    const claim =
+      candidates.find((f) => !sig.dtypes || sig.dtypes.includes(f.dtype)) ?? candidates[0];
     if (!claim) return null;
     const v = fv(claim);
     switch (component) {

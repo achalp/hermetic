@@ -13,7 +13,7 @@ import { validatePlan, salvagePlan } from "@/lib/compose/plan";
 import { compileViewNode, COMPILABLE_VIEWS } from "@/lib/compose/view-compilers";
 import { compileDashboard } from "@/lib/compose/compile";
 import { buildPlannerSystem, buildViewCatalog } from "@/lib/compose/planner";
-import { catalogComponents } from "@/lib/catalog";
+import { catalogComponents, validateSpec } from "@/lib/catalog";
 import { COMPONENT_ROLE_SIGNATURES } from "@/lib/product/signatures";
 
 const F = (name: string, dtype: string, value: unknown) =>
@@ -580,6 +580,94 @@ function resolveBindings(props: Record<string, unknown>, series?: SeriesEntry) {
   }
   return out;
 }
+
+describe("review 2026-08-15 fixes — wiring gaps closed", () => {
+  it("claim-fed views pick the ref whose dtype the signature accepts", () => {
+    const byName = new Map(
+      [shareClaim, decompClaim, comparisonClaim, currentClaim].map((f) => [f.name, f])
+    );
+    const trendish = {
+      name: "a_trend",
+      dtype: "trend",
+      definition: "t",
+      value: { direction: "flat", slope_per_period: 1 },
+    } as FindingEntry;
+    byName.set(trendish.name, trendish);
+    // refs list the trend FIRST — the validator passes because shares1
+    // matches; the compiler must not grab the trend and compile nothing.
+    const patch = compileViewNode(
+      { id: "v", op: "VIEW", refs: ["a_trend", "shares1"], component: "PieChart" },
+      undefined,
+      byName
+    );
+    expect(patch, "PieChart silently dropped on mixed refs").toBeTruthy();
+    const el = patch!.value as { props: { data: { label: string }[] } };
+    expect(el.props.data[0].label).toBe("A");
+  });
+
+  it("group-required components reject at plan time, not silent compile drop", () => {
+    const v = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["daily_trend"] },
+          { id: "v1", op: "VIEW", refs: [], component: "BumpChart", series: "daily_spend" },
+        ],
+      },
+      FINDINGS,
+      CTX
+    );
+    expect(v.ok).toBe(false);
+    expect(v.errors.join()).toContain("group role");
+  });
+
+  it("an EXPLAIN anchored to a suppressed primary re-points at the VIEW element", () => {
+    const lines = compileDashboard({
+      manifest: { manifest_version: "1", findings: FINDINGS } as FindingsManifest,
+      product: { series: [AXIS_SERIES], values: [] },
+      plan: {
+        nodes: [
+          { id: "ans", op: "ANSWER", refs: ["daily_trend"] },
+          {
+            id: "ex1",
+            op: "EXPLAIN",
+            refs: ["daily_trend"],
+            text: "The histogram below shows the spread.",
+            anchor: "chart_daily_spend",
+          },
+          { id: "v1", op: "VIEW", refs: [], component: "Histogram", series: "daily_spend" },
+        ],
+      },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    const root = JSON.parse(lines[lines.length - 2]) as {
+      value: { children: string[] };
+    };
+    const kids = root.value.children;
+    expect(kids.indexOf("v1"), "VIEW not moved under its explainer").toBe(kids.indexOf("ex1") + 1);
+    expect(lines.join("\n")).not.toContain('"/elements/chart_daily_spend"');
+  });
+
+  it("validateSpec tolerates the compiled composer's sparse props", () => {
+    const byName = new Map([["cat_shares", FINDINGS[0]]]);
+    const patch = compileViewNode(
+      { id: "v", op: "VIEW", refs: ["cat_shares"], component: "PieChart" },
+      undefined,
+      byName
+    )!;
+    const spec = {
+      root: "r",
+      elements: {
+        r: { type: "LayoutColumn", props: {}, children: ["v"] },
+        v: patch.value,
+      },
+      state: {},
+    };
+    const check = validateSpec(spec);
+    expect(check.success, check.error).toBe(true);
+  });
+});
 
 describe("P3 conformance — every compilable view parses against its catalog schema", () => {
   it("every compilable component has a fixture (and vice versa)", () => {

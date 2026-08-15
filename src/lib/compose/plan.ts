@@ -364,6 +364,11 @@ function validateViewNodes(plan: Plan, findings: FindingEntry[], ctx?: PlanConte
         `VIEW ${n.id}: ${n.component} needs ${sig.minMeasures}+ measures — "${n.series}" declares ${s.roles.measures.length}`
       );
     }
+    if (sig.needsGroup && !s.roles.group) {
+      errors.push(
+        `VIEW ${n.id}: ${n.component} needs a series with a group role — "${n.series}" declares none`
+      );
+    }
   }
   if (ctx?.maxViews !== undefined && views.length > ctx.maxViews) {
     errors.push(
