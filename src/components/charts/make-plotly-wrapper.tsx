@@ -46,14 +46,23 @@ export interface PlotlyWrapperProps {
  * bubble-phase handlers on the drag rect.
  */
 const RETIRED = "hovertext-retired";
+const LIVE_LABELS = "g.hoverlayer g.hovertext, g.hoverlayer g.axistext";
 
 function retireHoverLabels(container: HTMLElement | null) {
   if (!container) return;
-  const live = container.querySelectorAll("g.hoverlayer g.hovertext, g.hoverlayer g.axistext");
+  const live = container.querySelectorAll<SVGGElement>(LIVE_LABELS);
   if (live.length === 0) return;
   for (const stale of container.querySelectorAll(`g.hoverlayer .${RETIRED}`)) stale.remove();
   for (const label of live) {
-    label.setAttribute("class", RETIRED);
+    // A label that was never revealed (see the reveal loop below) has never
+    // painted at its real position — its deferred transform may still be
+    // pending, so renaming it visible could flash it at the origin. It was
+    // never seen, so dropping it loses nothing.
+    if (label.style.visibility === "visible") {
+      label.setAttribute("class", RETIRED);
+    } else {
+      label.remove();
+    }
   }
 }
 
@@ -125,14 +134,35 @@ export function makePlotlyWrapper(
 
     // Retire labels ahead of every event Plotly's hover pipeline listens to
     // (see retireHoverLabels). Capture phase runs before Plotly's handlers.
+    // Fresh labels are born hidden (globals.css) because their deferred
+    // transform paints one frame late; the reveal loop shows each label on
+    // the frame AFTER it first appeared — the same frame its transform
+    // lands — and keeps running briefly past the last event to catch labels
+    // created by Plotly's trailing throttled hover pass.
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
-      const retire = () => retireHoverLabels(el);
+      const seen = new WeakSet<Element>();
+      let raf = 0;
+      let lastEvent = 0;
+      const reveal = () => {
+        raf = 0;
+        for (const label of el.querySelectorAll<SVGGElement>(LIVE_LABELS)) {
+          if (seen.has(label)) label.style.visibility = "visible";
+          else seen.add(label);
+        }
+        if (performance.now() - lastEvent < 300) raf = requestAnimationFrame(reveal);
+      };
+      const onEvent = () => {
+        retireHoverLabels(el);
+        lastEvent = performance.now();
+        if (!raf) raf = requestAnimationFrame(reveal);
+      };
       const events = ["mousemove", "mouseover", "mouseout", "touchmove", "touchstart"] as const;
-      for (const ev of events) el.addEventListener(ev, retire, { capture: true, passive: true });
+      for (const ev of events) el.addEventListener(ev, onEvent, { capture: true, passive: true });
       return () => {
-        for (const ev of events) el.removeEventListener(ev, retire, { capture: true });
+        for (const ev of events) el.removeEventListener(ev, onEvent, { capture: true });
+        if (raf) cancelAnimationFrame(raf);
       };
     }, []);
 

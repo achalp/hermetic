@@ -1147,3 +1147,20 @@ button.source-card-hover:hover {
     scroll-behavior: auto !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Plotly hover labels start hidden.
+
+   Chrome 151 defers SVG transform-attribute invalidation past forced
+   reflows, so a freshly created hover label paints its first frame
+   before its transform applies — a bubble flashing at the chart's
+   top-left origin. A stylesheet rule is part of a new node's INITIAL
+   style resolution (never deferred), so fresh labels are born hidden;
+   makePlotlyWrapper reveals each label one frame later, when its
+   transform has landed. Retired labels (renamed out of this selector
+   by the wrapper) stay visible for continuity between hover passes.
+   ═══════════════════════════════════════════════════════════ */
+.js-plotly-plot g.hoverlayer g.hovertext,
+.js-plotly-plot g.hoverlayer g.axistext {
+  visibility: hidden;
+}
