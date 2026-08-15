@@ -478,6 +478,7 @@ export function salvagePlan(
   const nodes: PlanNode[] = [];
   const seen = new Set<string>();
   const viewedSeries = new Set<string>();
+  let viewsKept = 0;
   let insightKept = false;
   for (const n of plan.nodes) {
     if (seen.has(n.id)) {
@@ -498,7 +499,19 @@ export function salvagePlan(
         repairs.push(`dropped ${errs[0]}`);
         continue;
       }
+      // View-budget repair (finding 08/H2): validateViewNodes' whole-plan
+      // budget gate never trips here because salvage validates ONE node at a
+      // time (views.length is always 1). Without this, an over-budget plan
+      // passes salvage intact, then the caller re-validates the salvaged plan
+      // WITH ctx.maxViews, fails, and collapses the whole authored document to
+      // defaultPlan. Drop the surplus VIEWs (keep the first N) so a budget
+      // overrun is repaired, not a cliff.
+      if (ctx?.maxViews !== undefined && viewsKept >= ctx.maxViews) {
+        repairs.push(`dropped VIEW ${n.id} — exceeds this style's budget of ${ctx.maxViews} views`);
+        continue;
+      }
       if (node.series) viewedSeries.add(node.series);
+      viewsKept += 1;
       nodes.push(node);
       continue;
     }

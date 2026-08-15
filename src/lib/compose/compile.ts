@@ -205,9 +205,14 @@ export function compileDashboard(input: CompileInput): string[] {
   let shippedViews = views.filter((v) => (v.shipped || shown.has(v.id)) && !hidden.has(v.id));
   // Planner-viewed series lose their derived PRIMARY only — coverage
   // companions, unit splits, and tables are disclosure, not style, and
-  // never compete with the planner's choice.
+  // never compete with the planner's choice. A grouped series' primary is
+  // the group_matrix HEATMAP (views.ts §Group series), sharing the same
+  // chart_<sid> id as a flat primary — it is a primary for suppression too
+  // (finding 08/H1: a VIEW on a grouped series shipped BOTH the VIEW and
+  // the derived heatmap, and the anchor re-point above assumes the primary
+  // is gone).
   shippedViews = shippedViews.filter(
-    (v) => !(v.kind === "primary" && viewedSeries.has(v.seriesId))
+    (v) => !((v.kind === "primary" || v.kind === "group_matrix") && viewedSeries.has(v.seriesId))
   );
 
   // Interactivity (controller.ts): a series that DECLARED a group role has

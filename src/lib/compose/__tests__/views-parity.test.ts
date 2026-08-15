@@ -739,6 +739,68 @@ describe("review 2026-08-15 fixes — wiring gaps closed", () => {
     expect(kids.indexOf("controls_g1")).toBeLessThan(kids.indexOf("v1"));
   });
 
+  it("a VIEW on a GROUPED series suppresses the derived group_matrix heatmap (finding 08/H1)", () => {
+    // `grouped` (g1) has a complete pivot, so its derived primary is the
+    // group_matrix HEATMAP (id chart_g1), not a flat primary. A planner VIEW
+    // on it must ship EXACTLY ONE chart — the VIEW — not the VIEW plus the
+    // heatmap (which shared the chart_<sid> id but escaped the primary-only
+    // suppression filter).
+    const lines = compileDashboard({
+      manifest: { manifest_version: "1", findings: FINDINGS } as FindingsManifest,
+      product: { series: [grouped], values: [] },
+      plan: {
+        nodes: [
+          { id: "ans", op: "ANSWER", refs: ["daily_trend"] },
+          { id: "v1", op: "VIEW", refs: [], component: "LineChart", series: "g1" },
+        ],
+      },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    const all = lines.join("\n");
+    // The planner's VIEW ships…
+    expect(all).toContain("/elements/v1");
+    // …and the derived group-matrix heatmap (chart_g1) is suppressed — no
+    // duplicate chart, and the HeatMap is the only thing that would emit it.
+    expect(all).not.toContain('"/elements/chart_g1"');
+    expect(all).not.toContain('"HeatMap"');
+  });
+
+  it("salvage trims VIEWs to the budget instead of collapsing the doc (finding 08/H2)", () => {
+    // Per-node salvage validates each VIEW alone, so the whole-plan budget
+    // gate never trips during salvage — an over-budget plan used to pass
+    // salvage intact, then the caller's re-validation WITH maxViews failed and
+    // collapsed the whole authored document to defaultPlan. Salvage now drops
+    // the surplus VIEWs (keep the first N) so re-validation passes.
+    const ctxBrief = { series: [AXIS_SERIES, GEO_SERIES, grouped], maxViews: 2 };
+    const plan3 = {
+      nodes: [
+        { id: "a", op: "ANSWER" as const, refs: ["daily_trend"] },
+        { id: "v1", op: "VIEW" as const, refs: [], component: "LineChart", series: "daily_spend" },
+        {
+          id: "v2",
+          op: "VIEW" as const,
+          refs: [],
+          component: "MapView",
+          series: "isolated_buildings",
+        },
+        { id: "v3", op: "VIEW" as const, refs: [], component: "LineChart", series: "g1" },
+      ],
+    };
+    // The whole-plan validator rejects the over-budget plan.
+    expect(validatePlan(plan3, FINDINGS, ctxBrief).errors.join()).toContain("budget");
+    const { plan, repairs } = salvagePlan(plan3, FINDINGS, ctxBrief);
+    const views = plan.nodes.filter((n) => n.op === "VIEW");
+    expect(views.map((n) => n.id)).toEqual(["v1", "v2"]); // first N kept
+    expect(repairs.join()).toMatch(/budget of 2 views/);
+    // The ANSWER survives — the document was repaired, not collapsed…
+    expect(plan.nodes.some((n) => n.op === "ANSWER")).toBe(true);
+    // …and the salvaged plan now PASSES re-validation with the same budget,
+    // so the caller never falls back to defaultPlan.
+    expect(validatePlan(plan, FINDINGS, ctxBrief).ok).toBe(true);
+  });
+
   it("investigate's step-prefixed geojson key threads through the channel", () => {
     const lines = compileDashboard({
       manifest: { manifest_version: "1", findings: FINDINGS } as FindingsManifest,

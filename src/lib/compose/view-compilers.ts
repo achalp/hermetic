@@ -374,11 +374,18 @@ export function compileViewNode(
         const items = claimScalarItems(claim);
         return items.length > 0 ? el({ title, items }) : null;
       }
-      default: {
-        // PieChart / FunnelChart share the {label, value} row contract.
+      case "PieChart":
+      case "FunnelChart": {
+        // The two remaining claim-fed components share the {label, value}
+        // row contract (defensive: naming them, rather than a catch-all
+        // default, keeps a FUTURE signed claim-fed component from silently
+        // compiling as a share pie — it returns null and the derived floor
+        // ships instead).
         const data = shareRows(claim);
         return data.length > 0 ? el({ title, data }) : null;
       }
+      default:
+        return null;
     }
   }
 

@@ -885,6 +885,10 @@ export async function composeAndStreamDashboard(args: {
           overlay: opts.planOverlay ?? {},
           mode: "compiled",
           purpose: opts.purpose,
+          // Persist the geometry channel so the edit-path recompile ships the
+          // same map (finding 08/H3) — the recompile has no execution result
+          // to re-derive it from.
+          ...(geojsonKey ? { geojsonKey } : {}),
         };
         const lines = compileDashboard({
           manifest: opts.findings!.manifest,

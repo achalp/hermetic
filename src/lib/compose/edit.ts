@@ -106,6 +106,9 @@ function compileOrder(artifacts: CachedArtifacts, doc: PlanDocument): string[] {
     ),
     question: artifacts.question,
     purpose: doc.purpose,
+    // The geometry channel is a run-level constant persisted on the doc —
+    // thread it so the recompiled order matches the live one (finding 08/H3).
+    geojsonKey: doc.geojsonKey,
     regimes: artifacts.regimes,
     datasets: artifacts.datasets as Record<string, unknown> | undefined,
   });
@@ -176,6 +179,12 @@ export async function editDashboard(
     // doc records what the run was composed with) and same regime-forced
     // evidence views (profiles ride the artifacts).
     purpose: doc.purpose,
+    // Persisted geometry key (finding 08/H3): without it the recompile skips
+    // compiled_geo_map and a MapView's polygons fall back to $chartData:geojson
+    // — wrong under Investigate's step-prefixed keys — and the map vanishes for
+    // good (the recompiled spec is persisted). Read from the source doc, since
+    // mutations never change which key the run produced.
+    geojsonKey: artifacts.plan.geojsonKey,
     regimes: artifacts.regimes,
     datasets: artifacts.datasets as Record<string, unknown> | undefined,
   });
@@ -285,6 +294,9 @@ export async function getEditSurface(
     headlinePlan: planHeadlineTiles(findings, artifacts.results ?? {}, artifacts.question),
     question: artifacts.question,
     purpose: doc.purpose,
+    // Persisted geometry key so the edit surface's element order matches the
+    // recompiled dashboard (finding 08/H3).
+    geojsonKey: doc.geojsonKey,
     regimes: artifacts.regimes,
     datasets: artifacts.datasets as Record<string, unknown> | undefined,
   });

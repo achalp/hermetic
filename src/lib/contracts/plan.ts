@@ -85,6 +85,14 @@ export interface PlanDocument {
   /** Output style the run was composed with — recompiles (edit path) keep
    *  the same plan budget and view family. Absent on pre-purpose docs. */
   purpose?: string;
+  /** chart_data key holding the run's GeoJSON FeatureCollection at compose
+   *  time ("geojson" on the ask path, step-prefixed under Investigate's
+   *  merge, e.g. "step_2_geojson"). Persisted so the edit-path recompile
+   *  can re-inject the compiled_geo_map and bind a MapView's polygons to the
+   *  SAME key — without it the recompiled spec falls back to $chartData:geojson
+   *  and the map silently vanishes forever. Absent when the run had no
+   *  geometry. */
+  geojsonKey?: string;
 }
 
 export type PlanMutation =

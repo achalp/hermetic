@@ -949,6 +949,11 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     overlay: {},
                     mode: "compiled" as const,
                     purpose: context.purpose,
+                    // Persist the step-prefixed geometry key so the edit-path
+                    // recompile re-injects the same map (finding 08/H3) — the
+                    // cached top-level chart_data is the LAST step's, not the
+                    // merged step-prefixed set, so it cannot be re-derived.
+                    ...(geojsonKey ? { geojsonKey } : {}),
                   };
                   yield compileDashboard({
                     manifest: investigationFindings!,

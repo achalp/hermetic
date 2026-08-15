@@ -78,6 +78,29 @@ jobs:
       - name: Run tests with coverage
         run: pnpm test:coverage
 
+  # Python runtime tests: the ONLY guard on Python<->JSON contract drift.
+  # docker/sandbox/hermetic_runtime/test_runtime.py mirrors the series-kind,
+  # payload, and field-contract JSON the TypeScript side reads — those mirror
+  # assertions (test_*_contract_mirror_matches_the_host_json) fail loudly when
+  # the two languages diverge. Stdlib unittest, no third-party deps: pandas/
+  # numpy-dependent cases skip cleanly when absent, so no install step is
+  # needed and the mirror/contract tests still run. Invoked from repo root so
+  # the host-JSON mirror paths resolve.
+  python-runtime:
+    name: Python Runtime Contract Mirror
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run runtime tests (contract mirror)
+        run: python3 -m unittest docker.sandbox.hermetic_runtime.test_runtime
+
   # Golden transcripts: replay-mode server + journey runner, fully offline
   # (LLM responses come from committed fixtures in test-fixtures/llm/;
   # scripts/golden/run-journeys.mjs header documents the recording flow).
