@@ -1,5 +1,6 @@
-import { readFile, writeFile, unlink } from "fs/promises";
+import { readFile, unlink } from "fs/promises";
 import { randomUUID } from "crypto";
+import { writeJsonFileAtomic, readJsonFile } from "@/lib/json-file";
 import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 // Per-engine label lives in the engine descriptor (ARCH-12).
 import { connectionLabel } from "@/lib/warehouse/engine-descriptor";
@@ -103,14 +104,24 @@ async function persistConnections(connections: SavedConnection[]): Promise<void>
         "data/warehouse-connections (legacy plaintext mode)"
     );
   }
-  await writeFile(connectionsPath(), JSON.stringify(toDisk, null, 2), "utf-8");
+  await writeJsonFileAtomic(connectionsPath(), toDisk);
 }
 
 /** Read all saved connections */
 export async function loadConnections(): Promise<SavedConnection[]> {
-  try {
-    const raw = await readFile(connectionsPath(), "utf-8");
-    const parsed = JSON.parse(raw) as SavedConnection[];
+  // Missing ≠ corrupt. readJsonFile returns undefined for ENOENT (→ fall
+  // through to the legacy migrations below), backs up + returns undefined on a
+  // genuine parse/shape failure (a truncated file must NOT read as [] and let
+  // the next persist wipe the salvageable bytes), and rethrows transient read
+  // errors (never wipe on a hiccup).
+  let corrupt = false;
+  const parsed = await readJsonFile<SavedConnection[]>(connectionsPath(), {
+    validate: (p): p is SavedConnection[] => Array.isArray(p),
+    onCorrupt: () => {
+      corrupt = true;
+    },
+  });
+  if (parsed) {
     // One-time migration: a pre-keychain file carries embedded credentials —
     // move them out (persistConnections scrubs) as soon as a keychain exists.
     if (keychainAvailable() && parsed.some(hasEmbeddedSecrets)) {
@@ -120,8 +131,13 @@ export async function loadConnections(): Promise<SavedConnection[]> {
       });
     }
     return parsed.map(withSecrets);
-  } catch {
-    // One-time migration from the pre-C1 repo-root location.
+  }
+  // A corrupt file was already backed up; start empty WITHOUT running the
+  // legacy migrations (whose fall-throughs also end in []).
+  if (corrupt) return [];
+
+  {
+    // ENOENT: one-time migration from the pre-C1 repo-root location.
     try {
       const legacyRaw = await readFile(legacyConnectionsPath(), "utf-8");
       const parsed = JSON.parse(legacyRaw) as SavedConnection[];

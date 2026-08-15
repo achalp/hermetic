@@ -183,6 +183,22 @@ describe("hygiene (found live: proof-run fixtures polluting the menu)", () => {
     expect(raw).toHaveLength(2);
   });
 
+  it("backs up a corrupt index instead of reading it as [] (which the next write would wipe)", async () => {
+    const { writeFile, mkdir, readdir, readFile: rf } = await import("node:fs/promises");
+    const indexPath = join(TEST_HOME, ".hermetic", "recent-sources.json");
+    await mkdir(join(TEST_HOME, ".hermetic"), { recursive: true });
+    await writeFile(indexPath, '[{"id":"x","kind":"upload"', "utf-8"); // truncated
+
+    // A corrupt file reads as empty (nothing to show) but is NOT silently lost.
+    expect(await loadRecentSources()).toEqual([]);
+    const files = await readdir(join(TEST_HOME, ".hermetic"));
+    const backup = files.find((f) => /^recent-sources\.json\.corrupt-\d+$/.test(f));
+    expect(backup).toBeDefined();
+    expect(await rf(join(TEST_HOME, ".hermetic", backup!), "utf-8")).toBe(
+      '[{"id":"x","kind":"upload"'
+    );
+  });
+
   it("does not record while LLM replay mode is active (CI proofs must not write user state)", async () => {
     const { configureLLMReplay } = await import("@/lib/llm/replay");
     configureLLMReplay({ mode: "replay", dir: "/tmp/none" });

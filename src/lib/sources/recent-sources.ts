@@ -1,9 +1,10 @@
-import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
+import { writeFile, unlink, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, extname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import { hermeticPaths } from "@/lib/paths";
+import { writeJsonFileAtomic, readJsonFile } from "@/lib/json-file";
 import { llmReplayConfig } from "@/lib/llm/replay";
 
 /**
@@ -72,23 +73,30 @@ function isOpenable(e: RecentSource): boolean {
 }
 
 export async function loadRecentSources(): Promise<RecentSource[]> {
+  let list: RecentSource[] | undefined;
   try {
-    const raw = await readFile(indexPath(), "utf-8");
-    const list = JSON.parse(raw) as RecentSource[];
-    const live = list.filter(isOpenable);
-    if (live.length !== list.length) {
-      // Best-effort persist of the prune so the dead rows don't reappear.
-      await write(live).catch(() => {});
-    }
-    return live.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+    // Missing → undefined (fresh list); corrupt → backed up, undefined
+    // returned (NOT silently [], which the prune-write below would then flush
+    // over the salvageable bytes). A transient read error throws — caught here
+    // and returned empty WITHOUT writing, so a hiccup never wipes the index.
+    list = await readJsonFile<RecentSource[]>(indexPath(), {
+      validate: (p): p is RecentSource[] => Array.isArray(p),
+    });
   } catch {
     return [];
   }
+  if (!list) return [];
+  const live = list.filter(isOpenable);
+  if (live.length !== list.length) {
+    // Best-effort persist of the prune so the dead rows don't reappear.
+    await write(live).catch(() => {});
+  }
+  return live.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
 }
 
 async function write(list: RecentSource[]): Promise<void> {
   await ensureDirs();
-  await writeFile(indexPath(), JSON.stringify(list, null, 2), "utf-8");
+  await writeJsonFileAtomic(indexPath(), list);
 }
 
 /** Best-effort delete of an upload's managed byte copy. */

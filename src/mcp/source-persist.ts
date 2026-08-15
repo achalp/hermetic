@@ -24,9 +24,10 @@
  *    entries so one side's write never clobbers the other's.
  *  - Entries age out after 7 days (matches the scratch-file orphan sweep).
  */
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import type { StoredCSV } from "@/lib/contracts/storage-types";
+import { writeJsonFileAtomic } from "@/lib/json-file";
 import { hermeticPaths } from "@/lib/paths";
 import type { McpDeps } from "./deps";
 import { allSources, getSource, restoreSource, type CsvSource, type SourceOrigin } from "./sources";
@@ -110,8 +111,7 @@ export async function persistSources(deps: SourcePersistDeps): Promise<void> {
     const merged = new Map((await loadFile()).map((r) => [r.id, r] as const));
     for (const r of mine) merged.set(r.id, r);
     const kept = [...merged.values()].filter((r) => now - r.savedAt < MAX_AGE_MS);
-    await mkdir(dirname(registryFile()), { recursive: true });
-    await writeFile(registryFile(), JSON.stringify(kept, null, 2) + "\n", "utf-8");
+    await writeJsonFileAtomic(registryFile(), kept);
   } catch {
     // Persistence is a convenience layer over a working in-memory registry.
   }

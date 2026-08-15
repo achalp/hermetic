@@ -115,8 +115,14 @@ export async function PUT(request: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // ── API keys → keychain only ──
+  // Validate the ENTIRE body BEFORE any side effect, so the request is
+  // all-or-nothing: a valid api key alongside an invalid model block must NOT
+  // persist the key and then 400. Keychain writes and the runtime-config write
+  // both happen only in the apply phase at the end.
+
+  // ── API keys → validate shape now, write in the apply phase ──
   const keys = body.api_keys as Partial<Record<ApiKeyId, unknown>> | undefined;
+  const keyWrites: { name: string; value: string }[] = [];
   if (keys) {
     for (const [id, value] of Object.entries(keys)) {
       if (!(id in API_KEY_SECRETS)) {
@@ -125,14 +131,7 @@ export async function PUT(request: Request) {
       if (typeof value !== "string") {
         return Response.json({ error: `api_keys.${id} must be a string` }, { status: 400 });
       }
-      try {
-        setSecret(API_KEY_SECRETS[id as ApiKeyId].name, value.trim());
-      } catch (err) {
-        return Response.json(
-          { error: err instanceof Error ? err.message : String(err) },
-          { status: 422 }
-        );
-      }
+      keyWrites.push({ name: API_KEY_SECRETS[id as ApiKeyId].name, value: value.trim() });
     }
   }
 
@@ -253,6 +252,19 @@ export async function PUT(request: Request) {
       else mergedComposer.mode = mode;
     }
     patch.composer = mergedComposer;
+  }
+  // ── Apply phase: every block validated above — now the side effects. Keys
+  // first (a keychain failure 422s before runtime-config is touched), then the
+  // config write. ──
+  for (const { name, value } of keyWrites) {
+    try {
+      setSecret(name, value);
+    } catch (err) {
+      return Response.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        { status: 422 }
+      );
+    }
   }
   if (Object.keys(patch).length > 0) setRuntimeConfig(patch);
 

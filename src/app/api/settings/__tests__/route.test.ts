@@ -159,6 +159,33 @@ describe("PUT /api/settings — models block", () => {
     expect(models?.efforts).toEqual({ code_gen: "max" });
   });
 
+  it("validates the whole body before any side effect: a valid key + invalid model writes NEITHER (M6)", async () => {
+    // Regression: keys were persisted in a loop BEFORE the config blocks were
+    // validated, so a bad models.codeGen returned 400 with the key already in
+    // the keychain. The request must be all-or-nothing.
+    const res = await PUT(
+      putReq({
+        api_keys: { anthropic: "sk-should-not-persist" },
+        models: { codeGen: "gpt-9000" }, // invalid
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(state.secrets.has("anthropic-api-key")).toBe(false); // key never written
+    expect((state.rc as { models?: unknown }).models).toBeUndefined(); // config never written
+  });
+
+  it("applies both the key and the config when the whole body validates", async () => {
+    const res = await PUT(
+      putReq({
+        api_keys: { anthropic: "sk-ok" },
+        models: { codeGen: "claude-opus-5" },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(state.secrets.get("anthropic-api-key")).toBe("sk-ok");
+    expect((state.rc as { models?: { codeGen?: string } }).models?.codeGen).toBe("claude-opus-5");
+  });
+
   it('an explicit "" clears a stored model field', async () => {
     const { PUT } = await import("@/app/api/settings/route");
     await PUT(

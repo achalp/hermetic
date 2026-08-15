@@ -14,8 +14,9 @@
  * Status tracking: lastRunAt, lastStatus ("success" | "error"), lastError.
  */
 
-import { mkdir, readFile, writeFile, rename } from "fs/promises";
+import { mkdir, readFile, rename } from "fs/promises";
 import { dirname } from "path";
+import { writeJsonFileAtomic } from "@/lib/json-file";
 import { hermeticPaths } from "@/lib/paths";
 import { logger } from "@/lib/logger";
 
@@ -92,7 +93,7 @@ export async function loadSchedules(): Promise<Map<string, ScheduleEntry>> {
 async function persist() {
   if (!cache) return;
   await ensureDir();
-  await writeFile(schedulesPath(), JSON.stringify([...cache.values()], null, 2), "utf-8");
+  await writeJsonFileAtomic(schedulesPath(), [...cache.values()]);
 }
 
 /**

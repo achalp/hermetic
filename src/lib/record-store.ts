@@ -1,5 +1,6 @@
-import { mkdir, writeFile, readFile, readdir, rm, rename, stat } from "fs/promises";
+import { mkdir, readFile, readdir, rm, rename, stat } from "fs/promises";
 import { join } from "path";
+import { writeFileAtomic } from "@/lib/json-file";
 
 /**
  * Shared store for record directories (modularization M2-C3, spec §3.2
@@ -67,12 +68,20 @@ export class RecordDirStore {
     return d;
   }
 
-  /** Write named files (already-serialized) into a record dir in parallel. */
+  /**
+   * Write named files (already-serialized) into a record dir. Each file is
+   * written atomically (temp-in-dir + rename) so a crash mid-write can't leave
+   * a truncated well-known file. meta.json is written LAST: listMetas keys a
+   * record's existence off meta.json, so a half-written record stays invisible
+   * (skipped, not corrupt-listed) until every other file has landed.
+   */
   async writeFiles(id: string, files: Record<string, string>): Promise<void> {
     const d = await this.ensureDir(id);
-    await Promise.all(
-      Object.entries(files).map(([name, content]) => writeFile(join(d, name), content, "utf-8"))
-    );
+    const entries = Object.entries(files);
+    const rest = entries.filter(([name]) => name !== RECORD_FILES.meta);
+    await Promise.all(rest.map(([name, content]) => writeFileAtomic(join(d, name), content)));
+    const meta = files[RECORD_FILES.meta];
+    if (meta !== undefined) await writeFileAtomic(join(d, RECORD_FILES.meta), meta);
   }
 
   /** Read + parse a REQUIRED JSON file; missing/unparsable → RecordCorruptError. */

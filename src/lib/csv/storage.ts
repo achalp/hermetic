@@ -53,12 +53,20 @@ export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans
   // Orphaned files: on disk but not in the index (written before a restart).
   // Age-gated by mtime so an in-flight write is never touched.
   let orphans = 0;
+  // The scratch dir is SHARED across the web and MCP harnesses, each of which
+  // only knows its own in-memory sources. A file this process doesn't recognize
+  // may be a sibling process's LIVE upload — deleting it produced the "CSV not
+  // found, re-upload" bug for a retained dataset. Gate deletion on the union of
+  // the persisted on-disk indexes (mcp-sources.json filePath, recent-sources
+  // path): a file any index still references is live and off-limits.
+  const referenced = await liveReferencedScratchFiles();
   try {
     const { readdir, stat } = await import("fs/promises");
     for (const name of await readdir(csvDir())) {
       const id = name.replace(/\.(csv|geojson)$/, "");
       if (store.has(id)) continue;
       const full = join(csvDir(), name);
+      if (referenced.has(full)) continue; // another harness's live source
       const info = await stat(full).catch(() => null);
       if (info && now - info.mtimeMs > ORPHAN_AGE_MS) {
         await unlink(full).catch(() => {});
@@ -69,6 +77,34 @@ export async function sweepExpiredCSVStore(): Promise<{ expired: number; orphans
     // dir may not exist yet
   }
   return { expired, orphans };
+}
+
+/**
+ * Absolute scratch-file paths referenced by any persisted on-disk source index
+ * (written by THIS or a SIBLING process). Read-only and best-effort: a plain
+ * parse (never readJsonFile — this must not back up / rename another module's
+ * file), and any read/parse failure contributes nothing rather than throwing.
+ */
+async function liveReferencedScratchFiles(): Promise<Set<string>> {
+  const refs = new Set<string>();
+  const collect = async (file: string, pick: (r: unknown) => string | undefined) => {
+    try {
+      const parsed = JSON.parse(await readFile(file, "utf-8")) as unknown;
+      if (!Array.isArray(parsed)) return;
+      for (const r of parsed) {
+        const p = pick(r);
+        if (typeof p === "string" && p !== "") refs.add(p);
+      }
+    } catch {
+      // Missing/corrupt/unreadable sibling index — contributes no references.
+    }
+  };
+  await collect(
+    join(hermeticPaths.dataDir(), "mcp-sources.json"),
+    (r) => (r as { stored?: { filePath?: string } })?.stored?.filePath
+  );
+  await collect(hermeticPaths.recentSourcesFile(), (r) => (r as { path?: string })?.path);
+  return refs;
 }
 
 // Registration-at-definition: the sweeper iterates the registry, so this store
