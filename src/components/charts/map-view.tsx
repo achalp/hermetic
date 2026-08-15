@@ -197,7 +197,14 @@ function PinMarker({ color, size = 28 }: { color: string; size?: number }) {
       width={size}
       height={size * 1.4}
       viewBox="0 0 24 34"
-      style={{ transform: "translate(-50%, -100%)", cursor: "pointer" }}
+      // NO self-anchoring transform: this renders inside <Marker
+      // anchor="bottom">, which already applies translate(-50%, -100%).
+      // Doubling it drew every pin ~39px above and ~14px left of its true
+      // point — a constant SCREEN offset, so pins appeared to change
+      // geographic location as the zoom changed (kilometers of error at
+      // city zoom, meters when zoomed in). The path tip at viewBox (12, 34)
+      // is the bottom-center, exactly what anchor="bottom" pins to.
+      style={{ cursor: "pointer" }}
     >
       <path
         d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z"
