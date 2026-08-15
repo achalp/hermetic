@@ -331,9 +331,74 @@ function humanizeIfIdentifier(value: string): string {
   return IDENTIFIER_RE.test(value) ? value.replace(/_/g, " ") : value;
 }
 
+/** Currency units, mirroring the MONETARY allowlist in the sandbox runtime
+ *  (docker/sandbox/hermetic_runtime/regimes.py `_CURRENCIES`). Keep the two in
+ *  step: the runtime decides zero-sentinel policy from it, this decides display
+ *  precision, and a unit in one set but not the other reads inconsistently. */
+export const CURRENCY_UNITS = new Set([
+  "usd",
+  "eur",
+  "gbp",
+  "jpy",
+  "dm",
+  "dollar",
+  "dollars",
+  "$",
+  "€",
+  "£",
+  "¥",
+  "cents",
+  "cad",
+  "aud",
+  "chf",
+]);
+
+export function isCurrencyUnit(unit: string | undefined): boolean {
+  return !!unit && CURRENCY_UNITS.has(unit.trim().toLowerCase());
+}
+
+/** Fields that ARE the finding's measure, carried in the measure's own unit,
+ *  and so inherit the finding's declared unit. Deliberately excludes anything
+ *  unitless (n, skew, p_value, n_zero_excluded, *_share) and anything in a
+ *  DERIVED unit (slope_per_period is unit-per-period, multiplier is a ratio). */
+const MEASURE_UNIT_FIELDS = new Set([
+  "value",
+  "raw_value",
+  "peak_value",
+  "median",
+  "mean",
+  "average",
+  "p25",
+  "p75",
+  "min",
+  "max",
+  "std",
+  "mad",
+  "iqr",
+  "spread",
+  "delta",
+  "baseline_spread",
+  "early_median",
+  "late_median",
+  // The current-state rider's raw trailing observation is the measure in
+  // the measure's unit (run dfe3ea32 rendered it bare beside a unit-carrying
+  // attested value in the same sentence).
+  "latest_value",
+]);
+
+/** Money renders as money: 2 decimal places and thousands separators, always.
+ *  A statement analysis shipped "1138.4 usd", "37.2759" and "16.635" into
+ *  prose (run 77051c9d) — parseFloat().toString() drops the cent and the
+ *  grouping, so totals read like float dumps rather than amounts. */
+function formatCurrencyInline(value: number): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** Inline numeric formatting. toFixed(4) rounds tiny magnitudes to 0 — a
- *  p-value of 9e-7 must never narrate as "p = 0". */
-function formatInlineNumber(value: number): string {
+ *  p-value of 9e-7 must never narrate as "p = 0". Pass `unit` so monetary
+ *  bindings get money precision; without it a currency reads as a raw float. */
+function formatInlineNumber(value: number, unit?: string): string {
+  if (isCurrencyUnit(unit)) return formatCurrencyInline(value);
   if (Number.isInteger(value)) return String(value);
   if (value !== 0 && Math.abs(value) < 0.00005) return value.toExponential(2);
   return parseFloat(value.toFixed(4)).toString();
@@ -341,19 +406,93 @@ function formatInlineNumber(value: number): string {
 
 const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** A flat dict of ≤6 scalar leaves renders inline as "k: v, k: v" prose.
- *  Returns null for anything bigger or nested — those still refuse. */
-function renderSmallDictInline(value: unknown): string | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length === 0 || entries.length > 6) return null;
-  const parts: string[] = [];
-  for (const [k, val] of entries) {
-    if (val !== null && typeof val === "object") return null;
-    const shown = typeof val === "number" ? formatInlineNumber(val) : String(val);
-    parts.push(`${humanizeIfIdentifier(k)}: ${shown}`);
+// ── The inline value renderer (specs/finding-field-roles-2026-08-13.md §2.M1) ──
+//
+// How a bound value is SAID in prose, dispatched on shape derived from the
+// value itself. This replaced renderSmallDictInline and its 6-leaf cliff,
+// which produced opposite disasters in two consecutive runs: 77051c9d swept
+// an 11-entry group_ns to "" ("…spanning group sizes of " hung mid-clause);
+// f47eb42d, after the cliff was routed into sentence-refusal, shipped an
+// EMPTY ANSWER because the answer's one sentence bound an 11-entry share
+// map. Both treated ordinary English — a share breakdown, a confidence
+// interval — as unspeakable.
+
+/** n ≤ this ⇒ a mapping names every entry (no residual clause). From n+1
+ *  up: top MAPPING_TOP_N named, the minimum named, the middle summarised. */
+const MAPPING_NAME_ALL_MAX = 4;
+const MAPPING_TOP_N = 3;
+/** Sequences longer than this are not prose ("a, b and c" has a limit). */
+const SEQUENCE_MAX = 8;
+
+const isScalar = (x: unknown): x is number | string =>
+  typeof x === "number" || (typeof x === "string" && x.length > 0);
+
+const fmtEntry = (val: number | string, unit?: string): string => {
+  if (typeof val !== "number") return String(val);
+  const num = formatInlineNumber(val, unit);
+  if (!unit) return num;
+  if (unit === "%" || unit === "pct") return `${num}%`;
+  return `${num} ${unit}`;
+};
+
+/**
+ * Render a bound non-scalar value as prose, or null when it is genuinely
+ * unspeakable (nested, huge, mixed). Callers must never delete the
+ * surrounding sentence on null — that is how an ANSWER vanished.
+ *
+ *  - interval (2-element numeric array): "-11.15 to 11.51"
+ *  - sequence (≤8 scalars):              "a, b and c"
+ *  - mapping (flat dict of scalars):     all entries when n ≤ 4; from n = 5,
+ *      the top 3 by value, then "down to <min>", then a count of the middle —
+ *      the minimum is named deliberately, so a group-sizes disclosure
+ *      surfaces the thin group (n = 2) instead of hiding it in "8 others".
+ */
+export function renderInlineValue(value: unknown, unit?: string): string | null {
+  if (Array.isArray(value)) {
+    if (value.length === 2 && value.every((x) => typeof x === "number")) {
+      const [lo, hi] = value as number[];
+      const span = `${formatInlineNumber(lo, unit)} to ${formatInlineNumber(hi, unit)}`;
+      return unit && unit !== "%" && unit !== "pct" ? `${span} ${unit}` : span;
+    }
+    if (value.length > 0 && value.length <= SEQUENCE_MAX && value.every(isScalar)) {
+      const parts = value.map((x) => fmtEntry(x, unit));
+      return parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+    }
+    return null;
   }
-  return parts.join(", ");
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return null;
+    if (!entries.every(([, v]) => isScalar(v))) return null;
+    const numeric = entries.every(([, v]) => typeof v === "number");
+    if (!numeric) {
+      // Mixed scalar dicts (strings among numbers) keep the plain k: v form,
+      // small only — ranking strings makes no sense.
+      if (entries.length > MAPPING_NAME_ALL_MAX + 2) return null;
+      return entries
+        .map(([k, v]) => `${humanizeIfIdentifier(k)}: ${fmtEntry(v as number | string, unit)}`)
+        .join(", ");
+    }
+    const ranked = [...(entries as [string, number][])].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+    );
+    const say = ([k, v]: [string, number]) => `${humanizeIfIdentifier(k)} at ${fmtEntry(v, unit)}`;
+    if (ranked.length <= MAPPING_NAME_ALL_MAX) {
+      const parts = ranked.map(say);
+      return parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+    }
+    const top = ranked.slice(0, MAPPING_TOP_N).map(say);
+    const min = ranked[ranked.length - 1];
+    const between = ranked.length - MAPPING_TOP_N - 1;
+    const betweenClause =
+      between === 1 ? "with 1 more in between" : `with ${between} more in between`;
+    return `${top.join(", ")}, down to ${say(min)} (${betweenClause})`;
+  }
+  return null;
 }
 
 const METRIC_FAMILIES = [
@@ -506,26 +645,37 @@ export function resolveSpecPlaceholders(
         if (raw === undefined) return _match;
         const value = unwrapScalar(raw);
         if (isInlineRefused(value)) return refuseInline(_match);
+        // Unit applies to the finding's MAIN value: a bare scalar binding,
+        // its conventional `.value` field, or a field that IS the measure in
+        // the measure's own unit (MEASURE_UNIT_FIELDS) — never arbitrary
+        // fields (a decomposition's p_value is not in pp; skew, n and
+        // n_zero_excluded are unitless). Fields carry units in their NAME
+        // (pct_from_peak, delta_pp) — honor the same suffix/prefix
+        // convention as $result keys so "-61.44 from peak" renders
+        // "-61.44%". Resolved ahead of BOTH branches: scalars need it for
+        // money precision, and the value renderer needs it for interval and
+        // mapping entries.
+        const field = trimmed.includes(".") ? trimmed.slice(trimmed.lastIndexOf(".") + 1) : "";
+        const parent = trimmed.includes(".") ? trimmed.slice(0, trimmed.lastIndexOf(".")) : "";
+        const unit =
+          findingUnits[trimmed] ??
+          findingUnits[trimmed.replace(/\.value$/, "")] ??
+          (MEASURE_UNIT_FIELDS.has(field) ? findingUnits[parent] : undefined) ??
+          keyNameUnit(trimmed);
         if (typeof value === "number") {
-          const num = formatInlineNumber(value);
-          // Unit applies to the finding's MAIN value only: a bare scalar
-          // binding or its conventional `.value` field — never arbitrary
-          // fields (a decomposition's p_value is not in pp). Fields carry
-          // units in their NAME (pct_from_peak, delta_pp) — honor the same
-          // suffix/prefix convention as $result keys so "-61.44 from peak"
-          // renders "-61.44%".
-          const unit =
-            findingUnits[trimmed] ??
-            findingUnits[trimmed.replace(/\.value$/, "")] ??
-            keyNameUnit(trimmed);
+          // Resolve the unit BEFORE formatting: money needs 2dp and grouping,
+          // which the generic float path strips.
+          const num = formatInlineNumber(value, unit);
           return unit ? withUnit(num, unit, whole.slice(offset + _match.length)) : num;
         }
         if (typeof value === "object") {
-          // Small flat mappings render as prose ("2010s: 2, 1870s: 1") —
-          // refusing them left "Thin decades flagged by the analysis:"
-          // followed by nothing (the token swept to empty). Anything
-          // larger/nested still refuses via the sweep.
-          const prose = renderSmallDictInline(value);
+          // The value renderer (spec §2.M1): intervals, sequences and
+          // mappings are ordinary English. Genuinely unspeakable values
+          // (nested, huge, mixed) fall through to the sweep, which strips
+          // the TOKEN but never the sentence — run 77051c9d (dangling
+          // clause) and run f47eb42d (EMPTY ANSWER) are the two proofs that
+          // neither harsher posture survives contact with real documents.
+          const prose = renderInlineValue(value, unit);
           return prose ?? _match;
         }
         return humanizeIfIdentifier(String(value));
@@ -706,9 +856,37 @@ export function resolveSpecPlaceholders(
       recordMiss(m, "inline");
       return "";
     });
+    // A stripped token can leave its introducing function word hanging at a
+    // sentence boundary — "sorted into location types via " shipped in run
+    // 9c415dc8 (the planner bound a 62-leaf dict, the renderer refused it,
+    // the sweep took the token). Trim orphaned function words back to a
+    // clean clause end. Runs ONLY when this call actually stripped a token,
+    // so ordinary prose is never touched (and a sentence ending in a bare
+    // preposition is ungrammatical regardless).
+    processed = trimDanglingFunctionWords(processed);
   }
 
   return stripRefusedSentences(processed);
+}
+
+/** Function words that cannot legally end a sentence — the residue an
+ *  inline token strip leaves behind ("…location types via ", "…drawn
+ *  from ."). Trimmed iteratively so "sorted into via " collapses fully;
+ *  a leading comma before the orphan goes with it. Exported for tests. */
+const DANGLING_FUNCTION_WORD =
+  /(?:,\s*)?\b(?:via|of|into|onto|from|by|with|within|under|over|per|at|in|to|as|for|and|or|the|a|an)\s*(?=[.;:!?]\s|[.;:!?]?\s*(?:\\"|"|$))/;
+
+export function trimDanglingFunctionWords(text: string): string {
+  let out = text;
+  const re = new RegExp(DANGLING_FUNCTION_WORD.source, "g");
+  for (let i = 0; i < 5; i++) {
+    const next = out.replace(re, "");
+    if (next === out) break;
+    out = next;
+  }
+  // Collapse the doubled spaces trimming can leave ("types  .") and any
+  // space stranded before end punctuation.
+  return out === text ? text : out.replace(/ {2,}/g, " ").replace(/ +([.;:!?,])/g, "$1");
 }
 
 /**

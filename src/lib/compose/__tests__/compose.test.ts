@@ -17,7 +17,7 @@ import {
 } from "@/lib/compose/controller";
 import { getEditSurface, resolvePreviewText } from "@/lib/compose/edit";
 import { cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
-import { realizeClaim, realizeNode } from "@/lib/compose/realizer";
+import { realizeClaim, realizeNode, realizeNodeTemplate } from "@/lib/compose/realizer";
 import { applyMutations } from "@/lib/compose/mutations";
 import { compileDashboard } from "@/lib/compose/compile";
 import { componentForSeries } from "@/lib/compose/scaffold";
@@ -142,6 +142,62 @@ describe("validatePlan — structural invariants as parse errors", () => {
     expect(validatePlan(p, FINDINGS).ok).toBe(true);
   });
 
+  // Run 9c415dc8: the full category ranking rendered verbatim in the ANSWER
+  // and again in the EXPLAIN. The planner prompt forbade a second mapping
+  // enumeration; this makes it a validation error (and a salvage strip).
+  it("a mapping bound in two nodes rejects the plan; salvage strips the repeat", () => {
+    const withShares = [
+      ...FINDINGS,
+      F("cat_shares", "share", { shares_pct: { Other: 23.5, Groceries: 6.3 }, residual_pct: 5 }),
+    ];
+    const twice = {
+      nodes: [
+        {
+          id: "a",
+          op: "ANSWER" as const,
+          refs: ["cat_shares"],
+          text: "Spend breaks down as $finding:cat_shares.shares_pct.",
+        },
+        {
+          id: "b",
+          op: "NOTE" as const,
+          refs: ["cat_shares"],
+          text: "Shares again: $finding:cat_shares.shares_pct.",
+        },
+      ],
+    };
+    const v = validatePlan(twice, withShares);
+    expect(v.ok).toBe(false);
+    expect(v.errors.join()).toContain("already enumerated");
+    // Salvage: the SECOND node loses its text, the document survives, and
+    // the result validates.
+    const { plan: fixed, repairs } = salvage(twice, withShares);
+    expect(repairs.join()).toContain("re-enumerating");
+    expect(fixed.nodes.find((n) => n.id === "b")?.text).toBeUndefined();
+    expect(validatePlan(fixed, withShares).ok).toBe(true);
+    // A scalar field bound twice stays legal — only mappings enumerate.
+    const scalarTwice = validatePlan(
+      {
+        nodes: [
+          {
+            id: "a",
+            op: "ANSWER",
+            refs: ["price_trend"],
+            text: "Rising at $finding:price_trend.slope_per_period.",
+          },
+          {
+            id: "b",
+            op: "NOTE",
+            refs: ["price_trend"],
+            text: "The slope holds at $finding:price_trend.slope_per_period.",
+          },
+        ],
+      },
+      FINDINGS
+    );
+    expect(scalarTwice.ok).toBe(true);
+  });
+
   it("plan budgets scale with purpose; the planner prompt carries them", () => {
     // The observed gap: a compiled deep-dive computed deep-dive-sized
     // findings, then told a dashboard-sized (4-9 node) story.
@@ -253,6 +309,358 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
       byName
     );
     expect(caveat).not.toContain("ignore me");
+  });
+
+  // Spec finding-field-roles-2026-08-13 §2.M2: a yes/no flag has no word for
+  // a sentence slot; downstream refusal used to strip the sentence and (run
+  // f47eb42d) empty the node. Rejected at authoring time instead.
+  it("validateNodeText rejects a binding that resolves to a boolean", () => {
+    const withFlag = [
+      ...FINDINGS,
+      F("share_check", "share", { shares_pct: { a: 60, b: 40 }, sums_to_100: true }),
+    ];
+    const errs = validateNodeText(
+      "Shares sum to $finding:share_check.sums_to_100 of the statement.",
+      ["share_check"],
+      withFlag
+    );
+    expect(errs.join()).toContain("yes/no flag");
+    // String verdicts stay bindable by design (direction, preferred, ...).
+    expect(
+      validateNodeText("Prices are $finding:price_trend.direction.", ["price_trend"], FINDINGS)
+    ).toEqual([]);
+  });
+
+  // Spec §2.M4 — the missed root cause of runs 77051c9d/f47eb42d: authored
+  // prose used to REPLACE the template, silencing every honesty rider.
+  it("authored text carries the claim's riders appended, once per document", () => {
+    const catchall = F("top_cat", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      raw_period: "Other",
+      raw_value: 1138.4,
+      raw_n: 45,
+      thin_periods_skipped: 2,
+      thin_bar: 5,
+      label_is_catchall: true,
+    });
+    const byName = new Map([[catchall.name, catchall]]);
+    const ridered = new Set<string>();
+    const first = realizeNode(
+      {
+        id: "a",
+        op: "ANSWER",
+        refs: ["top_cat"],
+        text: "Spend concentrated in $finding:top_cat.period at $finding:top_cat.value.",
+      },
+      byName,
+      ridered
+    );
+    // The authored sentence survives AND the catch-all disclosure rides it.
+    expect(first).toContain("Spend concentrated in");
+    expect(first).toContain("catch-all bucket");
+    // A later node citing the same claim does not repeat the riders.
+    const second = realizeNode(
+      {
+        id: "b",
+        op: "CONCLUSION",
+        refs: ["top_cat"],
+        text: "In sum, $finding:top_cat.period dominated.",
+      },
+      byName,
+      ridered
+    );
+    expect(second).toContain("In sum,");
+    expect(second).not.toContain("catch-all bucket");
+  });
+
+  // Run 093c9785: the planner's heterogeneity sentence bound group_ns, and
+  // the thin-groups rider repeated the identical mapping one sentence later.
+  // A rider whose every binding already appears in the authored text adds
+  // emphasis, not information.
+  it("skips a rider whose bindings the authored text already carries", () => {
+    const het = F("cat_het", "heterogeneity", {
+      significant: true,
+      p_value: 0.0011,
+      test: "kruskal_wallis",
+      group_ns: { Other: 45, Membership: 3, Utilities: 2 },
+    });
+    const byName = new Map([[het.name, het]]);
+    const saidIt = realizeNode(
+      {
+        id: "a",
+        op: "EXPLAIN",
+        refs: ["cat_het"],
+        text: "The test ran across group sizes of $finding:cat_het.group_ns, p = $finding:cat_het.p_value.",
+      },
+      byName,
+      new Set()
+    )!;
+    // The mapping appears ONCE — the rider recognized its binding in the
+    // authored text and stood down.
+    expect(saidIt.match(/\$finding:cat_het\.group_ns/g)).toHaveLength(1);
+    // Without the binding in the prose, the rider still fires.
+    const didNot = realizeNode(
+      {
+        id: "b",
+        op: "EXPLAIN",
+        refs: ["cat_het"],
+        text: "Amounts differ meaningfully by category, p = $finding:cat_het.p_value.",
+      },
+      byName,
+      new Set()
+    )!;
+    expect(didNot).toContain("pools groups of very different sizes");
+    // Pure-prose riders (no bindings) always attach — the catch-all clause
+    // cannot be fingerprinted and the disclosure is the point.
+    const catchall = F("top_cat", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      label_is_catchall: true,
+    });
+    const c = realizeNode(
+      {
+        id: "c",
+        op: "ANSWER",
+        refs: ["top_cat"],
+        text: "Spend concentrated in $finding:top_cat.period.",
+      },
+      new Map([[catchall.name, catchall]]),
+      new Set()
+    )!;
+    expect(c).toContain("catch-all bucket");
+  });
+
+  // Run 5872407b: the second-largest dollar category (n = 3) was silently
+  // disqualified under the bar of 5, and because the raw and attested
+  // winners coincided, the raw-beside-attested rider never fired — nothing
+  // disclosed the screening that materially framed "top category".
+  it("disqualifications disclose even when the raw and attested winners coincide", () => {
+    const sup = F("top_cat", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      raw_period: "Other",
+      raw_value: 1138.4,
+      raw_n: 45,
+      thin_periods_skipped: 2,
+      thin_bar: 5,
+    });
+    const text = realizeClaim(sup);
+    // The rider names its subject claim (run 31c1cfa9): deictic phrasings
+    // misattribute when several claims' riders share a node.
+    expect(text).toContain("Candidates screened out of the top cat pick as thin");
+    expect(text).toContain("$finding:top_cat.thin_periods_skipped");
+    // With a DIFFERING raw extreme, the fuller raw-beside-attested rider
+    // carries the disclosure instead — never both.
+    const differing = realizeClaim(
+      F("peak", "superlative", {
+        period: "2012",
+        value: 45,
+        n: 1217,
+        raw_period: "1996",
+        raw_value: 74,
+        raw_n: 52,
+        thin_periods_skipped: 1,
+        thin_bar: 120,
+      })
+    );
+    expect(differing).toContain("For peak, the raw extreme is");
+    expect(differing).not.toContain("Candidates screened out");
+    // Nothing skipped → no rider.
+    expect(
+      realizeClaim(
+        F("clean", "superlative", {
+          period: "A",
+          value: 1,
+          n: 9,
+          thin_periods_skipped: 0,
+          thin_bar: 5,
+        })
+      )
+    ).not.toContain("Candidates screened out");
+  });
+
+  // Run 31c1cfa9's single audit high: the ANSWER referenced BOTH
+  // superlatives, so the merchant's bar-relaxed rider landed right after the
+  // category discussion — and "Attestation here" read as the category's
+  // confidence being undermined (its bar was 5, never relaxed). Riders name
+  // their subject so attribution survives any node placement.
+  it("riders from two claims on one node each name their subject", () => {
+    const cat = F("top_spend_category", "superlative", {
+      period: "Other",
+      value: 1138.4,
+      n: 45,
+      thin_periods_skipped: 2,
+      thin_bar: 5,
+      label_is_catchall: true,
+    });
+    const merch = F("top_merchant", "superlative", {
+      period: "AcmeMart",
+      value: 812.5,
+      n: 1,
+      thin_bar: 1,
+      bar_relaxed: true,
+    });
+    const byName = new Map([
+      [cat.name, cat],
+      [merch.name, merch],
+    ]);
+    const text = realizeNode(
+      {
+        id: "ans",
+        op: "ANSWER",
+        refs: [cat.name, merch.name],
+        text: "Spending concentrates in $finding:top_spend_category.period at $finding:top_spend_category.value; the leading merchant is $finding:top_merchant.period at $finding:top_merchant.value.",
+      },
+      byName,
+      new Set()
+    );
+    expect(text).toContain("The winner for top spend category is a catch-all bucket");
+    expect(text).toContain("Candidates screened out of the top spend category pick");
+    expect(text).toContain("Attestation for top merchant rests on a bar relaxed to");
+    // No deixis left to misattribute.
+    expect(text).not.toContain("Attestation here");
+    expect(text).not.toContain("That leader");
+  });
+
+  // Run 31c1cfa9: "with the remainder accounted for at 0%" — a zero residual
+  // is the absence of a remainder. The template states exhaustiveness.
+  it("share template states exhaustiveness instead of binding a zero residual", () => {
+    const exhaustive = realizeClaim(
+      F("spend_shares", "share", { shares_pct: { a: 60, b: 40 }, residual_pct: 0 })
+    );
+    expect(exhaustive).toContain("fully account for the total");
+    expect(exhaustive).not.toContain("residual_pct");
+    const withRemainder = realizeClaim(
+      F("spend_shares2", "share", { shares_pct: { a: 60, b: 30 }, residual_pct: 10 })
+    );
+    expect(withRemainder).toContain("$finding:spend_shares2.residual_pct");
+  });
+
+  // Run d82a39ce: the same 5-zero-day exclusion disclosed three times, once
+  // per daily claim. One underlying fact, one disclosure — keyed on the
+  // count and the claim-name root through the shared rideredClaims set.
+  it("the zero-policy rider discloses once per series root, not once per claim", () => {
+    const mk = (name: string) =>
+      F(name, "trend", {
+        direction: "flat",
+        slope_per_period: -0.016,
+        n_zero_excluded: 5,
+      });
+    const a = mk("daily_spend_trend");
+    const c = mk("daily_spend_current");
+    const byName = new Map([
+      [a.name, a],
+      [c.name, c],
+    ]);
+    const disclosed = new Set<string>();
+    const first = realizeNode({ id: "n1", op: "TREND", refs: [a.name] }, byName, disclosed);
+    const second = realizeNode({ id: "n2", op: "NOTE", refs: [c.name] }, byName, disclosed);
+    expect(first).toContain("zero values in daily spend trend were excluded");
+    expect(second).not.toContain("zero values");
+    // A DIFFERENT series root still gets its own disclosure.
+    const other = F("weekly_fees_trend", "trend", {
+      direction: "flat",
+      slope_per_period: 0.1,
+      n_zero_excluded: 5,
+    });
+    const third = realizeNode(
+      { id: "n3", op: "TREND", refs: [other.name] },
+      new Map([[other.name, other]]),
+      disclosed
+    );
+    expect(third).toContain("zero values in weekly fees trend were excluded");
+  });
+
+  // Run d82a39ce: dtype "outliers" is the model's natural name for a
+  // declared screen — it renders through the check template (flat evidence,
+  // screen semantics for failed) and is CAVEAT-eligible.
+  it("dtype outliers renders as a screen and is caveat-eligible", () => {
+    const clean = F("daily_screen", "outliers", {
+      outliers: [],
+      n_flagged: 0,
+      method: "rolling_mad",
+      window: 21,
+      k: 3.5,
+    });
+    const cleanText = realizeClaim(clean);
+    expect(cleanText).not.toContain("FAILED");
+    expect(cleanText).toContain("$finding:daily_screen.n_flagged");
+    const hit = F("txn_screen", "outliers", {
+      outliers: [{ label: "x", value: 871, z: 9 }],
+      n_flagged: 17,
+      method: "rolling_mad",
+      window: 21,
+      k: 3.5,
+    });
+    expect(realizeClaim(hit)).toContain("⚠ FAILED");
+    const v = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["price_trend"] },
+          { id: "b", op: "CAVEAT", refs: ["txn_screen"] },
+        ],
+      },
+      [...FINDINGS, hit]
+    );
+    expect(v.ok).toBe(true);
+  });
+
+  // Run d82a39ce audit: pct_from_peak was unverifiable from the claim
+  // alone. When the value carries peak_value/peak_period, the template
+  // names the peak the percentage is computed against.
+  it("current_state binds its peak when the claim carries it", () => {
+    const cs = F("daily_current", "current_state", {
+      period: "2026-07-16",
+      value: 75.85,
+      pct_from_peak: -91.29,
+      peak_value: 871,
+      peak_period: "2026-07-09",
+    });
+    const text = realizeClaim(cs);
+    expect(text).toContain("$finding:daily_current.peak_value");
+    expect(text).toContain("$finding:daily_current.peak_period");
+  });
+
+  it("heterogeneity gets a dedicated template with a thin-groups rider", () => {
+    const het = F("cat_het", "heterogeneity", {
+      significant: true,
+      p_value: 0.0011,
+      test: "kruskal_wallis",
+      group_ns: { Other: 45, Groceries: 15, Membership: 3, Utilities: 2 },
+    });
+    const text = realizeClaim(het);
+    expect(text).toContain("$finding:cat_het.test");
+    expect(text).toContain("$finding:cat_het.p_value");
+    // The pooling disclosure fires — smallest group is n = 2 (< 6).
+    expect(text).toContain("pools groups of very different sizes");
+    expect(text).toContain("$finding:cat_het.group_ns");
+    // Balanced groups: no rider.
+    const balanced = realizeClaim(
+      F("even_het", "heterogeneity", {
+        significant: true,
+        p_value: 0.03,
+        test: "anova",
+        group_ns: { a: 40, b: 38, c: 51 },
+      })
+    );
+    expect(balanced).not.toContain("pools groups");
+  });
+
+  // Spec §2.M5's building block: the deterministic floor a resolved-empty
+  // node degrades to. Findings-bound, so it cannot be empty when refs exist.
+  it("realizeNodeTemplate ignores authored text and yields non-empty prose", () => {
+    const byName = new Map(FINDINGS.map((f) => [f.name, f]));
+    const t = realizeNodeTemplate(
+      { id: "x", op: "ANSWER", refs: ["price_trend"], text: "this text is ignored" },
+      byName
+    );
+    expect(t).toBeTruthy();
+    expect(t).not.toContain("this text is ignored");
+    expect(t).toContain("$finding:price_trend");
   });
 });
 

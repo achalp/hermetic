@@ -75,6 +75,19 @@ export interface FindingProjection {
   /** Leaf field names for structured values (so the composer can bind
    *  `$finding:name.field` without seeing values). */
   value_fields?: string[];
+  /** Present and false when the claim's PRIMARY fields are all null — the
+   *  analysis looked and found nothing (no step change, no peak, no
+   *  correlation). Secondary fields are withheld in that case, so there is
+   *  no number left to narrate the non-event with. See projectFinding. */
+  detected?: false;
+  /** Boolean VERDICTS by field name (significant, passed, weighted…).
+   *  Withheld from value_fields (a flag has no word for a sentence slot) but
+   *  the planner must still KNOW them: run dfe3ea32 asserted "statistically
+   *  significant" over significant: false — values-blind and denied the
+   *  flag, it guessed. A one-bit verdict is exactly what the prose must
+   *  state and cannot be left to guess; the blind discipline guards
+   *  NUMBERS, not verdicts. */
+  verdicts?: Record<string, boolean>;
   tags?: string[];
 }
 

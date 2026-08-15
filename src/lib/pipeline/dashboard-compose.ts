@@ -43,6 +43,8 @@ import {
 import { lintComponentSignature } from "@/lib/product/signatures";
 import { getComposerMode } from "@/lib/runtime-config";
 import { compileDashboard } from "@/lib/compose/compile";
+import { realizeNodeTemplate } from "@/lib/compose/realizer";
+import { recordFailure } from "@/lib/diagnostics/failure-log";
 import { generatePlan as generateNarrativePlan } from "@/lib/compose/planner";
 import { deriveViews, viewPromptTitle } from "@/lib/compose/views";
 import type { PlanDocument, PlanOverlay } from "@/lib/contracts/plan";
@@ -52,6 +54,8 @@ import {
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
+  lintSignificanceMismatch,
+  lintShareBasisMismatch,
   lintSuperlativeHidesRaw,
   lintDanglingFindingReference,
 } from "@/lib/findings/lints";
@@ -61,6 +65,7 @@ import { auditComputedKeys, type PatchLike } from "@/lib/pipeline/computed-key-a
 import {
   collectNarrativeStrings,
   collectGroundedValues,
+  collectStringLeaves,
   verifyGrounding,
 } from "@/lib/pipeline/grounding";
 import { logger } from "@/lib/logger";
@@ -858,6 +863,7 @@ export async function composeAndStreamDashboard(args: {
           model: uiComposeModel,
           purpose: opts.purpose,
           views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
+          series: modeProduct.series,
         });
         compiledPlanDoc = {
           plan,
@@ -1046,6 +1052,8 @@ export async function composeAndStreamDashboard(args: {
       ...lintUnitPhrase(result.raw, unitByName),
       ...lintSentinelInterpolation(result.raw, proseLintLookup),
       ...lintSignedLanguage(result.raw, proseLintLookup),
+      ...lintSignificanceMismatch(result.raw, proseLintLookup),
+      ...lintShareBasisMismatch(result.raw, opts.findings?.manifest.findings ?? []),
       ...lintComponentSignature(result.raw, composeRolesIdx),
     ]) {
       proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
@@ -1082,6 +1090,79 @@ export async function composeAndStreamDashboard(args: {
     }
 
     if (compiledPlanDoc) args.onPlanDocument?.(compiledPlanDoc);
+
+    // ── Post-render invariants (specs/finding-field-roles-2026-08-13.md §2.M5) ──
+    // Plan validation guarantees the credibility floor at AUTHORING time;
+    // nothing used to re-check after resolution, and run f47eb42d shipped a
+    // document whose ANSWER resolved to "" (its one sentence bound an
+    // unrenderable value and was stripped). The verifier saw it and was
+    // advisory. Here, after the full compiled document has been finalized:
+    // any plan node whose element resolved EMPTY degrades to its
+    // deterministic template (findings-bound, cannot be empty for
+    // resolvable refs), re-finalized through the same processLine path so
+    // resolution, lints and citation tracking all apply. An ANSWER that is
+    // STILL empty is a structural failure — recorded, never shipped silent.
+    // Snapshot through a widened alias: TS's flow analysis cannot see the
+    // assignment inside the lazily-evaluated generator above, so reading
+    // `compiledPlanDoc` here narrows to `null` (and `never` under a truthy
+    // guard). The declared type is the truth.
+    const planDoc: PlanDocument | null = compiledPlanDoc as PlanDocument | null;
+    if (planDoc) {
+      const manifestByName = new Map(
+        (opts.findings?.manifest.findings ?? []).map((f) => [f.name, f])
+      );
+      const emptyPlanNodeIds = new Set<string>();
+      for (const patch of composedPatches) {
+        const path = typeof patch.path === "string" ? patch.path : "";
+        const nodeId = path.startsWith("/elements/") ? path.slice("/elements/".length) : "";
+        if (!planDoc.plan.nodes.some((pn) => pn.id === nodeId)) continue;
+        const el = patch.value as { type?: unknown; props?: { content?: unknown } } | undefined;
+        if (!el || typeof el !== "object") continue;
+        if (el.type !== "TextBlock" && el.type !== "Annotation") continue;
+        const content = el.props?.content;
+        if (typeof content === "string" && content.trim() === "") emptyPlanNodeIds.add(nodeId);
+      }
+      for (const node of planDoc.plan.nodes) {
+        if (!emptyPlanNodeIds.has(node.id)) continue;
+        // Riders untracked here on purpose: this node's first rendering
+        // stripped, so its claims' riders never reached the reader.
+        const template = realizeNodeTemplate(node, manifestByName);
+        const replacement = template?.trim() ? template : null;
+        if (replacement) {
+          const line = JSON.stringify({
+            op: "replace",
+            path: `/elements/${node.id}/props/content`,
+            value: replacement,
+          });
+          const finalized = processLine(line);
+          if (finalized !== null) {
+            emitPatch(finalized);
+            proseLintIssues.set(`empty_node_degraded:${node.id}`, {
+              kind: "empty_node_degraded",
+              detail: `${node.op} node resolved empty — degraded to its deterministic template`,
+            });
+            logger.warn("Compiled node resolved empty — degraded to template", {
+              nodeId: node.id,
+              op: node.op,
+            });
+            continue;
+          }
+        }
+        if (node.op === "ANSWER") {
+          logger.error("ANSWER node empty after template degradation", { nodeId: node.id });
+          void recordFailure({
+            stage: "compose",
+            kind: "compose",
+            errorClass: "compose_answer_missing",
+            detail: `ANSWER ${node.id} resolved empty and no template realization was possible (refs: ${node.refs.join(", ")})`,
+          });
+          proseLintIssues.set("compose_answer_missing", {
+            kind: "no_narrative",
+            detail: "the ANSWER resolved empty and could not be re-realized",
+          });
+        }
+      }
+    }
 
     // Warn-only: flag components that read a /computed/<key> nothing produces —
     // they render empty (blank table/map). Tracked in logs, spec left untouched.
@@ -1418,6 +1499,13 @@ export async function composeAndStreamDashboard(args: {
       // elements (orphans are unreferenced and harmless).
       const SEVERE_KINDS = new Set([
         "sentinel_interpolation",
+        // A false significance claim is a fabricated verdict (run dfe3ea32:
+        // "statistically significant" over significant: false) — repairable.
+        "significance_mismatch",
+        // A wrong-basis share overstates concentration by construction (run
+        // 9c415dc8: a 34.6% count share narrated as "of spend" over a
+        // declared 23.5% spend share) — repairable.
+        "share_basis_mismatch",
         "zero_count_sentence",
         "empty_interpolation",
         "no_narrative",
@@ -1449,6 +1537,12 @@ export async function composeAndStreamDashboard(args: {
         citedSteps: [],
         grounded,
         successfulStepNos: [],
+        // String-carrier exemption: numerals embedded in bound string values
+        // (payee names, identifiers) are data, not figures.
+        stringValues: [
+          ...collectStringLeaves(executionResult.results ?? {}),
+          ...collectStringLeaves(findingValues),
+        ],
         // Enables the directional-contradiction check: a story that denies
         // the engine's own computed trend verdict gets flagged.
         results: (executionResult.results ?? {}) as Record<string, unknown>,
@@ -1469,7 +1563,24 @@ export async function composeAndStreamDashboard(args: {
       // Verifiability panel (composer-sight spec §2): the mechanical case
       // that the dashboard says what the analysis computed, as a
       // user-reviewable artifact. Always emitted; persisted with the spec.
-      const checks = (opts.findings?.manifest.findings ?? []).filter((f) => f.dtype === "check");
+      // Screens count as checks here (run 31c1cfa9): a surfaced dtype
+      // "screen" with passed: false reached the banner and the caveats but
+      // not this panel — banner said 3 failures, panel said 2. dtype
+      // "outliers" is a declared screen (run d82a39ce).
+      const checks = (opts.findings?.manifest.findings ?? []).filter(
+        (f) => f.dtype === "check" || f.dtype === "screen" || f.dtype === "outliers"
+      );
+      // Citation = bound in prose OR referenced by a plan node (run
+      // f62eefbb): a narrated NON-DETECTION has nothing to bind — "no
+      // persistent step change survived the gates" cites the claim in
+      // words via refs, and binding-only counting reported it unnarrated.
+      const citationPlanDoc: PlanDocument | null = compiledPlanDoc as PlanDocument | null;
+      if (citationPlanDoc) {
+        const declaredNames = new Set((opts.findings?.manifest.findings ?? []).map((f) => f.name));
+        for (const node of citationPlanDoc.plan.nodes) {
+          for (const ref of node.refs) if (declaredNames.has(ref)) citedFindings.add(ref);
+        }
+      }
       const verifiability = {
         composerSight: opts.sight === "sighted" ? "sighted" : "blind",
         composerMode: compiledMode ? "compiled" : "generative",
@@ -1478,12 +1589,16 @@ export async function composeAndStreamDashboard(args: {
           cited: citedFindings.size,
           checks: checks.length,
           failedChecks: checks
-            .filter(
-              (f) =>
-                f.value !== null &&
-                typeof f.value === "object" &&
-                (f.value as Record<string, unknown>).passed === false
-            )
+            .filter((f) => {
+              if (f.value === null || typeof f.value !== "object") return false;
+              const v = f.value as Record<string, unknown>;
+              // Screen semantics for verdict-less screens (dtype "outliers"):
+              // offenders found = failed.
+              return (
+                v.passed === false ||
+                (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0)
+              );
+            })
             .map((f) => f.name),
         },
         headline: {

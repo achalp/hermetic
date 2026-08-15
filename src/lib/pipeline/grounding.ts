@@ -305,6 +305,16 @@ export function extractPlaceholderCitedSteps(text: string): number[] {
 export interface VerifyArgs {
   /** Resolved narrative strings (placeholders already substituted to values). */
   narrativeTexts: string[];
+  /**
+   * Resolved STRING values the narrative may legitimately contain (payee
+   * names, labels, identifiers). A numeral extracted from prose that is a
+   * substring of one of these is data-carried text, not a figure: run
+   * 093c9785 flagged "-8245" as untraceable — a fragment of the phone
+   * number in "REALTOR ASSOCIATION/ML 312-329-8245 IL", a bound payee
+   * name — and a geospatial run flagged four fragments of a building
+   * UUID. Optional; callers without string values skip the exemption.
+   */
+  stringValues?: string[];
   /** 1-based step numbers the narrative cited (from prose + placeholders). */
   citedSteps: number[];
   /** Numbers the investigation actually computed. */
@@ -348,11 +358,20 @@ const DOWN_WORDS =
 const NEGATION =
   /\b(?:not|no longer|isn't|wasn't|stopped|without|rather than|instead of)\s+(?:\w+\s+){0,2}$/i;
 
+/** Range/position idioms where a direction word carries NO trend claim:
+ *  "transactions falling between 8.56 and 34.75", "values rising above the
+ *  threshold", "readings falling within the band". Run dfe3ea32 fired a
+ *  contradiction advisory on exactly the first of these — the narrative's
+ *  only "falling" was a range idiom, matched against a computed "rising". */
+const RANGE_IDIOM = /^\s+(?:between|within|inside|into|under|below|above|outside|short of)\b/i;
+
 function assertedDirection(text: string): "up" | "down" | null {
   const up = UP_WORDS.exec(text);
   const down = DOWN_WORDS.exec(text);
   const clean = (m: RegExpExecArray | null) =>
-    m !== null && !NEGATION.test(text.slice(Math.max(0, m.index - 40), m.index));
+    m !== null &&
+    !NEGATION.test(text.slice(Math.max(0, m.index - 40), m.index)) &&
+    !RANGE_IDIOM.test(text.slice(m.index + m[0].length, m.index + m[0].length + 16));
   const hasUp = clean(up);
   const hasDown = clean(down);
   // Both directions in one narrative (e.g. "dollars rose while the rate fell")
@@ -395,6 +414,27 @@ function computedDirection(results: Record<string, unknown>): "up" | "down" | nu
   return [...votes][0];
 }
 
+/** Collect string leaves from result/finding values for the string-carrier
+ *  exemption above. Depth-limited; arrays and dicts walked; numbers and
+ *  booleans ignored. */
+export function collectStringLeaves(root: unknown, depth = 0, out: string[] = []): string[] {
+  if (depth > 4 || root === null || root === undefined) return out;
+  if (typeof root === "string") {
+    if (root.length >= 3) out.push(root);
+    return out;
+  }
+  if (Array.isArray(root)) {
+    for (const v of root.slice(0, 200)) collectStringLeaves(v, depth + 1, out);
+    return out;
+  }
+  if (typeof root === "object") {
+    for (const v of Object.values(root as Record<string, unknown>).slice(0, 200)) {
+      collectStringLeaves(v, depth + 1, out);
+    }
+  }
+  return out;
+}
+
 /**
  * Verify the composed narrative against what was actually computed. Returns a
  * report the route surfaces as an advisory caveat and stores in the trace.
@@ -403,12 +443,21 @@ export function verifyGrounding(args: VerifyArgs): GroundingReport {
   const ungrounded: string[] = [];
   let checkedCount = 0;
   const seen = new Set<string>();
+  // Only strings that can EMBED a numeral qualify for the exemption — a
+  // purely numeric string ("948") must not exempt the figure 948 from
+  // grounding (it grounds through the numeric set or not at all).
+  const carrierStrings = (args.stringValues ?? []).filter(
+    (s) => typeof s === "string" && s.length > 0 && !/^[\s\d.,-]+$/.test(s)
+  );
 
   for (const text of args.narrativeTexts) {
     for (const n of extractNumbers(text)) {
       if (!isDataLike(n)) continue;
       checkedCount++;
       if (matchesAny(n, args.grounded)) continue;
+      // Data-carried text: the "figure" is a fragment of a bound string
+      // value (phone number in a payee, digits in an identifier).
+      if (carrierStrings.some((s) => s.includes(n.raw))) continue;
       // De-dupe identical raw tokens so one fabricated figure repeated across
       // sections is reported once.
       if (seen.has(n.raw)) continue;

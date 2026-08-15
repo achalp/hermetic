@@ -542,6 +542,11 @@ export function lintRangeFabrication(
 // ── Check-gating lints (declared-checks spec §3) ─────────────────────
 
 const isCheck = (f: FindingEntry): boolean => f.dtype === "check";
+/** Dtypes that can OWN a screen contract (screened_by refs, caveat refs,
+ *  twin dedup): "outliers" is the model's natural dtype for a declared
+ *  outlier screen (run d82a39ce — a properly declared screen was flagged
+ *  as a dangling ref because only "check" qualified). */
+const SCREEN_LIKE_DTYPES = new Set(["check", "screen", "outliers"]);
 const checkPassed = (f: FindingEntry): boolean | null => {
   if (f.value === null || typeof f.value !== "object" || Array.isArray(f.value)) return null;
   const p = (f.value as Record<string, unknown>).passed;
@@ -804,6 +809,27 @@ export function lintChartConsistency(
   // exceeds — checked only against the finding's OWN scope's charts (a
   // step-2 peak over a screened subset is not contradicted by step-3's
   // unscreened chart of the full corpus).
+  // Dimensional compatibility (run f62eefbb, two false positives): a
+  // per-PAYEE peak of 948 was flagged against a per-LOCATION rollup's 3130
+  // — same measure word, different dimension, no contradiction. The
+  // finding's non-measure tokens (payee, daily, weekly...) must overlap the
+  // SERIES KEY before its columns can adjudicate; findings whose names
+  // carry only measure words keep the legacy any-series comparison (the
+  // original max_price catch has no dimension token to demand).
+  const MEASURE_WORDS = new Set([
+    "spend",
+    "price",
+    "usd",
+    "total",
+    "amount",
+    "value",
+    "cost",
+    "revenue",
+    "sales",
+    "sum",
+  ]);
+  const dimTokens = (s: string) =>
+    s.split(/[._]/).filter((t) => t.length > 2 && !MEASURE_WORDS.has(t.toLowerCase()));
   for (const f of findings) {
     if (!/peak|max/.test(f.name) || f.value === null || typeof f.value !== "object") continue;
     const val = (f.value as Record<string, unknown>).value;
@@ -811,15 +837,20 @@ export function lintChartConsistency(
     const cells = scopedCells.get(scopeOfFinding(f.name));
     if (!cells) continue;
     const tokens = f.name.split(/[._]/).filter((t) => t.length > 2 && !["peak", "max"].includes(t));
+    const fDims = dimTokens(f.name).filter((t) => !["peak", "max", "largest"].includes(t));
     for (const [col, byX] of cells) {
       if (!tokens.some((t) => col.includes(t))) continue;
-      let best: { x: string; v: number } | null = null;
+      let best: { x: string; v: number; series: string } | null = null;
       for (const [x, cell] of byX) {
-        for (const v of cell.nums.values()) {
-          if (!best || v > best.v) best = { x, v };
+        for (const [series, v] of cell.nums.entries()) {
+          if (!best || v > best.v) best = { x, v, series };
         }
       }
       if (best && best.v > val * 1.05) {
+        if (fDims.length > 0) {
+          const sDims = new Set(dimTokens(best.series).map((t) => t.toLowerCase()));
+          if (!fDims.some((t) => sDims.has(t.toLowerCase()))) continue;
+        }
         issues.push({
           kind: "superlative_contradicted_by_chart",
           name: f.name,
@@ -879,7 +910,9 @@ export function lintUndeclaredScreen(
   // Structured path (exact, no morphology): a measure declared as a variant
   // with no screened_by is a transformation without a contract; a
   // screened_by naming a check the manifest doesn't carry is a dangling ref.
-  const checkNames = new Set(findings.filter((f) => f.dtype === "check").map((f) => f.name));
+  const checkNames = new Set(
+    findings.filter((f) => SCREEN_LIKE_DTYPES.has(f.dtype)).map((f) => f.name)
+  );
   for (const [key, info] of rolesIdx ?? []) {
     for (const m of info.measures) {
       if (m.variant_of !== undefined && m.screened_by === undefined) {
@@ -936,7 +969,7 @@ export function lintUndeclaredScreen(
     const tokens = base.split(/_/).filter((t) => t.length > 2);
     const declared = findings.some(
       (f) =>
-        f.dtype === "check" &&
+        SCREEN_LIKE_DTYPES.has(f.dtype) &&
         /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
         tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
     );
@@ -1070,11 +1103,11 @@ export function lintScreenScopeMismatch(
     // exactly. Legacy path: token-match check names/definitions.
     const declaring =
       entry.checkNames.size > 0
-        ? findings.filter((f) => f.dtype === "check" && entry.checkNames.has(f.name))
+        ? findings.filter((f) => SCREEN_LIKE_DTYPES.has(f.dtype) && entry.checkNames.has(f.name))
         : findings.filter((f) => {
             const tokens = base.split(/_/).filter((t) => t.length > 2);
             return (
-              f.dtype === "check" &&
+              SCREEN_LIKE_DTYPES.has(f.dtype) &&
               /screen|outlier|exclusion/.test(f.name + " " + f.definition.toLowerCase()) &&
               tokens.some((t) => f.name.includes(t) || f.definition.toLowerCase().includes(t))
             );
@@ -1356,7 +1389,22 @@ export function lintRegimePolicy(
     const info = rolesIdx?.get(id);
     const col = info?.measures[0]?.column;
     if (!col) continue;
-    const zeros = (rows as Record<string, unknown>[]).filter((r) => r[col] === 0).length;
+    // Count-corroborated zeros are REAL (runtime _zero_screen, run
+    // d82a39ce): a $0 row whose count column is also 0 is a period nothing
+    // happened — the sentinel policy is SUPPOSED to keep it. Only zeros
+    // with recorded activity (count > 0) or no count information count as
+    // unapplied policy.
+    const countCol =
+      info?.countCol ??
+      Object.keys((rows as Record<string, unknown>[])[0] ?? {}).find((c) =>
+        /(^|_)(n|count|transactions?)$/.test(c)
+      );
+    const zeros = (rows as Record<string, unknown>[]).filter((r) => {
+      if (r[col] !== 0) return false;
+      if (countCol === undefined) return true;
+      const c = r[countCol];
+      return !(typeof c === "number" && c === 0);
+    }).length;
     if (zeros > 0) {
       issues.push({
         kind: "zero_sentinel_unapplied",
@@ -1604,4 +1652,421 @@ export function lintMixedUnitGroupSeries(rolesIdx?: ProductRolesIndex): FindingI
     });
   }
   return issues;
+}
+
+/**
+ * Auto-surface undeclared failed checks (run 093c9785, third recurrence of
+ * the class): generated code keeps writing check VERDICTS into bare results
+ * keys — `outlier_transaction_detail_passed: false` beside
+ * `outlier_transaction_detail_n_flagged: 21` — without a declare_check
+ * behind them. A failed check that lives only in results is invisible to
+ * everything that exists to surface it: the caveat machinery, the failed-
+ * check banner, the CAVEAT plan nodes, the Verify panel, the blocking gate.
+ * Two consecutive audits flagged the same silence.
+ *
+ * The fix follows the auto-surfacing precedent (headline-tile injection):
+ * detection alone would be one more advisory nobody reads. A results key
+ * `<name>_passed === false` with no declared finding owning `<name>` is
+ * APPENDED to the manifest as a real check entry — passed: false, evidence
+ * gathered from its sibling `<name>_*` scalars — so every downstream
+ * surface treats it exactly like a declared failure. The definition states
+ * only facts: that the analysis computed the verdict and did not declare
+ * it. Nothing is invented; the mechanism is the absence of a mechanism.
+ *
+ * Passed=true undeclared verdicts are NOT surfaced (a passing check missing
+ * from the manifest costs nothing); they still trip lintResultsProvenance.
+ * Returns the appended entries and one issue per surfaced check — the
+ * issue is the code-quality signal (the model should have declared it),
+ * the entry is the reader's protection.
+ */
+export function surfaceUndeclaredFailedChecks(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): { added: FindingEntry[]; issues: FindingIssue[] } {
+  const added: FindingEntry[] = [];
+  const issues: FindingIssue[] = [];
+  const declared = findings.map((f) => f.name);
+  for (const [key, value] of Object.entries(results ?? {})) {
+    if (!key.endsWith("_passed") || value !== false) continue;
+    const base = key.slice(0, -"_passed".length);
+    if (!base || !/^[a-z][a-z0-9_]*$/.test(base)) continue;
+    // Owned when a declared finding's name prefixes the key — the same rule
+    // the results-mirror synthesis uses to name mirrored fields.
+    if (declared.some((d) => key === `${d}_passed` || key.startsWith(`${d}_`))) continue;
+    if (findings.some((f) => f.name === base)) continue;
+    // Evidence NESTED under `evidence` — the realizer's check template
+    // renders up to three numeric evidence figures onto the caveat's face
+    // ("n flagged: 89"), and it reads them from v.evidence. Run dfe3ea32's
+    // surfaced caveats shipped without their numbers because the sibling
+    // scalars sat flat on the value.
+    const evidence: Record<string, unknown> = {};
+    for (const [k2, v2] of Object.entries(results)) {
+      if (k2 === key || !k2.startsWith(`${base}_`)) continue;
+      const field = k2.slice(base.length + 1);
+      if (v2 === null || typeof v2 !== "object") evidence[field] = v2;
+    }
+    added.push({
+      name: base,
+      dtype: "check",
+      definition:
+        "computed by the analysis but never declared as a check — surfaced so its failure cannot pass silently",
+      value: { passed: false, ...(Object.keys(evidence).length > 0 ? { evidence } : {}) },
+      tags: ["check", "caveat", "auto_surfaced"],
+    } as FindingEntry);
+    issues.push({
+      kind: "undeclared_failed_check",
+      name: base,
+      detail: `results carries ${key} = false with no declared check behind it — auto-surfaced as a failed check; the analysis should declare_check("${base}", ...) beside the computation`,
+    });
+  }
+  return { added, issues };
+}
+
+/**
+ * Significance contradicted (run dfe3ea32): the narrative asserted "differs
+ * at a statistically significant level" over a heterogeneity claim whose
+ * significant field is FALSE (p = 0.240). Value-aware and line-scoped like
+ * lintSignedLanguage: fires when a sentence claims statistical significance
+ * while a finding BOUND IN THAT LINE carries significant: false — or denies
+ * it over significant: true. Registered in the compose SEVERE set: a false
+ * significance claim is a fabricated verdict, not a style issue, so it
+ * earns the bounded repair pass.
+ */
+export function lintSignificanceMismatch(
+  rawLine: string,
+  lookup: { findings?: ReadonlyMap<string, unknown> }
+): FindingIssue[] {
+  if (!rawLine.includes("$finding:")) return [];
+  const ASSERTS =
+    /\bstatistically\s+significant\b|\bsignificant\s+(?:difference|level|divergence)\b/i;
+  const DENIES =
+    /\b(?:not|no)\s+(?:\w+\s+){0,2}statistically\s+significant\b|\bstatistically\s+insignificant\b/i;
+  const asserts = ASSERTS.test(rawLine) && !DENIES.test(rawLine);
+  const denies = DENIES.test(rawLine);
+  if (!asserts && !denies) return [];
+  const issues: FindingIssue[] = [];
+  for (const m of rawLine.matchAll(/\$finding:([a-zA-Z0-9_]+)/g)) {
+    const base = m[1];
+    const value = lookup.findings?.get(base);
+    if (value === null || typeof value !== "object") continue;
+    const sig = (value as Record<string, unknown>).significant;
+    if (typeof sig !== "boolean") continue;
+    if (asserts && sig === false) {
+      issues.push({
+        kind: "significance_mismatch",
+        name: base,
+        detail: `narrative claims statistical significance beside ${base}, whose computed significant field is FALSE — state the non-significance or drop the claim`,
+      });
+    } else if (denies && sig === true) {
+      issues.push({
+        kind: "significance_mismatch",
+        name: base,
+        detail: `narrative denies statistical significance beside ${base}, whose computed significant field is TRUE`,
+      });
+    }
+    break; // one verdict per line — the bound heterogeneity claim owns it
+  }
+  return issues;
+}
+
+/**
+ * Disagreeing outlier detectors (run dfe3ea32): outlier_transaction_review
+ * flagged 89 of 130 transactions while amount_outliers (rolling-MAD, k=3.5)
+ * flagged 21 on the same data — a 4.2× disagreement, unreconciled. The
+ * code-gen contract already forbids a second ad-hoc detector ("outlier
+ * exclusion must reuse the SAME threshold family"); this makes a violation
+ * visible. Fires when two result families whose names contain "outlier"
+ * report n_flagged counts differing by ≥ 2×.
+ */
+export function lintOutlierDetectorDisagreement(results: Record<string, unknown>): FindingIssue[] {
+  const counts: Array<[string, number]> = [];
+  for (const [k, v] of Object.entries(results ?? {})) {
+    if (!/outlier/i.test(k) || !/n_flagged$|_count$/.test(k)) continue;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) continue;
+    const family = k.replace(/_(n_flagged|count)$/, "");
+    // One entry per family — n_flagged wins over _count when both exist.
+    const existing = counts.findIndex(([f]) => f === family);
+    if (existing >= 0) {
+      if (k.endsWith("n_flagged")) counts[existing] = [family, v];
+      continue;
+    }
+    counts.push([family, v]);
+  }
+  if (counts.length < 2) return [];
+  const nonZero = counts.filter(([, n]) => n > 0);
+  if (nonZero.length < 2) return [];
+  const sorted = [...nonZero].sort((a, b) => a[1] - b[1]);
+  const [minF, minN] = sorted[0];
+  const [maxF, maxN] = sorted[sorted.length - 1];
+  if (maxN / minN < 2) return [];
+  return [
+    {
+      kind: "outlier_detector_disagreement",
+      name: maxF,
+      detail: `two outlier detectors disagree ${(maxN / minN).toFixed(1)}×: ${maxF} flagged ${maxN} vs ${minF} flagged ${minN} — one outlier policy per column (the contract's threshold-family rule); reconcile or drop the second detector`,
+    },
+  ];
+}
+
+/**
+ * Share-basis mismatch (run 9c415dc8, audit high): the narrative wrote "45
+ * amounting to 34.6% of spend" around evidence.other_share_pct — which is
+ * 45/130, a share of TRANSACTION COUNT. The declared spend share for the
+ * same label ("Other" in category_spend_shares.shares_pct) is 23.5%. The
+ * values-blind planner guessed the basis; nothing in the field name stated
+ * one.
+ *
+ * Value-aware and line-scoped like lintSignificanceMismatch: fires when a
+ * sentence asserts a basis noun ("of spend") around a bound share/pct field
+ * whose value MATERIALLY disagrees with a declared shares mapping that (a)
+ * carries that basis word in its claim name and (b) holds an entry for the
+ * same group label. Registered in the compose SEVERE set — a wrong-basis
+ * share overstates concentration by construction, not by style.
+ */
+const BASIS_NOUN =
+  /\bof\s+(?:the\s+|total\s+|all\s+)*(spend|spending|revenue|sales|dollars|amount|transactions?|records?|rows?|count)\b/i;
+
+export function lintShareBasisMismatch(rawLine: string, findings: FindingEntry[]): FindingIssue[] {
+  if (!rawLine.includes("$finding:")) return [];
+  const issues: FindingIssue[] = [];
+  const byName = new Map(findings.map((f) => [f.name, f]));
+  const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+  for (const m of rawLine.matchAll(/\$finding:([a-zA-Z0-9_.]+)/g)) {
+    const path = m[1];
+    const lastSeg = path.split(".").pop() ?? "";
+    if (!/(share|pct|percent)/i.test(lastSeg)) continue;
+    const owner = names.find((n) => path === n || path.startsWith(`${n}.`));
+    if (!owner) continue;
+    let v: unknown = byName.get(owner)!.value;
+    for (const seg of path.slice(owner.length).replace(/^\./, "").split(".").filter(Boolean)) {
+      v = v !== null && typeof v === "object" ? (v as Record<string, unknown>)[seg] : undefined;
+    }
+    if (typeof v !== "number") continue;
+    const start = Math.max(0, (m.index ?? 0) - 40);
+    const window = rawLine.slice(start, (m.index ?? 0) + m[0].length + 60);
+    const basis = BASIS_NOUN.exec(window)?.[1]?.toLowerCase();
+    if (!basis) continue;
+    // The group label the field is a share OF: its name segments minus the
+    // share vocabulary ("evidence.other_share_pct" → "other").
+    const labelTokens = lastSeg
+      .split("_")
+      .filter((t) => t.length > 2 && !/^(share|pct|percent|ratio|evidence)$/i.test(t));
+    if (labelTokens.length === 0) continue;
+    for (const f of findings) {
+      if (f.name === owner) continue;
+      // Only a shares claim whose NAME carries the asserted basis word can
+      // adjudicate ("of spend" ↔ category_spend_shares).
+      if (!f.name.toLowerCase().includes(basis.replace(/s$/, ""))) continue;
+      const fv = f.value;
+      if (fv === null || typeof fv !== "object" || Array.isArray(fv)) continue;
+      const shares = (fv as Record<string, unknown>).shares_pct;
+      if (shares === null || typeof shares !== "object" || Array.isArray(shares)) continue;
+      for (const [label, pct] of Object.entries(shares as Record<string, unknown>)) {
+        if (typeof pct !== "number") continue;
+        const lab = label.toLowerCase();
+        if (!labelTokens.some((t) => lab.includes(t.toLowerCase()))) continue;
+        if (Math.abs(v - pct) > 3) {
+          issues.push({
+            kind: "share_basis_mismatch",
+            name: owner,
+            detail: `narrative asserts "${basis}" as the basis of ${path} (${v}), but ${f.name} declares the ${basis} share of "${label}" as ${pct} — the bound figure is a share of something else (likely a count); drop the basis word or bind the declared share`,
+          });
+          return issues; // one verdict per line
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+/**
+ * Symmetric subset dedup of surfaced check/screen twins (run 9c415dc8): the
+ * in-surfacer dedup compares (n_flagged, method), so a POORER twin that
+ * lacks the method key dodges it — spend_outlier_evidence_{passed,n_flagged}
+ * surfaced beside spend_outlier_screen_* and the banner said 3 failures
+ * while only 2 caveats rendered (the planner skipped the duplicate, which
+ * then sat in unnarratedFindings). Run AFTER both surfacers: an
+ * auto-surfaced entry whose evidence is a SUBSET of a check/screen
+ * sibling's — equal on every shared key, n_flagged present and equal, at
+ * least one substantive name token shared — is the same computation under
+ * a poorer name. Only auto-surfaced entries are ever dropped; a
+ * model-declared claim is never removed by a lint.
+ */
+export function dedupeSurfacedTwins(findings: FindingEntry[]): {
+  removed: string[];
+  issues: FindingIssue[];
+} {
+  const evOf = (f: FindingEntry): Record<string, unknown> | null => {
+    const v = f.value;
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+    const rec = v as Record<string, unknown>;
+    const ev =
+      rec.evidence !== null && typeof rec.evidence === "object" && !Array.isArray(rec.evidence)
+        ? (rec.evidence as Record<string, unknown>)
+        : rec;
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(ev)) {
+      if (k !== "passed" && (val === null || typeof val !== "object")) out[k] = val;
+    }
+    return out;
+  };
+  const tokens = (name: string) => new Set(name.split(/[._]/).filter((t) => t.length > 3));
+  const checkLike = findings.filter((f) => SCREEN_LIKE_DTYPES.has(f.dtype) && evOf(f) !== null);
+  const removed: string[] = [];
+  const issues: FindingIssue[] = [];
+  for (const a of checkLike) {
+    if (!a.tags?.includes("auto_surfaced")) continue;
+    const evA = evOf(a)!;
+    if (typeof evA.n_flagged !== "number") continue;
+    const ta = tokens(a.name);
+    for (const b of checkLike) {
+      if (b === a || removed.includes(b.name)) continue;
+      const evB = evOf(b)!;
+      if (evB.n_flagged !== evA.n_flagged) continue;
+      if (![...tokens(b.name)].some((t) => ta.has(t))) continue;
+      const keysA = Object.keys(evA);
+      const subset = keysA.every((k) => k in evB && evB[k] === evA[k]);
+      // Strict subset, or equal-evidence twin where the OTHER entry wins by
+      // declaration (a declared twin always beats a surfaced one).
+      const poorer =
+        subset &&
+        (keysA.length < Object.keys(evB).length ||
+          (keysA.length === Object.keys(evB).length && !b.tags?.includes("auto_surfaced")));
+      if (poorer) {
+        removed.push(a.name);
+        issues.push({
+          kind: "duplicate_screen_family",
+          name: a.name,
+          detail: `${a.name} duplicates ${b.name} (same n_flagged ${String(evA.n_flagged)}, evidence a subset of its) — one computation surfaced under two names; the poorer twin is dropped`,
+        });
+        break;
+      }
+    }
+  }
+  return { removed, issues };
+}
+
+/**
+ * Mislabeled average (run 9c415dc8, audit medium): results carried
+ * avg_transaction_spend_usd = 16.64 — the distribution's MEDIAN — beside
+ * mean_transaction_spend_usd = 37.28, two "averages" disagreeing 2×. A key
+ * whose name promises a mean but whose value equals a declared median (and
+ * not the mean) is a mislabeled statistic waiting to anchor a wrong
+ * sentence. Deterministic against declared distribution claims; advisory.
+ */
+export function lintMislabeledAverage(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): FindingIssue[] {
+  const closeTo = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.02, Math.abs(b) * 0.005);
+  const dists = findings
+    .map((f) => ({ name: f.name, v: f.value as Record<string, unknown> | null }))
+    .filter(
+      (d) =>
+        d.v !== null &&
+        typeof d.v === "object" &&
+        typeof d.v.median === "number" &&
+        typeof d.v.mean === "number"
+    ) as Array<{ name: string; v: { median: number; mean: number } }>;
+  if (dists.length === 0) return [];
+  const issues: FindingIssue[] = [];
+  for (const [key, val] of Object.entries(results ?? {})) {
+    if (!/(^|_)(avg|average|mean)(_|$)/.test(key) || typeof val !== "number") continue;
+    for (const d of dists) {
+      // Only material splits matter: a symmetric distribution's mean ≈ median
+      // makes the label distinction moot.
+      if (closeTo(d.v.mean, d.v.median)) continue;
+      if (closeTo(val, d.v.median) && !closeTo(val, d.v.mean)) {
+        issues.push({
+          kind: "mislabeled_average",
+          name: d.name,
+          detail: `results.${key} = ${val} equals ${d.name}'s MEDIAN (${d.v.median}) while its mean is ${d.v.mean} — a median labeled as an average; rename the key or fix the computation`,
+        });
+        break;
+      }
+    }
+  }
+  return issues;
+}
+
+/**
+ * Auto-surface undeclared SCREENS (run 5872407b): the question asked to
+ * "identify outliers", the code ran a rolling-MAD screen and wrote its whole
+ * result to bare results keys (spend_transaction_outliers_n_flagged: 17,
+ * _method, _window, _k) — and no finding, sentence, or caveat ever mentioned
+ * an outlier. surfaceUndeclaredFailedChecks catches `*_passed: false`; a
+ * computed screen carries no verdict key, so it slipped through in its
+ * PASSING form. Third variant of the computed-but-never-declared class.
+ *
+ * A results family with screen morphology — `<base>_n_flagged` (number)
+ * beside `<base>_method` (string) — and no declared finding owning `<base>`
+ * is surfaced as a screen entry. `passed` follows the contract's screen
+ * semantics ("a screen that FOUND offenders reports passed=false with the
+ * offenders as evidence"): n_flagged 0 → true, else false — so a screen
+ * that flagged rows gets the banner and a CAVEAT like any failed check.
+ * Families that carry their own `<base>_passed` key are left to
+ * surfaceUndeclaredFailedChecks (one owner per family).
+ */
+export function surfaceUndeclaredScreens(
+  results: Record<string, unknown>,
+  findings: FindingEntry[]
+): { added: FindingEntry[]; issues: FindingIssue[] } {
+  const added: FindingEntry[] = [];
+  const issues: FindingIssue[] = [];
+  const declared = findings.map((f) => f.name);
+  for (const [key, value] of Object.entries(results ?? {})) {
+    if (!key.endsWith("_n_flagged")) continue;
+    const base = key.slice(0, -"_n_flagged".length);
+    if (!base || !/^[a-z][a-z0-9_]*$/.test(base)) continue;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) continue;
+    const method = results[`${base}_method`];
+    if (typeof method !== "string") continue;
+    if (`${base}_passed` in results) continue; // the checks surfacer owns it
+    if (declared.some((d) => key.startsWith(`${d}_`) || d === base)) continue;
+    // Evidence-equality dedup (run 31c1cfa9): the model wrote ONE rolling-MAD
+    // screen into TWO results families — spend_outlier_screen_* (verdict key
+    // → checks surfacer) and spend_outliers_* (screen morphology → here).
+    // Both surfaced: "3 data checks failed" and two near-identical caveats
+    // for one computation. Identical (n_flagged, method) against any finding
+    // already in the manifest — declared or surfaced — is the same
+    // computation under a second name: skip it, tell the model off.
+    const twin = findings.find((f) => {
+      const v = f.value;
+      if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+      const rec = v as Record<string, unknown>;
+      const ev =
+        rec.evidence !== null && typeof rec.evidence === "object" && !Array.isArray(rec.evidence)
+          ? (rec.evidence as Record<string, unknown>)
+          : rec;
+      return ev.n_flagged === value && ev.method === method;
+    });
+    if (twin) {
+      issues.push({
+        kind: "duplicate_screen_family",
+        name: base,
+        detail: `results family ${base}_* duplicates the screen already carried by ${twin.name} (same n_flagged ${value}, same method "${method}") — one computation written under two names; declare the screen once`,
+      });
+      continue;
+    }
+    const evidence: Record<string, unknown> = {};
+    for (const [k2, v2] of Object.entries(results)) {
+      if (!k2.startsWith(`${base}_`)) continue;
+      const field = k2.slice(base.length + 1);
+      if (v2 === null || typeof v2 !== "object") evidence[field] = v2;
+    }
+    added.push({
+      name: base,
+      dtype: "screen",
+      definition:
+        "an outlier screen computed by the analysis but never declared — surfaced so its result cannot pass silently",
+      value: { passed: value === 0, evidence },
+      tags: ["check", "caveat", "auto_surfaced"],
+    } as FindingEntry);
+    issues.push({
+      kind: "undeclared_screen_computation",
+      name: base,
+      detail: `results carries a computed screen (${key} = ${value}, method ${method}) with no declared finding behind it — the analysis should declare it via finding_outliers + declare_finding`,
+    });
+  }
+  return { added, issues };
 }

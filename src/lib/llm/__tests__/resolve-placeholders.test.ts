@@ -80,6 +80,31 @@ describe("resolveSpecPlaceholders — never leak an unresolved placeholder", () 
     expect(out).toContain("the threshold was");
     expect(out).toContain("percent");
   });
+
+  // Run 9c415dc8: "with address strings sorted into location types via " —
+  // the planner bound a 62-leaf dict, the renderer refused it, the sweep
+  // took the token and left the preposition hanging at the string's end.
+  it("trims the function word a stripped token leaves dangling", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "with address strings sorted into location types via $result:matched_addresses_by_location"}',
+      {},
+      {}
+    );
+    expect(out).not.toContain("$result:");
+    expect(out).not.toMatch(/via\s*"/);
+    expect(out).toContain("sorted into location types");
+    // Mid-paragraph: the orphan sits before a period, not a quote.
+    const mid = resolveSpecPlaceholders(
+      '{"content": "spend was drawn from $result:ghost_breakdown. The rest held steady."}',
+      {},
+      {}
+    );
+    expect(mid).not.toMatch(/from\s*\./);
+    expect(mid).toContain("The rest held steady.");
+    // Prose WITHOUT a strip is never touched, even if oddly phrased.
+    const untouched = resolveSpecPlaceholders('{"content": "what it adds up to."}', {}, {});
+    expect(untouched).toContain("what it adds up to.");
+  });
 });
 
 describe("$finding resolution (declared-findings spec §4.2)", () => {
@@ -218,6 +243,61 @@ describe("inline sentinel/boolean refusal — value-aware, at the resolver seam"
     expect(out).not.toContain("No");
     expect(out).not.toContain("$result");
     expect(out).not.toContain("$finding");
+  });
+
+  // Two real runs, two opposite failures out of the same branch:
+  //   77051c9d — an 11-entry group_ns swept to "", leaving "…spanning group
+  //     sizes of " hanging mid-clause.
+  //   f47eb42d — routing that case through REFUSAL_MARKER instead deleted the
+  //     whole sentence, and because these nodes are often ONE sentence it
+  //     deleted the node: that run shipped an EMPTY ANSWER (shares_pct, an
+  //     11-entry map) and an empty trend EXPLAIN (slope_ci95, a 2-element
+  //     array).
+  // A missing answer is worse than an ugly clause, so the marker route is
+  // reverted and this pins the safer of the two. Both are workarounds — these
+  // values are ordinary English and belong in the value renderer
+  // (specs/finding-field-roles-2026-08-13.md), which supersedes this test.
+  it("keeps the surrounding sentence when an oversized dict cannot render inline", () => {
+    const groupNs = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`group_${i}`, i + 1]));
+    const line =
+      '{"content": "Categories differ by more than chance, spanning group sizes of $finding:segment_heterogeneity.group_ns. The largest single charge was elsewhere."}';
+    const out = resolveSpecPlaceholders(
+      line,
+      {},
+      {},
+      { segment_heterogeneity: { group_ns: groupNs } }
+    );
+    // The token never leaks...
+    expect(out).not.toContain("$finding");
+    // ...but neither sentence is deleted — a node that is one sentence must
+    // not become an empty node.
+    expect(out).toContain("Categories differ by more than chance");
+    expect(out).toContain("The largest single charge was elsewhere.");
+  });
+
+  // The f47eb42d shape reduced: a single-sentence node whose only defect is an
+  // unrenderable binding must still render prose.
+  it("never empties a single-sentence node over an unrenderable binding", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Daily spend moved in a $finding:t.direction direction, with a confidence interval of $finding:t.slope_ci95."}',
+      {},
+      {},
+      { t: { direction: "flat", slope_ci95: [-11.15, 11.51] } }
+    );
+    expect(out).toContain("Daily spend moved in a flat direction");
+    expect(out).not.toContain("$finding");
+    expect(out).not.toMatch(/"content":\s*""/);
+  });
+
+  it("renders a small numeric mapping as ranked prose (value renderer)", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "The split was $finding:weekday_weekend_spend_share.shares_pct overall."}',
+      {},
+      {},
+      { weekday_weekend_spend_share: { shares_pct: { weekday: 87.1, weekend: 12.9 } } }
+    );
+    // "k at v" prose, ranked, with the _pct key-name convention supplying %.
+    expect(out).toContain("weekday at 87.1% and weekend at 12.9%");
   });
 
   it("keeps meaningful words inline and booleans in whole-value form", () => {
@@ -477,27 +557,72 @@ describe("field-name units — pct_from_peak renders with % (run-15 leak)", () =
   });
 });
 
-describe("inline small-dict rendering — the vanished caveat (run-26)", () => {
-  it("renders a flat mapping as prose instead of sweeping it to nothing", () => {
+describe("inline value rendering — the vanished caveat (run-26) and the value renderer", () => {
+  it("renders a flat mapping as ranked prose instead of sweeping it to nothing", () => {
     const out = resolveSpecPlaceholders(
       '{"content": "Thin decades flagged by the analysis: $finding:thin_decades.value."}',
       {},
       {},
       { thin_decades: { value: { "2010s": 2, "1870s": 1 } } }
     );
-    expect(out).toContain("Thin decades flagged by the analysis: 2010s: 2, 1870s: 1.");
+    expect(out).toContain("Thin decades flagged by the analysis: 2010s at 2 and 1870s at 1.");
   });
 
-  it("still refuses large or nested objects inline", () => {
-    const big = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, i]));
+  it("renders a LARGE numeric mapping ranked with the minimum surfaced", () => {
+    // 77051c9d's group_ns shape: 11 groups, the thin ones (n = 2) are the
+    // point of the disclosure — the renderer names the minimum, so "8
+    // others" can never hide the n = 2 group the caveat is about.
     const out = resolveSpecPlaceholders(
-      '{"content": "Breakdown: $finding:big.value in detail. Next sentence stands."}',
+      '{"content": "Group sizes: $finding:het.group_ns."}',
       {},
       {},
-      { big: { value: big } }
+      {
+        het: {
+          group_ns: {
+            Other: 45,
+            "Online Shopping": 18,
+            Groceries: 15,
+            Dining: 12,
+            Coffee: 9,
+            Gas: 8,
+            Retail: 7,
+            Healthcare: 6,
+            Parking: 5,
+            Membership: 3,
+            Utilities: 2,
+          },
+        },
+      }
     );
-    expect(out).not.toContain("k0");
-    expect(out).toContain("Next sentence stands.");
+    expect(out).toContain("Other at 45, Online Shopping at 18, Groceries at 15");
+    expect(out).toContain("down to Utilities at 2");
+    expect(out).toContain("with 7 more in between");
+    expect(out).not.toContain("$finding");
+  });
+
+  it("renders a 2-element numeric array as an interval", () => {
+    // f47eb42d's slope_ci95 — refusing this emptied a whole EXPLAIN node.
+    const out = resolveSpecPlaceholders(
+      '{"content": "with a confidence interval of $finding:t.slope_ci95, the trend holds."}',
+      {},
+      {},
+      { t: { slope_ci95: [-11.152661322587706, 11.50571865863085] } }
+    );
+    expect(out).toContain("-11.1527 to 11.5057");
+    expect(out).toContain("the trend holds.");
+  });
+
+  it("renders a short scalar sequence as a list", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Excluded years: $finding:s.excluded."}',
+      {},
+      {},
+      { s: { excluded: [1966, 1972, 1981] } }
+    );
+    expect(out).toContain("Excluded years: 1966, 1972 and 1981.");
+  });
+
+  it("still refuses genuinely unspeakable values without deleting the sentence", () => {
     const nested = resolveSpecPlaceholders(
       '{"content": "Shape: $finding:n.value here. After."}',
       {},
@@ -505,6 +630,9 @@ describe("inline small-dict rendering — the vanished caveat (run-26)", () => {
       { n: { value: { a: { b: 1 } } } }
     );
     expect(nested).not.toContain("[object");
+    expect(nested).not.toContain("$finding");
+    // The sentence survives, token-stripped — never deleted (run f47eb42d).
+    expect(nested).toContain("Shape:");
     expect(nested).toContain("After.");
   });
 });
@@ -548,5 +676,74 @@ describe("repairMetricBindings — bind the metric the prose names (run-41 root 
       {}
     );
     expect(out).toContain("3.2");
+  });
+});
+
+// Run 77051c9d narrated a credit-card statement with "1138.4 usd", "37.2759"
+// and "16.635": parseFloat(toFixed(4)).toString() is unit-blind, so it drops
+// the cent and the thousands separator and money reads as a float dump.
+describe("currency bindings render as money", () => {
+  const findings = {
+    top_spending_category: { value: 1138.4, n: 45 },
+    spend_distribution: { mean: 37.2759, median: 16.635, skew: 7.64, n: 130 },
+    daily_spend_trend: { slope_per_period: 0.17652866, p_value: 0.9758887 },
+  };
+  const units = {
+    top_spending_category: "usd",
+    spend_distribution: "usd",
+    daily_spend_trend: "usd",
+  };
+
+  it("gives a currency main value 2dp and thousands separators", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Top category totalled $finding:top_spending_category.value."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("1,138.40");
+    expect(out).not.toContain("1138.4 ");
+  });
+
+  it("carries the unit onto fields that ARE the measure", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Mean $finding:spend_distribution.mean against median $finding:spend_distribution.median."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    expect(out).toContain("37.28");
+    expect(out).toContain("16.64");
+    expect(out).not.toContain("37.2759");
+  });
+
+  it("leaves unitless fields of a currency finding alone", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Skew $finding:spend_distribution.skew over $finding:spend_distribution.n rows, p $finding:daily_spend_trend.p_value."}',
+      {},
+      {},
+      findings,
+      units
+    );
+    // Not money: no 2dp coercion, no currency word, full p-value precision.
+    expect(out).toContain("7.64");
+    expect(out).toContain("130");
+    expect(out).toContain("0.9759");
+    expect(out).not.toContain("7.64 usd");
+    expect(out).not.toContain("130.00");
+  });
+
+  it("does not touch non-currency units", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Churn ended at $finding:churn.value."}',
+      {},
+      {},
+      { churn: { value: 13.08198 } },
+      { churn: "pp" }
+    );
+    expect(out).toContain("13.082");
+    expect(out).not.toContain("13.08 ");
   });
 });

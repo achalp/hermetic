@@ -35,10 +35,139 @@ const humanize = (name: string): string =>
 // claim function screened sentinel zeros internally (unit= was passed and
 // zero_policy fired), the sentence carries the count — an applied policy
 // the reader can't see is the same defect as an unapplied one.
-const zeroClause = (n: string, v: Record<string, unknown>): string =>
+const zeroClause = (n: string, v: Record<string, unknown>, label: string): string =>
   typeof v.n_zero_excluded === "number" && v.n_zero_excluded > 0
-    ? ` ${b(n, "n_zero_excluded")} zero values were excluded as unrecorded-value sentinels (zero policy).`
+    ? ` ${b(n, "n_zero_excluded")} zero values in ${label} were excluded as unrecorded-value sentinels (zero policy).`
     : "";
+
+/** Smallest group size below which a heterogeneity verdict carries a
+ *  pooling disclosure (spec §2.M4). Not a statistical gate — a trigger for
+ *  saying out loud what the test rests on. Audited (run f47eb42d):
+ *  kruskal-wallis "differ meaningfully, p=0.0011" shipped over group sizes
+ *  of 2, 3 and 5 among eleven, unqualified. */
+const THIN_GROUP_DISCLOSURE_N = 6;
+
+/**
+ * The RIDER clauses for one claim: deterministic, findings-bound honesty
+ * disclosures that must reach the reader whether the narrative was authored
+ * by the planner or realized from templates (spec
+ * finding-field-roles-2026-08-13 §2.M4 — cause D). Before this split,
+ * realizeNode returned authored text INSTEAD of the template, so every one
+ * of these clauses was inert in narrated compiled mode: run f47eb42d
+ * headlined the catch-all "Other" with `label_is_catchall: true` sitting
+ * unread on the claim.
+ *
+ * Riders are appended to authored text and included in template rendering,
+ * so suppressing one is unrepresentable in either mode.
+ *
+ * Every rider NAMES ITS SUBJECT CLAIM (run 31c1cfa9): riders attach at the
+ * first node that references their claim, and a node can reference several
+ * claims — deictic phrasings ("here", "That leader") then read as
+ * qualifying whichever claim was discussed last. The audited case: the
+ * merchant's bar-relaxed-to-1 rider landed after the category discussion
+ * and undermined the wrong claim's confidence. Labels sit in grammar-safe
+ * prepositional slots ("for X", "of X", "in X") so any humanized finding
+ * name stays grammatical.
+ *
+ * `disclosed`, when supplied by a document-iterating caller (it is the same
+ * set as rideredClaims — keys are namespaced, claim names carry no ":"),
+ * dedups PER-SERIES disclosures across claims: run d82a39ce disclosed the
+ * same 5 zero-day exclusion three times, once per daily claim. One
+ * underlying fact, one disclosure — keyed on the count and the claim-name
+ * root so distinct series' policies still each get theirs.
+ */
+export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[] {
+  const v = fv(f);
+  const n = f.name;
+  const label = humanize(n);
+  const riders: string[] = [];
+  switch (f.dtype) {
+    case "superlative": {
+      if (!("value" in v)) break;
+      if (v.raw_value !== undefined && v.raw_value !== null && v.raw_value !== v.value) {
+        riders.push(
+          `For ${label}, the raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`
+        );
+      } else if (
+        typeof v.thin_periods_skipped === "number" &&
+        v.thin_periods_skipped > 0 &&
+        v.thin_bar !== null &&
+        v.thin_bar !== undefined
+      ) {
+        // Silent-disqualification disclosure (run 5872407b): when the raw and
+        // attested winners COINCIDE, the raw-beside-attested rider above never
+        // fires — yet candidates were still screened out. The audited case:
+        // the second-largest dollar category (n = 3) was disqualified under
+        // the bar of 5 and nothing said so, which materially framed "top
+        // category". Colon-form for number-noun agreement.
+        riders.push(
+          `Candidates screened out of the ${label} pick as thin under the ${b(n, "thin_bar")}-observation attestation bar: ${b(n, "thin_periods_skipped")}.`
+        );
+      }
+      // A catch-all winner is a statement about unclassified residue, not
+      // about a real group. Audited (run 77051c9d): "Other" (n = 45, 35% of
+      // transactions) headlined a spend analysis as the dominant category
+      // with nothing saying it was the leftovers. The label rides in a
+      // prepositional slot ("for X") — the run-5872407b regression put the
+      // name in a predicate slot ("names unclassified top spend category")
+      // where a finding NAME wore a noun's clothes.
+      if (v.label_is_catchall === true) {
+        riders.push(
+          `The winner for ${label} is a catch-all bucket — it aggregates records the analysis could not classify, rather than naming a real group.`
+        );
+      }
+      // The bar is series-relative, so two superlatives in one run can carry
+      // different thin_bars. Say so when this one's floor was relaxed —
+      // otherwise an n = 3 winner here looks equivalent to an n = 3 loser
+      // that a stricter sibling bar screened out.
+      if (v.bar_relaxed === true) {
+        // Phrased to dodge number-noun agreement: thin_bar is a binding, so
+        // "of 1 observations" was ungrammatical at n = 1 (run 093c9785).
+        riders.push(
+          `Attestation for ${label} rests on a bar relaxed to ${b(n, "thin_bar")}, because the series is uniformly thin.`
+        );
+      }
+      break;
+    }
+    case "current_state": {
+      if (typeof v.excluded_trailing === "number" && v.excluded_trailing > 0) {
+        // Colon-form to dodge number-noun agreement on a binding: "The
+        // final 1 periods were excluded" shipped in run dfe3ea32.
+        riders.push(
+          `Trailing periods excluded from the end of the ${label} series: ${b(n, "excluded_trailing")} (${b(n, "excluded_reason")}); the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`
+        );
+      }
+      break;
+    }
+    case "heterogeneity": {
+      const groups =
+        v.group_ns !== null && typeof v.group_ns === "object" && !Array.isArray(v.group_ns)
+          ? Object.values(v.group_ns as Record<string, unknown>).filter(
+              (x): x is number => typeof x === "number"
+            )
+          : [];
+      if (groups.length > 0 && Math.min(...groups) < THIN_GROUP_DISCLOSURE_N) {
+        riders.push(
+          `The ${label} test pools groups of very different sizes (group sizes: ${b(n, "group_ns")}) — the smallest contribute only a handful of observations, so treat the verdict as directional for them.`
+        );
+      }
+      break;
+    }
+  }
+  const zc = zeroClause(n, v, label).trim();
+  if (zc) {
+    const fp = `zero:${String(v.n_zero_excluded)}:${n
+      .replace(/^step_\d+\./, "")
+      .split(/[._]/)
+      .slice(0, 2)
+      .join("_")}`;
+    if (!disclosed?.has(fp)) {
+      riders.push(zc);
+      disclosed?.add(fp);
+    }
+  }
+  return riders;
+}
 
 /** Realize ONE claim into narrative text (bindings, not values).
  *
@@ -48,7 +177,15 @@ const zeroClause = (n: string, v: Record<string, unknown>): string =>
  * generic rendering, not bind fields that don't exist ("Segment
  * heterogeneity: at per period" was two empty interpolations shipped as a
  * sentence). */
-export function realizeClaim(f: FindingEntry): string {
+export function realizeClaim(f: FindingEntry, disclosed?: Set<string>): string {
+  const head = headlineClause(f);
+  return [head, ...riderClauses(f, disclosed)].join(" ");
+}
+
+/** The HEADLINE sentence for one claim — the part authored text replaces.
+ *  Riders (riderClauses) are composed around it by realizeClaim /
+ *  realizeNode and are never part of the headline. */
+function headlineClause(f: FindingEntry): string {
   const v = fv(f);
   const n = f.name;
   const label = humanize(n);
@@ -63,29 +200,31 @@ export function realizeClaim(f: FindingEntry): string {
         s += ` (95% CI ${b(n, "slope_ci95.0")} to ${b(n, "slope_ci95.1")})`;
       }
       if ("p_value" in v) s += `, p = ${b(n, "p_value")}`;
-      return s + "." + zeroClause(n, v);
+      return s + ".";
     }
     case "superlative": {
       if (!has("value")) return generic(f);
       const pf = periodField(v);
-      let s = `Among well-covered periods, ${label} is ${b(n, "value")}${pf ? ` in ${b(n, pf)}` : ""} (n = ${b(n, "n")}).`;
-      if (v.raw_value !== undefined && v.raw_value !== v.value) {
-        s += ` The raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`;
-      }
-      return s + zeroClause(n, v);
+      return `Among well-covered periods, ${label} is ${b(n, "value")}${pf ? ` in ${b(n, pf)}` : ""} (n = ${b(n, "n")}).`;
     }
     case "current_state": {
       if (!has("value", "period")) return generic(f);
       let s = `Well-covered data ends at ${b(n, "value")} in ${b(n, "period")}`;
-      if (v.pct_from_peak !== null && v.pct_from_peak !== undefined) {
-        s += ` (${b(n, "pct_from_peak")} vs the attested peak)`;
+      // pct_from_peak of 0 means the current period IS the peak — "sits 0%
+      // off the peak" narrates a tautology as a finding (run dfe3ea32).
+      // Say what it means instead.
+      if (v.pct_from_peak === 0) {
+        s += ` — the attested peak itself`;
+      } else if (v.pct_from_peak !== null && v.pct_from_peak !== undefined) {
+        // Self-verifying peak (run d82a39ce audit): the percentage names the
+        // peak it is computed against when the claim carries it.
+        const withPeak =
+          v.peak_value !== null && v.peak_value !== undefined
+            ? ` of ${b(n, "peak_value")}${v.peak_period !== null && v.peak_period !== undefined ? ` in ${b(n, "peak_period")}` : ""}`
+            : "";
+        s += ` (${b(n, "pct_from_peak")} vs the attested peak${withPeak})`;
       }
-      s += ".";
-      if (typeof v.excluded_trailing === "number" && v.excluded_trailing > 0) {
-        s += ` The final ${b(n, "excluded_trailing")} periods were excluded (${b(n, "excluded_reason")});`;
-        s += ` the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`;
-      }
-      return s + zeroClause(n, v);
+      return s + ".";
     }
     case "comparison": {
       if ("early_median" in v) {
@@ -95,27 +234,27 @@ export function realizeClaim(f: FindingEntry): string {
           v.multiplier !== null && v.multiplier !== undefined
             ? ` — a ${b(n, "multiplier")}× change`
             : "";
-        return `${cap(label)}: median ${b(n, "early_median")} across ${b(n, "early_span")} vs ${b(n, "late_median")} across ${b(n, "late_span")}${mult}.${zeroClause(n, v)}`;
+        return `${cap(label)}: median ${b(n, "early_median")} across ${b(n, "early_span")} vs ${b(n, "late_median")} across ${b(n, "late_span")}${mult}.`;
       }
       if ("pct_change" in v) {
-        return `${cap(label)}: ${b(n, "pct_change")} from ${b(n, "prior_year")} to ${b(n, "latest_year")} over the ${b(n, "window_months")} overlapping months.${zeroClause(n, v)}`;
+        return `${cap(label)}: ${b(n, "pct_change")} from ${b(n, "prior_year")} to ${b(n, "latest_year")} over the ${b(n, "window_months")} overlapping months.`;
       }
       return generic(f);
     }
     case "step_change": {
       if (!has("baseline_spread")) return generic(f);
       if (v.period === null || v.period === undefined) {
-        return `No persistent step change was detected in ${label} — level shifts did not survive the persistence and spread gates.${zeroClause(n, v)}`;
+        return `No persistent step change was detected in ${label} — level shifts did not survive the persistence and spread gates.`;
       }
       // "steps up by X" stays grammatical for both directions ("a up step"
       // did not).
-      return `${cap(label)}: the level steps ${b(n, "direction")} by ${b(n, "delta")} at ${b(n, "period")} (baseline spread ${b(n, "baseline_spread")}).${zeroClause(n, v)}`;
+      return `${cap(label)}: the level steps ${b(n, "direction")} by ${b(n, "delta")} at ${b(n, "period")} (baseline spread ${b(n, "baseline_spread")}).`;
     }
     case "distribution": {
       if (!has("median", "mean")) return generic(f);
       let s = `${cap(label)}: median ${b(n, "median")}, mean ${b(n, "mean")}, skew ${b(n, "skew")}`;
       if ("p25" in v) s += ` (IQR ${b(n, "p25")}–${b(n, "p75")})`;
-      return s + "." + zeroClause(n, v);
+      return s + ".";
     }
     case "correlation": {
       if (!has("pearson_r", "spearman_rho")) return generic(f);
@@ -123,28 +262,49 @@ export function realizeClaim(f: FindingEntry): string {
       if (typeof v.preferred === "string") {
         s += ` The ${b(n, "preferred")} coefficient is the reliable one under this series' regimes.`;
       }
-      return s + zeroClause(n, v);
+      return s;
+    }
+    case "heterogeneity": {
+      // Dedicated template (was generic): the verdict names its test and
+      // p-value; the thin-groups disclosure is a rider (spec §2.M4).
+      if (!has("p_value", "test")) return generic(f);
+      return `${cap(label)}: ${b(n, "test")}, p = ${b(n, "p_value")}.`;
     }
     case "share": {
       if (!has("shares_pct")) return generic(f);
+      // A residual of exactly 0 means the shares are exhaustive — "with 0%
+      // left as residual" narrates the absence of a remainder as a figure
+      // (run 31c1cfa9). Say what it means instead.
+      if (v.residual_pct === 0) {
+        return `${cap(label)}: shares ${b(n, "shares_pct")}, which fully account for the total.`;
+      }
       return `${cap(label)}: shares ${b(n, "shares_pct")} with residual ${b(n, "residual_pct")}.`;
     }
     case "screen":
-    case "check": {
+    case "check":
+    case "outliers": {
       // A caveat renders ONLY the check's own fields: the declared
       // definition (a literal — the rule as stated) plus up to three
       // scalar evidence figures as bindings. No free-text mechanism exists
       // to fabricate into; booleans are branched on host-side, never bound
       // inline (the resolver refuses inline booleans by design).
-      const failed = v.passed === false;
-      const ev =
+      // dtype "outliers" (run d82a39ce: the model's natural name for a
+      // declared screen) carries its figures FLAT — n_flagged/window/k on
+      // the value — so the evidence read falls back to top-level scalars,
+      // and "failed" follows screen semantics: offenders found.
+      const failed =
+        v.passed === false ||
+        (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0);
+      const nested =
         v.evidence !== null && typeof v.evidence === "object" && !Array.isArray(v.evidence)
           ? (v.evidence as Record<string, unknown>)
-          : {};
+          : undefined;
+      const ev = nested ?? v;
+      const prefix = nested ? "evidence." : "";
       const evParts = Object.entries(ev)
         .filter(([, x]) => typeof x === "number")
         .slice(0, 3)
-        .map(([k]) => `${humanize(k)}: ${b(n, `evidence.${k}`)}`);
+        .map(([k]) => `${humanize(k)}: ${b(n, `${prefix}${k}`)}`);
       return `${failed ? "⚠ FAILED — " : ""}${f.definition}${evParts.length > 0 ? ` (${evParts.join(", ")})` : ""}.`;
     }
     default:
@@ -169,17 +329,83 @@ const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
  *  the planner writes flowing prose whose figures are all bindings, and
  *  the validator has already enforced that), templates as the per-node
  *  fallback. CAVEATs never use authored text (checks render their own
- *  declared fields). */
-export function realizeNode(node: PlanNode, byName: Map<string, FindingEntry>): string | null {
-  if (node.op === "INSIGHT") return node.text?.trim() || null;
-  if (node.op !== "CAVEAT" && node.text?.trim()) return node.text.trim();
+ *  declared fields).
+ *
+ *  Authored text does NOT suppress rider clauses (spec
+ *  finding-field-roles-2026-08-13 §2.M4): the deterministic honesty
+ *  disclosures of each referenced claim are APPENDED after the authored
+ *  prose. `rideredClaims`, when supplied by the caller iterating a whole
+ *  document, ensures each claim's riders attach at the FIRST node that
+ *  references it rather than repeating under every mention. */
+export function realizeNode(
+  node: PlanNode,
+  byName: Map<string, FindingEntry>,
+  rideredClaims?: Set<string>
+): string | null {
+  // VIEW nodes are charts, not prose: their text is a TITLE, compiled by
+  // view-compilers — realized as narrative it would print the title as a
+  // sentence. Their refs' riders attach at the first PROSE node instead.
+  if (node.op === "VIEW") return null;
+  const authored = node.op !== "CAVEAT" ? node.text?.trim() : undefined;
+  const ridersFor = (refs: string[]): string[] => {
+    const out: string[] = [];
+    for (const ref of refs) {
+      if (rideredClaims?.has(ref)) continue;
+      const f = byName.get(ref);
+      if (!f) continue;
+      for (const rider of riderClauses(f, rideredClaims)) {
+        // Within-node dedup (run 093c9785): the planner may have ALREADY
+        // said what the rider says — its heterogeneity sentence bound
+        // group_ns, and the thin-groups rider then repeated the identical
+        // mapping one sentence later. A rider whose every binding already
+        // appears in the authored text adds emphasis, not information —
+        // skip it. Riders with no bindings (pure-prose disclosures like
+        // the catch-all clause) always attach; prose can't be
+        // fingerprinted reliably and the disclosure is the point.
+        const bindings = rider.match(/\$finding:[a-zA-Z0-9_.]+/g) ?? [];
+        const saidAlready =
+          authored !== undefined &&
+          bindings.length > 0 &&
+          bindings.every((t) => authored.includes(t));
+        if (!saidAlready) out.push(rider);
+      }
+      rideredClaims?.add(ref);
+    }
+    return out;
+  };
+  if (node.op === "INSIGHT") {
+    if (!authored) return null;
+    return [authored, ...ridersFor(node.refs)].join(" ");
+  }
+  if (authored) return [authored, ...ridersFor(node.refs)].join(" ");
   // Document ops ARE their authored text — with none, they render nothing
   // (never a claim-template dump under a heading/method/conclusion label).
   if (TEXT_REQUIRED_OPS.has(node.op)) return null;
+  return realizeNodeTemplate(node, byName, rideredClaims);
+}
+
+/** The TEMPLATE rendering of a node, authored text ignored — the
+ *  deterministic floor. Used as realizeNode's no-text path, and by the
+ *  post-render invariant (spec §2.M5) to replace a node whose authored
+ *  text resolved to nothing: a template realization is findings-bound and
+ *  cannot be empty for a node with resolvable refs. */
+export function realizeNodeTemplate(
+  node: PlanNode,
+  byName: Map<string, FindingEntry>,
+  rideredClaims?: Set<string>
+): string | null {
   const parts: string[] = [];
   for (const ref of node.refs) {
     const f = byName.get(ref);
-    if (f) parts.push(realizeClaim(f));
+    if (!f) continue;
+    if (rideredClaims?.has(ref)) {
+      // Riders for this claim already rendered earlier in the document —
+      // repeat only the headline.
+      parts.push(headlineClause(f));
+    } else {
+      parts.push(realizeClaim(f, rideredClaims));
+      rideredClaims?.add(ref);
+    }
   }
   if (parts.length === 0) return null;
   if (node.op === "CONTRAST" && parts.length >= 2) {

@@ -25,7 +25,15 @@ import {
   lintOrphanDecisionResult,
   lintUnweightedCountedTrend,
   lintMixedUnitGroupSeries,
+  surfaceUndeclaredFailedChecks,
+  lintSignificanceMismatch,
+  lintOutlierDetectorDisagreement,
+  surfaceUndeclaredScreens,
+  dedupeSurfacedTwins,
+  lintShareBasisMismatch,
+  lintMislabeledAverage,
 } from "@/lib/findings/lints";
+import type { FindingEntry } from "@/lib/contracts/findings";
 import { productRolesIndex } from "@/lib/product";
 
 describe("lintUnitPhrase — prose re-uniting a bound value", () => {
@@ -486,6 +494,48 @@ describe("lintChartConsistency — one payload, one policy (run-30)", () => {
     };
     expect(
       lintChartConsistency(sameStep, []).some((i) => i.kind === "chart_policy_divergence")
+    ).toBe(true);
+  });
+
+  // Run f62eefbb, two false positives: a per-PAYEE peak (948) and a
+  // per-DAY peak (1027) were both flagged against the per-LOCATION
+  // rollup's 3130 — same measure word, different dimension. The finding's
+  // non-measure tokens must overlap the series KEY before its columns
+  // adjudicate; measure-word-only findings keep the legacy comparison.
+  it("a peak is only contradicted by a chart of its own dimension", () => {
+    const charts = {
+      spend_by_location: [
+        { label: "Other City/CA", total_spend_usd: 3130.28 },
+        { label: "Online (Amazon)", total_spend_usd: 866.9 },
+      ],
+      daily_spend: [
+        { date: "2026-07-09", total_spend_usd: 1027.35 },
+        { date: "2026-07-10", total_spend_usd: 180.2 },
+      ],
+    };
+    const payeePeak = {
+      name: "payee_spend_peak",
+      definition: "largest total spend at a single payee",
+      dtype: "superlative",
+      value: { period: "REALTOR ASSOCIATION", value: 948 },
+    } as FindingEntry;
+    // The location rollup exceeding a payee peak is not a contradiction.
+    expect(
+      lintChartConsistency(charts, [payeePeak]).some(
+        (i) => i.kind === "superlative_contradicted_by_chart"
+      )
+    ).toBe(false);
+    // A DAILY peak understating its own daily chart still flags.
+    const dailyPeakWrong = {
+      name: "daily_spend_peak",
+      definition: "heaviest single day",
+      dtype: "superlative",
+      value: { period: "2026-07-10", value: 180.2 },
+    } as FindingEntry;
+    expect(
+      lintChartConsistency({ daily_spend: charts.daily_spend }, [dailyPeakWrong]).some(
+        (i) => i.kind === "superlative_contradicted_by_chart"
+      )
     ).toBe(true);
   });
 
@@ -973,5 +1023,383 @@ describe("referent integrity — prose, results, and executed screens point at r
     expect(flagged[0].kind).toBe("mixed_unit_group_series");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(lintMixedUnitGroupSeries(productRolesIndex(mk("segment") as any))).toHaveLength(0);
+  });
+});
+
+describe("surfaceUndeclaredFailedChecks — a failed check cannot hide in results (run 093c9785)", () => {
+  const F = (name: string, dtype: string, value: unknown) =>
+    ({ name, dtype, definition: `${name} definition`, value }) as FindingEntry;
+
+  it("appends a real check entry for a *_passed:false with no declaration behind it", () => {
+    // Third recurrence of the class: 21/130 transactions failed detail
+    // reconciliation and no declare_check existed, so the failure was
+    // invisible to the banner, the CAVEATs and the Verify panel — two
+    // consecutive audits flagged the same silence.
+    const results = {
+      outlier_transaction_detail_passed: false,
+      outlier_transaction_detail_n_flagged: 21,
+      total_spend_usd: 4845.87,
+    };
+    const { added, issues } = surfaceUndeclaredFailedChecks(results, [
+      F("amount_sign_convention", "check", { passed: true }),
+    ]);
+    expect(added).toHaveLength(1);
+    expect(added[0].name).toBe("outlier_transaction_detail");
+    expect(added[0].dtype).toBe("check");
+    expect(added[0].tags).toContain("auto_surfaced");
+    // Evidence gathered from the sibling scalars, NESTED under `evidence`
+    // so the realizer's check template renders the figures onto the
+    // caveat's face ("n flagged: 21").
+    expect(added[0].value).toEqual({ passed: false, evidence: { n_flagged: 21 } });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("undeclared_failed_check");
+  });
+
+  it("leaves declared checks and passing verdicts alone", () => {
+    const results = {
+      // Declared — the finding owns its mirrored keys.
+      category_catchall_audit_passed: false,
+      // Passing — a missing declaration costs the reader nothing.
+      category_assignment_audit_passed: true,
+      category_assignment_audit_other_count: 45,
+    };
+    const { added, issues } = surfaceUndeclaredFailedChecks(results, [
+      F("category_catchall_audit", "check", { passed: false, other_share_pct: 23.49 }),
+    ]);
+    expect(added).toHaveLength(0);
+    expect(issues).toHaveLength(0);
+  });
+
+  it("a prefix-owning finding suppresses surfacing even when names differ", () => {
+    // finding "transaction_amount_outliers" owns
+    // "transaction_amount_outliers_review_passed" by prefix.
+    const results = { transaction_amount_outliers_review_passed: false };
+    const { added } = surfaceUndeclaredFailedChecks(results, [
+      F("transaction_amount_outliers", "screen", { n_flagged: 21 }),
+    ]);
+    expect(added).toHaveLength(0);
+  });
+});
+
+describe("lintSignificanceMismatch — a fabricated verdict is severe (run dfe3ea32)", () => {
+  const lookup = {
+    findings: new Map<string, unknown>([
+      ["weekday_het", { significant: false, p_value: 0.24, test: "kruskal_wallis" }],
+      ["category_het", { significant: true, p_value: 0.0011, test: "kruskal_wallis" }],
+    ]),
+  };
+
+  it("fires when prose asserts significance over significant: false", () => {
+    const issues = lintSignificanceMismatch(
+      '{"content": "Weekday and weekend spend differs at a statistically significant level, per $finding:weekday_het.p_value."}',
+      lookup
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("significance_mismatch");
+    expect(issues[0].name).toBe("weekday_het");
+  });
+
+  it("fires when prose denies significance over significant: true", () => {
+    const issues = lintSignificanceMismatch(
+      '{"content": "Categories are not statistically significant, p = $finding:category_het.p_value."}',
+      lookup
+    );
+    expect(issues).toHaveLength(1);
+  });
+
+  it("stays silent on a true assertion, a true denial, and unbound prose", () => {
+    expect(
+      lintSignificanceMismatch(
+        '{"content": "The difference is statistically significant ($finding:category_het.p_value)."}',
+        lookup
+      )
+    ).toHaveLength(0);
+    expect(
+      lintSignificanceMismatch(
+        '{"content": "The split is not statistically significant ($finding:weekday_het.p_value)."}',
+        lookup
+      )
+    ).toHaveLength(0);
+    // No binding in the line — a general remark is not attributable.
+    expect(
+      lintSignificanceMismatch('{"content": "Results are statistically significant."}', lookup)
+    ).toHaveLength(0);
+  });
+});
+
+describe("lintOutlierDetectorDisagreement — one outlier policy per column (run dfe3ea32)", () => {
+  it("fires on two outlier families disagreeing 2x or more", () => {
+    const issues = lintOutlierDetectorDisagreement({
+      amount_outliers_n_flagged: 21,
+      amount_outliers_method: "rolling_mad",
+      outlier_transaction_review_n_flagged: 89,
+      spend_transaction_count: 130,
+    });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("outlier_detector_disagreement");
+    expect(issues[0].detail).toContain("4.2");
+  });
+
+  it("stays silent for one detector, agreeing detectors, or zero counts", () => {
+    expect(lintOutlierDetectorDisagreement({ amount_outliers_n_flagged: 21 })).toHaveLength(0);
+    expect(
+      lintOutlierDetectorDisagreement({
+        amount_outliers_n_flagged: 21,
+        row_outliers_n_flagged: 24,
+      })
+    ).toHaveLength(0);
+    expect(
+      lintOutlierDetectorDisagreement({
+        amount_outliers_n_flagged: 0,
+        review_outliers_n_flagged: 21,
+      })
+    ).toHaveLength(0);
+  });
+});
+
+describe("surfaceUndeclaredScreens — a computed screen cannot pass silently (run 5872407b)", () => {
+  const F2 = (name: string, dtype: string, value: unknown) =>
+    ({ name, dtype, definition: `${name} definition`, value }) as FindingEntry;
+
+  it("surfaces a results family with screen morphology and no declaration", () => {
+    // The question asked to "identify outliers"; the code ran rolling-MAD
+    // and wrote everything to bare results keys; zero mentions of an
+    // outlier reached the document.
+    const { added, issues } = surfaceUndeclaredScreens(
+      {
+        spend_transaction_outliers_n_flagged: 17,
+        spend_transaction_outliers_method: "rolling_mad",
+        spend_transaction_outliers_window: 21,
+        spend_transaction_outliers_k: 3.5,
+        total_spend_usd: 4845.87,
+      },
+      [F2("amount_sign_convention", "check", { passed: true })]
+    );
+    expect(added).toHaveLength(1);
+    expect(added[0].name).toBe("spend_transaction_outliers");
+    expect(added[0].dtype).toBe("screen");
+    expect(added[0].tags).toContain("auto_surfaced");
+    // Screen semantics: offenders found ⇒ passed false ⇒ banner + CAVEAT.
+    expect(added[0].value).toEqual({
+      passed: false,
+      evidence: { n_flagged: 17, method: "rolling_mad", window: 21, k: 3.5 },
+    });
+    expect(issues[0].kind).toBe("undeclared_screen_computation");
+  });
+
+  it("a clean screen surfaces as passed — visible, not alarming", () => {
+    const { added } = surfaceUndeclaredScreens(
+      { price_outliers_n_flagged: 0, price_outliers_method: "rolling_mad" },
+      []
+    );
+    expect(added).toHaveLength(1);
+    expect((added[0].value as { passed: boolean }).passed).toBe(true);
+  });
+
+  it("declared owners, _passed families, and non-screen shapes stay untouched", () => {
+    // Declared finding owns the family.
+    expect(
+      surfaceUndeclaredScreens(
+        { amount_outliers_n_flagged: 21, amount_outliers_method: "rolling_mad" },
+        [F2("amount_outliers", "screen", { n_flagged: 21 })]
+      ).added
+    ).toHaveLength(0);
+    // A _passed sibling → the checks surfacer owns it (one owner per family).
+    expect(
+      surfaceUndeclaredScreens(
+        {
+          review_outliers_n_flagged: 89,
+          review_outliers_method: "iqr",
+          review_outliers_passed: false,
+        },
+        []
+      ).added
+    ).toHaveLength(0);
+    // n_flagged without a method sibling is not screen morphology.
+    expect(surfaceUndeclaredScreens({ thing_n_flagged: 4 }, []).added).toHaveLength(0);
+  });
+
+  // Run 31c1cfa9: the model wrote ONE rolling-MAD screen into TWO results
+  // families — spend_outlier_screen_* (verdict key, caught by the checks
+  // surfacer) and spend_outliers_* (screen morphology, caught here). Both
+  // surfaced: "3 data checks failed" and two near-identical caveats for one
+  // computation. Identical (n_flagged, method) against ANY finding already
+  // in the manifest — declared or surfaced — is the same computation under
+  // a second name.
+  it("skips a family whose evidence duplicates a finding already in the manifest", () => {
+    const surfacedCheck = F2("spend_outlier_screen", "check", {
+      passed: false,
+      evidence: { n_flagged: 17, method: "rolling_mad", window: 21 },
+    });
+    const { added, issues } = surfaceUndeclaredScreens(
+      {
+        spend_outliers_n_flagged: 17,
+        spend_outliers_method: "rolling_mad",
+        spend_outliers_window: 21,
+      },
+      [surfacedCheck]
+    );
+    expect(added).toHaveLength(0);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("duplicate_screen_family");
+    expect(issues[0].detail).toContain("spend_outlier_screen");
+    // Evidence living FLAT on a declared screen's value dedups too.
+    expect(
+      surfaceUndeclaredScreens(
+        { amount_outliers_n_flagged: 21, amount_outliers_method: "rolling_mad" },
+        [F2("txn_screen", "screen", { n_flagged: 21, method: "rolling_mad" })]
+      ).added
+    ).toHaveLength(0);
+    // A DIFFERENT count is a different screen — still surfaced.
+    expect(
+      surfaceUndeclaredScreens(
+        { other_outliers_n_flagged: 4, other_outliers_method: "rolling_mad" },
+        [surfacedCheck]
+      ).added
+    ).toHaveLength(1);
+  });
+});
+
+// Run 9c415dc8: spend_outlier_evidence_{passed,n_flagged} surfaced beside
+// spend_outlier_screen_* — the poorer twin has no method key, so the
+// in-surfacer (n_flagged, method) dedup missed it. Banner said 3 failures,
+// only 2 caveats rendered, the duplicate sat in unnarratedFindings.
+describe("dedupeSurfacedTwins — subset-evidence twins collapse to the richer entry", () => {
+  const F3 = (name: string, dtype: string, value: unknown, tags?: string[]) =>
+    ({ name, dtype, definition: `${name} definition`, value, tags }) as FindingEntry;
+
+  it("drops an auto-surfaced twin whose evidence is a subset of a sibling's", () => {
+    const poor = F3(
+      "spend_outlier_evidence",
+      "check",
+      { passed: false, evidence: { n_flagged: 17 } },
+      ["check", "caveat", "auto_surfaced"]
+    );
+    const rich = F3(
+      "spend_outlier_screen",
+      "screen",
+      { passed: false, evidence: { n_flagged: 17, method: "rolling_mad", window: 21 } },
+      ["check", "caveat", "auto_surfaced"]
+    );
+    const { removed, issues } = dedupeSurfacedTwins([poor, rich]);
+    expect(removed).toEqual(["spend_outlier_evidence"]);
+    expect(issues[0].kind).toBe("duplicate_screen_family");
+    expect(issues[0].detail).toContain("spend_outlier_screen");
+  });
+
+  it("never removes a model-declared claim, and unrelated screens survive", () => {
+    // Declared poorer twin + surfaced richer twin: nothing is dropped
+    // (declared claims are not a lint's to remove; the surfaced entry
+    // carries MORE evidence, so it is not the poorer one either).
+    const declared = F3("spend_outliers", "screen", { passed: false, evidence: { n_flagged: 17 } });
+    const surfacedRich = F3(
+      "spend_outlier_screen",
+      "screen",
+      { passed: false, evidence: { n_flagged: 17, method: "rolling_mad" } },
+      ["auto_surfaced"]
+    );
+    expect(dedupeSurfacedTwins([declared, surfacedRich]).removed).toEqual([]);
+    // Equal counts but NO shared name token: different computations.
+    const a = F3("txn_screen_alpha", "screen", { passed: false, evidence: { n_flagged: 9 } }, [
+      "auto_surfaced",
+    ]);
+    const b = F3("refund_check", "check", { passed: false, evidence: { n_flagged: 9, k: 3 } });
+    expect(dedupeSurfacedTwins([a, b]).removed).toEqual([]);
+    // Equal-evidence twins where the sibling is DECLARED: surfaced one goes.
+    const surfacedEq = F3(
+      "amount_outliers_screen",
+      "screen",
+      { passed: false, evidence: { n_flagged: 5, method: "iqr" } },
+      ["auto_surfaced"]
+    );
+    const declaredEq = F3("amount_outliers", "screen", {
+      passed: false,
+      evidence: { n_flagged: 5, method: "iqr" },
+    });
+    expect(dedupeSurfacedTwins([surfacedEq, declaredEq]).removed).toEqual([
+      "amount_outliers_screen",
+    ]);
+  });
+});
+
+// Run 9c415dc8 audit high: "45 amounting to 34.6% of spend" — 34.6 is the
+// transaction-count share (45/130); the declared spend share of "Other" is
+// 23.5%. The values-blind planner guessed the basis.
+describe("lintShareBasisMismatch — a share's asserted basis must match a declared share", () => {
+  const audit = {
+    name: "category_assignment_audit",
+    dtype: "check",
+    definition: "audit",
+    value: { passed: false, evidence: { other_count: 45, other_share_pct: 34.6 } },
+  } as FindingEntry;
+  const shares = {
+    name: "category_spend_shares",
+    dtype: "share",
+    definition: "shares of spend by category",
+    value: { shares_pct: { Other: 23.5, Groceries: 6.3 }, residual_pct: 0 },
+  } as FindingEntry;
+
+  it("fires when prose asserts a basis the declared share contradicts", () => {
+    const line =
+      '"content": "A slice of transactions, $finding:category_assignment_audit.evidence.other_count amounting to $finding:category_assignment_audit.evidence.other_share_pct of spend, landed in a catch-all."';
+    const issues = lintShareBasisMismatch(line, [audit, shares]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("share_basis_mismatch");
+    expect(issues[0].detail).toContain("23.5");
+  });
+
+  it("stays quiet when the basis agrees, is absent, or no adjudicating claim exists", () => {
+    // Agreeing basis: binding the declared spend share itself.
+    expect(
+      lintShareBasisMismatch(
+        '"content": "Other holds $finding:category_spend_shares.shares_pct of spend."',
+        [audit, shares]
+      )
+    ).toHaveLength(0);
+    // No basis word around the binding.
+    expect(
+      lintShareBasisMismatch(
+        '"content": "a $finding:category_assignment_audit.evidence.other_share_pct share landed in a catch-all"',
+        [audit, shares]
+      )
+    ).toHaveLength(0);
+    // No shares claim carrying the asserted basis word: nothing adjudicates.
+    expect(
+      lintShareBasisMismatch(
+        '"content": "$finding:category_assignment_audit.evidence.other_share_pct of revenue"',
+        [audit, shares]
+      )
+    ).toHaveLength(0);
+  });
+});
+
+// Run 9c415dc8 audit medium: avg_transaction_spend_usd = 16.64 IS the
+// median (16.635); the mean is 37.28. Two "averages" disagreeing 2×.
+describe("lintMislabeledAverage — an avg key equal to the median is mislabeled", () => {
+  const dist = {
+    name: "spend_transaction_distribution",
+    dtype: "distribution",
+    definition: "distribution",
+    value: { n: 130, mean: 37.2759, median: 16.635, std: 85.157 },
+  } as FindingEntry;
+
+  it("fires on a median wearing an average's name", () => {
+    const issues = lintMislabeledAverage(
+      { avg_transaction_spend_usd: 16.64, mean_transaction_spend_usd: 37.28 },
+      [dist]
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].kind).toBe("mislabeled_average");
+    expect(issues[0].detail).toContain("avg_transaction_spend_usd");
+  });
+
+  it("stays quiet for true means and near-symmetric distributions", () => {
+    expect(lintMislabeledAverage({ avg_spend: 37.28 }, [dist])).toHaveLength(0);
+    const symmetric = {
+      ...dist,
+      name: "sym",
+      value: { mean: 10.01, median: 10.0 },
+    } as FindingEntry;
+    expect(lintMislabeledAverage({ avg_x: 10.0 }, [symmetric])).toHaveLength(0);
   });
 });

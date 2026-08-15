@@ -26,6 +26,11 @@ import {
   lintTrendContract,
   lintCheckGating,
   lintNoChecksDeclared,
+  surfaceUndeclaredFailedChecks,
+  surfaceUndeclaredScreens,
+  dedupeSurfacedTwins,
+  lintMislabeledAverage,
+  lintOutlierDetectorDisagreement,
   lintMethodMismatch,
   lintNullAncestry,
   lintDefinitionContradicted,
@@ -460,6 +465,33 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             ...merged.map((m) => m.name),
           ];
           const validated = validateFindings(merged, { referenceNames });
+          // Auto-surface undeclared FAILED checks before anything reads the
+          // manifest: a `<x>_passed: false` living only in results is
+          // invisible to the caveat machinery, the banner, and the Verify
+          // panel (two consecutive audits flagged the same silent failure).
+          // Appended in place so the planner, compiler, lints and
+          // verifiability all see one manifest.
+          const surfacedChecks = surfaceUndeclaredFailedChecks(
+            (executionResult.results ?? {}) as Record<string, unknown>,
+            validated.manifest.findings
+          );
+          validated.manifest.findings.push(...surfacedChecks.added);
+          // Same rule for computed SCREENS with no verdict key (run 5872407b:
+          // an outlier screen the question literally asked for, invisible).
+          const surfacedScreens = surfaceUndeclaredScreens(
+            (executionResult.results ?? {}) as Record<string, unknown>,
+            validated.manifest.findings
+          );
+          validated.manifest.findings.push(...surfacedScreens.added);
+          // Symmetric subset dedup (run 9c415dc8): a poorer twin lacking the
+          // method key dodges the in-surfacer dedup — drop it here, after
+          // both surfacers have run.
+          const twins = dedupeSurfacedTwins(validated.manifest.findings);
+          if (twins.removed.length > 0) {
+            validated.manifest.findings = validated.manifest.findings.filter(
+              (f) => !twins.removed.includes(f.name)
+            );
+          }
           findingsManifest = validated.manifest;
           if (executionResult.runtime_fallback) {
             logger.error("Sandbox runtime fell back to stubs — findings degraded", {
@@ -481,6 +513,16 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
                 ]
               : []),
             ...validated.issues,
+            ...surfacedChecks.issues,
+            ...surfacedScreens.issues,
+            ...twins.issues,
+            ...lintOutlierDetectorDisagreement(
+              (executionResult.results ?? {}) as Record<string, unknown>
+            ),
+            ...lintMislabeledAverage(
+              (executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            ),
             ...productIssues,
             ...lintDerivations(validated.manifest.findings),
             ...lintMissingLinkage(validated.manifest.findings),

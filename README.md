@@ -42,7 +42,44 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 **Adaptive UI, two composer architectures.** Dashboards are declarative render specs (an owned, vendored fork of JSON-Render — `src/spec`): charts, stat cards, tables, annotations, and filters tailored to each question. Two composers can produce that spec, selectable in Settings:
 
 - **Generative** (default): the LLM composes the layout freely from result schemas, with the lint battery and a bounded repair pass guarding the output.
-- **Compiled**: one small LLM call **writes the document** — flowing analyst prose in which every figure must be a `$finding:` binding — and everything else is compiled deterministically. The plan is a typed grammar of speech acts (ANSWER / TREND / PEAK / ENDPOINT / CONTRAST / CAVEAT / INSIGHT) plus document structure (SECTION headings, chart EXPLAINERs, CALLOUTs, METHOD, CONCLUSION, NEXT_STEPS, LIMITS), and any node can **anchor** a chart so explainers sit above their figure and caveats sit exactly where they apply. A literal digit outside a binding is rejected; a caveat can only reference a declared check, so a fabricated mechanism has no syntax to exist in. When a node fails validation, **only that node degrades** to its template — the document survives. Charts derive from the declared series' roles via a **view catalog** (group matrices, unit-split axes, coverage companions forced in when thin-data regimes fire, precision tables for document styles), pair into two-column rows, carry human legend labels, and — when the analysis declares how a measure aggregates — come with **verified interactive filters** (below). Every style, however brief, carries the answer, its method, and a conclusion. Compiled dashboards are also what the editing surface edits.
+- **Compiled**: one small LLM call **writes the document** — flowing analyst prose in which every figure must be a `$finding:` binding — and everything else is compiled deterministically. The plan is a typed grammar of speech acts (ANSWER / TREND / PEAK / ENDPOINT / CONTRAST / CAVEAT / INSIGHT) plus document structure (SECTION headings, chart EXPLAINERs, CALLOUTs, METHOD, CONCLUSION, NEXT_STEPS, LIMITS), and any node can **anchor** a chart so explainers sit above their figure and caveats sit exactly where they apply. A literal digit outside a binding is rejected; a caveat can only reference a declared check, so a fabricated mechanism has no syntax to exist in. When a node fails validation, **only that node degrades** to its template — the document survives. Charts derive from the declared series' roles via a **view catalog** (group matrices, unit-split axes, coverage companions forced in when thin-data regimes fire, precision tables for document styles), pair into two-column rows, carry human legend labels, and — when the analysis declares how a measure aggregates — come with **verified interactive filters** (below). Every style, however brief, carries the answer, its method, and a conclusion. Compiled dashboards are also what the editing surface edits. The block-by-block walkthrough is below.
+
+## The compiled path, block by block
+
+The organizing idea: **one small LLM call decides what to say; everything that decides whether it's true is code.**
+
+```
+question ──► ANALYSIS (LLM writes Python)
+                │  declare_finding / declare_check / declare_series
+                ▼
+          SANDBOX RUN (model never sees rows)
+                │  envelope: claims + regimes + series + results
+                ▼
+          PLAN CALL (the one narrative LLM call)
+                │  sees projections only — names, definitions, field names
+                ▼
+          COMPILER (deterministic)
+                │  templates + riders + charts + caveats, all $finding: bindings
+                ▼
+          FINALIZER / RESOLVER (deterministic)
+                │  bindings → real values, units, shapes rendered as prose
+                ▼
+          POST-RENDER INVARIANTS ──► document / persist / edit
+```
+
+**Block 1 — The analysis declares claims.** Code generation produces a Python script that doesn't just compute — it _declares_. `declare_finding` records each claim with a name, typed value, and plain-language definition, right beside the computation. The statistical judgment inside those helpers isn't the model's: the runtime (`docker/sandbox/hermetic_runtime`) profiles every series — zero inflation, heavy tails, thin edges — and the regime matrix dispatches: Kruskal–Wallis under heavy tails, count-weighted trends, sentinel-zero exclusion for money. A helper that looked and found nothing says so in the value (`"detected": false`). The envelope that leaves the sandbox is the whole truth the rest of the pipeline is allowed to use.
+
+**Block 2 — The projection decides what the narrative model may see.** `src/lib/findings/project.ts` strips every value, keeping names, definitions (numeral-scrubbed), and _field names_ — minus booleans (a flag has no word for a sentence slot) and minus everything on a non-detection (nothing left to misuse). This is the privacy boundary and the truthfulness boundary in one: the planner can't leak values it never had, and can't fabricate around numbers it was never offered.
+
+**Block 3 — One LLM call writes the plan.** `src/lib/compose/planner.ts` sends the question, the projections, and the shipped chart ids, and gets back a typed program: ANSWER / TREND / EXPLAIN / CAVEAT / INSIGHT / METHOD / CONCLUSION nodes, each with refs and authored prose in which **every figure must be a `$finding:` binding** — a literal digit is a validation error. `plan.ts` validates structurally: exactly one ANSWER, every ref resolves, CAVEATs may only reference checks, boolean bindings rejected. A failed node degrades individually (salvage); only total wreckage falls back to the deterministic default plan. This is the quarantine: the model's generative act is ~10 nodes of prose with holes where the numbers go.
+
+**Block 4 — The compiler builds the document, no LLM.** `src/lib/compose/compile.ts` walks the plan: failed-check banner first, headline tiles, one element per node with stable ids (so edits survive re-runs), charts derived from the declared series' roles, anchored under their EXPLAINs, filters wired from declared aggregation recipes. `realizer.ts` supplies text where the planner didn't — and appends **riders** to text where it did: catch-all disclosure, relaxed attestation bar, excluded-trailing, thin-groups, zero-screen. Authored prose can replace a template's headline sentence; it cannot suppress a disclosure.
+
+**Block 5 — Resolution makes the numbers real.** The document so far contains no data — just bindings. The finalizer (`src/lib/llm/resolve-placeholders.ts`) substitutes each `$finding:` against the envelope: currency gets 2dp and separators, units attach by declared identity, and non-scalar values go through the value renderer — intervals as "−11.15 to 11.51", mappings ranked with the minimum named. A genuinely unspeakable value drops its token, never its sentence. This is the same resolution stack generative mode uses, so there is exactly one path to trust.
+
+**Block 6 — Invariants, then the record.** After finalization, the pipeline re-checks the rendered document: any plan node that resolved empty degrades to its deterministic template; an ANSWER empty even then is a recorded structural failure — the document never ships answer-less. The grounding verifier counts declared-vs-cited claims and untraceable figures into the Verify panel; an on-demand adversarial audit reads the whole thing back. Then everything persists — spec, plan, code, envelope — which is why edits recompile the same plan instead of re-asking the model, and why a restore replays the identical document.
+
+The failure philosophy stitching the blocks together: each one makes a class of lie _unrepresentable_ rather than detected — no rows in the model's context (1), no numbers in the planner's hands (2), no syntax for a fabricated caveat (3), no suppressible disclosure (4), no unformatted or dangling value (5), no empty answer (6). The defects that do slip through live at the _seams between blocks_ — a projection offering the wrong field, a resolver refusing a speakable value — which is why the audit trail (`specs/`) keeps landing fixes at boundaries rather than inside any single block.
 
 ## Quick Start
 

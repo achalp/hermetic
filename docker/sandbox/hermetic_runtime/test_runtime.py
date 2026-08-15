@@ -758,6 +758,89 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertAlmostEqual(out["thin_bar"], 120.0, places=1)
         # Without counts, the raw extreme wins (nothing to weight by).
         self.assertEqual(finding_superlative(labels, vals)["period"], "1996")
+        # A well-attested corpus is not a relaxed one, and "2012" is a period,
+        # not a residue bucket.
+        self.assertIs(out["bar_relaxed"], False)
+        self.assertIs(out["label_is_catchall"], False)
+
+    def test_superlative_reports_a_relaxed_bar_and_a_catchall_winner(self):
+        # Run 77051c9d, both halves. A statement analysis ranked spend by
+        # category (counts median 8 -> bar 5, skipping an n=3 group) AND by
+        # payee (counts nearly all 1, so the median cap collapsed the floor
+        # to 1, crowning an n=3 payee). Same n, opposite treatment, and the
+        # narrative disclosed neither. The bar is series-relative BY DESIGN;
+        # what was missing is saying when its floor was relaxed.
+        cats = ["Other", "Groceries", "Dining", "Membership", "Utilities"]
+        cat_vals = [1138.4, 500.0, 420.0, 300.0, 51.81]
+        cat_ns = [45.0, 15.0, 12.0, 3.0, 2.0]
+        cat = finding_superlative(cats, cat_vals, counts=cat_ns, unit="usd")
+        self.assertAlmostEqual(cat["thin_bar"], 5.0, places=1)
+        self.assertIs(cat["bar_relaxed"], False)
+        # ...and the winner is the unclassified residue, which the claim now
+        # says out loud rather than presenting as a category.
+        self.assertIs(cat["label_is_catchall"], True)
+
+        payees = ["REALTOR ASSOCIATION/ML", "STARBUCKS", "SHELL", "AMAZON"]
+        pay = finding_superlative(payees, [948.0, 12.0, 40.0, 60.0],
+                                  counts=[3.0, 1.0, 1.0, 1.0], unit="usd")
+        self.assertEqual(pay["period"], "REALTOR ASSOCIATION/ML")
+        self.assertAlmostEqual(pay["thin_bar"], 1.0, places=1)
+        self.assertIs(pay["bar_relaxed"], True)
+        self.assertIs(pay["label_is_catchall"], False)
+
+    def test_catchall_detection_is_exact_not_substring(self):
+        # "Other Income" is a real category and must keep its meaning; only
+        # the residue label itself is flagged.
+        for label, expected in (
+            ("Other", True), ("other", True), ("UNKNOWN", True),
+            ("Unclassified", True), ("N/A", True), ("(none)", True),
+            ("Other Income", False), ("Mother", False), ("Groceries", False),
+        ):
+            out = finding_superlative([label, "Zed"], [10.0, 1.0], counts=[9.0, 9.0])
+            self.assertIs(out["label_is_catchall"], expected, msg=label)
+
+    def test_non_detections_declare_themselves(self):
+        # Spec finding-field-roles-2026-08-13 §2.M3: a looked-and-found-
+        # nothing result carries "detected": False IN the value, so the
+        # projection can withhold its secondary numbers. Run 77051c9d
+        # narrated a null step-change's baseline_spread (a scale reference)
+        # as "the sharpest jump between consecutive days" — a number the
+        # composer was only offered because non-detection was invisible.
+        from .findings import (finding_step_change, finding_trend,
+                               finding_split_comparison)
+
+        # The legitimate no-persist branch: real data, no persistent step.
+        flat = [100.0, 101.0, 99.0, 100.5, 100.0, 99.5, 100.2, 100.1]
+        step = finding_step_change(flat, list(range(len(flat))),
+                                   [50.0] * len(flat))
+        self.assertIsNone(step["period"])
+        self.assertIs(step["detected"], False)
+        # baseline_spread stays IN the value (the claim is inspectable);
+        # withholding happens at the projection, not here.
+        self.assertIn("baseline_spread", step)
+
+        # Degenerate input: the failed dict also declares itself.
+        self.assertIs(finding_trend([], [])["detected"], False)
+        self.assertIs(finding_split_comparison([], [])["detected"], False)
+
+        # A DETECTED result never carries the key: absence means found.
+        stepped = [10.0] * 6 + [50.0] * 6
+        found = finding_step_change(stepped, list(range(12)), [100.0] * 12)
+        self.assertIsNotNone(found["period"])
+        self.assertNotIn("detected", found)
+
+    def test_detected_survives_the_dict_spread(self):
+        # THE transport property the design rests on (and the reason the
+        # rejected Claim-subclass design could never work): generated code
+        # routinely rebuilds helper dicts — {**step, "extra": 1} — and a
+        # metadata side-channel dies there. Data in the value does not.
+        flat = [100.0, 101.0, 99.0, 100.5, 100.0, 99.5, 100.2, 100.1]
+        step = finding_step_change(flat, list(range(len(flat))),
+                                   [50.0] * len(flat))
+        rebuilt = {**step, "note": "rebuilt by generated code"}
+        self.assertIs(rebuilt["detected"], False)
+        import json
+        self.assertIs(json.loads(json.dumps(rebuilt))["detected"], False)
 
     def test_attestation_bar_resists_a_sparse_tail_without_over_correcting(self):
         # The 178.8-bar failure (menu-price review): many sparse years drag
@@ -1302,6 +1385,217 @@ class TestImportPurity(unittest.TestCase):
         self.assertTrue(callable(hermetic_runtime.write_output))
         self.assertTrue(callable(hermetic_runtime.declare_finding))
         self.assertTrue(math.isfinite(1.0))  # trivially true; anchors the import above
+
+
+class TestRun_d82a39ce_Fixes(unittest.TestCase):
+    """Run d82a39ce (2026-08-13): count-corroborated zeros, robust trailing
+    magnitude, self-verifying peak, screens declaring their non-detection."""
+
+    def test_zero_screen_keeps_count_corroborated_zeros(self):
+        # 5 zero-spend days with transaction_count 0 are REAL no-activity
+        # days — the audit found them excluded as sentinels, biasing the
+        # slope, the outlier screen and the endpoint.
+        vals = [50.0, 0.0, 80.0, 0.0, 60.0, 0.0, 90.0, 70.0, 0.0, 55.0]
+        counts = [3, 0, 4, 0, 2, 0, 5, 3, 0, 2]
+        screened, n_zx = findings._zero_screen(vals, counts=counts, unit="usd")
+        self.assertEqual(n_zx, 0)
+        self.assertEqual(screened, vals)
+        # A zero WITH activity behind it (count > 0) is the sentinel case:
+        # something happened and the value failed to record it.
+        counts_active = [3, 2, 4, 1, 2, 3, 5, 3, 2, 2]
+        screened2, n_zx2 = findings._zero_screen(vals, counts=counts_active, unit="usd")
+        if n_zx2 > 0:  # fires only when the regime profile says sentinel_exclude
+            self.assertEqual(screened2.count(None), n_zx2)
+        # No counts at all: the pre-fix behavior is preserved (pervasive
+        # monetary zeros are sentinel candidates).
+        screened3, n_zx3 = findings._zero_screen(vals, unit="usd")
+        self.assertEqual(screened3.count(None), n_zx3)
+
+    def test_outliers_declare_their_non_detection(self):
+        labels = list(range(30))
+        quiet = [100.0 + (i % 5) for i in range(30)]
+        out = finding_outliers(labels, quiet)
+        self.assertEqual(out["n_flagged"], 0)
+        self.assertIs(out.get("detected"), False)
+        # A screen that FOUND offenders carries no detected key — n_flagged
+        # is the story and stays bindable.
+        spiked = list(quiet)
+        spiked[15] = 5000.0
+        hit = finding_outliers(labels, spiked)
+        self.assertGreater(hit["n_flagged"], 0)
+        self.assertNotIn("detected", hit)
+
+    def test_current_state_magnitude_uses_median_not_mean(self):
+        # The audited series: one 871-dollar day dragged the trailing MEAN
+        # high enough that a normal-range final day (75.85 vs a ~100
+        # median) was evicted as "magnitude", flipping the direction.
+        vals = [120.0, 95.0, 871.0, 110.0, 179.05, 57.71, 107.57, 75.85]
+        out = finding_current_state(vals, window=6)
+        self.assertEqual(out["excluded_trailing"], 0)
+        self.assertEqual(out["value"], 75.85)
+        # A genuinely collapsed tail (reporting lag) is still caught.
+        lag = [120.0, 95.0, 110.0, 100.0, 105.0, 98.0, 102.0, 4.0]
+        out2 = finding_current_state(lag, window=6)
+        self.assertEqual(out2["excluded_trailing"], 1)
+        self.assertEqual(out2["excluded_reason"], "magnitude")
+
+    def test_current_state_carries_its_peak(self):
+        vals = [10.0, 40.0, 30.0, 25.0, 20.0, 18.0]
+        labels = list(range(2020, 2026))
+        out = finding_current_state(vals, labels=labels)
+        self.assertEqual(out["peak_value"], 40.0)
+        self.assertEqual(out["peak_period"], 2021)
+        # pct_from_peak is verifiable FROM the claim alone.
+        expected = (out["value"] - out["peak_value"]) / abs(out["peak_value"]) * 100.0
+        self.assertAlmostEqual(out["pct_from_peak"], round(expected, 2))
+
+
+class TestFieldContractExhaustiveness(unittest.TestCase):
+    """Every field a claim helper can emit is CLASSIFIED in the host-side
+    field contract (src/lib/findings/field-contract.json). Eight audited
+    runs discovered projection rules one incident at a time — booleans,
+    dict leaves, zero counts — for fields knowable at declaration time.
+    This test closes the loop: add a field to a helper and it fails here
+    until the contract classifies it."""
+
+    CONTRACT_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "src", "lib", "findings",
+        "field-contract.json",
+    )
+
+    def _contract(self):
+        if not os.path.exists(self.CONTRACT_PATH):
+            self.skipTest("field-contract.json not reachable (sandbox image)")
+        with open(self.CONTRACT_PATH) as fh:
+            return json.load(fh)["dtypes"]
+
+    def _fields_for(self, dtypes, dtype):
+        entry = dtypes[dtype]
+        if "alias" in entry:
+            entry = dtypes[entry["alias"]]
+        return set(entry.get("fields", {}))
+
+    def assert_covered(self, dtypes, dtype, emitted):
+        allowed = self._fields_for(dtypes, dtype)
+        unclassified = set(emitted) - allowed
+        self.assertFalse(
+            unclassified,
+            f"dtype {dtype}: helper emits unclassified field(s) {sorted(unclassified)} — "
+            f"classify them in src/lib/findings/field-contract.json",
+        )
+
+    def test_every_helper_field_is_classified(self):
+        dtypes = self._contract()
+        labels = list(range(2000, 2012))
+        rising = [float(i * 10 + 5) for i in range(12)]
+        counts = [50] * 12
+        cases = [
+            ("trend", findings.finding_trend(rising, labels=labels, counts=counts, unit="usd")),
+            ("trend", findings.finding_trend([1.0])),  # degenerate branch
+            ("step_change", finding_step_change(rising, labels, counts, unit="usd")),
+            ("step_change", finding_step_change([1.0], [2000], [5])),
+            ("current_state", finding_current_state(rising, labels=labels, counts=counts,
+                                                    unit="usd")),
+            ("current_state", finding_current_state([1.0])),
+            ("superlative", finding_superlative(labels, rising, counts=counts, unit="usd")),
+            ("superlative", finding_superlative([], [])),
+            ("outliers", finding_outliers(labels, rising, unit="usd")),
+            ("outliers", finding_outliers([1], [1.0])),
+            ("correlation", findings.finding_correlation(rising, list(reversed(rising)))),
+            ("correlation", findings.finding_correlation([], [])),
+            ("distribution", findings.finding_distribution(rising, unit="usd")),
+            ("distribution", findings.finding_distribution([])),
+            ("comparison", finding_yoy([f"{y}-{m:02d}" for y in (2010, 2011)
+                                        for m in range(1, 13)], rising * 2, unit="usd")),
+            ("comparison", finding_split_comparison(labels, rising, unit="usd")),
+            ("share", findings.finding_share({"a": 60.0, "b": 40.0})),
+            ("heterogeneity", finding_heterogeneity(
+                {"a": rising, "b": [x * 3 for x in rising]}, unit="usd")),
+            ("heterogeneity", finding_heterogeneity({})),
+        ]
+        for dtype, result in cases:
+            self.assertIsInstance(result, dict, dtype)
+            self.assert_covered(dtypes, dtype, result.keys())
+
+    def test_decompose_open_fields_ride_on_an_open_dtype(self):
+        dtypes = self._contract()
+        out = finding_decompose(10.0, {"volume": 6.0, "rate": 4.0})
+        entry = dtypes["decomposition"]
+        self.assertTrue(entry.get("open"), "decomposition carries model-named terms")
+        fixed = set(out) - {"volume", "rate"}
+        self.assert_covered(dtypes, "decomposition", fixed)
+
+
+class TestSeriesKinds(unittest.TestCase):
+    """declare_series(kind=...) — compiled-view-parity spec §4: per-kind row
+    contracts, rejection with the gap named (never a silent axis fallback),
+    and the host-side JSON mirror staying identical to the runtime dict."""
+
+    def _declare(self, **kw):
+        args = dict(
+            series_id="s1",
+            rows=[{"name": "A", "v": 1.0}],
+            x=("name", "categorical"),
+            measures=[{"column": "v"}],
+        )
+        args.update(kw)
+        return series.declare_series(**args)
+
+    def test_geo_kind_accepts_lat_lng_and_aliases(self):
+        rows = [{"lat": 47.6, "lng": -122.3, "name": "A", "v": 1.0}]
+        out = self._declare(rows=rows, kind="geo")
+        self.assertIsNotNone(out)
+        self.assertEqual(out["kind"], "geo")
+        alias = [{"latitude": 47.6, "lon": -122.3, "name": "A", "v": 1.0}]
+        self.assertIsNotNone(self._declare(rows=alias, kind="geo"))
+
+    def test_kind_contract_violation_rejects_with_the_gap_named(self):
+        # lat without lng: rejected, not silently demoted to axis.
+        rows = [{"lat": 47.6, "name": "A", "v": 1.0}]
+        self.assertIsNone(self._declare(rows=rows, kind="geo"))
+        self.assertIsNone(self._declare(kind="flow"))  # no source/target/weight
+        self.assertIsNone(self._declare(kind="nonsense"))
+
+    def test_default_and_distribution_kinds_carry_no_extra_requirements(self):
+        out = self._declare()
+        self.assertIsNotNone(out)
+        self.assertNotIn("kind", out)  # axis is implicit
+        dist = self._declare(kind="distribution")
+        self.assertIsNotNone(dist)
+        self.assertEqual(dist["kind"], "distribution")
+
+    def test_every_kind_has_an_acceptable_declaration(self):
+        rows_by_kind = {
+            "axis": [{"name": "A", "v": 1.0}],
+            "geo": [{"lat": 1.0, "lng": 2.0, "name": "A", "v": 1.0}],
+            "distribution": [{"name": "A", "v": 1.0}],
+            "hierarchy": [{"parent": "p", "child": "c", "value": 1.0, "name": "A", "v": 1.0}],
+            "flow": [{"source": "a", "target": "b", "weight": 1.0, "name": "A", "v": 1.0}],
+            "matrix": [{"row": "r", "col": "c", "value": 1.0, "name": "A", "v": 1.0}],
+            "curve": [{"x": 0.1, "y": 0.2, "name": "A", "v": 1.0}],
+            "ohlc": [{"open": 1, "high": 2, "low": 0.5, "close": 1.5, "name": "A", "v": 1.0}],
+            "span": [{"label": "t", "start": 0, "end": 1, "name": "A", "v": 1.0}],
+            "vector": [{"x": 0, "y": 0, "angle": 30, "magnitude": 2, "name": "A", "v": 1.0}],
+        }
+        self.assertEqual(set(rows_by_kind), set(series.SERIES_KIND_CONTRACT))
+        for kind, rows in rows_by_kind.items():
+            out = self._declare(series_id=f"k_{kind}", rows=rows, kind=kind)
+            self.assertIsNotNone(out, f"kind {kind} rejected a conforming declaration")
+
+    def test_contract_mirror_matches_the_host_json(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "src", "lib", "product",
+            "series-kind-contract.json",
+        )
+        if not os.path.exists(path):
+            self.skipTest("series-kind-contract.json not reachable (sandbox image)")
+        with open(path) as fh:
+            mirrored = json.load(fh)["kinds"]
+        self.assertEqual(
+            {k: [list(s) for s in v] for k, v in series.SERIES_KIND_CONTRACT.items()},
+            mirrored,
+            "runtime SERIES_KIND_CONTRACT and src/lib/product/series-kind-contract.json drifted",
+        )
 
 
 if __name__ == "__main__":

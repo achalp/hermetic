@@ -386,6 +386,12 @@ describe("regime-policy enforcement lints (compiled-run review 2026-08-09)", () 
     // Applied policy (zeros gone): quiet.
     const clean = rows.filter((r) => r.price !== 0);
     expect(lintRegimePolicy(regimes, { annual_prices: clean }, idx)).toHaveLength(0);
+    // Count-corroborated zeros are REAL (runtime _zero_screen, run
+    // d82a39ce): a $0 row whose count is also 0 is a period nothing
+    // happened — the policy is supposed to KEEP it, so it is not
+    // "unapplied policy".
+    const corroborated = rows.map((r) => (r.price === 0 ? { ...r, n: 0 } : r));
+    expect(lintRegimePolicy(regimes, { annual_prices: corroborated }, idx)).toHaveLength(0);
     // Non-monetary: quiet.
     expect(
       lintRegimePolicy(

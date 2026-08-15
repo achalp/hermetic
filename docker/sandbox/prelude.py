@@ -724,26 +724,37 @@ except Exception as _rt_err:
 # patch missed a path, the read is blocked by the network, not silently open.
 import os as _os
 _hermetic_proxy = _os.environ.get("HERMETIC_HTTP_PROXY")
+# Vhost pinning (egress settlement 2026-08-13): the AWS allowlist carries
+# virtual-hosted bucket hosts ONLY (the generic path-style host would allow
+# every bucket on AWS through an opaque CONNECT tunnel), so DuckDB must use
+# vhost URLs or every read 403s at the proxy. Set only when the host side
+# says so — custom endpoints (R2/MinIO) stay path-style.
+_hermetic_s3_style = _os.environ.get("HERMETIC_S3_URL_STYLE")
 if _hermetic_proxy:
     try:
         import duckdb as _duckdb
 
         _orig_connect = _duckdb.connect
 
-        def _proxied_connect(*a, **kw):
-            con = _orig_connect(*a, **kw)
+        def _apply_proxy_settings(con):
             try:
                 con.execute("SET http_proxy=?", [_hermetic_proxy])
             except Exception:
                 pass
+            if _hermetic_s3_style:
+                try:
+                    con.execute("SET s3_url_style=?", [_hermetic_s3_style])
+                except Exception:
+                    pass
+
+        def _proxied_connect(*a, **kw):
+            con = _orig_connect(*a, **kw)
+            _apply_proxy_settings(con)
             return con
 
         _duckdb.connect = _proxied_connect
         # The module-level default connection too (duckdb.sql(...) style).
-        try:
-            _duckdb.execute("SET http_proxy=?", [_hermetic_proxy])
-        except Exception:
-            pass
+        _apply_proxy_settings(_duckdb)
     except ImportError:
         pass
 

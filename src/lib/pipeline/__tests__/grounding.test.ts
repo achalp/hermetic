@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   collectGroundedValues,
   collectNarrativeStrings,
+  collectStringLeaves,
   extractNumbers,
   extractCitedSteps,
   extractPlaceholderCitedSteps,
@@ -148,6 +149,54 @@ describe("verifyGrounding", () => {
     expect(report.ok).toBe(true);
     expect(report.ungrounded).toEqual([]);
     expect(report.citedSteps).toEqual([1, 2]);
+  });
+
+  // Run 093c9785 flagged "-8245" as untraceable — a fragment of the phone
+  // number in "REALTOR ASSOCIATION/ML 312-329-8245 IL", a BOUND payee name;
+  // a geospatial run flagged four fragments of a building UUID the same
+  // way. Numerals carried inside resolved string values are data, not
+  // figures.
+  it("exempts numerals embedded in bound string values (phone numbers, IDs)", () => {
+    const report = verifyGrounding({
+      narrativeTexts: [
+        "REALTOR ASSOCIATION/ML 312-329-8245 IL drew the largest total.",
+        "The most isolated building is 06a1cc01-8740-4d86-b09b-cc73913d360c.",
+      ],
+      citedSteps: [],
+      grounded,
+      successfulStepNos,
+      stringValues: [
+        "REALTOR ASSOCIATION/ML 312-329-8245 IL",
+        "06a1cc01-8740-4d86-b09b-cc73913d360c",
+      ],
+    });
+    expect(report.ungrounded).toEqual([]);
+  });
+
+  it("a purely numeric string value exempts nothing — figures still ground", () => {
+    const report = verifyGrounding({
+      narrativeTexts: ["Revenue reached $9.9M, far above target."],
+      citedSteps: [1],
+      grounded,
+      successfulStepNos,
+      // "9.9" as a string value must NOT launder the fabricated figure.
+      stringValues: ["9.9"],
+    });
+    expect(report.ok).toBe(false);
+    expect(report.ungrounded.length).toBeGreaterThan(0);
+  });
+
+  it("collectStringLeaves walks results and finding values, strings only", () => {
+    const leaves = collectStringLeaves({
+      payee: "REALTOR ASSOCIATION/ML 312-329-8245 IL",
+      n: 3,
+      nested: { label: "Membership & Dues", flag: true },
+      rows: [{ name: "Other" }, 42],
+    });
+    expect(leaves).toContain("REALTOR ASSOCIATION/ML 312-329-8245 IL");
+    expect(leaves).toContain("Membership & Dues");
+    expect(leaves).toContain("Other");
+    expect(leaves).toHaveLength(3);
   });
 
   it("flags a fabricated figure that matches nothing computed", () => {
@@ -345,5 +394,48 @@ describe("findings-aware grounding fields (declared-findings §3.4/§3.5)", () =
     });
     expect(clean.ok).toBe(true);
     expect(clean.unnarratedFindings).toBeUndefined();
+  });
+});
+
+describe("assertedDirection — range idioms cast no directional vote", () => {
+  const { assertedDirection } = __testing as unknown as {
+    assertedDirection?: (t: string) => "up" | "down" | null;
+  };
+  const grounded = [8.56, 34.75, 16.64];
+
+  it("'falling between X and Y' is a range, not a trend claim (run dfe3ea32)", () => {
+    // Full-path check through verifyGrounding: the real false positive was
+    // "transactions falling between 8.56 usd and 34.75 usd" contradicting a
+    // computed direction of "rising".
+    const report = verifyGrounding({
+      narrativeTexts: [
+        "with the middle half of transactions falling between 8.56 usd and 34.75 usd",
+      ],
+      citedSteps: [],
+      grounded,
+      successfulStepNos: [],
+      results: { weekly_spend_current_state_direction: "rising" },
+    });
+    expect(report.contradictions).toBeUndefined();
+  });
+
+  it("a genuine directional contradiction still fires", () => {
+    const report = verifyGrounding({
+      narrativeTexts: ["Spending has been falling steadily all month."],
+      citedSteps: [],
+      grounded,
+      successfulStepNos: [],
+      results: { weekly_spend_trend_direction: "rising" },
+    });
+    expect(report.contradictions).toBeDefined();
+    expect(report.contradictions![0]).toContain("falling");
+  });
+
+  // Unit-level guard when the seam is exported; skip cleanly otherwise.
+  it("range prepositions after a direction word void the match", () => {
+    if (!assertedDirection) return;
+    expect(assertedDirection("values falling within the band")).toBeNull();
+    expect(assertedDirection("prices rising above the threshold")).toBeNull();
+    expect(assertedDirection("revenue falling since March")).toBe("down");
   });
 });

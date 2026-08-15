@@ -35,9 +35,13 @@ import {
   lintDerivations,
   lintCrossStepDerivations,
   lintCrossStepReconciliation,
+  surfaceUndeclaredFailedChecks,
+  surfaceUndeclaredScreens,
+  dedupeSurfacedTwins,
   lintUnitPhrase,
   lintSentinelInterpolation,
   lintSignedLanguage,
+  lintSignificanceMismatch,
   lintMissingLinkage,
   lintGranularityConflict,
   lintTrendContract,
@@ -85,6 +89,7 @@ import {
 } from "@/lib/pipeline/investigation-trace";
 import {
   collectGroundedValues,
+  collectStringLeaves,
   verifyGrounding,
   extractCitedSteps,
   extractPlaceholderCitedSteps,
@@ -710,6 +715,41 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             );
             const stepNo = idx + 1; // 1-based, = planner index + 1 (§7.0)
             const validated = validateFindings(entries);
+            // Auto-surface this step's undeclared FAILED checks before
+            // namespacing, so a `<x>_passed: false` living only in step
+            // results still reaches the caveat machinery (same rule as the
+            // ask path; see surfaceUndeclaredFailedChecks).
+            const surfaced = surfaceUndeclaredFailedChecks(
+              (r.result?.executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            );
+            // Checks additions land BEFORE the screens surfacer runs: its
+            // evidence-equality dedup (run 31c1cfa9) compares candidates
+            // against everything already in the manifest, including what the
+            // checks surfacer just added.
+            validated.manifest.findings.push(...surfaced.added);
+            const surfacedScr = surfaceUndeclaredScreens(
+              (r.result?.executionResult.results ?? {}) as Record<string, unknown>,
+              validated.manifest.findings
+            );
+            validated.manifest.findings.push(...surfacedScr.added);
+            // Symmetric subset dedup (run 9c415dc8) — after both surfacers.
+            const twins = dedupeSurfacedTwins(validated.manifest.findings);
+            if (twins.removed.length > 0) {
+              validated.manifest.findings = validated.manifest.findings.filter(
+                (f) => !twins.removed.includes(f.name)
+              );
+              logger.warn("investigate findings: duplicate surfaced twins dropped", {
+                stepNo,
+                removed: twins.removed,
+              });
+            }
+            if (surfaced.added.length > 0 || surfacedScr.added.length > 0) {
+              logger.warn("investigate findings: undeclared checks/screens auto-surfaced", {
+                stepNo,
+                checks: [...surfaced.added, ...surfacedScr.added].map((f) => f.name),
+              });
+            }
             const dagIssues = lintCrossStepDerivations(
               validated.manifest.findings,
               stepNo,
@@ -877,6 +917,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     model: uiComposeModel,
                     purpose: context.purpose,
                     views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
+                    series: investigationProduct.series,
                   });
                   investigatePlanDoc = {
                     plan,
@@ -1051,6 +1092,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             ...lintUnitPhrase(raw, investigateUnitByName),
             ...lintSentinelInterpolation(raw, lookup),
             ...lintSignedLanguage(raw, lookup),
+            ...lintSignificanceMismatch(raw, lookup),
             ...lintComponentSignature(raw, investigateRolesIdx),
           ]) {
             proseLintIssues.set(`${issue.kind}:${issue.name ?? issue.detail}`, issue);
@@ -1183,6 +1225,17 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             citedSteps: [...citedSteps].sort((a, b) => a - b),
             grounded,
             successfulStepNos: successfulStepNos(trace),
+            // String-carrier exemption: numerals inside bound string values
+            // (payee names, identifiers) are data, not figures. Collected
+            // across every step's results plus the merged findings.
+            stringValues: [
+              ...subResults.flatMap((r) =>
+                collectStringLeaves(r.result?.executionResult.results ?? {})
+              ),
+              ...(investigationFindings
+                ? collectStringLeaves(investigationFindings.findings.map((f) => f.value))
+                : []),
+            ],
             // §7.5: unnarrated findings + cross-step coherence, advisory.
             ...(fMode === "on" && investigationFindings
               ? {

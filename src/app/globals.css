@@ -1133,8 +1133,16 @@ button.source-card-hover:hover {
   *:not(.animate-spin):not([data-motion="essential"]),
   *:not(.animate-spin):not([data-motion="essential"])::before,
   *:not(.animate-spin):not([data-motion="essential"])::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+    /* animation: none, NOT a 0.01ms duration. Chrome leaves a
+       sub-millisecond animation "running" with its clock frozen at 0, so
+       the FROM keyframe paints forever — the dashboard Card sat
+       permanently at formMorphIn's from-state (scale(0.985)
+       translateY(10px)), and the MapLibre canvas under that ancestor
+       transform had its pointer math off by the scale factor: map pins
+       drifted against the basemap on every pan/zoom. Removing the
+       animation is also the more faithful reduced-motion behavior:
+       elements simply appear in their final state. */
+    animation: none !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }

@@ -355,7 +355,13 @@ export default function Home() {
 
       {/* Top Bar: current question (State 4) / source pill, and the toolbar */}
       <HomeTopBar
-        onLogoClick={handleReset}
+        onLogoClick={() => {
+          handleReset();
+          // Home is a fresh start: the composer must not retain the previous
+          // run's question text (handleReset clears analysis/source state but
+          // the composer owns its own input state).
+          composer.setHomeQuestion("");
+        }}
         hasData={hasData}
         isState1={isState1}
         sourceLabel={buildSourceLabel(schema, warehouse)}

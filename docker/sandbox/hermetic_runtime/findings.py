@@ -251,7 +251,40 @@ def _attestation_bar(ns):
             return None
         med = s[len(s) // 2]
         mean = float(sum(s)) / len(s)
-        return max(min(5.0, med), 0.2 * med, 0.1 * mean)
+        return max(min(_THIN_FLOOR, med), 0.2 * med, 0.1 * mean)
+    except Exception:
+        return None
+
+
+# The absolute thin-data floor, before the median cap relaxes it. Named so a
+# claim can report WHETHER it was relaxed: two superlatives in one run can
+# legitimately carry different thin_bars (the bar is series-relative), and a
+# reader comparing them cannot otherwise tell that one rested on a softer
+# rule. Audited (run 77051c9d): categories got thin_bar 5 and skipped an n=3
+# group, while payees — nearly all n=1, so the floor collapsed to 1 — crowned
+# an n=3 payee as the month's top. Same n, opposite treatment, silently.
+_THIN_FLOOR = 5.0
+
+# Catch-all bucket labels. A superlative these win is a statement about
+# UNCLASSIFIED residue, not about a real category — audited (run 77051c9d):
+# "Other" (n=45, 35% of transactions) headlined a spend analysis as the
+# month's dominant category with no disclosure that it is the leftovers.
+_CATCHALL_LABELS = {
+    "other", "others", "unknown", "unclassified", "uncategorized",
+    "uncategorised", "misc", "miscellaneous", "n/a", "na", "none",
+    "unspecified", "ungrouped", "unmapped",
+}
+
+
+def _is_catchall_label(label):
+    """True when a label is a residue bucket rather than a real category.
+    Conservative and exact-match after normalisation: a genuine category
+    called "Other Income" keeps its meaning and must not be flagged."""
+    try:
+        if label is None:
+            return None
+        norm = str(label).strip().lower().strip("()[]").strip()
+        return norm in _CATCHALL_LABELS
     except Exception:
         return None
 
@@ -269,6 +302,13 @@ def _zero_screen(values, counts=None, labels=None, unit=None):
     under "sentinel_exclude" (MONETARY measure, zero share over the bar)
     zeros become None BEFORE the statistic is computed, and the count is
     reported back as n_zero_excluded so the narrative can bind it.
+
+    A zero whose sibling COUNT is also zero is a REAL observation (audited,
+    run d82a39ce): a $0.00 day with transaction_count 0 is a day nothing
+    happened — excluding it as a sentinel biased the slope, the outlier
+    screen and the endpoint of every daily claim in the run. The sentinel
+    reading ("value unrecorded") requires activity the value fails to
+    reflect: count > 0, or no count information at all.
 
     Returns (values_list, n_zero_excluded). unit=None short-circuits to
     (input, 0) — MONETARY cannot fire without a unit, so there is nothing
@@ -288,11 +328,21 @@ def _zero_screen(values, counts=None, labels=None, unit=None):
         prof = profile_regimes(vals, counts=counts, labels=labels, unit=unit)
         if zero_policy(prof).get("policy") != "sentinel_exclude":
             return vals, 0
+        cnts = None
+        if counts is not None:
+            try:
+                cnts = list(counts)
+            except Exception:
+                cnts = None
         screened = []
         n_excluded = 0
-        for v in vals:
+        for i, v in enumerate(vals):
             fv = safe_float(v)
             if fv is not None and fv == 0:
+                cv = safe_float(cnts[i]) if cnts is not None and i < len(cnts) else None
+                if cv is not None and cv == 0:
+                    screened.append(v)  # count-corroborated real zero
+                    continue
                 screened.append(None)
                 n_excluded += 1
             else:
@@ -503,7 +553,7 @@ def finding_trend(values, unit=None, labels=None, counts=None):
     of order) is REFUSED rather than fit — a trend over unordered x is
     undefined.
     """
-    failed = {"direction": None, "slope_per_period": None, "p_value": None,
+    failed = {"detected": False, "direction": None, "slope_per_period": None, "p_value": None,
               "slope_ci95": None, "n_zero_excluded": None, "weighted": False}
     try:
         if labels is not None and _ordinal_disorder(labels):
@@ -596,7 +646,7 @@ def finding_step_change(values, labels=None, counts=None, unit=None):
     of unpriced items). zero_policy runs internally; the screen is
     reported as n_zero_excluded. Never raises.
     """
-    failed = {"period": None, "delta": None, "direction": None,
+    failed = {"detected": False, "period": None, "delta": None, "direction": None,
               "baseline_spread": None, "n_zero_excluded": None}
     try:
         if labels is not None and _ordinal_disorder(labels):
@@ -612,7 +662,14 @@ def finding_step_change(values, labels=None, counts=None, unit=None):
             return failed
         m = len(spread)
         median = spread[m // 2] if m % 2 else (spread[m // 2 - 1] + spread[m // 2]) / 2.0
-        no_step = {"period": None, "delta": None, "direction": None,
+        # The looked-and-found-nothing result declares itself (spec
+        # finding-field-roles-2026-08-13 §2.M3): "detected": False rides IN
+        # the value, so it survives every copy/spread/serialization and the
+        # projection withholds the secondary numbers. Run 77051c9d narrated
+        # this dict's baseline_spread (118.97, a scale reference) as "the
+        # sharpest jump between consecutive days" — a number the planner
+        # should never have been offered.
+        no_step = {"detected": False, "period": None, "delta": None, "direction": None,
                    "baseline_spread": median, "n_zero_excluded": n_zx}
         best_i, best_d = None, None
         for i, d in enumerate(deltas):
@@ -697,7 +754,7 @@ def finding_yoy(period_labels, values, unit=None):
     excludes it from BOTH years — unrecorded months cannot anchor a
     comparison. Reported as n_zero_excluded. Never raises.
     """
-    failed = {"prior_year": None, "latest_year": None, "window_months": None,
+    failed = {"detected": False, "prior_year": None, "latest_year": None, "window_months": None,
               "prior_total": None, "latest_total": None, "pct_change": None,
               "n_zero_excluded": None}
     try:
@@ -761,7 +818,7 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
     "window", "k", "n_zero_excluded"}; degenerate input -> all-None fields.
     Never raises.
     """
-    failed = {"outliers": None, "n_flagged": None, "method": "rolling_mad",
+    failed = {"detected": False, "outliers": None, "n_flagged": None, "method": "rolling_mad",
               "window": window, "k": k, "n_zero_excluded": None}
     try:
         if labels is not None and _ordinal_disorder(labels):
@@ -801,8 +858,17 @@ def finding_outliers(labels, values, counts=None, window=21, k=3.5, unit=None):
             z = 0.6745 * (v - baseline) / mad
             if abs(z) > k:
                 out.append({"label": lab, "value": v, "z": round(z, 1)})
-        return {"outliers": out, "n_flagged": len(out), "method": "rolling_mad",
-                "window": window, "k": k, "n_zero_excluded": n_zx}
+        # A screen that flagged nothing DECLARES the non-detection (run
+        # d82a39ce): with n_flagged bindable, the planner wrote "flagged 0
+        # anomalous day(s)", the zero-narration policy dropped the sentence,
+        # and the question's outlier component shipped unanswered. detected
+        # False routes the claim through the non-detection channel — the
+        # planner states "flagged no outliers" in words instead.
+        result = {"outliers": out, "n_flagged": len(out), "method": "rolling_mad",
+                  "window": window, "k": k, "n_zero_excluded": n_zx}
+        if not out:
+            result["detected"] = False
+        return result
     except Exception:
         return failed
 
@@ -827,7 +893,7 @@ def finding_correlation(x_values, y_values, x_unit=None, y_unit=None):
     SAYS so — both are still reported (dispatch decides emphasis, never
     visibility). Never raises.
     """
-    failed = {"pearson_r": None, "pearson_p": None, "spearman_rho": None,
+    failed = {"detected": False, "pearson_r": None, "pearson_p": None, "spearman_rho": None,
               "spearman_p": None, "n": None, "preferred": None,
               "n_zero_excluded": None}
     try:
@@ -913,7 +979,7 @@ def finding_distribution(values, unit=None):
     the summary — a min of $0.00 from unrecorded prices is an encoding,
     not the distribution's floor. Never raises.
     """
-    failed = {"n": None, "mean": None, "median": None, "std": None, "mad": None,
+    failed = {"detected": False, "n": None, "mean": None, "median": None, "std": None, "mad": None,
               "skew": None, "p25": None, "p75": None, "min": None, "max": None,
               "distinct_share": None, "modal_share": None,
               "n_zero_excluded": None}
@@ -936,13 +1002,19 @@ def finding_distribution(values, unit=None):
         std = var ** 0.5
         mad = sorted(abs(x - median) for x in xs)[n // 2]
         skew = (sum((x - mean) ** 3 for x in xs) / n) / (std ** 3) if std else 0.0
-        modal = max(set(xs), key=xs.count)
+        # O(n) modal share (same fix as regimes.profile_regimes): the
+        # max(set(xs), key=xs.count) form was O(n * distinct) — quadratic on
+        # continuous measures where nearly every value is distinct.
+        counts = {}
+        for x in xs:
+            counts[x] = counts.get(x, 0) + 1
+        modal_n = max(counts.values())
         return {"n": n, "mean": round(mean, 4), "median": round(median, 4),
                 "std": round(std, 4), "mad": round(mad, 4), "skew": round(skew, 2),
                 "p25": round(q(0.25), 4), "p75": round(q(0.75), 4),
                 "min": xs[0], "max": xs[-1],
                 "distinct_share": round(len(set(xs)) / n, 3),
-                "modal_share": round(xs.count(modal) / n, 3),
+                "modal_share": round(modal_n / n, 3),
                 "n_zero_excluded": n_zx}
     except Exception:
         return failed
@@ -956,7 +1028,7 @@ def finding_share(parts, total=None):
     narrated shares dropping the residual was the 58%+8.3% waterfall that
     didn't sum. Never raises.
     """
-    failed = {"shares_pct": None, "residual_pct": None, "sums_to_100": None}
+    failed = {"detected": False, "shares_pct": None, "residual_pct": None, "sums_to_100": None}
     try:
         clean = {str(k): safe_float(v) for k, v in dict(parts).items()}
         clean = {k: v for k, v in clean.items() if v is not None}
@@ -994,9 +1066,10 @@ def finding_superlative(labels, values, counts=None, kind="max", unit=None):
     "thin_periods_skipped", "thin_bar", "n_zero_excluded"}; degenerate
     input all-None. Never raises.
     """
-    failed = {"period": None, "value": None, "n": None, "raw_period": None,
+    failed = {"detected": False, "period": None, "value": None, "n": None, "raw_period": None,
               "raw_value": None, "raw_n": None, "thin_periods_skipped": None,
-              "thin_bar": None, "n_zero_excluded": None}
+              "thin_bar": None, "bar_relaxed": None, "label_is_catchall": None,
+              "n_zero_excluded": None}
     try:
         values, n_zx = _zero_screen(values, counts=counts, labels=labels, unit=unit)
         rows = []
@@ -1024,6 +1097,8 @@ def finding_superlative(labels, values, counts=None, kind="max", unit=None):
                 "raw_period": raw[0], "raw_value": raw[1], "raw_n": raw[2],
                 "thin_periods_skipped": skipped,
                 "thin_bar": None if not finite_ns else round(thin, 1),
+                "bar_relaxed": None if not finite_ns else bool(thin < _THIN_FLOOR),
+                "label_is_catchall": _is_catchall_label(best[0]),
                 "n_zero_excluded": n_zx}
     except Exception:
         return failed
@@ -1048,7 +1123,7 @@ def finding_split_comparison(labels, values, split_at=None, unit=None):
     "late_n", "early_span", "late_span", "multiplier", "n_zero_excluded"};
     degenerate input returns all-None. Never raises.
     """
-    failed = {"early_median": None, "late_median": None, "early_n": None,
+    failed = {"detected": False, "early_median": None, "late_median": None, "early_n": None,
               "late_n": None, "early_span": None, "late_span": None,
               "multiplier": None, "n_zero_excluded": None}
     try:
@@ -1120,11 +1195,14 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
         multi-thousand-median corpus narrated as "prices fell 50% from
         peak" is undigitized data, not a decline).
       - magnitude (fallback, always on): value < 30% of the trailing-window
-        mean.
+        MEDIAN. Median, not mean (audited, run d82a39ce): one 871-dollar day
+        in the window dragged the mean high enough to evict a normal-range
+        final day (75.85 against a ~100 median), and the exclusion flipped
+        the reported direction.
 
-    Returns {"period", "value", "pct_from_peak", "direction",
-    "excluded_trailing", "excluded_reason", "latest_period", "latest_value",
-    "latest_n"} — period/value from the last
+    Returns {"period", "value", "pct_from_peak", "peak_value", "peak_period",
+    "direction", "excluded_trailing", "excluded_reason", "latest_period",
+    "latest_value", "latest_n"} — period/value from the last
     complete observation, pct_from_peak vs the series max (negative below
     peak; when counts= is given the reference peak considers ATTESTED
     periods only, the same bar finding_superlative applies — an audited run
@@ -1150,7 +1228,8 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
     a trailing $0.00 year can neither be the endpoint nor latest_*; the
     screen is reported as n_zero_excluded. Never raises.
     """
-    failed = {"period": None, "value": None, "pct_from_peak": None,
+    failed = {"detected": False, "period": None, "value": None, "pct_from_peak": None,
+              "peak_value": None, "peak_period": None,
               "direction": None, "excluded_trailing": None,
               "excluded_reason": None, "latest_period": None,
               "latest_value": None, "latest_n": None, "n_zero_excluded": None}
@@ -1210,7 +1289,11 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 if bar is not None and n_cur is not None and n_cur < bar:
                     incomplete = True
                     reason = "attestation"
-            mean = sum(prior) / len(prior)
+            sp_prior = sorted(prior)
+            mid = len(sp_prior) // 2
+            prior_med = (
+                sp_prior[mid] if len(sp_prior) % 2 else (sp_prior[mid - 1] + sp_prior[mid]) / 2.0
+            )
             cur = ys[end]
             if (
                 not incomplete
@@ -1219,7 +1302,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 and excluded >= magnitude_only_cap
             ):
                 break
-            if not incomplete and mean > 0 and cur is not None and cur < 0.3 * mean:
+            if not incomplete and prior_med > 0 and cur is not None and cur < 0.3 * prior_med:
                 incomplete = True
                 reason = "magnitude"
             if incomplete:
@@ -1244,10 +1327,21 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
                 attested_idx = [i for i in peak_idx if cnts[i] is None or cnts[i] >= bar]
                 if attested_idx:
                     peak_idx = attested_idx
-        finite = [ys[i] for i in peak_idx if ys[i] is not None]
-        if not finite:
-            finite = [y for y in ys[: end + 1] if y is not None]
-        peak = max(finite)
+        finite_idx = [i for i in peak_idx if ys[i] is not None]
+        if not finite_idx:
+            finite_idx = [i for i in range(end + 1) if ys[i] is not None]
+        peak_i = max(finite_idx, key=lambda i: ys[i])
+        peak = ys[peak_i]
+        # The peak the percentage is computed AGAINST rides in the value
+        # (audit, run d82a39ce): pct_from_peak was unverifiable from the
+        # claim alone — every figure a claim reports should carry the
+        # evidence to check it.
+        peak_period = peak_i
+        if labels is not None:
+            try:
+                peak_period = list(labels)[peak_i]
+            except Exception:
+                peak_period = peak_i
         pct = None if peak == 0 else (value - peak) / abs(peak) * 100.0
         # Direction = where the ENDPOINT sits relative to the recent level
         # (median of the prior window) — NOT a tail OLS slope. A slope over
@@ -1289,6 +1383,7 @@ def finding_current_state(values, labels=None, window=6, coverage=None, counts=N
             latest_n = cnts[last]
         return {"period": period, "value": value,
                 "pct_from_peak": None if pct is None else round(pct, 2),
+                "peak_value": peak, "peak_period": peak_period,
                 "direction": direction, "excluded_trailing": excluded,
                 "excluded_reason": dominant,
                 "latest_period": latest_period, "latest_value": ys[last],
@@ -1337,7 +1432,7 @@ def finding_heterogeneity(groups, unit=None):
     values (one policy per measure, never per group) and applied to every
     group; the screen is reported as n_zero_excluded.
     """
-    failed = {"significant": None, "p_value": None, "test": "anova",
+    failed = {"detected": False, "significant": None, "p_value": None, "test": "anova",
               "group_ns": None, "n_zero_excluded": None}
     try:
         norm = []
