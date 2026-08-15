@@ -135,23 +135,39 @@ export function makePlotlyWrapper(
     // Retire labels ahead of every event Plotly's hover pipeline listens to
     // (see retireHoverLabels). Capture phase runs before Plotly's handlers.
     // Fresh labels are born hidden (globals.css) because their deferred
-    // transform paints one frame late; the reveal loop shows each label on
-    // the frame AFTER it first appeared — the same frame its transform
-    // lands — and keeps running briefly past the last event to catch labels
-    // created by Plotly's trailing throttled hover pass.
+    // attributes paint late — text content renders immediately but the
+    // transform and path do not, so an unhidden fresh label flashes bare
+    // text at the chart origin. The painted state is readable through
+    // getCTM(), so the reveal loop shows each label only once its painted
+    // transform matches its transform attribute — however many frames the
+    // deferral takes — and keeps running briefly past the last event to
+    // catch labels created by Plotly's trailing throttled hover pass.
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
-      const seen = new WeakSet<Element>();
       let raf = 0;
       let lastEvent = 0;
       const reveal = () => {
         raf = 0;
+        let pending = false;
         for (const label of el.querySelectorAll<SVGGElement>(LIVE_LABELS)) {
-          if (seen.has(label)) label.style.visibility = "visible";
-          else seen.add(label);
+          if (label.style.visibility === "visible") continue;
+          const m = /translate\((-?[\d.]+),\s*(-?[\d.]+)\)/.exec(
+            label.getAttribute("transform") ?? ""
+          );
+          const ctm = label.getCTM();
+          if (
+            m &&
+            ctm &&
+            Math.abs(ctm.e - Number(m[1])) < 2 &&
+            Math.abs(ctm.f - Number(m[2])) < 2
+          ) {
+            label.style.visibility = "visible";
+          } else {
+            pending = true;
+          }
         }
-        if (performance.now() - lastEvent < 300) raf = requestAnimationFrame(reveal);
+        if (pending || performance.now() - lastEvent < 300) raf = requestAnimationFrame(reveal);
       };
       const onEvent = () => {
         retireHoverLabels(el);
