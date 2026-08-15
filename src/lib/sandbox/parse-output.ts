@@ -40,6 +40,10 @@ const SandboxEnvelopeSchema = z.object({
   // validation happens in lib/product, not here.
   series: z.array(z.unknown()).optional(),
   values: z.array(z.unknown()).optional(),
+  // Declared-payload licensing (id, format) — the runtime emits these so the
+  // host can license derived views (e.g. declare_dendrogram). Without the key
+  // here zod silently stripped it and licensing was always empty (finding M2).
+  payloads: z.array(z.object({ id: z.string(), format: z.string() })).optional(),
   // Regime profiles per declared series (regime-matrix spec §2) — RAW.
   regimes: z.record(z.string(), z.unknown()).optional(),
   data_completeness: z.unknown().optional(),
@@ -423,6 +427,7 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     ...(envelope.data.findings ? { findings: envelope.data.findings } : {}),
     ...(envelope.data.series ? { series: envelope.data.series } : {}),
     ...(envelope.data.values ? { values: envelope.data.values } : {}),
+    ...(envelope.data.payloads ? { payloads: envelope.data.payloads } : {}),
     ...(envelope.data.regimes ? { regimes: envelope.data.regimes } : {}),
     // These two were validated but never returned — run-ask-query's
     // completeness lints and runtime-fallback surfacing read them off the

@@ -106,7 +106,7 @@ export class WarmSandboxManager {
       hooks?: import("@/lib/contracts/execution").SandboxRunHooks;
     } = {}
   ): Promise<ExecutionResult> {
-    const { geojsonContent, additionalFiles } = opts;
+    const { geojsonContent, additionalFiles, hooks } = opts;
     return this.withLock(async () => {
       try {
         await this.ensureWarm();
@@ -123,7 +123,16 @@ export class WarmSandboxManager {
           await this.backend.writeFiles(additionalFiles ?? []);
           logger.info("Warm sandbox execution (data reused)", { csvId });
         }
-        return await this.backend.executeScript(code);
+        // Forward the run hooks (abort signal + container registration) into the
+        // backend exec — execute() accepted them but never passed them through,
+        // so a user Stop couldn't reach the shared container (finding M5). The
+        // SPI type keeps executeScript(code)-only for back-compat; the Docker
+        // backend takes the optional hooks (microsandbox harmlessly ignores it).
+        const execWithHooks = this.backend.executeScript.bind(this.backend) as (
+          code: string,
+          hooks?: import("@/lib/contracts/execution").SandboxRunHooks
+        ) => Promise<ExecutionResult>;
+        return await execWithHooks(code, hooks);
       } catch (err) {
         // Container may be wedged — force a fresh warmup on the next call.
         this.warmupPromise = null;

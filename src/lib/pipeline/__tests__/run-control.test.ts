@@ -14,18 +14,29 @@ const { rmCalls, psOutput, inspectCreated } = vi.hoisted(() => ({
 }));
 vi.mock("node:child_process", () => ({
   execFile: (_cmd: string, args: string[], cb?: (e: unknown, stdout?: string) => void) => {
-    if (args[0] === "ps") {
-      if (typeof cb === "function") cb(null, psOutput.value);
+    const done = (out: string) => {
+      if (typeof cb === "function") cb(null, out);
       return {};
+    };
+    if (args[0] === "ps") {
+      // Real docker filters `ps` by the name prefix. Only the sandbox sweep
+      // sees psOutput; the egress-gateway sweep (name=hermetic-egress-gw-)
+      // matches no sandbox containers, so it must return empty.
+      const nameFilter = (args.find((a) => a.startsWith("name=")) ?? "").slice("name=".length);
+      return done(nameFilter.startsWith("hermetic-egress") ? "" : psOutput.value);
     }
     if (args[0] === "inspect") {
       const name = args[args.length - 1];
-      if (typeof cb === "function") cb(null, inspectCreated.byName[name] ?? "");
-      return {};
+      return done(inspectCreated.byName[name] ?? "");
+    }
+    if (args[0] === "network") {
+      // `network ls` reports no orphan egress networks in these tests.
+      if (args[1] === "ls") return done("");
+      rmCalls.push(args);
+      return done("");
     }
     rmCalls.push(args);
-    if (typeof cb === "function") cb(null, "");
-    return {};
+    return done("");
   },
 }));
 vi.mock("@/lib/logger", () => ({

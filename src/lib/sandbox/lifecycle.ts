@@ -48,6 +48,39 @@ export function killContainer(id: string): Promise<void> {
 const ORPHAN_MIN_AGE_MS = 30 * 60 * 1000;
 
 /**
+ * Egress gateway (container) and network name prefixes (lib/sandbox/egress.ts).
+ * A gateway is `hermetic-egress-gw-<suffix>` and its network
+ * `hermetic-egress-<suffix>`, where <suffix> is the analysis container id's last
+ * 12 chars — the correlation the sweeper uses to tell a LIVE run's gateway from
+ * an orphaned one. (Prefixes duplicated here rather than imported from egress.ts
+ * to avoid a module cycle: egress.ts already imports SANDBOX_RUNID_LABEL below.)
+ */
+const EGRESS_GATEWAY_PREFIX = "hermetic-egress-gw-";
+const EGRESS_NETWORK_PREFIX = "hermetic-egress-";
+
+/** `docker ps` names for a prefix (running containers only). */
+function psNames(prefix: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    execFile(
+      "docker",
+      ["ps", "--filter", `name=${prefix}`, "--format", "{{.Names}}"],
+      (err: unknown, stdout: string) => {
+        resolve(err ? [] : String(stdout).trim().split("\n").filter(Boolean));
+      }
+    );
+  });
+}
+
+/** Container creation time in ms, or NaN when unknown (already gone / odd daemon). */
+function containerCreatedMs(name: string): Promise<number> {
+  return new Promise((resolve) => {
+    execFile("docker", ["inspect", "--format", "{{.Created}}", name], (err, stdout) =>
+      resolve(err ? NaN : Date.parse(String(stdout).trim()))
+    );
+  });
+}
+
+/**
  * Reap orphaned analysis containers — the ONLY cleanup path for a
  * `sleep infinity` container whose run died without its finally (a crash, or
  * a server restart that emptied the run registry). Removes any running
@@ -55,32 +88,43 @@ const ORPHAN_MIN_AGE_MS = 30 * 60 * 1000;
  * registry — run-control's activeSandboxContainerIds()). Scoped to that
  * prefix so the short-lived schema/fingerprint containers (which self-clean
  * and are never registered) are never touched. Containers younger than
- * ORPHAN_MIN_AGE_MS are spared and logged at warn (see above). Returns the
- * number reaped.
+ * ORPHAN_MIN_AGE_MS are spared and logged at warn (see above).
+ *
+ * ALSO reaps orphaned egress infrastructure (finding M7): a restricted-egress
+ * run leaks a `hermetic-egress-gw-*` gateway container and a
+ * `hermetic-egress-*` network if the server crashes before teardown. Gateways
+ * are correlated to their analysis container by the id suffix — a gateway whose
+ * suffix is still an active run is SPARED regardless of age (a legitimately long
+ * remote scan must not lose its egress); otherwise it falls under the same age
+ * rule. Orphaned egress networks are removed after their gateways (docker
+ * refuses to remove an in-use network, so a live run's network is safe anyway).
+ *
+ * Returns the number of containers reaped (sandbox + gateway).
  */
 export async function reapOrphanContainers(activeIds: Set<string>): Promise<number> {
-  const names = await new Promise<string[]>((resolve) => {
-    execFile(
-      "docker",
-      ["ps", "--filter", `name=${SANDBOX_CONTAINER_PREFIX}`, "--format", "{{.Names}}"],
-      (err: unknown, stdout: string) => {
-        resolve(err ? [] : String(stdout).trim().split("\n").filter(Boolean));
-      }
-    );
-  });
-  const candidates = names.filter((n) => !activeIds.has(n));
+  // Correlate gateways/networks to live runs by the analysis container id suffix
+  // the egress names carry (id.slice(-12)).
+  const activeSuffixes = new Set([...activeIds].map((id) => id.slice(-12)));
+
+  const [sandboxNames, gatewayNames] = await Promise.all([
+    psNames(SANDBOX_CONTAINER_PREFIX),
+    psNames(EGRESS_GATEWAY_PREFIX),
+  ]);
+
+  const sandboxCandidates = sandboxNames.filter((n) => !activeIds.has(n));
+  // A gateway's suffix follows the `hermetic-egress-gw-` prefix; spare it while
+  // its analysis container is a live run.
+  const gatewayCandidates = gatewayNames.filter(
+    (n) => !activeSuffixes.has(n.slice(EGRESS_GATEWAY_PREFIX.length))
+  );
+
   const orphans: string[] = [];
   const spared: string[] = [];
   await Promise.all(
-    candidates.map(async (n) => {
-      const createdIso = await new Promise<string | null>((resolve) => {
-        execFile("docker", ["inspect", "--format", "{{.Created}}", n], (err, stdout) =>
-          resolve(err ? null : String(stdout).trim())
-        );
-      });
+    [...sandboxCandidates, ...gatewayCandidates].map(async (n) => {
+      const createdMs = await containerCreatedMs(n);
       // Unparseable/missing Created (container already gone, odd daemon) → treat
       // as reapable; `rm -f` on a vanished container is a harmless no-op.
-      const createdMs = createdIso ? Date.parse(createdIso) : NaN;
       if (Number.isFinite(createdMs) && Date.now() - createdMs < ORPHAN_MIN_AGE_MS) {
         spared.push(n);
       } else {
@@ -89,13 +133,56 @@ export async function reapOrphanContainers(activeIds: Set<string>): Promise<numb
     })
   );
   await Promise.all(orphans.map((n) => killContainer(n)));
+
+  // Remove orphaned egress networks: any hermetic-egress-* network whose suffix
+  // is not an active run. docker refuses to remove an in-use network, so a live
+  // run's network survives even if it isn't in activeSuffixes — belt and braces.
+  await reapOrphanEgressNetworks(activeSuffixes);
+
   if (spared.length) {
-    logger.warn("Sweeper spared unregistered-but-young sandbox containers — registration broken?", {
-      names: spared,
-    });
+    logger.warn(
+      "Sweeper spared unregistered-but-young sandbox/gateway containers — registration broken?",
+      {
+        names: spared,
+      }
+    );
   }
   if (orphans.length) {
-    logger.info("Reaped orphan sandbox containers", { count: orphans.length, names: orphans });
+    logger.info("Reaped orphan sandbox/gateway containers", {
+      count: orphans.length,
+      names: orphans,
+    });
   }
   return orphans.length;
+}
+
+/** Remove leaked egress networks (see reapOrphanContainers). Best-effort. */
+async function reapOrphanEgressNetworks(activeSuffixes: Set<string>): Promise<void> {
+  const names = await new Promise<string[]>((resolve) => {
+    execFile(
+      "docker",
+      ["network", "ls", "--filter", `name=${EGRESS_NETWORK_PREFIX}`, "--format", "{{.Name}}"],
+      (err: unknown, stdout: string) => {
+        resolve(err ? [] : String(stdout).trim().split("\n").filter(Boolean));
+      }
+    );
+  });
+  const orphans = names.filter((n) => {
+    // A network is `hermetic-egress-<suffix>`; the gateway container shares the
+    // EGRESS_NETWORK_PREFIX, so exclude the `gw-` names (containers, not nets —
+    // ls wouldn't list them, but guard anyway) and spare live suffixes.
+    if (n.startsWith(EGRESS_GATEWAY_PREFIX)) return false;
+    return !activeSuffixes.has(n.slice(EGRESS_NETWORK_PREFIX.length));
+  });
+  await Promise.all(
+    orphans.map(
+      (n) =>
+        new Promise<void>((resolve) => {
+          execFile("docker", ["network", "rm", n], () => resolve());
+        })
+    )
+  );
+  if (orphans.length) {
+    logger.info("Removed orphan egress networks", { count: orphans.length, names: orphans });
+  }
 }

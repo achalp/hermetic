@@ -5,7 +5,9 @@ import { pythonNanPrelude } from "./prelude";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LARGE_DATA_TIMEOUT_MS } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
+import { sandboxHardeningRunArgs } from "./hardening";
 import { logger } from "@/lib/logger";
+import type { SandboxRunHooks } from "@/lib/contracts/execution";
 
 const CONTAINER_NAME = "hermetic-warm";
 const CONTAINER_LIFETIME = 86400; // 24 hours
@@ -29,6 +31,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         "--network",
         "none",
         ...(await sandboxMemoryRunArgs()),
+        ...sandboxHardeningRunArgs(),
         DOCKER_SANDBOX_IMAGE,
         "sleep",
         String(CONTAINER_LIFETIME),
@@ -91,11 +94,22 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     }
   }
 
-  async executeScript(code: string): Promise<ExecutionResult> {
+  // The warm container is a docker label, exposed so callers/tests can reason
+  // about which container a warm run touches.
+  static readonly CONTAINER = CONTAINER_NAME;
+
+  async executeScript(code: string, hooks?: SandboxRunHooks): Promise<ExecutionResult> {
     const start = Date.now();
 
+    // Register the shared container so a user Stop can force-remove it and the
+    // reaper knows it's a live run (finding M5). Deregistered in finally.
+    hooks?.onContainerStart?.(CONTAINER_NAME);
     try {
-      // Clean output files only (data stays)
+      // Clean output AND per-run leftovers (data stays). A stale findings.jsonl
+      // sidecar, DuckDB cfg dump, or step_* frame from a prior run in this
+      // reused container would otherwise leak into this run (finding M5).
+      // `find … -type f` deletes the hermetic_* files only — never the
+      // hermetic_runtime PACKAGE directory writeFiles just installed.
       await run(
         "docker",
         [
@@ -103,9 +117,9 @@ export class DockerWarmBackend implements WarmSandboxBackend {
           CONTAINER_NAME,
           "sh",
           "-c",
-          // findings.jsonl included: a stale sidecar in a reused container would
-          // leak a previous run's declarations into this run's manifest.
-          "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt /data/findings.jsonl",
+          "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt " +
+            "/data/findings.jsonl /data/step_*; " +
+            "find /data -maxdepth 1 -type f -name 'hermetic_*' -delete",
         ],
         { timeoutMs: 5_000 }
       );
@@ -117,27 +131,39 @@ export class DockerWarmBackend implements WarmSandboxBackend {
       });
 
       // Execute — slow remote cloud reads (httpfs s3://, https://) need the
-      // extended timeout, same as large local Parquet.
+      // extended timeout, same as large local Parquet. Thread the run's abort
+      // signal so a user Stop aborts the exec (not just the outer timeout).
       const execTimeout = codeDoesRemoteIo(code) ? LARGE_DATA_TIMEOUT_MS : SANDBOX_TIMEOUT_MS;
-      const execResult = await run(
-        "docker",
-        [
-          "exec",
-          CONTAINER_NAME,
-          "sh",
-          "-c",
-          "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
-        ],
-        { timeoutMs: execTimeout }
-      );
-
-      return await parseExecutionOutput(CONTAINER_NAME, start, execResult.stdout);
+      try {
+        const execResult = await run(
+          "docker",
+          [
+            "exec",
+            CONTAINER_NAME,
+            "sh",
+            "-c",
+            "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
+          ],
+          { timeoutMs: execTimeout, signal: hooks?.signal }
+        );
+        return await parseExecutionOutput(CONTAINER_NAME, start, execResult.stdout);
+      } catch (execErr) {
+        // Timeout/abort kills only the `docker exec` CLIENT — the python keeps
+        // running in the SHARED container and can clobber the NEXT run's
+        // /data/output.json (cross-run contamination). Reap it before returning.
+        await run("docker", ["exec", CONTAINER_NAME, "pkill", "-f", "/data/script.py"], {
+          timeoutMs: 5_000,
+        }).catch(() => {});
+        throw execErr;
+      }
     } catch (err) {
       return {
         success: false,
         error: err instanceof Error ? err.message : String(err),
         execution_ms: Date.now() - start,
       };
+    } finally {
+      hooks?.onContainerEnd?.(CONTAINER_NAME);
     }
   }
 

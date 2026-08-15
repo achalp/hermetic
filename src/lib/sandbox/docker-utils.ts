@@ -5,11 +5,17 @@ import { parseSandboxOutput } from "./parse-output";
 export function run(
   cmd: string,
   args: string[],
-  opts?: { input?: string; timeoutMs?: number }
+  opts?: { input?: string; timeoutMs?: number; signal?: AbortSignal }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const ac = new AbortController();
     const timer = opts?.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
+    // An external signal (a user Stop) aborts the same child — without this the
+    // warm path could only kill on its own timeout, leaving the exec running.
+    if (opts?.signal) {
+      if (opts.signal.aborted) ac.abort();
+      else opts.signal.addEventListener("abort", () => ac.abort(), { once: true });
+    }
 
     const child = execFile(
       cmd,
@@ -18,7 +24,13 @@ export function run(
       (err, stdout, stderr) => {
         if (timer) clearTimeout(timer);
         if (err && (err as NodeJS.ErrnoException).code === "ABORT_ERR") {
-          reject(new Error("Sandbox execution timed out"));
+          // Distinguish a user abort from the internal timeout so the caller
+          // isn't told "timed out" when the user pressed Stop.
+          reject(
+            new Error(
+              opts?.signal?.aborted ? "Sandbox execution aborted" : "Sandbox execution timed out"
+            )
+          );
           return;
         }
         // execFile passes exit-code errors through `err`

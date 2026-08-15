@@ -55,10 +55,45 @@ function runPrelude(fixture: string): Record<string, unknown> {
   return JSON.parse(runPreludeRaw(fixture));
 }
 
+/** Run PRELUDE + fixture in python3; return the captured STDOUT (progress
+ *  stream), not output.json. */
+function runPreludeStdout(fixture: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "prelude-stdout-"));
+  try {
+    const scriptPath = join(dir, "script.py");
+    writeFileSync(scriptPath, pythonNanPrelude() + "\n" + fixture);
+    const proc = spawnSync("python3", [scriptPath], { encoding: "utf-8" });
+    if (proc.status !== 0) throw new Error(`python3 failed (${proc.status}): ${proc.stderr}`);
+    return proc.stdout;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe.skipIf(!havePython)("pythonNanPrelude() — executed", () => {
   it("the prelude itself is valid Python (no template-escaping breakage)", () => {
     const out = runPrelude(`write_output(results={'ok': 1})`);
     expect(out.results).toEqual({ ok: 1 });
+  });
+
+  it("progress() emits REAL newline-delimited __progress JSONL (finding 02)", () => {
+    // The prelude built the JSONL with a LITERAL two-char backslash-n instead
+    // of a newline (a TS-template extraction artifact), so every progress
+    // object landed on ONE physical line joined by `\n` text — stdout splitting
+    // could never separate them. Assert real newlines: multiple parseable lines.
+    const stdout = runPreludeStdout(
+      `progress("phase-one", "detail A")\nprogress("phase-two", "detail B")`
+    );
+    const progressLines = stdout
+      .split("\n")
+      .filter((l) => l.includes("__progress"))
+      .map((l) => JSON.parse(l) as { __progress?: { phase?: string } });
+    // At least the two explicit calls above land on their own physical lines.
+    expect(progressLines.length).toBeGreaterThanOrEqual(2);
+    expect(progressLines.every((p) => typeof p.__progress?.phase === "string")).toBe(true);
+    // The literal-\n regression would have left a backslash-n sequence inside a
+    // single physical progress line.
+    expect(stdout).not.toMatch(/}\\n\{/);
   });
 
   it("write_output coerces NaN/Inf to null so the output is strict JSON", () => {

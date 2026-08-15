@@ -12,10 +12,12 @@ import {
   preflightLintError,
 } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
+import { sandboxHardeningRunArgs } from "./hardening";
 import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger } from "@/lib/logger";
 import { setupEgressNetwork, type EgressNetwork } from "./egress";
+import { setupL3BlockedNetwork } from "./egress-l3";
 import { SANDBOX_RUNID_LABEL } from "./lifecycle";
 import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 
@@ -30,8 +32,13 @@ export interface DockerExecOptions {
   network?: "auto" | "deny";
   /** When the run IS granted network for a remote source, restrict egress to
    *  exactly these hosts via an internal network + allowlist gateway
-   *  (lib/sandbox/egress.ts). Empty/absent = today's open egress. */
+   *  (lib/sandbox/egress.ts). The credentialed (L7) tier. */
   allowedEgressHosts?: string[];
+  /** No-creds public-source tier (egress-l3.ts): run on a dedicated bridge that
+   *  DROPs traffic to cloud-metadata/RFC-1918/loopback while allowing native
+   *  egress to the public internet. Fails SAFE to --network none if the rules
+   *  can't be installed. Ignored under network:"deny" or with allowedEgressHosts. */
+  l3BlockedEgress?: boolean;
   /** Owning run id, stamped as a docker label (SANDBOX_RUNID_LABEL) so the
    *  container is attributable to its run from `docker ps`/inspect. Supplied
    *  by the pipeline caller — this layer never imports run-context. */
@@ -59,18 +66,33 @@ export async function executeSandbox(
     //    `sleep infinity` — the container's own lifetime must not be a hidden
     //    self-kill either; it's torn down in the finally (or by the store
     //    sweeper if the process died).
-    const runArgs = ["run", "-d", "--name", id, ...(await sandboxMemoryRunArgs())];
+    const runArgs = [
+      "run",
+      "-d",
+      "--name",
+      id,
+      ...(await sandboxMemoryRunArgs()),
+      ...sandboxHardeningRunArgs(),
+    ];
     // Attribute the container to its run (forensics / lifecycle tooling).
     if (opts.runId) runArgs.push("--label", `${SANDBOX_RUNID_LABEL}=${opts.runId}`);
     // No network unless the code actually reads remote data — this is what
     // makes the sandbox isolation claim true for local-data analyses. The
     // image pre-bundles the DuckDB httpfs/spatial extensions, so offline
     // INSTALL/LOAD still works under --network none.
-    const withNetwork = opts.network === "deny" ? false : codeNeedsNetwork(code);
+    // Network is granted only when the source earned it (index.ts) — signalled
+    // here by an egress tier flag or plain remote-IO code. Explicit egress
+    // requests (allowlist / L3) force network on even if the regex disagrees.
+    const withNetwork =
+      opts.network === "deny"
+        ? false
+        : codeNeedsNetwork(code) ||
+          !!(opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0) ||
+          !!opts.l3BlockedEgress;
     if (!withNetwork) {
       runArgs.push("--network", "none");
     } else if (opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0) {
-      // Bucket-scoped egress: internal network + allowlist gateway. The
+      // Credentialed (L7) tier: internal network + allowlist gateway. The
       // container has no route out except the proxy, and the proxy only
       // opens toward the derived hosts.
       // Short id: the gateway's container name doubles as a DNS label
@@ -79,6 +101,17 @@ export async function executeSandbox(
       runArgs.push("--network", egress.networkName);
       for (const [k, v] of Object.entries(egress.env)) {
         runArgs.push("-e", `${k}=${v}`);
+      }
+    } else if (opts.l3BlockedEgress) {
+      // No-creds public-source (L3) tier: dedicated bridge with kernel DROP
+      // rules for metadata/RFC-1918/loopback. Fail SAFE — if the rules can't
+      // be installed (no NET_ADMIN), run --network none, NEVER open bridge.
+      const l3Network = await setupL3BlockedNetwork();
+      if (l3Network) {
+        runArgs.push("--network", l3Network);
+      } else {
+        logger.warn("L3-blocked egress unavailable — failing safe to --network none", { id });
+        runArgs.push("--network", "none");
       }
     }
     if (localMountPath) {

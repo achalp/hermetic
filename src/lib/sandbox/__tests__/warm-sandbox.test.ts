@@ -34,7 +34,9 @@ class TrackingBackend implements WarmSandboxBackend {
   async writeFiles(): Promise<void> {
     this.writeFilesCalls++;
   }
-  async executeScript(): Promise<ExecutionResult> {
+  lastHooks: unknown = "unset";
+  async executeScript(_code: string, hooks?: unknown): Promise<ExecutionResult> {
+    this.lastHooks = hooks;
     await this.critical();
     return { success: true, results: {}, chart_data: {}, images: {}, execution_ms: 1 };
   }
@@ -67,6 +69,18 @@ describe("WarmSandboxManager concurrency", () => {
 
     expect(backend.loads).toEqual(["csv-a"]); // loaded once
     expect(backend.maxActive).toBe(1);
+  });
+});
+
+describe("hooks forwarding (finding M5)", () => {
+  it("threads execute()'s hooks through to the backend executeScript", async () => {
+    const backend = new TrackingBackend();
+    const mgr = new WarmSandboxManager(backend);
+    const hooks = { signal: new AbortController().signal, onContainerStart: () => {} };
+    await mgr.execute("csv-1", "a,b\n1,2", "code", { hooks });
+    // execute() accepted hooks but never passed them on — a user Stop could not
+    // reach the shared warm container.
+    expect(backend.lastHooks).toBe(hooks);
   });
 });
 

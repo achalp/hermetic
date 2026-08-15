@@ -67,7 +67,14 @@ def pump(a, b):
     t.join()
 
 
+# A well-formed proxy request line + headers are small; cap the header read so
+# a client that never sends the CRLFCRLF terminator can't make us buffer without
+# bound. 64 KiB is far past any legitimate CONNECT/GET header block.
+MAX_HEADER_BYTES = 65536
+
+
 def handle(client):
+    upstream = None
     try:
         client.settimeout(30)
         head = b""
@@ -76,6 +83,13 @@ def handle(client):
             if not chunk:
                 return
             head += chunk
+            if len(head) > MAX_HEADER_BYTES:
+                log("DENY oversized request header")
+                try:
+                    client.sendall(b"HTTP/1.1 431 Request Header Fields Too Large\r\n\r\n")
+                except OSError:
+                    pass
+                return
         request_line = head.split(b"\r\n", 1)[0].decode("latin1", "replace")
         parts = request_line.split(" ")
         if len(parts) < 3:
@@ -91,7 +105,6 @@ def handle(client):
             upstream = socket.create_connection((host, int(port or 443)), timeout=30)
             client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             pump(client, upstream)
-            upstream.close()
             return
 
         # Absolute-URI plain HTTP (GET http://host/path)
@@ -107,10 +120,17 @@ def handle(client):
         rest = head.split(b"\r\n", 1)[1]
         upstream.sendall(f"{method} {origin} HTTP/1.1\r\n".encode("latin1") + rest)
         pump(client, upstream)
-        upstream.close()
     except OSError as e:
         log(f"error: {e}")
     finally:
+        # Close BOTH sockets on every exit path — a connection that failed
+        # after create_connection but before/inside pump used to leak the
+        # upstream fd until the process died.
+        if upstream is not None:
+            try:
+                upstream.close()
+            except OSError:
+                pass
         try:
             client.close()
         except OSError:
@@ -124,7 +144,14 @@ def main():
     srv.bind(("0.0.0.0", PORT))
     srv.listen(64)
     while True:
-        conn, _ = srv.accept()
+        # One transient accept() error (EMFILE, an interrupted syscall) must not
+        # silently kill the proxy and strand every in-flight analysis with an
+        # opaque connection failure — log and keep serving.
+        try:
+            conn, _ = srv.accept()
+        except OSError as e:
+            log(f"accept error: {e}")
+            continue
         threading.Thread(target=handle, args=(conn,), daemon=True).start()
 
 

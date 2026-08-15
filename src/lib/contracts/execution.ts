@@ -23,6 +23,11 @@ export interface SandboxExecutionResult {
    *  with mandatory context (of-ref or label). Synthesized into results.
    *  Absent for legacy envelopes. */
   values?: unknown[];
+  /** Declared payloads (declare_payload / declare_dendrogram): the (id, format)
+   *  pairs the host licenses payload-fed VIEWs against. The data itself rides
+   *  chart_data[id]; this list is the licensing manifest. Absent for legacy
+   *  envelopes and runs that declared no payloads. */
+  payloads?: { id: string; format: string }[];
   /** Regime profiles per declared series (regime-matrix spec §2): the
    *  deterministic diagnostics + fired flags explaining WHY methods were
    *  chosen. Absent for legacy envelopes. */

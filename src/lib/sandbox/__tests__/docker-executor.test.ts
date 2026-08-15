@@ -33,6 +33,13 @@ vi.mock("@/lib/sandbox/egress", () => ({
   setupEgressNetwork: (...a: unknown[]) => setupEgressNetwork(...(a as [string, string[]])),
 }));
 
+// L3-blocked egress: mocked so we can assert the executor joins the dedicated
+// bridge on success and fails SAFE to --network none on failure.
+const setupL3BlockedNetwork = vi.fn(async (): Promise<string | null> => "hermetic-sandbox-l3");
+vi.mock("@/lib/sandbox/egress-l3", () => ({
+  setupL3BlockedNetwork: () => setupL3BlockedNetwork(),
+}));
+
 import { executeSandbox } from "@/lib/sandbox/docker-executor";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
 import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
@@ -50,6 +57,7 @@ beforeEach(() => {
   // the arg-sequence tests below see the same shape they always did.
   resetDaemonMemoryCacheForTests();
   streamExec.mockResolvedValue({ exitCode: 0, aborted: false });
+  setupL3BlockedNetwork.mockResolvedValue("hermetic-sandbox-l3");
   mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
   mockedParse.mockResolvedValue({
     success: true,
@@ -193,6 +201,36 @@ describe("docker executeSandbox", () => {
       allowedEgressHosts: ["x.example.com"],
     });
     expect(setupEgressNetwork).not.toHaveBeenCalled();
+    const create = createCall();
+    expect(create[create.indexOf("--network") + 1]).toBe("none");
+  });
+
+  it("applies container hardening flags to every run (finding M10)", async () => {
+    await executeSandbox("a,b\n1,2\n", "print('hi')");
+    const create = createCall();
+    expect(create).toContain("--pids-limit");
+    expect(create).toContain("--cpus");
+    expect(create).toContain("--security-opt");
+    expect(create[create.indexOf("--security-opt") + 1]).toBe("no-new-privileges");
+    expect(create).toContain("--cap-drop");
+    expect(create[create.indexOf("--cap-drop") + 1]).toBe("ALL");
+  });
+
+  it("l3BlockedEgress: joins the dedicated L3 bridge (finding 04)", async () => {
+    await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://pub/x.parquet'\")", {
+      l3BlockedEgress: true,
+    });
+    expect(setupL3BlockedNetwork).toHaveBeenCalled();
+    expect(setupEgressNetwork).not.toHaveBeenCalled();
+    const create = createCall();
+    expect(create[create.indexOf("--network") + 1]).toBe("hermetic-sandbox-l3");
+  });
+
+  it("l3BlockedEgress fails SAFE to --network none when the bridge can't be set up", async () => {
+    setupL3BlockedNetwork.mockResolvedValueOnce(null); // no NET_ADMIN / iptables missing
+    await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://pub/x.parquet'\")", {
+      l3BlockedEgress: true,
+    });
     const create = createCall();
     expect(create[create.indexOf("--network") + 1]).toBe("none");
   });

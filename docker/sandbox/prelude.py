@@ -27,7 +27,7 @@ def progress(phase=None, detail=None, **fields):
     if _hb["detail"] is not None: p["detail"] = _hb["detail"]
     for _k, _v in fields.items(): p[_k] = _v
     try:
-        _sys.stdout.write(_json_mod.dumps({"__progress": p}) + "\\n"); _sys.stdout.flush()
+        _sys.stdout.write(_json_mod.dumps({"__progress": p}) + "\n"); _sys.stdout.flush()
     except Exception:
         pass
 def _hb_loop():
@@ -130,11 +130,11 @@ def _mem_watchdog():
                 # — a generic "you OOM'd" message is unactionable when the code is
                 # already coordinates-only + counting (observed: retry reproduced
                 # the same shape). Strip brackets/newlines so [phase=...] parses.
-                _ph = str(_hb.get("phase") or "unknown").replace("]", ")").replace("\\n", " ")[:120]
+                _ph = str(_hb.get("phase") or "unknown").replace("]", ")").replace("\n", " ")[:120]
                 _sys.stderr.write(
                     "HERMETIC_OOM_PREDICTED: [phase=%s] memory reached %d%% of the %s cap — aborting "
                     "before the OOM-kill. " % (_ph, int(_frac * 100), _lim)
-                    + _INFEASIBLE_MSG.format(limit=_lim) + "\\n")
+                    + _INFEASIBLE_MSG.format(limit=_lim) + "\n")
                 _sys.stderr.flush()
                 _os._exit(137)
         else:
@@ -215,7 +215,11 @@ try:
         _ddb_mb = max(384, int(_ddb_bytes / (1024 * 1024)))
         _ddb_set("SET memory_limit='%dMB'" % _ddb_mb)
         _ddb_set("SET temp_directory='/tmp/duckdb_spill'")
-        _ddb_set("SET max_temp_directory_size='40GB'")
+        # Bound the on-disk spill so a runaway scan can't fill the Docker VM's
+        # shared disk (a 40GB cap could exhaust it and wedge the daemon for
+        # every container). 8GB is ample for the grid-count/coarse-to-fine
+        # strategies these runs use, which spill hash tables, not raw data.
+        _ddb_set("SET max_temp_directory_size='8GB'")
     # Cap scan THREADS relative to the cap. memory_limit bounds DuckDB's buffer
     # manager (hash tables/sorts — spillable), NOT the parallel Parquet/httpfs scan's
     # per-thread row-group read+decompress buffers: those are LIVE (never spill) and
@@ -249,7 +253,7 @@ try:
                 % (_threads, _threads_ok, (("%dMB" % _ddb_mb) if _ddb_mb else "default")))
     try:
         with open("/data/hermetic_duckdb_cfg.txt", "w") as _cf:
-            _cf.write("HERMETIC_DUCKDB_CFG: " + _cfg_str + "\\n")
+            _cf.write("HERMETIC_DUCKDB_CFG: " + _cfg_str + "\n")
     except Exception:
         pass
     try:

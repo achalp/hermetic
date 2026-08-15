@@ -78,6 +78,27 @@ describe("parseSandboxOutput", () => {
     });
   });
 
+  it("preserves declared payloads (finding M2 — zod used to strip them, breaking licensing)", async () => {
+    const payloads = [
+      { id: "dendro_1", format: "linkage" },
+      { id: "tree_2", format: "newick" },
+    ];
+    const result = await parseSandboxOutput({
+      ...base,
+      readFile: io({
+        "/data/output.json": JSON.stringify({
+          results: {},
+          chart_data: {},
+          payloads,
+        }),
+      }),
+    });
+    expect(result.success).toBe(true);
+    // Without `payloads` in the envelope schema, zod dropped the key and
+    // declare_dendrogram licensing was always empty.
+    expect((result as unknown as { payloads?: unknown }).payloads).toEqual(payloads);
+  });
+
   it("falls back to stdout.txt when output.json is absent or empty", async () => {
     const result = await parseSandboxOutput({
       ...base,

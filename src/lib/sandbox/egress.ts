@@ -17,6 +17,7 @@ import { hermeticPaths } from "@/lib/paths";
 import { DOCKER_SANDBOX_IMAGE } from "@/lib/constants";
 import { run } from "./docker-utils";
 import { logger } from "@/lib/logger";
+import { SANDBOX_RUNID_LABEL } from "./lifecycle";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 
 export const EGRESS_PROXY_PORT = 3128;
@@ -70,28 +71,32 @@ export function deriveAllowedEgressHosts(url: string, creds?: RemoteCreds): stri
 
 /**
  * The egress posture for a remote source, tiered by WHAT IS IN THE CONTAINER
- * (proxy settlement, 2026-08-13): the sandbox runs LLM-generated code, and
- * DuckDB runs inside that code — the allowlist's purpose is to keep injected
- * code from exfiltrating what the container holds.
+ * (proxy settlement 2026-08-13; L3 rework, finding 04): the sandbox runs
+ * LLM-generated code, and DuckDB runs inside that code — the allowlist's
+ * purpose is to keep injected code from exfiltrating what the container holds.
  *
- *  - No stored credentials (public bucket, e.g. Overture): the container
- *    holds NOTHING secret and the data is public — "open" grants ordinary
- *    bridge egress and skips the proxy entirely (measured 30x faster on
- *    planet-scale scans; the GIL-bound relay was the whole regression,
- *    run e1c88a71: 45s -> 25min).
+ *  - No remote source URL (local CSV/parquet, warehouse-materialized, or an
+ *    underivable ref): "deny" — --network none. Network is a property of the
+ *    SOURCE; a local-data run never earns egress (finding 01).
+ *  - Remote URL, NO stored credentials (public bucket, e.g. Overture): the
+ *    container holds nothing secret, but must still be kept from reaching cloud
+ *    metadata / private ranges / loopback — "l3blocked" runs it on a dedicated
+ *    bridge with kernel DROP rules for those ranges (egress-l3.ts) and native
+ *    line-rate egress to the public internet. This replaces the old "open"
+ *    tier, which reached 169.254.169.254 + RFC-1918 + loopback unrestricted.
  *  - Credentials present: they enter the container env for DuckDB, which is
- *    exactly the exfiltration case — "allowlist" with the derived hosts.
+ *    exactly the exfiltration case — "allowlist" with the derived hosts, via
+ *    the L7 proxy (hostname allowlisting genuinely needs L7).
  *  - Credentials present but no host derivable (unparseable URL): "deny" —
- *    fail closed, never open. (Previously a latent hole: an empty host list
- *    fell through to open egress WITH creds in the env.)
+ *    fail closed, never open.
  */
 export function egressPolicyFor(
   url: string | undefined,
   creds?: RemoteCreds
-): { mode: "open" | "allowlist" | "deny"; hosts?: string[] } {
-  if (!url) return { mode: "open" };
+): { mode: "l3blocked" | "allowlist" | "deny"; hosts?: string[] } {
+  if (!url) return { mode: "deny" };
   const hasCreds = Boolean(creds?.s3AccessKeyId || creds?.s3SecretAccessKey);
-  if (!hasCreds) return { mode: "open" };
+  if (!hasCreds) return { mode: "l3blocked" };
   const hosts = deriveAllowedEgressHosts(url, creds);
   if (hosts.length === 0) return { mode: "deny" };
   return { mode: "allowlist", hosts };
@@ -129,6 +134,10 @@ export async function setupEgressNetwork(
         "-d",
         "--name",
         gatewayName,
+        // Stamp the run label so the orphan sweeper can reap a gateway (and its
+        // network) whose run crashed without teardown (finding M7).
+        "--label",
+        `${SANDBOX_RUNID_LABEL}=${runId}`,
         "--network",
         networkName,
         "--add-host=host.docker.internal:host-gateway",

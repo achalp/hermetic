@@ -104,10 +104,23 @@ export function executeSandbox(
   // dispatch point — so all runtimes and the warm paths get it identically.
   const additionalFiles = [...hermeticRuntimeFiles(), ...(opts.additionalFiles ?? [])];
 
+  // Network is a property of the SOURCE, not the code (finding 01). A run may
+  // only be granted a network namespace when it is backed by an actual REMOTE
+  // source URL (or an explicit caller-supplied egress allowlist); the code
+  // regex (codeNeedsNetwork) can then only NARROW that grant, never widen it.
+  // Deriving the grant from `codeNeedsNetwork(code)` alone was an exfiltration
+  // hole: a LOCAL-CSV run whose injected code merely contained a URL got full
+  // bridge egress while the user's data sat in /data.
+  const stored = csvId ? getStoredCSV(csvId) : undefined;
+  const remoteParquetUrl = stored?.remoteParquetUrl;
+  const sourceAllowsNetwork =
+    network !== "deny" && (Boolean(remoteParquetUrl) || Boolean(opts.allowedEgressHosts?.length));
+
   // Both a bind-mount (browsed local files) and a copied-in Parquet (materialized
   // data) need the ephemeral Docker path — the warm container can't take a volume,
   // and a per-run copied file shouldn't leak across the shared warm container.
-  // (The gate above guarantees rt === "docker" here.)
+  // (The gate above guarantees rt === "docker" here.) These are LOCAL data by
+  // construction, so network is FORCED OFF regardless of what the code contains.
   if (localMountPath || inputParquetPath) {
     return dockerExecutor(csvContent, code, {
       geojsonContent,
@@ -115,28 +128,27 @@ export function executeSandbox(
       localMountPath,
       inputParquetPath,
       hooks,
-      network,
+      network: "deny",
       runId: opts.runId,
     });
   }
 
-  // The warm Docker container runs with --network none (shared, created
-  // before any code is known). Code that reads remote data gets a fresh
-  // ephemeral container with network instead of the warm path.
-  // Under "deny" this branch must not fire: network-looking code still runs,
-  // but with no network — reads fail inside the jail instead of escaping it.
-  if (rt === "docker" && network !== "deny" && codeNeedsNetwork(code)) {
+  // A remote-source run gets a fresh ephemeral container with restricted egress
+  // instead of the (always --network none) warm path. Under "deny", or with no
+  // remote source at all, this branch must not fire: network-looking code still
+  // runs, but with no network — reads fail inside the jail instead of escaping it.
+  if (rt === "docker" && sourceAllowsNetwork && codeNeedsNetwork(code)) {
     // Egress tiered by what the container HOLDS (egressPolicyFor): a
-    // credential-less public source grants open bridge egress (nothing
-    // secret to exfiltrate; the proxy relay cost a 30x slowdown on
-    // planet-scale scans — run e1c88a71); a source with stored creds gets
-    // the bucket-scoped allowlist; creds with no derivable host fail
-    // CLOSED. Warehouse sources never reach this branch at all — they
-    // materialize host-side and run --network none.
-    const stored = csvId ? getStoredCSV(csvId) : undefined;
+    // credential-less public source runs on an L3-blocked bridge (native
+    // line-rate egress to the public internet, kernel drops packets aimed at
+    // metadata/RFC-1918/loopback — nothing secret to exfiltrate, and the L7
+    // proxy relay cost a 30x slowdown on planet-scale scans, run e1c88a71); a
+    // source with stored creds gets the bucket-scoped L7 allowlist; creds with
+    // no derivable host fail CLOSED. Warehouse sources never reach this branch
+    // at all — they materialize host-side and run --network none.
     const policy = opts.allowedEgressHosts
       ? ({ mode: "allowlist", hosts: opts.allowedEgressHosts } as const)
-      : egressPolicyFor(stored?.remoteParquetUrl, stored?.remoteCreds);
+      : egressPolicyFor(remoteParquetUrl, stored?.remoteCreds);
     if (policy.mode === "deny") {
       logger.warn("Remote source has creds but no derivable egress host — network denied", {
         csvId,
@@ -147,6 +159,7 @@ export function executeSandbox(
       additionalFiles,
       hooks,
       ...(policy.mode === "allowlist" ? { allowedEgressHosts: policy.hosts } : {}),
+      ...(policy.mode === "l3blocked" ? { l3BlockedEgress: true as const } : {}),
       ...(policy.mode === "deny" ? { network: "deny" as const } : {}),
       runId: opts.runId,
     });
@@ -161,12 +174,15 @@ export function executeSandbox(
     }
   }
 
-  // Fallback to ephemeral executors
+  // Fallback to ephemeral executors. A run reaching here was NOT granted
+  // network above (no remote source, or it narrowed off), so Docker runs it
+  // under --network none — the code regex may never re-open egress on a
+  // local-data run from down here either.
   return (executors[rt] ?? dockerExecutor)(csvContent, code, {
     geojsonContent,
     additionalFiles,
     hooks,
-    ...(rt === "docker" ? { network, runId: opts.runId } : {}),
+    ...(rt === "docker" ? { network: "deny" as const, runId: opts.runId } : {}),
   });
 }
 
