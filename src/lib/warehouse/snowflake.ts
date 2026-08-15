@@ -50,18 +50,35 @@ export function createSnowflakeConnector(config: SnowflakeConnectionConfig): War
     });
   });
 
-  function executeQuery<T = SnowflakeRow>(sqlText: string): Promise<T[]> {
+  function executeQuery<T = SnowflakeRow>(sqlText: string, signal?: AbortSignal): Promise<T[]> {
     return new Promise((resolve, reject) => {
-      connection.execute({
+      if (signal?.aborted) {
+        const e = new Error("Query aborted");
+        e.name = "AbortError";
+        reject(e);
+        return;
+      }
+      // Capture the statement handle so an abort can cancel it server-side
+      // (statement.cancel) rather than merely dropping the client wait.
+      const stmt = connection.execute({
         sqlText,
         complete: (err, _stmt, rows) => {
+          if (signal) signal.removeEventListener("abort", onAbort);
           if (err) {
             reject(new Error(err.message ?? String(err)));
           } else {
             resolve((rows ?? []) as unknown as T[]);
           }
         },
-      });
+      }) as unknown as { cancel?: (cb: (err?: unknown) => void) => void };
+      const onAbort = () => {
+        try {
+          stmt?.cancel?.(() => {});
+        } catch {
+          // best-effort
+        }
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
@@ -208,9 +225,13 @@ export function createSnowflakeConnector(config: SnowflakeConnectionConfig): War
       return schemas;
     },
 
-    async executeSQL(sql: string): Promise<string> {
+    // RESIDUAL: the snowflake-sdk buffers the full result set through its
+    // callback, so rows are collected into one array (no byte-budget backstop);
+    // abort DOES cancel the statement server-side via executeQuery. postgres.ts
+    // is the streaming reference.
+    async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
       await connectPromise;
-      const rows = await executeQuery<SnowflakeRow>(sql);
+      const rows = await executeQuery<SnowflakeRow>(sql, signal);
       if (rows.length === 0) return "";
 
       const headers = Object.keys(rows[0]);

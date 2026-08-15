@@ -34,13 +34,21 @@ export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseCo
   const schemaName = config.schema;
 
   /** Execute a query and collect all rows */
-  async function runQuery(sql: string): Promise<{ columns: string[]; rows: unknown[][] }> {
+  async function runQuery(
+    sql: string,
+    signal?: AbortSignal
+  ): Promise<{ columns: string[]; rows: unknown[][] }> {
     const iter = await trino.query(sql);
     const columns: string[] = [];
     const rows: unknown[][] = [];
 
     let result = await iter.next();
     while (!result.done) {
+      if (signal?.aborted) {
+        const e = new Error("Query aborted");
+        e.name = "AbortError";
+        throw e;
+      }
       const qr = result.value;
       // Capture column names from first result with columns
       if (columns.length === 0 && qr.columns) {
@@ -129,8 +137,12 @@ export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseCo
       return schemas;
     },
 
-    async executeSQL(sql: string): Promise<string> {
-      const { columns, rows } = await runQuery(sql);
+    // RESIDUAL: trino-client has no server-side cancel handle, so on abort we
+    // stop consuming the paged result (checked between pages in runQuery) rather
+    // than cancelling the server query; and rows are still collected into one
+    // array (no byte-budget backstop). postgres.ts is the streaming reference.
+    async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
+      const { columns, rows } = await runQuery(sql, signal);
 
       if (rows.length === 0) return "";
 

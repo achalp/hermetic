@@ -73,13 +73,22 @@ export function createDatabricksConnector(config: DatabricksConnectionConfig): W
     return session;
   }
 
-  async function executeQuery<T = Row>(sql: string): Promise<T[]> {
+  async function executeQuery<T = Row>(sql: string, signal?: AbortSignal): Promise<T[]> {
+    if (signal?.aborted) {
+      const e = new Error("Query aborted");
+      e.name = "AbortError";
+      throw e;
+    }
     const sess = await ensureSession();
     const op = await sess.executeStatement(sql, { runAsync: false });
+    // On abort, close the operation to stop the fetch (best-effort).
+    const onAbort = () => void op.close().catch(() => {});
+    signal?.addEventListener("abort", onAbort, { once: true });
     try {
       const rows = (await op.fetchAll()) as unknown as T[];
       return rows;
     } finally {
+      signal?.removeEventListener("abort", onAbort);
       await op.close().catch(() => {});
     }
   }
@@ -157,8 +166,12 @@ export function createDatabricksConnector(config: DatabricksConnectionConfig): W
       return schemas;
     },
 
-    async executeSQL(sql: string): Promise<string> {
-      const rows = await executeQuery<Row>(sql);
+    // RESIDUAL: the @databricks/sql driver buffers the full result via fetchAll,
+    // so rows are collected into one array (no byte-budget backstop); abort
+    // closes the operation to stop the fetch. postgres.ts is the streaming
+    // reference.
+    async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
+      const rows = await executeQuery<Row>(sql, signal);
       if (rows.length === 0) return "";
 
       // Databricks returns nested objects/arrays as JS values; use the first

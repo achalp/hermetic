@@ -15,6 +15,13 @@ export interface PostgresConnectionConfig {
   user: string;
   password: string;
   ssl?: boolean;
+  /**
+   * When `ssl` is on, whether to VERIFY the server certificate. Defaults to
+   * true (MITM protection). Set to false ONLY to trust a self-signed /
+   * internal-CA cert — an explicit opt-in, never the silent default it used to
+   * be. Additive + optional: existing configs (undefined) get secure verification.
+   */
+  sslRejectUnauthorized?: boolean;
   schema?: string;
 }
 

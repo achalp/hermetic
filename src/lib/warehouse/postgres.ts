@@ -6,7 +6,57 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { rowsToCsv } from "@/lib/csv/csv-util";
+import { csvValue } from "@/lib/csv/csv-util";
+import { MAX_CSV_SIZE_BYTES } from "@/lib/constants";
+import { logger } from "@/lib/logger";
+
+/** Server-side cursor name + page size for the streaming extract path. */
+const EXTRACT_CURSOR = "hermetic_extract_cur";
+const EXTRACT_BATCH_ROWS = 5_000;
+
+/** An Error the fetch loop / callers can recognize as a user-initiated abort. */
+function abortError(): Error {
+  const e = new Error("Query aborted");
+  e.name = "AbortError";
+  return e;
+}
+
+/**
+ * Resolve the pg `ssl` option from the config.
+ *
+ * SSL OFF → no TLS (unchanged). SSL ON → VERIFY the server certificate by
+ * default (`rejectUnauthorized: true`) so a MITM can't impersonate the server;
+ * this is the security fix. A caller that genuinely needs a self-signed /
+ * internal-CA cert opts in EXPLICITLY with `sslRejectUnauthorized: false` —
+ * previously every SSL connection silently accepted any cert.
+ *
+ * Exported for unit testing (no DB connection needed).
+ */
+export function resolvePostgresSsl(
+  config: Pick<PostgresConnectionConfig, "ssl" | "sslRejectUnauthorized">
+): false | { rejectUnauthorized: boolean } {
+  if (!config.ssl) return false;
+  return { rejectUnauthorized: config.sslRejectUnauthorized !== false };
+}
+
+/**
+ * Cancel a running statement server-side. The cursor's own connection is
+ * blocked inside FETCH, so cancellation MUST come over a SECOND connection
+ * calling pg_cancel_backend on the first's PID. Best-effort — the request is
+ * already tearing down client-side.
+ */
+async function cancelBackend(pool: pg.Pool, pid: number): Promise<void> {
+  try {
+    const c = await pool.connect();
+    try {
+      await c.query("SELECT pg_cancel_backend($1)", [pid]);
+    } finally {
+      c.release();
+    }
+  } catch {
+    // ignore — abort is best-effort
+  }
+}
 
 export function createPostgresConnector(config: PostgresConnectionConfig): WarehouseConnector {
   // Use Pool instead of Client for automatic connection management,
@@ -17,7 +67,7 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
     database: config.database,
     user: config.user,
     password: config.password,
-    ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+    ssl: resolvePostgresSsl(config),
     connectionTimeoutMillis: 10_000,
     max: 3, // small pool — this is an analytical tool, not a web server
     idleTimeoutMillis: 60_000,
@@ -162,13 +212,94 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
       return schemas;
     },
 
-    async executeSQL(sql: string): Promise<string> {
-      const res = await pool.query(sql);
+    async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
+      if (signal?.aborted) throw abortError();
 
-      if (!res.rows.length) return "";
+      // Reference STREAMING implementation. A server-side cursor pages the
+      // result in bounded batches, so neither the full pg row-object array NOR
+      // (past the byte budget) an unbounded CSV string is ever held whole in the
+      // Node heap. This bounds MEMORY without bounding ROWS or changing the
+      // query's answer — contrast a LIMIT/row-cap, which would silently truncate
+      // a large extract or make an aggregate confidently wrong.
+      // Register the abort handler BEFORE connecting so an abort that lands
+      // while we're mid-setup isn't lost. Until the backend PID is known there
+      // is no server statement to cancel; once it is, cancel immediately if the
+      // abort already happened, else on the next abort.
+      let backendPid: number | undefined;
+      let sawAbort = false;
+      const onAbort = () => {
+        sawAbort = true;
+        if (backendPid !== undefined) void cancelBackend(pool, backendPid);
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
 
-      const headers = res.fields.map((f) => f.name);
-      return rowsToCsv(headers, res.rows);
+      const client = await pool.connect();
+      let inTxn = false;
+      try {
+        const pidRes = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+        backendPid = Number(pidRes.rows[0]?.pid);
+        if (sawAbort) void cancelBackend(pool, backendPid); // abort raced setup
+
+        // Read-only txn (the pool already forces default_transaction_read_only)
+        // holding a cursor over the EXACT user SELECT — DECLARE wraps it, it does
+        // not rewrite or LIMIT it. Strip a trailing `;` so it nests cleanly.
+        const inner = sql.trim().replace(/;\s*$/, "");
+        await client.query("BEGIN");
+        inTxn = true;
+        await client.query(`DECLARE ${EXTRACT_CURSOR} NO SCROLL CURSOR FOR ${inner}`);
+
+        let headers: string[] | null = null;
+        const lines: string[] = [];
+        let bytes = 0;
+        let dataRows = 0;
+        let truncated = false;
+
+        for (;;) {
+          if (signal?.aborted) throw abortError();
+          const batch = await client.query(
+            `FETCH FORWARD ${EXTRACT_BATCH_ROWS} FROM ${EXTRACT_CURSOR}`
+          );
+          if (headers === null) {
+            headers = batch.fields.map((f) => f.name);
+            const headerLine = headers.map(csvValue).join(",");
+            lines.push(headerLine);
+            bytes += Buffer.byteLength(headerLine) + 1;
+          }
+          if (batch.rows.length === 0) break;
+          for (const row of batch.rows as Record<string, unknown>[]) {
+            const line = headers.map((h) => csvValue(row[h])).join(",");
+            const lineBytes = Buffer.byteLength(line) + 1;
+            if (bytes + lineBytes > MAX_CSV_SIZE_BYTES) {
+              truncated = true;
+              break;
+            }
+            lines.push(line);
+            bytes += lineBytes;
+            dataRows++;
+          }
+          if (truncated) break;
+          if (batch.rows.length < EXTRACT_BATCH_ROWS) break; // cursor exhausted
+        }
+
+        if (truncated) {
+          // BYTE-budget backstop (never a silent ROW cap): stop at the budget and
+          // materialize the complete rows gathered so far. Disclosed via log —
+          // the string-typed executeSQL contract (shared by callers this change
+          // can't touch) has no channel to return a truncation flag.
+          logger.warn("Postgres result hit byte budget; materialized a truncated prefix", {
+            maxBytes: MAX_CSV_SIZE_BYTES,
+            rows: dataRows,
+          });
+        }
+
+        // No data rows → empty string, matching the prior contract.
+        if (dataRows === 0) return "";
+        return lines.join("\n") + "\n";
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+        if (inTxn) await client.query("ROLLBACK").catch(() => {});
+        client.release();
+      }
     },
 
     async close() {

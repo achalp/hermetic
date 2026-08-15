@@ -7,7 +7,18 @@ import type {
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector, ScanWindow } from "./connector";
 import { extractDateEpoch, parsePartitionId, sizeScanWindow } from "./scan-window";
-import { rowsToCsv } from "@/lib/csv/csv-util";
+import { csvValue } from "@/lib/csv/csv-util";
+import { MAX_CSV_SIZE_BYTES } from "@/lib/constants";
+import { logger } from "@/lib/logger";
+
+/** Rows per getQueryResults page — paginate instead of buffering all rows. */
+const BQ_PAGE_ROWS = 10_000;
+
+function abortError(): Error {
+  const e = new Error("Query aborted");
+  e.name = "AbortError";
+  return e;
+}
 
 export function createBigQueryConnector(config: BigQueryConnectionConfig): WarehouseConnector {
   let credentials: Record<string, unknown>;
@@ -217,23 +228,85 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
       }
     },
 
-    async executeSQL(sql: string): Promise<string> {
+    async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
+      if (signal?.aborted) throw abortError();
+
       // No jobTimeoutMs: we never self-kill a running analysis (a legitimately
       // long query is allowed to take long) — the user's Stop button and
       // BigQuery's own 6-hour hard limit are the ceilings. (A prior 20-min cap
       // was itself a self-kill; it's superseded by stop-on-demand.)
-      // FOLLOW-ON: on Stop we currently abort the request but the submitted BQ
-      // job keeps running server-side until BQ finishes — true job cancellation
-      // (createQueryJob + job.cancel wired to the run's abort signal) is TODO.
-      const [rows] = await bq.query({ query: sql });
+      //
+      // createQueryJob (NOT bq.query) so we hold a JOB handle: on Stop we call
+      // job.cancel(), which STOPS the server-side job and its billing. Previously
+      // bq.query gave no handle, so Stop aborted only the client request while the
+      // job kept running (and billing) up to BigQuery's 6h hard limit — the
+      // acknowledged TODO, now fixed.
+      const [job] = await bq.createQueryJob({ query: sql });
+      const onAbort = () => void job.cancel().catch(() => {});
+      signal?.addEventListener("abort", onAbort, { once: true });
 
-      if (!rows || rows.length === 0) return "";
+      try {
+        // An abort that landed WHILE createQueryJob was in flight (before the
+        // listener existed) still cancels the now-known job.
+        if (signal?.aborted) {
+          void job.cancel().catch(() => {});
+          throw abortError();
+        }
 
-      // Canonical serializer — the local copy joined headers UNQUOTED, which
-      // corrupted the CSV for comma-bearing column names (consolidation
-      // review; csv-util's docstring records the drift history).
-      const headers = Object.keys(rows[0]);
-      return rowsToCsv(headers, rows);
+        let headers: string[] | null = null;
+        const lines: string[] = [];
+        let bytes = 0;
+        let dataRows = 0;
+        let truncated = false;
+
+        // Paginate the result set instead of buffering every row in one array.
+        // getQueryResults with autoPaginate:false returns the next page's options
+        // (carrying pageToken) as the second tuple element; null when exhausted.
+        let pageToken: string | undefined;
+        do {
+          if (signal?.aborted) throw abortError();
+          const page = await job.getQueryResults({
+            maxResults: BQ_PAGE_ROWS,
+            pageToken,
+            autoPaginate: false,
+          });
+          const rows = (page[0] ?? []) as Record<string, unknown>[];
+          pageToken = (page[1] as { pageToken?: string } | null)?.pageToken;
+
+          for (const row of rows) {
+            if (headers === null) {
+              // Canonical serializer via csv-util — a prior local copy joined
+              // headers UNQUOTED, corrupting comma-bearing column names.
+              headers = Object.keys(row);
+              const headerLine = headers.map(csvValue).join(",");
+              lines.push(headerLine);
+              bytes += Buffer.byteLength(headerLine) + 1;
+            }
+            const line = headers.map((h) => csvValue(row[h])).join(",");
+            const lineBytes = Buffer.byteLength(line) + 1;
+            if (bytes + lineBytes > MAX_CSV_SIZE_BYTES) {
+              truncated = true;
+              break;
+            }
+            lines.push(line);
+            bytes += lineBytes;
+            dataRows++;
+          }
+          if (truncated) break;
+        } while (pageToken);
+
+        if (truncated) {
+          logger.warn("BigQuery result hit byte budget; materialized a truncated prefix", {
+            maxBytes: MAX_CSV_SIZE_BYTES,
+            rows: dataRows,
+          });
+        }
+
+        if (dataRows === 0) return "";
+        return lines.join("\n") + "\n";
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+      }
     },
 
     async close() {

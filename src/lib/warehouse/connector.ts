@@ -25,8 +25,17 @@ export interface WarehouseConnector {
   listTables(): Promise<WarehouseTableInfo[]>;
   /** Introspect all tables: columns, types, PKs, FKs */
   introspectAllTables(): Promise<WarehouseTableSchema[]>;
-  /** Execute a SQL query and return results as CSV text */
-  executeSQL(sql: string): Promise<string>;
+  /**
+   * Execute a SQL query and return results as CSV text.
+   *
+   * `signal` is OPTIONAL (backward-compatible — existing callers pass nothing).
+   * When supplied and aborted, the connector cancels the query mid-flight:
+   * Postgres cancels the running backend (pg_cancel_backend), BigQuery cancels
+   * the server-side JOB (job.cancel — stops billing), and ClickHouse aborts the
+   * HTTP request. Without it, executeSQL is uncancellable and a BigQuery job can
+   * keep billing server-side up to BigQuery's 6h hard limit.
+   */
+  executeSQL(sql: string, signal?: AbortSignal): Promise<string>;
   /**
    * Compute a recent time window on `table` that holds ~`budgetRows` rows, using
    * engine METADATA only (no table scan — safe under read-only). Lets the
@@ -78,9 +87,9 @@ export function createConnector(config: WarehouseConnectionConfig): WarehouseCon
   // whatever SQL reaches executeSQL (generated, edited, refresh, sample,
   // per-step) must be one SELECT/WITH statement. See assertReadOnlySql.
   const rawExecuteSQL = connector.executeSQL.bind(connector);
-  connector.executeSQL = (sql: string) => {
+  connector.executeSQL = (sql: string, signal?: AbortSignal) => {
     assertReadOnlySql(sql);
-    return rawExecuteSQL(sql);
+    return rawExecuteSQL(sql, signal);
   };
   return connector;
 }

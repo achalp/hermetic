@@ -79,7 +79,10 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
   }
 
   /** Execute a query on the current session and return rows */
-  async function runSessionQuery(sql: string): Promise<{ columns: string[]; rows: unknown[][] }> {
+  async function runSessionQuery(
+    sql: string,
+    signal?: AbortSignal
+  ): Promise<{ columns: string[]; rows: unknown[][] }> {
     await ensureSession();
     if (!session) throw new Error("Hive session failed to open");
 
@@ -101,6 +104,12 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
     // Fetch all rows
     let hasMore = true;
     while (hasMore) {
+      if (signal?.aborted) {
+        await operation.close().catch(() => {});
+        const e = new Error("Query aborted");
+        e.name = "AbortError";
+        throw e;
+      }
       const result = await operation.fetchChunk({ maxRows: 10000 });
       if (result && result.length > 0) {
         for (const row of result) {
@@ -200,8 +209,12 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
       return schemas;
     },
 
-    async executeSQL(sql: string): Promise<string> {
-      const { columns, rows } = await runSessionQuery(sql);
+    // RESIDUAL: abort stops fetching further chunks (checked between fetches)
+    // rather than cancelling the HiveServer2 operation server-side; rows are
+    // still collected into one array (no byte-budget backstop). postgres.ts is
+    // the streaming reference.
+    async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
+      const { columns, rows } = await runSessionQuery(sql, signal);
 
       if (rows.length === 0) return "";
 

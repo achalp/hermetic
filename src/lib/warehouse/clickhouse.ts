@@ -146,13 +146,26 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
       return schemas;
     },
 
-    async executeSQL(sql: string): Promise<string> {
+    async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
+      if (signal?.aborted) {
+        const e = new Error("Query aborted");
+        e.name = "AbortError";
+        throw e;
+      }
+      // abort_signal gives real server-side cancellation: on Stop the ClickHouse
+      // client aborts the HTTP request and the server stops the query.
       const result = await run((c) =>
         c.query({
           query: sql,
           format: "CSVWithNames",
+          abort_signal: signal,
         })
       );
+      // RESIDUAL: result.text() still buffers the whole CSV into one Node string
+      // (no byte-budget backstop here). ClickHouse's server-side CSVWithNames
+      // format makes row-level streaming awkward to reassemble; postgres.ts is
+      // the streaming reference. Cancellation (the billing/runaway risk) IS wired
+      // above; converting this to a bounded row stream is the remaining follow-up.
       return await result.text();
     },
 
