@@ -294,7 +294,12 @@ function claimScalarItems(f: FindingEntry): { term: string; definition: string }
 export function compileViewNode(
   node: PlanNode,
   series: SeriesEntry | undefined,
-  byName: Map<string, FindingEntry>
+  byName: Map<string, FindingEntry>,
+  opts?: {
+    /** chart_data key holding the run's GeoJSON FeatureCollection —
+     *  "geojson" on the ask path, step-prefixed under Investigate. */
+    geojsonKey?: string;
+  }
 ): SpecPatchLine | null {
   const component = node.component;
   if (!component || !COMPILABLE_VIEWS.has(component)) return null;
@@ -427,7 +432,9 @@ export function compileViewNode(
       // Polygon/region geometry rides along when the analysis produced it
       // (chart_data.geojson is the pinned convention); the binding sweeps
       // to null harmlessly when absent.
-      return markers.length > 0 ? el({ title, markers, geojson: "$chartData:geojson" }) : null;
+      return markers.length > 0
+        ? el({ title, markers, geojson: `$chartData:${opts?.geojsonKey ?? "geojson"}` })
+        : null;
     }
 
     case "distribution": {

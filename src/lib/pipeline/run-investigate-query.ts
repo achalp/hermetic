@@ -911,6 +911,12 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     regimes: investigationRegimes,
                     purpose: context.purpose,
                   }).filter((v) => v.shipped);
+                  // Investigate's merge step-prefixes chart_data keys, so
+                  // the geometry channel resolves the ACTUAL key (e.g.
+                  // "step_2_geojson"), not the bare convention name.
+                  const geojsonKey = Object.keys(charts).find(
+                    (k) => k === "geojson" || k.endsWith("_geojson")
+                  );
                   const { plan } = await generateNarrativePlan({
                     findings: investigationFindings!.findings,
                     question,
@@ -918,6 +924,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     purpose: context.purpose,
                     views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
                     series: investigationProduct.series,
+                    hasGeojson: geojsonKey !== undefined,
                   });
                   investigatePlanDoc = {
                     plan,
@@ -929,6 +936,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                     manifest: investigationFindings!,
                     product: investigationProduct,
                     plan,
+                    geojsonKey,
                     overlay: {},
                     headlinePlan: planHeadlineTiles(
                       investigationFindings!.findings,

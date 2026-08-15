@@ -255,7 +255,7 @@ describe("compiled assembly — the VIEW replaces the derived primary", () => {
       nodes: [{ id: "ans", op: "ANSWER" as const, refs: ["daily_trend"], text: undefined }],
     };
     // Geometry present, no map in the plan: the evidence map is injected.
-    const lines = compileDashboard({ ...base, plan: noMapPlan, hasGeojson: true }).join("\n");
+    const lines = compileDashboard({ ...base, plan: noMapPlan, geojsonKey: "geojson" }).join("\n");
     expect(lines).toContain("compiled_geo_map");
     expect(lines).toContain('"$chartData:geojson"');
     // No geometry: no injection.
@@ -279,7 +279,7 @@ describe("compiled assembly — the VIEW replaces the derived primary", () => {
       ...base,
       product: { series: [GEO_SERIES], values: [] },
       plan: withView,
-      hasGeojson: true,
+      geojsonKey: "geojson",
     }).join("\n");
     expect(withMap).not.toContain("compiled_geo_map");
   });
@@ -647,6 +647,92 @@ describe("review 2026-08-15 fixes — wiring gaps closed", () => {
     const kids = root.value.children;
     expect(kids.indexOf("v1"), "VIEW not moved under its explainer").toBe(kids.indexOf("ex1") + 1);
     expect(lines.join("\n")).not.toContain('"/elements/chart_daily_spend"');
+  });
+
+  it("value-dependent gaps fail at plan time via the compiler dry-run", () => {
+    // Curve series WITHOUT CI columns: ForestPlot licenses (kind curve) but
+    // compiles to nothing — the validator now says so instead of a silent
+    // render-time drop.
+    const bareCurve = mkSeries(
+      "cv_bare",
+      [
+        { x: "Overall", y: 1.2 },
+        { x: "Region A", y: 0.9 },
+      ],
+      { x: { column: "x", kind: "categorical" }, measures: [{ column: "y" }] },
+      "curve"
+    );
+    const v = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["daily_trend"] },
+          { id: "v1", op: "VIEW", refs: [], component: "ForestPlot", series: "cv_bare" },
+        ],
+      },
+      FINDINGS,
+      { series: [bareCurve], maxViews: 4 }
+    );
+    expect(v.ok).toBe(false);
+    expect(v.errors.join()).toContain("compiles to nothing");
+    // Claim-fed: GaugeChart needs peak_value on the current_state claim.
+    const peakless = {
+      name: "cur_bare",
+      dtype: "current_state",
+      definition: "cur",
+      value: { period: "2026-07", value: 10 },
+    } as FindingEntry;
+    const v2 = validatePlan(
+      {
+        nodes: [
+          { id: "a", op: "ANSWER", refs: ["cur_bare"] },
+          { id: "v1", op: "VIEW", refs: ["cur_bare"], component: "GaugeChart" },
+        ],
+      },
+      [peakless],
+      { series: [], maxViews: 4 }
+    );
+    expect(v2.ok).toBe(false);
+    expect(v2.errors.join()).toContain("compiles to nothing from its claim");
+  });
+
+  it("a controlled series' VIEW chart joins the filter loop", () => {
+    const lines = compileDashboard({
+      manifest: { manifest_version: "1", findings: FINDINGS } as FindingsManifest,
+      product: { series: [grouped], values: [] },
+      plan: {
+        nodes: [
+          { id: "ans", op: "ANSWER", refs: ["daily_trend"] },
+          { id: "v1", op: "VIEW", refs: [], component: "LineChart", series: "g1" },
+        ],
+      },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    const all = lines.join("\n");
+    expect(all).toContain("controls_g1");
+    // The VIEW's data is rebound to the controller's computed output.
+    const v1 = lines.find((l) => l.includes('"/elements/v1"'))!;
+    expect(v1).toContain('"/computed/v1"');
+    expect(v1).not.toContain("$chartData:g1");
+    // Controls sit above the VIEW in the flow.
+    const root = JSON.parse(lines[lines.length - 2]) as { value: { children: string[] } };
+    const kids = root.value.children;
+    expect(kids.indexOf("controls_g1")).toBeGreaterThan(-1);
+    expect(kids.indexOf("controls_g1")).toBeLessThan(kids.indexOf("v1"));
+  });
+
+  it("investigate's step-prefixed geojson key threads through the channel", () => {
+    const lines = compileDashboard({
+      manifest: { manifest_version: "1", findings: FINDINGS } as FindingsManifest,
+      product: { series: [AXIS_SERIES], values: [] },
+      plan: { nodes: [{ id: "ans", op: "ANSWER", refs: ["daily_trend"] }] },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+      geojsonKey: "step_2_geojson",
+    });
+    expect(lines.join("\n")).toContain('"$chartData:step_2_geojson"');
   });
 
   it("validateSpec tolerates the compiled composer's sparse props", () => {

@@ -12,7 +12,7 @@ import type { FindingEntry } from "@/lib/contracts/findings";
 import type { Plan, PlanNode, PlanOp } from "@/lib/contracts/plan";
 import { resolvePurpose } from "@/lib/purpose-prompts";
 import { COMPONENT_ROLE_SIGNATURES, seriesKindOf } from "@/lib/product/signatures";
-import { P1_COMPILABLE } from "./view-compilers";
+import { P1_COMPILABLE, compileViewNode } from "./view-compilers";
 
 export const PLAN_OPS = [
   "ANSWER",
@@ -325,6 +325,12 @@ function validateViewNodes(plan: Plan, findings: FindingEntry[], ctx?: PlanConte
         errors.push(
           `VIEW ${n.id}: ${n.component} renders ${sig.dtypes.join("/")} claims — "${claim.name}" is dtype ${claim.dtype}`
         );
+        continue;
+      }
+      if (compileViewNode(n, undefined, byName) === null) {
+        errors.push(
+          `VIEW ${n.id}: ${n.component} compiles to nothing from its claim — the claim's value lacks the fields the component needs (e.g. peak_value, early/late medians, non-empty shares); pick another component`
+        );
       }
       continue;
     }
@@ -367,6 +373,18 @@ function validateViewNodes(plan: Plan, findings: FindingEntry[], ctx?: PlanConte
     if (sig.needsGroup && !s.roles.group) {
       errors.push(
         `VIEW ${n.id}: ${n.component} needs a series with a group role — "${n.series}" declares none`
+      );
+      continue;
+    }
+    // DRY-RUN the compiler (review 2026-08-15): licensing sees shapes, but
+    // some requirements live in the VALUES — ForestPlot needs lo/hi
+    // columns, CalendarChart ISO dates, GaugeChart a peak_value. The
+    // compiler is pure and cheap; a null here would be a silently dropped
+    // node at render time, so it is a validation error the planner can
+    // act on instead.
+    if (compileViewNode(n, s, byName) === null) {
+      errors.push(
+        `VIEW ${n.id}: ${n.component} compiles to nothing from "${n.series}" — its rows lack what the component needs (CI columns, ISO dates, or a usable field); pick another component`
       );
     }
   }

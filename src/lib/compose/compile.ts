@@ -29,12 +29,12 @@ export interface CompileInput {
   /** Raw tables from the run (`datasets`) — the source a declared
    *  `aggregates` recipe re-aggregates from (controller.ts). */
   datasets?: Record<string, unknown>;
-  /** True when the run's chart_data carries a `geojson` FeatureCollection
-   *  (the pinned convention for region/polygon geometry). The compiled
-   *  document then always ships a map of it — run 8df300b3 computed zone
-   *  polygons and the compiled dashboard claimed the data had no
-   *  geography because no channel existed for geometry. */
-  hasGeojson?: boolean;
+  /** chart_data key holding the run's GeoJSON FeatureCollection —
+   *  "geojson" on the ask path, step-prefixed under Investigate's merge.
+   *  When set, the compiled document always ships a map of it: run
+   *  8df300b3 computed zone polygons and the compiled dashboard claimed
+   *  the data had no geography because no channel existed for geometry. */
+  geojsonKey?: string;
 }
 
 /** Deterministic compilation to spec patch lines (JSONL strings). */
@@ -102,6 +102,7 @@ export function compileDashboard(input: CompileInput): string[] {
   // dangling (review 2026-08-15: the anchor was silently ignored and the
   // explainer described a chart that no longer shipped).
   const viewNodeBySeries = new Map<string, string>();
+  const rebindableViewPatches: { nodeId: string; seriesId: string; patchIndex: number }[] = [];
   for (const n of plan.nodes) {
     if (n.op === "VIEW" && n.series && !hidden.has(n.id) && !viewNodeBySeries.has(n.series)) {
       viewNodeBySeries.set(n.series, n.id);
@@ -113,12 +114,27 @@ export function compileDashboard(input: CompileInput): string[] {
       const patch = compileViewNode(
         node,
         node.series ? seriesById.get(node.series) : undefined,
-        byName
+        byName,
+        { geojsonKey: input.geojsonKey }
       );
       if (patch) {
         patches.push(patch);
         children.push(node.id);
-        if (node.series) viewedSeries.add(node.series);
+        if (node.series) {
+          viewedSeries.add(node.series);
+          // Row-binding VIEW charts (props.data === "$chartData:<sid>")
+          // join the series' controller loop below — inline-transformed
+          // shapes (pivots, trees, curves) stay static, their transforms
+          // cannot re-run client-side.
+          const props = (patch.value as { props?: Record<string, unknown> }).props ?? {};
+          if (props.data === `$chartData:${node.series}`) {
+            rebindableViewPatches.push({
+              nodeId: node.id,
+              seriesId: node.series,
+              patchIndex: patches.length - 1,
+            });
+          }
+        }
       }
       continue;
     }
@@ -202,7 +218,25 @@ export function compileDashboard(input: CompileInput): string[] {
   // unchanged and interaction is purely additive.
   const controllers = product.series
     .map((s) => {
-      const own = shippedViews.filter((v) => v.seriesId === s.id);
+      const own = [
+        ...shippedViews.filter((v) => v.seriesId === s.id),
+        // Planner VIEW charts that bind this series' raw rows participate
+        // in filtering exactly like derived views (review 2026-08-15:
+        // they kept static bindings while the filter bar re-aggregated
+        // everything else).
+        ...rebindableViewPatches
+          .filter((rv) => rv.seriesId === s.id)
+          .map(
+            (rv) =>
+              ({
+                id: rv.nodeId,
+                kind: "primary",
+                seriesId: rv.seriesId,
+                shipped: true,
+                patch: patches[rv.patchIndex],
+              }) as (typeof shippedViews)[number]
+          ),
+      ];
       // A declared re-aggregation recipe (verified against the series' own
       // rows) wins: it filters by dimensions the aggregated series does not
       // even carry. Otherwise fall back to filtering the series' own rows.
@@ -218,6 +252,11 @@ export function compileDashboard(input: CompileInput): string[] {
     shippedViews = shippedViews.map((v) =>
       rebind[v.id] ? { ...v, patch: rebindViewPatch(v.patch, rebind[v.id]) } : v
     );
+    for (const rv of rebindableViewPatches) {
+      if (rebind[rv.nodeId]) {
+        patches[rv.patchIndex] = rebindViewPatch(patches[rv.patchIndex], rebind[rv.nodeId]);
+      }
+    }
     // State FIRST: the finalizer harvests declared state keys as it streams,
     // and repairs element bindings against them — a binding emitted before
     // its key is declared would be "repaired" away.
@@ -288,6 +327,16 @@ export function compileDashboard(input: CompileInput): string[] {
     patches.push(c.element);
     children.splice(at, 0, c.id);
   }
+  // A controlled planner VIEW gets its filter bar directly above it.
+  for (const rv of rebindableViewPatches) {
+    const c = controllerFor.get(rv.seriesId);
+    if (!c || emittedControls.has(c.id)) continue;
+    const at = children.indexOf(rv.nodeId);
+    if (at === -1) continue;
+    emittedControls.add(c.id);
+    patches.push(c.element);
+    children.splice(at, 0, c.id);
+  }
   for (const v of evidenceViews) {
     emitControlsFor(v.seriesId, children);
     patches.push(v.patch);
@@ -313,7 +362,7 @@ export function compileDashboard(input: CompileInput): string[] {
   // license one — a MapView of the geometry joins the evidence block.
   // The binding resolves through the same finalizer channel as every
   // chart; identity-keyed so the overlay can hide or move it.
-  if (input.hasGeojson && !hidden.has("compiled_geo_map")) {
+  if (input.geojsonKey && !hidden.has("compiled_geo_map")) {
     const mapShipped = plan.nodes.some(
       (n) => n.op === "VIEW" && !hidden.has(n.id) && n.component === "MapView"
     );
@@ -323,7 +372,7 @@ export function compileDashboard(input: CompileInput): string[] {
         path: "/elements/compiled_geo_map",
         value: {
           type: "MapView",
-          props: { title: "Map", geojson: "$chartData:geojson", markers: null },
+          props: { title: "Map", geojson: `$chartData:${input.geojsonKey}`, markers: null },
           children: [],
         },
       });
