@@ -173,6 +173,8 @@ describe("view compilers — props from declared roles, never authored", () => {
       { lat: 47.61, lng: -122.33, label: "A", color: null, nn_dist_m: 553.8 },
       { lat: 47.62, lng: -122.35, label: "B", color: null, nn_dist_m: 411.2 },
     ]);
+    // Region geometry rides along; the binding sweeps to null when absent.
+    expect(el.props.geojson).toBe("$chartData:geojson");
     expect(el.props.title).toBe("Most isolated buildings");
   });
 
@@ -239,6 +241,47 @@ describe("compiled assembly — the VIEW replaces the derived primary", () => {
     // The derived primary (chart_daily_spend) is suppressed; the coverage
     // companion may still ship.
     expect(all).not.toContain('"/elements/chart_daily_spend"');
+  });
+
+  it("chart_data geometry always ships a map (run 8df300b3)", () => {
+    const base = {
+      manifest: MANIFEST,
+      product: { series: [AXIS_SERIES], values: [] },
+      overlay: {},
+      headlinePlan: [],
+      question: "show this data on a map",
+    };
+    const noMapPlan = {
+      nodes: [{ id: "ans", op: "ANSWER" as const, refs: ["daily_trend"], text: undefined }],
+    };
+    // Geometry present, no map in the plan: the evidence map is injected.
+    const lines = compileDashboard({ ...base, plan: noMapPlan, hasGeojson: true }).join("\n");
+    expect(lines).toContain("compiled_geo_map");
+    expect(lines).toContain('"$chartData:geojson"');
+    // No geometry: no injection.
+    expect(compileDashboard({ ...base, plan: noMapPlan }).join("\n")).not.toContain(
+      "compiled_geo_map"
+    );
+    // A planner MapView VIEW already ships the geometry: no duplicate.
+    const withView = {
+      nodes: [
+        { id: "ans", op: "ANSWER" as const, refs: ["daily_trend"], text: undefined },
+        {
+          id: "v1",
+          op: "VIEW" as const,
+          refs: [],
+          component: "MapView",
+          series: "isolated_buildings",
+        },
+      ],
+    };
+    const withMap = compileDashboard({
+      ...base,
+      product: { series: [GEO_SERIES], values: [] },
+      plan: withView,
+      hasGeojson: true,
+    }).join("\n");
+    expect(withMap).not.toContain("compiled_geo_map");
   });
 
   it("the planner prompt carries the generated view catalog", () => {
@@ -530,7 +573,10 @@ const FIXTURES_BY_COMPONENT: Record<string, { series?: SeriesEntry; claim?: Find
 function resolveBindings(props: Record<string, unknown>, series?: SeriesEntry) {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(props)) {
-    out[k] = typeof v === "string" && v.startsWith("$chartData:") ? (series?.rows ?? []) : v;
+    if (typeof v === "string" && v.startsWith("$chartData:")) {
+      // geojson binds a FeatureCollection object; everything else binds rows.
+      out[k] = k === "geojson" ? { type: "FeatureCollection", features: [] } : (series?.rows ?? []);
+    } else out[k] = v;
   }
   return out;
 }

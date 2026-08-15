@@ -857,6 +857,9 @@ export async function composeAndStreamDashboard(args: {
           regimes: (executionResult.regimes ?? {}) as Record<string, unknown>,
           purpose: opts.purpose,
         }).filter((v) => v.shipped);
+        const hasGeojson =
+          (executionResult.chart_data ?? {}) instanceof Object &&
+          "geojson" in ((executionResult.chart_data ?? {}) as Record<string, unknown>);
         const { plan } = await generateNarrativePlan({
           findings: findingsList,
           question: opts.question,
@@ -864,6 +867,7 @@ export async function composeAndStreamDashboard(args: {
           purpose: opts.purpose,
           views: shippedViews.map((v) => ({ id: v.id, title: viewPromptTitle(v) })),
           series: modeProduct.series,
+          hasGeojson,
         });
         compiledPlanDoc = {
           plan,
@@ -875,6 +879,7 @@ export async function composeAndStreamDashboard(args: {
           manifest: opts.findings!.manifest,
           product: modeProduct,
           plan,
+          hasGeojson,
           overlay: compiledPlanDoc.overlay,
           headlinePlan: planHeadlineTiles(
             findingsList,

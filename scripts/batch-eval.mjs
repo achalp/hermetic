@@ -59,9 +59,11 @@ async function resolveTarget() {
 async function reattachSource(sourceFile) {
   try {
     const { sources } = await getJson("/api/sources/recent");
-    const hit = (sources ?? []).find(
-      (s) => s.kind === "remote-parquet" && (s.name === sourceFile || !sourceFile)
-    );
+    // ONLY an exact source-name match may re-attach — a loose fallback once
+    // re-attached the 2.5B-row Overture set for a 10-zone question and
+    // burned a planet-scale scan on the wrong data.
+    if (!sourceFile) return null;
+    const hit = (sources ?? []).find((s) => s.kind === "remote-parquet" && s.name === sourceFile);
     if (!hit?.url) return null;
     const res = await fetch(`${SERVER}/api/remote-parquet/schema`, {
       method: "POST",

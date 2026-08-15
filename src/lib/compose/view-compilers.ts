@@ -417,7 +417,10 @@ export function compileViewNode(
           };
         })
         .filter((m) => m.lat !== null && m.lng !== null);
-      return markers.length > 0 ? el({ title, markers }) : null;
+      // Polygon/region geometry rides along when the analysis produced it
+      // (chart_data.geojson is the pinned convention); the binding sweeps
+      // to null harmlessly when absent.
+      return markers.length > 0 ? el({ title, markers, geojson: "$chartData:geojson" }) : null;
     }
 
     case "distribution": {

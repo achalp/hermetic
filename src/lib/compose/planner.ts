@@ -115,6 +115,10 @@ export async function generatePlan(args: {
   /** Declared series (compiled-view-parity §5) — VIEW licensing context and
    *  the values-blind series summary the planner chooses views against. */
   series?: SeriesEntry[];
+  /** True when chart_data carries a geojson FeatureCollection — the
+   *  document ships a map of it, and the planner must not claim the data
+   *  lacks geography (run 8df300b3 did exactly that). */
+  hasGeojson?: boolean;
 }): Promise<{ plan: Plan; plannerErrors: string[] }> {
   const { projections } = projectManifestForPrompt(args.findings);
   const ctx: PlanContext = {
@@ -139,7 +143,10 @@ export async function generatePlan(args: {
           }))
         )}`
       : "";
-  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}${seriesSection}\n\nWrite the narrative.`;
+  const geometrySection = args.hasGeojson
+    ? `\n\n## Geometry\nA GeoJSON FeatureCollection of region/polygon geometry is available and the dashboard WILL include a map of it. Never state that the data lacks geographic information; an EXPLAIN about the map is welcome.`
+    : "";
+  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}${seriesSection}${geometrySection}\n\nWrite the narrative.`;
   const errors: string[] = [];
   let feedback = "";
   let lastParsed: Plan | null = null;

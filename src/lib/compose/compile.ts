@@ -29,6 +29,12 @@ export interface CompileInput {
   /** Raw tables from the run (`datasets`) — the source a declared
    *  `aggregates` recipe re-aggregates from (controller.ts). */
   datasets?: Record<string, unknown>;
+  /** True when the run's chart_data carries a `geojson` FeatureCollection
+   *  (the pinned convention for region/polygon geometry). The compiled
+   *  document then always ships a map of it — run 8df300b3 computed zone
+   *  polygons and the compiled dashboard claimed the data had no
+   *  geography because no channel existed for geometry. */
+  hasGeojson?: boolean;
 }
 
 /** Deterministic compilation to spec patch lines (JSONL strings). */
@@ -271,6 +277,30 @@ export function compileDashboard(input: CompileInput): string[] {
     emitControlsFor(v.seriesId, children);
     patches.push(v.patch);
     children.push(v.id);
+  }
+
+  // Region geometry always renders (compiled-view-parity follow-up, run
+  // 8df300b3): when the analysis produced chart_data.geojson and no map
+  // shipped — the planner requested none and no geo series exists to
+  // license one — a MapView of the geometry joins the evidence block.
+  // The binding resolves through the same finalizer channel as every
+  // chart; identity-keyed so the overlay can hide or move it.
+  if (input.hasGeojson && !hidden.has("compiled_geo_map")) {
+    const mapShipped = plan.nodes.some(
+      (n) => n.op === "VIEW" && !hidden.has(n.id) && n.component === "MapView"
+    );
+    if (!mapShipped) {
+      patches.push({
+        op: "add",
+        path: "/elements/compiled_geo_map",
+        value: {
+          type: "MapView",
+          props: { title: "Map", geojson: "$chartData:geojson", markers: null },
+          children: [],
+        },
+      });
+      children.push("compiled_geo_map");
+    }
   }
 
   // 5. Overlay ordering: listed ids first (in overlay order), rest keep
