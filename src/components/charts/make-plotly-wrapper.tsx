@@ -48,6 +48,23 @@ export interface PlotlyWrapperProps {
 const RETIRED = "hovertext-retired";
 const LIVE_LABELS = "g.hoverlayer g.hovertext, g.hoverlayer g.axistext";
 
+/**
+ * Fresh hover labels must be born hidden (see the reveal loop below). The
+ * rule is injected from here rather than relying on globals.css so the
+ * mechanism cannot be split from the code that depends on it — a label that
+ * starts visible flashes bare text at the chart origin until its deferred
+ * transform lands.
+ */
+const HIDE_RULE_ID = "plotly-hoverlabel-born-hidden";
+function ensureHideRule() {
+  if (typeof document === "undefined" || document.getElementById(HIDE_RULE_ID)) return;
+  const style = document.createElement("style");
+  style.id = HIDE_RULE_ID;
+  style.textContent =
+    ".js-plotly-plot g.hoverlayer g.hovertext, .js-plotly-plot g.hoverlayer g.axistext { visibility: hidden; }";
+  document.head.appendChild(style);
+}
+
 function retireHoverLabels(container: HTMLElement | null) {
   if (!container) return;
   const live = container.querySelectorAll<SVGGElement>(LIVE_LABELS);
@@ -145,6 +162,7 @@ export function makePlotlyWrapper(
     useEffect(() => {
       const el = containerRef.current;
       if (!el) return;
+      ensureHideRule();
       let raf = 0;
       let lastEvent = 0;
       const reveal = () => {
