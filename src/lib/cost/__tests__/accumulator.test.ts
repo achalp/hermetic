@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   runWithCostTracking,
   getCostAccumulator,
@@ -9,12 +9,30 @@ import {
   formatPhaseBreakdown,
 } from "@/lib/cost/accumulator";
 import { MODEL_PRICING, AVAILABLE_MODELS } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 
 const OUT = (n: number) => ({
   uncachedInputTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
   outputTokens: n,
+});
+
+describe("unpriced models (finding L7 — silent $0)", () => {
+  it("warns once when a model is missing from MODEL_PRICING instead of silently pricing at $0", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const unlisted = "totally-unlisted-model-xyz";
+    const summary = await runWithCostTracking(async () => {
+      recordCall(unlisted, OUT(1_000_000));
+      recordCall(unlisted, OUT(1_000_000)); // second call must NOT re-warn
+      return computeCost(getCostAccumulator()!);
+    });
+    expect(summary.costUsd).toBe(0); // still $0 (tokens counted), but now visible
+    const unpricedWarns = warn.mock.calls.filter((c) => String(c[0]).includes("Unpriced model"));
+    expect(unpricedWarns.length).toBe(1);
+    expect(unpricedWarns[0][1]).toMatchObject({ modelId: unlisted });
+    warn.mockRestore();
+  });
 });
 
 describe("computeCost / recordCall", () => {

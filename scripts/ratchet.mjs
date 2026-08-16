@@ -17,8 +17,17 @@ const BASELINE_PATH = join(ROOT, "scripts", "ratchet-baseline.json");
 const STREAM_KEYS =
   "progress|runId|exec|estimate|cost|warehouse_csv_id|plan|cells|results|chart_data|dataQuality|grounding|synthesis|error";
 
-/** @type {Array<{id: string, why: string, dirs: string[], excludeDirs?: string[], excludeFiles?: RegExp, pattern: RegExp, distinct?: boolean}>} */
+/** @type {Array<{id: string, why: string, dirs: string[], excludeDirs?: string[], excludeFiles?: RegExp, pattern?: RegExp, distinct?: boolean, maxLines?: number}>} */
 const METRICS = [
+  {
+    id: "oversized-modules",
+    why: "god modules concentrate merge conflicts and accidental coupling; split them and never add a new one",
+    dirs: ["src"],
+    // Hand-authored TS source only — not built viewer bundles, tests, or d.ts.
+    excludeDirs: ["src/mcp/viewer/dist"],
+    excludeFiles: /\.test\.tsx?$|__tests__|\.d\.ts$|\.js$/,
+    maxLines: 1300,
+  },
   {
     id: "lib-process-env",
     why: "lib must receive config via HermeticConfig, not read the environment",
@@ -123,6 +132,17 @@ function countMetric(metric) {
       if (excluded.some((e) => file.startsWith(e + "/") || file === e)) continue;
       if (metric.excludeFiles?.test(file)) continue;
       const text = readFileSync(file, "utf8");
+      // A line-count metric (maxLines) counts FILES over the threshold rather
+      // than regex matches — the god-module guard: no new oversized module,
+      // and the existing ones ratchet down as they're split.
+      if (metric.maxLines) {
+        const lines = text.split("\n").length;
+        if (lines > metric.maxLines) {
+          count += 1;
+          perFile.set(relative(ROOT, file), lines);
+        }
+        continue;
+      }
       // Lines carrying `ratchet-allow: <metric-id>` are exempt — reserved for
       // documented boundaries (the comment must say WHY), reviewed like
       // eslint-disable. The exemption itself is grep-able.

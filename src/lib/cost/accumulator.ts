@@ -12,6 +12,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { MODEL_PRICING } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 
 interface CallRecord {
   modelId: string;
@@ -135,10 +136,24 @@ export function formatPhaseBreakdown(byPhase: PhaseBreakdown[]): string {
     .join("; ");
 }
 
+/** Model ids already warned about, so the log isn't spammed per call. */
+const warnedUnpricedModels = new Set<string>();
+
 /** Price one call's buckets; unknown models cost $0 (tokens still counted). */
 function priceCall(c: CallRecord): number {
   const p = MODEL_PRICING[c.modelId];
-  if (!p) return 0;
+  if (!p) {
+    // An unlisted model prices at $0 silently, so a dashboard shows "$0.00"
+    // for a call that actually cost money. Surface it once per model id — the
+    // fix is to add the id to MODEL_PRICING, which this makes discoverable.
+    if (c.modelId && !warnedUnpricedModels.has(c.modelId)) {
+      warnedUnpricedModels.add(c.modelId);
+      logger.warn("Unpriced model — cost reported as $0; add it to MODEL_PRICING", {
+        modelId: c.modelId,
+      });
+    }
+    return 0;
+  }
   return (
     (c.uncachedInputTokens * p.input +
       c.cacheReadTokens * p.cacheRead +

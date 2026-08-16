@@ -1,4 +1,5 @@
 {
+  "oversized-modules": 4,
   "lib-process-env": 8,
   "lib-process-cwd": 3,
   "lib-globalthis-stores": 3,
