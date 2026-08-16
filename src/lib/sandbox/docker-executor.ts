@@ -36,8 +36,11 @@ export interface DockerExecOptions {
   allowedEgressHosts?: string[];
   /** No-creds public-source tier (egress-l3.ts): run on a dedicated bridge that
    *  DROPs traffic to cloud-metadata/RFC-1918/loopback while allowing native
-   *  egress to the public internet. Fails SAFE to --network none if the rules
-   *  can't be installed. Ignored under network:"deny" or with allowedEgressHosts. */
+   *  egress to the public internet. When the DROP rules can't be installed (no
+   *  iptables privilege), falls back to the open default bridge — NOT
+   *  --network none — so a public remote read still works, with a logged
+   *  warning that internal-range blocking is off. Ignored under network:"deny"
+   *  or with allowedEgressHosts. */
   l3BlockedEgress?: boolean;
   /** Owning run id, stamped as a docker label (SANDBOX_RUNID_LABEL) so the
    *  container is attributable to its run from `docker ps`/inspect. Supplied
@@ -104,14 +107,24 @@ export async function executeSandbox(
       }
     } else if (opts.l3BlockedEgress) {
       // No-creds public-source (L3) tier: dedicated bridge with kernel DROP
-      // rules for metadata/RFC-1918/loopback. Fail SAFE — if the rules can't
-      // be installed (no NET_ADMIN), run --network none, NEVER open bridge.
+      // rules for metadata/RFC-1918/loopback. Installing those rules needs host
+      // iptables privileges (root/NET_ADMIN) the server often lacks — a non-root
+      // dev server can't install them. When that happens, fall back to the
+      // OPEN default bridge (the pre-L3 behavior, which worked) rather than
+      // --network none: `none` would break every no-creds remote read (e.g. a
+      // public S3/Parquet scan), and total breakage is worse than the
+      // internal-range hardening gap it avoids. The warning makes the reduced
+      // posture explicit; a hardened deploy that can run iptables gets the
+      // full L3 blocking.
       const l3Network = await setupL3BlockedNetwork();
       if (l3Network) {
         runArgs.push("--network", l3Network);
       } else {
-        logger.warn("L3-blocked egress unavailable — failing safe to --network none", { id });
-        runArgs.push("--network", "none");
+        logger.warn(
+          "L3-blocked egress unavailable (no iptables privilege) — falling back to the open bridge; internal-range egress (metadata/RFC-1918/loopback) is NOT blocked on this host",
+          { id }
+        );
+        runArgs.push("--network", "bridge");
       }
     }
     if (localMountPath) {

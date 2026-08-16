@@ -13,9 +13,12 @@
  * ranges via DOCKER-USER (the chain Docker guarantees is traversed first for
  * all container traffic).
  *
- * Fail SAFE: if the dedicated network or the iptables rules can't be installed
- * (host lacks NET_ADMIN, iptables absent), setup returns null and the caller
- * falls back to `--network none` — NEVER to open bridge egress.
+ * If the dedicated network or the iptables rules can't be installed (host lacks
+ * NET_ADMIN, iptables absent), setup returns null. The caller then falls back
+ * to the OPEN default bridge, not `--network none`: this tier is for public
+ * remote reads, and denying the network entirely would break them, so
+ * functionality wins with a logged warning that internal-range blocking is off.
+ * A hardened deploy that can run iptables gets the full DROP-rule enforcement.
  */
 import { run } from "./docker-utils";
 import { logger, errMessage } from "@/lib/logger";

@@ -228,12 +228,14 @@ describe("docker executeSandbox", () => {
     expect(create[create.indexOf("--network") + 1]).toBe("hermetic-sandbox-l3");
   });
 
-  it("l3BlockedEgress fails SAFE to --network none when the bridge can't be set up", async () => {
+  it("l3BlockedEgress falls back to the OPEN bridge (not none) when rules can't be installed", async () => {
     setupL3BlockedNetwork.mockResolvedValueOnce(null); // no NET_ADMIN / iptables missing
     await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://pub/x.parquet'\")", {
       l3BlockedEgress: true,
     });
     const create = createCall();
-    expect(create[create.indexOf("--network") + 1]).toBe("none");
+    // A public remote read must still work when L3 blocking is unavailable —
+    // `none` would break every no-creds S3/Parquet scan on a non-root server.
+    expect(create[create.indexOf("--network") + 1]).toBe("bridge");
   });
 });
