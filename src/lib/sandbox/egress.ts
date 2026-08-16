@@ -105,6 +105,13 @@ export interface EgressNetwork {
   networkName: string;
   /** Env vars to set on the analysis container. */
   env: Record<string, string>;
+  /**
+   * The gateway proxy's own log (stdout+stderr) — its `DENY <host>` lines and
+   * upstream connect errors. Read BEFORE teardown to make an egress failure
+   * diagnosable (which host was blocked, or that the proxy never bound) instead
+   * of a black box. Best-effort: "" when the gateway is already gone.
+   */
+  proxyLogs(): Promise<string>;
   teardown(): Promise<void>;
 }
 
@@ -157,6 +164,25 @@ export async function setupEgressNetwork(
     await run("docker", ["exec", "-d", gatewayName, "python3", "/tmp/egress-proxy.py"], {
       timeoutMs: 15_000,
     });
+    // The proxy above is started fire-and-forget (`exec -d`); WAIT for it to
+    // accept a connection before returning. Otherwise the analysis container's
+    // first read can race an unbound listener and fail as a spurious "network
+    // error" (this exact symptom: a fast connection failure with no cause). The
+    // poll runs inside ONE docker exec (python retries locally) — a refused
+    // localhost connect returns instantly, so a ready proxy passes in ~one
+    // iteration; a proxy that never binds still returns after ~5s and the run's
+    // own network-error path (now log-capturing) reports why.
+    const readyScript =
+      "import socket, time\n" +
+      "for _ in range(50):\n" +
+      "    try:\n" +
+      `        socket.create_connection(("127.0.0.1", ${EGRESS_PROXY_PORT}), 0.3).close()\n` +
+      "        break\n" +
+      "    except OSError:\n" +
+      "        time.sleep(0.1)\n";
+    await run("docker", ["exec", gatewayName, "python3", "-c", readyScript], {
+      timeoutMs: 15_000,
+    }).catch(() => {});
   } catch (err) {
     await run("docker", ["rm", "-f", gatewayName]).catch(() => {});
     await run("docker", ["network", "rm", networkName]).catch(() => {});
@@ -179,6 +205,10 @@ export async function setupEgressNetwork(
       HERMETIC_HTTP_PROXY: proxyUrl,
       ...(awsVhost ? { HERMETIC_S3_URL_STYLE: "vhost" } : {}),
       NO_PROXY: "localhost,127.0.0.1",
+    },
+    proxyLogs: async () => {
+      const r = await run("docker", ["logs", gatewayName], { timeoutMs: 10_000 }).catch(() => null);
+      return r ? `${r.stdout}${r.stderr}` : "";
     },
     teardown: async () => {
       await run("docker", ["rm", "-f", gatewayName]).catch(() => {});

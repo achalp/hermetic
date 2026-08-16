@@ -26,9 +26,11 @@ vi.mock("@/lib/sandbox/stream-exec", () => ({
 const setupEgressNetwork = vi.fn(async (runId: string, _hosts: string[]) => ({
   networkName: `hermetic-egress-${runId}`,
   env: { HTTPS_PROXY: "http://gw:3128", HERMETIC_HTTP_PROXY: "http://gw:3128" },
+  proxyLogs: egressProxyLogs,
   teardown: egressTeardown,
 }));
 const egressTeardown = vi.fn(async () => {});
+const egressProxyLogs = vi.fn(async () => "");
 vi.mock("@/lib/sandbox/egress", () => ({
   setupEgressNetwork: (...a: unknown[]) => setupEgressNetwork(...(a as [string, string[]])),
 }));
@@ -49,6 +51,7 @@ beforeEach(() => {
   // Default `docker info` → "0" → memory probe yields null → uncapped run, so
   // the arg-sequence tests below see the same shape they always did.
   resetDaemonMemoryCacheForTests();
+  egressProxyLogs.mockResolvedValue("");
   streamExec.mockResolvedValue({ exitCode: 0, aborted: false });
   mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
   mockedParse.mockResolvedValue({
@@ -195,6 +198,55 @@ describe("docker executeSandbox", () => {
     expect(setupEgressNetwork).not.toHaveBeenCalled();
     const create = createCall();
     expect(create[create.indexOf("--network") + 1]).toBe("none");
+  });
+
+  it("egress DENY reclassifies a network failure as a retryable off-source code error", async () => {
+    // The proxy blocked a host the code reached that is NOT the data source:
+    // that is a code issue (retryable with guidance), not the non-retryable
+    // "network" environment fast-fail.
+    mockedParse.mockResolvedValue({
+      success: false,
+      error: "Failed to connect to the data endpoint",
+      errorKind: "network",
+      execution_ms: 1,
+    });
+    egressProxyLogs.mockResolvedValue(
+      "[egress-proxy] listening :3128\n[egress-proxy] DENY CONNECT census.gov:443\n"
+    );
+    const result = await executeSandbox("a\n1\n", "import requests", {
+      allowedEgressHosts: ["b.s3.amazonaws.com"],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("census.gov:443");
+      expect(result.error).toMatch(/NOT the connected data source/i);
+      // reclassified: the fast-fail errorKind is dropped so the run retries.
+      expect(result.errorKind).toBeUndefined();
+    }
+  });
+
+  it("a network failure with no DENY stays fast-fail but attaches the proxy log", async () => {
+    mockedParse.mockResolvedValue({
+      success: false,
+      error: "Could not establish connection",
+      errorKind: "network",
+      execution_ms: 1,
+    });
+    egressProxyLogs.mockResolvedValue("[egress-proxy] error: upstream connect timed out\n");
+    const result = await executeSandbox(
+      "a\n1\n",
+      "duckdb.sql(\"select * from 's3://b/x.parquet'\")",
+      {
+        allowedEgressHosts: ["b.s3.amazonaws.com"],
+      }
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // genuine unreachable source — still fast-fails...
+      expect(result.errorKind).toBe("network");
+      // ...but now carries the gateway proxy's own log for diagnosis.
+      expect(result.execDiag ?? "").toContain("upstream connect timed out");
+    }
   });
 
   it("applies container hardening flags to every run (finding M10)", async () => {

@@ -205,13 +205,52 @@ export async function executeSandbox(
     //    the host-captured live phase/config so an OOM that hard-killed the whole
     //    container (post-mortem file reads blank) still routes to phase-specific
     //    guidance instead of the generic pandas blob.
-    const result = await parseExecutionOutput(
+    let result = await parseExecutionOutput(
       id,
       start,
       String(execResult.exitCode),
       { lastPhase: execResult.lastPhase, duckdbCfg: execResult.duckdbCfg },
       hooks?.failureHints
     );
+
+    // A "network" failure on an egress-restricted run is otherwise a black box:
+    // the gateway proxy KNOWS why (it logged a DENY for an off-source host, an
+    // upstream connect error, or nothing if it never bound), but that log dies
+    // with the container. Read it BEFORE teardown (still in the try, so the
+    // finally hasn't run) and turn it into an actionable outcome:
+    //   - proxy DENIED a host → the CODE reached outside the data source, NOT an
+    //     environment failure. Drop the fast-fail errorKind and name the host so
+    //     the retry regenerates code that stays on-source.
+    //   - no DENY → genuine unreachable source: keep the fast-fail, but attach
+    //     the proxy's log tail so the failure is diagnosable.
+    if (egress && !result.success && result.errorKind === "network") {
+      const proxyLog = await egress.proxyLogs().catch(() => "");
+      const denied = [
+        ...new Set([...proxyLog.matchAll(/DENY(?: CONNECT)? (\S+)/g)].map((m) => m[1])),
+      ];
+      const tail = proxyLog.split("\n").filter(Boolean).slice(-8).join("\n");
+      logger.warn("Docker: egress network failure — gateway proxy diagnostics", {
+        denied,
+        tail: tail.slice(0, 500),
+      });
+      if (denied.length > 0) {
+        result = {
+          success: false,
+          error:
+            `The analysis tried to reach ${denied.join(", ")}, which is NOT the connected data ` +
+            `source — the egress allowlist blocked it. Read ONLY from the provided source URL; do ` +
+            `not fetch boundaries, geocoding, lookups, or reference data from any other host.`,
+          execution_ms: result.execution_ms,
+          ...(result.execDiag ? { execDiag: result.execDiag } : {}),
+        };
+      } else if (tail) {
+        result = {
+          ...result,
+          execDiag: [result.execDiag, `egress-proxy:\n${tail}`].filter(Boolean).join("\n\n"),
+        };
+      }
+    }
+
     logger.info("Docker: execution finished", {
       ms: Date.now() - start,
       success: result.success,
