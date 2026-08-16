@@ -70,33 +70,31 @@ export function deriveAllowedEgressHosts(url: string, creds?: RemoteCreds): stri
 }
 
 /**
- * The egress posture for a remote source, tiered by WHAT IS IN THE CONTAINER
- * (proxy settlement 2026-08-13; L3 rework, finding 04): the sandbox runs
- * LLM-generated code, and DuckDB runs inside that code — the allowlist's
- * purpose is to keep injected code from exfiltrating what the container holds.
+ * The egress posture for a remote source. The sandbox runs LLM-generated code
+ * (DuckDB inside it), so egress control exists to keep injected code from
+ * exfiltrating whatever the container holds — data and, when present,
+ * credentials.
  *
  *  - No remote source URL (local CSV/parquet, warehouse-materialized, or an
  *    underivable ref): "deny" — --network none. Network is a property of the
  *    SOURCE; a local-data run never earns egress (finding 01).
- *  - Remote URL, NO stored credentials (public bucket, e.g. Overture): the
- *    container holds nothing secret, but must still be kept from reaching cloud
- *    metadata / private ranges / loopback — "l3blocked" runs it on a dedicated
- *    bridge with kernel DROP rules for those ranges (egress-l3.ts) and native
- *    line-rate egress to the public internet. This replaces the old "open"
- *    tier, which reached 169.254.169.254 + RFC-1918 + loopback unrestricted.
- *  - Credentials present: they enter the container env for DuckDB, which is
- *    exactly the exfiltration case — "allowlist" with the derived hosts, via
- *    the L7 proxy (hostname allowlisting genuinely needs L7).
- *  - Credentials present but no host derivable (unparseable URL): "deny" —
- *    fail closed, never open.
+ *  - Remote URL (public OR credentialed): "allowlist" with the derived source
+ *    hosts, via the L7 proxy. The container joins an internal network with no
+ *    route out except the proxy, and the proxy only opens toward the source's
+ *    own host — so injected code can reach the bucket it's reading and nothing
+ *    else (no attacker host, no cloud metadata, no RFC-1918/loopback). This is
+ *    the only tier that stops EXFILTRATION, and the proxy's splice(2) relay
+ *    (docker/sandbox/egress-proxy.py) makes it near direct-egress speed, so
+ *    there's no throughput reason to fall back to a weaker native-egress tier.
+ *    It also needs no host privilege (Docker network + a gateway container, not
+ *    host iptables), so it works on a non-root server.
+ *  - Remote URL but no host derivable (unparseable): "deny" — fail closed.
  */
 export function egressPolicyFor(
   url: string | undefined,
   creds?: RemoteCreds
-): { mode: "l3blocked" | "allowlist" | "deny"; hosts?: string[] } {
+): { mode: "allowlist" | "deny"; hosts?: string[] } {
   if (!url) return { mode: "deny" };
-  const hasCreds = Boolean(creds?.s3AccessKeyId || creds?.s3SecretAccessKey);
-  if (!hasCreds) return { mode: "l3blocked" };
   const hosts = deriveAllowedEgressHosts(url, creds);
   if (hosts.length === 0) return { mode: "deny" };
   return { mode: "allowlist", hosts };

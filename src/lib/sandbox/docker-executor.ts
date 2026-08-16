@@ -17,7 +17,6 @@ import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger, errMessage } from "@/lib/logger";
 import { setupEgressNetwork, type EgressNetwork } from "./egress";
-import { setupL3BlockedNetwork } from "./egress-l3";
 import { SANDBOX_RUNID_LABEL } from "./lifecycle";
 import { SANDBOX_CONTAINER_PREFIX } from "@/lib/constants";
 
@@ -32,16 +31,9 @@ export interface DockerExecOptions {
   network?: "auto" | "deny";
   /** When the run IS granted network for a remote source, restrict egress to
    *  exactly these hosts via an internal network + allowlist gateway
-   *  (lib/sandbox/egress.ts). The credentialed (L7) tier. */
+   *  (lib/sandbox/egress.ts). The L7 proxy tier — the only egress tier for
+   *  remote sources, public or credentialed. */
   allowedEgressHosts?: string[];
-  /** No-creds public-source tier (egress-l3.ts): run on a dedicated bridge that
-   *  DROPs traffic to cloud-metadata/RFC-1918/loopback while allowing native
-   *  egress to the public internet. When the DROP rules can't be installed (no
-   *  iptables privilege), falls back to the open default bridge — NOT
-   *  --network none — so a public remote read still works, with a logged
-   *  warning that internal-range blocking is off. Ignored under network:"deny"
-   *  or with allowedEgressHosts. */
-  l3BlockedEgress?: boolean;
   /** Owning run id, stamped as a docker label (SANDBOX_RUNID_LABEL) so the
    *  container is attributable to its run from `docker ps`/inspect. Supplied
    *  by the pipeline caller — this layer never imports run-context. */
@@ -84,47 +76,25 @@ export async function executeSandbox(
     // image pre-bundles the DuckDB httpfs/spatial extensions, so offline
     // INSTALL/LOAD still works under --network none.
     // Network is granted only when the source earned it (index.ts) — signalled
-    // here by an egress tier flag or plain remote-IO code. Explicit egress
-    // requests (allowlist / L3) force network on even if the regex disagrees.
+    // here by the egress allowlist or plain remote-IO code. An explicit egress
+    // allowlist forces network on even if the regex disagrees.
     const withNetwork =
       opts.network === "deny"
         ? false
         : codeNeedsNetwork(code) ||
-          !!(opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0) ||
-          !!opts.l3BlockedEgress;
+          !!(opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0);
     if (!withNetwork) {
       runArgs.push("--network", "none");
     } else if (opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0) {
-      // Credentialed (L7) tier: internal network + allowlist gateway. The
-      // container has no route out except the proxy, and the proxy only
-      // opens toward the derived hosts.
-      // Short id: the gateway's container name doubles as a DNS label
-      // (63-char limit), so the full container id is too long.
+      // L7 allowlist tier: internal network + allowlist gateway. The container
+      // has no route out except the proxy, and the proxy only opens toward the
+      // derived source hosts — so it can't reach an attacker host, cloud
+      // metadata, or private ranges. Short id: the gateway's container name
+      // doubles as a DNS label (63-char limit), so the full id is too long.
       egress = await setupEgressNetwork(id.slice(-12), opts.allowedEgressHosts);
       runArgs.push("--network", egress.networkName);
       for (const [k, v] of Object.entries(egress.env)) {
         runArgs.push("-e", `${k}=${v}`);
-      }
-    } else if (opts.l3BlockedEgress) {
-      // No-creds public-source (L3) tier: dedicated bridge with kernel DROP
-      // rules for metadata/RFC-1918/loopback. Installing those rules needs host
-      // iptables privileges (root/NET_ADMIN) the server often lacks — a non-root
-      // dev server can't install them. When that happens, fall back to the
-      // OPEN default bridge (the pre-L3 behavior, which worked) rather than
-      // --network none: `none` would break every no-creds remote read (e.g. a
-      // public S3/Parquet scan), and total breakage is worse than the
-      // internal-range hardening gap it avoids. The warning makes the reduced
-      // posture explicit; a hardened deploy that can run iptables gets the
-      // full L3 blocking.
-      const l3Network = await setupL3BlockedNetwork();
-      if (l3Network) {
-        runArgs.push("--network", l3Network);
-      } else {
-        logger.warn(
-          "L3-blocked egress unavailable (no iptables privilege) — falling back to the open bridge; internal-range egress (metadata/RFC-1918/loopback) is NOT blocked on this host",
-          { id }
-        );
-        runArgs.push("--network", "bridge");
       }
     }
     if (localMountPath) {

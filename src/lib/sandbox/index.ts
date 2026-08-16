@@ -138,28 +138,23 @@ export function executeSandbox(
   // remote source at all, this branch must not fire: network-looking code still
   // runs, but with no network — reads fail inside the jail instead of escaping it.
   if (rt === "docker" && sourceAllowsNetwork && codeNeedsNetwork(code)) {
-    // Egress tiered by what the container HOLDS (egressPolicyFor): a
-    // credential-less public source runs on an L3-blocked bridge (native
-    // line-rate egress to the public internet, kernel drops packets aimed at
-    // metadata/RFC-1918/loopback — nothing secret to exfiltrate, and the L7
-    // proxy relay cost a 30x slowdown on planet-scale scans, run e1c88a71); a
-    // source with stored creds gets the bucket-scoped L7 allowlist; creds with
-    // no derivable host fail CLOSED. Warehouse sources never reach this branch
-    // at all — they materialize host-side and run --network none.
+    // Egress via the L7 host-allowlist proxy (egressPolicyFor): the container
+    // reaches ONLY the derived source host — public or credentialed alike — so
+    // injected code can read its bucket and exfiltrate nowhere else. The proxy's
+    // splice relay makes it near direct-egress speed. A remote source with no
+    // derivable host fails CLOSED (--network none). Warehouse sources never
+    // reach this branch — they materialize host-side and run --network none.
     const policy = opts.allowedEgressHosts
       ? ({ mode: "allowlist", hosts: opts.allowedEgressHosts } as const)
       : egressPolicyFor(remoteParquetUrl, stored?.remoteCreds);
     if (policy.mode === "deny") {
-      logger.warn("Remote source has creds but no derivable egress host — network denied", {
-        csvId,
-      });
+      logger.warn("Remote source has no derivable egress host — network denied", { csvId });
     }
     return dockerExecutor(csvContent, code, {
       geojsonContent,
       additionalFiles,
       hooks,
       ...(policy.mode === "allowlist" ? { allowedEgressHosts: policy.hosts } : {}),
-      ...(policy.mode === "l3blocked" ? { l3BlockedEgress: true as const } : {}),
       ...(policy.mode === "deny" ? { network: "deny" as const } : {}),
       runId: opts.runId,
     });

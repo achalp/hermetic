@@ -33,13 +33,6 @@ vi.mock("@/lib/sandbox/egress", () => ({
   setupEgressNetwork: (...a: unknown[]) => setupEgressNetwork(...(a as [string, string[]])),
 }));
 
-// L3-blocked egress: mocked so we can assert the executor joins the dedicated
-// bridge on success and fails SAFE to --network none on failure.
-const setupL3BlockedNetwork = vi.fn(async (): Promise<string | null> => "hermetic-sandbox-l3");
-vi.mock("@/lib/sandbox/egress-l3", () => ({
-  setupL3BlockedNetwork: () => setupL3BlockedNetwork(),
-}));
-
 import { executeSandbox } from "@/lib/sandbox/docker-executor";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
 import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
@@ -57,7 +50,6 @@ beforeEach(() => {
   // the arg-sequence tests below see the same shape they always did.
   resetDaemonMemoryCacheForTests();
   streamExec.mockResolvedValue({ exitCode: 0, aborted: false });
-  setupL3BlockedNetwork.mockResolvedValue("hermetic-sandbox-l3");
   mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
   mockedParse.mockResolvedValue({
     success: true,
@@ -216,26 +208,5 @@ describe("docker executeSandbox", () => {
     // this image (see hardening.ts). It must NOT come back without a live-
     // container test proving the container still starts.
     expect(create).not.toContain("no-new-privileges");
-  });
-
-  it("l3BlockedEgress: joins the dedicated L3 bridge (finding 04)", async () => {
-    await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://pub/x.parquet'\")", {
-      l3BlockedEgress: true,
-    });
-    expect(setupL3BlockedNetwork).toHaveBeenCalled();
-    expect(setupEgressNetwork).not.toHaveBeenCalled();
-    const create = createCall();
-    expect(create[create.indexOf("--network") + 1]).toBe("hermetic-sandbox-l3");
-  });
-
-  it("l3BlockedEgress falls back to the OPEN bridge (not none) when rules can't be installed", async () => {
-    setupL3BlockedNetwork.mockResolvedValueOnce(null); // no NET_ADMIN / iptables missing
-    await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://pub/x.parquet'\")", {
-      l3BlockedEgress: true,
-    });
-    const create = createCall();
-    // A public remote read must still work when L3 blocking is unavailable —
-    // `none` would break every no-creds S3/Parquet scan on a non-root server.
-    expect(create[create.indexOf("--network") + 1]).toBe("bridge");
   });
 });

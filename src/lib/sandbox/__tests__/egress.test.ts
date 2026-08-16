@@ -12,7 +12,6 @@
  */
 import { describe, it, expect } from "vitest";
 import { deriveAllowedEgressHosts, egressPolicyFor } from "../egress";
-import { L3_BLOCKED_CIDRS, l3DropRuleSpec, L3_SANDBOX_SUBNET } from "../egress-l3";
 
 describe("deriveAllowedEgressHosts", () => {
   it("s3 without region: the bucket's vhost host ONLY — no generic path-style", () => {
@@ -56,14 +55,18 @@ describe("deriveAllowedEgressHosts", () => {
 });
 
 describe("egressPolicyFor — tiered by what the container holds", () => {
-  it("credential-less remote source: L3-blocked bridge, no L7 proxy", () => {
-    // The Overture case (run e1c88a71): public bucket, no creds in the
-    // container env — native egress on a kernel-blocked bridge, not the
-    // 30x-slower L7 relay, and no longer unrestricted open egress.
-    expect(egressPolicyFor("s3://overturemaps-us-west-2/release/x.parquet")).toEqual({
-      mode: "l3blocked",
-    });
-    expect(egressPolicyFor("s3://b/x", { s3Region: "us-east-1" }).mode).toBe("l3blocked");
+  it("credential-less remote source: L7 host-allowlist (not open/native)", () => {
+    // The Overture case (run fcf84399): public bucket, no creds — still routed
+    // through the L7 host-allowlist proxy so injected code can reach ONLY the
+    // bucket host, closing the exfiltration gap that the old native tiers left
+    // open. The splice relay keeps it fast.
+    const p = egressPolicyFor("s3://overturemaps-us-west-2/release/x.parquet");
+    expect(p.mode).toBe("allowlist");
+    expect(p.hosts).toContain("overturemaps-us-west-2.s3.amazonaws.com");
+    // regioned vhost is allowed too when a region is known
+    expect(egressPolicyFor("s3://b/x", { s3Region: "us-east-1" }).hosts).toContain(
+      "b.s3.us-east-1.amazonaws.com"
+    );
   });
 
   it("stored credentials: bucket-scoped allowlist (L7 proxy)", () => {
@@ -91,42 +94,5 @@ describe("egressPolicyFor — tiered by what the container holds", () => {
     // Network is a property of the SOURCE (finding 01): a local CSV run must
     // get --network none, not open bridge egress with the user's data in /data.
     expect(egressPolicyFor(undefined)).toEqual({ mode: "deny" });
-  });
-});
-
-describe("L3 block list (egress-l3.ts)", () => {
-  it("covers cloud metadata, all RFC-1918 ranges, and loopback (v4 + v6)", () => {
-    expect(L3_BLOCKED_CIDRS).toContain("169.254.169.254/32"); // instance metadata
-    expect(L3_BLOCKED_CIDRS).toContain("169.254.0.0/16"); // link-local
-    expect(L3_BLOCKED_CIDRS).toContain("10.0.0.0/8"); // RFC-1918
-    expect(L3_BLOCKED_CIDRS).toContain("172.16.0.0/12"); // RFC-1918
-    expect(L3_BLOCKED_CIDRS).toContain("192.168.0.0/16"); // RFC-1918
-    expect(L3_BLOCKED_CIDRS).toContain("127.0.0.0/8"); // IPv4 loopback
-    expect(L3_BLOCKED_CIDRS).toContain("::1/128"); // IPv6 loopback
-    expect(L3_BLOCKED_CIDRS).toContain("fc00::/7"); // IPv6 ULA
-  });
-
-  it("builds idempotent (-C then -I) DROP rule specs, v4 scoped to the sandbox subnet", () => {
-    const v4 = l3DropRuleSpec("169.254.169.254/32");
-    expect(v4.bin).toBe("iptables");
-    expect(v4.check).toEqual([
-      "-C",
-      "DOCKER-USER",
-      "-s",
-      L3_SANDBOX_SUBNET,
-      "-d",
-      "169.254.169.254/32",
-      "-j",
-      "DROP",
-    ]);
-    expect(v4.insert[0]).toBe("-I");
-    expect(v4.insert).toContain("DOCKER-USER");
-    expect(v4.insert).toContain("DROP");
-
-    const v6 = l3DropRuleSpec("::1/128");
-    expect(v6.bin).toBe("ip6tables");
-    // v6 rules omit the IPv4 subnet source match.
-    expect(v6.check).not.toContain(L3_SANDBOX_SUBNET);
-    expect(v6.check).toContain("::1/128");
   });
 });
