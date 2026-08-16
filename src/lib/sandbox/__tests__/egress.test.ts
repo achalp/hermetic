@@ -6,9 +6,9 @@
  * path-style host (s3.amazonaws.com) would allow every bucket on AWS —
  * re-opening the exfiltration door the allowlist exists to close.
  *
- * Policy is tiered by what the CONTAINER holds (settlement 2026-08-13):
- * no creds → open (nothing secret to guard; the relay cost 30x on
- * planet-scale scans); creds → allowlist; creds + underivable → deny.
+ * Policy: any remote source (public or credentialed) → the L7 host-allowlist
+ * proxy (the only tier that stops exfiltration; the splice relay makes it fast);
+ * an underivable host or no URL → deny. There is no open/native tier.
  */
 import { describe, it, expect } from "vitest";
 import { deriveAllowedEgressHosts, egressPolicyFor } from "../egress";
