@@ -181,14 +181,19 @@ function pivotMatrix(
 }
 
 /** Group curve-kind rows into per-group point lists (single group when the
- *  series declares no group role). Points keep declaration order. */
+ *  series declares no group role). Points keep declaration order. The x/y
+ *  columns default to the curve-kind slots (x/y), but callers may override
+ *  them — a precision-recall curve groups over its recall/precision columns
+ *  rather than the generic x/y slots. */
 function curveGroups(
-  s: SeriesEntry
+  s: SeriesEntry,
+  xColOverride?: string,
+  yColOverride?: string
 ):
   | { label: string; x: number[]; y: number[]; lo: (number | null)[]; hi: (number | null)[] }[]
   | null {
-  const xCol = slotCol(s, "curve", 0);
-  const yCol = slotCol(s, "curve", 1);
+  const xCol = xColOverride ?? slotCol(s, "curve", 0);
+  const yCol = yColOverride ?? slotCol(s, "curve", 1);
   if (!xCol || !yCol) return null;
   const keys = rowKeys(s);
   const loCol = keys.find((k) => /^(lo|lower)$/i.test(k)) ?? null;
@@ -288,6 +293,93 @@ function claimScalarItems(f: FindingEntry): { term: string; definition: string }
   return Object.entries(fv(f))
     .filter(([k, v]) => k !== "detected" && (typeof v === "number" || typeof v === "string"))
     .map(([k, v]) => ({ term: humanizeId(k), definition: String(v) }));
+}
+
+/**
+ * Build a geo component's element value from a series' lat/lng rows. Shared
+ * by the VIEW compiler (planner-requested) AND the derived floor (views.ts,
+ * catalog default) so a geo series renders the SAME map either way. Returns
+ * null when the rows carry no resolvable lat/lng pair.
+ *
+ * Map3D is the DENSITY map (signatures `when`): it renders a heatmap —
+ * weighted by a declared magnitude when the series carries one — because the
+ * planner reaches for it exactly when concentration IS the answer. Drawing
+ * scatter points here would reproduce the map-pin-instead-of-heatmap defect
+ * (run 6e0392a5); pins-and-labels are MapView's job.
+ */
+export function geoViewElement(
+  component: string,
+  series: SeriesEntry,
+  title: string,
+  opts?: { geojsonKey?: string }
+): { type: string; props: Record<string, unknown> } | null {
+  const keys = rowKeys(series);
+  const latKey = keys.find((k) => /^lat(itude)?$/i.test(k));
+  const lngKey = keys.find((k) => /^(lng|lon|longitude)$/i.test(k));
+  if (!latKey || !lngKey) return null;
+  const rows = series.rows as Record<string, unknown>[];
+
+  if (component === "Map3D") {
+    return {
+      type: "Map3D",
+      props: {
+        title,
+        data: `$chartData:${series.id}`,
+        lat_key: latKey,
+        lng_key: lngKey,
+        layer_type: "heatmap",
+        value_key: measureCols(series)[0] ?? null,
+      },
+    };
+  }
+  if (component === "Globe3D") {
+    // Strict point objects — project only the contract fields.
+    const labelKey = keys.find((k) => /^(name|label)$/i.test(k)) ?? null;
+    const points = rows
+      .map((r) => ({
+        lat: num(r[latKey]),
+        lng: num(r[lngKey]),
+        label: labelKey ? (r[labelKey] === null ? null : String(r[labelKey])) : null,
+        color: null,
+        size: null,
+      }))
+      .filter(
+        (p): p is { lat: number; lng: number; label: string | null; color: null; size: null } =>
+          p.lat !== null && p.lng !== null
+      );
+    return points.length > 0 ? { type: "Globe3D", props: { title, points, arcs: null } } : null;
+  }
+  // MapView markers: contract fields normalized (lat/lng/label/color) with
+  // every OTHER scalar row field riding along — the click popup renders those
+  // attributes (rank, distance, id...), the same property table geojson
+  // features get. A pin the reader cannot interrogate hides the declared row
+  // behind it.
+  const labelKey = keys.find((k) => /^(name|label)$/i.test(k)) ?? null;
+  const markers = rows
+    .map((r) => {
+      const extras: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(r)) {
+        if (k === latKey || k === lngKey || k === labelKey) continue;
+        if (v === null || typeof v !== "object") extras[k] = v;
+      }
+      return {
+        ...extras,
+        lat: num(r[latKey]),
+        lng: num(r[lngKey]),
+        label: labelKey && r[labelKey] !== null ? String(r[labelKey]) : null,
+        color: null,
+      };
+    })
+    .filter((m) => m.lat !== null && m.lng !== null);
+  // Polygon/region geometry rides along when the analysis produced it
+  // (chart_data.geojson is the pinned convention); the binding sweeps to null
+  // harmlessly when absent.
+  return markers.length > 0
+    ? {
+        type: "MapView",
+        props: { title, markers, geojson: `$chartData:${opts?.geojsonKey ?? "geojson"}` },
+      }
+    : null;
 }
 
 /**
@@ -399,64 +491,8 @@ export function compileViewNode(
 
   switch (sig.family) {
     case "geo": {
-      const keys = rowKeys(series);
-      const latKey = keys.find((k) => /^lat(itude)?$/i.test(k));
-      const lngKey = keys.find((k) => /^(lng|lon|longitude)$/i.test(k));
-      if (!latKey || !lngKey) return null;
-      if (component === "Map3D") {
-        return el({
-          title,
-          data: dataBinding,
-          lat_key: latKey,
-          lng_key: lngKey,
-          layer_type: "scatterplot",
-        });
-      }
-      if (component === "Globe3D") {
-        // Strict point objects — project only the contract fields.
-        const labelKey = keys.find((k) => /^(name|label)$/i.test(k)) ?? null;
-        const points = rows
-          .map((r) => ({
-            lat: num(r[latKey]),
-            lng: num(r[lngKey]),
-            label: labelKey ? (r[labelKey] === null ? null : String(r[labelKey])) : null,
-            color: null,
-            size: null,
-          }))
-          .filter(
-            (p): p is { lat: number; lng: number; label: string | null; color: null; size: null } =>
-              p.lat !== null && p.lng !== null
-          );
-        return points.length > 0 ? el({ title, points, arcs: null }) : null;
-      }
-      // MapView markers: contract fields normalized (lat/lng/label/color)
-      // with every OTHER scalar row field riding along — the click popup
-      // renders those attributes (rank, distance, id...), the same
-      // property table geojson features get. A pin the reader cannot
-      // interrogate hides the declared row behind it.
-      const labelKey = keys.find((k) => /^(name|label)$/i.test(k)) ?? null;
-      const markers = rows
-        .map((r) => {
-          const extras: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(r)) {
-            if (k === latKey || k === lngKey || k === labelKey) continue;
-            if (v === null || typeof v !== "object") extras[k] = v;
-          }
-          return {
-            ...extras,
-            lat: num(r[latKey]),
-            lng: num(r[lngKey]),
-            label: labelKey && r[labelKey] !== null ? String(r[labelKey]) : null,
-            color: null,
-          };
-        })
-        .filter((m) => m.lat !== null && m.lng !== null);
-      // Polygon/region geometry rides along when the analysis produced it
-      // (chart_data.geojson is the pinned convention); the binding sweeps
-      // to null harmlessly when absent.
-      return markers.length > 0
-        ? el({ title, markers, geojson: `$chartData:${opts?.geojsonKey ?? "geojson"}` })
-        : null;
+      const value = geoViewElement(component, series, title, opts);
+      return value ? el(value.props) : null;
     }
 
     case "distribution": {
@@ -493,14 +529,18 @@ export function compileViewNode(
 
     case "matrix": {
       if (component === "Correlogram") {
-        // Axis-shaped: lag (x) + one measure.
+        // Axis-shaped: lag (x) + one measure. ACF and PACF are the same
+        // component (the renderer labels the axis off `kind`); which one the
+        // rows describe is inferred from how the analysis named the series or
+        // its measure — a PACF computation calls itself partial. Without this
+        // the compiler never set kind, so a PACF always rendered as ACF.
         if (ms.length === 0) return null;
         const data = rows
           .map((r) => ({ lag: num(r[xCol]), value: num(r[ms[0]]) }))
           .filter((d): d is { lag: number; value: number } => d.lag !== null && d.value !== null);
-        return data.length > 0
-          ? el({ title, data, n: series.rows_total ?? series.rows.length })
-          : null;
+        if (data.length === 0) return null;
+        const kind = /pacf|partial/i.test(`${series.id} ${ms[0]}`) ? "pacf" : "acf";
+        return el({ title, data, n: series.rows_total ?? series.rows.length, kind });
       }
       const pv = pivotMatrix(
         series,
@@ -601,14 +641,30 @@ export function compileViewNode(
           );
         return data.length > 0 ? el({ title, data }) : null;
       }
+      if (component === "RocCurve") {
+        // ROC vs Precision-Recall is the SAME component (the renderer only
+        // swaps the axis labels + diagonal off curve_type). Which one the
+        // rows describe is inferred from their columns: recall+precision →
+        // a PR curve (recall on x, precision on y, no chance diagonal);
+        // otherwise the classifier's ROC over the x/y slots. Before this the
+        // compiler hardcoded ROC, so a PR analysis rendered as ROC with the
+        // wrong axes — the curve equivalent of the map-pin bias.
+        const keys = rowKeys(series);
+        const recall = keys.find((k) => /^recall$/i.test(k));
+        const precision = keys.find((k) => /^precision$/i.test(k));
+        const isPR = !!(recall && precision);
+        const g = isPR ? curveGroups(series, recall, precision) : curveGroups(series);
+        if (!g || g.length === 0) return null;
+        return el({
+          title,
+          curves: g.map((c) => ({ label: c.label, fpr: c.x, tpr: c.y, auc: null })),
+          curve_type: isPR ? "pr" : "roc",
+          ...(isPR ? { show_diagonal: false } : {}),
+        });
+      }
       const groups = curveGroups(series);
       if (!groups || groups.length === 0) return null;
       switch (component) {
-        case "RocCurve":
-          return el({
-            title,
-            curves: groups.map((g) => ({ label: g.label, fpr: g.x, tpr: g.y, auc: null })),
-          });
         case "LiftChart":
           return el({ title, curves: groups.map((g) => ({ label: g.label, x: g.x, y: g.y })) });
         case "CalibrationCurve":

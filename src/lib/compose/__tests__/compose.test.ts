@@ -10,6 +10,7 @@ import {
 } from "@/lib/compose/plan";
 import { buildPlannerSystem } from "@/lib/compose/planner";
 import { deriveViews, viewDefaultWidths } from "@/lib/compose/views";
+import { geoViewElement } from "@/lib/compose/view-compilers";
 import {
   deriveAggregatingController,
   deriveController,
@@ -1374,6 +1375,59 @@ describe("view catalog — deterministic derivation from roles + regimes", () =>
     expect((split.patch.value as { props: { y_keys: string[] } }).props.y_keys).toEqual([
       "n_items",
     ]);
+  });
+});
+
+describe("geo series — the derived floor renders a MAP, never bars (map-pin fix)", () => {
+  const geoSeries = (n: number) => ({
+    id: "chain_locations",
+    rows: Array.from({ length: n }, (_, i) => ({
+      name: `p${i}`,
+      lat: 47.6 + i * 0.001,
+      lng: -122.3 - i * 0.001,
+      location_count: i + 1,
+    })),
+    roles: {
+      x: { column: "name", kind: "categorical" as const },
+      measures: [{ column: "location_count", unit: "count" }],
+    },
+  });
+
+  it("few nameable places → a MapView primary and NO axis unit-split/coverage bar", () => {
+    const views = deriveViews({ series: [geoSeries(4)] }).filter((v) => v.shipped);
+    const primary = views.find((v) => v.kind === "primary")!;
+    expect((primary.patch.value as { type: string }).type).toBe("MapView");
+    // The stray "…(score)" BarChart companion (run 6e0392a5) is gone: a geo
+    // series emits no axis views at all — its measures ride on the map.
+    expect(views.some((v) => v.kind === "unit_split" || v.kind === "coverage")).toBe(false);
+    const types = views.map((v) => (v.patch.value as { type: string }).type);
+    expect(types).not.toContain("BarChart");
+    expect(types).not.toContain("LineChart");
+  });
+
+  it("many points → a Map3D DENSITY heatmap weighted by the measure, not pins", () => {
+    const views = deriveViews({ series: [geoSeries(40)] }).filter((v) => v.shipped);
+    const primary = views.find((v) => v.kind === "primary")!;
+    const val = primary.patch.value as { type: string; props: Record<string, unknown> };
+    expect(val.type).toBe("Map3D");
+    expect(val.props.layer_type).toBe("heatmap");
+    expect(val.props.value_key).toBe("location_count");
+  });
+
+  it("the precision table still ships for document styles", () => {
+    const report = deriveViews({ series: [geoSeries(40)], purpose: "report" });
+    const table = report.find((v) => v.kind === "table")!;
+    expect(table.shipped).toBe(true);
+    expect((table.patch.value as { type: string }).type).toBe("DataTable");
+  });
+
+  it("geoViewElement: Map3D is a heatmap; MapView keeps clickable markers", () => {
+    const s = geoSeries(3) as unknown as Parameters<typeof geoViewElement>[1];
+    const m3d = geoViewElement("Map3D", s, "Density")!;
+    expect(m3d.props.layer_type).toBe("heatmap");
+    const mv = geoViewElement("MapView", s, "Places")!;
+    expect(mv.type).toBe("MapView");
+    expect(Array.isArray(mv.props.markers)).toBe(true);
   });
 });
 

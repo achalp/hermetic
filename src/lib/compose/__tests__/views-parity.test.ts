@@ -173,6 +173,82 @@ describe("view compilers — props from declared roles, never authored", () => {
     expect(el.props.title).toBe("Most isolated buildings");
   });
 
+  it("RocCurve: x/y rows compile as ROC; recall/precision rows as a PR curve", () => {
+    const roc: SeriesEntry = {
+      id: "model_roc",
+      rows: [
+        { x: 0, y: 0, g: "m" },
+        { x: 1, y: 1, g: "m" },
+      ],
+      roles: {
+        x: { column: "x", kind: "ordinal" },
+        measures: [{ column: "y" }],
+        group: { column: "g" },
+      },
+    };
+    const rocEl = compileViewNode(
+      { id: "v", op: "VIEW", refs: [], component: "RocCurve", series: "model_roc" },
+      roc,
+      byName
+    )!.value as { props: Record<string, unknown> };
+    expect(rocEl.props.curve_type).toBe("roc");
+
+    const pr: SeriesEntry = {
+      id: "model_pr",
+      rows: [
+        { recall: 0.1, precision: 0.9 },
+        { recall: 0.8, precision: 0.4 },
+      ],
+      roles: { x: { column: "recall", kind: "ordinal" }, measures: [{ column: "precision" }] },
+    };
+    const prEl = compileViewNode(
+      { id: "v", op: "VIEW", refs: [], component: "RocCurve", series: "model_pr" },
+      pr,
+      byName
+    )!.value as { props: Record<string, unknown> };
+    expect(prEl.props.curve_type).toBe("pr");
+    expect(prEl.props.show_diagonal).toBe(false);
+    // recall drives x (fpr slot), precision drives y (tpr slot).
+    expect((prEl.props.curves as { fpr: number[]; tpr: number[] }[])[0]).toEqual({
+      label: "Model Pr",
+      fpr: [0.1, 0.8],
+      tpr: [0.9, 0.4],
+      auc: null,
+    });
+  });
+
+  it("Correlogram: a plain lag series is ACF; a partial-named one is PACF", () => {
+    const acf: SeriesEntry = {
+      id: "residual_lags",
+      rows: [
+        { lag: 0, v: 1 },
+        { lag: 1, v: 0.4 },
+      ],
+      roles: { x: { column: "lag", kind: "ordinal" }, measures: [{ column: "v" }] },
+    };
+    const acfEl = compileViewNode(
+      { id: "v", op: "VIEW", refs: [], component: "Correlogram", series: "residual_lags" },
+      acf,
+      byName
+    )!.value as { props: Record<string, unknown> };
+    expect(acfEl.props.kind).toBe("acf");
+
+    const pacf: SeriesEntry = {
+      id: "arima_pacf",
+      rows: [
+        { lag: 0, v: 1 },
+        { lag: 1, v: 0.4 },
+      ],
+      roles: { x: { column: "lag", kind: "ordinal" }, measures: [{ column: "v" }] },
+    };
+    const pacfEl = compileViewNode(
+      { id: "v", op: "VIEW", refs: [], component: "Correlogram", series: "arima_pacf" },
+      pacf,
+      byName
+    )!.value as { props: Record<string, unknown> };
+    expect(pacfEl.props.kind).toBe("pacf");
+  });
+
   it("Histogram takes value_key from the first measure", () => {
     const patch = compileViewNode(
       { id: "v", op: "VIEW", refs: [], component: "Histogram", series: "daily_spend" },

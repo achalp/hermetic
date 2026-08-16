@@ -30,7 +30,9 @@
  */
 import type { SeriesEntry } from "@/lib/contracts/product";
 import { resolvePurpose } from "@/lib/purpose-prompts";
+import { seriesKindOf } from "@/lib/product/signatures";
 import { componentForSeries, humanizeId, type SpecPatchLine } from "./scaffold";
+import { geoViewElement } from "./view-compilers";
 
 export interface DerivedView {
   /** Stable element id (also the overlay/mutation handle). */
@@ -58,6 +60,12 @@ export function viewDefaultWidths(shipped: DerivedView[]): Record<string, "half"
 }
 
 const THIN_FLAGS = ["COUNT_SKEWED", "THIN_PERIODS", "THIN_EDGE"];
+
+/** A geo series with more than this many points reads as CONCENTRATION, not
+ *  a set of individually inspectable pins — its derived primary becomes a
+ *  Map3D density heatmap rather than a MapView pin cluster (the map-pin-vs-
+ *  heatmap fix; a hundred pins on a city map hide the pattern they form). */
+const GEO_DENSITY_MIN = 25;
 
 /** Measures grouped by declared unit, first-seen order; unitless measures
  *  join the FIRST group (nothing to contradict). */
@@ -196,6 +204,61 @@ export function deriveViews(args: {
     const profile = (args.regimes?.[s.id] ?? {}) as { flags?: unknown };
     const flags = new Set(Array.isArray(profile.flags) ? (profile.flags as string[]) : []);
     const groups = unitGroups(s);
+
+    // Geo series (lat/lng rows): the honest primary is a MAP, never an axis
+    // chart — a spatial series drawn as a bar is the deepest form of the
+    // map-pin bias (the floor was geo-blind). Few nameable places → MapView
+    // pins to click; many points → a Map3D density heatmap. Measures ride ON
+    // the map (heat weight / click popup), so this series emits NO axis
+    // unit-splits or coverage bars — the stray "…(score)" BarChart companion
+    // beside the map that run 6e0392a5 shipped. The precision table still
+    // ships for document styles.
+    if (seriesKindOf(s) === "geo") {
+      const dense = s.rows.length > GEO_DENSITY_MIN;
+      const geo = geoViewElement(dense ? "Map3D" : "MapView", s, humanizeId(s.id));
+      if (geo) {
+        views.push({
+          id: `chart_${s.id}`,
+          kind: "primary",
+          seriesId: s.id,
+          reason: dense
+            ? `geo series with ${s.rows.length} points — a density heatmap reads the concentration a pin cluster would hide`
+            : "geo series — a map of the located entities",
+          shipped: true,
+          patch: {
+            op: "add",
+            path: `/elements/chart_${s.id}`,
+            value: { ...geo, children: [] } as unknown as SpecPatchLine["value"],
+          },
+        });
+        if (tabular) {
+          const cols = Object.keys((s.rows[0] ?? {}) as Record<string, unknown>);
+          views.push({
+            id: `table_${s.id}`,
+            kind: "table",
+            seriesId: s.id,
+            reason: "exact figures for document styles (report/deep-dive)",
+            shipped: true,
+            patch: {
+              op: "add",
+              path: `/elements/table_${s.id}`,
+              value: {
+                type: "DataTable",
+                props: {
+                  caption: humanizeId(s.id),
+                  columns: cols,
+                  rows: `$chartData:${s.id}`,
+                  max_rows: 30,
+                },
+                children: [],
+              },
+            },
+          });
+        }
+        continue; // the map replaces the whole axis-chart family for this series
+      }
+      // No lat/lng resolved despite the geo kind — fall through to axis views.
+    }
 
     // Group series (declared group role): the honest primary is the group
     // MATRIX — one cell per (group × period), the same view the generative

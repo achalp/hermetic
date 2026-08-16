@@ -331,19 +331,19 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     family: "geo",
     feeds: "series",
     seriesKinds: ["geo"],
-    when: "entities with lat/lng — THE answer view for spatial questions",
+    when: "a handful of nameable places to pin and click through one by one (each point is an answer)",
   },
   Map3D: {
     family: "geo",
     feeds: "series",
     seriesKinds: ["geo"],
-    when: "lat/lng entities with a magnitude worth extruding",
+    when: "MANY points where the concentration IS the answer — density/heatmap/hotspot questions render as a heat surface (or a magnitude extruded per location); pins would hide the pattern",
   },
   Globe3D: {
     family: "geo",
     feeds: "series",
     seriesKinds: ["geo"],
-    when: "planet-scale point spread",
+    when: "planet-scale point spread or intercontinental arcs",
   },
   // ── Matrix family ────────────────────────────────────────────────
   HeatMap: {
@@ -362,7 +362,7 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     family: "matrix",
     feeds: "series",
     seriesKinds: ["axis"],
-    when: "autocorrelation by lag (lag x + one measure)",
+    when: "autocorrelation by lag — ACF, or PACF when the series is named for partial autocorrelation (lag x + one measure)",
   },
   CohortGrid: {
     family: "matrix",
@@ -425,7 +425,7 @@ export const COMPONENT_ROLE_SIGNATURES: Record<string, ComponentSignature> = {
     family: "curve",
     feeds: "series",
     seriesKinds: ["curve"],
-    when: "classifier TPR/FPR trade-off",
+    when: "a classifier's ROC (TPR/FPR trade-off), or its precision-recall curve when the rows carry recall/precision",
   },
   LiftChart: {
     family: "curve",
