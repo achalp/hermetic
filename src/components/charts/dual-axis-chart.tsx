@@ -14,14 +14,31 @@ interface SeriesSpec {
   color?: string | null;
 }
 
+/** A series entry may arrive as a full spec object or as a bare column name —
+ *  the LLM frequently emits the latter (`["churn_mrr"]`) despite the catalog
+ *  declaring objects. Normalized by `normalizeSeries` so both plot correctly. */
+type SeriesEntry = SeriesSpec | string;
+
+/** Normalize mixed string|object series entries to SeriesSpec, dropping any
+ *  without a usable key so a malformed entry can't inject a zero-valued
+ *  phantom series (the bug: a bare-string entry read `s.key` → undefined →
+ *  every y became `Number(row[undefined]) || 0`). Exported for testing. */
+export function normalizeSeries(arr: unknown): SeriesSpec[] {
+  return Array.isArray(arr)
+    ? arr
+        .map((s) => (typeof s === "string" ? { key: s } : (s as SeriesSpec)))
+        .filter((s): s is SeriesSpec => !!s && typeof s.key === "string" && s.key.length > 0)
+    : [];
+}
+
 interface DualAxisChartProps {
   title?: string | null;
   data: Record<string, unknown>[];
   x_key: string;
   /** Series plotted against the primary (left) y-axis. */
-  left_series: SeriesSpec[];
+  left_series: SeriesEntry[];
   /** Series plotted against the secondary (right) y-axis. */
-  right_series: SeriesSpec[];
+  right_series: SeriesEntry[];
   left_label?: string | null;
   right_label?: string | null;
   left_log?: boolean | null;
@@ -35,8 +52,8 @@ export function DualAxisChartComponent({ props }: { props: DualAxisChartProps })
   const isExpanded = useChartExpanded();
   const palette = useChartColors();
   const rows = unwrapChartData(props.data);
-  const left = Array.isArray(props.left_series) ? props.left_series : [];
-  const right = Array.isArray(props.right_series) ? props.right_series : [];
+  const left = normalizeSeries(props.left_series);
+  const right = normalizeSeries(props.right_series);
   if (rows.length === 0 || (left.length === 0 && right.length === 0))
     return <ChartEmptyState height={chart.height} />;
 

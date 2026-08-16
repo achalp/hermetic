@@ -126,21 +126,30 @@ export const catalogStatistical = {
       title: z.string().nullable(),
       data: z.array(z.record(z.string(), z.unknown())),
       x_key: z.string(),
+      // A series entry is a column name — either a bare string (which the LLM
+      // commonly emits) or a spec object carrying its own styling. Both render;
+      // see DualAxisChartComponent.toSeries.
       left_series: z.array(
-        z.object({
-          key: z.string(),
-          label: z.string().nullable(),
-          type: z.enum(["bar", "line"]).nullable(),
-          color: z.string().nullable(),
-        })
+        z.union([
+          z.string(),
+          z.object({
+            key: z.string(),
+            label: z.string().nullable(),
+            type: z.enum(["bar", "line"]).nullable(),
+            color: z.string().nullable(),
+          }),
+        ])
       ),
       right_series: z.array(
-        z.object({
-          key: z.string(),
-          label: z.string().nullable(),
-          type: z.enum(["bar", "line"]).nullable(),
-          color: z.string().nullable(),
-        })
+        z.union([
+          z.string(),
+          z.object({
+            key: z.string(),
+            label: z.string().nullable(),
+            type: z.enum(["bar", "line"]).nullable(),
+            color: z.string().nullable(),
+          }),
+        ])
       ),
       left_label: z.string().nullable(),
       right_label: z.string().nullable(),
