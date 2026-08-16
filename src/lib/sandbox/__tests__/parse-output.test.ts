@@ -136,6 +136,32 @@ describe("parseSandboxOutput", () => {
     if (!result.success) expect(result.error).toContain("NameError");
   });
 
+  it("classifies a remote-read connection failure as errorKind 'network' (fast-fail, not retry)", async () => {
+    const result = await parseSandboxOutput({
+      ...base,
+      exitCode: 1,
+      readFile: io({
+        "/data/stderr.txt":
+          "duckdb.duckdb.IOException: IO Error: Could not establish connection error for HTTP GET to 's3://bucket/x.parquet'",
+      }),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorKind).toBe("network");
+      expect(result.error).toMatch(/remote data source|network\/egress/i);
+    }
+  });
+
+  it("does NOT misclassify an ordinary code error as network (stays retryable)", async () => {
+    const result = await parseSandboxOutput({
+      ...base,
+      exitCode: 1,
+      readFile: io({ "/data/stderr.txt": "KeyError: 'churn_mrr'" }),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.errorKind).toBeUndefined();
+  });
+
   it("detects OOM on exit 137 and on a bare 'Killed' — for EVERY runtime", async () => {
     // Regression: OOM detection existed only on the Docker path; the same
     // failure on microsandbox/E2B returned a raw stderr dump.

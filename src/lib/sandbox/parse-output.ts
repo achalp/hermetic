@@ -364,6 +364,30 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         execDiag,
       };
     }
+    // A remote read that can't reach the network is an ENVIRONMENT failure (no
+    // egress / DNS / endpoint down), not a code bug — regenerating code with the
+    // same network config fails identically, so retrying just burns the budget.
+    // Fail fast like timeout/oom. Scoped to connection/DNS phrases so a local
+    // file IOException doesn't match.
+    if (
+      /Could not establish connection|Connection refused|Could not resolve host|Name or service not known|Temporary failure in name resolution|Network is unreachable|Failed to connect to|Connection reset by peer/i.test(
+        stderr
+      )
+    ) {
+      logger.warn("Sandbox could not reach the remote data source — network error", {
+        runtime: opts.runtime,
+      });
+      return {
+        success: false,
+        error:
+          "Could not reach the remote data source: the sandbox failed to connect to the data " +
+          "endpoint (network/egress failure). This is an environment issue, not a code issue — " +
+          "check the sandbox's network access and re-run.",
+        errorKind: "network",
+        execution_ms: executionMs,
+        execDiag,
+      };
+    }
     return {
       success: false,
       error: stderr || "Unknown execution error",

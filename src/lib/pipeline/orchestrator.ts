@@ -471,10 +471,14 @@ export async function runPipeline(
       // regenerate and re-run something the user just cancelled. Same for
       // "user-config" (a preloaded user/skill module needs a package the
       // sandbox image lacks): no regenerated code can fix configuration.
+      // "network" joins the fast-fail set: a remote source the sandbox can't
+      // reach (no egress / DNS / endpoint down) is an environment failure, and
+      // regenerating code against the same network config fails identically.
       if (
         result.errorKind === "timeout" ||
         result.errorKind === "stopped" ||
         result.errorKind === "user-config" ||
+        result.errorKind === "network" ||
         /timed out/i.test(retryError)
       )
         break;
