@@ -1,11 +1,16 @@
 /**
  * Container hardening `docker run` args (finding M10). The sandbox workload is
- * non-root Python; none of these restrict a legitimate analysis, but each
- * closes a privilege/DoS avenue for injected code:
+ * non-root Python; each flag closes a privilege/DoS avenue for injected code:
  *   --pids-limit          caps fork bombs
  *   --cpus                bounds CPU so one run can't starve the host/others
- *   --security-opt no-new-privileges  blocks setuid escalation
  *   --cap-drop ALL        the workload needs no Linux capabilities
+ *
+ * NOTE: `--security-opt no-new-privileges` was tried and REMOVED — against this
+ * image it makes `execve` of python3 fail with "operation not permitted"
+ * (EPERM at exec time), breaking every run. `--cap-drop ALL` already removes
+ * the capabilities a setuid escalation could grant, so dropping no-new-privileges
+ * costs almost nothing. Any hardening flag added here MUST be verified against a
+ * live container (see hardening.test.ts), not just asserted in the arg array.
  */
 import os from "node:os";
 
@@ -30,8 +35,6 @@ export function sandboxHardeningRunArgs(): string[] {
     String(SANDBOX_PIDS_LIMIT),
     "--cpus",
     String(sandboxCpuBudget()),
-    "--security-opt",
-    "no-new-privileges",
     "--cap-drop",
     "ALL",
   ];

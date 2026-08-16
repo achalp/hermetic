@@ -92,7 +92,9 @@ describe("DockerWarmBackend.warmup", () => {
     const create = calls().find((a) => a[0] === "run");
     expect(create).toBeDefined();
     expect(create).toContain("--pids-limit");
-    expect(create).toContain("--security-opt");
     expect(create).toContain("--cap-drop");
+    // no-new-privileges was removed — it breaks python3 execve on this image
+    // (see hardening.ts). The warm path shares sandboxHardeningRunArgs().
+    expect(create).not.toContain("no-new-privileges");
   });
 });

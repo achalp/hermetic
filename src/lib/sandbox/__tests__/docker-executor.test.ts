@@ -210,10 +210,12 @@ describe("docker executeSandbox", () => {
     const create = createCall();
     expect(create).toContain("--pids-limit");
     expect(create).toContain("--cpus");
-    expect(create).toContain("--security-opt");
-    expect(create[create.indexOf("--security-opt") + 1]).toBe("no-new-privileges");
     expect(create).toContain("--cap-drop");
     expect(create[create.indexOf("--cap-drop") + 1]).toBe("ALL");
+    // no-new-privileges was removed: it makes execve of python3 fail against
+    // this image (see hardening.ts). It must NOT come back without a live-
+    // container test proving the container still starts.
+    expect(create).not.toContain("no-new-privileges");
   });
 
   it("l3BlockedEgress: joins the dedicated L3 bridge (finding 04)", async () => {
