@@ -224,6 +224,14 @@ Your job is to write a single Python script that:
    or the entities the answer names carry coordinates, declare_series(kind="geo") with
    lat/lng, a label column, and the measure the answer ranks — the compiled dashboard
    derives its map FROM THIS SERIES; coordinates left in bare chart_data produce no map.
+   A DENSITY / CONCENTRATION / HOTSPOT map is this SAME geo series: declare the points'
+   lat/lng (with any weight as the measure) and the dashboard renders the density heat
+   surface (a Map3D heatmap) from the coordinates themselves. At scale, where you GROUP BY
+   grid cells for memory safety, declare the CELL CENTROIDS' lat/lng with the count as the
+   measure — still a geo series, still a density map. Do NOT emit a {z, x_labels, y_labels}
+   lon/lat histogram instead: that z-matrix is a value over two LABELED/categorical axes
+   (correlation, cohort, segment×segment), never spatial point density — a binned lon/lat
+   grid has NO map channel and silently renders nothing (this run's "no map/heatmap shown").
    AGGREGATION RECIPE — declare it whenever a measure was aggregated FROM the raw table
    (datasets["main"]), so the dashboard can honestly recompute it for a filtered subset:
        measures=[{"column": "churn_rate_pct", "unit": "pct",
@@ -271,7 +279,7 @@ Rules:
 - For charts that the UI can handle natively (bar, line, area, pie, scatter, histogram, box plot, heatmap, violin), return the data as JSON under chart_data. Do NOT generate matplotlib for these.
 - For histograms: return raw numeric data rows under chart_data so the client can bin them. Include the value column and any grouping column.
 - For box plots: return raw data rows with the value column and grouping column under chart_data.
-- For heatmaps/correlation matrices: return {z: number[][], x_labels: string[], y_labels: string[]} under chart_data.
+- For heatmaps over two LABELED/categorical axes (correlation matrices, cohort grids, segment×segment): return {z: number[][], x_labels: string[], y_labels: string[]} under chart_data. This is NOT for geographic density — a map of WHERE points concentrate is a declare_series(kind="geo") of the raw lat/lng points (see GEO ANSWERS above), never a pre-binned lon/lat histogram (which renders no map).
 - For a TWO-VARIANT comparison across a 2D segmentation (e.g. metric by hour-segment x distance-bucket, A vs B), do NOT emit a wall of numbers per cell — compute the signed DELTA matrix (B - A) and return it as a heatmap: {z: delta[][], x_labels, y_labels, color_scale: "RdYlGn", z_min: -m, z_max: +m (symmetric about 0 so the midpoint is neutral), show_values: true}. This reads the winners/losers of a dense segment grid at a glance the way per-cell numbers cannot.
 - For violin plots: return raw data rows with the value column and grouping column under chart_data.
 - For 3D scatter plots (Scatter3D): return rows with x, y, z numeric columns plus optional group and size columns under chart_data.

@@ -71,6 +71,23 @@ describe("sanitizeSheetName", () => {
 
 // ── geospatial guidance in the codegen prompt ─────────────────────
 
+describe("buildCodeGenSystemPrompt — density map is a geo series, not a z-matrix", () => {
+  const prompt = buildCodeGenSystemPrompt("metadata");
+
+  it("steers a density/concentration map to a declared geo series", () => {
+    expect(prompt).toContain("DENSITY / CONCENTRATION / HOTSPOT map is this SAME geo series");
+    // names the aggregated-cells escape hatch so the planet-scale
+    // GROUP-BY-cells pattern still produces a map (declare cell centroids).
+    expect(prompt).toContain("CELL CENTROIDS");
+  });
+
+  it("scopes the z-matrix heatmap rule to labeled/categorical axes, not geography", () => {
+    expect(prompt).toContain("heatmaps over two LABELED/categorical axes");
+    expect(prompt).toContain("NOT for geographic density");
+    expect(prompt).toMatch(/lon\/lat histogram/);
+  });
+});
+
 describe("buildCodeGenUserPrompt — geospatial guidance", () => {
   // TEST-9 pinning policy: assert STRUCTURAL sentinels (section labels like
   // "ENGINE-FIRST" / "NAMED REGION = POLYGON, NOT A BOX") and CODE TOKENS the
