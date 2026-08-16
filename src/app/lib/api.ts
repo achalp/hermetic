@@ -10,6 +10,8 @@ import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/w
 import type { TraceStep, NotebookLayout } from "@/lib/pipeline/investigation-trace";
 import type { Spec } from "@/lib/contracts/spec";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
+import type { Exemplar } from "@/lib/contracts/learning";
+import type { AuditResult } from "@/lib/pipeline/audit";
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -1220,4 +1222,67 @@ export async function fetchStaticAsset(path: string): Promise<Blob> {
   const res = await fetch(path);
   if (!res.ok) throw new ApiError(`Failed to fetch ${path}`, res.status);
   return res.blob();
+}
+
+// ── Learning exemplars ─────────────────────────────────────────
+
+/** GET /api/learning — verified exemplars; tolerant (empty list on failure). */
+export async function getLearningExemplars(signal?: AbortSignal): Promise<Exemplar[]> {
+  const res = await fetch("/api/learning", { signal });
+  if (!res.ok) return [];
+  const data = (await res.json()) as { exemplars?: Exemplar[] };
+  return data.exemplars ?? [];
+}
+
+/** DELETE /api/learning?exemplar=<id> — remove one exemplar (fire-and-forget). */
+export async function deleteLearningExemplar(id: string): Promise<void> {
+  await fetch(`/api/learning?exemplar=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ── Audit ──────────────────────────────────────────────────────
+
+/** GET /api/audit — the persisted audit for a run; tolerant (null on failure). */
+export async function getAudit(
+  historyId: string,
+  signal?: AbortSignal
+): Promise<AuditResult | null> {
+  const res = await fetch(`/api/audit?history_id=${encodeURIComponent(historyId)}`, { signal });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { audit?: AuditResult | null };
+  return data.audit ?? null;
+}
+
+/** POST /api/audit — run the blind audit for a run; throws with the error text. */
+export async function runAudit(historyId: string): Promise<AuditResult> {
+  const res = await fetch("/api/audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ history_id: historyId }),
+  });
+  const data = (await res.json()) as { audit?: AuditResult; error?: string };
+  if (!res.ok || !data.audit) throw new Error(data.error ?? "Audit failed");
+  return data.audit;
+}
+
+// ── Model settings (raw view for the settings drawer) ──────────
+
+/**
+ * The settings-drawer view of /api/settings — the model/effort/runtime/composer
+ * fields the drawer mirrors, which are richer than SettingsInfo's typed blocks.
+ * Tolerant (null on non-ok) to match the drawer's snap-back-on-failure behavior.
+ */
+export interface ModelSettingsView {
+  config?: {
+    models?: { effort?: string; efforts?: Record<string, string> };
+    composer?: { mode?: string };
+  };
+  effective?: {
+    models?: { codeGen?: string; uiCompose?: string };
+    sandbox?: { runtime?: string };
+  };
+}
+
+export async function getModelSettings(signal?: AbortSignal): Promise<ModelSettingsView | null> {
+  const res = await fetch("/api/settings", { signal });
+  return res.ok ? ((await res.json()) as ModelSettingsView) : null;
 }

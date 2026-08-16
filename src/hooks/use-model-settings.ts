@@ -24,6 +24,7 @@ import {
 import type { ModelId, SandboxRuntimeId } from "@/lib/constants";
 import {
   getLocalBackendConfig,
+  getModelSettings,
   setActiveSandboxRuntime,
   setActiveModels,
   setComposerMode as setComposerModeApi,
@@ -48,31 +49,20 @@ export function useModelSettings() {
   // (a "Compiled" pick made while the server was restarting kept showing
   // Compiled until the next reload revealed it had silently never landed).
   const adoptServerSettings = useCallback((signal?: AbortSignal) => {
-    return fetch("/api/settings", { signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(
-        (
-          data: {
-            config?: { models?: { effort?: string; efforts?: Record<string, string> } };
-            effective?: {
-              models?: { codeGen?: string; uiCompose?: string };
-              sandbox?: { runtime?: string };
-            };
-          } | null
-        ) => {
-          if (!data) return;
-          const m = data.effective?.models;
-          if (m?.codeGen && isValidModelId(m.codeGen)) setCodeGenModel(m.codeGen);
-          if (m?.uiCompose && isValidModelId(m.uiCompose)) setUiComposeModel(m.uiCompose);
-          const rt = data.effective?.sandbox?.runtime;
-          if (rt && isValidRuntimeId(rt)) setSandboxRuntime(rt);
-          const cfg = data.config?.models;
-          setEffort(cfg?.effort ?? "auto");
-          setPhaseEfforts(cfg?.efforts && typeof cfg.efforts === "object" ? cfg.efforts : {});
-          const cm = (data.config as { composer?: { mode?: string } } | undefined)?.composer?.mode;
-          setComposerMode(cm === "compiled" ? "compiled" : "generative");
-        }
-      )
+    return getModelSettings(signal)
+      .then((data) => {
+        if (!data) return;
+        const m = data.effective?.models;
+        if (m?.codeGen && isValidModelId(m.codeGen)) setCodeGenModel(m.codeGen);
+        if (m?.uiCompose && isValidModelId(m.uiCompose)) setUiComposeModel(m.uiCompose);
+        const rt = data.effective?.sandbox?.runtime;
+        if (rt && isValidRuntimeId(rt)) setSandboxRuntime(rt);
+        const cfg = data.config?.models;
+        setEffort(cfg?.effort ?? "auto");
+        setPhaseEfforts(cfg?.efforts && typeof cfg.efforts === "object" ? cfg.efforts : {});
+        const cm = data.config?.composer?.mode;
+        setComposerMode(cm === "compiled" ? "compiled" : "generative");
+      })
       .catch(() => {});
   }, []);
 

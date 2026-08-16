@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { CONTRACT_GENERATION, type Exemplar } from "@/lib/contracts/learning";
+import { getLearningExemplars, deleteLearningExemplar } from "@/app/lib/api";
 
 export default function LearningPage() {
   const [exemplars, setExemplars] = useState<Exemplar[] | null>(null);
@@ -16,9 +17,8 @@ export default function LearningPage() {
 
   const refresh = useCallback(() => {
     const controller = new AbortController();
-    fetch("/api/learning", { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { exemplars?: Exemplar[] } | null) => setExemplars(d?.exemplars ?? []))
+    getLearningExemplars(controller.signal)
+      .then(setExemplars)
       .catch(() => {});
     return () => controller.abort();
   }, []);
@@ -29,7 +29,7 @@ export default function LearningPage() {
     async (id: string) => {
       setBusy(true);
       try {
-        await fetch(`/api/learning?exemplar=${id}`, { method: "DELETE" });
+        await deleteLearningExemplar(id);
         refresh();
       } finally {
         setBusy(false);

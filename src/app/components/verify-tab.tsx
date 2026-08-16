@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from "react";
 import { errMessage } from "@/lib/logger";
+import { getAudit, runAudit as runAuditApi } from "@/app/lib/api";
 import { downloadJson } from "@/lib/export-utils";
 
 export interface VerifiabilityPayload {
@@ -60,10 +61,9 @@ export function VerifyTab({
   useEffect(() => {
     if (!historyId) return;
     const controller = new AbortController();
-    fetch(`/api/audit?history_id=${historyId}`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { audit?: AuditResult | null } | null) => {
-        if (d?.audit) setAudit(d.audit);
+    getAudit(historyId, controller.signal)
+      .then((a) => {
+        if (a) setAudit(a);
       })
       .catch(() => {});
     return () => controller.abort();
@@ -74,14 +74,7 @@ export function VerifyTab({
     setAuditBusy(true);
     setAuditErr(null);
     try {
-      const res = await fetch("/api/audit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history_id: historyId }),
-      });
-      const data = (await res.json()) as { audit?: AuditResult; error?: string };
-      if (!res.ok || !data.audit) throw new Error(data.error ?? "Audit failed");
-      setAudit(data.audit);
+      setAudit(await runAuditApi(historyId));
     } catch (e) {
       setAuditErr(errMessage(e));
     } finally {
