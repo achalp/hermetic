@@ -22,7 +22,7 @@ import { withPhase } from "@/lib/cost/accumulator";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { getRunSignal } from "@/lib/pipeline/run-control";
 import { CODE_REVIEW_MODEL } from "@/lib/constants";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export type ReviewSeverity = "none" | "minor" | "severe";
 
@@ -155,7 +155,7 @@ export async function reviewGeneratedCode(
   } catch (err) {
     // Fail open — a flaky/unavailable critic must never block execution.
     logger.debug("Code review skipped (reviewer error)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     return CLEAN_REVIEW;
   }

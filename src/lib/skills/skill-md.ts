@@ -27,6 +27,7 @@
  *   <text injected into the code-gen prompt; supports {{sandboxMemoryGb}} and {{filename}}>
  */
 import { z } from "zod";
+import { errMessage } from "@/lib/logger";
 import { parse as parseYaml } from "yaml";
 import type { SkillDefinition, SkillRenderContext } from "./types";
 
@@ -103,9 +104,7 @@ export function parseSkillMd(text: string, sourcePath: string): SkillDefinition 
   try {
     raw = parseYaml(fm[1]);
   } catch (err) {
-    throw new SkillParseError(
-      `invalid YAML frontmatter: ${err instanceof Error ? err.message : String(err)}`
-    );
+    throw new SkillParseError(`invalid YAML frontmatter: ${errMessage(err)}`);
   }
   const parsed = FrontmatterSchema.safeParse(raw);
   if (!parsed.success) {

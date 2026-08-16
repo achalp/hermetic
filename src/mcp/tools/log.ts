@@ -12,7 +12,7 @@
  * history_id) — never data values; the logger additionally caps long strings and
  * redacts secret-shaped keys.
  */
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export async function withToolLog<T>(
   tool: string,
@@ -29,7 +29,7 @@ export async function withToolLog<T>(
     logger.error("MCP tool failed", {
       tool,
       durationMs: Date.now() - started,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     throw err;
   }

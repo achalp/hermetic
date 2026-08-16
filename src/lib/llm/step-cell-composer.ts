@@ -33,7 +33,7 @@ import {
 } from "@/lib/llm/prompt-fragments";
 import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 import { getActiveModels } from "@/lib/runtime-config";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 const CELL_SYSTEM_PROMPT = `You compose ONE compact notebook cell visualizing the result of a single investigation step. The cell appears in a notebook where the step's question, status, and code are already shown by the surrounding chrome — your job is ONLY the output area.
 
@@ -202,7 +202,7 @@ export async function composeStepCell(args: ComposeStepCellArgs): Promise<Spec |
   } catch (err) {
     logger.warn("Step-cell compose failed", {
       stepNo: args.stepNo,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     return null;
   }

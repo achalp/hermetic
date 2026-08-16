@@ -17,7 +17,10 @@ vi.mock("@/lib/pipeline/code-cache", () => ({ getCachedCode: vi.fn() }));
 vi.mock("@/lib/pipeline/artifacts-cache", () => ({ getCachedArtifacts: vi.fn() }));
 vi.mock("@/lib/pipeline/conversation-cache", () => ({ getConversationTurns: vi.fn(() => []) }));
 vi.mock("@/lib/spec-summary", () => ({ summarizeSpec: vi.fn(() => ({})) }));
-vi.mock("@/lib/logger", () => ({ logger: { debug: vi.fn(), info: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/logger", () => ({
+  errMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  logger: { debug: vi.fn(), info: vi.fn(), error: vi.fn() },
+}));
 vi.mock("@/lib/history/storage", () => ({
   saveHistoryEntry: vi.fn(async () => ({ id: "h1", question: "q" })),
 }));

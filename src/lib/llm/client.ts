@@ -25,7 +25,7 @@ import {
   extractMessageText,
 } from "@/lib/llm/local-transport";
 import { claudeCliFetch, isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { envConfig } from "@/lib/harness-slot";
 
 /**
@@ -79,7 +79,7 @@ function ollamaFetch(baseUrl: string) {
         body: JSON.stringify(ollamaBody),
       });
     } catch (err) {
-      const errDetail = err instanceof Error ? err.message : String(err);
+      const errDetail = errMessage(err);
       logger.error("ollamaFetch connection error", { error: errDetail });
       return new Response(
         JSON.stringify({
@@ -280,7 +280,7 @@ function localOpenAIFetch(baseUrl: string) {
       });
     } catch (err) {
       clearTimeout(timeout);
-      const errDetail = err instanceof Error ? err.message : String(err);
+      const errDetail = errMessage(err);
       const isAborted = err instanceof Error && err.name === "AbortError";
       const isConnRefused =
         err instanceof Error &&

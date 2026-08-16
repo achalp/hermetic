@@ -14,7 +14,7 @@
  * declared different Content-Types for the same protocol. It lives here now
  * so the streaming contract exists exactly once.
  */
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { runWithRunId, getRunId } from "@/lib/run-context";
 import { parsePatchLines, readRunError } from "@/lib/pipeline/patch-lines";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
@@ -207,7 +207,7 @@ export async function runPatchStream(
         } catch (err) {
           logger.warn("Patch-stream onSettled hook failed", {
             route,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
         }
       }

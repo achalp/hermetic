@@ -37,6 +37,9 @@ describe("validateExecutionResult", () => {
     if (v.ok) return;
     expect(v.reason).toMatch(/no results or chart data/);
     expect(v.suggestedFix).toMatch(/results dict|chart_data dict/);
+    // The producer's stable code — recordFailure passes this as errorClass so
+    // the telemetry classifier never regexes the prose above.
+    expect(v.code).toBe("semantic_no_output");
   });
 
   it("does NOT flag a single empty chart when real results exist (legit empty breakdown)", () => {
@@ -54,6 +57,30 @@ describe("validateExecutionResult", () => {
     expect(v.ok).toBe(false);
     if (v.ok) return;
     expect(v.reason).toMatch(/Every chart is empty/);
+    expect(v.code).toBe("semantic_empty");
+  });
+
+  it("every failing verdict carries a stable code that matches its class", () => {
+    // all-zeros
+    const zeros = ok();
+    zeros.results = {};
+    zeros.chart_data = {
+      s: [
+        { x: "a", y: 0 },
+        { x: "b", y: 0 },
+      ],
+    };
+    const zv = validateExecutionResult(zeros);
+    expect(zv.ok).toBe(false);
+    if (!zv.ok) expect(zv.code).toBe("semantic_all_zeros");
+
+    // null result scalar
+    const nul = ok();
+    nul.results = { total: NaN };
+    nul.chart_data = {};
+    const nv = validateExecutionResult(nul);
+    expect(nv.ok).toBe(false);
+    if (!nv.ok) expect(nv.code).toBe("semantic_null_result");
   });
 
   it("flags a single-result NaN scalar", () => {
@@ -172,6 +199,7 @@ describe("formatSemanticVerdictForRetry", () => {
   it("formats reason + suggested fix on a failure verdict", () => {
     const out = formatSemanticVerdictForRetry({
       ok: false,
+      code: "semantic_null_result",
       reason: "Result is null.",
       suggestedFix: "Check the filter.",
     });

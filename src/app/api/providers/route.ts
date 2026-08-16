@@ -1,4 +1,5 @@
 import { getActiveProvider } from "@/lib/llm/client";
+import { errMessage } from "@/lib/logger";
 import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { AVAILABLE_PROVIDERS } from "@/lib/constants";
 import type { LLMProviderId } from "@/lib/constants";
@@ -72,10 +73,7 @@ export async function PUT(request: Request) {
     try {
       setSecret(API_KEY_SECRETS[keyId].name, api_key);
     } catch (err) {
-      return Response.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        { status: 422 }
-      );
+      return Response.json({ error: errMessage(err) }, { status: 422 });
     }
   }
 

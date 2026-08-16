@@ -103,7 +103,7 @@ import {
   isRemoteFile,
 } from "@/lib/csv/storage";
 import { prewarmSQLGenCache } from "@/lib/sqlgen/sql-generation";
-import { logger, serializeError } from "@/lib/logger";
+import { logger, serializeError, errMessage } from "@/lib/logger";
 import type { PatchStream } from "@/lib/pipeline/patch-stream";
 import type { ResolvedAnalysisSource } from "@/lib/pipeline/validate-request";
 import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
@@ -232,7 +232,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
             warehouseSQL = outcome.sql;
             warehouseCsvContent = outcome.csv;
           } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = errMessage(err);
             throw new Error(
               `Warehouse query failed after repair attempts: ${msg}` +
                 (warehouseSQL ? `\n\nLast SQL:\n${warehouseSQL}` : "")
@@ -1340,7 +1340,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           }
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errMessage(err);
         logger.error("Investigate: failed", {
           ...serializeError(err),
           error: msg.slice(0, 500),

@@ -30,7 +30,7 @@ import { loadSavedVisualization } from "./storage";
 import { runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { rowsToCsv } from "@/lib/csv/csv-util";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 const TICK_MS = 60_000;
 const EXPORT_ROOT = join(homedir(), ".hermetic", "scheduled-runs");
@@ -126,7 +126,7 @@ export async function runScheduleNow(
     await recordRunOutcome(vizId, { status: "success" });
     return { ok: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMessage(err);
     logger.error("Scheduled run failed", { vizId, error: msg });
     await recordRunOutcome(vizId, { status: "error", error: msg });
     return { ok: false, error: msg };

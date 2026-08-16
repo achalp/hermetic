@@ -20,7 +20,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Readable } from "node:stream";
 import { once } from "node:events";
-import { logger, serializeError } from "@/lib/logger";
+import { logger, serializeError, errMessage } from "@/lib/logger";
 import { currentPhase } from "@/lib/cost/accumulator";
 import { envConfig } from "@/lib/harness-slot";
 import { getActiveEffort } from "@/lib/runtime-config";
@@ -380,7 +380,7 @@ export function claudeCliFetch(opts: { binaryPath?: string; timeoutMs?: number }
       binary = resolveClaudeBinary(opts.binaryPath);
     } catch (err) {
       logger.error("claudeCliFetch: binary resolution failed", serializeError(err));
-      return cliError(err instanceof Error ? err.message : String(err));
+      return cliError(errMessage(err));
     }
 
     const wantedEffort = resolveEffort(body);

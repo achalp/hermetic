@@ -68,7 +68,7 @@ import {
 } from "@/lib/pipeline/conversation-cache";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import type { PatchStream } from "@/lib/pipeline/patch-stream";
-import { logger, serializeError } from "@/lib/logger";
+import { logger, serializeError, errMessage } from "@/lib/logger";
 import type { ResolvedAnalysisSource } from "@/lib/pipeline/validate-request";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
@@ -692,7 +692,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           },
         });
       } catch (pipelineErr) {
-        const errMsg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
+        const errMsg = errMessage(pipelineErr);
         // Unconditional: after a disconnect the server log is the only
         // record of the failure — gating it on the socket hid every error
         // that happened once the client was gone.

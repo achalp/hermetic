@@ -15,7 +15,7 @@ import { assembleSpecFromPatches } from "@/lib/pipeline/assemble-spec";
 import { parsePatchLines } from "@/lib/pipeline/patch-lines";
 import { persistHistoryEntry } from "@/lib/history/persist";
 import type { PatchStream } from "@/lib/pipeline/patch-stream";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export async function persistHistoryOnDisconnect(
   stream: PatchStream,
@@ -33,7 +33,7 @@ export async function persistHistoryOnDisconnect(
     }
   } catch (persistErr) {
     logger.warn("Server-side history save failed", {
-      error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+      error: errMessage(persistErr),
     });
   }
 }

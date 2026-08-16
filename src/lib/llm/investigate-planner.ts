@@ -40,7 +40,7 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
 import type { InvestigateScope } from "@/lib/contracts/investigation";
 export type { InvestigateScope };
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /** Hard cap on how many prior sub-questions a single dependent can reference. */
 export const MAX_DEPENDS_PER_SUBQUESTION = 3;
@@ -299,7 +299,7 @@ export function parsePlannerOutput(
   } catch (err) {
     return {
       ok: false,
-      error: `Planner output was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Planner output was not valid JSON: ${errMessage(err)}`,
       rawOutput: raw,
     };
   }
@@ -560,7 +560,7 @@ function parseReplannerOutput(
   } catch (err) {
     return {
       ok: false,
-      error: `Re-planner output was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Re-planner output was not valid JSON: ${errMessage(err)}`,
     };
   }
   if (!parsed || typeof parsed !== "object") {
@@ -674,7 +674,7 @@ export async function generateReplan(args: {
     return parsed.decision;
   } catch (err) {
     logger.warn("Investigate: re-planner LLM call failed; falling back to continue", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     return fallback;
   }

@@ -1,4 +1,5 @@
 import { z as zAudit } from "zod";
+import { errMessage } from "@/lib/logger";
 import { McpToolError } from "@/mcp/errors";
 import { auditHistoryEntry } from "@/lib/pipeline/audit";
 /**
@@ -198,7 +199,7 @@ function withAudit<A extends Record<string, unknown>>(
       }
       return out;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       const code = errorCodeOf(err);
       audit({
         ...base,

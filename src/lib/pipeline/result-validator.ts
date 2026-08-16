@@ -25,7 +25,25 @@
 
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 
-export type ValidationVerdict = { ok: true } | { ok: false; reason: string; suggestedFix: string };
+/**
+ * A stable, producer-owned classifier for a semantic failure. Threaded into
+ * recordFailure as the errorClass so the failure telemetry classifies by this
+ * code rather than regexing the human `reason` prose back into a class (the
+ * type existed here; don't destroy it into a string and reconstruct it).
+ */
+export type SemanticFailureCode =
+  | "semantic_no_output"
+  | "semantic_blocking_check"
+  | "semantic_unbacked_claims"
+  | "semantic_findings_collapsed"
+  | "semantic_unplottable"
+  | "semantic_empty"
+  | "semantic_null_result"
+  | "semantic_all_zeros";
+
+export type ValidationVerdict =
+  | { ok: true }
+  | { ok: false; code: SemanticFailureCode; reason: string; suggestedFix: string };
 
 /** True if `v` is JS NaN or one of the common stringified nullish markers. */
 function isDegenerateScalar(v: unknown): boolean {
@@ -67,6 +85,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
   if (resultKeys.length === 0 && chartKeys.length === 0) {
     return {
       ok: false,
+      code: "semantic_no_output",
       reason: "Execution produced no results or chart data.",
       suggestedFix:
         "Make sure your code writes at least one entry into the results dict or chart_data dict before exiting.",
@@ -101,6 +120,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     const f = blockingFailures[0] as { name?: string; definition?: string; value?: unknown };
     return {
       ok: false,
+      code: "semantic_blocking_check",
       reason: `The analysis' own BLOCKING check failed: ${f.name} — ${f.definition}. Evidence: ${JSON.stringify(f.value)}.`,
       suggestedFix:
         "Fix the defect the check identifies (its evidence names it — e.g. a declared-vs-observed range mismatch means the extraction/filter discarded data; repair the extraction, don't relax the check). If the failed condition is a TRUE property of the data rather than a pipeline defect, re-declare the check with severity='caveat' and keep the analysis honest about it.",
@@ -121,6 +141,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
   if (statKeys >= 6 && entriesAll.length >= 3 && nonCheckFindings <= 2) {
     return {
       ok: false,
+      code: "semantic_unbacked_claims",
       reason: `results carries ${statKeys} statistical claims but the findings manifest holds ${nonCheckFindings} non-check findings — the claims have no declared backing.`,
       suggestedFix:
         "Declare a finding for every statistical claim results carries (trends with direction/slope/p, superlatives with period+value, comparisons) — checks validate the analysis; findings ARE the analysis. Keep the checks.",
@@ -150,6 +171,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     if (nulled / findingEntries.length > 0.6) {
       return {
         ok: false,
+        code: "semantic_findings_collapsed",
         reason: `${nulled} of ${findingEntries.length} declared findings are null/degenerate while chart_data holds real series — the findings layer collapsed.`,
         suggestedFix:
           "Almost always a cleaning bug upstream of the stat helpers: check whether ZEROS were converted to null/NaN (a $0 median is data — exclude unrecorded values at the RECORD level, not by nulling aggregates), and whether the series passed to finding_trend/step_change/current_state is the same non-null series the charts plot. Recompute findings from the populated series.",
@@ -198,6 +220,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     if (!hasX && allNumeric) {
       return {
         ok: false,
+        code: "semantic_unplottable",
         reason: `chart_data["${key}"] has ${objRows.length} rows of numeric records with NO x-axis key (${cols.join(", ")}) — it cannot be plotted.`,
         suggestedFix: `Every chart series row must carry its x value (year/month/date/label). Add the index column back to chart_data["${key}"] — a time series stripped of its year field is unusable.`,
       };
@@ -216,6 +239,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
   if (allChartsEmpty && resultKeys.length === 0) {
     return {
       ok: false,
+      code: "semantic_empty",
       reason: "Every chart is empty and no results were computed.",
       suggestedFix:
         "Your filters likely matched no rows — print `df[col].unique()` and widen them. If the empty result is legitimate, record the finding in results (e.g. results['no_X_found'] = True) instead of emitting empty chart arrays.",
@@ -231,6 +255,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     if (isDegenerateScalar(v)) {
       return {
         ok: false,
+        code: "semantic_null_result",
         reason: `Result "${k}" is null/NaN — the computation produced no usable value.`,
         suggestedFix:
           "Inspect the inputs to that calculation. Common causes: empty filter, missing column, type coercion failure (e.g. summing strings).",
@@ -242,6 +267,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     if (allDegenerate) {
       return {
         ok: false,
+        code: "semantic_null_result",
         reason: "Every result value is null or NaN.",
         suggestedFix:
           "The computation chain produced no valid values. Check the data filter, then the aggregation, then the type coercions.",
@@ -258,6 +284,7 @@ export function validateExecutionResult(exec: SandboxExecutionResult): Validatio
     if (Array.isArray(v) && v.length > 1 && isAllZeroRows(v)) {
       return {
         ok: false,
+        code: "semantic_all_zeros",
         reason: `Chart "${k}" has only zero values across ${v.length} rows.`,
         suggestedFix:
           "The aggregation likely lost magnitudes — check whether you're summing the right column and whether the filter narrowed to a single bucket.",

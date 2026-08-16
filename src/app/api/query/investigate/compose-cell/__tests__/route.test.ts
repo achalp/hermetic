@@ -8,6 +8,7 @@ vi.mock("@/lib/llm/step-cell-composer", () => ({ composeStepCell }));
 // Don't let cost logging write real files during the test.
 vi.mock("@/lib/cost/storage", () => ({ appendCostRow: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
+  errMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   logger: { warn: () => {}, info: () => {}, error: () => {}, debug: () => {} },
   setRunIdProvider: () => {},
 }));

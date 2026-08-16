@@ -19,7 +19,7 @@
 
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /** Minimal shape of a dbt manifest node we care about (model, source, seed, snapshot). */
 interface DbtNode {
@@ -86,7 +86,7 @@ export async function validateManifestPath(
     const info = await stat(filePath);
     if (!info.isFile()) return { ok: false, error: "Path is not a file" };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: errMessage(err) };
   }
   return { ok: true };
 }
@@ -134,9 +134,9 @@ export async function loadDbtManifest(filePath: string): Promise<DbtMetadataInde
     const info = await stat(absPath);
     mtimeMs = info.mtimeMs;
   } catch (err) {
-    throw new Error(
-      `Cannot access dbt manifest at ${absPath}: ${err instanceof Error ? err.message : String(err)}`
-    );
+    throw new Error(`Cannot access dbt manifest at ${absPath}: ${errMessage(err)}`, {
+      cause: err,
+    });
   }
 
   const cached = manifestCache.get(absPath);
@@ -148,18 +148,14 @@ export async function loadDbtManifest(filePath: string): Promise<DbtMetadataInde
   try {
     raw = await readFile(absPath, "utf-8");
   } catch (err) {
-    throw new Error(
-      `Cannot read dbt manifest: ${err instanceof Error ? err.message : String(err)}`
-    );
+    throw new Error(`Cannot read dbt manifest: ${errMessage(err)}`, { cause: err });
   }
 
   let manifest: DbtManifest;
   try {
     manifest = JSON.parse(raw);
   } catch (err) {
-    throw new Error(
-      `dbt manifest is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
-    );
+    throw new Error(`dbt manifest is not valid JSON: ${errMessage(err)}`, { cause: err });
   }
 
   const schemaUrl = manifest.metadata?.dbt_schema_version;

@@ -40,7 +40,7 @@ import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { prepareWarmSandbox } from "@/lib/sandbox";
 import { recordRecentSource } from "./recent-sources";
 import { PARQUET_MATERIALIZE_THRESHOLD } from "@/lib/constants";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /** Refuse to slurp arbitrarily large text files into memory (path reads). */
 export const MAX_INGEST_TEXT_BYTES = 200 * 1024 * 1024;
@@ -273,7 +273,7 @@ export function makeIngest(deps: IngestDeps): IngestFn {
         };
       } catch (err) {
         logger.warn("Ingest: Parquet materialization failed, falling back to CSV", {
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
       }
     }

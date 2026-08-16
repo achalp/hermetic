@@ -9,7 +9,7 @@ import type { WarehouseConnector, ScanWindow } from "./connector";
 import { extractDateEpoch, parsePartitionId, sizeScanWindow } from "./scan-window";
 import { csvValue } from "@/lib/csv/csv-util";
 import { MAX_CSV_SIZE_BYTES } from "@/lib/constants";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /** Rows per getQueryResults page — paginate instead of buffering all rows. */
 const BQ_PAGE_ROWS = 10_000;
@@ -56,20 +56,23 @@ export function createBigQueryConnector(config: BigQueryConnectionConfig): Wareh
       try {
         await bq.dataset(datasetName, { projectId: dataProject }).get();
       } catch (err: unknown) {
-        // Provide actionable error messages
-        const msg = err instanceof Error ? err.message : String(err);
+        // Provide actionable error messages while preserving the driver error
+        // (its code/reason) as the cause for diagnostics.
+        const msg = errMessage(err);
         if (msg.includes("Not found")) {
           throw new Error(
             `Dataset "${datasetName}" not found in project "${dataProject}". ` +
-              `For public datasets, use format: bigquery-public-data.dataset_name`
+              `For public datasets, use format: bigquery-public-data.dataset_name`,
+            { cause: err }
           );
         }
         if (msg.includes("403") || msg.includes("Permission")) {
           throw new Error(
-            `Permission denied. Ensure the service account has "BigQuery Job User" and "BigQuery Data Viewer" roles.`
+            `Permission denied. Ensure the service account has "BigQuery Job User" and "BigQuery Data Viewer" roles.`,
+            { cause: err }
           );
         }
-        throw new Error(`BigQuery connection test failed: ${msg}`);
+        throw new Error(`BigQuery connection test failed: ${msg}`, { cause: err });
       }
     },
 

@@ -17,7 +17,7 @@ import { runWithCostTracking, getCostAccumulator, computeCost } from "@/lib/cost
 import { appendCostRow } from "@/lib/cost/storage";
 import { getCachedArtifacts, cacheArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { loadArtifactsByCsvId, updateArtifactsByCsvId } from "@/lib/history/storage";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 interface CellRequestStep {
   index: number;
@@ -64,7 +64,7 @@ async function persistCellsToTrail(csvId: string, cells: Record<number, Spec>): 
     await updateArtifactsByCsvId(csvId, artifacts);
   } catch (err) {
     logger.warn("Persisting lazy cells to trail failed (best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
   }
 }
@@ -110,7 +110,7 @@ export async function POST(request: Request): Promise<Response> {
         } catch (err) {
           logger.warn("Lazy cell compose failed", {
             index: s.index,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMessage(err),
           });
           return null;
         }
@@ -151,7 +151,7 @@ export async function POST(request: Request): Promise<Response> {
       }
     } catch (costErr) {
       logger.warn("Cost logging failed (cells)", {
-        error: costErr instanceof Error ? costErr.message : String(costErr),
+        error: errMessage(costErr),
       });
     }
 

@@ -90,6 +90,10 @@ function formatMessage(
  * log. Use for unexpected errors; classified/expected errors can stay
  * message-only.
  */
+export function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function serializeError(err: unknown): Record<string, unknown> {
   if (!(err instanceof Error)) return { error: String(err) };
   const out: Record<string, unknown> = { error: err.message, errorName: err.name };

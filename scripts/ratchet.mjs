@@ -40,6 +40,14 @@ const METRICS = [
     pattern: /globalThis as unknown as|globalThis\.__/g,
   },
   {
+    id: "error-message-ternary",
+    why: "use errMessage(err) from lib/logger — the inline instanceof-ternary drops the stack and cause chain a novel failure needs to be localized",
+    dirs: ["src"],
+    // logger.ts holds the canonical errMessage implementation and its doc comment.
+    excludeFiles: /logger\.ts$/,
+    pattern: /(\w+) instanceof Error \? \1\.message : String\(\1\)/g,
+  },
+  {
     id: "server-only-imports",
     why: "runtime marker that throws under plain Node; boundaries are lint-enforced instead",
     dirs: ["src"],

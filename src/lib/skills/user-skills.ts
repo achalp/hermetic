@@ -7,7 +7,7 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import type { SkillDefinition } from "./types";
 import { parseSkillMd, SkillParseError } from "./skill-md";
@@ -93,9 +93,7 @@ export function loadUserSkills(dir: string = defaultUserSkillsDir()): UserSkillL
       });
     } catch (err) {
       const reason =
-        err instanceof SkillParseError
-          ? err.message
-          : `unreadable: ${err instanceof Error ? err.message : String(err)}`;
+        err instanceof SkillParseError ? err.message : `unreadable: ${errMessage(err)}`;
       cache.set(file, { key, skill: null, reason });
       errors.push({ path: file, reason });
       // Warn once per file version (the cache suppresses repeats until an edit).

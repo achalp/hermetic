@@ -25,7 +25,7 @@ import { WAREHOUSE_MAX_ROWS, PARQUET_MATERIALIZE_THRESHOLD } from "@/lib/constan
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { WarehouseType } from "@/lib/contracts/connection-configs";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /**
  * Cheap row estimate for a CSV string — counts newlines without a full parse,
@@ -99,7 +99,7 @@ export async function storeWarehouseResult(opts: {
       });
     } catch (err) {
       logger.warn("Parquet materialization failed, falling back to CSV", {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
         approxRows,
       });
     }

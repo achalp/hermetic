@@ -19,7 +19,7 @@ import { getStoredCSV, getCSVContent, getGeoJSONContent } from "@/lib/csv/storag
 import { runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import type { SandboxRuntimeId } from "@/lib/constants";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { apiError } from "@/app/lib/api-error";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     } catch (err) {
       logger.warn("Rerun execution failed", {
         csv_id,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       return apiError("/api/query/rerun", err, String(err), 422);
     }

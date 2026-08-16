@@ -15,7 +15,7 @@ import { sandboxMemoryRunArgs } from "./memory-budget";
 import { sandboxHardeningRunArgs } from "./hardening";
 import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { setupEgressNetwork, type EgressNetwork } from "./egress";
 import { setupL3BlockedNetwork } from "./egress-l3";
 import { SANDBOX_RUNID_LABEL } from "./lifecycle";
@@ -236,7 +236,7 @@ export async function executeSandbox(
     });
     return result;
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = errMessage(err);
     logger.warn("Docker: execution threw", {
       ms: Date.now() - start,
       errorHead: errorMsg.slice(0, 200),

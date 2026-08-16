@@ -5,7 +5,7 @@ import type { AdditionalFile } from "@/lib/contracts/execution";
 import { pythonNanPrelude } from "./prelude";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { parseSandboxOutput } from "./parse-output";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { envConfig } from "@/lib/harness-slot";
 import { microsandboxUrl, microsandboxImage } from "@/lib/settings";
 import { getApiKey } from "@/lib/secrets";
@@ -320,7 +320,7 @@ export async function executeSandbox(
     }
     return {
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
       execution_ms: Date.now() - start,
     };
   } finally {

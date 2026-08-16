@@ -3,7 +3,7 @@ import { dirname } from "path";
 import { envConfig } from "@/lib/harness-slot";
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL, isValidModelId } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export interface OllamaConfig {
   enabled: boolean;
@@ -118,7 +118,7 @@ function backupCorruptConfig(path: string, err: unknown): void {
   logger.warn("runtime-config.json unreadable — starting from an empty config", {
     path,
     backupPath: backedUp ? backupPath : undefined,
-    error: err instanceof Error ? err.message : String(err),
+    error: errMessage(err),
   });
 }
 

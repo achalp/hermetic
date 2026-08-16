@@ -18,7 +18,7 @@ import { mkdir, readFile, rename } from "fs/promises";
 import { dirname } from "path";
 import { writeJsonFileAtomic } from "@/lib/json-file";
 import { hermeticPaths } from "@/lib/paths";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export type ScheduleCadence =
   | "hourly"
@@ -84,7 +84,7 @@ export async function loadSchedules(): Promise<Map<string, ScheduleEntry>> {
   logger.warn("schedules.json unreadable — starting fresh", {
     path,
     backupPath: backedUp ? backupPath : undefined,
-    error: failure instanceof Error ? failure.message : String(failure),
+    error: errMessage(failure),
   });
   cache = new Map();
   return cache;

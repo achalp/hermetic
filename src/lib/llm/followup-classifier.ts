@@ -16,7 +16,7 @@
 import { generateText } from "ai";
 import { getModel } from "@/lib/llm/client";
 import { FOLLOWUP_CLASSIFIER_MODEL } from "@/lib/constants";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import type { InvestigateScope } from "@/lib/llm/investigate-planner";
 
 export type FollowupDepth = "lookup" | "deep";
@@ -82,7 +82,7 @@ export async function classifyFollowupDepth(args: {
   } catch (err) {
     // Fail-safe to the cheap path — never let a classifier failure escalate cost.
     logger.warn("Followup classifier failed; defaulting to lookup", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     return "lookup";
   }

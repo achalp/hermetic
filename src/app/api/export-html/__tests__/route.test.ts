@@ -16,6 +16,7 @@ vi.mock("@/lib/export/html-export", async (importOriginal) => {
   return { ...actual, exportDashboardHtml: vi.fn() };
 });
 vi.mock("@/lib/logger", () => ({
+  errMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   serializeError: (e: unknown) => ({ error: String(e) }),
 }));

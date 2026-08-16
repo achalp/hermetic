@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { errMessage } from "@/lib/logger";
 import {
   bindDbtManifest,
   unbindDbtManifest,
@@ -410,8 +411,7 @@ function DbtBindingPanel({ warehouseId }: DbtBindingPanelProps) {
         manifestPath: result.manifestPath,
       });
     } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
+      const msg = err instanceof ApiError ? err.message : errMessage(err);
       setStatus({ kind: "error", error: msg });
     }
   }, [path, warehouseId]);
@@ -422,8 +422,7 @@ function DbtBindingPanel({ warehouseId }: DbtBindingPanelProps) {
       setStatus({ kind: "idle" });
       setPath("");
     } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
+      const msg = err instanceof ApiError ? err.message : errMessage(err);
       setStatus({ kind: "error", error: msg });
     }
   }, [warehouseId]);

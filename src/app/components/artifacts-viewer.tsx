@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
+import { errMessage } from "@/lib/logger";
 import {
   downloadTableAsCsv,
   downloadTableAsXlsx,
@@ -366,8 +367,7 @@ export function ArtifactsViewer({
       setRerunState({ kind: "success" });
       setTimeout(() => setRerunState({ kind: "idle" }), 3000);
     } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
+      const msg = err instanceof ApiError ? err.message : errMessage(err);
       setRerunState({ kind: "error", message: msg });
     }
   }, [csvId, codeIsDirty, editedCode, onRerunSuccess, onRequestRerun]);

@@ -13,7 +13,7 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { extractPreloadedFns, type PreloadedFn } from "@/lib/sandbox/runtime-files";
 import type { SkillFile } from "./types";
@@ -158,7 +158,7 @@ export function loadUserModules(dir: string = defaultUserLibDir()): UserModuleLo
           }
         }
       } catch (err) {
-        reason = `unreadable: ${err instanceof Error ? err.message : String(err)}`;
+        reason = `unreadable: ${errMessage(err)}`;
       }
     }
 

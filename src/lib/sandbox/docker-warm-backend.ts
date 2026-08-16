@@ -6,7 +6,7 @@ import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LARGE_DATA_TIMEOUT_MS } from 
 import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { sandboxHardeningRunArgs } from "./hardening";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import type { SandboxRunHooks } from "@/lib/contracts/execution";
 
 const CONTAINER_NAME = "hermetic-warm";
@@ -159,7 +159,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
         execution_ms: Date.now() - start,
       };
     } finally {

@@ -1,5 +1,5 @@
 import { run } from "./docker-utils";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { DEFAULT_SANDBOX_MEMORY_FRACTION } from "@/lib/constants";
 import { envConfig } from "@/lib/harness-slot";
 import { sandboxMemoryFraction } from "@/lib/settings";
@@ -51,7 +51,7 @@ export function getDaemonMemoryBytes(): Promise<number | null> {
       })
       .catch((err) => {
         logger.warn("`docker info` failed while probing daemon memory", {
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         return null;
       })

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Spec } from "@/spec/react";
+import { errMessage } from "@/lib/logger";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { SpecView } from "@/components/spec-view";
 import { CitationNavigateContext } from "@/components/registry-primitives";
@@ -450,7 +451,7 @@ export function ResponsePanel({
       setRestoredSpec(newSpec);
       setDashboardStale(false);
     } catch (err) {
-      setRecomposeError(err instanceof Error ? err.message : String(err));
+      setRecomposeError(errMessage(err));
     } finally {
       setRecomposing(false);
     }

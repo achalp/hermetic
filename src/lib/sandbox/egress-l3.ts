@@ -18,7 +18,7 @@
  * falls back to `--network none` — NEVER to open bridge egress.
  */
 import { run } from "./docker-utils";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /** Dedicated, reusable bridge network for the L3-blocked tier. Created once and
  *  kept across runs (unlike the per-run L7 egress networks). */
@@ -87,7 +87,7 @@ export function setupL3BlockedNetwork(): Promise<string | null> {
   if (!l3Ready) {
     l3Ready = installL3Network().catch((err) => {
       logger.warn("L3-blocked egress setup failed — caller must fail safe to --network none", {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       l3Ready = null; // don't poison future runs
       return null;

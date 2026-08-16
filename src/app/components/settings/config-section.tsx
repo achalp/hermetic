@@ -12,6 +12,7 @@
  *   service the key inputs are disabled with the env-var path named.
  */
 import { useCallback, useEffect, useState } from "react";
+import { errMessage } from "@/lib/logger";
 import {
   getSettings,
   putSettings,
@@ -161,7 +162,7 @@ export function ConfigSection() {
       setKeyDrafts({});
       setSavedAt(Date.now());
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errMessage(err));
     } finally {
       setBusy(false);
     }

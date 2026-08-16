@@ -13,7 +13,7 @@ import { readdirSync, statSync } from "fs";
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import { hermeticPaths } from "@/lib/paths";
 
@@ -78,7 +78,7 @@ export function hermeticRuntimeFiles(): AdditionalFile[] {
       warnedMissing = true;
       logger.warn("Hermetic runtime package unreadable — sandbox falls back to inline helpers", {
         dir: runtimeDir(),
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
     cachedFiles = [];

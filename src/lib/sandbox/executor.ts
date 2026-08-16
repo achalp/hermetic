@@ -1,4 +1,5 @@
 import { Sandbox } from "@e2b/code-interpreter";
+import { errMessage } from "@/lib/logger";
 import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import { pythonNanPrelude } from "./prelude";
@@ -60,7 +61,7 @@ export async function executeSandbox(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
       execution_ms: Date.now() - start,
     };
   } finally {

@@ -22,6 +22,7 @@
  * — the assemblers differ only in which JSON blocks they embed.
  */
 import React, { useEffect, useState } from "react";
+import { errMessage } from "@/lib/logger";
 import { createRoot } from "react-dom/client";
 import { App } from "@modelcontextprotocol/ext-apps";
 import { SpecView } from "@/components/spec-view";
@@ -314,7 +315,7 @@ function McpAppDashboard() {
         applyHostTheme(bridge.getHostContext()?.theme);
         setApp(bridge);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => setError(errMessage(e)));
     return () => void bridge.close().catch(() => {});
   }, []);
 

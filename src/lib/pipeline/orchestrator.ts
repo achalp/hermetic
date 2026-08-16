@@ -46,7 +46,7 @@ import { CODE_REVIEW_MODEL, MAX_REVIEW_REDOS, LLM_MAX_OUTPUT_TOKENS } from "@/li
 import type { SandboxRuntimeId } from "@/lib/constants";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import {
   validateExecutionResult,
   formatSemanticVerdictForRetry,
@@ -299,7 +299,7 @@ export async function runPipeline(
       } catch (err) {
         // Redo generation failed — run the code we already have rather than abort.
         logger.warn("Review redo generation failed — executing pre-review code", {
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         return code;
       }
@@ -340,7 +340,7 @@ export async function runPipeline(
       lastCodegenErr = err;
       if (isRunStopped()) break; // user cancelled — do not retry a stop
       if (a < MAX_CODEGEN_ATTEMPTS) {
-        const m = err instanceof Error ? err.message : String(err);
+        const m = errMessage(err);
         logger.warn("Initial code-gen failed — retrying once", {
           attempt: a,
           error: m.slice(0, 200),
@@ -351,7 +351,7 @@ export async function runPipeline(
   }
   if (code === undefined) {
     const err = lastCodegenErr;
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMessage(err);
     recordRunEvent({ type: "codegen_failed", attempt: attemptIndex, error: msg });
     // Log the full error including any nested cause/errors for debugging
     const details: Record<string, unknown> = {
@@ -503,6 +503,11 @@ export async function runPipeline(
       kind: result.success ? "semantic" : "execution",
       step: question,
       errorText: retryError,
+      // A semantic failure already carries the producer's stable class — pass
+      // it as errorClass so classifyFailure uses it directly instead of
+      // regexing the human `reason` prose (an execution failure has no such
+      // code, so it falls through to the traceback classifier).
+      errorClass: semanticVerdict && !semanticVerdict.ok ? semanticVerdict.code : undefined,
     });
 
     // Regenerate from the full history of prior (code, error) pairs. The geo
@@ -518,7 +523,7 @@ export async function runPipeline(
     } catch (err) {
       // LLM call itself failed — surface the underlying error since
       // that's what the user actually cares about diagnosing.
-      const llmErr = err instanceof Error ? err.message : String(err);
+      const llmErr = errMessage(err);
       const lastSandboxErr = result.success
         ? "(execution succeeded but result was degenerate)"
         : result.error;

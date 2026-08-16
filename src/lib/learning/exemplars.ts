@@ -14,7 +14,7 @@ import { readFile, writeFile, mkdir, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hermeticPaths } from "@/lib/paths";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { CONTRACT_GENERATION, type Exemplar } from "@/lib/contracts/learning";
 import { schemaFingerprint } from "./fingerprint";
 
@@ -87,7 +87,7 @@ export async function bankExemplar(input: BankInput): Promise<void> {
     }
   } catch (err) {
     logger.debug("Exemplar banking failed — skipping (learning is best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
   }
 }

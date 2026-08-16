@@ -18,7 +18,7 @@ import {
 import { getRunId } from "@/lib/run-context";
 import { appendCostRow } from "@/lib/cost/storage";
 import { writeRunDiagnostics } from "@/lib/diagnostics/run-diagnostics";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export async function emitCostEpilogue(opts: {
   emit: (line: string) => void;
@@ -68,7 +68,7 @@ export async function emitCostEpilogue(opts: {
     });
   } catch (costErr) {
     logger.warn("Cost logging failed", {
-      error: costErr instanceof Error ? costErr.message : String(costErr),
+      error: errMessage(costErr),
     });
   }
 }
@@ -117,7 +117,7 @@ export async function trackRouteCost<T>(
       } catch (costErr) {
         logger.warn("Cost logging failed", {
           mode: meta.mode,
-          error: costErr instanceof Error ? costErr.message : String(costErr),
+          error: errMessage(costErr),
         });
       }
     }

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 vi.mock("@/lib/logger", () => ({
+  errMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   setRunIdProvider: vi.fn(),
 }));

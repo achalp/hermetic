@@ -32,7 +32,7 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { AnalysisWindow } from "@/lib/contracts/warehouse-schema";
 import type { SubQuestionResult } from "@/lib/contracts/investigation";
 import type { InvestigationPlan, PlannedSubQuestion } from "@/lib/llm/investigate-planner";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { projectManifestForPrompt } from "@/lib/findings/project";
 import type { FindingsManifest } from "@/lib/contracts/findings";
 
@@ -533,7 +533,7 @@ export async function gapCheckComposer(args: ComposeArgs): Promise<GapCheckResul
     return parsed;
   } catch (err) {
     logger.warn("Investigate: gap-check LLM call failed; composing as-is", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     return fallback;
   }

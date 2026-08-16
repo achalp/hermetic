@@ -31,7 +31,7 @@
  */
 import type { MeasureAggregation, SeriesEntry } from "@/lib/contracts/product";
 import { executePipeline } from "@/lib/data-transforms/client-pipeline";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { humanizeId, type SpecPatchLine } from "./scaffold";
 import type { DerivedView } from "./views";
 
@@ -261,7 +261,7 @@ export function verifyBaseline(
   try {
     replayed = executePipeline(rawRows, pipeline as never, {}, []) as Record<string, unknown>[];
   } catch (err) {
-    return `replay threw: ${err instanceof Error ? err.message : String(err)}`;
+    return `replay threw: ${errMessage(err)}`;
   }
   const xCol = s.roles.x.column;
   if (replayed.length !== s.rows.length) {

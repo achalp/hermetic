@@ -8,6 +8,7 @@
  * verifiability payload exists (legacy runs show an empty-state note).
  */
 import { useEffect, useState } from "react";
+import { errMessage } from "@/lib/logger";
 import { downloadJson } from "@/lib/export-utils";
 
 export interface VerifiabilityPayload {
@@ -82,7 +83,7 @@ export function VerifyTab({
       if (!res.ok || !data.audit) throw new Error(data.error ?? "Audit failed");
       setAudit(data.audit);
     } catch (e) {
-      setAuditErr(e instanceof Error ? e.message : String(e));
+      setAuditErr(errMessage(e));
     } finally {
       setAuditBusy(false);
     }

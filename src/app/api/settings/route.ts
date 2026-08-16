@@ -44,6 +44,7 @@ import {
 } from "@/lib/secrets";
 import { DEFAULT_SANDBOX_MEMORY_FRACTION, isValidModelId } from "@/lib/constants";
 
+import { errMessage } from "@/lib/logger";
 const DEFAULT_MAX_HISTORY = 200;
 const DEFAULT_MAX_RUNS = 200;
 
@@ -260,10 +261,7 @@ export async function PUT(request: Request) {
     try {
       setSecret(name, value);
     } catch (err) {
-      return Response.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        { status: 422 }
-      );
+      return Response.json({ error: errMessage(err) }, { status: 422 });
     }
   }
   if (Object.keys(patch).length > 0) setRuntimeConfig(patch);

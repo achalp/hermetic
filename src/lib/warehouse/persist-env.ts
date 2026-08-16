@@ -6,7 +6,7 @@ import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-confi
 import { connectionLabel } from "@/lib/warehouse/engine-descriptor";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import {
   keychainAvailable,
   getWarehouseSecrets,
@@ -92,7 +92,7 @@ async function persistConnections(connections: SavedConnection[]): Promise<void>
         // in the file and say so.
         logger.warn("warehouse: keychain write failed — credential kept in file", {
           connectionId: conn.id,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         return conn;
       }

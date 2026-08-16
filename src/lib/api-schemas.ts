@@ -11,7 +11,7 @@
  * in lib/types.ts — valid input behaves exactly as before.
  */
 import { z } from "zod";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /**
  * Read a request's JSON body, mapping failure to a 400 — NOT a 500. When a
@@ -29,7 +29,7 @@ export async function readJsonBody(
   } catch (err) {
     logger.debug("Request body unreadable (likely client abort)", {
       aborted: request.signal?.aborted ?? false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     return {
       ok: false,

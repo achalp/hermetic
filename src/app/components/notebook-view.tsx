@@ -23,6 +23,7 @@ import {
   type GroundingReport,
 } from "@/lib/contracts/stream-state";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { errMessage } from "@/lib/logger";
 import type { Spec } from "@/spec/react";
 import { registry } from "@/components/registry";
 import { renderWithCitations } from "@/components/registry-primitives";
@@ -759,9 +760,7 @@ export function NotebookView({
         });
         onStepRerun?.(res.step, code !== undefined ? res.dependents : []);
       } catch (err) {
-        setRerunErrors((prev) =>
-          new Map(prev).set(index, err instanceof Error ? err.message : String(err))
-        );
+        setRerunErrors((prev) => new Map(prev).set(index, errMessage(err)));
       } finally {
         setRerunning((prev) => {
           const next = new Set(prev);

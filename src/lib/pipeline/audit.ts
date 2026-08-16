@@ -12,7 +12,7 @@ import { z } from "zod";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { withPhase } from "@/lib/cost/accumulator";
 import { getActiveModels } from "@/lib/runtime-config";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export interface AuditBundle {
   question: string;
@@ -105,7 +105,7 @@ export async function runAudit(bundle: AuditBundle): Promise<AuditResult | null>
     return { ...parsed, at: Date.now(), model };
   } catch (err) {
     logger.warn("audit run failed", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
     return null;
   }

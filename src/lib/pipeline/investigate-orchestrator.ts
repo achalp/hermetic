@@ -94,7 +94,7 @@ async function persistStepOutput(stepNo: number, result: PipelineResult): Promis
   } catch (err) {
     logger.warn("Investigate: failed to persist step output frame", {
       stepNo,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
   }
 }
@@ -106,7 +106,7 @@ import {
   type SubQuestionResultSummary,
 } from "@/lib/llm/investigate-planner";
 import { gapCheckComposer } from "@/lib/llm/investigate-composer";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 // SubQuestionResult moved to contracts (contracts/investigation.ts) so
 // llm/investigate-composer stops importing this pipeline module. Re-exported
@@ -363,7 +363,7 @@ async function runWarehouseSubQuestion(
       "Investigate: per-step SQL failed; falling back to materialized-snapshot analysis",
       {
         question: sq.question.slice(0, 120),
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       }
     );
     diagEvent("step_done", { step: sq.question, path: "fallback-csv" });
@@ -590,7 +590,7 @@ async function runOneSubQuestion(
       });
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMessage(err);
     slot.error = msg;
     slot.finishedAt = Date.now();
     diagEvent("step_done", {

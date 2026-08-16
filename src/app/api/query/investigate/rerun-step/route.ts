@@ -38,7 +38,7 @@ import type { AdditionalFile } from "@/lib/sandbox";
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime, getActiveModels } from "@/lib/runtime-config";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { apiError } from "@/app/lib/api-error";
 import { trackRouteCost } from "@/lib/cost/epilogue";
 import path from "node:path";
@@ -156,7 +156,7 @@ async function handleRerunStep(request: Request) {
       logger.warn("Step rerun execution failed", {
         csv_id,
         step_index,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       return apiError("/api/query/investigate/rerun-step", err, String(err), 422);
     }
@@ -197,7 +197,7 @@ async function handleRerunStep(request: Request) {
     } catch (err) {
       logger.warn("Step rerun: failed to persist output frame", {
         step_index,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
 

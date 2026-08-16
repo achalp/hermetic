@@ -10,6 +10,7 @@
  * sandbox.
  */
 import { z } from "zod";
+import { errMessage } from "@/lib/logger";
 import type { McpDeps } from "../deps";
 import { getSource } from "../sources";
 import { assertSourceLive } from "./liveness";
@@ -65,7 +66,7 @@ async function runSqlImpl(
   try {
     deps.assertReadOnlySql(args.sql);
   } catch (err) {
-    throw new McpToolError("sql_rejected", err instanceof Error ? err.message : String(err));
+    throw new McpToolError("sql_rejected", errMessage(err));
   }
 
   const cap = args.max_rows ?? DEFAULT_MAX_ROWS;

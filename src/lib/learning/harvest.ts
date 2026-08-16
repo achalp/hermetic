@@ -7,7 +7,7 @@
  *
  * Guards: never under replay or vitest; never throws into the pipeline.
  */
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { llmReplayConfig } from "@/lib/llm/replay";
 import { envConfig } from "@/lib/harness-slot";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
@@ -41,7 +41,7 @@ export async function harvestRun(input: HarvestInput): Promise<void> {
     });
   } catch (err) {
     logger.debug("harvestRun failed (best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
   }
 }

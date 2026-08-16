@@ -13,6 +13,7 @@ vi.mock("node:child_process", () => ({ spawn: vi.fn(), execFileSync: vi.fn() }))
 vi.mock("node:fs", () => ({ existsSync: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  errMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   serializeError: (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }),
   // Kept for any transitive run-context import; the transport itself no
   // longer pulls in run-control (the stop signal is per-request init.signal).
@@ -21,7 +22,7 @@ vi.mock("@/lib/logger", () => ({
 
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import {
   resolveClaudeBinary,
   isClaudeCliAvailable,

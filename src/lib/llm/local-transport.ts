@@ -15,7 +15,7 @@
  * adapter describing how to pull a text delta out of one upstream line.
  * BOTH now get the hardening (drift resolved toward the stronger copy).
  */
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /** Stall budget between upstream reads — a hung local server, not a slow one. */
 export const LOCAL_STREAM_STALL_TIMEOUT_MS = 5 * 60_000; // 5 minutes
@@ -258,7 +258,7 @@ export function responsesSSE(opts: {
         }
       } catch (err) {
         // Stream interrupted — server crashed, stalled, or OOM'd.
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = errMessage(err);
         logger.error("Local LLM stream error", {
           backend,
           error: errMsg,

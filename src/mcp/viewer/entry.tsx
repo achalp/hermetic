@@ -18,6 +18,7 @@
  * harness free of React while the viewer keeps the real renderer.
  */
 import React, { useEffect, useState } from "react";
+import { errMessage } from "@/lib/logger";
 import { createRoot } from "react-dom/client";
 import { SpecView } from "@/components/spec-view";
 import type { Spec } from "@/lib/contracts/spec";
@@ -73,9 +74,7 @@ function Viewer() {
         return res.json();
       })
       .then((entry: LoadedEntry) => setState({ phase: "ready", entry }))
-      .catch((err) =>
-        setState({ phase: "error", message: err instanceof Error ? err.message : String(err) })
-      );
+      .catch((err) => setState({ phase: "error", message: errMessage(err) }));
   }, []);
 
   if (state.phase === "loading") {

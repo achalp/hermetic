@@ -22,6 +22,7 @@ vi.mock("@/lib/runtime-config", () => ({
 
 // Mock logger
 vi.mock("@/lib/logger", () => ({
+  errMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   logger: {
     debug: vi.fn(),
     info: vi.fn(),

@@ -6,7 +6,7 @@ import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
 import { getOrCreateSandbox, writeChunkedFile, readSandboxFile } from "./microsandbox-executor";
 import { parseSandboxOutput } from "./parse-output";
 import { randomUUID } from "node:crypto";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 export class MicrosandboxWarmBackend implements WarmSandboxBackend {
   async warmup(): Promise<void> {
@@ -129,7 +129,7 @@ export class MicrosandboxWarmBackend implements WarmSandboxBackend {
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
         execution_ms: Date.now() - start,
       };
     } finally {

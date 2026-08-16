@@ -24,7 +24,7 @@
 import { readFile, writeFile, rename, mkdir, unlink } from "fs/promises";
 import { dirname } from "path";
 import { randomBytes } from "crypto";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /** Write `content` to `path` atomically (temp-in-same-dir + rename). */
 export async function writeFileAtomic(path: string, content: string): Promise<void> {
@@ -108,7 +108,7 @@ async function handleCorrupt<T>(
   logger.warn(`${path} unreadable — backed up, starting fresh`, {
     path,
     backupPath,
-    error: error instanceof Error ? error.message : String(error),
+    error: errMessage(error),
   });
   opts.onCorrupt?.({ path, backupPath, error });
   return undefined;

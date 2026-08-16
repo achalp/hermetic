@@ -68,7 +68,7 @@ import {
   collectStringLeaves,
   verifyGrounding,
 } from "@/lib/pipeline/grounding";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import type { SandboxExecutionResult } from "@/lib/contracts/execution";
 import type { CSVSchema, SchemaMode } from "@/lib/contracts/data-schema";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
@@ -1196,10 +1196,10 @@ export async function composeAndStreamDashboard(args: {
   } catch (streamErr) {
     if (!isClosed()) {
       logger.error("Stream error", {
-        error: streamErr instanceof Error ? streamErr.message : String(streamErr),
+        error: errMessage(streamErr),
       });
       if (lineCount === 0) {
-        const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+        const errMsg = errMessage(streamErr);
         emit(JSON.stringify({ op: "add", path: "/root", value: "error" }) + "\n");
         emit(
           JSON.stringify({
@@ -1652,7 +1652,7 @@ export async function composeAndStreamDashboard(args: {
       );
     } catch (err) {
       logger.debug("compose grounding failed (best-effort)", {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
   }

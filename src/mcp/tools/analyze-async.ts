@@ -26,6 +26,7 @@
  * expire after 30 min; a runaway running job is stopped at 60 min.
  */
 import { randomUUID } from "node:crypto";
+import { errMessage } from "@/lib/logger";
 import { z } from "zod";
 import { analyze, analyzeInput, type AnalyzeDeps, type AnalyzeProgress } from "./analyze";
 import { getSource } from "../sources";
@@ -179,7 +180,7 @@ export function analyzeStart(
     (err: unknown) => {
       if (job.status !== "running") return;
       job.error = {
-        message: err instanceof Error ? err.message : String(err),
+        message: errMessage(err),
         code: errorCodeOf(err),
       };
       settle(job, "error");

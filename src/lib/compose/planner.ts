@@ -10,7 +10,7 @@ import { z } from "zod";
 import { getModel, cachedSystem } from "@/lib/llm/client";
 import { withPhase } from "@/lib/cost/accumulator";
 import { projectManifestForPrompt } from "@/lib/findings/project";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import type { FindingEntry } from "@/lib/contracts/findings";
 import type { Plan } from "@/lib/contracts/plan";
 import {
@@ -188,7 +188,7 @@ export async function generatePlan(args: {
       errors.push(...v.errors.map((e) => `attempt ${attempt}: ${e}`));
       feedback = `\n\nYour previous plan was INVALID:\n- ${v.errors.join("\n- ")}\nFix these and respond with only the JSON object.`;
     } catch (err) {
-      errors.push(`attempt ${attempt}: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`attempt ${attempt}: ${errMessage(err)}`);
       feedback = "";
     }
   }

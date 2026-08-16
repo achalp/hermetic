@@ -2,7 +2,7 @@ import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { stateNamespace, stateBox } from "@/lib/state-store";
 
 // Backend SPI lives in ./warm-backend (leaf module) so implementations can
@@ -85,7 +85,7 @@ export class WarmSandboxManager {
         this.loadedCsvId = null;
         logger.warn("Warm sandbox preparation failed", {
           csvId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
       }
     });
@@ -139,7 +139,7 @@ export class WarmSandboxManager {
         this.loadedCsvId = null;
         return {
           success: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
           execution_ms: 0,
         };
       }

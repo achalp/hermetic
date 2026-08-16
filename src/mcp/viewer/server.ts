@@ -24,7 +24,7 @@ import { RECORD_FILES } from "@/lib/record-store";
 // Server-side node code, so the export assembler (a framework-free lib) is
 // imported directly — the McpDeps seam covers tool handlers, not this server.
 import { exportDashboardHtml, exportFilename } from "@/lib/export/html-export";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 const DIST = resolve(__dirname, "dist");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -153,7 +153,7 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
       send(404, "not found", "text/plain");
     } catch (err) {
       logger.warn("MCP viewer request failed", {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
       send(500, JSON.stringify({ error: "internal error" }), "application/json");
     }

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile, unlink } from "fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "path";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { hermeticPaths } from "@/lib/paths";
 
 /**
@@ -73,7 +73,7 @@ export async function writeSchemaCache<T>(
   } catch (err) {
     // Non-fatal: the extraction already succeeded, we just failed to cache it.
     logger.warn("schema-cache write failed (best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
   }
 }
@@ -115,7 +115,7 @@ export async function resolveWithCache<T>(opts: {
         // over speed), and mark the entry so the next run re-probes.
         logger.warn("schema-cache fingerprint probe failed; re-extracting", {
           sourceKey,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         });
         const artifact = await extract();
         await writeSchemaCache(sourceKey, `probe-failed:${Date.now()}`, artifact);

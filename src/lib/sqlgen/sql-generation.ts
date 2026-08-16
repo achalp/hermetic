@@ -4,7 +4,7 @@ import { getModel, cachedSystem, cachedText, getActiveProvider } from "@/lib/llm
 import { LLM_MAX_OUTPUT_TOKENS, WAREHOUSE_LARGE_JOIN_ROWS } from "@/lib/constants";
 import { getActiveModels } from "@/lib/runtime-config";
 import { checkAggregateInputLimit, checkUnboundedLargeJoin } from "@/lib/warehouse/sql-guard";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { WarehouseType } from "@/lib/contracts/connection-configs";
 import type { WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
@@ -384,7 +384,7 @@ export async function generateSQLWithRepair<T>(args: {
       return { sql, result };
     } catch (err) {
       lastError = err;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errMessage(err);
       // Engines report syntax failures by character position/line — useless
       // to the repair model (it would have to count characters) and to the
       // user. Excerpt the fragment once; both consumers get it.

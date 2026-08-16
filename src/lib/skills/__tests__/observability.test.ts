@@ -5,6 +5,7 @@ const { artifacts, events } = vi.hoisted(() => ({
   events: [] as Record<string, unknown>[],
 }));
 vi.mock("@/lib/logger", () => ({
+  errMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   setRunIdProvider: vi.fn(),
 }));

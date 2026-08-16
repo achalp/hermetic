@@ -21,7 +21,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, appendFile, readdir, unlink } from "fs/promises";
 import { join } from "path";
 import { getRunId } from "@/lib/run-context";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { envConfig } from "@/lib/harness-slot";
 import { hermeticPaths } from "@/lib/paths";
 
@@ -274,7 +274,7 @@ export async function writeRunDiagnostics(meta: {
     // that explains escalations/retries/degradations disappears and nobody
     // notices until the next post-mortem needs it.
     logger.warn("writeRunDiagnostics failed (best-effort)", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage(err),
     });
   }
 }

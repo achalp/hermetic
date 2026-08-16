@@ -13,7 +13,7 @@
  * cap is enforced at the write site instead (prune-on-save in
  * lib/history/storage.ts, HERMETIC_MAX_HISTORY_ENTRIES; API-9).
  */
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 import { runRegisteredSweeps } from "@/lib/store-ttl";
 
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -60,7 +60,7 @@ export function startStoreSweeper(): void {
       }
     } catch (err) {
       logger.warn("Store sweep failed", {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
   };
