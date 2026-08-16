@@ -96,6 +96,17 @@ export interface HistoryMeta {
   sourceFile: string;
   sourceType: "upload" | "local" | "warehouse";
   localPath?: string;
+  /**
+   * Remote cloud-Parquet source URL (s3://, https://, gs://) this run read
+   * directly. Persisted so a RESTORE can rebuild a LIVE remote ref (via
+   * storeRemoteParquetRef) instead of a dead placeholder — without it, a
+   * restored remote analysis's follow-up failed with "CSV not found or
+   * expired". Credentials are deliberately NOT stored here (secret-at-rest):
+   * they are re-resolved from the recent-source keyed by this same URL.
+   */
+  remoteParquetUrl?: string;
+  /** Whether the remote source is Hive-partitioned (paired with remoteParquetUrl). */
+  isHivePartitioned?: boolean;
   warehouseType?: WarehouseType;
   rowCount: number;
   columnCount: number;

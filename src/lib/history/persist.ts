@@ -51,10 +51,15 @@ export async function persistHistoryEntry(
 
   const isLocal = !!(stored.localPath || stored.localFolderPath);
   const isWarehouse = stored.schema.source_type === "warehouse";
+  const isRemote = !!stored.remoteParquetUrl;
   const sourceType = isLocal ? "local" : isWarehouse ? "warehouse" : "upload";
 
+  // A remote-parquet source has no local CSV content to fetch (its bytes live
+  // in the bucket); persist its URL so a RESTORE can rebuild a live remote ref
+  // rather than a dead placeholder (the "CSV not found or expired" follow-up
+  // bug). Creds are NOT written to history — re-resolved from recent-sources.
   let csvContent: string | undefined;
-  if (sourceType === "upload") csvContent = (await getCSVContent(csvId)) ?? undefined;
+  if (sourceType === "upload" && !isRemote) csvContent = (await getCSVContent(csvId)) ?? undefined;
 
   const meta = await saveHistoryEntry({
     question,
@@ -65,6 +70,8 @@ export async function persistHistoryEntry(
     sourceFile: stored.schema.filename,
     sourceType: sourceType as "upload" | "local" | "warehouse",
     localPath: stored.localPath || stored.localFolderPath,
+    remoteParquetUrl: stored.remoteParquetUrl,
+    isHivePartitioned: stored.isHivePartitioned,
     warehouseType: stored.schema.warehouse_type,
     csvContent,
     executionMs: artifacts?.execution_ms ?? 0,

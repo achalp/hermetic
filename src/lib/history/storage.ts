@@ -89,6 +89,9 @@ export interface HistorySaveInput {
   sourceFile: string;
   sourceType: "upload" | "local" | "warehouse";
   localPath?: string;
+  /** Remote cloud-Parquet URL (rehydrated on restore — see HistoryMeta). */
+  remoteParquetUrl?: string;
+  isHivePartitioned?: boolean;
   warehouseType?: WarehouseType;
   csvContent?: string; // only for uploaded files
   executionMs: number;
@@ -110,6 +113,8 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
     sourceFile: input.sourceFile,
     sourceType: input.sourceType,
     localPath: input.localPath,
+    remoteParquetUrl: input.remoteParquetUrl,
+    isHivePartitioned: input.isHivePartitioned,
     warehouseType: input.warehouseType,
     rowCount: input.schema.row_count,
     columnCount: input.schema.columns.length,
