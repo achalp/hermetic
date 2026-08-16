@@ -7,6 +7,7 @@ import {
   useNivoTheme,
   formatAxisNumber,
   unwrapChartData,
+  useReducedMotion,
 } from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
@@ -62,6 +63,7 @@ export function ScatterChartComponent({
   on?: (event: string) => EventHandle;
 }) {
   const drillClickValueRef = useDrillClickRef();
+  const reducedMotion = useReducedMotion();
   const clickHandle = on?.("click");
   const isDrillable = clickHandle?.bound ?? false;
   const theme = useNivoTheme();
@@ -164,6 +166,7 @@ export function ScatterChartComponent({
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsiveScatterPlot
+          animate={!reducedMotion}
           data={nivoData}
           colors={colors}
           margin={{

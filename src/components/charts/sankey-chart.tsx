@@ -1,7 +1,7 @@
 "use client";
 
 import { ResponsiveSankey } from "@nivo/sankey";
-import { useColorMap, useNivoTheme } from "@/components/theme/chart-theme";
+import { useColorMap, useNivoTheme, useReducedMotion } from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
@@ -17,6 +17,7 @@ interface SankeyChartProps {
 
 export function SankeyChartComponent({ props }: { props: SankeyChartProps }) {
   const theme = useNivoTheme();
+  const reducedMotion = useReducedMotion();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
   const nodes = (Array.isArray(props.nodes) ? props.nodes : []).map((n) => ({
@@ -46,6 +47,7 @@ export function SankeyChartComponent({ props }: { props: SankeyChartProps }) {
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsiveSankey
+          animate={!reducedMotion}
           data={{ nodes, links }}
           theme={theme}
           colors={colors}

@@ -1,7 +1,12 @@
 "use client";
 
 import { ResponsiveRadar } from "@nivo/radar";
-import { useColorMap, useNivoTheme, unwrapChartData } from "@/components/theme/chart-theme";
+import {
+  useColorMap,
+  useNivoTheme,
+  unwrapChartData,
+  useReducedMotion,
+} from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
@@ -19,6 +24,7 @@ interface RadarChartProps {
 
 export function RadarChartComponent({ props }: { props: RadarChartProps }) {
   const theme = useNivoTheme();
+  const reducedMotion = useReducedMotion();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
   const data = unwrapChartData(props.data);
@@ -43,6 +49,7 @@ export function RadarChartComponent({ props }: { props: RadarChartProps }) {
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsiveRadar
+          animate={!reducedMotion}
           data={data as Record<string, string | number>[]}
           keys={props.keys}
           indexBy={props.index_key}

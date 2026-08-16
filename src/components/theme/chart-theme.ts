@@ -371,6 +371,26 @@ function useDarkMode(): boolean {
   );
 }
 
+/**
+ * Whether the viewer prefers reduced motion. Charts pass `animate={!reduced}`
+ * to nivo so their entrance springs don't run — honoring the preference AND
+ * fixing the bug where a nivo chart mounted BELOW THE FOLD under reduced motion
+ * leaves its bars/lines stuck at the react-spring from-state (height 0) because
+ * the off-screen animation frames are throttled and never commit. SSR snapshot
+ * is `false` (animate) so the server markup matches a no-preference client.
+ */
+export function useReducedMotion(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+      mq.addEventListener("change", cb);
+      return () => mq.removeEventListener("change", cb);
+    },
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () => false
+  );
+}
+
 /** Get chart colors for the active theme */
 export function useChartColors(): string[] {
   const { theme } = useTheme();

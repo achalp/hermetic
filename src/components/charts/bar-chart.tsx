@@ -9,6 +9,7 @@ import {
   unwrapChartData,
   truncateLabel,
   legendItemWidth,
+  useReducedMotion,
 } from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
@@ -49,6 +50,7 @@ export function BarChartComponent({
   onSelect?: (value: string) => void;
 }) {
   const drillClickValueRef = useDrillClickRef();
+  const reducedMotion = useReducedMotion();
   const isSelectable = !!onSelect;
   const clickHandle = on?.("click");
   const isDrillable = !isSelectable && (clickHandle?.bound ?? false);
@@ -141,6 +143,7 @@ export function BarChartComponent({
       showSelectHint={isSelectable && selectedValues.length === 0}
     >
       <ResponsiveBar
+        animate={!reducedMotion}
         data={data as Record<string, string | number>[]}
         keys={y_keys}
         indexBy={props.x_key}

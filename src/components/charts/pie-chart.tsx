@@ -7,6 +7,7 @@ import {
   useChartColors,
   useNivoTheme,
   unwrapChartData,
+  useReducedMotion,
 } from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
@@ -44,6 +45,7 @@ export function PieChartComponent({
   onSelect?: (value: string) => void;
 }) {
   const drillClickValueRef = useDrillClickRef();
+  const reducedMotion = useReducedMotion();
   const isSelectable = !!onSelect;
   const clickHandle = on?.("click");
   const isDrillable = !isSelectable && (clickHandle?.bound ?? false);
@@ -132,6 +134,7 @@ export function PieChartComponent({
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsivePie
+          animate={!reducedMotion}
           data={nivoData}
           colors={colors}
           innerRadius={props.donut ? 0.5 : 0}

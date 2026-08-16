@@ -1,7 +1,12 @@
 "use client";
 
 import { ResponsiveChord } from "@nivo/chord";
-import { useNivoTheme, useChartColors, resolveColors } from "@/components/theme/chart-theme";
+import {
+  useNivoTheme,
+  useChartColors,
+  resolveColors,
+  useReducedMotion,
+} from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
@@ -17,6 +22,7 @@ interface ChordChartProps {
 
 export function ChordChartComponent({ props }: { props: ChordChartProps }) {
   const theme = useNivoTheme();
+  const reducedMotion = useReducedMotion();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
   const themeColors = useChartColors();
@@ -46,6 +52,7 @@ export function ChordChartComponent({ props }: { props: ChordChartProps }) {
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsiveChord
+          animate={!reducedMotion}
           data={props.matrix}
           keys={props.keys}
           theme={theme}

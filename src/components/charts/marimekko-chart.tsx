@@ -1,7 +1,12 @@
 "use client";
 
 import { ResponsiveMarimekko } from "@nivo/marimekko";
-import { useColorMap, useNivoTheme, unwrapChartData } from "@/components/theme/chart-theme";
+import {
+  useColorMap,
+  useNivoTheme,
+  unwrapChartData,
+  useReducedMotion,
+} from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
@@ -17,6 +22,7 @@ interface MarimekkoChartProps {
 
 export function MarimekkoChartComponent({ props }: { props: MarimekkoChartProps }) {
   const theme = useNivoTheme();
+  const reducedMotion = useReducedMotion();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
   const data = unwrapChartData(props.data);
@@ -42,6 +48,7 @@ export function MarimekkoChartComponent({ props }: { props: MarimekkoChartProps 
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsiveMarimekko
+          animate={!reducedMotion}
           data={data as Record<string, string | number>[]}
           id={props.id_key}
           value={props.value_key}

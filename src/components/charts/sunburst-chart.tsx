@@ -1,7 +1,12 @@
 "use client";
 
 import { ResponsiveSunburst } from "@nivo/sunburst";
-import { useNivoTheme, useChartColors, resolveColors } from "@/components/theme/chart-theme";
+import {
+  useNivoTheme,
+  useChartColors,
+  resolveColors,
+  useReducedMotion,
+} from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 
@@ -16,6 +21,7 @@ interface SunburstChartProps {
 
 export function SunburstChartComponent({ props }: { props: SunburstChartProps }) {
   const theme = useNivoTheme();
+  const reducedMotion = useReducedMotion();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
   const themeColors = useChartColors();
@@ -40,6 +46,7 @@ export function SunburstChartComponent({ props }: { props: SunburstChartProps })
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsiveSunburst
+          animate={!reducedMotion}
           data={props.data as { name: string; children?: unknown[] }}
           id="name"
           value="value"

@@ -10,6 +10,7 @@ import {
   unwrapChartData,
   truncateLabel,
   legendItemWidth,
+  useReducedMotion,
 } from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
@@ -44,6 +45,7 @@ export function AreaChartComponent({
   on?: (event: string) => EventHandle;
 }) {
   const drillClickValueRef = useDrillClickRef();
+  const reducedMotion = useReducedMotion();
   const clickHandle = on?.("click");
   const isDrillable = clickHandle?.bound ?? false;
   const theme = useNivoTheme();
@@ -74,6 +76,7 @@ export function AreaChartComponent({
       isDrillable={isDrillable}
     >
       <ResponsiveLine
+        animate={!reducedMotion}
         data={series}
         colors={colors}
         curve="monotoneX"

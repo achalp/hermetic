@@ -1,7 +1,12 @@
 "use client";
 
 import { ResponsiveStream } from "@nivo/stream";
-import { useColorMap, useNivoTheme, unwrapChartData } from "@/components/theme/chart-theme";
+import {
+  useColorMap,
+  useNivoTheme,
+  unwrapChartData,
+  useReducedMotion,
+} from "@/components/theme/chart-theme";
 import { useThemeConfig } from "@/components/theme/theme-config";
 import { useChartExpanded } from "./chart-expand-wrapper";
 import { ChartEmptyState } from "./chart-empty-state";
@@ -17,6 +22,7 @@ interface StreamChartProps {
 
 export function StreamChartComponent({ props }: { props: StreamChartProps }) {
   const theme = useNivoTheme();
+  const reducedMotion = useReducedMotion();
   const { chart } = useThemeConfig();
   const isExpanded = useChartExpanded();
   const data = unwrapChartData(props.data);
@@ -41,6 +47,7 @@ export function StreamChartComponent({ props }: { props: StreamChartProps }) {
         style={{ height: isExpanded ? undefined : chart.height }}
       >
         <ResponsiveStream
+          animate={!reducedMotion}
           data={data as Record<string, number>[]}
           keys={props.keys}
           theme={theme}
