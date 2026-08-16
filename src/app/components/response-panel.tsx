@@ -183,6 +183,7 @@ export function ResponsePanel({
     question,
     csvId,
     warehouseId,
+    historyId,
     reattachRunId,
     schemaMode,
     composerSight,
@@ -289,6 +290,7 @@ export function ResponsePanel({
       send("", {
         csv_id: effectiveCsvId ?? undefined,
         warehouse_id: warehouseId ?? undefined,
+        history_id: historyId ?? undefined,
         question: drillQuestion,
         drill_down_context: {
           parent_question: currentQuestion,
@@ -311,6 +313,7 @@ export function ResponsePanel({
     [
       effectiveCsvId,
       warehouseId,
+      historyId,
       send,
       currentSpecRef,
       currentQuestionRef,

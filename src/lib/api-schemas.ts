@@ -241,6 +241,7 @@ export const analysisRequestSchema: z.ZodType<
     .object({
       csv_id: z.string().optional(),
       warehouse_id: z.string().optional(),
+      history_id: z.string().optional(),
       question: z.string().optional(),
       schema_mode: z.enum(["metadata", "sample"]).optional(),
       code_gen_model: z.string().optional(),

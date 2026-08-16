@@ -69,6 +69,7 @@ import {
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import type { PatchStream } from "@/lib/pipeline/patch-stream";
 import { logger, serializeError, errMessage } from "@/lib/logger";
+import { rehydrateRemoteSourceFromHistory } from "@/lib/history/rehydrate-source";
 import type { ResolvedAnalysisSource } from "@/lib/pipeline/validate-request";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
@@ -281,7 +282,21 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         }
 
         // ── Load CSV (file upload or warehouse result) ──────────
-        const stored = getStoredCSV(csvId);
+        let stored = getStoredCSV(csvId);
+        if (!stored && context.history_id) {
+          // Cold miss: the in-memory ref is gone (e.g. a server restart), but a
+          // CLOUD source has a durable home — the history record's URL. Rehydrate
+          // from it and read the bucket directly, rather than forcing a re-upload
+          // for data that never left the cloud. Uploaded/local sources have no
+          // URL to point back at, so this no-ops and the honest error stands.
+          if (await rehydrateRemoteSourceFromHistory(csvId, context.history_id)) {
+            stored = getStoredCSV(csvId);
+            logger.info("Recovered expired source from history for follow-up", {
+              csvId,
+              historyId: context.history_id,
+            });
+          }
+        }
         if (!stored) {
           throw new Error("CSV not found or expired. Please re-upload.");
         }

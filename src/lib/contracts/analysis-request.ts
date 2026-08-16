@@ -28,6 +28,13 @@ export interface DrillDownContext {
 export interface AnalysisRequestContext {
   csv_id?: string;
   warehouse_id?: string;
+  /**
+   * The analysis this run follows up on (the ?restore= id). Lets the query
+   * path self-heal a cold csvId miss (e.g. after a server restart) by
+   * rehydrating the source from the durable history record instead of failing
+   * "CSV not found or expired" — see lib/history/rehydrate-source.ts.
+   */
+  history_id?: string;
   question?: string;
   schema_mode?: SchemaMode;
   /** Composer sight (composer-sight spec §1): "blind" (default — values

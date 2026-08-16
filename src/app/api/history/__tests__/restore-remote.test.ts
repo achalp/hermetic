@@ -14,6 +14,7 @@ import { setPathRoots, hermeticPaths } from "@/lib/paths";
 import { saveHistoryEntry } from "@/lib/history/storage";
 import { getStoredCSV, isRemoteFile } from "@/lib/csv/storage";
 import { GET } from "../[id]/route";
+import { rehydrateRemoteSourceFromHistory } from "@/lib/history/rehydrate-source";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
 
 const URL = "s3://overturemaps-us-west-2/release/2026-07-22.0/theme=places/type=place/*";
@@ -98,5 +99,46 @@ describe("history restore — remote parquet rehydration", () => {
     expect(stored.isHivePartitioned).toBe(true);
     // Creds were NEVER in history — re-resolved from the recent-source by URL.
     expect(stored.remoteCreds?.s3AccessKeyId).toBe("AKIA");
+  });
+});
+
+describe("query-path cold-miss recovery — rehydrate from the history record", () => {
+  it("rehydrates a remote source under a follow-up csvId from its history id", async () => {
+    const meta = await saveHistoryEntry({
+      question: "chains in seattle",
+      spec: {},
+      generatedCode: "",
+      schema,
+      sourceFile: "*",
+      sourceType: "upload",
+      remoteParquetUrl: URL,
+      isHivePartitioned: true,
+      executionMs: 1,
+    });
+    // Simulate a cold in-memory store (e.g. after a server restart): the
+    // follow-up's csvId maps to nothing.
+    const followUpCsvId = `cold-${meta.id}`;
+    expect(getStoredCSV(followUpCsvId)).toBeUndefined();
+
+    const ok = await rehydrateRemoteSourceFromHistory(followUpCsvId, meta.id);
+    expect(ok).toBe(true);
+    // The follow-up now reads the original bucket — no re-upload.
+    expect(isRemoteFile(followUpCsvId)).toBe(true);
+    expect(getStoredCSV(followUpCsvId)?.remoteParquetUrl).toBe(URL);
+    expect(getStoredCSV(followUpCsvId)?.remoteCreds?.s3AccessKeyId).toBe("AKIA");
+  });
+
+  it("no-ops for an upload entry (no bucket to point back at) and an unknown id", async () => {
+    const upload = await saveHistoryEntry({
+      question: "local",
+      spec: {},
+      generatedCode: "",
+      schema,
+      sourceFile: "f.csv",
+      sourceType: "upload",
+      executionMs: 1,
+    });
+    expect(await rehydrateRemoteSourceFromHistory("c2", upload.id)).toBe(false);
+    expect(await rehydrateRemoteSourceFromHistory("c3", "does-not-exist")).toBe(false);
   });
 });

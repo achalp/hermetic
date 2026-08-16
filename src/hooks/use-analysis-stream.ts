@@ -26,6 +26,10 @@ export interface UseAnalysisStreamArgs {
   question: string | null | undefined;
   csvId: string | null | undefined;
   warehouseId: string | null | undefined;
+  /** The restored analysis this session follows up on (?restore= id). Sent with
+   *  every query so the server can self-heal a cold csvId miss by rehydrating the
+   *  source from the durable history record (lib/history/rehydrate-source.ts). */
+  historyId?: string | null;
   reattachRunId: string | null | undefined;
   schemaMode: SchemaMode | undefined;
   composerSight?: string;
@@ -52,6 +56,7 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     question,
     csvId,
     warehouseId,
+    historyId,
     reattachRunId,
     schemaMode,
     composerSight,
@@ -197,6 +202,7 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     send("", {
       csv_id: csvId ?? undefined,
       warehouse_id: warehouseId ?? undefined,
+      history_id: historyId ?? undefined,
       question: question,
       schema_mode: schemaMode,
       composer_sight: composerSight === "sighted" ? "sighted" : "blind",

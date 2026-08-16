@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { stat } from "node:fs/promises";
 import { apiError } from "@/app/lib/api-error";
 import { loadHistoryEntry, deleteHistoryEntry } from "@/lib/history/storage";
-import { storeCSV, storeLocalFileRef, storeRemoteParquetRef } from "@/lib/csv/storage";
-import { loadRecentSources } from "@/lib/sources/recent-sources";
+import { storeCSV, storeLocalFileRef } from "@/lib/csv/storage";
+import { registerRemoteRefFromEntry } from "@/lib/history/rehydrate-source";
 import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema } from "@/lib/csv/schema";
 import { appendConversationTurn, buildTurnFromArtifacts } from "@/lib/pipeline/conversation-cache";
@@ -33,24 +33,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       } catch {
         // File may no longer exist — still return the entry for static viewing
       }
-    } else if (entry.meta.remoteParquetUrl) {
-      // Remote cloud Parquet (s3://, https://, gs://): rebuild a LIVE remote ref
-      // so a restored analysis's follow-up reads the bucket directly, instead of
-      // the dead header-only placeholder that produced "CSV not found or
-      // expired. Please re-upload." Credentials are NOT persisted in history
-      // (secret-at-rest) — re-resolve them from the recent-source keyed by the
-      // SAME url (private buckets persist creds there, like warehouse
-      // connections); a public source (Overture) needs none.
-      const recent = (await loadRecentSources()).find(
-        (r) => r.kind === "remote-parquet" && r.url === entry.meta.remoteParquetUrl
-      );
-      storeRemoteParquetRef(
-        csvId,
-        entry.schema,
-        entry.meta.remoteParquetUrl,
-        recent?.creds,
-        entry.meta.isHivePartitioned ?? recent?.isHivePartitioned
-      );
+    } else if (await registerRemoteRefFromEntry(csvId, entry)) {
+      // Remote cloud Parquet (s3://, https://, gs://): the history record holds
+      // the URL, so we rebuilt a LIVE remote ref (the shared rehydrator, also
+      // used by the query path's cold-miss self-heal) — the restored analysis's
+      // follow-up reads the bucket directly, instead of the dead header-only
+      // placeholder that produced "CSV not found or expired. Please re-upload."
     } else if (entry.meta.sourceType === "warehouse") {
       // Warehouse: store a placeholder so the csvId exists for handleUpload,
       // but actual data will come from re-executing SQL via an active connection.
