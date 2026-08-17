@@ -111,9 +111,16 @@ export function BarChartComponent({
   const manyCategories = !isHorizontal && data.length > 8;
   const veryManyCategories = !isHorizontal && data.length > 25;
 
-  // Sample tick values for bar charts with many categories (same as line/area)
+  // A bar chart's x-axis is CATEGORICAL — each bar IS a datum, so dropping its
+  // tick (the way the line/area sampler thins a CONTINUOUS axis) leaves a bar
+  // no reader can identify. Show EVERY category label and rely on rotation
+  // (-45/-90) + truncation for fit; only thin past a count where even -90
+  // vertical labels physically can't fit (hundreds of bars). The old 12/15 cap
+  // was the "every alternate label missing" bug: 26 categories capped at 15
+  // sampled every 2nd (step = ceil(26/15) = 2).
+  const CATEGORY_LABEL_CAP = 40;
   const tickValues = !isHorizontal
-    ? pickTickValues(data, props.x_key, veryManyCategories ? 15 : 12)
+    ? pickTickValues(data, props.x_key, CATEGORY_LABEL_CAP)
     : undefined;
 
   // Truncate long labels to prevent overlap

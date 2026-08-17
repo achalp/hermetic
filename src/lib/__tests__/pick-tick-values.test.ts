@@ -26,6 +26,15 @@ describe("pickTickValues", () => {
     expect(ticks[ticks.length - 1]).toBe("p39");
     expect(new Set(ticks.map(String)).size).toBe(ticks.length);
   });
+
+  it("a categorical bar count under the label cap keeps EVERY label", () => {
+    // bar-chart.tsx caps at 40 so a categorical axis shows every bar's label
+    // rather than sampling every 2nd (the "missing alternate labels" bug: 26
+    // categories under the old cap of 15 gave step = ceil(26/15) = 2).
+    const bars = Array.from({ length: 26 }, (_, i) => ({ x: `brand${i}` }));
+    expect(pickTickValues(bars, "x", 40)).toBeUndefined(); // all 26 shown
+    expect(pickTickValues(bars, "x", 15)).toHaveLength(14); // old cap dropped ~half
+  });
 });
 
 describe("toNivoLineSeries (regression context for the crash)", () => {
