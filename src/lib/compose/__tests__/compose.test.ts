@@ -1069,6 +1069,30 @@ describe("derived interactivity — filters from declared roles (spec §14.3)", 
     expect(deriveController(PRODUCT.series[0], [])).toBeNull();
   });
 
+  it("x and group being the SAME column yields ONE filter, not a duplicate", () => {
+    // A "size by chain" bar is both indexed (x_key) and grouped (group role) by
+    // `chain` — the group filter already covers it, so the x-dimension filter
+    // must not be added a second time (run 7fae5c9f: "Chain / All" shown twice).
+    const SAME_DIM = {
+      id: "chain_size",
+      rows: [
+        { chain: "Shell", size: 120 },
+        { chain: "Valero", size: 80 },
+        { chain: "Subway", size: 75 },
+      ],
+      roles: {
+        x: { column: "chain", kind: "categorical" as const },
+        group: { column: "chain" },
+        measures: [{ column: "size", unit: "sqm" }],
+      },
+    };
+    const views = deriveViews({ series: [SAME_DIM] }).filter((v) => v.shipped);
+    const c = deriveController(SAME_DIM, views)!;
+    const filters = (c.element.value as { props: { filters: { label: string }[] } }).props.filters;
+    expect(filters).toHaveLength(1);
+    expect(filters[0].label).toBe("Chain");
+  });
+
   it("outputs pivot to the matrix orientation the HeatMap reads, pre-populated", () => {
     const views = deriveViews({ series: [GROUPED_SERIES] }).filter((v) => v.shipped);
     const c = deriveController(GROUPED_SERIES, views)!;

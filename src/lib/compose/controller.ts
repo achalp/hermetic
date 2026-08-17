@@ -91,7 +91,12 @@ export function deriveController(s: SeriesEntry, views: DerivedView[]): DerivedC
     },
   ];
   const xCount = distinct(s.rows, xCol);
-  if (xCount >= 2 && xCount <= CARDINALITY_CAP) {
+  // Offer the x-dimension filter ONLY when x is a DIFFERENT dimension than the
+  // group. When the series is both indexed and grouped by the same column (a
+  // "size by chain" bar whose x_key AND group role are both `chain`), the group
+  // filter above already covers it — adding it again produces a SECOND filter
+  // with the identical key and label ("Chain" shown twice, run 7fae5c9f).
+  if (xCol !== groupCol && xCount >= 2 && xCount <= CARDINALITY_CAP) {
     filters.push({
       key: `${s.id}__${xCol}`,
       column: xCol,
