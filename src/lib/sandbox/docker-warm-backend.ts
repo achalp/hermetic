@@ -21,7 +21,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     // is shared across queries and created before any code is known, so it
     // gets the hardened default; code that needs network is routed to a fresh
     // ephemeral container by the dispatch in sandbox/index.ts instead.
-    await run(
+    const created = await run(
       "docker",
       [
         "run",
@@ -31,13 +31,22 @@ export class DockerWarmBackend implements WarmSandboxBackend {
         "--network",
         "none",
         ...(await sandboxMemoryRunArgs()),
-        ...sandboxHardeningRunArgs(),
+        ...(await sandboxHardeningRunArgs()),
         DOCKER_SANDBOX_IMAGE,
         "sleep",
         String(CONTAINER_LIFETIME),
       ],
       { timeoutMs: 15_000 }
     );
+    // `run()` never throws — check the create explicitly, or every later exec
+    // against the nonexistent container degrades to "Unknown execution error".
+    // Throwing here is the warmup contract: the manager drops its warmupPromise
+    // and the failure surfaces with the daemon's actual message.
+    if (created.exitCode !== 0) {
+      const detail =
+        created.stderr.trim() || created.stdout.trim() || `exit code ${created.exitCode}`;
+      throw new Error(`Failed to create the warm sandbox container: ${detail}`);
+    }
 
     logger.info("Warm Docker container created", { name: CONTAINER_NAME });
   }

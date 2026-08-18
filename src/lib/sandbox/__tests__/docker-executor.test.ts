@@ -38,6 +38,7 @@ vi.mock("@/lib/sandbox/egress", () => ({
 import { executeSandbox } from "@/lib/sandbox/docker-executor";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
 import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
+import { resetDaemonCpuCacheForTests } from "@/lib/sandbox/hardening";
 
 const mockedRun = vi.mocked(run);
 const mockedParse = vi.mocked(parseExecutionOutput);
@@ -49,8 +50,10 @@ const createCall = () => calls().find((a) => a[0] === "run")!;
 beforeEach(() => {
   vi.clearAllMocks();
   // Default `docker info` → "0" → memory probe yields null → uncapped run, so
-  // the arg-sequence tests below see the same shape they always did.
+  // the arg-sequence tests below see the same shape they always did. Same for
+  // the CPU probe: null → host-derived --cpus.
   resetDaemonMemoryCacheForTests();
+  resetDaemonCpuCacheForTests();
   egressProxyLogs.mockResolvedValue("");
   streamExec.mockResolvedValue({ exitCode: 0, aborted: false });
   mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
@@ -110,6 +113,36 @@ describe("docker executeSandbox", () => {
     const input = (scriptWrite[2] as { input?: string })?.input ?? "";
     expect(input).toContain("print('hi')");
     expect(input.indexOf("print('hi')")).toBeGreaterThan(0); // prelude first
+  });
+
+  it("fails fast with the daemon's error when container creation is rejected", async () => {
+    // The colima-VM regression: `docker run` rejected (e.g. --cpus above the
+    // daemon's NCPU) → run() resolves with a nonzero exit instead of throwing.
+    // The executor must surface the daemon's message and stop — NOT march on
+    // into execs against a container that never existed ("Unknown execution
+    // error" ×4, whole retry budget burned).
+    mockedRun.mockImplementation(async (_cmd, args) => {
+      if (args[0] === "run")
+        return {
+          stdout: "",
+          stderr:
+            "docker: Error response from daemon: Range of CPUs is from 0.01 to 4.00, as there are only 4 CPUs available.",
+          exitCode: 125,
+        };
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
+    const result = await executeSandbox("csv", "code");
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorKind).toBe("user-config"); // fail fast — no retries
+      expect(result.error).toContain("Range of CPUs");
+    }
+    // Nothing ran against the phantom container...
+    expect(streamExec).not.toHaveBeenCalled();
+    const execs = calls().filter((a) => a[0] === "exec");
+    expect(execs).toHaveLength(0);
+    // ...but cleanup still removed the (possibly half-created) name.
+    expect(calls().find((a) => a[0] === "rm")).toBeDefined();
   });
 
   it("always removes the container, even when execution throws", async () => {

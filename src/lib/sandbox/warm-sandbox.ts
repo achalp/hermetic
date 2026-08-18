@@ -161,7 +161,7 @@ export class WarmSandboxManager {
 // REGISTRY_VERSION guards against that: BUMP IT whenever this class's logic
 // changes, and HMR will drop the stale instance. The replacement reuses the
 // still-running container via its health check, so there's no re-warm cost.
-const REGISTRY_VERSION = 2;
+const REGISTRY_VERSION = 3;
 
 const managers = stateNamespace<WarmSandboxManager>("warm-sandbox-managers") as Map<
   SandboxRuntimeId,

@@ -67,7 +67,7 @@ export async function executeSandbox(
       "--name",
       id,
       ...(await sandboxMemoryRunArgs()),
-      ...sandboxHardeningRunArgs(),
+      ...(await sandboxHardeningRunArgs()),
     ];
     // Attribute the container to its run (forensics / lifecycle tooling).
     if (opts.runId) runArgs.push("--label", `${SANDBOX_RUNID_LABEL}=${opts.runId}`);
@@ -108,7 +108,27 @@ export async function executeSandbox(
       largeData: isLargeData,
       network: withNetwork,
     });
-    await run("docker", runArgs, { timeoutMs: 15_000 });
+    const created = await run("docker", runArgs, { timeoutMs: 15_000 });
+    if (created.exitCode !== 0) {
+      // `run()` deliberately never throws, so a failed create MUST be checked
+      // here — otherwise every following `docker exec` fails against a
+      // container that never existed, stderr.txt is unreadable, and the run
+      // surfaces as an information-free "Unknown execution error" that burns
+      // the whole retry budget (observed: `--cpus` above the colima VM's CPU
+      // count rejected every create for an evening of runs).
+      const detail =
+        created.stderr.trim() || created.stdout.trim() || `exit code ${created.exitCode}`;
+      logger.warn("Docker: container creation failed", { errorHead: detail.slice(0, 300) });
+      return {
+        success: false,
+        error:
+          `Failed to create the sandbox container: ${detail}\n` +
+          `This is a Docker/infrastructure problem, not a code problem — fix the Docker ` +
+          `environment and re-run.`,
+        errorKind: "user-config",
+        execution_ms: Date.now() - start,
+      };
+    }
     // Register with the caller's run registry so a user Stop can force-remove
     // this container (and the sweeper knows it's a live run, not an orphan).
     hooks?.onContainerStart?.(id);

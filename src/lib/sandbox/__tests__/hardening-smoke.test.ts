@@ -26,7 +26,7 @@ const canRun = (() => {
 })();
 
 describe("sandbox hardening — live container", () => {
-  it.skipIf(!canRun)("starts the image and execs python3 under the hardening flags", () => {
+  it.skipIf(!canRun)("starts the image and execs python3 under the hardening flags", async () => {
     const out = execFileSync(
       "docker",
       [
@@ -34,7 +34,7 @@ describe("sandbox hardening — live container", () => {
         "--rm",
         "--network",
         "none",
-        ...sandboxHardeningRunArgs(),
+        ...(await sandboxHardeningRunArgs()),
         DOCKER_SANDBOX_IMAGE,
         "python3",
         "-c",

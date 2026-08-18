@@ -17,6 +17,7 @@ vi.mock("@/lib/sandbox/docker-utils", async (importOriginal) => {
 
 import { DockerWarmBackend } from "@/lib/sandbox/docker-warm-backend";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
+import { resetDaemonCpuCacheForTests } from "@/lib/sandbox/hardening";
 
 const mockedRun = vi.mocked(run);
 const mockedParse = vi.mocked(parseExecutionOutput);
@@ -26,6 +27,7 @@ const joined = () => calls().map((a) => a.join(" "));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetDaemonCpuCacheForTests();
   mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
   mockedParse.mockResolvedValue({
     success: true,
@@ -96,5 +98,21 @@ describe("DockerWarmBackend.warmup", () => {
     // no-new-privileges was removed — it breaks python3 execve on this image
     // (see hardening.ts). The warm path shares sandboxHardeningRunArgs().
     expect(create).not.toContain("no-new-privileges");
+  });
+
+  it("throws with the daemon's error when the warm create is rejected", async () => {
+    // run() never throws, so a rejected create must be checked explicitly —
+    // otherwise the warm container silently never exists and every later exec
+    // degrades to "Unknown execution error" (the colima --cpus regression).
+    mockedRun.mockImplementation(async (_cmd, args) => {
+      if (args[0] === "run")
+        return {
+          stdout: "",
+          stderr: "docker: Error response from daemon: Range of CPUs is from 0.01 to 4.00.",
+          exitCode: 125,
+        };
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
+    await expect(new DockerWarmBackend().warmup()).rejects.toThrow(/Range of CPUs/);
   });
 });
