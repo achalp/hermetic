@@ -358,15 +358,22 @@ describe("buildCodeGenSystemPrompt", () => {
 
     const brief = buildCodeGenSystemPrompt("metadata", false, undefined, "brief");
     expect(brief).toContain("Output scope:");
-    expect(brief).toContain("MINIMUM");
-    expect(brief).toContain("AT MOST ONE");
+    // Brief scopes BREADTH (few angles), not chart COUNT — presentation density
+    // is decided at compose, so the code-gen no longer gates chart_data.
+    expect(brief).toContain("Keep BREADTH tight");
+    expect(brief).not.toContain("AT MOST ONE");
 
     const deep = buildCodeGenSystemPrompt("metadata", false, undefined, "deep-dive");
     expect(deep).toContain("exhaustive deep-dive");
 
+    // The RIGOR FLOOR is purpose-INDEPENDENT — decompose + constituents apply
+    // even to a brief (what keeps rigor flat across purposes).
+    expect(brief).toContain("RIGOR FLOOR");
+    expect(deep).toContain("RIGOR FLOOR");
+
     // Legacy ids resolve (executive-summary → brief).
     const legacy = buildCodeGenSystemPrompt("metadata", false, undefined, "executive-summary");
-    expect(legacy).toContain("MINIMUM");
+    expect(legacy).toContain("Keep BREADTH tight");
   });
 });
 

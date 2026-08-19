@@ -81,6 +81,26 @@ question ──► ANALYSIS (LLM writes Python)
 
 The failure philosophy stitching the blocks together: each one makes a class of lie _unrepresentable_ rather than detected — no rows in the model's context (1), no numbers in the planner's hands (2), no syntax for a fabricated caveat (3), no suppressible disclosure (4), no unformatted or dangling value (5), no empty answer (6). The defects that do slip through live at the _seams between blocks_ — a projection offering the wrong field, a resolver refusing a speakable value — which is why the audit trail (`specs/`) keeps landing fixes at boundaries rather than inside any single block.
 
+## Output styles — what a purpose changes (and what it doesn't)
+
+Every analysis is composed for one of four **consumption contexts**, and the same run can be composed by either the generative or the compiled path. A purpose is defined by _how it's read_, which fixes the narration/summarization style and a cost/latency envelope — **not** by chart count, and **never** by how rigorously anything is analyzed.
+
+Three levers, decoupled:
+
+- **Rigor is flat.** A brief's one-line verdict is as well-tested as a deep-dive's. Every style computes the same Computed-Findings battery (trend significance, step-change scan, base-effect flag) and the same **rigor floor** — decompose the headline change into its parts, and compute the constituents of any ratio the answer names — regardless of how briefly it's shown.
+- **Breadth scales, and it's the _only_ analysis lever that does.** More sub-questions cost real money (each ≈ one SQL-gen + code-gen + sandbox run), and a 30-second-read brief should also _generate_ fast — so breadth tracks the context's patience, not the reader's deserved rigor.
+- **Presentation is a guardrail, not a definition.** Charts are cheap now (deterministic on the compiled path), so hiding analysis you already ran is user-hostile. Density is governed by the **narration frame** (compiled `maxNodes`; the generative prompt), and the chart/tile caps are generous ceilings, not the thing that makes a brief a brief.
+
+| Lever                                                | brief | dashboard | report | deep-dive |
+| ---------------------------------------------------- | ----- | --------- | ------ | --------- |
+| **Rigor floor** (battery + decompose + constituents) | ✓     | ✓         | ✓      | ✓         |
+| **Breadth** — `maxSubQuestions` (cost/latency)       | 2     | 3         | 4      | 10        |
+| **Narration** — `maxNodes` (the succinctness lever)  | 7     | 12        | 22     | 28        |
+| **View cap** — `maxViews` (relaxed guardrail)        | 3     | 6         | 10     | 16        |
+| **Headline tiles** — `maxTilesFor`                   | 3     | 5         | 4      | 5         |
+
+**What keeps rigor flat** is two purpose-independent floors: a _prompt_ floor (the Computed-Findings battery + rigor-floor clause, carried in every style's code-gen scope) and a _deterministic_ floor (`result-validator.ts` and a battery of findings lints — trend-contract, check-gating, null-ancestry, definition-consistency, and more — that run on every manifest with no purpose branch). A claim can't be asserted without its evidence no matter which style asked for it. The purpose only decides how much of what was found gets narrated, and across how many angles it was worth exploring.
+
 ## Quick Start
 
 ```bash

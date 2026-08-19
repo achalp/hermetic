@@ -56,7 +56,7 @@ export const PURPOSE_MODES: Record<string, PurposeMode> = {
     prompt:
       "Compose for at-a-glance scanning, like a monitoring dashboard. Use a GRID-ORIENTED layout: lead with a LayoutGrid of the headline metrics as StatCards, then arrange visualizations in a LayoutGrid / LayoutRow so several read side by side rather than stacked in one tall column. Keep text minimal — short labels and at most one-line annotations, no paragraphs. The reader scans many things quickly, so prioritize visual density and parallel layout over narration. Let the question and the data decide WHICH metrics and charts appear and HOW MANY — never pad to fill the grid or force a fixed count.",
     codegenScope:
-      "Output scope: produce a FOCUSED set for a scannable dashboard — the handful of headline metrics (results) and the 2-4 chart_data structures that best answer THIS question. Do not build an exhaustive battery of charts/breakdowns that won't be shown. FOCUSED means few charts, NOT shallow analysis: still compute the Computed Findings battery (trend direction/slope/p-value, step-change scan, base-effect flag) — those are a few pandas lines and they are what the narrative is allowed to claim.",
+      "Output scope: compute the metrics (results) and chart_data that best answer THIS question — what the question warrants, not an exhaustive battery of breakdowns for their own sake; HOW MANY are shown is decided later at compose. FOCUSED refers to BREADTH (few angles), NOT shallow analysis: still compute the Computed Findings battery (trend direction/slope/p-value, step-change scan, base-effect flag) — those are a few pandas lines and they are what the narrative is allowed to claim.",
     maxSubQuestions: 3,
     planScope:
       "Generate the FEWEST, most penetrating sub-questions — UP TO 3 — that most directly answer the user's question. Each must earn its place; prefer 2 decisive, insightful questions over 3 diffuse ones. Do NOT pad to reach 3.",
@@ -68,10 +68,10 @@ export const PURPOSE_MODES: Record<string, PurposeMode> = {
     prompt:
       "Compose a bottom-line-up-front brief that fits roughly one screen. Lead with a single TextBlock (variant: insight) stating the direct answer in one or two sentences. Follow with only the few elements that most support that answer — the most decision-relevant metrics and the single clearest visualization. Keep it terse and scannable and end with at most one short caveat or next step. The reader has about 30 seconds. Choose the minimum that genuinely answers the question — let the data decide whether that is one chart or a couple of stat cards; do not exhaustively explore.",
     codegenScope:
-      "Output scope: this feeds a one-screen brief — compute the MINIMUM that answers the question: the 1-2 most decision-relevant numbers (results) and AT MOST ONE clear chart_data. Do NOT explore multiple angles or build a battery of charts. Still compute the Computed Findings battery (trend direction/slope/p-value, step-change scan, base-effect flag) — a brief's one-line verdict must rest on computed findings, not phrasing.",
-    maxSubQuestions: 3,
+      "Output scope: this feeds a one-screen brief. Keep BREADTH tight — do not explore multiple angles. But compute the decision-relevant numbers (results) and whatever chart_data the question naturally warrants; HOW MANY are shown is decided later at compose, so never pre-suppress a chart the analysis produced. Still compute the Computed Findings battery (trend direction/slope/p-value, step-change scan, base-effect flag) — a brief's one-line verdict must rest on computed findings, not phrasing.",
+    maxSubQuestions: 2,
     planScope:
-      "Generate AT MOST 3 sub-questions — ideally just the 1-2 most decisive that directly answer the question. Favor a single penetrating question over breadth; this feeds a 30-second brief.",
+      "Generate AT MOST 2 sub-questions — ideally just the single most decisive that directly answers the question. Favor one penetrating question over breadth; this feeds a 30-second brief.",
   },
   report: {
     id: "report",

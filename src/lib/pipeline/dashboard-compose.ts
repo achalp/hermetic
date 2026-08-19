@@ -160,7 +160,8 @@ export async function composeAndStreamDashboard(args: {
             findingsList,
             (executionResult.results ?? {}) as Record<string, unknown>,
             opts.question,
-            modeProduct.values
+            modeProduct.values,
+            opts.purpose
           ),
           question: opts.question,
           purpose: opts.purpose,
@@ -238,7 +239,8 @@ export async function composeAndStreamDashboard(args: {
     opts.findings?.manifest.findings ?? [],
     (executionResult.results ?? {}) as Record<string, unknown>,
     opts.question,
-    composedProduct.values
+    composedProduct.values,
+    opts.purpose
   );
   // Did the composed spec bind any {"$state": ...} path? When it did in a
   // NON-DataController run (composer drift), the datasets injection below

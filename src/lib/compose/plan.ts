@@ -82,25 +82,25 @@ export const PLAN_BUDGETS: Record<
 > = {
   brief: {
     maxNodes: 7,
-    maxViews: 2,
+    maxViews: 3,
     guidance:
       "4-7 nodes: ANSWER first — the bottom line in plain words. Then ONLY the claims that carry it; CAVEATs for failed checks. Close with a ONE-sentence METHOD (how the analysis was done, from the claims' definitions) and a one-sentence CONCLUSION — even a 30-second read must show how its answer was reached. Cut everything else.",
   },
   dashboard: {
     maxNodes: 12,
-    maxViews: 4,
+    maxViews: 6,
     guidance:
       "6-12 nodes: ANSWER first, then the findings that matter, CAVEATs anchored to the chart they qualify, at most one CALLOUT for what deserves attention. Close with a compact METHOD (1-2 sentences) and a CONCLUSION — a dashboard without its method reads as unsourced.",
   },
   report: {
     maxNodes: 22,
-    maxViews: 8,
+    maxViews: 10,
     guidance:
       "12-22 nodes, a COMPLETE document: open with METHOD (how the analysis was done, grounded in the claims' definitions), then SECTION-headed parts each weaving claims into flowing prose with EXPLAIN nodes anchored to their charts, CAVEATs anchored at the position they qualify, then CONCLUSION, NEXT_STEPS, and LIMITS to close. CONTRAST where claims tension.",
   },
   "deep-dive": {
     maxNodes: 28,
-    maxViews: 12,
+    maxViews: 16,
     guidance:
       "14-28 nodes, an exhaustive document: METHOD up front; SECTION-headed parts; narrate EVERY non-check claim that carries signal — an unnarrated finding is a coverage gap, not brevity; EXPLAIN anchored to every chart; CAVEATs anchored where they apply; CALLOUT for anything that deserves the reader's attention; close with CONCLUSION, NEXT_STEPS, and LIMITS.",
   },

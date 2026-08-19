@@ -64,14 +64,16 @@ describe("purpose taxonomy", () => {
     expect(p).toMatch(/Methodology/);
   });
 
-  it("scopes the sub-question budget to intent (dashboard/brief 3, report 4, deep-dive 5+)", () => {
+  it("scopes the sub-question budget to intent (brief 2, dashboard 3, report 4, deep-dive 10)", () => {
+    // Breadth is the cost/latency lever: brief is tightest (a one-answer
+    // question rarely needs a third angle, and it must GENERATE fast too).
+    expect(getPurposeMaxSubQuestions("brief")).toBe(2);
     expect(getPurposeMaxSubQuestions("dashboard")).toBe(3);
-    expect(getPurposeMaxSubQuestions("brief")).toBe(3);
     expect(getPurposeMaxSubQuestions("report")).toBe(4);
-    expect(getPurposeMaxSubQuestions("deep-dive")).toBeGreaterThanOrEqual(5);
-    // legacy id + unknown both resolve through the same path
-    expect(getPurposeMaxSubQuestions("executive-summary")).toBe(3);
-    expect(getPurposeMaxSubQuestions("nonsense")).toBe(3); // → dashboard default
+    expect(getPurposeMaxSubQuestions("deep-dive")).toBe(10);
+    // legacy id (executive-summary → brief) and unknown → dashboard default
+    expect(getPurposeMaxSubQuestions("executive-summary")).toBe(2);
+    expect(getPurposeMaxSubQuestions("nonsense")).toBe(3);
   });
 
   it("every mode's planScope tells the planner a target count and to stay sharp", () => {

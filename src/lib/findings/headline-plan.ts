@@ -9,6 +9,7 @@
  * arranges and labels but may not drop tiles. Pure function, no I/O.
  */
 import type { FindingEntry } from "@/lib/contracts/findings";
+import { resolvePurpose } from "@/lib/purpose-prompts";
 import type { ValueEntry } from "@/lib/contracts/product";
 
 export interface HeadlineTile {
@@ -22,7 +23,25 @@ export interface HeadlineTile {
   reason: string;
 }
 
-const MAX_TILES = 5;
+const MAX_TILES = 5; // dashboard / deep-dive default and the normalize cap
+
+/**
+ * Headline-tile cap by PURPOSE. Tiles are PRESENTATION, not analysis — a
+ * bottom-line-up-front brief leads with an answer sentence + a couple of key
+ * numbers, not five StatCards; a scan dashboard / deep-dive can carry the full
+ * five. Scaling here changes only how many computed metrics are FOREGROUNDED,
+ * never what was computed.
+ */
+export function maxTilesFor(purpose?: string): number {
+  switch (resolvePurpose(purpose)) {
+    case "brief":
+      return 3;
+    case "report":
+      return 4;
+    default:
+      return 5; // dashboard, deep-dive
+  }
+}
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
@@ -52,8 +71,10 @@ export function planHeadlineTiles(
   findings: FindingEntry[],
   results: Record<string, unknown>,
   question = "",
-  values: ValueEntry[] = []
+  values: ValueEntry[] = [],
+  purpose?: string
 ): HeadlineTile[] {
+  const maxTiles = maxTilesFor(purpose);
   const fieldValue = (f: FindingEntry, field: string): unknown =>
     isObj(f.value) ? (f.value as Record<string, unknown>)[field] : f.value;
   const usable = (f: FindingEntry, field: string): boolean => {
@@ -70,7 +91,7 @@ export function planHeadlineTiles(
   };
   const tiles: HeadlineTile[] = [];
   const add = (t: HeadlineTile) => {
-    if (tiles.length < MAX_TILES && !tiles.some((x) => x.binding === t.binding)) tiles.push(t);
+    if (tiles.length < maxTiles && !tiles.some((x) => x.binding === t.binding)) tiles.push(t);
   };
 
   // Question-primary finding first — the metric the question literally asks for.

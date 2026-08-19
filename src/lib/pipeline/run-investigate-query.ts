@@ -929,7 +929,8 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
                       investigationFindings!.findings,
                       res,
                       question,
-                      investigationProduct.values
+                      investigationProduct.values,
+                      context.purpose
                     ),
                     question,
                     purpose: context.purpose,
