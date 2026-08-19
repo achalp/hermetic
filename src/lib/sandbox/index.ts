@@ -10,6 +10,7 @@ export type { AdditionalFile };
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getStoredCSV } from "@/lib/csv/storage";
+import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import { egressPolicyFor } from "./egress";
 import { hermeticRuntimeFiles } from "./runtime-files";
 
@@ -77,6 +78,66 @@ const executors: Record<SandboxRuntimeId, SandboxExecutor> = {
   microsandbox: microsandboxExecutor,
 };
 
+/**
+ * The routing DECISION for a run — a PURE function of the request + its source,
+ * extracted so the security-critical "which network mode" table is testable
+ * without a docker daemon. executeSandbox() below only TRANSLATES a plan into
+ * executor calls; every network/egress choice is made HERE.
+ */
+export type SandboxRoutePlan =
+  | { kind: "reject"; error: string } // capability gate
+  | { kind: "docker-mount" } // local bind-mount / copied parquet → --network none
+  | { kind: "docker-egress"; hosts: string[] } // remote source → L7 host-allowlist
+  | { kind: "docker-deny" } // remote source, no derivable host → fail CLOSED
+  | { kind: "warm" } // warm reused container (always --network none)
+  | { kind: "ephemeral" }; // ephemeral executor; docker gets --network none
+
+export interface SandboxRouteInput {
+  runtime: SandboxRuntimeId;
+  network: "auto" | "deny";
+  /** localMountPath || inputParquetPath — LOCAL data, forced offline. */
+  hasMount: boolean;
+  remoteParquetUrl?: string;
+  remoteCreds?: RemoteCreds;
+  allowedEgressHosts?: string[];
+  code: string;
+  hasCsvId: boolean;
+}
+
+export function planSandboxRouting(i: SandboxRouteInput): SandboxRoutePlan {
+  const capabilityError = unsupportedCapabilityError(i.runtime, {
+    networkDeny: i.network === "deny",
+    mount: i.hasMount,
+    remoteIo: codeDoesRemoteIo(i.code),
+  });
+  if (capabilityError) return { kind: "reject", error: capabilityError };
+
+  // Local data (a bind-mount or a copied-in Parquet) is FORCED offline,
+  // regardless of what the generated code contains.
+  if (i.hasMount) return { kind: "docker-mount" };
+
+  // Network is a property of the SOURCE (finding 01): only an actual remote URL
+  // or an explicit egress allowlist can GRANT it; codeNeedsNetwork can then only
+  // NARROW that grant, never widen it (a local-CSV run whose injected code merely
+  // contains a URL must NOT get egress while the user's data sits in /data).
+  const sourceAllowsNetwork =
+    i.network !== "deny" && (Boolean(i.remoteParquetUrl) || Boolean(i.allowedEgressHosts?.length));
+  if (i.runtime === "docker" && sourceAllowsNetwork && codeNeedsNetwork(i.code)) {
+    const policy = i.allowedEgressHosts
+      ? ({ mode: "allowlist", hosts: i.allowedEgressHosts } as const)
+      : egressPolicyFor(i.remoteParquetUrl, i.remoteCreds);
+    // egressPolicyFor only returns mode "allowlist" with a NON-empty host list
+    // (an empty derivation fails closed as "deny"), so `?? []` is unreachable —
+    // it only satisfies the optional-`hosts` type.
+    return policy.mode === "allowlist"
+      ? { kind: "docker-egress", hosts: policy.hosts ?? [] }
+      : { kind: "docker-deny" };
+  }
+
+  if (RUNTIME_CAPABILITIES[i.runtime].supportsWarm && i.hasCsvId) return { kind: "warm" };
+  return { kind: "ephemeral" };
+}
+
 export function executeSandbox(
   csvContent: string,
   code: string,
@@ -85,43 +146,32 @@ export function executeSandbox(
   const { geojsonContent, csvId, localMountPath, inputParquetPath, hooks } = opts;
   const network = opts.network ?? "auto";
   const rt = opts.runtime ?? getActiveSandboxRuntime();
+  const stored = csvId ? getStoredCSV(csvId) : undefined;
 
-  // ONE capability gate replaces the per-feature `rt !== "docker"` rejections
-  // this dispatcher used to scatter (see capabilities.ts): what the request
-  // needs vs. what the runtime declares. Rejecting (not degrading) is the
-  // point — a silently weaker sandbox is an isolation lie, and a silently
-  // shorter timeout burned the retry budget with spurious "timed out"s.
-  const capabilityError = unsupportedCapabilityError(rt, {
-    networkDeny: network === "deny",
-    mount: !!(localMountPath || inputParquetPath),
-    remoteIo: codeDoesRemoteIo(code),
+  const plan = planSandboxRouting({
+    runtime: rt,
+    network,
+    hasMount: !!(localMountPath || inputParquetPath),
+    remoteParquetUrl: stored?.remoteParquetUrl,
+    remoteCreds: stored?.remoteCreds,
+    allowedEgressHosts: opts.allowedEgressHosts,
+    code,
+    hasCsvId: !!csvId,
   });
-  if (capabilityError) {
-    return Promise.resolve({ success: false, error: capabilityError, execution_ms: 0 });
+
+  // Rejecting (not degrading) is the point — a silently weaker sandbox is an
+  // isolation lie, and a silently shorter timeout burned the retry budget with
+  // spurious "timed out"s.
+  if (plan.kind === "reject") {
+    return Promise.resolve({ success: false, error: plan.error, execution_ms: 0 });
   }
+
   // Every run carries the hermetic runtime package (tested helper sources the
-  // prelude imports, overriding its inline copies). Injected HERE — the single
-  // dispatch point — so all runtimes and the warm paths get it identically.
+  // prelude imports). Injected HERE — the single dispatch point — so all
+  // runtimes and the warm paths get it identically.
   const additionalFiles = [...hermeticRuntimeFiles(), ...(opts.additionalFiles ?? [])];
 
-  // Network is a property of the SOURCE, not the code (finding 01). A run may
-  // only be granted a network namespace when it is backed by an actual REMOTE
-  // source URL (or an explicit caller-supplied egress allowlist); the code
-  // regex (codeNeedsNetwork) can then only NARROW that grant, never widen it.
-  // Deriving the grant from `codeNeedsNetwork(code)` alone was an exfiltration
-  // hole: a LOCAL-CSV run whose injected code merely contained a URL got full
-  // bridge egress while the user's data sat in /data.
-  const stored = csvId ? getStoredCSV(csvId) : undefined;
-  const remoteParquetUrl = stored?.remoteParquetUrl;
-  const sourceAllowsNetwork =
-    network !== "deny" && (Boolean(remoteParquetUrl) || Boolean(opts.allowedEgressHosts?.length));
-
-  // Both a bind-mount (browsed local files) and a copied-in Parquet (materialized
-  // data) need the ephemeral Docker path — the warm container can't take a volume,
-  // and a per-run copied file shouldn't leak across the shared warm container.
-  // (The gate above guarantees rt === "docker" here.) These are LOCAL data by
-  // construction, so network is FORCED OFF regardless of what the code contains.
-  if (localMountPath || inputParquetPath) {
+  if (plan.kind === "docker-mount") {
     return dockerExecutor(csvContent, code, {
       geojsonContent,
       additionalFiles,
@@ -133,46 +183,42 @@ export function executeSandbox(
     });
   }
 
-  // A remote-source run gets a fresh ephemeral container with restricted egress
-  // instead of the (always --network none) warm path. Under "deny", or with no
-  // remote source at all, this branch must not fire: network-looking code still
-  // runs, but with no network — reads fail inside the jail instead of escaping it.
-  if (rt === "docker" && sourceAllowsNetwork && codeNeedsNetwork(code)) {
-    // Egress via the L7 host-allowlist proxy (egressPolicyFor): the container
-    // reaches ONLY the derived source host — public or credentialed alike — so
-    // injected code can read its bucket and exfiltrate nowhere else. The proxy's
-    // splice relay makes it near direct-egress speed. A remote source with no
-    // derivable host fails CLOSED (--network none). Warehouse sources never
-    // reach this branch — they materialize host-side and run --network none.
-    const policy = opts.allowedEgressHosts
-      ? ({ mode: "allowlist", hosts: opts.allowedEgressHosts } as const)
-      : egressPolicyFor(remoteParquetUrl, stored?.remoteCreds);
-    if (policy.mode === "deny") {
-      logger.warn("Remote source has no derivable egress host — network denied", { csvId });
-    }
+  if (plan.kind === "docker-egress") {
+    // The container joins an internal network whose only route out is the L7
+    // proxy, opened toward the derived source host ONLY (splice relay → near
+    // direct-egress speed).
     return dockerExecutor(csvContent, code, {
       geojsonContent,
       additionalFiles,
       hooks,
-      ...(policy.mode === "allowlist" ? { allowedEgressHosts: policy.hosts } : {}),
-      ...(policy.mode === "deny" ? { network: "deny" as const } : {}),
+      allowedEgressHosts: plan.hosts,
       runId: opts.runId,
     });
   }
 
-  // Route through the warm manager when the runtime supports it (E2B stays
-  // ephemeral — see RUNTIME_CAPABILITIES).
-  if (RUNTIME_CAPABILITIES[rt].supportsWarm && csvId) {
-    const manager = getWarmManager(rt);
-    if (manager) {
-      return manager.execute(csvId, csvContent, code, { geojsonContent, additionalFiles, hooks });
-    }
+  if (plan.kind === "docker-deny") {
+    // A remote source with no derivable host fails CLOSED — reads die inside the
+    // jail rather than escaping it.
+    logger.warn("Remote source has no derivable egress host — network denied", { csvId });
+    return dockerExecutor(csvContent, code, {
+      geojsonContent,
+      additionalFiles,
+      hooks,
+      network: "deny",
+      runId: opts.runId,
+    });
   }
 
-  // Fallback to ephemeral executors. A run reaching here was NOT granted
-  // network above (no remote source, or it narrowed off), so Docker runs it
-  // under --network none — the code regex may never re-open egress on a
-  // local-data run from down here either.
+  if (plan.kind === "warm") {
+    const manager = getWarmManager(rt);
+    if (manager) {
+      return manager.execute(csvId!, csvContent, code, { geojsonContent, additionalFiles, hooks });
+    }
+    // No warm manager for this runtime → fall through to the ephemeral path.
+  }
+
+  // Ephemeral fallback. A run reaching here was NOT granted network above, so
+  // Docker runs it under --network none.
   return (executors[rt] ?? dockerExecutor)(csvContent, code, {
     geojsonContent,
     additionalFiles,
