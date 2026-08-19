@@ -25,6 +25,19 @@ export default defineConfig({
         "src/types/**",
         "src/**/*.d.ts",
         "src/app/**/{page,layout}.tsx",
+        // Harness/bootstrap + browser-bundle ENTRY points: they wire tested
+        // library functions to a transport (CLI argv, MCP stdio) or are esbuild
+        // browser bundles never imported by the node graph — exercised by
+        // build/e2e, not unit tests (same rationale as page/layout above). The
+        // logic they call (lib/*, mcp/tools/*, mcp/**/server.ts) IS covered.
+        "src/cli/main.ts",
+        "src/mcp/main.ts",
+        "src/mcp/viewer/{entry,export-entry,chrome}.tsx",
+        "src/mcp/viewer/export-stubs/**",
+        // Next.js runtime instrumentation hooks — register()/OTEL boot, run at
+        // server start, not unit-testable (canonical coverage exclusion).
+        "src/instrumentation.ts",
+        "src/instrumentation-node.ts",
       ],
       // Floors act as a regression ratchet, set a few points below current.
       // Global is low because ~69 chart components are presentational and
