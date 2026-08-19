@@ -5,6 +5,7 @@ import {
   deriveAnalysisWindow,
   type InvestigateProgressEvent,
 } from "@/lib/pipeline/investigate-orchestrator";
+import { mergeStepEntries, buildDataQuality } from "./investigate-merge";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { prewarmCodeGenCache } from "@/lib/llm/code-generation";
 import { runWithCostTracking } from "@/lib/cost/accumulator";
@@ -804,14 +805,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         const investigateRolesIdx = productRolesIndex(investigationProduct.series);
         // Regime profiles under the same step_N_ prefix as the merged
         // series ids — keyed for the view catalog and the edit recompile.
-        const investigationRegimes: Record<string, unknown> = {};
-        for (const sub of subResults) {
-          if (sub.removed || !sub.result) continue;
-          for (const [k, v] of Object.entries(
-            (sub.result.executionResult.regimes ?? {}) as Record<string, unknown>
-          ))
-            investigationRegimes[`step_${sub.index + 1}_${k}`] = v;
-        }
+        const investigationRegimes = mergeStepEntries(subResults, (er) => er.regimes);
         if (productIssues.length > 0) {
           logger.warn("investigate product: invalid declarations dropped", {
             issues: productIssues.map((i) => i.detail),
@@ -834,21 +828,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // / dropped branches reach the user regardless of whether the composer
         // remembered to annotate them. Rendered as a banner above the
         // dashboard by ResponsePanel.
-        const dataQuality = {
-          degraded: trace.steps
-            .filter((s) => s.status === "degraded")
-            .map((s) => ({
-              stepNo: s.stepNo,
-              question: s.question,
-              reason: s.degradedReason,
-            })),
-          failed: trace.steps
-            .filter((s) => s.status === "failed")
-            .map((s) => ({ stepNo: s.stepNo, question: s.question, error: s.error })),
-          removed: trace.steps
-            .filter((s) => s.status === "removed")
-            .map((s) => ({ stepNo: s.stepNo, question: s.question })),
-        };
+        const dataQuality = buildDataQuality(trace.steps);
         if (
           dataQuality.degraded.length ||
           dataQuality.failed.length ||
@@ -868,16 +848,8 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // same step_N_ namespacing the composer uses.
         const sightedValuesSection = (() => {
           if (context.composer_sight !== "sighted") return undefined;
-          const res: Record<string, unknown> = {};
-          const charts: Record<string, unknown> = {};
-          for (const sub of subResults) {
-            if (sub.removed || !sub.result) continue;
-            const prefix = `step_${sub.index + 1}_`;
-            for (const [k, v] of Object.entries(sub.result.executionResult.results ?? {}))
-              res[`${prefix}${k}`] = v;
-            for (const [k, v] of Object.entries(sub.result.executionResult.chart_data ?? {}))
-              charts[`${prefix}${k}`] = v;
-          }
+          const res = mergeStepEntries(subResults, (er) => er.results);
+          const charts = mergeStepEntries(subResults, (er) => er.chart_data);
           return buildValuesSection(
             { results: res, chart_data: charts, datasets: {}, execution_ms: 0 } as never,
             fMode === "on" ? (investigationFindings ?? undefined) : undefined
@@ -893,16 +865,8 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           (investigationFindings?.findings.length ?? 0) > 0;
         const compose = compiledMode
           ? (() => {
-              const res: Record<string, unknown> = {};
-              const charts: Record<string, unknown> = {};
-              for (const sub of subResults) {
-                if (sub.removed || !sub.result) continue;
-                const prefix = `step_${sub.index + 1}_`;
-                for (const [k, v] of Object.entries(sub.result.executionResult.results ?? {}))
-                  res[`${prefix}${k}`] = v;
-                for (const [k, v] of Object.entries(sub.result.executionResult.chart_data ?? {}))
-                  charts[`${prefix}${k}`] = v;
-              }
+              const res = mergeStepEntries(subResults, (er) => er.results);
+              const charts = mergeStepEntries(subResults, (er) => er.chart_data);
               return {
                 initialState: { results: res, chart_data: charts },
                 textStream: (async function* () {
