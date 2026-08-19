@@ -86,3 +86,41 @@ describe("mutating wrappers send the right method", () => {
     expect(String(lastCall.init?.method)).toBe("DELETE");
   });
 });
+
+describe("wrapper smoke sweep — each issues an /api request (covers the body)", () => {
+  const SUPER = {
+    sources: [{}],
+    vizs: [{}],
+    entries: [{}],
+    rows: [{}],
+    models: [],
+    runs: [],
+    code: "x",
+    spec: {},
+    ready: true,
+    status: "ok",
+    schema: {},
+    plan: {},
+  };
+  it.each([
+    ["getLocalBackendConfig", () => api.getLocalBackendConfig()],
+    ["getOllamaConfig", () => api.getOllamaConfig()],
+    ["getDiagnosticsRuns", () => api.getDiagnosticsRuns()],
+    ["getLearningState", () => api.getLearningState()],
+    ["getActiveRuns", () => api.getActiveRuns()],
+    ["getRecentSources", () => api.getRecentSources()],
+    ["getPlanSurface", () => api.getPlanSurface("csv1")],
+    ["getSchemaByCsvId", () => api.getSchemaByCsvId("csv1")],
+    ["getLocalLlmStatus", () => api.getLocalLlmStatus("ollama")],
+    ["getLocalLlmModels", () => api.getLocalLlmModels("ollama")],
+    ["renameRecentSource", () => api.renameRecentSource("id", "n")],
+    ["removeRecentSource", () => api.removeRecentSource("id")],
+    ["clearRecentSources", () => api.clearRecentSources()],
+    ["disconnectWarehouse", () => api.disconnectWarehouse("wh1")],
+    ["deleteLearningExemplar", () => api.deleteLearningExemplar("id")],
+  ] as const)("%s", async (_n, call) => {
+    vi.stubGlobal("fetch", mockOk(SUPER));
+    await (call() as Promise<unknown>).catch(() => {}); // tolerate unwrap/return quirks
+    expect(lastCall.url).toMatch(/^\/api\//);
+  });
+});

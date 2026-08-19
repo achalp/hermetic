@@ -42,16 +42,20 @@ export default defineConfig({
       // Floors act as a regression ratchet, set a few points below current.
       // Global is low because ~69 chart components are presentational and
       // largely untested; the meaningful gate is on the src/lib logic layer.
+      // Ratchet: set a few points below current so gains can't regress. The
+      // src/lib LOGIC layer is gated hard; the global floor is lower because the
+      // pure-render UI (chart components / app panels) sits at a ~50% floor by
+      // deliberate policy (render bugs are visible; their transforms are tested).
       thresholds: {
-        statements: 25,
-        lines: 25,
-        functions: 20,
-        branches: 20,
+        statements: 55,
+        lines: 55,
+        functions: 52,
+        branches: 45,
         "src/lib/**": {
-          statements: 43,
-          lines: 43,
-          functions: 43,
-          branches: 38,
+          statements: 70,
+          lines: 70,
+          functions: 72,
+          branches: 62,
         },
       },
     },
