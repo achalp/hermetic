@@ -26,22 +26,28 @@ const canRun = (() => {
 })();
 
 describe("sandbox hardening — live container", () => {
-  it.skipIf(!canRun)("starts the image and execs python3 under the hardening flags", async () => {
-    const out = execFileSync(
-      "docker",
-      [
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        ...(await sandboxHardeningRunArgs()),
-        DOCKER_SANDBOX_IMAGE,
-        "python3",
-        "-c",
-        "import pandas, duckdb; print('HARDENED_OK')",
-      ],
-      { encoding: "utf8", timeout: 60_000 }
-    );
-    expect(out).toContain("HARDENED_OK");
-  });
+  it.skipIf(!canRun)(
+    "starts the image and execs python3 under the hardening flags",
+    async () => {
+      const out = execFileSync(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "--network",
+          "none",
+          ...(await sandboxHardeningRunArgs()),
+          DOCKER_SANDBOX_IMAGE,
+          "python3",
+          "-c",
+          "import pandas, duckdb; print('HARDENED_OK')",
+        ],
+        { encoding: "utf8", timeout: 60_000 }
+      );
+      expect(out).toContain("HARDENED_OK");
+      // Live container start can exceed vitest's 5s default under parallel load —
+      // give it room (the exec itself already caps at 60s).
+    },
+    120_000
+  );
 });

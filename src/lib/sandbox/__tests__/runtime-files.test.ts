@@ -83,12 +83,18 @@ describe("python package parity", () => {
     }
   })();
 
-  it.skipIf(!hasPython)("the runtime package's unittest suite passes", () => {
-    const out = execFileSync("python3", ["-m", "unittest", "hermetic_runtime.test_runtime"], {
-      cwd: path.join(process.cwd(), "docker", "sandbox"),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    expect(out).toBeDefined(); // non-zero exit throws above
-  });
+  it.skipIf(!hasPython)(
+    "the runtime package's unittest suite passes",
+    () => {
+      const out = execFileSync("python3", ["-m", "unittest", "hermetic_runtime.test_runtime"], {
+        cwd: path.join(process.cwd(), "docker", "sandbox"),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      expect(out).toBeDefined(); // non-zero exit throws above
+      // A real docker/python run legitimately exceeds vitest's 5s default under
+      // load (it was the 5s test-timeout, NOT the 60s exec timeout, that flaked).
+    },
+    120_000
+  );
 });

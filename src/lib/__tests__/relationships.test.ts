@@ -259,7 +259,7 @@ describe("detectRelationships", () => {
     expect(deptRels).toHaveLength(1);
   });
 
-  it("handles 10 sheets × 30 columns in < 100ms", () => {
+  it("handles 10 sheets × 30 columns without an algorithmic blowup", () => {
     const sheets: SheetInfo[] = [];
     for (let s = 0; s < 10; s++) {
       const headers: string[] = [];
@@ -280,7 +280,11 @@ describe("detectRelationships", () => {
     const rels = detectRelationships(sheets);
     const elapsed = performance.now() - start;
 
-    expect(elapsed).toBeLessThan(200);
+    // Regression guard, NOT a wall-clock SLA: on an idle box this is single-
+    // digit ms; a genuine algorithmic regression (O(n^2)->O(n^3), a cross join)
+    // would be seconds even on this tiny input. A generous ceiling catches that
+    // without flaking when the CI box is loaded (a hard 200ms tripped chronically).
+    expect(elapsed).toBeLessThan(2000);
     expect(Array.isArray(rels)).toBe(true);
   });
 });
