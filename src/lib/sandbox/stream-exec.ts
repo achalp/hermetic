@@ -79,7 +79,14 @@ export function streamExec(
 
     const onAbort = () => {
       aborted = true;
-      spawn("docker", ["rm", "-f", containerId]); // kills the in-container process
+      // Fire-and-forget kill of the in-container process. Attach an 'error'
+      // listener: a ChildProcess that emits 'error' (transient EAGAIN/ENOMEM, or
+      // docker missing from PATH) with NO listener throws an UNCAUGHT exception
+      // that takes the whole server down mid-run and leaks every in-flight run's
+      // container (finding PE-3). Swallowing is safe — the orphan sweeper reaps a
+      // container this kill couldn't remove.
+      const killer = spawn("docker", ["rm", "-f", containerId]);
+      killer.on("error", () => {});
     };
     if (signal) {
       if (signal.aborted) onAbort();

@@ -59,4 +59,16 @@ describe("middleware DNS-rebinding guard", () => {
     const res = middleware(req("/api/local-llm/status", { origin: "http://localhost:3000" }));
     expect(res.status).not.toBe(403);
   });
+
+  // finding Sec-3 LOW: /api/providers writes API keys to the keychain — guard it
+  // like /api/settings for defense-in-depth.
+  it("blocks /api/providers from a foreign Origin (403)", () => {
+    const res = middleware(req("/api/providers", { origin: "http://evil.example.com" }));
+    expect(res.status).toBe(403);
+  });
+
+  it("allows /api/providers from a loopback Origin", () => {
+    const res = middleware(req("/api/providers", { origin: "http://localhost:3000" }));
+    expect(res.status).not.toBe(403);
+  });
 });

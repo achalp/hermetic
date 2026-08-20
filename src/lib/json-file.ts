@@ -21,7 +21,7 @@
  *     TRANSIENT read error (EMFILE/EACCES/…) → rethrow: never rename the only
  *     copy on a hiccup, and never let the caller fall through to a wipe.
  */
-import { readFile, writeFile, rename, mkdir, unlink } from "fs/promises";
+import { readFile, rename, mkdir, unlink, open } from "fs/promises";
 import { dirname } from "path";
 import { randomBytes } from "crypto";
 import { logger, errMessage } from "@/lib/logger";
@@ -31,7 +31,18 @@ export async function writeFileAtomic(path: string, content: string): Promise<vo
   await mkdir(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
   try {
-    await writeFile(tmpPath, content, "utf-8");
+    // fsync the temp file's DATA to disk BEFORE the rename. rename is atomic
+    // within a filesystem against a PROCESS crash, but on a power loss the
+    // rename's metadata can land before the data blocks — leaving a zero/garbage
+    // file that readJsonFile then backs up as corrupt and the next write wipes
+    // (finding PE-3 durability gap). Syncing the data first closes that window.
+    const fh = await open(tmpPath, "w");
+    try {
+      await fh.writeFile(content, "utf-8");
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
     await rename(tmpPath, path);
   } catch (err) {
     // Never leave the scratch temp behind on failure.

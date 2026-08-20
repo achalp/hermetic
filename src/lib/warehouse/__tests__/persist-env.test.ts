@@ -32,6 +32,14 @@ vi.mock("fs/promises", () => ({
   writeFile: vi.fn(async (path: string, data: string) => {
     fs.set(path, data);
   }),
+  // The atomic writer now opens a handle, fsyncs, then renames (PE-3 durability).
+  open: vi.fn(async (path: string) => ({
+    writeFile: async (data: string) => {
+      fs.set(path, data);
+    },
+    sync: async () => {},
+    close: async () => {},
+  })),
   rename: vi.fn(async (from: string, to: string) => {
     if (!fs.has(from)) throw enoent();
     fs.set(to, fs.get(from)!);

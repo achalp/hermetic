@@ -746,6 +746,30 @@ describe("edit grammar — views, shown overlay, purpose survival", () => {
     expect(lone.join("\n")).not.toContain("compiled_row_");
   });
 
+  it("puts an outliers-dtype screen that flagged offenders IN the banner (finding PE-2)", () => {
+    // An `outliers` screen fails when n_flagged>0 (no `passed` field) — same
+    // semantics realizer.ts renders the caveat with. It must reach the prominent
+    // failed-check banner, not only its own caveat node.
+    const manifest = {
+      ...MANIFEST,
+      findings: [
+        ...MANIFEST.findings,
+        F("outlier_scan", "outliers", { n_flagged: 3, method: "iqr" }),
+      ],
+    };
+    const lines = compileDashboard({
+      manifest,
+      product: PRODUCT,
+      plan: { nodes: [{ id: "n_answer", op: "ANSWER" as const, refs: ["price_trend"] }] },
+      overlay: {},
+      headlinePlan: [],
+      question: "q",
+    });
+    const bannerLine = lines.find((l) => l.includes('"/elements/compiled_check_banner"'));
+    expect(bannerLine).toBeDefined();
+    expect(bannerLine).toContain("outlier_scan"); // the outliers screen is in the banner
+  });
+
   it("restore_document replays a snapshot — the undo primitive, still governed", () => {
     const removed = applyMutations(DOC, [{ kind: "remove_node", id: "n_i" }]);
     expect(removed.doc.plan.nodes).toHaveLength(1);

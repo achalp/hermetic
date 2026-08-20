@@ -67,6 +67,12 @@ const LOCAL_PATH_ROUTES = [
   // unchanged; this adds the DNS-rebinding/origin gate, not a rate cap.
   "/api/local-llm/",
   "/api/ollama/",
+  // PUT /api/providers writes API keys to the OS keychain and switches the
+  // active provider. Browser CSRF is blocked today because PUT is preflighted
+  // and no ACAO is returned, but a non-browser localhost process (or a future
+  // POST alias) would write credentials unchecked — origin-guard it for
+  // defense-in-depth, consistent with /api/settings (Sec-3).
+  "/api/providers",
 ];
 
 /** True when `value` (an Origin URL, or a bare `host:port`) is a loopback host. */

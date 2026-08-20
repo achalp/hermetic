@@ -5,7 +5,7 @@
  * the lines through the SAME finalizer as generative compose, so value
  * resolution, unit rendering, and discourse checks are one stack.
  */
-import type { FindingEntry, FindingsManifest } from "@/lib/contracts/findings";
+import type { FindingsManifest } from "@/lib/contracts/findings";
 import type { AnalysisProduct } from "@/lib/contracts/product";
 import type { Plan, PlanOverlay } from "@/lib/contracts/plan";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
@@ -46,13 +46,21 @@ export function compileDashboard(input: CompileInput): string[] {
   const children: string[] = [];
 
   // 1. Failed-check banner first — caveats are not buried.
-  const failed = manifest.findings.filter(
-    (f) =>
-      (f.dtype === "check" || f.dtype === "screen") &&
-      f.value !== null &&
-      typeof f.value === "object" &&
-      (f.value as Record<string, unknown>).passed === false
-  );
+  // Failed-semantics MUST match realizer.ts (the caveat renderer): a check/
+  // screen fails on passed===false, and an `outliers`-dtype screen fails when it
+  // FLAGGED offenders (n_flagged>0, no `passed` field). The banner previously
+  // saw only passed===false check/screen findings, so an outliers screen that
+  // found offenders got a caveat node but was absent from the prominent banner
+  // (finding PE-2) — less visible than a passed:false check's caveat.
+  const failed = manifest.findings.filter((f) => {
+    if (f.dtype !== "check" && f.dtype !== "screen" && f.dtype !== "outliers") return false;
+    if (f.value === null || typeof f.value !== "object") return false;
+    const v = f.value as Record<string, unknown>;
+    return (
+      v.passed === false ||
+      (v.passed === undefined && typeof v.n_flagged === "number" && v.n_flagged > 0)
+    );
+  });
   const banner = failedCheckBanner(failed);
   if (banner) {
     patches.push(banner);
