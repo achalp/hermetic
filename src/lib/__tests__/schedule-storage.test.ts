@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -18,13 +18,19 @@ import {
 import { setPathRoots } from "@/lib/paths";
 import { logger } from "@/lib/logger";
 
-beforeEach(() => {
-  // Use an in-memory cache so tests don't write to disk
-  __setScheduleCacheForTesting(new Map());
+// Every mutation now re-reads the live file before writing (finding M8), so
+// tests need a REAL isolated data dir, not a stubbed in-memory cache.
+let scheduleRoot: string;
+beforeEach(async () => {
+  scheduleRoot = await mkdtemp(join(tmpdir(), "hermetic-schedules-"));
+  setPathRoots({ dataRoot: join(scheduleRoot, "data") });
+  __clearScheduleCache();
 });
 
-afterAll(() => {
+afterEach(async () => {
+  setPathRoots({});
   __clearScheduleCache();
+  await rm(scheduleRoot, { recursive: true, force: true });
 });
 
 // Helper: a fixed reference time
@@ -114,6 +120,30 @@ describe("setSchedule / getSchedule / listSchedules", () => {
     expect(second.createdAt).toBe(first.createdAt);
     expect(second.lastRunAt).not.toBeNull();
     expect(second.cadence).toBe("daily-9am");
+  });
+
+  it("does not clobber a concurrent writer's entry (finding M8)", async () => {
+    // This process records schedule "a" (fills its cache).
+    await setSchedule({ vizId: "a", cadence: "hourly", autoExport: [] });
+    // ANOTHER process writes "b" straight to the file — invisible to our cache.
+    const path = __getSchedulesPath();
+    const onDisk = JSON.parse(await readFile(path, "utf-8")) as { vizId: string }[];
+    onDisk.push({
+      vizId: "b",
+      cadence: "daily-9am",
+      autoExport: [],
+      createdAt: 1,
+      lastRunAt: null,
+      lastStatus: null,
+      lastError: null,
+      nextRunAt: 1,
+    } as never);
+    await writeFile(path, JSON.stringify(onDisk), "utf-8");
+    // Our next write must MERGE onto the live file, not overwrite from a stale
+    // snapshot — so "b" survives alongside our new "c".
+    await setSchedule({ vizId: "c", cadence: "hourly", autoExport: [] });
+    const finalDisk = JSON.parse(await readFile(path, "utf-8")) as { vizId: string }[];
+    expect(finalDisk.map((s) => s.vizId).sort()).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -284,6 +314,3 @@ describe("loadSchedules — corrupt file vs missing file", () => {
     expect(JSON.parse(raw)[0].vizId).toBe("fresh");
   });
 });
-
-// Vitest's afterAll import (placed at bottom for clarity)
-import { afterAll, afterEach } from "vitest";

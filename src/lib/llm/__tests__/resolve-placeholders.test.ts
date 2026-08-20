@@ -428,6 +428,21 @@ describe("$result suffix units — result-bound prose keeps its units", () => {
     expect(out).not.toContain("pp pp");
     expect(out).not.toContain("%%");
   });
+
+  it("renders a declared-usd $result with currency precision + grouping (LOW fix)", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Revenue was $result:total_revenue and margin $result:avg_margin."}',
+      { total_revenue: 1138.4, avg_margin: 37.2759 },
+      {},
+      {},
+      {},
+      { total_revenue: "usd", avg_margin: "usd" }
+    );
+    // 2dp + thousands grouping, not the generic float path's false precision.
+    expect(out).toContain("1,138.40");
+    expect(out).toContain("37.28");
+    expect(out).not.toContain("37.2759");
+  });
 });
 
 describe("$series alias + declared units (analysis-product spec §2)", () => {
@@ -462,7 +477,8 @@ describe("$series alias + declared units (analysis-product spec §2)", () => {
       {},
       { median_price: "usd" } // declared via declare_value(unit="usd")
     );
-    expect(out).toContain("Median 24.5 usd");
+    // usd → currency precision (2dp); the declared unit wins over morphology.
+    expect(out).toContain("Median 24.50 usd");
     expect(out).toContain("61.2% of menus"); // _pct fallback untouched
   });
 

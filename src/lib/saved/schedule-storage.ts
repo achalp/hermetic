@@ -49,33 +49,36 @@ export interface ScheduleEntry {
 const schedulesPath = () => hermeticPaths.schedulesFile();
 
 let cache: Map<string, ScheduleEntry> | null = null;
+// Serializes read-modify-write against schedules.json WITHIN this process, so
+// two concurrent mutators can't interleave at their await points and lose one
+// another's change (finding M8).
+let writeChain: Promise<unknown> = Promise.resolve();
 
 async function ensureDir() {
   await mkdir(dirname(schedulesPath()), { recursive: true });
 }
 
-/** Load schedules from disk; cached in memory after first read. */
-export async function loadSchedules(): Promise<Map<string, ScheduleEntry>> {
-  if (cache) return cache;
+/**
+ * Read the CURRENT on-disk schedules, bypassing the in-memory cache. A corrupt
+ * (non-ENOENT) file is backed up before returning empty so a later write can't
+ * destroy the only copy. Every mutation reads through here so it merges with —
+ * rather than clobbers — entries another PROCESS wrote since our cache was
+ * filled (finding M8: the old code persisted `[...cache.values()]`, a whole-file
+ * snapshot from one process's possibly-stale view).
+ */
+async function loadFromDisk(): Promise<Map<string, ScheduleEntry>> {
   const path = schedulesPath();
   let failure: unknown;
   try {
     const raw = await readFile(path, "utf-8");
     const arr = JSON.parse(raw) as ScheduleEntry[];
-    cache = new Map(arr.map((s) => [s.vizId, s]));
-    return cache;
+    return new Map(arr.map((s) => [s.vizId, s]));
   } catch (err) {
-    // Missing ≠ corrupt (record-store's RecordCorruptError distinction):
-    // ENOENT is the normal empty state; a parse/read failure falls through
-    // to the backup below so persist() can't destroy the only copy.
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      cache = new Map();
-      return cache;
-    }
+    // Missing ≠ corrupt: ENOENT is the normal empty state; a parse/read failure
+    // falls through to the backup below so a write can't destroy the only copy.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return new Map();
     failure = err;
   }
-  // Corrupt (or unreadable) file: preserve it before the next persist()
-  // overwrites it — losing every schedule the user ever configured.
   const backupPath = `${path}.corrupt-${Date.now()}`;
   const backedUp = await rename(path, backupPath).then(
     () => true,
@@ -86,14 +89,41 @@ export async function loadSchedules(): Promise<Map<string, ScheduleEntry>> {
     backupPath: backedUp ? backupPath : undefined,
     error: errMessage(failure),
   });
-  cache = new Map();
+  return new Map();
+}
+
+/** Load schedules; cached in memory after first read (reads tolerate a slightly
+ *  stale cache — only WRITES must be disk-fresh, which `mutate` handles). */
+export async function loadSchedules(): Promise<Map<string, ScheduleEntry>> {
+  if (cache) return cache;
+  cache = await loadFromDisk();
   return cache;
 }
 
-async function persist() {
-  if (!cache) return;
-  await ensureDir();
-  await writeJsonFileAtomic(schedulesPath(), [...cache.values()]);
+/**
+ * The single write path: queued behind any in-flight mutation, re-reads the
+ * live on-disk map, applies `fn`'s delta to THAT (not to a stale cache), writes
+ * atomically, and refreshes the read cache. Merges cross-process concurrent
+ * writes; serializes same-process ones (finding M8). A residual cross-process
+ * TOCTOU window between read and write remains (true simultaneous multi-process
+ * writes are rare in local-first) but the lost-update from a stale full-snapshot
+ * overwrite is gone.
+ */
+async function mutate<T>(fn: (map: Map<string, ScheduleEntry>) => T): Promise<T> {
+  const run = writeChain.then(async () => {
+    const map = await loadFromDisk();
+    const result = fn(map);
+    await ensureDir();
+    await writeJsonFileAtomic(schedulesPath(), [...map.values()]);
+    cache = map;
+    return result;
+  });
+  // Keep the chain alive regardless of this op's outcome.
+  writeChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
 }
 
 /**
@@ -146,29 +176,26 @@ export interface SetScheduleInput {
 }
 
 export async function setSchedule(input: SetScheduleInput): Promise<ScheduleEntry> {
-  const map = await loadSchedules();
-  const existing = map.get(input.vizId);
-  const now = Date.now();
-  const entry: ScheduleEntry = {
-    vizId: input.vizId,
-    cadence: input.cadence,
-    autoExport: input.autoExport,
-    createdAt: existing?.createdAt ?? now,
-    lastRunAt: existing?.lastRunAt ?? null,
-    lastStatus: existing?.lastStatus ?? null,
-    lastError: existing?.lastError ?? null,
-    nextRunAt: computeNextRunAt(input.cadence),
-  };
-  map.set(input.vizId, entry);
-  await persist();
-  return entry;
+  return mutate((map) => {
+    const existing = map.get(input.vizId);
+    const now = Date.now();
+    const entry: ScheduleEntry = {
+      vizId: input.vizId,
+      cadence: input.cadence,
+      autoExport: input.autoExport,
+      createdAt: existing?.createdAt ?? now,
+      lastRunAt: existing?.lastRunAt ?? null,
+      lastStatus: existing?.lastStatus ?? null,
+      lastError: existing?.lastError ?? null,
+      nextRunAt: computeNextRunAt(input.cadence),
+    };
+    map.set(input.vizId, entry);
+    return entry;
+  });
 }
 
 export async function deleteSchedule(vizId: string): Promise<boolean> {
-  const map = await loadSchedules();
-  const had = map.delete(vizId);
-  if (had) await persist();
-  return had;
+  return mutate((map) => map.delete(vizId));
 }
 
 export async function listSchedules(): Promise<ScheduleEntry[]> {
@@ -185,15 +212,15 @@ export async function recordRunOutcome(
   vizId: string,
   outcome: { status: "success" | "error"; error?: string }
 ): Promise<void> {
-  const map = await loadSchedules();
-  const entry = map.get(vizId);
-  if (!entry) return;
-  const now = Date.now();
-  entry.lastRunAt = now;
-  entry.lastStatus = outcome.status;
-  entry.lastError = outcome.status === "error" ? (outcome.error ?? "Unknown error") : null;
-  entry.nextRunAt = computeNextRunAt(entry.cadence, new Date(now));
-  await persist();
+  await mutate((map) => {
+    const entry = map.get(vizId);
+    if (!entry) return;
+    const now = Date.now();
+    entry.lastRunAt = now;
+    entry.lastStatus = outcome.status;
+    entry.lastError = outcome.status === "error" ? (outcome.error ?? "Unknown error") : null;
+    entry.nextRunAt = computeNextRunAt(entry.cadence, new Date(now));
+  });
 }
 
 /**

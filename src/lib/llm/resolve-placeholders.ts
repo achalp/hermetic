@@ -853,11 +853,14 @@ export function resolveSpecPlaceholders(
       const value = unwrapScalar(raw);
       if (isInlineRefused(value)) return refuseInline(_match);
       if (typeof value === "number") {
-        const num = formatInlineNumber(value);
         // Unit identity: a DECLARED unit (declare_value / finding mirror)
         // wins; the _pct/_pp/pct_ name convention remains the fallback for
-        // keys nothing declared.
+        // keys nothing declared. Resolved BEFORE formatting so money gets 2dp +
+        // grouping (formatCurrencyInline) instead of the generic float path's
+        // false precision — the $finding path already does this; the $result
+        // path did not (LOW correctness: "37.2759 usd" → "37.28 usd").
         const unit = declaredUnits[trimmed] ?? keyNameUnit(trimmed);
+        const num = formatInlineNumber(value, unit);
         if (!unit) return num;
         return withUnit(num, unit, whole.slice(offset + _match.length));
       }

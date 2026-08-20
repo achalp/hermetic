@@ -140,6 +140,21 @@ function withCreds(entry: RecentSource): RecentSource {
 
 let warnedLegacyPlaintext = false;
 
+// Serialize read-modify-write against recent-sources.json so two concurrent
+// callers in THIS process can't both read the old list and have the second
+// write clobber the first's new entry (finding M8). loadRecentSources re-reads
+// disk on each call, so a serialized op also merges a DIFFERENT process's
+// concurrent writes (best-effort, matching the warehouse merge-on-write).
+let writeChain: Promise<unknown> = Promise.resolve();
+function serializeWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const run = writeChain.then(fn);
+  writeChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 export async function loadRecentSources(): Promise<RecentSource[]> {
   let list: RecentSource[] | undefined;
   try {
@@ -205,85 +220,93 @@ export interface RecordInput {
  * managed bytes). Best-effort: never throws into a connect flow.
  */
 export async function recordRecentSource(input: RecordInput): Promise<void> {
-  try {
-    // Replay-mode runs are tests (CI proofs, golden journeys) driving the
-    // real server with fixture files in throwaway dirs — recording those
-    // would pollute the user's actual recents (found live: five
-    // /tmp/mcp-proof-*/fixture.csv rows in the Add-data menu).
-    if (llmReplayConfig()?.mode === "replay") return;
-    const list = await loadRecentSources();
-    const now = new Date().toISOString();
-    const key = keyOf(input);
-    const existing = list.find((e) => keyOf(e) === key);
+  await serializeWrite(async () => {
+    try {
+      // Replay-mode runs are tests (CI proofs, golden journeys) driving the
+      // real server with fixture files in throwaway dirs — recording those
+      // would pollute the user's actual recents (found live: five
+      // /tmp/mcp-proof-*/fixture.csv rows in the Add-data menu).
+      if (llmReplayConfig()?.mode === "replay") return;
+      const list = await loadRecentSources();
+      const now = new Date().toISOString();
+      const key = keyOf(input);
+      const existing = list.find((e) => keyOf(e) === key);
 
-    let path = input.path;
-    // Persist upload bytes into the managed store so the file re-opens in one
-    // click. The dir lives under the home dir, so it's inside the local-file
-    // root-jail and re-opens through the ordinary local-schema path.
-    if (input.kind === "upload" && input.bytes != null) {
-      await ensureDirs();
-      const id = existing?.id ?? randomUUID();
-      const ext = extname(input.filename ?? input.name) || ".csv";
-      path = join(sourcesDir(), `${id}${ext}`);
-      await writeFile(path, input.bytes);
+      let path = input.path;
+      // Persist upload bytes into the managed store so the file re-opens in one
+      // click. The dir lives under the home dir, so it's inside the local-file
+      // root-jail and re-opens through the ordinary local-schema path.
+      if (input.kind === "upload" && input.bytes != null) {
+        await ensureDirs();
+        const id = existing?.id ?? randomUUID();
+        const ext = extname(input.filename ?? input.name) || ".csv";
+        path = join(sourcesDir(), `${id}${ext}`);
+        await writeFile(path, input.bytes);
+      }
+
+      if (existing) {
+        existing.name = input.name;
+        existing.subtitle = input.subtitle;
+        existing.rows = input.rows ?? existing.rows;
+        existing.url = input.url ?? existing.url;
+        existing.creds = input.creds ?? existing.creds;
+        existing.path = path ?? existing.path;
+        existing.isHivePartitioned = input.isHivePartitioned ?? existing.isHivePartitioned;
+        existing.lastUsedAt = now;
+        existing.useCount += 1;
+      } else {
+        list.push({
+          id: randomUUID(),
+          kind: input.kind,
+          name: input.name,
+          subtitle: input.subtitle,
+          rows: input.rows,
+          url: input.url,
+          creds: input.creds,
+          path,
+          isHivePartitioned: input.isHivePartitioned,
+          managed: input.kind === "upload" ? true : undefined,
+          lastUsedAt: now,
+          useCount: 1,
+        });
+      }
+
+      list.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+      // Evict the least-recently-used past the cap (and their managed bytes).
+      for (const evicted of list.splice(MAX_ENTRIES)) await deleteManaged(evicted);
+      await write(list);
+    } catch {
+      // Recording is a convenience — a failure must never break a connect.
     }
-
-    if (existing) {
-      existing.name = input.name;
-      existing.subtitle = input.subtitle;
-      existing.rows = input.rows ?? existing.rows;
-      existing.url = input.url ?? existing.url;
-      existing.creds = input.creds ?? existing.creds;
-      existing.path = path ?? existing.path;
-      existing.isHivePartitioned = input.isHivePartitioned ?? existing.isHivePartitioned;
-      existing.lastUsedAt = now;
-      existing.useCount += 1;
-    } else {
-      list.push({
-        id: randomUUID(),
-        kind: input.kind,
-        name: input.name,
-        subtitle: input.subtitle,
-        rows: input.rows,
-        url: input.url,
-        creds: input.creds,
-        path,
-        isHivePartitioned: input.isHivePartitioned,
-        managed: input.kind === "upload" ? true : undefined,
-        lastUsedAt: now,
-        useCount: 1,
-      });
-    }
-
-    list.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
-    // Evict the least-recently-used past the cap (and their managed bytes).
-    for (const evicted of list.splice(MAX_ENTRIES)) await deleteManaged(evicted);
-    await write(list);
-  } catch {
-    // Recording is a convenience — a failure must never break a connect.
-  }
+  });
 }
 
 export async function renameRecentSource(id: string, name: string): Promise<void> {
-  const list = await loadRecentSources();
-  const entry = list.find((e) => e.id === id);
-  if (!entry) return;
-  entry.name = name.trim() || entry.name;
-  await write(list);
+  await serializeWrite(async () => {
+    const list = await loadRecentSources();
+    const entry = list.find((e) => e.id === id);
+    if (!entry) return;
+    entry.name = name.trim() || entry.name;
+    await write(list);
+  });
 }
 
 export async function removeRecentSource(id: string): Promise<void> {
-  const list = await loadRecentSources();
-  const entry = list.find((e) => e.id === id);
-  if (!entry) return;
-  await deleteManaged(entry);
-  await write(list.filter((e) => e.id !== id));
+  await serializeWrite(async () => {
+    const list = await loadRecentSources();
+    const entry = list.find((e) => e.id === id);
+    if (!entry) return;
+    await deleteManaged(entry);
+    await write(list.filter((e) => e.id !== id));
+  });
 }
 
 export async function clearRecentSources(): Promise<void> {
-  const list = await loadRecentSources();
-  for (const entry of list) await deleteManaged(entry);
-  await write([]);
+  await serializeWrite(async () => {
+    const list = await loadRecentSources();
+    for (const entry of list) await deleteManaged(entry);
+    await write([]);
+  });
 }
 
 /** Look up one entry (for re-open — the client needs its stored payload). */

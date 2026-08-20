@@ -139,7 +139,13 @@ function pivotGroupMatrix(
   const xCol = s.roles.x.column;
   const xLabels: string[] = [];
   const yLabels: string[] = [];
-  const cells = new Map<string, number>();
+  // AVERAGE duplicate (group, period) cells — the same aggFn the interactive
+  // re-aggregation controller uses (deriveAggregatingController's pivot
+  // aggFn:"avg"). Last-row-wins here meant a grouped series with duplicate cells
+  // painted one value at first render, then jumped to the average the instant a
+  // filter was touched — the picture changing without the reader changing the
+  // question. For the common one-row-per-cell series, sum/count === the value.
+  const cells = new Map<string, { sum: number; count: number }>();
   for (const row of s.rows) {
     const x = row[xCol];
     const g = row[groupCol];
@@ -150,16 +156,23 @@ function pivotGroupMatrix(
     const gs = String(g);
     if (!xLabels.includes(xs)) xLabels.push(xs);
     if (!yLabels.includes(gs)) yLabels.push(gs);
-    cells.set(`${gs}\u0000${xs}`, v);
+    const key = `${gs}\u0000${xs}`;
+    const acc = cells.get(key);
+    if (acc) {
+      acc.sum += v;
+      acc.count += 1;
+    } else {
+      cells.set(key, { sum: v, count: 1 });
+    }
   }
   if (xLabels.length === 0 || yLabels.length === 0) return null;
   const z: number[][] = [];
   for (const g of yLabels) {
     const rowVals: number[] = [];
     for (const x of xLabels) {
-      const v = cells.get(`${g}\u0000${x}`);
-      if (v === undefined) return null; // incomplete pivot — no holes invented
-      rowVals.push(v);
+      const acc = cells.get(`${g}\u0000${x}`);
+      if (acc === undefined) return null; // incomplete pivot — no holes invented
+      rowVals.push(acc.sum / acc.count);
     }
     z.push(rowVals);
   }
