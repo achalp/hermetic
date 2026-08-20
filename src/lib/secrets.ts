@@ -182,3 +182,30 @@ export function setWarehouseSecrets(connectionId: string, secrets: Record<string
 export function deleteWarehouseSecrets(connectionId: string): void {
   deleteSecret(warehouseSecretName(connectionId));
 }
+
+// ── Remote source (cloud bucket) credentials (JSON blob per source id) ──
+// Same shape as the warehouse blob: the recent-sources INDEX file persists only
+// non-secret metadata; a private bucket's key/secret live in the OS keychain,
+// one blob per source id (finding H1 — previously written world-readable plain-
+// text to ~/.hermetic/recent-sources.json).
+
+const remoteSourceSecretName = (sourceId: string) => `remote-source/${sourceId}`;
+
+export function getRemoteSourceSecrets(sourceId: string): Record<string, string> | undefined {
+  const raw = getSecret(remoteSourceSecretName(sourceId));
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    logger.warn("secrets: remote-source secret blob unparsable", { sourceId });
+    return undefined;
+  }
+}
+
+export function setRemoteSourceSecrets(sourceId: string, secrets: Record<string, string>): void {
+  setSecret(remoteSourceSecretName(sourceId), JSON.stringify(secrets));
+}
+
+export function deleteRemoteSourceSecrets(sourceId: string): void {
+  deleteSecret(remoteSourceSecretName(sourceId));
+}

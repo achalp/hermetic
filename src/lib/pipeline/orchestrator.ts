@@ -23,7 +23,8 @@ import {
 import { executeSandbox } from "@/lib/sandbox";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { codeDoesRemoteIo } from "@/lib/sandbox/docker-utils";
-import { redactRemoteSecrets } from "@/lib/parquet/duckdb-source";
+import { redactRemoteSecrets, applyRemoteAuth } from "@/lib/parquet/duckdb-source";
+import type { RemoteAuthSubst } from "@/lib/parquet/duckdb-source";
 import { estimateRun, reportEstimate } from "@/lib/pipeline/estimate";
 import { streamText } from "ai";
 import { withPhaseSync } from "@/lib/cost/accumulator";
@@ -72,6 +73,13 @@ export interface PipelineOptions {
   /** Host Parquet file to docker-cp into the sandbox (/data/input.parquet). */
   inputParquetPath?: string;
   purpose?: string;
+  /**
+   * Real S3 credentials to splice into generated code at the sandbox boundary
+   * (finding C1). The prompt carries only placeholders; this restores them into
+   * the executed copy — never into the code retained for retry prompts or the
+   * forensic record.
+   */
+  remoteAuthSubst?: RemoteAuthSubst;
 }
 
 /**
@@ -99,6 +107,7 @@ export async function runPipeline(
     priorTurns,
     inputParquetPath,
     purpose,
+    remoteAuthSubst,
   } = options;
   // Mutable: active skills append their helper modules below.
   let additionalFiles = options.additionalFiles;
@@ -402,18 +411,25 @@ export async function runPipeline(
     })
   );
   onStage?.("executing");
-  let result = await executeSandbox(csvContent, skillPrelude + code, {
-    runtime,
-    geojsonContent,
-    additionalFiles,
-    csvId: schema.csv_id,
-    localMountPath,
-    inputParquetPath,
-    hooks: ambientSandboxHooks(),
-    // Container attribution label — like hooks, injected here because the
-    // sandbox layer never reads run-context itself.
-    runId: getRunId(),
-  });
+  // applyRemoteAuth restores real S3 creds into the EXECUTED copy only; `code`
+  // itself keeps placeholders so retry prompts and the forensic record stay
+  // cred-free (finding C1).
+  let result = await executeSandbox(
+    csvContent,
+    skillPrelude + applyRemoteAuth(code, remoteAuthSubst),
+    {
+      runtime,
+      geojsonContent,
+      additionalFiles,
+      csvId: schema.csv_id,
+      localMountPath,
+      inputParquetPath,
+      hooks: ambientSandboxHooks(),
+      // Container attribution label — like hooks, injected here because the
+      // sandbox layer never reads run-context itself.
+      runId: getRunId(),
+    }
+  );
   recordAttemptOutcome(attemptIndex, {
     success: result.success,
     error: result.success ? undefined : result.error,
@@ -540,16 +556,20 @@ export async function runPipeline(
     recordAttemptCode(attemptIndex, redactRemoteSecrets(retryCode));
 
     onStage?.("executing");
-    result = await executeSandbox(csvContent, skillPrelude + retryCode, {
-      runtime,
-      geojsonContent,
-      additionalFiles,
-      csvId: schema.csv_id,
-      localMountPath,
-      inputParquetPath,
-      hooks: ambientSandboxHooks(),
-      runId: getRunId(),
-    });
+    result = await executeSandbox(
+      csvContent,
+      skillPrelude + applyRemoteAuth(retryCode, remoteAuthSubst),
+      {
+        runtime,
+        geojsonContent,
+        additionalFiles,
+        csvId: schema.csv_id,
+        localMountPath,
+        inputParquetPath,
+        hooks: ambientSandboxHooks(),
+        runId: getRunId(),
+      }
+    );
     recordAttemptOutcome(attemptIndex, {
       success: result.success,
       error: result.success ? undefined : result.error,
@@ -669,6 +689,8 @@ export async function runPipelineWithCode(
     localMountPath?: string;
     /** Host Parquet file to docker-cp into the sandbox (/data/input.parquet). */
     inputParquetPath?: string;
+    /** Real S3 creds spliced into the executed copy only (finding C1). */
+    remoteAuthSubst?: RemoteAuthSubst;
   } = {}
 ): Promise<PipelineResult> {
   logger.debug("Re-executing edited code", {
@@ -677,7 +699,7 @@ export async function runPipelineWithCode(
     parquet: !!options.inputParquetPath,
   });
 
-  const result = await executeSandbox(csvContent, code, {
+  const result = await executeSandbox(csvContent, applyRemoteAuth(code, options.remoteAuthSubst), {
     runtime: options.runtime,
     geojsonContent: options.geojsonContent,
     additionalFiles: options.additionalFiles,

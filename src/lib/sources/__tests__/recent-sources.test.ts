@@ -19,8 +19,10 @@ import {
   removeRecentSource,
   clearRecentSources,
 } from "@/lib/sources/recent-sources";
+import { _setEntryCtorForTests, getRemoteSourceSecrets } from "@/lib/secrets";
 
 const SOURCES_DIR = join(TEST_HOME, ".hermetic", "sources");
+const INDEX_FILE = join(TEST_HOME, ".hermetic", "recent-sources.json");
 const exists = (p: string) =>
   access(p).then(
     () => true,
@@ -213,5 +215,73 @@ describe("hygiene (found live: proof-run fixtures polluting the menu)", () => {
     } finally {
       configureLLMReplay(null);
     }
+  });
+});
+
+// finding H1: with an OS credential service available, a private bucket's creds
+// go to the keychain — the world-readable index file must NOT carry them.
+describe("recent sources store — credential separation (finding H1)", () => {
+  const fake = { store: new Map<string, string>() };
+  class FakeEntry {
+    constructor(
+      private service: string,
+      private account: string
+    ) {}
+    private key() {
+      return `${this.service}/${this.account}`;
+    }
+    getPassword(): string | null {
+      return fake.store.get(this.key()) ?? null;
+    }
+    setPassword(v: string): void {
+      fake.store.set(this.key(), v);
+    }
+    deleteCredential(): boolean {
+      return fake.store.delete(this.key());
+    }
+  }
+
+  beforeEach(() => {
+    fake.store.clear();
+    _setEntryCtorForTests(FakeEntry as never);
+  });
+  afterEach(() => _setEntryCtorForTests(null));
+
+  const secretCreds = {
+    s3AccessKeyId: "AKIAREAL",
+    s3SecretAccessKey: "topsecret",
+    s3Region: "eu-west-1",
+  };
+
+  it("keeps the secret out of the index file but returns it from load", async () => {
+    await recordRecentSource({
+      kind: "remote-parquet",
+      name: "private",
+      subtitle: "s3://priv/x",
+      url: "s3://priv/x",
+      creds: secretCreds,
+    });
+
+    const raw = await readFile(INDEX_FILE, "utf-8");
+    expect(raw).not.toContain("AKIAREAL");
+    expect(raw).not.toContain("topsecret");
+
+    const [entry] = await loadRecentSources();
+    expect(entry.creds).toEqual(secretCreds);
+  });
+
+  it("removes the keychain blob when the source is removed", async () => {
+    await recordRecentSource({
+      kind: "remote-parquet",
+      name: "private",
+      subtitle: "s3://priv/x",
+      url: "s3://priv/x",
+      creds: secretCreds,
+    });
+    const [entry] = await loadRecentSources();
+    expect(getRemoteSourceSecrets(entry.id)).toBeTruthy();
+
+    await removeRecentSource(entry.id);
+    expect(getRemoteSourceSecrets(entry.id)).toBeUndefined();
   });
 });

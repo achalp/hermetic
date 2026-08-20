@@ -24,6 +24,7 @@ import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
+import type { RemoteAuthSubst } from "@/lib/parquet/duckdb-source";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { buildValuesSection } from "@/lib/pipeline/dashboard-compose";
 import { composeStepCell } from "@/lib/llm/step-cell-composer";
@@ -282,12 +283,13 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // resolvers as /api/query.
         let localMountPath: string | undefined;
         let localFileContext: string | undefined;
+        let remoteAuthSubst: RemoteAuthSubst | undefined;
         if (warehouseParquetFile) {
           localFileContext = warehouseParquetContext;
         } else if (isLocal) {
           ({ localMountPath, localFileContext } = resolveLocalSource(stored));
         } else if (isRemote) {
-          ({ localFileContext } = resolveRemoteSource(
+          ({ localFileContext, remoteAuthSubst } = resolveRemoteSource(
             stored.remoteParquetUrl!,
             stored.schema.row_count,
             stored.isHivePartitioned,
@@ -337,6 +339,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               geojsonContent,
               localMountPath,
               localFileContext,
+              remoteAuthSubst,
             });
             await composeAndStreamDashboard({
               executionResult: cheap.executionResult,
@@ -496,6 +499,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           workbookContext: undefined,
           localMountPath,
           localFileContext,
+          remoteAuthSubst,
           inputParquetPath: warehouseParquetFile,
           runtime: sandboxRuntime,
           model: codeGenModel,

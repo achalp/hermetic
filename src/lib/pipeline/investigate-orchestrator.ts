@@ -41,6 +41,7 @@
  */
 
 import { runPipeline } from "./orchestrator";
+import type { RemoteAuthSubst } from "@/lib/parquet/duckdb-source";
 import type { PipelineResult } from "./orchestrator";
 import type { AdditionalFile } from "@/lib/sandbox";
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -185,6 +186,8 @@ interface OrchestrateOptions {
   workbookContext?: string;
   localMountPath?: string;
   localFileContext?: string;
+  /** Real S3 creds spliced into executed code at the sandbox boundary (C1). */
+  remoteAuthSubst?: RemoteAuthSubst;
   runtime?: SandboxRuntimeId;
   model: string;
   /** The user's original Investigate question (passed to the re-planner). */
@@ -256,6 +259,7 @@ function runCsvSubQuestion(
     workbookContext: options.workbookContext,
     localMountPath: options.localMountPath,
     localFileContext: joinContext(options.localFileContext, depFrames.context),
+    remoteAuthSubst: options.remoteAuthSubst,
     priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
     inputParquetPath: options.inputParquetPath,
     purpose: options.purpose,

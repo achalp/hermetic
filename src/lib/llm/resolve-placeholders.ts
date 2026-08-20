@@ -510,15 +510,66 @@ const METRIC_FAMILIES = [
 const metricCanon = (w: string): string => (w === "average" ? "mean" : w);
 
 /**
+ * A family name is present in a key only as a whole SEGMENT (`min_close`,
+ * `close_min`, `min`), never as an incidental substring — otherwise "min"
+ * matches "terminal" and "std" matches "std_dev_of_std". Digits are allowed as
+ * segment boundaries so `p25`/`p75` match. Case-insensitive.
+ */
+function keyHasFamily(key: string, fam: string): boolean {
+  return new RegExp(`(^|[^a-z])${fam}([^a-z]|$)`, "i").test(key);
+}
+
+/** Swap the family SEGMENT `fam`→`named` in `key`, leaving substrings alone. */
+function swapKeyFamily(key: string, fam: string, named: string): string {
+  return key.replace(
+    new RegExp(`(^|[^a-z])${fam}([^a-z]|$)`, "i"),
+    (_m, a, b) => `${a}${named}${b}`
+  );
+}
+
+/**
+ * Contrastive / coordinating boundaries that separate a sentence into clauses.
+ * A prose metric word on one side of "while"/"whereas"/"but"/"vs" describes a
+ * DIFFERENT quantity than a binding on the other side, so metric repair must
+ * never reach across one (finding H6). Global so `matchAll` can enumerate every
+ * boundary; only ever consumed by `matchAll` (no shared-lastIndex hazard).
+ */
+const CLAUSE_BOUNDARY =
+  /\b(?:while|whereas|but|however|though|although|versus|vs|compared\s+(?:to|with)|against)\b|[;—]/gi;
+
+/** The clause of `sentence` containing the span [start, end) — bounded by the
+ *  nearest contrast/coordination boundaries on either side. */
+function clauseAround(sentence: string, start: number, end: number): string {
+  let cStart = 0;
+  let cEnd = sentence.length;
+  for (const m of sentence.matchAll(CLAUSE_BOUNDARY)) {
+    const bStart = m.index ?? 0;
+    const bEnd = bStart + m[0].length;
+    if (bEnd <= start)
+      cStart = bEnd; // boundary entirely before the token
+    else if (bStart >= end) {
+      cEnd = bStart; // first boundary after the token — clause ends here
+      break;
+    }
+  }
+  return sentence.slice(cStart, cEnd);
+}
+
+/**
  * Repair a binding to the metric the PROSE names (run-41 root fix): the
  * composer bound $result:iqr_price_slope_per_period inside "The median
  * price series is rising (OLS slope ...)". The substitution machinery was
  * fine — the KEY choice was wrong, and the sentence itself declares the
- * intent. Conservative repair, all four required:
- *   1. the sentence names exactly ONE metric family word;
- *   2. a bound key belongs to a DIFFERENT family;
- *   3. swapping that family for the named one yields an EXISTING key;
- *   4. no other binding in the sentence contradicts the named family.
+ * intent. Conservative repair, evaluated per CLAUSE (not per sentence) so a
+ * metric word can only claim a binding in its OWN clause — the fix for the
+ * min/max swap that rendered the OPPOSITE statistic when prose named one
+ * extreme ("the max held steady") and a binding of the other ("while
+ * $result:min_close fell") sat across a contrast conjunction (finding H6). All
+ * three still required:
+ *   1. the token's own clause names exactly ONE metric family word;
+ *   2. the bound key belongs to a DIFFERENT family (whole-SEGMENT match, so
+ *      "min" matches `min_close` but never "terminal");
+ *   3. swapping that family for the named one yields an EXISTING key.
  * Runs pre-substitution; the mislabel lint remains the backstop for cases
  * this cannot repair unambiguously.
  */
@@ -529,28 +580,23 @@ export function repairMetricBindings(line: string, results: Record<string, unkno
     const sentences = inner.split(/(?<=[.!?])\s+/);
     let changed = false;
     const repaired = sentences.map((sentence) => {
-      const proseFams = new Set(
-        [...sentence.matchAll(new RegExp(`\\b(${METRIC_FAMILIES.join("|")})\\b`, "gi"))]
-          .map((m) => metricCanon(m[1].toLowerCase()))
-          // Only words OUTSIDE binding tokens count as prose intent.
-          .filter((_w, i, _a) => true)
-      );
-      // Remove families that only appear inside $result tokens.
-      const tokenText = [...sentence.matchAll(/\$result:[a-zA-Z0-9_.]+/g)]
-        .map((m) => m[0])
-        .join(" ");
-      for (const fam of [...proseFams]) {
-        const inProse = new RegExp(`\\b${fam}\\b`, "i").test(
-          sentence.replace(/\$result:[a-zA-Z0-9_.]+/g, "")
+      if (!sentence.includes("$result:")) return sentence;
+      return sentence.replace(/\$result:([a-zA-Z0-9_.]+)/g, (tok, key: string, offset: number) => {
+        const clause = clauseAround(sentence, offset, offset + tok.length);
+        // Prose metric families in THIS clause, excluding the binding tokens.
+        const prose = clause.replace(/\$result:[a-zA-Z0-9_.]+/g, "");
+        const proseFams = new Set(
+          [...prose.matchAll(new RegExp(`\\b(${METRIC_FAMILIES.join("|")})\\b`, "gi"))].map((m) =>
+            metricCanon(m[1].toLowerCase())
+          )
         );
-        if (!inProse) proseFams.delete(fam);
-      }
-      if (proseFams.size !== 1) return sentence;
-      const named = [...proseFams][0];
-      return sentence.replace(/\$result:([a-zA-Z0-9_.]+)/g, (tok, key: string) => {
-        const fam = METRIC_FAMILIES.map(metricCanon).find((f) => f !== named && key.includes(f));
+        if (proseFams.size !== 1) return tok;
+        const named = [...proseFams][0];
+        const fam = METRIC_FAMILIES.map(metricCanon).find(
+          (f) => f !== named && keyHasFamily(key, f)
+        );
         if (!fam) return tok;
-        const sibling = key.replace(fam, named);
+        const sibling = swapKeyFamily(key, fam, named);
         if (sibling === key || !(sibling in results)) return tok;
         changed = true;
         logger.info("resolveSpecPlaceholders: repaired binding to the prose-named metric", {

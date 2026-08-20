@@ -58,6 +58,15 @@ const LOCAL_PATH_ROUTES = [
   "/api/query",
   "/api/warehouse/",
   "/api/settings",
+  // Local model-process control: download (spawns HF fetch), start (spawns a
+  // model server), delete (rmSync of model files), stop/pull. Absent from this
+  // list, they were CSRF-drivable by any visited page via a no-preflight simple
+  // request (Sec-3 H3). The UI's own status/models/platform polling still
+  // passes — it carries a loopback Origin/Host — so the guard only rejects the
+  // cross-origin caller. Rate-limit exemption (isInternalPolling below) is
+  // unchanged; this adds the DNS-rebinding/origin gate, not a rate cap.
+  "/api/local-llm/",
+  "/api/ollama/",
 ];
 
 /** True when `value` (an Origin URL, or a bare `host:port`) is a loopback host. */

@@ -9,6 +9,10 @@ import {
   isSafeParquetUrl,
   duckdbRemoteAuthSql,
   redactRemoteSecrets,
+  applyRemoteAuth,
+  remoteAuthSubst,
+  S3_KEY_ID_PLACEHOLDER,
+  S3_SECRET_PLACEHOLDER,
   DUCKDB_CLOUD_PRELUDE,
   duckdbCloudPreludePy,
 } from "@/lib/parquet/duckdb-source";
@@ -208,6 +212,65 @@ describe("duckdbRemoteAuthSql", () => {
   it("rejects (drops to anonymous) any credential that could break the SQL literal", () => {
     expect(duckdbRemoteAuthSql({ s3AccessKeyId: "k'; DROP", s3SecretAccessKey: "s" })).toBe("");
     expect(duckdbRemoteAuthSql({ s3Region: "us-west-2'; --" })).toBe("");
+  });
+
+  it("emits PLACEHOLDER key/secret (not the real values) when placeholders=true (C1)", () => {
+    const sql = duckdbRemoteAuthSql(
+      { s3AccessKeyId: "AKIAREAL", s3SecretAccessKey: "topsecret", s3Region: "eu-west-1" },
+      true
+    );
+    expect(sql).toContain(`KEY_ID '${S3_KEY_ID_PLACEHOLDER}'`);
+    expect(sql).toContain(`SECRET '${S3_SECRET_PLACEHOLDER}'`);
+    expect(sql).not.toContain("AKIAREAL");
+    expect(sql).not.toContain("topsecret");
+    // Region is not a secret — it stays real so the model reads the right bucket.
+    expect(sql).toContain("REGION 'eu-west-1'");
+  });
+});
+
+describe("remote credential isolation from the prompt (finding C1)", () => {
+  const creds = { s3AccessKeyId: "AKIAREAL", s3SecretAccessKey: "topsecret" };
+
+  it("keeps the real key/secret OUT of resolveRemoteSource's prompt context", () => {
+    const { localFileContext, remoteAuthSubst: subst } = resolveRemoteSource(
+      "s3://bucket/data/*.parquet",
+      1000,
+      false,
+      creds
+    );
+    // The prompt (localFileContext) is what reaches the (possibly remote) model.
+    expect(localFileContext).not.toContain("AKIAREAL");
+    expect(localFileContext).not.toContain("topsecret");
+    expect(localFileContext).toContain(S3_KEY_ID_PLACEHOLDER);
+    expect(localFileContext).toContain(S3_SECRET_PLACEHOLDER);
+    // The real values ride alongside for the executor boundary only.
+    expect(subst).toEqual({ keyId: "AKIAREAL", secret: "topsecret" });
+  });
+
+  it("applyRemoteAuth restores real creds into the executed code", () => {
+    const code = `duckdb.sql("CREATE OR REPLACE SECRET hermetic_s3 (TYPE s3, KEY_ID '${S3_KEY_ID_PLACEHOLDER}', SECRET '${S3_SECRET_PLACEHOLDER}');")`;
+    const subst = remoteAuthSubst(creds);
+    const executed = applyRemoteAuth(code, subst);
+    expect(executed).toContain("KEY_ID 'AKIAREAL'");
+    expect(executed).toContain("SECRET 'topsecret'");
+    expect(executed).not.toContain(S3_KEY_ID_PLACEHOLDER);
+    expect(executed).not.toContain(S3_SECRET_PLACEHOLDER);
+  });
+
+  it("applyRemoteAuth is a no-op without a substitution (local/anonymous)", () => {
+    const code = "print('hello')";
+    expect(applyRemoteAuth(code, undefined)).toBe(code);
+  });
+
+  it("remoteAuthSubst is undefined for anonymous or unsafe creds", () => {
+    expect(remoteAuthSubst(undefined)).toBeUndefined();
+    expect(remoteAuthSubst({ s3Region: "us-west-2" })).toBeUndefined();
+    expect(remoteAuthSubst({ s3AccessKeyId: "k'; DROP", s3SecretAccessKey: "s" })).toBeUndefined();
+  });
+
+  it("redactRemoteSecrets still scrubs the placeholder line for logs", () => {
+    const code = `KEY_ID '${S3_KEY_ID_PLACEHOLDER}', SECRET '${S3_SECRET_PLACEHOLDER}'`;
+    expect(redactRemoteSecrets(code)).toBe("KEY_ID '[redacted]', SECRET '[redacted]'");
   });
 });
 

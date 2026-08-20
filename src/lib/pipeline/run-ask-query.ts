@@ -390,10 +390,10 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // Build local file context for LLM prompt (tells it where to read
         // data). A materialized warehouse pull was docker-cp'd to
         // /data/input.parquet (no mount) — same resolvers as Investigate.
-        const { localFileContext } = warehouseParquetFile
-          ? { localFileContext: warehouseParquetContext }
+        const { localFileContext, remoteAuthSubst } = warehouseParquetFile
+          ? { localFileContext: warehouseParquetContext, remoteAuthSubst: undefined }
           : isLocal
-            ? resolveLocalSource(stored)
+            ? { ...resolveLocalSource(stored), remoteAuthSubst: undefined }
             : isRemote
               ? resolveRemoteSource(
                   stored.remoteParquetUrl!,
@@ -401,7 +401,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
                   stored.isHivePartitioned,
                   stored.remoteCreds
                 )
-              : {};
+              : { localFileContext: undefined, remoteAuthSubst: undefined };
 
         // Run the code-gen + sandbox pipeline. When the caller supplied
         // pre-edited code via context.code (Edit-and-Rerun), skip the
@@ -416,6 +416,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             csvId,
             localMountPath,
             inputParquetPath: warehouseParquetFile,
+            remoteAuthSubst,
           });
         } else {
           pipelineResult = await runPipeline(stored.schema, csvContent || "", question, {
@@ -431,6 +432,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
             inputParquetPath: warehouseParquetFile,
             purpose,
+            remoteAuthSubst,
           });
         }
 

@@ -119,13 +119,36 @@ function safeCredValue(v: unknown): string | null {
 }
 
 /**
+ * Opaque tokens that stand in for the real S3 key/secret in the code-gen PROMPT
+ * (finding C1). The prompt (and therefore the LLM provider, which for a remote
+ * model is off-machine) must NEVER carry the real bucket credentials, so the
+ * `CREATE SECRET` line the model is asked to reproduce uses these placeholders;
+ * the real values are substituted back into the generated code at the executor
+ * boundary via `applyRemoteAuth`, never into anything logged, persisted, or fed
+ * back into a retry prompt. The tokens are quote/backslash-free so they can't
+ * break out of the single-quoted SQL literal they sit inside.
+ */
+export const S3_KEY_ID_PLACEHOLDER = "__HERMETIC_S3_KEY_ID__";
+export const S3_SECRET_PLACEHOLDER = "__HERMETIC_S3_SECRET__";
+
+/** Real credential values to splice into the executed code (executor boundary only). */
+export interface RemoteAuthSubst {
+  keyId: string;
+  secret: string;
+}
+
+/**
  * DuckDB SQL to authenticate cloud reads. Anonymous by default (returns just a
  * region SET when given, else empty — httpfs reads public https/s3 with no
  * secret). When an access key + secret are provided, creates an S3 secret.
  * Reject-by-default on any unsafe credential token (returns empty rather than
  * risk an injection).
+ *
+ * `placeholders`: emit the opaque KEY_ID/SECRET tokens instead of the real
+ * values. Used for the code-gen prompt so no real credential leaves the machine
+ * (finding C1); the real values are restored by `applyRemoteAuth` at execution.
  */
-export function duckdbRemoteAuthSql(creds?: RemoteCreds): string {
+export function duckdbRemoteAuthSql(creds?: RemoteCreds, placeholders = false): string {
   if (!creds) return "";
   const key = safeCredValue(creds.s3AccessKeyId);
   const secret = safeCredValue(creds.s3SecretAccessKey);
@@ -133,13 +156,45 @@ export function duckdbRemoteAuthSql(creds?: RemoteCreds): string {
   const endpoint = creds.s3Endpoint ? safeCredValue(creds.s3Endpoint) : null;
 
   if (key && secret) {
-    const parts = [`TYPE s3`, `KEY_ID '${key}'`, `SECRET '${secret}'`];
+    const keyLit = placeholders ? S3_KEY_ID_PLACEHOLDER : key;
+    const secretLit = placeholders ? S3_SECRET_PLACEHOLDER : secret;
+    const parts = [`TYPE s3`, `KEY_ID '${keyLit}'`, `SECRET '${secretLit}'`];
     if (region) parts.push(`REGION '${region}'`);
     if (endpoint) parts.push(`ENDPOINT '${endpoint}'`);
     return `CREATE OR REPLACE SECRET hermetic_s3 (${parts.join(", ")});`;
   }
   // Anonymous: a region helps s3:// resolve; https needs nothing.
   return region ? `SET s3_region='${region}';` : "";
+}
+
+/**
+ * The real key/secret substitution for a source, or `undefined` when the source
+ * is anonymous or a credential value is unsafe (reject-by-default, matching
+ * `duckdbRemoteAuthSql`). Kept OUT of the prompt — carried alongside it and
+ * applied only at the executor boundary.
+ */
+export function remoteAuthSubst(creds?: RemoteCreds): RemoteAuthSubst | undefined {
+  if (!creds) return undefined;
+  const keyId = safeCredValue(creds.s3AccessKeyId);
+  const secret = safeCredValue(creds.s3SecretAccessKey);
+  if (!keyId || !secret) return undefined;
+  return { keyId, secret };
+}
+
+/**
+ * Restore real S3 credentials into generated code immediately before it is
+ * handed to the sandbox (finding C1). A no-op when `subst` is absent (local /
+ * anonymous / warehouse sources) or the code carries no placeholder. Must be
+ * applied ONLY to the copy sent to the executor — never to the `code` retained
+ * for retry prompts or the forensic record, both of which must stay cred-free.
+ */
+export function applyRemoteAuth(code: string, subst?: RemoteAuthSubst): string {
+  if (!subst) return code;
+  return code
+    .split(S3_KEY_ID_PLACEHOLDER)
+    .join(subst.keyId)
+    .split(S3_SECRET_PLACEHOLDER)
+    .join(subst.secret);
 }
 
 /**
@@ -172,16 +227,23 @@ export function resolveRemoteSource(
   rowCount: number,
   isHivePartitioned = false,
   creds?: RemoteCreds
-): { localFileContext: string } {
+): { localFileContext: string; remoteAuthSubst?: RemoteAuthSubst } {
   const isFolder = url.includes("*");
   const readExpr = parquetReadExpr(url, isHivePartitioned);
-  const authSql = duckdbRemoteAuthSql(creds);
+  // The prompt carries the auth line with PLACEHOLDER credentials only — the
+  // real key/secret rides alongside as `remoteAuthSubst` and is spliced into the
+  // generated code at the executor boundary (finding C1), so no real credential
+  // ever reaches the (possibly off-machine) code-gen model.
+  const authSql = duckdbRemoteAuthSql(creds, true);
   const authLine = authSql ? ` then authenticate: duckdb.sql("${authSql}");` : "";
   const prelude = `FIRST, enable cloud + geo reads once at the top of the script: ${duckdbCloudPreludePy()}${authLine}\n`;
   const body = isFolder
     ? parquetFolderContext(readExpr, rowCount, isHivePartitioned)
     : parquetFileContext(readExpr, url, rowCount);
-  return { localFileContext: prelude + body + remoteNetworkNote(readExpr) };
+  return {
+    localFileContext: prelude + body + remoteNetworkNote(readExpr),
+    remoteAuthSubst: remoteAuthSubst(creds),
+  };
 }
 
 /**

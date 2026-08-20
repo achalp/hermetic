@@ -36,4 +36,27 @@ describe("middleware DNS-rebinding guard", () => {
     const res = middleware(req("/api/plan", { origin: "http://evil.example.com" }));
     expect(res.status).not.toBe(403);
   });
+
+  // finding H3: the local model-process routes spawn downloads / start servers /
+  // rmSync model files — they must sit behind the origin guard so a visited page
+  // cannot drive them cross-origin.
+  it("blocks /api/local-llm/download from a foreign Origin (403)", () => {
+    const res = middleware(req("/api/local-llm/download", { origin: "http://evil.example.com" }));
+    expect(res.status).toBe(403);
+  });
+
+  it("blocks /api/local-llm/delete from an Origin-less foreign Host (403)", () => {
+    const res = middleware(req("/api/local-llm/delete", { host: "evil.example.com" }));
+    expect(res.status).toBe(403);
+  });
+
+  it("blocks /api/ollama/pull from a foreign Origin (403)", () => {
+    const res = middleware(req("/api/ollama/pull", { origin: "http://evil.example.com" }));
+    expect(res.status).toBe(403);
+  });
+
+  it("still allows the UI's own local-llm polling (loopback Origin)", () => {
+    const res = middleware(req("/api/local-llm/status", { origin: "http://localhost:3000" }));
+    expect(res.status).not.toBe(403);
+  });
 });

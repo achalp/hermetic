@@ -6,6 +6,13 @@ import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import { hermeticPaths } from "@/lib/paths";
 import { writeJsonFileAtomic, readJsonFile } from "@/lib/json-file";
 import { llmReplayConfig } from "@/lib/llm/replay";
+import { logger, errMessage } from "@/lib/logger";
+import {
+  keychainAvailable,
+  getRemoteSourceSecrets,
+  setRemoteSourceSecrets,
+  deleteRemoteSourceSecrets,
+} from "@/lib/secrets";
 
 /**
  * Recent data sources — the file/cloud analogue of the saved warehouse
@@ -72,6 +79,67 @@ function isOpenable(e: RecentSource): boolean {
   return !e.path || existsSync(e.path);
 }
 
+// ── Credential separation (finding H1) ───────────────────────────────
+// The index FILE persists non-secret metadata only; a private bucket's creds
+// live in the OS keychain, one blob per source id. Every write scrubs creds to
+// the keychain (leaving the file cred-free); every read merges them back. On a
+// system with no credential service the legacy plaintext behavior is kept (a
+// headless-deploy escape hatch, matching warehouse persist-env) with a one-time
+// warning. Any file that still carries plaintext creds migrates to the keychain
+// on the next write that touches the list.
+
+const credFields: (keyof RemoteCreds)[] = [
+  "s3Region",
+  "s3AccessKeyId",
+  "s3SecretAccessKey",
+  "s3Endpoint",
+];
+
+function credsToRecord(creds: RemoteCreds): Record<string, string> {
+  const rec: Record<string, string> = {};
+  for (const f of credFields) {
+    const v = creds[f];
+    if (typeof v === "string" && v !== "") rec[f] = v;
+  }
+  return rec;
+}
+
+function recordToCreds(rec: Record<string, string>): RemoteCreds {
+  const creds: RemoteCreds = {};
+  for (const f of credFields) {
+    if (typeof rec[f] === "string") creds[f] = rec[f];
+  }
+  return creds;
+}
+
+/** Scrub a remote source's creds into the keychain, returning a file-safe copy
+ *  with `creds` stripped. On keychain-write failure the creds are kept in the
+ *  file (losing a credential is worse than persisting it) and it is logged. */
+function scrubCreds(entry: RecentSource): RecentSource {
+  if (entry.kind !== "remote-parquet" || !entry.creds) return entry;
+  try {
+    setRemoteSourceSecrets(entry.id, credsToRecord(entry.creds));
+    return { ...entry, creds: undefined };
+  } catch (err) {
+    logger.warn("recent-sources: keychain write failed — creds kept in file", {
+      id: entry.id,
+      error: errMessage(err),
+    });
+    return entry;
+  }
+}
+
+/** Merge keychain creds back onto an entry that was persisted without them.
+ *  A file that still carries plaintext creds (legacy, pre-migration) is kept
+ *  as-is rather than overwritten with a possibly-empty keychain blob. */
+function withCreds(entry: RecentSource): RecentSource {
+  if (entry.kind !== "remote-parquet" || entry.creds) return entry;
+  const rec = getRemoteSourceSecrets(entry.id);
+  return rec ? { ...entry, creds: recordToCreds(rec) } : entry;
+}
+
+let warnedLegacyPlaintext = false;
+
 export async function loadRecentSources(): Promise<RecentSource[]> {
   let list: RecentSource[] | undefined;
   try {
@@ -91,17 +159,29 @@ export async function loadRecentSources(): Promise<RecentSource[]> {
     // Best-effort persist of the prune so the dead rows don't reappear.
     await write(live).catch(() => {});
   }
-  return live.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+  return live.map(withCreds).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
 }
 
+/** THE single write path: scrub credentials to the keychain, then file. */
 async function write(list: RecentSource[]): Promise<void> {
   await ensureDirs();
-  await writeJsonFileAtomic(indexPath(), list);
+  let toDisk = list;
+  if (keychainAvailable()) {
+    toDisk = list.map(scrubCreds);
+  } else if (list.some((e) => e.kind === "remote-parquet" && e.creds) && !warnedLegacyPlaintext) {
+    warnedLegacyPlaintext = true;
+    logger.warn(
+      "recent-sources: no OS credential service — bucket credentials remain in " +
+        "recent-sources.json (legacy plaintext mode)"
+    );
+  }
+  await writeJsonFileAtomic(indexPath(), toDisk);
 }
 
-/** Best-effort delete of an upload's managed byte copy. */
+/** Best-effort delete of an upload's managed byte copy AND any keychain creds. */
 async function deleteManaged(entry: RecentSource): Promise<void> {
   if (entry.kind === "upload" && entry.path) await unlink(entry.path).catch(() => {});
+  if (entry.kind === "remote-parquet") deleteRemoteSourceSecrets(entry.id);
 }
 
 export interface RecordInput {

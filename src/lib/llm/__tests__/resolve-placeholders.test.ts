@@ -677,6 +677,54 @@ describe("repairMetricBindings — bind the metric the prose names (run-41 root 
     );
     expect(out).toContain("3.2");
   });
+
+  // finding H6: a contrast sentence names one extreme in prose and binds the
+  // OTHER — the swap must NOT fire (it rendered the opposite statistic).
+  it("does not swap min↔max across a contrast conjunction (finding H6)", () => {
+    const results = { min_close: 11.2, max_close: 98.7 };
+    const out = resolveSpecPlaceholders(
+      '{"content": "The daily max held steady while $result:min_close drifted lower."}',
+      results,
+      {}
+    );
+    expect(out).toContain("11.2"); // the minimum, as bound
+    expect(out).not.toContain("98.7"); // NOT rewritten to the maximum
+  });
+
+  it("does not swap p25↔p75 across 'whereas' (finding H6)", () => {
+    const results = { p25_wait: 4, p75_wait: 40 };
+    const out = resolveSpecPlaceholders(
+      '{"content": "The p75 wait blew out, whereas $result:p25_wait barely moved."}',
+      results,
+      {}
+    );
+    expect(out).toContain("4");
+    expect(out).not.toContain("40");
+  });
+
+  it("still repairs a same-clause mis-binding the prose directly names", () => {
+    const results = { min_close: 11.2, max_close: 98.7 };
+    const out = resolveSpecPlaceholders(
+      '{"content": "The max close was $result:min_close over the window."}',
+      results,
+      {}
+    );
+    expect(out).toContain("98.7"); // prose names max, binding repaired to max_close
+  });
+
+  it("segment-matches families — 'min' does not match an incidental substring", () => {
+    // key `nominal_value` contains the substring "min" but not as a segment;
+    // prose names "max", so the old substring match would have swapped it to
+    // the existing sibling `nomaxal_value` (0.1) — the segment match must not.
+    const results = { nominal_value: 7.7, nomaxal_value: 0.1 };
+    const out = resolveSpecPlaceholders(
+      '{"content": "The max estimate was $result:nominal_value overall."}',
+      results,
+      {}
+    );
+    expect(out).toContain("7.7");
+    expect(out).not.toContain("0.1");
+  });
 });
 
 // Run 77051c9d narrated a credit-card statement with "1138.4 usd", "37.2759"
