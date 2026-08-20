@@ -57,8 +57,8 @@ describe("DockerWarmBackend.executeScript", () => {
       onContainerStart,
       onContainerEnd,
     });
-    expect(onContainerStart).toHaveBeenCalledWith("hermetic-warm");
-    expect(onContainerEnd).toHaveBeenCalledWith("hermetic-warm");
+    expect(onContainerStart).toHaveBeenCalledWith(DockerWarmBackend.CONTAINER);
+    expect(onContainerEnd).toHaveBeenCalledWith(DockerWarmBackend.CONTAINER);
   });
 
   it("forwards the abort signal into the python3 exec", async () => {
@@ -84,7 +84,11 @@ describe("DockerWarmBackend.executeScript", () => {
     expect(result.success).toBe(false);
     const pkill = calls().find((a) => a.includes("pkill") && a.includes("/data/script.py"));
     expect(pkill).toBeDefined();
-    expect(pkill).toContain("hermetic-warm");
+    expect(pkill).toContain(DockerWarmBackend.CONTAINER);
+  });
+
+  it("uses a PER-PROCESS container name so co-tenant processes don't collide (H4)", () => {
+    expect(DockerWarmBackend.CONTAINER).toBe(`hermetic-warm-${process.pid}`);
   });
 });
 
@@ -98,6 +102,27 @@ describe("DockerWarmBackend.warmup", () => {
     // no-new-privileges was removed — it breaks python3 execve on this image
     // (see hardening.ts). The warm path shares sandboxHardeningRunArgs().
     expect(create).not.toContain("no-new-privileges");
+  });
+
+  it("reaps a dead process's warm container but spares a live one (finding H4)", async () => {
+    const deadPid = 999_999_999; // no such process → not alive
+    const alivePid = 1; // init — always alive (process.kill(1,0) → EPERM), ≠ our name
+    mockedRun.mockImplementation(async (_cmd, args) => {
+      if (args[0] === "ps") {
+        return {
+          stdout: `hermetic-warm-${deadPid}\nhermetic-warm-${alivePid}\n`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
+    await new DockerWarmBackend().warmup();
+    const rmTargets = calls()
+      .filter((a) => a[0] === "rm")
+      .map((a) => a[a.length - 1]);
+    expect(rmTargets).toContain(`hermetic-warm-${deadPid}`); // dead → reaped
+    expect(rmTargets).not.toContain(`hermetic-warm-${alivePid}`); // live → spared
   });
 
   it("throws with the daemon's error when the warm create is rejected", async () => {

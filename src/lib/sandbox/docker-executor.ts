@@ -7,7 +7,6 @@ import {
   run,
   parseExecutionOutput,
   codeDoesRemoteIo,
-  codeNeedsNetwork,
   lintScript,
   preflightLintError,
 } from "./docker-utils";
@@ -75,14 +74,16 @@ export async function executeSandbox(
     // makes the sandbox isolation claim true for local-data analyses. The
     // image pre-bundles the DuckDB httpfs/spatial extensions, so offline
     // INSTALL/LOAD still works under --network none.
-    // Network is granted only when the source earned it (index.ts) — signalled
-    // here by the egress allowlist or plain remote-IO code. An explicit egress
-    // allowlist forces network on even if the regex disagrees.
-    const withNetwork =
-      opts.network === "deny"
-        ? false
-        : codeNeedsNetwork(code) ||
-          !!(opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0);
+    // Deny-by-default (finding M1). The ONLY sanctioned egress is the L7
+    // allowlist gateway below; network is a property the SOURCE earns (index.ts),
+    // surfaced here as a non-empty egress allowlist. A run WITHOUT an allowlist
+    // gets --network none even if the code "looks like" it needs the network —
+    // previously such a run (network!=="deny" and no allowlist) matched neither
+    // branch and silently joined docker's default bridge, i.e. full outbound
+    // internet next to the user's data. The executor no longer trusts
+    // codeNeedsNetwork to open the bridge on its own.
+    const hasAllowlist = !!(opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0);
+    const withNetwork = opts.network !== "deny" && hasAllowlist;
     if (!withNetwork) {
       runArgs.push("--network", "none");
     } else if (opts.allowedEgressHosts && opts.allowedEgressHosts.length > 0) {

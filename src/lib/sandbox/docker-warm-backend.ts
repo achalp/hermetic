@@ -9,12 +9,61 @@ import { sandboxHardeningRunArgs } from "./hardening";
 import { logger, errMessage } from "@/lib/logger";
 import type { SandboxRunHooks } from "@/lib/contracts/execution";
 
-const CONTAINER_NAME = "hermetic-warm";
+// PER-PROCESS name (finding H4). The warm container is reused across a single
+// process's runs, but web / MCP / CLI are SEPARATE processes against the same
+// Docker daemon — a fixed name meant process B's `loadData` overwrote
+// /data/input.csv while process A's script.py was mid-read (a confident WRONG
+// answer), and B's warmup `docker rm -f` destroyed the container out from under
+// A's exec. Encoding the pid gives each process its own container; the reaper
+// below reclaims the ones left by crashed processes so per-process naming does
+// not regress the old singleton's self-cleanup.
+const WARM_PREFIX = "hermetic-warm-";
+const CONTAINER_NAME = `${WARM_PREFIX}${process.pid}`;
 const CONTAINER_LIFETIME = 86400; // 24 hours
+
+/** True if `pid` is a live process on this host (EPERM = exists, not ours). */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Remove warm containers left behind by hermetic processes that have since
+ * exited (crash, kill -9 — no chance to `destroy()`). Scoped to `hermetic-warm-
+ * <pid>` whose pid is no longer alive; a live co-tenant process's container is
+ * spared, and so is this process's own. Best-effort — a failure here must never
+ * block warmup.
+ */
+async function reapDeadWarmContainers(): Promise<void> {
+  try {
+    const listed = await run(
+      "docker",
+      ["ps", "-a", "--filter", `name=${WARM_PREFIX}`, "--format", "{{.Names}}"],
+      { timeoutMs: 10_000 }
+    );
+    const names = listed.stdout
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((n) => n.startsWith(WARM_PREFIX) && n !== CONTAINER_NAME);
+    for (const name of names) {
+      const pid = Number(name.slice(WARM_PREFIX.length));
+      if (!Number.isInteger(pid) || pid <= 0 || isPidAlive(pid)) continue;
+      await run("docker", ["rm", "-f", name], { timeoutMs: 10_000 }).catch(() => {});
+    }
+  } catch {
+    // best-effort cleanup — never block warmup on it
+  }
+}
 
 export class DockerWarmBackend implements WarmSandboxBackend {
   async warmup(): Promise<void> {
-    // Remove stale container first (ignore errors if it doesn't exist)
+    // Reclaim warm containers orphaned by crashed hermetic processes, then
+    // remove this process's own stale one (ignore errors if it doesn't exist).
+    await reapDeadWarmContainers();
     await run("docker", ["rm", "-f", CONTAINER_NAME], { timeoutMs: 10_000 }).catch(() => {});
 
     // Create persistent container. Always --network none: the warm container

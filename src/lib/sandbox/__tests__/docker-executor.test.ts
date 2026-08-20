@@ -75,9 +75,14 @@ describe("docker executeSandbox", () => {
     expect(create[create.indexOf("--network") + 1]).toBe("none");
   });
 
-  it("grants network (no --network none) when the code reads remote data", async () => {
+  it("denies network (--network none) for remote code WITHOUT an egress allowlist (finding M1)", async () => {
+    // Deny-by-default: the raw executor must not open docker's default bridge
+    // just because the code looks network-y. Only an egress allowlist (or the
+    // index.ts egress route) grants network — everything else is --network none.
     await executeSandbox("", "duckdb.sql(\"INSTALL httpfs\"); read_parquet('s3://b/x.parquet')");
-    expect(createCall()).not.toContain("--network");
+    const create = createCall();
+    expect(create).toContain("--network");
+    expect(create[create.indexOf("--network") + 1]).toBe("none");
   });
 
   it("bind-mounts a local path read-only and skips the stdin CSV write", async () => {
@@ -201,10 +206,14 @@ describe("docker executeSandbox", () => {
     expect(create[create.indexOf("--network") + 1]).toBe("none");
   });
 
-  it('network "auto" (default) still grants network to remote-IO code', async () => {
+  it('network "auto" WITHOUT an egress allowlist denies network (deny-by-default, finding M1)', async () => {
+    // The raw executor no longer opens docker's default bridge for remote-IO
+    // code on its own — network must be earned via an allowlist (the index.ts
+    // egress route). Absent one, it is --network none.
     await executeSandbox("a\n1\n", "duckdb.sql(\"select * from 's3://bucket/x.parquet'\")");
     const create = createCall();
-    expect(create).not.toContain("--network");
+    expect(create).toContain("--network");
+    expect(create[create.indexOf("--network") + 1]).toBe("none");
   });
 
   it("allowedEgressHosts: joins the internal network with proxy env; teardown runs (MCP egress)", async () => {

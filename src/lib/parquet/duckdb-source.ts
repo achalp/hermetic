@@ -57,33 +57,75 @@ export function parquetReadExpr(pathOrUrl: string, hivePartitioned = false): str
 }
 
 /**
+/**
+ * Parse a host as an IPv4 address the way the OS resolver (inet_aton) does:
+ * 1–4 parts, each decimal / 0x-hex / 0-octal; a short form's LAST part fills the
+ * remaining low bytes. Returns the 32-bit address (>>>0) or null when the host
+ * is not a numeric IPv4 in any of these forms. This is what makes `127.1`,
+ * `0x7f000001`, `0177.0.0.1`, and `2130706433` all resolve to 127.0.0.1 — the
+ * denylist below must normalize the same way or those shorthands slip past it
+ * (finding H2).
+ */
+export function parseLooseIPv4(host: string): number | null {
+  const parts = host.split(".");
+  if (parts.length < 1 || parts.length > 4) return null;
+  const nums: number[] = [];
+  for (const p of parts) {
+    let n: number;
+    if (/^0x[0-9a-f]+$/i.test(p)) n = parseInt(p.slice(2), 16);
+    else if (/^0[0-7]+$/.test(p)) n = parseInt(p, 8);
+    else if (/^0$/.test(p) || /^[1-9][0-9]*$/.test(p)) n = parseInt(p, 10);
+    else return null; // empty, leading-zero-non-octal ("08"), or non-numeric
+    if (!Number.isInteger(n) || n < 0) return null;
+    nums.push(n);
+  }
+  const k = nums.length;
+  // Every part but the last is one byte; the last fills the remaining bytes.
+  for (let i = 0; i < k - 1; i++) if (nums[i] > 0xff) return null;
+  const lastBytes = 4 - (k - 1);
+  if (nums[k - 1] >= 2 ** (8 * lastBytes)) return null;
+  let addr = 0;
+  for (let i = 0; i < k - 1; i++) addr = addr * 256 + nums[i];
+  addr = addr * 2 ** (8 * lastBytes) + nums[k - 1];
+  return addr > 0xffffffff ? null : addr >>> 0;
+}
+
+/** True when a 32-bit IPv4 address is in a loopback/private/link-local range. */
+function isBlockedIPv4(addr: number): boolean {
+  const a = (addr >>> 24) & 0xff;
+  const b = (addr >>> 16) & 0xff;
+  if (a === 127 || a === 10 || a === 0) return true; // loopback, RFC-1918, "this net"
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true; // RFC-1918
+  if (a === 192 && b === 168) return true; // RFC-1918
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  return false;
+}
+
+/**
  * SSRF guard for http(s) Parquet URLs, which the server fetches on the user's
  * behalf (schema extraction + the sandbox read). Rejects hosts that are
  * internal by construction: loopback, link-local (incl. the 169.254.169.254
- * cloud metadata endpoint), RFC-1918 / CGNAT ranges, all-numeric IP encodings,
- * IPv6 literals, and *.internal names. Object-store schemes (s3://, gs://, …)
- * name a bucket, not a network host, so they pass through — the fetch goes to
- * the provider. Scope note: this rejects literal/known-internal addresses; it
- * does not pin DNS (a hostname that RESOLVES to an internal address at fetch
- * time is out of reach here since DuckDB httpfs does its own resolution).
+ * cloud metadata endpoint), RFC-1918 / CGNAT ranges, IPv4 in ANY inet_aton
+ * encoding (dotted / short / hex / octal / integer — finding H2), IPv6
+ * literals, and *.internal names. Object-store schemes (s3://, gs://, …) name a
+ * bucket, not a network host, so they pass through — the fetch goes to the
+ * provider. Scope note: this rejects literal/known-internal addresses; it does
+ * not pin DNS (a hostname that RESOLVES to an internal address at fetch time is
+ * out of reach here since DuckDB httpfs does its own resolution).
+ *
+ * Exported so the egress allowlist derivation applies the SAME check to the
+ * hosts it would open a proxy toward (finding M2) — a custom `s3Endpoint` or an
+ * `https://` source host must not be a metadata / RFC-1918 / loopback target.
  */
-function isBlockedHttpHost(hostname: string): boolean {
+export function isInternalHostname(hostname: string): boolean {
   const h = hostname.toLowerCase();
   if (h === "localhost" || h.endsWith(".localhost")) return true;
   if (h === "metadata.google.internal" || h.endsWith(".internal")) return true;
   // IPv6 literal (URL keeps brackets) — loopback/link-local/ULA all rejected.
   if (h.startsWith("[")) return true;
-  // All-digit single-label host = decimal/octal IP encoding (http://2130706433/).
-  if (/^\d+$/.test(h)) return true;
-  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 127 || a === 10 || a === 0) return true; // loopback, RFC-1918, "this net"
-    if (a === 169 && b === 254) return true; // link-local / metadata
-    if (a === 172 && b >= 16 && b <= 31) return true; // RFC-1918
-    if (a === 192 && b === 168) return true; // RFC-1918
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  }
+  const addr = parseLooseIPv4(h);
+  if (addr !== null) return isBlockedIPv4(addr);
   return false;
 }
 
@@ -101,7 +143,7 @@ export function isSafeParquetUrl(url: unknown): url is string {
   if (/['"`\\;\n\r\t\0]/.test(url)) return false;
   if (/^https?:\/\//i.test(url)) {
     try {
-      if (isBlockedHttpHost(new URL(url).hostname)) return false;
+      if (isInternalHostname(new URL(url).hostname)) return false;
     } catch {
       return false;
     }

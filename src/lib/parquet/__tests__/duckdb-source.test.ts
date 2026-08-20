@@ -176,9 +176,25 @@ describe("isSafeParquetUrl", () => {
     expect(isSafeParquetUrl("http://svc.cluster.internal/x.parquet")).toBe(false);
   });
 
+  it("rejects shorthand / hex / octal IPv4 encodings of internal addresses (finding H2)", () => {
+    // All of these resolve to 127.0.0.1 via inet_aton — the old 4-group regex
+    // let them through.
+    expect(isSafeParquetUrl("http://127.1/x.parquet")).toBe(false); // 2-part shorthand
+    expect(isSafeParquetUrl("http://0x7f000001/x.parquet")).toBe(false); // hex integer
+    expect(isSafeParquetUrl("http://0177.0.0.1/x.parquet")).toBe(false); // octal first octet
+    expect(isSafeParquetUrl("http://127.0.1/x.parquet")).toBe(false); // 3-part shorthand
+    expect(isSafeParquetUrl("http://0x7f.1/x.parquet")).toBe(false); // hex + shorthand
+    // metadata endpoint 169.254.169.254 as a single integer.
+    expect(isSafeParquetUrl("http://2852039166/x.parquet")).toBe(false);
+    // RFC-1918 10.0.0.5 in 2-part shorthand (10.5).
+    expect(isSafeParquetUrl("http://10.5/x.parquet")).toBe(false);
+  });
+
   it("still accepts public https hosts and object-store bucket schemes", () => {
     expect(isSafeParquetUrl("https://data.example.com/x.parquet")).toBe(true);
     expect(isSafeParquetUrl("https://172.200.1.1/x.parquet")).toBe(true); // public IP (172 outside 16-31)
+    expect(isSafeParquetUrl("http://0x08080808/x.parquet")).toBe(true); // hex 8.8.8.8 (public)
+    expect(isSafeParquetUrl("http://8.8.8.8/x.parquet")).toBe(true); // public IP
     // s3:// names a bucket, not a network host — always resolves at AWS.
     expect(isSafeParquetUrl("s3://10.0.0.5/x.parquet")).toBe(true);
   });

@@ -18,6 +18,7 @@ import { DOCKER_SANDBOX_IMAGE } from "@/lib/constants";
 import { run } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { SANDBOX_RUNID_LABEL } from "./lifecycle";
+import { isInternalHostname } from "@/lib/parquet/duckdb-source";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 
 export const EGRESS_PROXY_PORT = 3128;
@@ -30,7 +31,18 @@ export const EGRESS_PROXY_PORT = 3128;
 export function deriveAllowedEgressHosts(url: string, creds?: RemoteCreds): string[] {
   const hosts = new Set<string>();
   const add = (h: string | null | undefined) => {
-    if (h) hosts.add(h.toLowerCase());
+    if (!h) return;
+    const host = h.toLowerCase();
+    // SSRF guard (finding M2): never open the proxy toward an internal target.
+    // A custom s3Endpoint or an https:// source host of 169.254.169.254 (cloud
+    // metadata), an RFC-1918 / loopback address, or a *.internal name would
+    // otherwise be added verbatim and become reachable from the gateway (which
+    // sits on the bridge). The public bucket vhosts pass unchanged.
+    if (isInternalHostname(host)) {
+      logger.warn("egress: refusing internal host in allowlist (SSRF)", { host });
+      return;
+    }
+    hosts.add(host);
   };
 
   if (/^s3:\/\//i.test(url)) {
@@ -41,8 +53,15 @@ export function deriveAllowedEgressHosts(url: string, creds?: RemoteCreds): stri
       // stays: path-style is the norm on custom endpoints, and the endpoint
       // domain scopes to the user's own account, not the world's buckets.
       const endpointHost = creds.s3Endpoint.replace(/^https?:\/\//i, "").split("/")[0];
-      add(endpointHost);
-      add(`${bucket}.${endpointHost}`);
+      // If the endpoint host is internal, the WHOLE endpoint is an untrusted
+      // SSRF target — add neither the bare host nor the vhost variant (whose
+      // `bucket.` prefix would otherwise dodge the per-host check). (finding M2)
+      if (isInternalHostname(endpointHost)) {
+        logger.warn("egress: refusing internal s3Endpoint (SSRF)", { host: endpointHost });
+      } else {
+        add(endpointHost);
+        add(`${bucket}.${endpointHost}`);
+      }
     } else {
       const region = creds?.s3Region;
       // VIRTUAL-HOSTED hosts ONLY. CONNECT tunnels are opaque TLS — the

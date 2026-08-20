@@ -52,6 +52,25 @@ describe("deriveAllowedEgressHosts", () => {
     expect(deriveAllowedEgressHosts("not a url")).toEqual([]);
     expect(deriveAllowedEgressHosts("https://")).toEqual([]);
   });
+
+  it("refuses an https source host that is an internal / metadata target (finding M2)", () => {
+    expect(deriveAllowedEgressHosts("https://169.254.169.254/latest/x.parquet")).toEqual([]);
+    expect(deriveAllowedEgressHosts("http://10.0.0.5/x.parquet")).toEqual([]);
+    expect(deriveAllowedEgressHosts("http://127.1/x.parquet")).toEqual([]); // encoded loopback
+    expect(deriveAllowedEgressHosts("http://metadata.google.internal/x.parquet")).toEqual([]);
+    expect(deriveAllowedEgressHosts("http://svc.cluster.internal/x.parquet")).toEqual([]);
+  });
+
+  it("refuses a custom s3Endpoint pointed at an internal host, but keeps a public one", () => {
+    expect(
+      deriveAllowedEgressHosts("s3://b/x.parquet", { s3Endpoint: "http://169.254.169.254" })
+    ).toEqual([]);
+    // A public custom endpoint is unaffected.
+    const ok = deriveAllowedEgressHosts("s3://b/x.parquet", {
+      s3Endpoint: "https://minio.example.com",
+    });
+    expect(ok.sort()).toEqual(["b.minio.example.com", "minio.example.com"]);
+  });
 });
 
 describe("egressPolicyFor — tiered by what the container holds", () => {
