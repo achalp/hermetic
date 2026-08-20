@@ -155,6 +155,25 @@ describe("mergeStepProducts (investigate namespacing, spec §7)", () => {
     expect(issues[0].kind).toBe("invalid_value");
     expect(issues[0].detail).toMatch(/^step 4:/);
   });
+
+  it("prefixes a re-aggregation recipe's `from` (dataset key) but not its columns (finding PE-2)", () => {
+    const withAgg: SeriesEntry = {
+      id: "rev_series",
+      rows: [{ period: 1, revenue: 10 }],
+      roles: {
+        x: { column: "period", kind: "temporal" },
+        measures: [
+          { column: "revenue", aggregates: { fn: "sum", column: "amount", from: "main" } },
+        ],
+      },
+    };
+    const { product } = mergeStepProducts([{ stepNo: 2, series: [withAgg] }]);
+    const agg = product.series[0].roles.measures[0].aggregates;
+    // `from` names a dataset the merge re-keys to step_2_main — so it must too.
+    expect(agg?.from).toBe("step_2_main");
+    // `column` is a column WITHIN that dataset — untouched.
+    expect(agg && "column" in agg ? agg.column : null).toBe("amount");
+  });
 });
 
 describe("component role signatures", () => {

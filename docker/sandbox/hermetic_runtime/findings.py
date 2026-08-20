@@ -410,6 +410,23 @@ def _t_p_two_sided(t, df):
     return _betainc_reg(df / 2.0, 0.5, df / (df + t * t))
 
 
+def _t_crit_95(df):
+    # Two-sided 95% t critical value: the t where _t_p_two_sided(t, df) == 0.05.
+    # Inverts the exact t tail by bisection (the tail decreases as t grows) so the
+    # CI band widens correctly for small df — the normal 1.96 is only the df→∞
+    # limit and badly understates uncertainty at low n (df=1 → ~12.71, not 1.96).
+    if df <= 0:
+        return 1.96
+    lo, hi = 1.96, 60.0  # t_crit ∈ [1.96, ~12.71] for df ≥ 1; 1.96 is the df→∞ floor
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if _t_p_two_sided(mid, df) > 0.05:
+            lo = mid  # critical t is larger
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
 def _f_p(f_stat, df1, df2):
     # P(F_{df1,df2} >= f) — exact via I_x(df2/2, df1/2) at x = df2/(df2 + df1·f).
     return _betainc_reg(df2 / 2.0, df1 / 2.0, df2 / (df2 + df1 * f_stat))
@@ -604,7 +621,8 @@ def finding_trend(values, unit=None, labels=None, counts=None):
             se = math.sqrt(sse / (n - 2) / sxx)
             t = slope / se
             p = _t_p_two_sided(t, n - 2)
-            ci = [slope - 1.96 * se, slope + 1.96 * se]
+            crit = _t_crit_95(n - 2)  # exact t critical (not the df→∞ normal 1.96)
+            ci = [slope - crit * se, slope + crit * se]
         direction = "flat" if p >= 0.05 else ("rising" if slope > 0 else "falling")
         out = {"direction": direction, "slope_per_period": slope, "p_value": p,
                "slope_ci95": ci, "n_zero_excluded": n_zx, "weighted": weighted}

@@ -158,6 +158,15 @@ export function mergeStepProducts(
             ...(m.screened_by !== undefined
               ? { screened_by: `${factPrefix}${m.screened_by}` }
               : {}),
+            // The re-aggregation recipe's `from` names a DATASET key, which the
+            // merge re-keys as step_N_<key> (mergeStepEntries). Left unprefixed,
+            // datasets[from] missed and the aggregating controller returned null
+            // — so declared aggregation only ever worked on single-step runs
+            // (finding PE-2). `column`/`numerator`/`denominator` are columns
+            // WITHIN that dataset and are NOT prefixed.
+            ...(m.aggregates
+              ? { aggregates: { ...m.aggregates, from: `${dataPrefix}${m.aggregates.from}` } }
+              : {}),
           })),
         },
       });

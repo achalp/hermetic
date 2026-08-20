@@ -35,23 +35,56 @@ export function setRunIdProvider(fn: () => string | undefined): void {
 
 /**
  * Meta hygiene: cap unbounded payloads (fullCode / sql values can embed data
- * rows and were logged whole) and redact anything under a secret-shaped key.
- * No credential logging exists today — the denylist is the guard rail for
- * whatever meta object gets passed tomorrow.
+ * rows and were logged whole), redact anything under a secret-shaped KEY, and
+ * redact high-confidence secret SHAPES embedded in string VALUES under a benign
+ * key — a warehouse driver error carrying `password=…`, a connection URL, a
+ * presigned link (finding PE-4: key-name redaction alone missed these).
  */
 const MAX_META_STRING = 2000;
 const SECRET_KEY_RE = /pass(word)?|secret|token|api[_-]?key|credential/i;
+/** How deep to walk nested meta objects/arrays when redacting. */
+const MAX_META_DEPTH = 4;
+
+/**
+ * Redact secret SHAPES inside a string value. Conservative by construction —
+ * only patterns that are secrets by definition, so legitimate content isn't
+ * mangled: connection-URL passwords, secret-bearing query params, AWS access
+ * keys, Bearer tokens, and DuckDB SECRET literals.
+ */
+function redactSecretsInString(s: string): string {
+  return s
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^:/?#@\s]+:)([^@/?#\s]+)(@)/gi, "$1[redacted]$3")
+    .replace(
+      /([?&](?:password|passwd|pwd|token|api[_-]?key|secret|access[_-]?key|signature|x-amz-signature|sig)=)([^&\s"'#]+)/gi,
+      "$1[redacted]"
+    )
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[redacted-aws-key]")
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "$1[redacted]")
+    .replace(/\b(KEY_ID|SECRET)(\s+)'[^']*'/gi, "$1$2'[redacted]'");
+}
+
+function sanitizeValue(v: unknown, depth: number): unknown {
+  if (typeof v === "string") {
+    const red = redactSecretsInString(v);
+    return red.length > MAX_META_STRING
+      ? red.slice(0, MAX_META_STRING) + `… [+${red.length - MAX_META_STRING} chars]`
+      : red;
+  }
+  if (depth < MAX_META_DEPTH && v !== null && typeof v === "object") {
+    if (Array.isArray(v)) return v.map((x) => sanitizeValue(x, depth + 1));
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      out[k] = SECRET_KEY_RE.test(k) ? "[redacted]" : sanitizeValue(val, depth + 1);
+    }
+    return out;
+  }
+  return v;
+}
 
 function sanitizeMeta(meta: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    if (SECRET_KEY_RE.test(k)) {
-      out[k] = "[redacted]";
-    } else if (typeof v === "string" && v.length > MAX_META_STRING) {
-      out[k] = v.slice(0, MAX_META_STRING) + `… [+${v.length - MAX_META_STRING} chars]`;
-    } else {
-      out[k] = v;
-    }
+    out[k] = SECRET_KEY_RE.test(k) ? "[redacted]" : sanitizeValue(v, 1);
   }
   return out;
 }

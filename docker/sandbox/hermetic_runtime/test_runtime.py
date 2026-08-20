@@ -655,6 +655,23 @@ class TestFindingStatHelpers(unittest.TestCase):
         self.assertIsNone(finding_trend([1.0, 2.0])["direction"])  # too short for a p
         self.assertIsNone(finding_trend(None)["direction"])
 
+    def test_slope_ci95_uses_t_critical_not_normal(self):
+        # finding PE-2: the CI band must use the exact t critical value, not the
+        # df→∞ normal 1.96 — badly too narrow at small n.
+        from .findings import _t_crit_95
+        for df, expected in [(1, 12.706), (3, 3.182), (10, 2.228), (28, 2.048)]:
+            self.assertAlmostEqual(_t_crit_95(df), expected, delta=0.01)
+        # End-to-end: a 3-point trend (df=1) has a CI half-width ≈ 12.71·se,
+        # NOT 1.96·se — many times wider than the old normal band.
+        out = finding_trend([1.0, 2.0, 3.1])
+        lo, hi = out["slope_ci95"]
+        slope = out["slope_per_period"]
+        half = (hi - lo) / 2.0
+        se = half / _t_crit_95(1)
+        self.assertAlmostEqual(half, _t_crit_95(1) * se, delta=1e-6)
+        # The old normal band would have been ~6.5× narrower.
+        self.assertGreater(half, 1.96 * se * 3)
+
     def test_current_state_excludes_incomplete_tail(self):
         # Reporting-lag artifact: a final day at ~0.5% of the trailing mean
         # must be excluded, not narrated as a 99.8% collapse.
