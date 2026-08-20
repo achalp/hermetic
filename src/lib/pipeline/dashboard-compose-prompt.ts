@@ -22,6 +22,7 @@
  */
 
 import type { DrillDownContext } from "@/lib/contracts/analysis-request";
+import { INTERACTIVE_ROW_CAP } from "@/lib/constants";
 export type { DrillDownContext };
 
 import { truncateValue } from "@/lib/llm/truncate-value";
@@ -78,13 +79,6 @@ export interface DashboardComposeOpts {
   drillDownContext?: DrillDownContext | null;
   workbookContext?: string | null;
 }
-
-/**
- * Max rows shipped to the client for interactive filtering. A dataset AT this
- * size is assumed to be a `head(cap)` truncation (a sample), not the complete
- * result — so client-side re-aggregation of it is treated as approximate.
- */
-export const INTERACTIVE_ROW_CAP = 5000;
 
 export interface DashboardAnalysis {
   useDataController: boolean;

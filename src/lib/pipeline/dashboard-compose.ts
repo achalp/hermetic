@@ -27,7 +27,7 @@ import { createSpecFinalizer } from "@/lib/llm/finalize-spec-stream";
 
 import { parseProduct, declaredUnitMap, productRolesIndex } from "@/lib/product";
 import { lintComponentSignature } from "@/lib/product/signatures";
-import { getComposerMode } from "@/lib/runtime-config";
+import { getComposerMode, isCompiledComposerEligible } from "@/lib/runtime-config";
 import { compileDashboard } from "@/lib/compose/compile";
 import { realizeNodeTemplate } from "@/lib/compose/realizer";
 import { recordFailure } from "@/lib/diagnostics/failure-log";
@@ -63,9 +63,11 @@ export {
   mirroredResultKeys,
   buildValuesSection,
   buildDashboardComposeRequest,
-  INTERACTIVE_ROW_CAP,
   VALUES_SECTION_MAX_BYTES,
 } from "./dashboard-compose-prompt";
+// Canonical home is @/lib/constants (shared with compose/controller); re-exported
+// here for existing consumers of the dashboard-compose barrel.
+export { INTERACTIVE_ROW_CAP } from "@/lib/constants";
 export type {
   DashboardComposeOpts,
   DashboardAnalysis,
@@ -96,10 +98,10 @@ export async function composeAndStreamDashboard(args: {
   // Requires a declared-series product + manifest; legacy envelopes fall
   // back to generative (logged).
   const modeProduct = parseProduct(executionResult.series, executionResult.values).product;
-  const compiledMode =
-    getComposerMode() === "compiled" &&
-    modeProduct.series.length > 0 &&
-    (opts.findings?.manifest.findings.length ?? 0) > 0;
+  const compiledMode = isCompiledComposerEligible(
+    modeProduct.series.length,
+    opts.findings?.manifest.findings.length ?? 0
+  );
   if (getComposerMode() === "compiled" && !compiledMode) {
     logger.info("Compiled composer requested but envelope is legacy — using generative", {
       series: modeProduct.series.length,

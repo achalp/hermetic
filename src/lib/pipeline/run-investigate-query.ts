@@ -73,7 +73,7 @@ import {
   buildCatalogSection,
 } from "@/lib/product";
 import { lintComponentSignature } from "@/lib/product/signatures";
-import { getComposerMode } from "@/lib/runtime-config";
+import { isCompiledComposerEligible } from "@/lib/runtime-config";
 import { compileDashboard } from "@/lib/compose/compile";
 import { generatePlan as generateNarrativePlan } from "@/lib/compose/planner";
 import { deriveViews, viewPromptTitle } from "@/lib/compose/views";
@@ -863,10 +863,10 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // Compiled composer (narrative-compiler spec §3): plan + deterministic
         // compile over the MERGED manifest/product; lines flow through the
         // same finalize loop below. Legacy merges fall back to generative.
-        const compiledMode =
-          getComposerMode() === "compiled" &&
-          investigationProduct.series.length > 0 &&
-          (investigationFindings?.findings.length ?? 0) > 0;
+        const compiledMode = isCompiledComposerEligible(
+          investigationProduct.series.length,
+          investigationFindings?.findings.length ?? 0
+        );
         const compose = compiledMode
           ? (() => {
               const res = mergeStepEntries(subResults, (er) => er.results);

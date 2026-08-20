@@ -15,6 +15,7 @@ import {
   getActiveModels,
   getActiveEffort,
   getComposerMode,
+  isCompiledComposerEligible,
 } from "@/lib/runtime-config";
 import { hermeticPaths, setPathRoots } from "@/lib/paths";
 import { logger } from "@/lib/logger";
@@ -106,6 +107,18 @@ describe("setRuntimeConfig never silently drops a field", () => {
     setRuntimeConfig({ composer: {} });
     clearRuntimeConfigCache();
     expect(getComposerMode()).toBe("generative");
+  });
+
+  it("isCompiledComposerEligible: mode + series>0 + findings>0, the shared predicate (PE-1)", () => {
+    setRuntimeConfig({ composer: { mode: "compiled" } });
+    clearRuntimeConfigCache();
+    expect(isCompiledComposerEligible(2, 3)).toBe(true);
+    expect(isCompiledComposerEligible(0, 3)).toBe(false); // no declared series
+    expect(isCompiledComposerEligible(2, 0)).toBe(false); // no declared findings
+    // Generative mode is never eligible regardless of the envelope.
+    setRuntimeConfig({ composer: {} });
+    clearRuntimeConfigCache();
+    expect(isCompiledComposerEligible(2, 3)).toBe(false);
   });
 
   it("a field the merge has no special case for still round-trips (the drop class)", () => {

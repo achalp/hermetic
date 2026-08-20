@@ -417,3 +417,13 @@ export const DEFAULT_LOCAL_LLM_ENDPOINTS = {
 // External map/export assets live in a leaf module so Edge-compiled
 // middleware can derive its CSP host list without evaluating this file.
 export { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS, REVEALJS_CDN_URL } from "@/lib/basemap-constants";
+
+/**
+ * Max rows shipped to the client for interactive (DataController) filtering.
+ * A dataset larger than this is a truncated/sampled subset, so client-side
+ * re-aggregation of it is approximate. The SINGLE source of truth for both the
+ * generative prompt (dashboard-compose-prompt) and the compiled controller
+ * (compose/controller) — they used to each hard-code 5000 and could drift so
+ * the two composer paths capped interactivity differently (PE-1).
+ */
+export const INTERACTIVE_ROW_CAP = 5000;

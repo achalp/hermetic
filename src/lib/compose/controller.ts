@@ -34,9 +34,9 @@ import { executePipeline } from "@/lib/data-transforms/client-pipeline";
 import { logger, errMessage } from "@/lib/logger";
 import { humanizeId, type SpecPatchLine } from "./scaffold";
 import type { DerivedView } from "./views";
-
-/** Rows past this and client-side filtering is re-aggregating a sample. */
-const INTERACTIVE_ROW_CAP = 5000;
+// Rows past this and client-side filtering is re-aggregating a sample. Shared
+// with the generative prompt path so the two composers can't cap differently.
+import { INTERACTIVE_ROW_CAP } from "@/lib/constants";
 /** A dropdown past this is a scroll, not a control. */
 const CARDINALITY_CAP = 50;
 

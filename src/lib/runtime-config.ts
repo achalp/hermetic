@@ -228,6 +228,20 @@ export function getComposerMode(): "generative" | "compiled" {
   return m === "compiled" ? "compiled" : "generative";
 }
 
+/**
+ * The SINGLE predicate deciding when the deterministic compiled composer runs
+ * instead of the generative stream, shared by both the Ask (dashboard-compose)
+ * and Investigate (run-investigate-query) entry points so they can't drift into
+ * disagreeing about it (PE-1: the three-clause condition was re-implemented
+ * verbatim in each, a behavioral fork with no compiler backstop). Compiled
+ * requires: the mode is selected, the envelope carries a declared-series
+ * product, AND at least one declared finding to bind — a legacy envelope (no
+ * series / no findings) falls back to generative.
+ */
+export function isCompiledComposerEligible(seriesCount: number, findingsCount: number): boolean {
+  return getComposerMode() === "compiled" && seriesCount > 0 && findingsCount > 0;
+}
+
 export function getActiveModels(): { codeGen: string; uiCompose: string } {
   const rc = getRuntimeConfig();
   return {
