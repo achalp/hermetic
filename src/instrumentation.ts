@@ -25,4 +25,9 @@ export async function register(): Promise<void> {
   startStoreSweeper();
   // LLM record/replay (modularization M0-0a) — see instrumentation-node.ts.
   await configureLLMReplayFromEnv();
+  // Boot-time config health (finding PE-4): surface a down Docker daemon /
+  // missing sandbox key / unconfigured LLM provider NOW, not mid-run. Fire-and-
+  // forget — it must never delay port binding, and it never throws.
+  const { logBootHealth } = await import("./lib/health/boot-health");
+  void logBootHealth();
 }
