@@ -40,3 +40,42 @@ export function rowsToCsv(headers: string[], rows: Record<string, unknown>[]): s
   }
   return lines.join("\n") + "\n";
 }
+
+/**
+ * Streaming CSV builder with a hard BYTE BUDGET — the OOM backstop the buffering
+ * warehouse connectors (ClickHouse/Snowflake/Databricks/Trino/Hive) lacked. Feed
+ * rows one at a time as the driver yields them; `add` returns `false` the moment
+ * the accumulated CSV would exceed `maxBytes`, and the caller MUST stop fetching
+ * (so the full result never lands in memory at once). Output is byte-for-byte
+ * identical to `rowsToCsv` for any result that fits the budget; a truncated one
+ * materializes the complete rows gathered so far (matching postgres.ts) and the
+ * caller logs the truncation — the string-typed executeSQL contract has no
+ * channel to signal it. Empty (no data rows) → "" to match the connector
+ * contract.
+ */
+export function createCsvBudget(headers: string[], maxBytes: number) {
+  const headerLine = headers.map(csvValue).join(",");
+  const lines: string[] = [headerLine];
+  let bytes = Buffer.byteLength(headerLine) + 1; // +1 for the row-joining newline
+  let dataRows = 0;
+  let truncated = false;
+  return {
+    /** Append one row's raw values; returns false once the budget is reached. */
+    add(values: unknown[]): boolean {
+      if (truncated) return false;
+      const line = values.map(csvValue).join(",");
+      const lineBytes = Buffer.byteLength(line) + 1;
+      if (bytes + lineBytes > maxBytes) {
+        truncated = true;
+        return false;
+      }
+      lines.push(line);
+      bytes += lineBytes;
+      dataRows++;
+      return true;
+    },
+    truncated: (): boolean => truncated,
+    rows: (): number => dataRows,
+    finish: (): string => (dataRows === 0 ? "" : lines.join("\n") + "\n"),
+  };
+}

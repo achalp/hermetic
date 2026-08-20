@@ -6,6 +6,7 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
+import { MAX_CSV_SIZE_BYTES } from "@/lib/constants";
 
 export function createClickHouseConnector(config: ClickHouseConnectionConfig): WarehouseConnector {
   const protocol = config.ssl ? "https" : "http";
@@ -154,18 +155,22 @@ export function createClickHouseConnector(config: ClickHouseConnectionConfig): W
       }
       // abort_signal gives real server-side cancellation: on Stop the ClickHouse
       // client aborts the HTTP request and the server stops the query.
+      // SERVER-SIDE byte budget (the OOM backstop): max_result_bytes caps the
+      // result and result_overflow_mode='break' returns the complete rows
+      // gathered so far rather than erroring, so result.text() buffers a BOUNDED
+      // CSV (~100MB) — the server, not Node, enforces the cap. CSVWithNames rows
+      // stay complete because the break happens at a block boundary.
       const result = await run((c) =>
         c.query({
           query: sql,
           format: "CSVWithNames",
           abort_signal: signal,
+          clickhouse_settings: {
+            max_result_bytes: String(MAX_CSV_SIZE_BYTES),
+            result_overflow_mode: "break",
+          },
         })
       );
-      // RESIDUAL: result.text() still buffers the whole CSV into one Node string
-      // (no byte-budget backstop here). ClickHouse's server-side CSVWithNames
-      // format makes row-level streaming awkward to reassemble; postgres.ts is
-      // the streaming reference. Cancellation (the billing/runaway risk) IS wired
-      // above; converting this to a bounded row stream is the remaining follow-up.
       return await result.text();
     },
 

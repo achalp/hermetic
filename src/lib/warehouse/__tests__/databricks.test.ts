@@ -6,13 +6,27 @@ vi.mock("@databricks/sql", () => ({
   DBSQLClient: class {
     connect = async () => {};
     openSession = async () => ({
-      executeStatement: async () => ({
-        fetchAll: async () => [
-          { a: 1, b: 2 },
-          { a: 3, b: 4 },
-        ],
-        close: async () => {},
-      }),
+      executeStatement: async () => {
+        // executeSQL streams via fetchChunk/hasMoreRows; introspection uses
+        // fetchAll. One chunk, then no more rows.
+        let served = false;
+        return {
+          fetchAll: async () => [
+            { a: 1, b: 2 },
+            { a: 3, b: 4 },
+          ],
+          fetchChunk: async () =>
+            served
+              ? []
+              : ((served = true),
+                [
+                  { a: 1, b: 2 },
+                  { a: 3, b: 4 },
+                ]),
+          hasMoreRows: async () => false,
+          close: async () => {},
+        };
+      },
       close: async () => {},
     });
     close = async () => {};

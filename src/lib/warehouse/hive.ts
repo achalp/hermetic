@@ -6,7 +6,9 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue } from "@/lib/csv/csv-util";
+import { createCsvBudget } from "@/lib/csv/csv-util";
+import { MAX_CSV_SIZE_BYTES } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 
 const { TCLIService_types } = thrift;
 
@@ -209,20 +211,51 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
       return schemas;
     },
 
-    // RESIDUAL: abort stops fetching further chunks (checked between fetches)
-    // rather than cancelling the HiveServer2 operation server-side; rows are
-    // still collected into one array (no byte-budget backstop). postgres.ts is
-    // the streaming reference.
+    // Streams chunks STRAIGHT into the byte-budget CSV builder so a huge result
+    // stops at MAX_CSV_SIZE_BYTES instead of buffering every row into one array
+    // (the OOM backstop; postgres.ts is the reference). Abort still stops between
+    // chunks rather than cancelling the HiveServer2 operation server-side.
     async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
-      const { columns, rows } = await runSessionQuery(sql, signal);
-
-      if (rows.length === 0) return "";
-
-      const lines = [columns.map(csvValue).join(",")];
-      for (const row of rows) {
-        lines.push(row.map(csvValue).join(","));
+      await ensureSession();
+      if (!session) throw new Error("Hive session failed to open");
+      const operation = await session.executeStatement(sql, { runAsync: false });
+      try {
+        const columns: string[] = [];
+        const schema = await operation.getSchema();
+        if (schema?.columns) {
+          for (const col of schema.columns) columns.push(col.columnName);
+        }
+        const budget = createCsvBudget(columns, MAX_CSV_SIZE_BYTES);
+        let hasMore = true;
+        while (hasMore) {
+          if (signal?.aborted) {
+            const e = new Error("Query aborted");
+            e.name = "AbortError";
+            throw e;
+          }
+          const result = await operation.fetchChunk({ maxRows: 10000 });
+          if (result && result.length > 0) {
+            for (const row of result) {
+              const values = Array.isArray(row)
+                ? row
+                : columns.map((c) => (row as Record<string, unknown>)[c]);
+              if (!budget.add(values)) {
+                logger.warn("Hive result hit byte budget; materialized a truncated prefix", {
+                  maxBytes: MAX_CSV_SIZE_BYTES,
+                  rows: budget.rows(),
+                });
+                return budget.finish();
+              }
+            }
+          } else {
+            hasMore = false;
+          }
+          if (hasMore) hasMore = await operation.hasMoreRows();
+        }
+        return budget.finish();
+      } finally {
+        await operation.close().catch(() => {});
       }
-      return lines.join("\n") + "\n";
     },
 
     async close() {

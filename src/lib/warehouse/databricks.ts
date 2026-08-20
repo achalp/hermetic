@@ -17,7 +17,9 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { rowsToCsv } from "@/lib/csv/csv-util";
+import { createCsvBudget } from "@/lib/csv/csv-util";
+import { MAX_CSV_SIZE_BYTES } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 
 type Row = Record<string, unknown>;
 
@@ -29,6 +31,10 @@ type Row = Record<string, unknown>;
  */
 interface DbsqlOperation {
   fetchAll(): Promise<unknown[]>;
+  // fetchAll() is itself a fetchChunk/hasMoreRows loop in @databricks/sql;
+  // executeSQL uses them directly to stream under a byte budget.
+  fetchChunk(opts: { maxRows: number }): Promise<unknown[]>;
+  hasMoreRows(): Promise<boolean>;
   close(): Promise<unknown>;
 }
 interface DbsqlSession {
@@ -166,18 +172,55 @@ export function createDatabricksConnector(config: DatabricksConnectionConfig): W
       return schemas;
     },
 
-    // RESIDUAL: the @databricks/sql driver buffers the full result via fetchAll,
-    // so rows are collected into one array (no byte-budget backstop); abort
-    // closes the operation to stop the fetch. postgres.ts is the streaming
-    // reference.
+    // Streams chunks STRAIGHT into the byte-budget CSV builder so a huge result
+    // stops at MAX_CSV_SIZE_BYTES instead of buffering the whole set via fetchAll
+    // (the OOM backstop; postgres.ts is the reference). Header keys come from the
+    // first row (matches the prior fetchAll behavior); abort closes the operation.
     async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
-      const rows = await executeQuery<Row>(sql, signal);
-      if (rows.length === 0) return "";
-
-      // Databricks returns nested objects/arrays as JS values; use the first
-      // row's keys for the header (matches existing connector behavior).
-      const headers = Object.keys(rows[0]);
-      return rowsToCsv(headers, rows);
+      if (signal?.aborted) {
+        const e = new Error("Query aborted");
+        e.name = "AbortError";
+        throw e;
+      }
+      const sess = await ensureSession();
+      const op = await sess.executeStatement(sql, { runAsync: false });
+      const onAbort = () => void op.close().catch(() => {});
+      signal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        let headers: string[] | null = null;
+        let budget: ReturnType<typeof createCsvBudget> | null = null;
+        let hasMore = true;
+        while (hasMore) {
+          if (signal?.aborted) {
+            const e = new Error("Query aborted");
+            e.name = "AbortError";
+            throw e;
+          }
+          const chunk = (await op.fetchChunk({ maxRows: 10000 })) as Row[];
+          if (chunk && chunk.length > 0) {
+            if (!headers) {
+              headers = Object.keys(chunk[0]);
+              budget = createCsvBudget(headers, MAX_CSV_SIZE_BYTES);
+            }
+            for (const row of chunk) {
+              if (!budget!.add(headers.map((h) => row[h]))) {
+                logger.warn("Databricks result hit byte budget; materialized a truncated prefix", {
+                  maxBytes: MAX_CSV_SIZE_BYTES,
+                  rows: budget!.rows(),
+                });
+                return budget!.finish();
+              }
+            }
+            hasMore = await op.hasMoreRows();
+          } else {
+            hasMore = false;
+          }
+        }
+        return budget ? budget.finish() : "";
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+        await op.close().catch(() => {});
+      }
     },
 
     async close() {

@@ -6,7 +6,9 @@ import type {
   WarehouseColumnInfo,
 } from "@/lib/contracts/warehouse-schema";
 import type { WarehouseConnector } from "./connector";
-import { csvValue } from "@/lib/csv/csv-util";
+import { createCsvBudget } from "@/lib/csv/csv-util";
+import { MAX_CSV_SIZE_BYTES } from "@/lib/constants";
+import { logger } from "@/lib/logger";
 
 /** Convert a value to a CSV-safe string */
 /** Escape a SQL string literal value (prevents injection via config values) */
@@ -137,20 +139,41 @@ export function createTrinoConnector(config: TrinoConnectionConfig): WarehouseCo
       return schemas;
     },
 
-    // RESIDUAL: trino-client has no server-side cancel handle, so on abort we
-    // stop consuming the paged result (checked between pages in runQuery) rather
-    // than cancelling the server query; and rows are still collected into one
-    // array (no byte-budget backstop). postgres.ts is the streaming reference.
+    // Streams the paged result STRAIGHT into the byte-budget CSV builder, so a
+    // huge SELECT * stops at MAX_CSV_SIZE_BYTES instead of buffering the whole
+    // result into one array (the OOM backstop; postgres.ts is the reference).
+    // trino-client has no server-side cancel, so abort just stops consuming
+    // pages, same as introspection's runQuery.
     async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
-      const { columns, rows } = await runQuery(sql, signal);
-
-      if (rows.length === 0) return "";
-
-      const lines = [columns.map(csvValue).join(",")];
-      for (const row of rows) {
-        lines.push(row.map(csvValue).join(","));
+      const iter = await trino.query(sql);
+      const columns: string[] = [];
+      let budget: ReturnType<typeof createCsvBudget> | null = null;
+      let result = await iter.next();
+      while (!result.done) {
+        if (signal?.aborted) {
+          const e = new Error("Query aborted");
+          e.name = "AbortError";
+          throw e;
+        }
+        const qr = result.value;
+        if (columns.length === 0 && qr.columns) {
+          for (const col of qr.columns) columns.push(col.name);
+          budget = createCsvBudget(columns, MAX_CSV_SIZE_BYTES);
+        }
+        if (qr.data && budget) {
+          for (const row of qr.data as unknown[][]) {
+            if (!budget.add(row)) {
+              logger.warn("Trino result hit byte budget; materialized a truncated prefix", {
+                maxBytes: MAX_CSV_SIZE_BYTES,
+                rows: budget.rows(),
+              });
+              return budget.finish();
+            }
+          }
+        }
+        result = await iter.next();
       }
-      return lines.join("\n") + "\n";
+      return budget ? budget.finish() : "";
     },
 
     async close() {

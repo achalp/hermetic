@@ -225,10 +225,13 @@ export function createSnowflakeConnector(config: SnowflakeConnectionConfig): War
       return schemas;
     },
 
-    // RESIDUAL: the snowflake-sdk buffers the full result set through its
-    // callback, so rows are collected into one array (no byte-budget backstop);
-    // abort DOES cancel the statement server-side via executeQuery. postgres.ts
-    // is the streaming reference.
+    // RESIDUAL (deliberate): the other four buffering connectors now stream into
+    // a byte budget, but snowflake-sdk's only streaming path is an EVENT stream
+    // (statement.streamRows + streamResult), whose abort/error/column-timing
+    // semantics can't be validated without a live Snowflake — switching blind
+    // risks a correctness regression on EVERY query, worse than the OOM edge it
+    // fixes. Left buffered until it can be verified live; abort still cancels the
+    // statement server-side via executeQuery. postgres.ts is the streaming ref.
     async executeSQL(sql: string, signal?: AbortSignal): Promise<string> {
       await connectPromise;
       const rows = await executeQuery<SnowflakeRow>(sql, signal);

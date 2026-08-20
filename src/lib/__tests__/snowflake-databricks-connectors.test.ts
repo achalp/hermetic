@@ -63,9 +63,20 @@ vi.mock("@databricks/sql", () => {
       return {
         async executeStatement(sql: string) {
           const rows = databricksQueryHandler(sql);
+          // executeSQL streams via fetchChunk/hasMoreRows; introspection uses
+          // fetchAll. One chunk, then no more rows.
+          let served = false;
           return {
             async fetchAll() {
               return rows;
+            },
+            async fetchChunk() {
+              if (served) return [];
+              served = true;
+              return rows;
+            },
+            async hasMoreRows() {
+              return false;
             },
             async close() {},
           };
