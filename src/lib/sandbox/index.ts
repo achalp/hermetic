@@ -105,8 +105,16 @@ export interface SandboxRouteInput {
 }
 
 export function planSandboxRouting(i: SandboxRouteInput): SandboxRoutePlan {
+  // A run with no remote source and no egress allowlist reads LOCAL data only,
+  // so it will run OFFLINE (Docker: --network none). A runtime that can't enforce
+  // that must reject rather than execute the user's data with un-isolated network
+  // (finding M3, resolved fail-closed). Remote-source runs are separately gated by
+  // remoteIo below (also docker-only), so this targets exactly the local case.
+  const localDataOnly =
+    !i.remoteParquetUrl && !(i.allowedEgressHosts && i.allowedEgressHosts.length);
   const capabilityError = unsupportedCapabilityError(i.runtime, {
     networkDeny: i.network === "deny",
+    networkIsolation: localDataOnly,
     mount: i.hasMount,
     remoteIo: codeDoesRemoteIo(i.code),
   });

@@ -75,14 +75,31 @@ describe("planSandboxRouting — the network-dispatch table", () => {
     it("e2b + a mount is rejected (no host filesystem access)", () => {
       expect(plan({ runtime: "e2b", hasMount: true }).kind).toBe("reject");
     });
+
+    // finding M3 (resolved fail-closed): a plain LOCAL-CSV run must go offline,
+    // which e2b/microsandbox can't enforce — so it is rejected, not routed to
+    // warm/ephemeral with un-isolated network. The message names the reason.
+    it("e2b + local CSV is rejected (no --network none for local data)", () => {
+      const p = plan({ runtime: "e2b" });
+      expect(p.kind).toBe("reject");
+      if (p.kind === "reject") expect(p.error).toMatch(/network isolation.*local data/i);
+    });
+    it("microsandbox + local CSV is rejected (no --network none for local data)", () => {
+      const p = plan({ runtime: "microsandbox" });
+      expect(p.kind).toBe("reject");
+      if (p.kind === "reject") expect(p.error).toMatch(/network isolation.*local data/i);
+    });
   });
 
-  describe("warm support varies by runtime", () => {
-    it("e2b (no warm) local CSV → ephemeral", () => {
-      expect(plan({ runtime: "e2b" }).kind).toBe("ephemeral");
+  describe("warm/ephemeral fallback (Docker)", () => {
+    // The warm-vs-ephemeral distinction only remains reachable on Docker now:
+    // non-docker local runs reject above. Docker with a csvId → warm; without →
+    // ephemeral (both --network none).
+    it("docker local CSV with a csvId → warm", () => {
+      expect(plan({ runtime: "docker" }).kind).toBe("warm");
     });
-    it("microsandbox (warm) local CSV → warm", () => {
-      expect(plan({ runtime: "microsandbox" }).kind).toBe("warm");
+    it("docker local CSV without a csvId → ephemeral", () => {
+      expect(plan({ runtime: "docker", hasCsvId: false }).kind).toBe("ephemeral");
     });
   });
 });

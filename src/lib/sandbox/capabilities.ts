@@ -61,6 +61,15 @@ export const RUNTIME_CAPABILITIES: Record<SandboxRuntimeId, RuntimeCapabilities>
 export interface CapabilityNeeds {
   /** network: "deny" was requested. */
   networkDeny?: boolean;
+  /**
+   * The run reads LOCAL data only (no remote source / egress grant), so it must
+   * execute OFFLINE — the same guarantee Docker gives via --network none. On a
+   * runtime that can't enforce a network policy this can't be met, so the run is
+   * rejected rather than executing the user's data with un-isolated network
+   * (finding M3 — the implicit-offline invariant, distinct from an EXPLICIT
+   * network:"deny" request).
+   */
+  networkIsolation?: boolean;
   /** A bind-mount or copied-in Parquet is involved. */
   mount?: boolean;
   /** The code does remote cloud IO (codeDoesRemoteIo). */
@@ -96,6 +105,17 @@ const CAPABILITY_ERRORS: {
       "Remote cloud data reads (s3://, https:// Parquet over httpfs) are only supported with " +
       "the Docker sandbox runtime — other runtimes cap execution at the default timeout, which " +
       `remote scans exceed. This requires the docker runtime; the active runtime is "${rt}".`,
+  },
+  // Last: the generic local-data-must-run-offline invariant, so the more
+  // specific messages above (explicit deny / mount / remote IO) win first.
+  {
+    need: "networkIsolation",
+    has: "supportsNetworkPolicy",
+    message: (rt) =>
+      `Network isolation (--network none) for local data is only enforceable with the Docker ` +
+      `sandbox runtime; "${rt}" cannot guarantee it, so generated code could reach the network ` +
+      `with your data in the sandbox. Refusing to run — switch to the Docker runtime in Settings ` +
+      `for local-data analysis.`,
   },
 ];
 
