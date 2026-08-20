@@ -136,10 +136,21 @@ export async function reviewGeneratedCode(
       })
     );
 
+    // A parse/schema failure means the OOM/memory-cap defect gate silently
+    // stopped functioning — the safety net is DOWN, not that the code is clean.
+    // Fail open (return CLEAN_REVIEW) but make the degraded posture VISIBLE
+    // rather than indistinguishable from a genuine no-finding review (finding
+    // M-review: "a broken critic returns 'none' and never blocks").
     const json = extractJsonObject(result.text);
-    if (!json) return CLEAN_REVIEW;
+    if (!json) {
+      logger.warn("Code review DEGRADED — no JSON verdict extracted; running unreviewed");
+      return CLEAN_REVIEW;
+    }
     const parsed = VerdictSchema.safeParse(JSON.parse(json));
-    if (!parsed.success) return CLEAN_REVIEW;
+    if (!parsed.success) {
+      logger.warn("Code review DEGRADED — verdict failed schema validation; running unreviewed");
+      return CLEAN_REVIEW;
+    }
 
     const findings = parsed.data.findings;
     // Severity is recorded (journal/forensics) but NO LONGER gates the redo:
@@ -153,8 +164,10 @@ export async function reviewGeneratedCode(
       feedback: findings.length > 0 ? formatFeedback(findings) : "",
     };
   } catch (err) {
-    // Fail open — a flaky/unavailable critic must never block execution.
-    logger.debug("Code review skipped (reviewer error)", {
+    // Fail open — a flaky/unavailable critic must never block execution — but
+    // WARN, not debug: the pre-execution defect gate is down, and a silent debug
+    // line hid that the safety net stopped functioning (finding M-review).
+    logger.warn("Code review DEGRADED — reviewer errored; running unreviewed", {
       error: errMessage(err),
     });
     return CLEAN_REVIEW;

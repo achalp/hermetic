@@ -220,6 +220,20 @@ const EXTERNAL_KILL_ERROR =
   "or code problem: do NOT restructure the analysis or add memory workarounds. Keep the exact same " +
   "approach and re-run it.";
 
+/**
+ * Classify an error THROWN by the sandbox runtime itself (SDK/daemon call
+ * rejected, container create failed, transport error) — as opposed to a clean
+ * non-zero exit, which parseSandboxOutput handles. A throw means the user's code
+ * never ran or its result was lost, so re-generating code can't help: the retry
+ * loop fast-fails on both kinds. A timeout string maps to "timeout" (the E2B SDK
+ * throws on its own deadline); everything else is "infra" (finding M7 — a
+ * thrown SDK timeout that didn't match /timed out/i previously burned the whole
+ * retry budget re-running an environment failure).
+ */
+export function classifyThrownError(message: string): "timeout" | "infra" {
+  return /timed?\s*out|timeout|deadline\s*exceeded/i.test(message) ? "timeout" : "infra";
+}
+
 export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<ExecutionResult> {
   const workDir = opts.workDir ?? "/data";
   const executionMs = opts.executionMs;

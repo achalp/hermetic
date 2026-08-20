@@ -55,9 +55,13 @@ export interface SandboxExecutionError {
    * guidance; "stopped" → the user cancelled — fail fast, don't retry;
    * "network" → the sandbox couldn't reach the remote data source (no egress /
    * DNS / endpoint down) — an environment failure no regenerated code can fix,
-   * so fail fast. Absent for ordinary execution errors.
+   * so fail fast; "infra" → the sandbox runtime itself THREW (SDK/daemon
+   * unreachable, container create failed, transport error) rather than the
+   * user's code failing — also an environment failure, fail fast rather than
+   * burn the retry budget re-generating code that never ran. Absent for ordinary
+   * execution errors.
    */
-  errorKind?: "timeout" | "oom" | "stopped" | "user-config" | "network";
+  errorKind?: "timeout" | "oom" | "stopped" | "user-config" | "network" | "infra";
   execution_ms: number;
   /**
    * Post-mortem diagnostics captured at failure — the container's self-reported

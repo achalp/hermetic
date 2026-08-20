@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseSandboxOutput, parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
+import {
+  parseSandboxOutput,
+  parseJsonWithPythonNonFinite,
+  classifyThrownError,
+} from "@/lib/sandbox/parse-output";
 
 /** In-memory readFile adapter: a map of path → content (missing = null). */
 function io(files: Record<string, string>) {
@@ -565,5 +569,19 @@ describe("parseJsonWithPythonNonFinite", () => {
 
   it("still throws on unparseable text", () => {
     expect(() => parseJsonWithPythonNonFinite("not json at all")).toThrow();
+  });
+});
+
+describe("classifyThrownError (finding M7)", () => {
+  it("maps timeout/deadline strings to 'timeout'", () => {
+    expect(classifyThrownError("Execution timed out after 30000ms")).toBe("timeout");
+    expect(classifyThrownError("sandbox timeout")).toBe("timeout");
+    expect(classifyThrownError("context deadline exceeded")).toBe("timeout");
+  });
+
+  it("maps other thrown runtime errors to 'infra' (fast-fail, not code-fixable)", () => {
+    expect(classifyThrownError("Sandbox.create failed: ECONNREFUSED")).toBe("infra");
+    expect(classifyThrownError("docker daemon not reachable")).toBe("infra");
+    expect(classifyThrownError("transport closed")).toBe("infra");
   });
 });

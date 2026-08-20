@@ -31,6 +31,8 @@ vi.mock("@/lib/sandbox/prelude", () => ({ pythonNanPrelude: () => "# PRELUDE\n" 
 const parseSandboxOutput = vi.fn();
 vi.mock("@/lib/sandbox/parse-output", () => ({
   parseSandboxOutput: (...a: unknown[]) => parseSandboxOutput(...a),
+  classifyThrownError: (msg: string) =>
+    /timed?\s*out|timeout|deadline/i.test(msg) ? "timeout" : "infra",
 }));
 
 // ── Fake sandbox factory ────────────────────────────────────────────────

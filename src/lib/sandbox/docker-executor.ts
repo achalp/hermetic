@@ -12,6 +12,7 @@ import {
 } from "./docker-utils";
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { sandboxHardeningRunArgs } from "./hardening";
+import { classifyThrownError } from "./parse-output";
 import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger, errMessage } from "@/lib/logger";
@@ -280,13 +281,16 @@ export async function executeSandbox(
     return result;
   } catch (err) {
     const errorMsg = errMessage(err);
+    const errorKind = classifyThrownError(errorMsg);
     logger.warn("Docker: execution threw", {
       ms: Date.now() - start,
+      errorKind,
       errorHead: errorMsg.slice(0, 200),
     });
     return {
       success: false,
       error: errorMsg,
+      errorKind,
       execution_ms: Date.now() - start,
     };
   } finally {

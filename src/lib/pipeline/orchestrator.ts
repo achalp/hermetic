@@ -490,11 +490,14 @@ export async function runPipeline(
       // "network" joins the fast-fail set: a remote source the sandbox can't
       // reach (no egress / DNS / endpoint down) is an environment failure, and
       // regenerating code against the same network config fails identically.
+      // "infra" too: the runtime itself THREW (SDK/daemon/transport) so the code
+      // never ran — regenerating it can't help (finding M7).
       if (
         result.errorKind === "timeout" ||
         result.errorKind === "stopped" ||
         result.errorKind === "user-config" ||
         result.errorKind === "network" ||
+        result.errorKind === "infra" ||
         /timed out/i.test(retryError)
       )
         break;

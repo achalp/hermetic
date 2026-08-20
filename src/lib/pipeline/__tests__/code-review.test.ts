@@ -11,6 +11,7 @@ vi.mock("@/lib/llm/client", () => ({
 }));
 
 import { reviewGeneratedCode } from "@/lib/pipeline/code-review";
+import { logger } from "@/lib/logger";
 
 function queue(text: string) {
   generateTextMock.mockReset();
@@ -64,18 +65,25 @@ describe("reviewGeneratedCode", () => {
     expect(review.severity).toBe("none");
   });
 
-  it("fails OPEN (severity none) when the reviewer throws — never blocks a run", async () => {
+  it("fails OPEN (severity none) when the reviewer throws — never blocks a run, but WARNS (M-review)", async () => {
     generateTextMock.mockReset();
     generateTextMock.mockRejectedValueOnce(new Error("model unavailable"));
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     const review = await reviewGeneratedCode("code", "q", "3.8 GB");
     expect(review.severity).toBe("none");
     expect(review.findings).toEqual([]);
+    // The safety net is DOWN — that must be visible, not a silent debug line.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("DEGRADED"), expect.anything());
+    warn.mockRestore();
   });
 
-  it("fails OPEN when the reviewer returns unparseable output", async () => {
+  it("fails OPEN when the reviewer returns unparseable output, and WARNS (M-review)", async () => {
     queue("not json at all, no braces");
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     const review = await reviewGeneratedCode("code", "q", "3.8 GB");
     expect(review.severity).toBe("none");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("DEGRADED"));
+    warn.mockRestore();
   });
 
   it("appends skill-contributed extra rules to the critic's RULES list verbatim", async () => {

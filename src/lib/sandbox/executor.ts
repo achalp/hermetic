@@ -4,7 +4,7 @@ import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import { pythonNanPrelude } from "./prelude";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
-import { parseSandboxOutput } from "./parse-output";
+import { parseSandboxOutput, classifyThrownError } from "./parse-output";
 import { envConfig } from "@/lib/harness-slot";
 import { getApiKey } from "@/lib/secrets";
 
@@ -59,9 +59,14 @@ export async function executeSandbox(
       stderrFallback: result.stderr || result.error || undefined,
     });
   } catch (err) {
+    const error = errMessage(err);
     return {
       success: false,
-      error: errMessage(err),
+      error,
+      // A thrown SDK error (E2B deadline, create/transport failure) is an
+      // environment failure, not a code failure — classify it so the retry loop
+      // fast-fails instead of re-generating code that never ran (finding M7).
+      errorKind: classifyThrownError(error),
       execution_ms: Date.now() - start,
     };
   } finally {

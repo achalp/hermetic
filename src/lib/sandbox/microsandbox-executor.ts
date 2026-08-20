@@ -4,7 +4,7 @@ import type { ExecutionResult } from "@/lib/contracts/execution";
 import type { AdditionalFile } from "@/lib/contracts/execution";
 import { pythonNanPrelude } from "./prelude";
 import { SANDBOX_TIMEOUT_MS } from "@/lib/constants";
-import { parseSandboxOutput } from "./parse-output";
+import { parseSandboxOutput, classifyThrownError } from "./parse-output";
 import { logger, errMessage } from "@/lib/logger";
 import { envConfig } from "@/lib/harness-slot";
 import { microsandboxUrl, microsandboxImage } from "@/lib/settings";
@@ -318,9 +318,13 @@ export async function executeSandbox(
         sandboxReady = false;
       }
     }
+    const error = errMessage(err);
     return {
       success: false,
-      error: errMessage(err),
+      error,
+      // Thrown runtime error (SDK/transport/deadline) → environment failure, not
+      // a code failure: fast-fail rather than burn the retry budget (finding M7).
+      errorKind: classifyThrownError(error),
       execution_ms: Date.now() - start,
     };
   } finally {
