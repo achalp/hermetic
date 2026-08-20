@@ -5,10 +5,6 @@ import { logger, errMessage } from "@/lib/logger";
 
 export async function POST() {
   const runtime = getActiveSandboxRuntime();
-  if (runtime === "e2b") {
-    return NextResponse.json({ status: "skipped", reason: "E2B uses ephemeral sandboxes" });
-  }
-
   try {
     logger.debug("Warming up sandbox runtime...", { runtime });
     await warmupAllSandboxes();

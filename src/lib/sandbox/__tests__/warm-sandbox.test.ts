@@ -3,9 +3,6 @@ import {
   WarmSandboxManager,
   registerWarmManager,
   getWarmManager,
-  prepareWarmSandbox,
-  ensureWarmSandboxReady,
-  warmupAllSandboxes,
   type WarmSandboxBackend,
 } from "@/lib/sandbox/warm-sandbox";
 import type { ExecutionResult } from "@/lib/contracts/execution";
@@ -115,25 +112,5 @@ describe("global manager registry", () => {
     const m2 = registerWarmManager("docker", new TrackingBackend());
     expect(m2).toBe(m1); // second register reuses the first manager
     expect(getWarmManager("docker")).toBe(m1);
-  });
-
-  it("getWarmManager returns undefined for an unregistered runtime", () => {
-    expect(getWarmManager("microsandbox")).toBeUndefined();
-  });
-});
-
-describe("public entry points short-circuit for E2B", () => {
-  it("prepareWarmSandbox is a no-op when the runtime is E2B", () => {
-    // No throw, no backend registration — E2B stays ephemeral.
-    expect(() => prepareWarmSandbox("csv-e2b", "a\n1\n", "e2b")).not.toThrow();
-    expect(getWarmManager("e2b" as never)).toBeUndefined();
-  });
-
-  it("ensureWarmSandboxReady resolves without registering a backend for E2B", async () => {
-    await expect(ensureWarmSandboxReady("csv-e2b", "a\n1\n", "e2b")).resolves.toBeUndefined();
-  });
-
-  it("warmupAllSandboxes returns early when the active runtime is E2B", async () => {
-    await expect(warmupAllSandboxes()).resolves.toBeUndefined();
   });
 });

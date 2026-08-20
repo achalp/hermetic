@@ -28,8 +28,6 @@ import {
   vertexProject,
   vertexLocation,
   awsRegion,
-  microsandboxUrl,
-  microsandboxImage,
   sandboxMemoryFraction,
   maxHistoryEntries,
   maxRunRecords,
@@ -80,8 +78,6 @@ export function GET() {
         awsRegion: awsRegion() ?? null,
       },
       sandbox: {
-        microsandboxUrl: microsandboxUrl() ?? null,
-        microsandboxImage: microsandboxImage() ?? null,
         memoryFraction: sandboxMemoryFraction(DEFAULT_SANDBOX_MEMORY_FRACTION),
         runtime: getActiveSandboxRuntime(),
       },
@@ -162,8 +158,6 @@ export async function PUT(request: Request) {
     }
     patch.sandbox = {
       ...rc.sandbox,
-      microsandboxUrl: cleanString(s.microsandboxUrl),
-      microsandboxImage: cleanString(s.microsandboxImage),
       memoryFraction: fraction,
     };
   }

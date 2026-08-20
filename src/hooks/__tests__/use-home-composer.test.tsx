@@ -55,16 +55,6 @@ describe("useHomeComposer", () => {
     expect(args.setShowWarehouseForm).toHaveBeenCalledWith(true);
   });
 
-  it("composerLocalBrowse alerts and bails on a non-docker runtime", () => {
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
-    const args = baseArgs({ sandboxRuntime: "e2b" });
-    const { result } = renderHook(() => useHomeComposer(args));
-    act(() => result.current.composerLocalBrowse());
-    expect(alertSpy).toHaveBeenCalled();
-    expect(args.setShowLocalBrowser).not.toHaveBeenCalled();
-    alertSpy.mockRestore();
-  });
-
   it("composerLocalBrowse opens the browser under docker", () => {
     const args = baseArgs({ sandboxRuntime: "docker" });
     const { result } = renderHook(() => useHomeComposer(args));

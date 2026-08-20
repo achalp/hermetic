@@ -202,21 +202,15 @@ export function prepareWarmSandbox(
   additionalFiles?: AdditionalFile[]
 ): void {
   const rt = runtime ?? getActiveSandboxRuntime();
-  if (rt === "e2b") return; // E2B stays ephemeral
-
   // Lazy-initialize backends, then prepare data (all fire-and-forget)
   ensureBackendRegistered(rt).then((manager) => {
     manager?.prepareData(csvId, csvContent, geojsonContent, additionalFiles);
   });
 }
 
-/**
- * Warmup all non-E2B sandbox runtimes.
- */
+/** Warm up the (Docker) sandbox runtime. */
 export async function warmupAllSandboxes(): Promise<void> {
   const rt = getActiveSandboxRuntime();
-  if (rt === "e2b") return;
-
   const manager = await ensureBackendRegistered(rt);
   if (manager) {
     await manager.warmup();
@@ -237,8 +231,6 @@ export async function ensureWarmSandboxReady(
   additionalFiles?: AdditionalFile[]
 ): Promise<void> {
   const rt = runtime ?? getActiveSandboxRuntime();
-  if (rt === "e2b") return;
-
   const manager = await ensureBackendRegistered(rt);
   if (!manager) return;
 
@@ -250,13 +242,7 @@ async function ensureBackendRegistered(
   runtime: SandboxRuntimeId
 ): Promise<WarmSandboxManager | undefined> {
   if (managers.has(runtime)) return managers.get(runtime);
-
-  if (runtime === "docker") {
-    const { DockerWarmBackend } = await import("./docker-warm-backend");
-    return registerWarmManager(runtime, new DockerWarmBackend());
-  } else if (runtime === "microsandbox") {
-    const { MicrosandboxWarmBackend } = await import("./microsandbox-warm-backend");
-    return registerWarmManager(runtime, new MicrosandboxWarmBackend());
-  }
-  return undefined;
+  // Docker is the only warm-capable runtime.
+  const { DockerWarmBackend } = await import("./docker-warm-backend");
+  return registerWarmManager(runtime, new DockerWarmBackend());
 }

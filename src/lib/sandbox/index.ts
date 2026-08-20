@@ -1,6 +1,4 @@
-import { executeSandbox as e2bExecutor } from "./executor";
 import { executeSandbox as dockerExecutor } from "./docker-executor";
-import { executeSandbox as microsandboxExecutor } from "./microsandbox-executor";
 import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { RUNTIME_CAPABILITIES, unsupportedCapabilityError } from "./capabilities";
@@ -61,22 +59,6 @@ export interface SandboxExecOptions {
    */
   allowedEgressHosts?: string[];
 }
-
-type SandboxExecutor = (
-  csv: string,
-  code: string,
-  opts?: {
-    geojsonContent?: string | null;
-    additionalFiles?: AdditionalFile[];
-    hooks?: SandboxRunHooks;
-  }
-) => Promise<ExecutionResult>;
-
-const executors: Record<SandboxRuntimeId, SandboxExecutor> = {
-  docker: dockerExecutor,
-  e2b: e2bExecutor,
-  microsandbox: microsandboxExecutor,
-};
 
 /**
  * The routing DECISION for a run — a PURE function of the request + its source,
@@ -226,12 +208,13 @@ export function executeSandbox(
   }
 
   // Ephemeral fallback. A run reaching here was NOT granted network above, so
-  // Docker runs it under --network none.
-  return (executors[rt] ?? dockerExecutor)(csvContent, code, {
+  // Docker runs it under --network none. Docker is the only runtime.
+  return dockerExecutor(csvContent, code, {
     geojsonContent,
     additionalFiles,
     hooks,
-    ...(rt === "docker" ? { network: "deny" as const, runId: opts.runId } : {}),
+    network: "deny",
+    runId: opts.runId,
   });
 }
 

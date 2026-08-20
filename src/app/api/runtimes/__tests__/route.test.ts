@@ -42,11 +42,10 @@ describe("GET /api/runtimes", () => {
     expect(runtimes.find((r: { id: string }) => r.id === "docker").available).toBe(false);
   });
 
-  it("reports e2b available when its API key is set", async () => {
-    vi.stubEnv("E2B_API_KEY", "e2b-xyz");
-    execFile.mockImplementation((_cmd, _args, _opts, cb) => cb(new Error("no daemon")));
+  it("lists Docker as the only runtime", async () => {
+    execFile.mockImplementation((_cmd, _args, _opts, cb) => cb(null));
     const runtimes = await (await GET()).json();
-    expect(runtimes.find((r: { id: string }) => r.id === "e2b").available).toBe(true);
+    expect(runtimes.map((r: { id: string }) => r.id)).toEqual(["docker"]);
   });
 });
 
@@ -55,10 +54,10 @@ describe("PATCH /api/runtimes", () => {
     PATCH(new Request("http://x/api/runtimes", { method: "PATCH", body: JSON.stringify(body) }));
 
   it("persists a valid runtime selection", async () => {
-    const res = await patch({ sandboxRuntime: "e2b" });
+    const res = await patch({ sandboxRuntime: "docker" });
     expect(res.status).toBe(200);
-    expect((await res.json()).sandboxRuntime).toBe("e2b");
-    expect(setRuntimeConfig).toHaveBeenCalledWith({ sandboxRuntime: "e2b" });
+    expect((await res.json()).sandboxRuntime).toBe("docker");
+    expect(setRuntimeConfig).toHaveBeenCalledWith({ sandboxRuntime: "docker" });
   });
 
   it("rejects an unknown runtime", async () => {

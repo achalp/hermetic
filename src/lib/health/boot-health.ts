@@ -11,9 +11,7 @@
  * would fail for that reason, so an empty log is a genuine all-clear.
  */
 import { logger, errMessage } from "@/lib/logger";
-import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { getActiveProvider } from "@/lib/llm/client";
-import { getApiKey } from "@/lib/secrets";
 import { run } from "@/lib/sandbox/docker-utils";
 
 /** True when the Docker daemon answers `docker info` (exit 0) within the budget. */
@@ -25,34 +23,18 @@ async function dockerDaemonReachable(): Promise<boolean> {
 }
 
 /**
- * Sandbox prerequisite for the ACTIVE runtime:
- *  - docker        → the daemon must be reachable (installed-but-not-running is
- *                    the classic silent failure the UI can't catch);
- *  - e2b           → E2B is a cloud service, so it definitively needs its key;
- *  - microsandbox  → self-hostable, so a missing key is NOT necessarily a
- *                    misconfig — only note which runtime is active (no warn).
+ * Sandbox prerequisite: Docker is the only runtime, so the daemon must be
+ * reachable — installed-but-not-running is the classic silent failure the UI
+ * can't catch until the first analysis fails mid-run.
  */
 async function checkSandbox(): Promise<void> {
-  const rt = getActiveSandboxRuntime();
-  if (rt === "docker") {
-    if (await dockerDaemonReachable()) {
-      logger.info("boot health: Docker daemon reachable");
-    } else {
-      logger.warn(
-        "boot health: the active sandbox runtime is Docker, but the Docker daemon is not reachable " +
-          "— analyses will fail until Docker is running (or switch the runtime in Settings)"
-      );
-    }
-    return;
-  }
-  if (rt === "e2b" && !getApiKey("e2b")) {
+  if (await dockerDaemonReachable()) {
+    logger.info("boot health: Docker daemon reachable");
+  } else {
     logger.warn(
-      "boot health: the active sandbox runtime is E2B, but no E2B API key is configured — " +
-        "analyses will fail until it is set in Settings (or switch the runtime)"
+      "boot health: the Docker daemon is not reachable — analyses will fail until Docker is running"
     );
-    return;
   }
-  logger.info("boot health: sandbox runtime", { runtime: rt });
 }
 
 /**

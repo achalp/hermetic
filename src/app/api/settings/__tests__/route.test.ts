@@ -123,7 +123,7 @@ describe("PUT /api/settings", () => {
 
   it("422s key writes when no credential service exists — never a file fallback", async () => {
     state.keychainOk = false;
-    const res = await PUT(putReq({ api_keys: { e2b: "e2b-key" } }));
+    const res = await PUT(putReq({ api_keys: { anthropic: "sk-test-key" } }));
     expect(res.status).toBe(422);
     expect((await res.json()).error).toContain("never writes secrets to files");
     expect(state.secrets.size).toBe(0);

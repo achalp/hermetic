@@ -26,13 +26,9 @@ export const ENV_CONFIG_KEYS = [
   "AWS_REGION",
   "GOOGLE_VERTEX_PROJECT",
   "GOOGLE_VERTEX_LOCATION",
-  // Sandbox
+  // Sandbox (Docker only — E2B/microsandbox removed)
   "SANDBOX_RUNTIME",
   "SANDBOX_MEMORY_FRACTION",
-  "E2B_API_KEY",
-  "MICROSANDBOX_URL",
-  "MICROSANDBOX_API_KEY",
-  "MICROSANDBOX_IMAGE",
   // Warehouse env presets
   "WAREHOUSE_TYPE",
   "WAREHOUSE_PG_HOST",

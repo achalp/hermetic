@@ -156,11 +156,10 @@ export const MODEL_PRICING: Record<string, ModelPrice> = {
   "claude-haiku-4-5-20251001": { input: 1, output: 5, cacheWrite: 2, cacheRead: 0.1 },
 };
 
-export const AVAILABLE_RUNTIMES = [
-  { id: "docker", label: "Docker (Local)" },
-  { id: "e2b", label: "E2B (Cloud)" },
-  { id: "microsandbox", label: "Microsandbox (MicroVM)" },
-] as const;
+// Docker is the only sandbox runtime. E2B and microsandbox were removed after
+// the M3 network-isolation decision made them reject every local-data run (they
+// can't enforce --network none) — see PR #108 and the cloud-sandbox removal.
+export const AVAILABLE_RUNTIMES = [{ id: "docker", label: "Docker (Local)" }] as const;
 
 export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"];
 

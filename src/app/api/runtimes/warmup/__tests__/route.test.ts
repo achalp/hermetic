@@ -23,14 +23,6 @@ import { POST } from "@/app/api/runtimes/warmup/route";
 beforeEach(() => vi.clearAllMocks());
 
 describe("POST /api/runtimes/warmup", () => {
-  it("skips warmup for e2b's ephemeral sandboxes", async () => {
-    getActiveSandboxRuntime.mockReturnValue("e2b");
-    const res = await POST();
-    expect(res.status).toBe(200);
-    expect((await res.json()).status).toBe("skipped");
-    expect(warmupAllSandboxes).not.toHaveBeenCalled();
-  });
-
   it("warms the pool for docker", async () => {
     getActiveSandboxRuntime.mockReturnValue("docker");
     warmupAllSandboxes.mockResolvedValue(undefined);

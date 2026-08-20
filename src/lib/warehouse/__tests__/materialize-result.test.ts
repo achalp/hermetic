@@ -97,15 +97,6 @@ describe("storeWarehouseResult", () => {
     expect(storeCSV).toHaveBeenCalledWith(r.csvId, BIG, r.schema);
   });
 
-  it("non-docker runtime never materializes to Parquet, even for a large pull", async () => {
-    const { emit } = emitInto();
-    const r = await storeWarehouseResult({
-      csvContent: BIG,
-      warehouseType: "clickhouse",
-      sandboxRuntime: "e2b",
-      emit,
-    });
-    expect(materializeCsvToParquet).not.toHaveBeenCalled();
-    expect(r.parquetFile).toBeUndefined();
-  });
+  // The "non-docker runtime never materializes to Parquet" case was removed with
+  // the non-docker runtimes — Docker is the only runtime and it materializes.
 });

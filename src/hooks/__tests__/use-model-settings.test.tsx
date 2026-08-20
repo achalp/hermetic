@@ -29,7 +29,7 @@ beforeEach(() => {
   mGetSettings.mockReset().mockResolvedValue({
     effective: {
       models: { codeGen: "claude-opus-4-8", uiCompose: "claude-sonnet-5" },
-      sandbox: { runtime: "e2b" },
+      sandbox: { runtime: "docker" },
     },
     config: {
       models: { effort: "high", efforts: { plan: "low" } },
@@ -51,7 +51,7 @@ describe("useModelSettings", () => {
     const { result } = renderHook(() => useModelSettings());
     await waitFor(() => expect(result.current.codeGenModel).toBe("claude-opus-4-8"));
     expect(result.current.uiComposeModel).toBe("claude-sonnet-5");
-    expect(result.current.sandboxRuntime).toBe("e2b");
+    expect(result.current.sandboxRuntime).toBe("docker");
     expect(result.current.effort).toBe("high");
     expect(result.current.phaseEfforts).toEqual({ plan: "low" });
     expect(result.current.composerMode).toBe("compiled");
@@ -72,10 +72,10 @@ describe("useModelSettings", () => {
 
   it("handleRuntimeChange persists the runtime", async () => {
     const { result } = renderHook(() => useModelSettings());
-    await waitFor(() => expect(result.current.sandboxRuntime).toBe("e2b"));
-    act(() => result.current.handleRuntimeChange("microsandbox"));
-    expect(result.current.sandboxRuntime).toBe("microsandbox");
-    expect(mSetRuntime).toHaveBeenCalledWith("microsandbox");
+    await waitFor(() => expect(result.current.sandboxRuntime).toBe("docker"));
+    act(() => result.current.handleRuntimeChange("docker"));
+    expect(result.current.sandboxRuntime).toBe("docker");
+    expect(mSetRuntime).toHaveBeenCalledWith("docker");
   });
 
   it("handleEffortChange persists the effort", async () => {

@@ -38,7 +38,6 @@ export function useHomeComposer({
   setQueryMode,
   handleGuardedQuery,
   uploadInputRef,
-  sandboxRuntime,
   setShowLocalBrowser,
   setShowWarehouseForm,
   warehouse,
@@ -67,21 +66,11 @@ export function useHomeComposer({
   }, [armFromComposer, uploadInputRef]);
 
   const composerLocalBrowse = useCallback(() => {
-    if (sandboxRuntime !== "docker") {
-      const label =
-        sandboxRuntime === "e2b"
-          ? "E2B (Cloud)"
-          : sandboxRuntime === "microsandbox"
-            ? "Microsandbox"
-            : sandboxRuntime;
-      alert(
-        `Local file browsing requires the Docker runtime.\n\nCurrent runtime: ${label}.\nSwitch to Docker in Settings or re-run ./start.sh.`
-      );
-      return;
-    }
+    // Docker is the only runtime and it supports local-file browsing (bind
+    // mounts), so there's no longer a non-docker case to guard against.
     armFromComposer();
     setShowLocalBrowser(true);
-  }, [armFromComposer, sandboxRuntime, setShowLocalBrowser]);
+  }, [armFromComposer, setShowLocalBrowser]);
 
   const composerNewWarehouse = useCallback(() => {
     armFromComposer();

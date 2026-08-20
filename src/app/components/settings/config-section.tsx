@@ -75,8 +75,6 @@ const S = {
 const API_KEY_FIELDS: Array<{ id: ApiKeyId; label: string }> = [
   { id: "anthropic", label: "Anthropic API key" },
   { id: "openai", label: "OpenAI-compatible API key" },
-  { id: "e2b", label: "E2B API key" },
-  { id: "microsandbox", label: "Microsandbox API key" },
 ];
 
 type Drafts = Record<string, string>;
@@ -145,8 +143,6 @@ export function ConfigSection() {
         awsRegion: draft("awsRegion", info.config.providers.awsRegion),
       },
       sandbox: {
-        microsandboxUrl: draft("microsandboxUrl", info.config.sandbox.microsandboxUrl),
-        microsandboxImage: draft("microsandboxImage", info.config.sandbox.microsandboxImage),
         memoryFraction: draft("memoryFraction", info.config.sandbox.memoryFraction),
       },
       retention: {
@@ -269,20 +265,6 @@ export function ConfigSection() {
 
       {/* ── Sandbox ── */}
       <div style={S.label}>SANDBOX</div>
-      <Field
-        id="microsandboxUrl"
-        label="Microsandbox server URL"
-        value={draft("microsandboxUrl", info.config.sandbox.microsandboxUrl)}
-        placeholder={info.effective.sandbox.microsandboxUrl}
-        onChange={setDraft("microsandboxUrl")}
-      />
-      <Field
-        id="microsandboxImage"
-        label="Microsandbox image"
-        value={draft("microsandboxImage", info.config.sandbox.microsandboxImage)}
-        placeholder={info.effective.sandbox.microsandboxImage}
-        onChange={setDraft("microsandboxImage")}
-      />
       <Field
         id="memoryFraction"
         label="Sandbox memory fraction (0–1)"

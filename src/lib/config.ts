@@ -8,15 +8,12 @@ import { detectActiveProvider, VALID_PROVIDERS } from "@/lib/llm/client";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import { isClaudeCliAvailable } from "@/lib/llm/claude-cli-transport";
 import { envConfig } from "@/lib/harness-slot";
-import { openaiBaseUrl, openaiModel, vertexProject, microsandboxUrl } from "@/lib/settings";
+import { openaiBaseUrl, openaiModel, vertexProject } from "@/lib/settings";
 import { getApiKey } from "@/lib/secrets";
 
 export interface EnvConfig {
   LLM_PROVIDER: LLMProviderId;
-  SANDBOX_RUNTIME: "docker" | "e2b" | "microsandbox";
-  E2B_API_KEY?: string;
-  MICROSANDBOX_URL?: string;
-  MICROSANDBOX_API_KEY?: string;
+  SANDBOX_RUNTIME: "docker";
   OPENAI_BASE_URL?: string;
   OPENAI_MODEL?: string;
 }
@@ -120,34 +117,13 @@ export function validateEnv(): EnvConfig {
   }
 
   // --- Sandbox runtime validation ---
-  const runtime = (envConfig().SANDBOX_RUNTIME || "docker") as EnvConfig["SANDBOX_RUNTIME"];
-  if (!["docker", "e2b", "microsandbox"].includes(runtime)) {
-    throw new EnvError(
-      `Invalid SANDBOX_RUNTIME "${runtime}". Must be one of: docker, e2b, microsandbox`
-    );
-  }
-
-  if (runtime === "e2b" && !getApiKey("e2b")) {
-    throw new EnvError(
-      "An E2B API key is required for the e2b runtime — add it in Settings or set E2B_API_KEY"
-    );
-  }
-
-  if (runtime === "microsandbox") {
-    if (!microsandboxUrl()) {
-      throw new EnvError(
-        "A server URL is required for the microsandbox runtime — set it in Settings " +
-          "or via MICROSANDBOX_URL"
-      );
-    }
-  }
+  // Docker is the only runtime; a stale SANDBOX_RUNTIME=e2b/microsandbox is
+  // ignored (those were removed) rather than a hard error, so existing envs boot.
+  const runtime = "docker" as const;
 
   cachedConfig = {
     LLM_PROVIDER: provider,
     SANDBOX_RUNTIME: runtime,
-    E2B_API_KEY: getApiKey("e2b"),
-    MICROSANDBOX_URL: microsandboxUrl(),
-    MICROSANDBOX_API_KEY: getApiKey("microsandbox"),
     OPENAI_BASE_URL: openaiBaseUrl(),
     OPENAI_MODEL: openaiModel(),
   };

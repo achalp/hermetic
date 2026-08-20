@@ -43,18 +43,6 @@ export const RUNTIME_CAPABILITIES: Record<SandboxRuntimeId, RuntimeCapabilities>
     supportsRemoteIO: true,
     supportsWarm: true,
   },
-  e2b: {
-    supportsMount: false,
-    supportsNetworkPolicy: false,
-    supportsRemoteIO: false,
-    supportsWarm: false,
-  },
-  microsandbox: {
-    supportsMount: false,
-    supportsNetworkPolicy: false,
-    supportsRemoteIO: false,
-    supportsWarm: true,
-  },
 };
 
 /** What a specific execution request needs from the runtime. */

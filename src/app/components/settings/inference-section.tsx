@@ -352,9 +352,7 @@ export function InferenceSection({
       <div style={S.label}>SANDBOX RUNTIME</div>
       {availableRuntimes.length === 0 ? (
         <div style={S.hint}>
-          {runtimes.length > 0
-            ? "No runtimes available. Start Docker or Microsandbox."
-            : "Detecting..."}
+          {runtimes.length > 0 ? "No runtimes available. Start Docker." : "Detecting..."}
         </div>
       ) : (
         <select

@@ -149,8 +149,6 @@ export function deleteSecret(name: string): void {
 export const API_KEY_SECRETS = {
   anthropic: { name: "anthropic-api-key", envKey: "ANTHROPIC_API_KEY" },
   openai: { name: "openai-api-key", envKey: "OPENAI_API_KEY" },
-  e2b: { name: "e2b-api-key", envKey: "E2B_API_KEY" },
-  microsandbox: { name: "microsandbox-api-key", envKey: "MICROSANDBOX_API_KEY" },
 } as const satisfies Record<string, { name: string; envKey: EnvConfigKey }>;
 
 export type ApiKeyId = keyof typeof API_KEY_SECRETS;

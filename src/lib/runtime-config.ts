@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
-import { envConfig } from "@/lib/harness-slot";
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL, isValidModelId } from "@/lib/constants";
+import type { SandboxRuntimeId } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
 import { logger, errMessage } from "@/lib/logger";
 
@@ -38,7 +38,7 @@ export interface RuntimeConfig {
   mlx?: MlxConfig;
   llamaCpp?: LlamaCppConfig;
   claudeCli?: ClaudeCliConfig;
-  sandboxRuntime?: "docker" | "e2b" | "microsandbox";
+  sandboxRuntime?: SandboxRuntimeId;
   /** User-selected LLM provider override (takes priority over auto-detection) */
   activeProvider?: string;
   /**
@@ -54,8 +54,6 @@ export interface RuntimeConfig {
     awsRegion?: string;
   };
   sandbox?: {
-    microsandboxUrl?: string;
-    microsandboxImage?: string;
     /** Fraction (0,1] of daemon memory a sandbox container may use. */
     memoryFraction?: number;
   };
@@ -255,13 +253,11 @@ export function getActiveModels(): { codeGen: string; uiCompose: string } {
 }
 
 /**
- * Get the active sandbox runtime. Checks runtime config (UI selection) first,
- * then SANDBOX_RUNTIME env var, then defaults to "docker".
+ * The active sandbox runtime. Docker is the only runtime (E2B/microsandbox were
+ * removed — they can't enforce network isolation, see the M3 decision), so this
+ * is constant; kept as a function so call sites and the extension point survive
+ * if another runtime is ever added.
  */
-export function getActiveSandboxRuntime(): "docker" | "e2b" | "microsandbox" {
-  const rc = getRuntimeConfig();
-  if (rc.sandboxRuntime) return rc.sandboxRuntime;
-  const env = envConfig().SANDBOX_RUNTIME;
-  if (env === "docker" || env === "e2b" || env === "microsandbox") return env;
+export function getActiveSandboxRuntime(): SandboxRuntimeId {
   return "docker";
 }

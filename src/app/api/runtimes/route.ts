@@ -26,53 +26,31 @@ function checkDockerImage(): Promise<boolean> {
   });
 }
 
-async function checkMicrosandbox(): Promise<boolean> {
-  const url = process.env.MICROSANDBOX_URL || "http://127.0.0.1:5555";
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-    // Any response (even 404) means the server is up
-    return res.status > 0;
-  } catch {
-    return false;
-  }
-}
-
-function checkE2B(): boolean {
-  return !!process.env.E2B_API_KEY;
-}
-
 export async function GET() {
-  const [dockerDaemonOk, msbOk] = await Promise.all([checkDocker(), checkMicrosandbox()]);
+  const dockerDaemonOk = await checkDocker();
   const dockerImageOk = dockerDaemonOk ? await checkDockerImage() : false;
   const dockerOk = dockerDaemonOk && dockerImageOk;
-  const e2bOk = checkE2B();
 
+  // Docker is the only runtime (E2B/microsandbox removed).
   const runtimes: RuntimeStatus[] = [
     { id: "docker", label: "Docker (Local)", available: dockerOk },
-    { id: "microsandbox", label: "Microsandbox (MicroVM)", available: msbOk },
-    { id: "e2b", label: "E2B (Cloud)", available: e2bOk },
   ];
 
   logger.debug("Runtime availability", {
     docker: dockerOk,
     docker_daemon: dockerDaemonOk,
     docker_image: dockerImageOk,
-    microsandbox: msbOk,
-    e2b: e2bOk,
   });
 
   return NextResponse.json(runtimes);
 }
 
-/** Persist the user's sandbox runtime selection */
+/** Persist the user's sandbox runtime selection (Docker only). */
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
     const runtime = body.sandboxRuntime;
-    if (!["docker", "e2b", "microsandbox"].includes(runtime)) {
+    if (runtime !== "docker") {
       return NextResponse.json({ error: "Invalid runtime" }, { status: 400 });
     }
     setRuntimeConfig({ sandboxRuntime: runtime });

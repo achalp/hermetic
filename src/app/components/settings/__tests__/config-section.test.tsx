@@ -33,14 +33,12 @@ const BASE_INFO: SettingsInfo = {
       vertexLocation: null,
       awsRegion: null,
     },
-    sandbox: { microsandboxUrl: null, microsandboxImage: null, memoryFraction: 0.5 },
+    sandbox: { memoryFraction: 0.5 },
     retention: { maxHistoryEntries: 200, maxRunRecords: 200 },
   },
   api_keys: {
     anthropic: { set: true, source: "env" },
     openai: { set: false, source: null },
-    e2b: { set: false, source: null },
-    microsandbox: { set: false, source: null },
   },
   keychain_available: true,
 };

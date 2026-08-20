@@ -287,47 +287,7 @@ describe("validateEnv", () => {
     vi.unstubAllEnvs();
   });
 
-  it("throws for invalid SANDBOX_RUNTIME", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-key");
-    vi.stubEnv("SANDBOX_RUNTIME", "invalid");
-    vi.stubEnv("LLM_PROVIDER", "");
-    vi.stubEnv("AWS_ACCESS_KEY_ID", "");
-    vi.stubEnv("AWS_PROFILE", "");
-    vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
-
-    const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("Invalid SANDBOX_RUNTIME");
-
-    vi.unstubAllEnvs();
-  });
-
-  it("throws when e2b runtime lacks E2B_API_KEY", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-key");
-    vi.stubEnv("SANDBOX_RUNTIME", "e2b");
-    vi.stubEnv("E2B_API_KEY", "");
-    vi.stubEnv("LLM_PROVIDER", "");
-    vi.stubEnv("AWS_ACCESS_KEY_ID", "");
-    vi.stubEnv("AWS_PROFILE", "");
-    vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
-
-    const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("E2B API key is required");
-
-    vi.unstubAllEnvs();
-  });
-
-  it("throws when microsandbox runtime lacks MICROSANDBOX_URL", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-key");
-    vi.stubEnv("SANDBOX_RUNTIME", "microsandbox");
-    vi.stubEnv("MICROSANDBOX_URL", "");
-    vi.stubEnv("LLM_PROVIDER", "");
-    vi.stubEnv("AWS_ACCESS_KEY_ID", "");
-    vi.stubEnv("AWS_PROFILE", "");
-    vi.stubEnv("GOOGLE_VERTEX_PROJECT", "");
-
-    const { validateEnv } = await import("../config");
-    expect(() => validateEnv()).toThrow("server URL is required");
-
-    vi.unstubAllEnvs();
-  });
+  // SANDBOX_RUNTIME validation (invalid value / e2b key / microsandbox URL) was
+  // removed with the E2B/microsandbox runtimes — Docker is the only runtime and a
+  // stale env value is ignored rather than a hard error.
 });

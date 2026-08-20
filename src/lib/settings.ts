@@ -45,14 +45,6 @@ export function awsRegion(): string | undefined {
 
 // ── Sandbox ──────────────────────────────────────────────────────────
 
-export function microsandboxUrl(): string | undefined {
-  return getRuntimeConfig().sandbox?.microsandboxUrl ?? envConfig().MICROSANDBOX_URL;
-}
-
-export function microsandboxImage(): string | undefined {
-  return getRuntimeConfig().sandbox?.microsandboxImage ?? envConfig().MICROSANDBOX_IMAGE;
-}
-
 /** Policy fraction of daemon memory a container may use; NaN-guarded. */
 export function sandboxMemoryFraction(fallback: number): number {
   const rc = getRuntimeConfig().sandbox?.memoryFraction;

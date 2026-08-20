@@ -61,8 +61,6 @@ export interface SettingsBlocks {
     awsRegion?: string | null;
   };
   sandbox: {
-    microsandboxUrl?: string | null;
-    microsandboxImage?: string | null;
     memoryFraction?: number | null;
   };
   retention: {
@@ -71,7 +69,7 @@ export interface SettingsBlocks {
   };
 }
 
-export type ApiKeyId = "anthropic" | "openai" | "e2b" | "microsandbox";
+export type ApiKeyId = "anthropic" | "openai";
 
 export interface SettingsInfo {
   /** The runtime-config values (what the form edits). */
