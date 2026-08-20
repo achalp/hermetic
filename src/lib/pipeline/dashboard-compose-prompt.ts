@@ -22,7 +22,12 @@
  */
 
 import type { DrillDownContext } from "@/lib/contracts/analysis-request";
-import { INTERACTIVE_ROW_CAP } from "@/lib/constants";
+import { INTERACTIVE_ROW_CAP, FILTER_CARDINALITY_CAP } from "@/lib/constants";
+
+/** Undeclared columns proposed as filters by the HEURISTIC only get a tighter
+ *  cardinality bar than declared ones (generative-only; the compiled controller
+ *  proposes declared columns exclusively). */
+const HEURISTIC_FILTER_CARDINALITY_CAP = 15;
 export type { DrillDownContext };
 
 import { truncateValue } from "@/lib/llm/truncate-value";
@@ -145,11 +150,17 @@ function analyzeDatasets(
     });
   }
   const declaredCols = roleFilterColumns(product.series);
+  // Declared columns share the compiled controller's cap (FILTER_CARDINALITY_CAP);
+  // undeclared columns proposed only by the heuristic get a TIGHTER, generative-
+  // only bar (the compiled path proposes declared columns only — PE-1).
   const declaredFilterable = datasetColumns
-    .filter((c) => declaredCols.has(c.name) && c.distinct >= 2 && c.distinct <= 50)
+    .filter(
+      (c) => declaredCols.has(c.name) && c.distinct >= 2 && c.distinct <= FILTER_CARDINALITY_CAP
+    )
     .map((c) => ({ ...c, declared: true }));
   const heuristicFilterable = datasetColumns.filter(
-    (c) => !declaredCols.has(c.name) && c.distinct >= 2 && c.distinct <= 15
+    (c) =>
+      !declaredCols.has(c.name) && c.distinct >= 2 && c.distinct <= HEURISTIC_FILTER_CARDINALITY_CAP
   );
   const filterableColumns = [...declaredFilterable, ...heuristicFilterable];
   const useDataController = hasDataset && filterableColumns.length > 0;

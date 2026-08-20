@@ -36,9 +36,9 @@ import { humanizeId, type SpecPatchLine } from "./scaffold";
 import type { DerivedView } from "./views";
 // Rows past this and client-side filtering is re-aggregating a sample. Shared
 // with the generative prompt path so the two composers can't cap differently.
-import { INTERACTIVE_ROW_CAP } from "@/lib/constants";
-/** A dropdown past this is a scroll, not a control. */
-const CARDINALITY_CAP = 50;
+// FILTER_CARDINALITY_CAP is shared for the same reason (a dropdown past it is a
+// scroll, not a control); local alias keeps the call sites terse.
+import { INTERACTIVE_ROW_CAP, FILTER_CARDINALITY_CAP as CARDINALITY_CAP } from "@/lib/constants";
 
 export interface DerivedController {
   /** Element id — a stable overlay/mutation handle like any view. */

@@ -427,3 +427,13 @@ export { BASEMAP_STYLE_URL, BASEMAP_TILE_URLS, REVEALJS_CDN_URL } from "@/lib/ba
  * the two composer paths capped interactivity differently (PE-1).
  */
 export const INTERACTIVE_ROW_CAP = 5000;
+
+/**
+ * Max distinct values for a DECLARED column to become an interactive filter /
+ * group axis. Shared by the compiled controller and the generative prompt's
+ * declared-filter branch so the two composer paths agree on the cap (PE-1: the
+ * controller's CARDINALITY_CAP and analyzeDatasets' inline `50` had drifted into
+ * two literals). The generative path's tighter cap for UNDECLARED, heuristically
+ * proposed columns is separate and intentional (compiled proposes declared only).
+ */
+export const FILTER_CARDINALITY_CAP = 50;

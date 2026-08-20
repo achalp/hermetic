@@ -18,6 +18,7 @@
 
 import { checkDiscourseLine } from "@/lib/llm/discourse-check";
 import type { FindingIssue } from "@/lib/contracts/findings";
+import type { PatchLine } from "@/lib/contracts/stream-state";
 import {
   resolveSpecPlaceholders,
   repairStateBindings,
@@ -25,12 +26,15 @@ import {
   type ValidStateKeys,
 } from "./resolve-placeholders";
 
-/** A streamed JSON-Patch op as emitted by the composer. */
-export interface SpecPatch {
-  op?: string;
-  path?: string;
-  value?: unknown;
-}
+/**
+ * A streamed JSON-Patch op as emitted by the composer. This is the LOOSE WIRE
+ * shape — a JSONL line mid-stream may not yet carry op/path — so it is the
+ * single `PatchLine` contract, NOT the strict validated `JsonPatch` (op+path
+ * required) the renderer enforces after finalization. Kept as an alias (was a
+ * byte-identical separate declaration — PE-1 4-way PatchLine dup) so the
+ * finalizer boundary keeps its semantic name without a second source of truth.
+ */
+export type SpecPatch = PatchLine;
 
 export interface SpecFinalizerConfig {
   /** Result scalars for `$result:` resolution (Ask: execution results; Investigate: merged per-step). */

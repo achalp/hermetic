@@ -8,12 +8,17 @@ import type { FindingEntry } from "@/lib/contracts/findings";
 import type { SeriesEntry } from "@/lib/contracts/product";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
 import { COMPONENT_ROLE_SIGNATURES } from "@/lib/product/signatures";
+import type { JsonPatch } from "@/spec/core/types";
 
-export interface SpecPatchLine {
-  op: "add";
-  path: string;
-  value: unknown;
-}
+/**
+ * The compiled composer only ever ADDS elements, so its emitted line is the
+ * strict validated `JsonPatch` (op+path required — spec/core, the renderer's
+ * own type) narrowed to `op: "add"` with a required `value`. Deriving it from
+ * JsonPatch keeps the compiled producer from drifting from the runtime truth
+ * (PE-1 4-way PatchLine dup); the loose consumer-side counterpart is the
+ * `PatchLine` contract used at the streaming boundary.
+ */
+export type SpecPatchLine = JsonPatch & { op: "add"; value: unknown };
 
 /** Chart component for a series, from its DECLARED x kind (signature-map
  *  consistent by construction — the lint that checks generative composes
