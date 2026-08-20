@@ -10,8 +10,19 @@
  * proxy (the only tier that stops exfiltration; the splice relay makes it fast);
  * an underivable host or no URL → deny. There is no open/native tier.
  */
-import { describe, it, expect } from "vitest";
-import { deriveAllowedEgressHosts, egressPolicyFor } from "../egress";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("@/lib/sandbox/docker-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/sandbox/docker-utils")>();
+  return { ...actual, run: vi.fn() };
+});
+
+import { deriveAllowedEgressHosts, egressPolicyFor, setupEgressNetwork } from "../egress";
+import { run } from "@/lib/sandbox/docker-utils";
+import { resetDaemonCpuCacheForTests } from "@/lib/sandbox/hardening";
+import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
+
+const mockedRun = vi.mocked(run);
 
 describe("deriveAllowedEgressHosts", () => {
   it("s3 without region: the bucket's vhost host ONLY — no generic path-style", () => {
@@ -113,5 +124,28 @@ describe("egressPolicyFor — tiered by what the container holds", () => {
     // Network is a property of the SOURCE (finding 01): a local CSV run must
     // get --network none, not open bridge egress with the user's data in /data.
     expect(egressPolicyFor(undefined)).toEqual({ mode: "deny" });
+  });
+});
+
+describe("setupEgressNetwork — gateway hardening (finding M5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDaemonCpuCacheForTests();
+    resetDaemonMemoryCacheForTests();
+    mockedRun.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+  });
+
+  it("applies cap-drop / pids-limit / memory to the gateway container", async () => {
+    await setupEgressNetwork("testrunid1234", ["b.s3.amazonaws.com"]);
+    const gatewayCreate = mockedRun.mock.calls
+      .map(([, args]) => args)
+      .find((a) => a[0] === "run" && a.includes("--name") && a.join(" ").includes("egress-gw"));
+    expect(gatewayCreate).toBeDefined();
+    expect(gatewayCreate).toContain("--cap-drop");
+    expect(gatewayCreate).toContain("ALL");
+    expect(gatewayCreate).toContain("--pids-limit");
+    // The proxy binds an unprivileged port (3128) + plain outbound TCP — no
+    // capability is needed, so full cap-drop is safe.
+    expect(gatewayCreate).not.toContain("--privileged");
   });
 });

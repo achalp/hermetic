@@ -203,8 +203,24 @@ def handle(client):
             pass
 
 
+# Bound concurrent tunnels (finding M5). Each tunnel is 2 threads (handle +
+# pump's reverse relay), so the ceiling here must leave headroom under the
+# container's --pids-limit (512) — 128 → ~257 threads trips this GRACEFUL cap
+# (a rejected connection) long before the kernel refuses a thread. Generous for
+# legitimate use: DuckDB opens a small number of parallel connections per host.
+MAX_CONNECTIONS = int(os.environ.get("MAX_CONNECTIONS", "128"))
+_conn_slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+
+def _serve(conn):
+    try:
+        handle(conn)
+    finally:
+        _conn_slots.release()
+
+
 def main():
-    log(f"listening :{PORT}, allow={sorted(ALLOW_HOSTS)}")
+    log(f"listening :{PORT}, allow={sorted(ALLOW_HOSTS)}, max_conn={MAX_CONNECTIONS}")
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", PORT))
@@ -218,7 +234,17 @@ def main():
         except OSError as e:
             log(f"accept error: {e}")
             continue
-        threading.Thread(target=handle, args=(conn,), daemon=True).start()
+        # At the concurrency ceiling: reject THIS connection rather than spawn an
+        # unbounded thread. The accept loop keeps cycling (kernel backlog absorbs
+        # the burst); a slot frees as tunnels finish.
+        if not _conn_slots.acquire(blocking=False):
+            log("connection cap reached — rejecting")
+            try:
+                conn.close()
+            except OSError:
+                pass
+            continue
+        threading.Thread(target=_serve, args=(conn,), daemon=True).start()
 
 
 if __name__ == "__main__":

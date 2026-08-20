@@ -18,6 +18,8 @@ import { DOCKER_SANDBOX_IMAGE } from "@/lib/constants";
 import { run } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { SANDBOX_RUNID_LABEL } from "./lifecycle";
+import { sandboxHardeningRunArgs } from "./hardening";
+import { sandboxMemoryRunArgs } from "./memory-budget";
 import { isInternalHostname } from "@/lib/parquet/duckdb-source";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 
@@ -165,6 +167,13 @@ export async function setupEgressNetwork(
         "--network",
         networkName,
         "--add-host=host.docker.internal:host-gateway",
+        // Harden the gateway like the analysis container (finding M5): the proxy
+        // needs no Linux capabilities (binds an unprivileged port, opens plain
+        // outbound TCP), so --cap-drop ALL applies cleanly, --pids-limit caps the
+        // proxy's thread-per-tunnel growth, and --memory bounds its relay-pipe
+        // buffers — turning an unbounded DoS surface into a bounded one.
+        ...(await sandboxHardeningRunArgs()),
+        ...(await sandboxMemoryRunArgs()),
         "-e",
         `ALLOW_HOSTS=${allowHosts.join(",")}`,
         "-e",
