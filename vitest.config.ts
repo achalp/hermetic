@@ -47,15 +47,15 @@ export default defineConfig({
       // pure-render UI (chart components / app panels) sits at a ~50% floor by
       // deliberate policy (render bugs are visible; their transforms are tested).
       thresholds: {
-        statements: 55,
-        lines: 55,
-        functions: 52,
-        branches: 45,
+        statements: 64,
+        lines: 66,
+        functions: 62,
+        branches: 54,
         "src/lib/**": {
-          statements: 70,
-          lines: 70,
-          functions: 72,
-          branches: 62,
+          statements: 73,
+          lines: 75,
+          functions: 75,
+          branches: 64,
         },
       },
     },

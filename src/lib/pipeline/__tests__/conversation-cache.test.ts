@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   getConversationTurns,
   appendConversationTurn,
   clearConversationTurns,
   buildTurnFromArtifacts,
   aliasConversationKey,
+  sweepExpiredConversations,
 } from "@/lib/pipeline/conversation-cache";
 import type { ConversationTurn } from "@/lib/contracts/storage-types";
 import type { CachedArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -213,6 +214,51 @@ describe("conversation-cache", () => {
       aliasConversationKey("same", "same");
       appendConversationTurn("same", makeTurn("ok"));
       expect(getConversationTurns("same").map((t) => t.question)).toEqual(["ok"]);
+    });
+
+    it("evicts the oldest alias once past the bounded cap", () => {
+      // Anchor an alias, then push more than MAX_ALIASES (500) newer ones so
+      // the first is trimmed and its lookup falls back to the raw id.
+      appendConversationTurn("canon-old", makeTurn("kept"));
+      aliasConversationKey("first-alias", "canon-old");
+      expect(getConversationTurns("first-alias").map((t) => t.question)).toEqual(["kept"]);
+      for (let i = 0; i < 600; i++) aliasConversationKey(`fill-${i}`, `dest-${i}`);
+      // The oldest alias was evicted — the lookup no longer resolves to canon-old.
+      expect(getConversationTurns("first-alias")).toEqual([]);
+    });
+  });
+
+  describe("idle TTL expiry + active sweep", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("getConversationTurns drops an entry idle beyond the 1h window", () => {
+      appendConversationTurn("ttl-1", makeTurn("stale"));
+      // Advance past the 1h idle window without touching the entry.
+      vi.advanceTimersByTime(61 * 60 * 1000);
+      expect(getConversationTurns("ttl-1")).toEqual([]);
+    });
+
+    it("a read within the window refreshes the sliding idle timer", () => {
+      appendConversationTurn("ttl-2", makeTurn("fresh"));
+      vi.advanceTimersByTime(50 * 60 * 1000);
+      // Read refreshes lastAccessedAt; another 50m stays under the hour from it.
+      expect(getConversationTurns("ttl-2").map((t) => t.question)).toEqual(["fresh"]);
+      vi.advanceTimersByTime(50 * 60 * 1000);
+      expect(getConversationTurns("ttl-2").map((t) => t.question)).toEqual(["fresh"]);
+    });
+
+    it("sweepExpiredConversations removes only the expired entries and counts them", () => {
+      appendConversationTurn("sweep-old", makeTurn("gone"));
+      vi.advanceTimersByTime(61 * 60 * 1000);
+      appendConversationTurn("sweep-new", makeTurn("here"));
+      const swept = sweepExpiredConversations();
+      expect(swept).toBeGreaterThanOrEqual(1);
+      expect(getConversationTurns("sweep-new").map((t) => t.question)).toEqual(["here"]);
     });
   });
 });

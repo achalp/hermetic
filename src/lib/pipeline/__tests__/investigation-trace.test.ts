@@ -43,6 +43,116 @@ describe("transitiveDependents", () => {
   });
 });
 
+// ── capDatasets / buildInvestigationTrace / successfulStepNos ──────────────
+import {
+  capDatasets,
+  buildInvestigationTrace,
+  successfulStepNos,
+} from "@/lib/pipeline/investigation-trace";
+import type { SubQuestionResult } from "@/lib/pipeline/investigate-orchestrator";
+
+describe("capDatasets", () => {
+  it("returns undefined for an absent datasets map", () => {
+    expect(capDatasets(undefined)).toBeUndefined();
+  });
+
+  it("caps each dataset to the preview row limit (200) and preserves non-arrays", () => {
+    const capped = capDatasets({
+      big: Array.from({ length: 500 }, (_, i) => ({ i })),
+      small: [{ a: 1 }],
+      // A non-array value is passed through untouched.
+      weird: "not-an-array" as unknown as Record<string, unknown>[],
+    });
+    expect(capped!.big).toHaveLength(200);
+    expect(capped!.small).toHaveLength(1);
+    expect(capped!.weird).toBe("not-an-array");
+  });
+});
+
+describe("buildInvestigationTrace", () => {
+  function sub(over: Partial<SubQuestionResult>): SubQuestionResult {
+    return {
+      index: 0,
+      question: "q",
+      rationale: "why",
+      depends_on: [],
+      ...over,
+    } as SubQuestionResult;
+  }
+
+  it("maps sub-results to trace steps, classifying every status", () => {
+    const trace = buildInvestigationTrace({
+      approach: "breadth-first",
+      originalQuestion: "the big question",
+      sourceByIndex: new Map([[1, "replanner"]]),
+      decisions: [],
+      subResults: [
+        sub({
+          index: 0,
+          result: {
+            generatedCode: "print(1)",
+            sql: "SELECT 1",
+            stepCsvId: "s0",
+            outputCsvId: "o0",
+            executionResult: {
+              success: true,
+              results: { total: 5 },
+              chart_data: { bars: [{ x: 1 }] },
+              datasets: { main: Array.from({ length: 300 }, (_, i) => ({ i })) },
+              execution_ms: 12,
+            },
+          } as never,
+        }),
+        sub({ index: 1, error: "NameError" }),
+        sub({ index: 2, degraded: true, degradedReason: "all zeros" }),
+        sub({ index: 3, removed: true }),
+      ],
+    });
+
+    expect(trace.approach).toBe("breadth-first");
+    expect(trace.originalQuestion).toBe("the big question");
+    expect(trace.steps.map((s) => s.status)).toEqual(["success", "failed", "degraded", "removed"]);
+    // source defaults to "initial" unless sourceByIndex overrides it.
+    expect(trace.steps[0].source).toBe("initial");
+    expect(trace.steps[1].source).toBe("replanner");
+    // Datasets on the success step are capped to the 200-row preview.
+    expect(trace.steps[0].datasets!.main).toHaveLength(200);
+    expect(trace.steps[0].code).toBe("print(1)");
+    expect(trace.steps[0].stepNo).toBe(1);
+    expect(trace.steps[2].degradedReason).toBe("all zeros");
+  });
+});
+
+describe("successfulStepNos", () => {
+  it("returns the 1-based step numbers of success/degraded steps only", () => {
+    const trace = buildInvestigationTrace({
+      approach: "a",
+      originalQuestion: "q",
+      sourceByIndex: new Map(),
+      decisions: [],
+      subResults: [
+        {
+          index: 0,
+          question: "q0",
+          rationale: "",
+          depends_on: [],
+          result: { executionResult: { success: true, results: {}, execution_ms: 1 } },
+        } as never,
+        { index: 1, question: "q1", rationale: "", depends_on: [], error: "boom" } as never,
+        {
+          index: 2,
+          question: "q2",
+          rationale: "",
+          depends_on: [],
+          degraded: true,
+          result: { executionResult: { success: true, results: {}, execution_ms: 1 } },
+        } as never,
+      ],
+    });
+    expect(successfulStepNos(trace)).toEqual([1, 3]);
+  });
+});
+
 // ── TraceRecorder — decision/provenance accumulation from progress events ──
 import { TraceRecorder } from "@/lib/pipeline/investigation-trace";
 
