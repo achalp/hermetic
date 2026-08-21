@@ -38,18 +38,105 @@ beforeEach(() => {
   });
 });
 
-describe("DockerWarmBackend.executeScript", () => {
-  it("cleans per-run leftovers (findings/step_*/hermetic_*) without nuking the runtime dir", async () => {
-    await new DockerWarmBackend().executeScript("print('hi')");
+describe("DockerWarmBackend.writeFiles — per-run cleanup + staging order", () => {
+  it("cleans per-run leftovers (findings/step_*/hermetic_*) BEFORE staging, without nuking the runtime dir", async () => {
+    await new DockerWarmBackend().writeFiles([{ path: "/data/step_1.csv", content: "a\n1\n" }]);
     const cleanup = joined().find((c) => c.includes("rm -f /data/script.py"));
     expect(cleanup).toBeDefined();
     expect(cleanup).toContain("/data/findings.jsonl");
     expect(cleanup).toContain("/data/step_*");
     // hermetic_* removed via `find -type f` so the hermetic_runtime PACKAGE dir
-    // (just installed by writeFiles) is never deleted.
+    // (whose staged contents the P1 skip set relies on) is never deleted.
     expect(cleanup).toContain("find /data -maxdepth 1 -type f -name 'hermetic_*' -delete");
   });
 
+  it("REGRESSION (latent step-frame bug): cleanup runs BEFORE the current run's frames are staged, and executeScript never deletes step_*", async () => {
+    // Old order — writeFiles staged /data/step_1.csv, THEN executeScript's
+    // cleanup deleted /data/step_* — so dependent warm steps read a MISSING
+    // frame. New order: cleanup (in writeFiles) precedes staging; executeScript
+    // must not delete step frames at all.
+    const backend = new DockerWarmBackend();
+    await backend.writeFiles([{ path: "/data/step_1.csv", content: "a\n1\n" }]);
+    const cmds = joined();
+    const cleanupIdx = cmds.findIndex((c) => c.includes("/data/step_*"));
+    const stageIdx = cmds.findIndex((c) => c.startsWith("cp -"));
+    expect(cleanupIdx).toBeGreaterThanOrEqual(0);
+    expect(stageIdx).toBeGreaterThan(cleanupIdx); // cleanup strictly first
+
+    mockedRun.mockClear();
+    await backend.executeScript("import pandas as pd\npd.read_csv('/data/step_1.csv')");
+    const execCmds = joined();
+    expect(execCmds.some((c) => c.includes("/data/step_*"))).toBe(false);
+  });
+
+  it("P1: identical nested runtime files are NOT re-staged on the next run; changed/top-level files are", async () => {
+    const backend = new DockerWarmBackend();
+    const runtimeFile = { path: "/data/hermetic_runtime/findings.py", content: "x = 1\n" };
+    const stepFile = { path: "/data/step_1.csv", content: "a\n1\n" };
+
+    await backend.writeFiles([runtimeFile, stepFile]);
+    expect(joined().filter((c) => c.startsWith("cp -"))).toHaveLength(1);
+
+    // Second run, same files: only the TOP-LEVEL step frame is re-staged (the
+    // per-run cleanup deletes it); the identical nested runtime file is skipped.
+    mockedRun.mockClear();
+    await backend.writeFiles([runtimeFile, stepFile]);
+    const cp = mockedRun.mock.calls.find(([, args]) => args[0] === "cp");
+    expect(cp).toBeDefined();
+    const archive = (cp![2] as { input: Buffer }).input;
+    expect(archive.includes("step_1.csv")).toBe(true);
+    expect(archive.includes("findings.py")).toBe(false);
+
+    // Changed runtime content → re-staged.
+    mockedRun.mockClear();
+    await backend.writeFiles([{ ...runtimeFile, content: "x = 2\n" }, stepFile]);
+    const cp2 = mockedRun.mock.calls.find(([, args]) => args[0] === "cp");
+    expect((cp2![2] as { input: Buffer }).input.includes("findings.py")).toBe(true);
+  });
+
+  it("P1: loadData's full wipe resets the skip set — runtime files re-stage after it", async () => {
+    const backend = new DockerWarmBackend();
+    const runtimeFile = { path: "/data/hermetic_runtime/findings.py", content: "x = 1\n" };
+    await backend.writeFiles([runtimeFile]);
+
+    mockedRun.mockClear();
+    await backend.loadData("csv-1", "a\n1\n", null, [runtimeFile]);
+    const cp = mockedRun.mock.calls.find(([, args]) => args[0] === "cp");
+    expect(cp).toBeDefined();
+    const archive = (cp![2] as { input: Buffer }).input;
+    expect(archive.includes("findings.py")).toBe(true); // wiped → must re-stage
+    expect(archive.includes("input.csv")).toBe(true); // csv rides the same tar
+  });
+
+  it("P1: nothing to stage → NO docker cp at all (cleanup only)", async () => {
+    const backend = new DockerWarmBackend();
+    const runtimeFile = { path: "/data/hermetic_runtime/findings.py", content: "x = 1\n" };
+    await backend.writeFiles([runtimeFile]);
+    mockedRun.mockClear();
+    await backend.writeFiles([runtimeFile]); // identical, nested-only
+    expect(mockedRun.mock.calls.some(([, args]) => args[0] === "cp")).toBe(false);
+    expect(joined().some((c) => c.includes("rm -f /data/script.py"))).toBe(true);
+  });
+
+  it("P1: a FAILED docker cp does not teach the skip set (retried next run)", async () => {
+    const backend = new DockerWarmBackend();
+    const runtimeFile = { path: "/data/hermetic_runtime/findings.py", content: "x = 1\n" };
+    mockedRun.mockImplementation(async (_cmd, args) =>
+      args[0] === "cp"
+        ? { stdout: "", stderr: "daemon error", exitCode: 1 }
+        : { stdout: "0", stderr: "", exitCode: 0 }
+    );
+    await backend.writeFiles([runtimeFile]);
+
+    mockedRun.mockClear();
+    mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
+    await backend.writeFiles([runtimeFile]);
+    // Not recorded as staged → written again now that cp succeeds.
+    expect(mockedRun.mock.calls.some(([, args]) => args[0] === "cp")).toBe(true);
+  });
+});
+
+describe("DockerWarmBackend.executeScript", () => {
   it("registers and deregisters the shared warm container (finding M5)", async () => {
     const onContainerStart = vi.fn();
     const onContainerEnd = vi.fn();

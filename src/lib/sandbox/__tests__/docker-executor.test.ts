@@ -39,6 +39,7 @@ import { executeSandbox } from "@/lib/sandbox/docker-executor";
 import { run, parseExecutionOutput } from "@/lib/sandbox/docker-utils";
 import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
 import { resetDaemonCpuCacheForTests } from "@/lib/sandbox/hardening";
+import { listTarEntryNames } from "@/lib/sandbox/tar-stage";
 
 const mockedRun = vi.mocked(run);
 const mockedParse = vi.mocked(parseExecutionOutput);
@@ -85,15 +86,17 @@ describe("docker executeSandbox", () => {
     expect(create[create.indexOf("--network") + 1]).toBe("none");
   });
 
-  it("bind-mounts a local path read-only and skips the stdin CSV write", async () => {
+  it("bind-mounts a local path read-only and skips the CSV staging", async () => {
     await executeSandbox("", "code", { localMountPath: "/Users/me/data" });
     const create = createCall();
     const vIdx = create.indexOf("-v");
     expect(vIdx).toBeGreaterThan(-1);
     expect(create[vIdx + 1]).toMatch(/^\/Users\/me\/data:.*:ro$/);
-    // No `cat > /data/input.csv` exec when data comes from the mount.
-    const stdinWrites = calls().filter((a) => a.join(" ").includes("cat > /data/input.csv"));
-    expect(stdinWrites).toHaveLength(0);
+    // No input.csv entry in the staging tar when data comes from the mount.
+    const stage = mockedRun.mock.calls.find(([, args]) => args[0] === "cp" && args[1] === "-")!;
+    const names = listTarEntryNames((stage[2] as { input: Buffer }).input);
+    expect(names).not.toContain("input.csv");
+    expect(names).toContain("script.py"); // script still staged
   });
 
   it("docker-cps a materialized parquet into the container", async () => {
@@ -104,20 +107,23 @@ describe("docker executeSandbox", () => {
     expect(cp![2]).toMatch(/:\/data\/input\.parquet$/);
   });
 
-  it("writes the CSV via stdin and the script with the NaN prelude, then executes", async () => {
+  it("stages CSV + script (with the NaN prelude) in ONE tar cp, then executes (perf P2)", async () => {
     await executeSandbox("a,b\n1,2\n", "print('hi')");
-    const joined = calls().map((a) => a.join(" "));
-    expect(joined.some((c) => c.includes("cat > /data/input.csv"))).toBe(true);
-    expect(joined.some((c) => c.includes("cat > /data/script.py"))).toBe(true);
-    // Execution is now streamed (spawn), not a blocking run() call.
+    // Exactly one staging spawn — the ~13 per-file `docker exec cat` writes are gone.
+    const stages = mockedRun.mock.calls.filter(([, args]) => args[0] === "cp" && args[1] === "-");
+    expect(stages).toHaveLength(1);
+    expect(calls().some((a) => a.join(" ").includes("cat > /data/"))).toBe(false);
+    const archive = (stages[0][2] as { input: Buffer }).input;
+    const names = listTarEntryNames(archive);
+    expect(names).toContain("input.csv");
+    expect(names).toContain("script.py");
+    // Execution is streamed (spawn), not a blocking run() call.
     expect(streamExec).toHaveBeenCalledOnce();
-    // Script content includes the prelude before the generated code.
-    const scriptWrite = mockedRun.mock.calls.find(([, args]) =>
-      args.join(" ").includes("cat > /data/script.py")
-    )!;
-    const input = (scriptWrite[2] as { input?: string })?.input ?? "";
-    expect(input).toContain("print('hi')");
-    expect(input.indexOf("print('hi')")).toBeGreaterThan(0); // prelude first
+    // Script content includes the prelude BEFORE the generated code (byte order
+    // inside the tar payload preserves it).
+    const text = archive.toString("utf-8");
+    expect(text).toContain("print('hi')");
+    expect(text.indexOf("print('hi')")).toBeGreaterThan(text.indexOf("input.csv"));
   });
 
   it("fails fast with the daemon's error when container creation is rejected", async () => {

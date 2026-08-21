@@ -13,6 +13,7 @@ import {
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { sandboxHardeningRunArgs } from "./hardening";
 import { classifyThrownError } from "./parse-output";
+import { buildTarArchive, type StageFile } from "./tar-stage";
 import { streamExec } from "./stream-exec";
 import { withWakeLock } from "@/lib/wake-lock";
 import { logger, errMessage } from "@/lib/logger";
@@ -145,29 +146,35 @@ export async function executeSandbox(
       });
     }
 
-    // 2. Write data files. The primary input CSV is skipped when the data comes
-    //    from a bind-mount or a copied-in Parquet. But geojson and additional
-    //    files — including step-dependency frames like /data/step_1.csv — must
-    //    ALWAYS be written: they live under /data/ (writable), and dependent
-    //    sub-questions read them.
+    // 2+3. Stage ALL text files in ONE `docker cp -` tar stream (perf P2 —
+    //    previously ~13 sequential `docker exec cat` spawns per run: input.csv,
+    //    geojson, ~10 runtime files, script.py). The primary input CSV is
+    //    skipped when the data comes from a bind-mount or a copied-in Parquet.
+    //    Geojson and additional files — including step-dependency frames like
+    //    /data/step_1.csv — must ALWAYS be staged: dependent sub-questions read
+    //    them. Script rides the same archive (with the NaN-safety prelude).
+    const stageFiles: StageFile[] = [];
     if (!localMountPath && !inputParquetPath) {
-      await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/input.csv"], {
-        input: csvContent,
-        timeoutMs: 15_000,
-      });
+      stageFiles.push({ path: "/data/input.csv", content: csvContent });
     }
-
     if (geojsonContent) {
-      await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/input.geojson"], {
-        input: geojsonContent,
-        timeoutMs: 15_000,
-      });
+      stageFiles.push({ path: "/data/input.geojson", content: geojsonContent });
     }
-
-    if (additionalFiles && additionalFiles.length > 0) {
-      for (const file of additionalFiles) {
-        // Each file creates its own parent dir — paths now span /data/sheets,
-        // /data/hermetic_runtime, /data/skill_lib, /data/user_lib.
+    for (const file of additionalFiles ?? []) {
+      stageFiles.push({ path: file.path, content: file.content });
+    }
+    stageFiles.push({ path: "/data/script.py", content: pythonNanPrelude() + code });
+    try {
+      const archive = buildTarArchive(stageFiles);
+      await run("docker", ["cp", "-", `${id}:/data`], { input: archive, timeoutMs: 120_000 });
+    } catch (stageErr) {
+      // Fallback: the tar builder rejects unusual paths (non-ASCII, over-long)
+      // rather than risk a mangled archive — stage those runs per-file, exactly
+      // as before the batching.
+      logger.warn("Docker: tar staging fell back to per-file writes", {
+        error: errMessage(stageErr),
+      });
+      for (const file of stageFiles) {
         const safePath = file.path.replace(/'/g, "'\\''");
         const safeDir = safePath.slice(0, safePath.lastIndexOf("/")) || "/data";
         await run(
@@ -177,13 +184,7 @@ export async function executeSandbox(
         );
       }
     }
-
-    // 3. Write script via stdin (with NaN-safety prelude)
-    await run("docker", ["exec", "-i", id, "sh", "-c", "cat > /data/script.py"], {
-      input: pythonNanPrelude() + code,
-      timeoutMs: 15_000,
-    });
-    logger.debug("Docker: script written");
+    logger.debug("Docker: files staged", { count: stageFiles.length });
 
     // 3b. Static undefined-name pre-flight (milliseconds) — catch a forgotten
     //     import BEFORE a multi-minute remote scan dies on a last-line NameError.

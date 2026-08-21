@@ -4,6 +4,8 @@ import type { AdditionalFile } from "@/lib/contracts/execution";
 import { pythonNanPrelude } from "./prelude";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LARGE_DATA_TIMEOUT_MS } from "@/lib/constants";
 import { run, parseExecutionOutput, codeDoesRemoteIo } from "./docker-utils";
+import { buildTarArchive, type StageFile } from "./tar-stage";
+import { createHash } from "node:crypto";
 import { sandboxMemoryRunArgs } from "./memory-budget";
 import { sandboxHardeningRunArgs } from "./hardening";
 import { logger, errMessage } from "@/lib/logger";
@@ -63,8 +65,10 @@ export class DockerWarmBackend implements WarmSandboxBackend {
   async warmup(): Promise<void> {
     // Reclaim warm containers orphaned by crashed hermetic processes, then
     // remove this process's own stale one (ignore errors if it doesn't exist).
+    // Fresh container → nothing is staged: reset the P1 skip set.
     await reapDeadWarmContainers();
     await run("docker", ["rm", "-f", CONTAINER_NAME], { timeoutMs: 10_000 }).catch(() => {});
+    this.stagedHashes.clear();
 
     // Create persistent container. Always --network none: the warm container
     // is shared across queries and created before any code is known, so it
@@ -100,40 +104,46 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     logger.info("Warm Docker container created", { name: CONTAINER_NAME });
   }
 
-  async loadData(
-    csvId: string,
-    csvContent: string,
-    geojsonContent?: string | null,
-    additionalFiles?: AdditionalFile[]
-  ): Promise<void> {
-    // Clean existing data files (but keep container alive)
-    await run("docker", ["exec", CONTAINER_NAME, "sh", "-c", "rm -rf /data/*"], {
-      timeoutMs: 5_000,
-    });
+  /**
+   * Per-container-lifetime record of NESTED staged files (path → content hash),
+   * the perf-P1 skip set: the ~140KB hermetic_runtime package was re-written
+   * (one `docker exec` per file) on EVERY warm run even though the bytes were
+   * already present — the per-run cleanup only removes top-level /data files,
+   * never nested package dirs. Only nested paths are recorded/skipped; TOP-LEVEL
+   * files (step_*.csv, input.geojson) are always rewritten because the per-run
+   * cleanup deletes them. Cleared whenever container contents are wiped
+   * (warmup recreate, loadData's rm -rf, destroy) — a skip is only ever backed
+   * by bytes this instance verifiably wrote to this container.
+   */
+  private stagedHashes = new Map<string, string>();
 
-    // Write CSV
-    await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/input.csv"], {
-      input: csvContent,
-      timeoutMs: 15_000,
-    });
-
-    // Write GeoJSON (if provided)
-    if (geojsonContent) {
-      await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/input.geojson"], {
-        input: geojsonContent,
-        timeoutMs: 15_000,
-      });
-    }
-
-    // Write additional files (workbook sheets, runtime package, skill/user libs)
-    await this.writeFiles(additionalFiles ?? []);
-    logger.debug("Warm Docker data loaded", { csvId });
+  private static isNested(path: string): boolean {
+    return path.startsWith("/data/") && path.slice("/data/".length).includes("/");
   }
 
-  /** Files-only writer — runs on EVERY execute (see WarmSandboxBackend). */
-  async writeFiles(additionalFiles: AdditionalFile[]): Promise<void> {
-    if (additionalFiles.length > 0) {
-      for (const file of additionalFiles) {
+  /** Stage files in ONE `docker cp -` tar stream (perf P2), skipping nested
+   *  files whose exact content is already in the container. Falls back to
+   *  per-file writes when the tar builder rejects a path. */
+  private async stage(files: StageFile[]): Promise<void> {
+    const hash = (s: string) => createHash("sha1").update(s, "utf-8").digest("hex");
+    const toWrite = files.filter(
+      (f) =>
+        !DockerWarmBackend.isNested(f.path) || this.stagedHashes.get(f.path) !== hash(f.content)
+    );
+    if (toWrite.length === 0) return;
+    let ok = false;
+    try {
+      const archive = buildTarArchive(toWrite);
+      const result = await run("docker", ["cp", "-", `${CONTAINER_NAME}:/data`], {
+        input: archive,
+        timeoutMs: 120_000,
+      });
+      ok = result.exitCode === 0;
+    } catch (stageErr) {
+      logger.warn("Warm Docker: tar staging fell back to per-file writes", {
+        error: errMessage(stageErr),
+      });
+      for (const file of toWrite) {
         const safePath = file.path.replace(/'/g, "'\\''");
         const safeDir = safePath.slice(0, safePath.lastIndexOf("/")) || "/data";
         await run(
@@ -149,7 +159,67 @@ export class DockerWarmBackend implements WarmSandboxBackend {
           { input: file.content, timeoutMs: 15_000 }
         );
       }
+      ok = true; // per-file path matches the legacy behavior (no exit checks)
     }
+    // Record ONLY verified writes — a failed cp must not teach the skip set.
+    if (ok) {
+      for (const f of toWrite) {
+        if (DockerWarmBackend.isNested(f.path)) this.stagedHashes.set(f.path, hash(f.content));
+      }
+    }
+  }
+
+  async loadData(
+    csvId: string,
+    csvContent: string,
+    geojsonContent?: string | null,
+    additionalFiles?: AdditionalFile[]
+  ): Promise<void> {
+    // Clean existing data files (but keep container alive). Full wipe →
+    // everything previously staged is gone: reset the skip set.
+    await run("docker", ["exec", CONTAINER_NAME, "sh", "-c", "rm -rf /data/*"], {
+      timeoutMs: 5_000,
+    });
+    this.stagedHashes.clear();
+
+    await this.stage([
+      { path: "/data/input.csv", content: csvContent },
+      ...(geojsonContent ? [{ path: "/data/input.geojson", content: geojsonContent }] : []),
+      ...(additionalFiles ?? []).map((f) => ({ path: f.path, content: f.content })),
+    ]);
+    logger.debug("Warm Docker data loaded", { csvId });
+  }
+
+  /**
+   * Files-only writer — runs on EVERY execute (see WarmSandboxBackend).
+   *
+   * ORDER MATTERS: the per-run cleanup runs HERE, BEFORE staging — it used to
+   * live at the top of executeScript, i.e. AFTER this method had staged the
+   * current run's files, so it deleted the step-dependency frames
+   * (/data/step_N.csv) the run had just written and dependent warm steps read a
+   * missing file (latent bug found during perf P1). Cleanup-then-stage removes
+   * the PRIOR run's leftovers and stale frames, then writes the current run's.
+   */
+  async writeFiles(additionalFiles: AdditionalFile[]): Promise<void> {
+    // A stale findings.jsonl sidecar, DuckDB cfg dump, or step_* frame from a
+    // prior run in this reused container would otherwise leak into this run
+    // (finding M5). `find … -type f` deletes the hermetic_* files only — never
+    // the hermetic_runtime PACKAGE directory (whose staged contents the P1 skip
+    // set relies on surviving between runs).
+    await run(
+      "docker",
+      [
+        "exec",
+        CONTAINER_NAME,
+        "sh",
+        "-c",
+        "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt " +
+          "/data/findings.jsonl /data/step_*; " +
+          "find /data -maxdepth 1 -type f -name 'hermetic_*' -delete",
+      ],
+      { timeoutMs: 5_000 }
+    );
+    await this.stage(additionalFiles.map((f) => ({ path: f.path, content: f.content })));
   }
 
   // The warm container is a docker label, exposed so callers/tests can reason
@@ -163,24 +233,10 @@ export class DockerWarmBackend implements WarmSandboxBackend {
     // reaper knows it's a live run (finding M5). Deregistered in finally.
     hooks?.onContainerStart?.(CONTAINER_NAME);
     try {
-      // Clean output AND per-run leftovers (data stays). A stale findings.jsonl
-      // sidecar, DuckDB cfg dump, or step_* frame from a prior run in this
-      // reused container would otherwise leak into this run (finding M5).
-      // `find … -type f` deletes the hermetic_* files only — never the
-      // hermetic_runtime PACKAGE directory writeFiles just installed.
-      await run(
-        "docker",
-        [
-          "exec",
-          CONTAINER_NAME,
-          "sh",
-          "-c",
-          "rm -f /data/script.py /data/output.json /data/stdout.txt /data/stderr.txt " +
-            "/data/findings.jsonl /data/step_*; " +
-            "find /data -maxdepth 1 -type f -name 'hermetic_*' -delete",
-        ],
-        { timeoutMs: 5_000 }
-      );
+      // NOTE: the per-run cleanup now runs in writeFiles/loadData BEFORE staging
+      // (see writeFiles) — running it here, AFTER staging, deleted the current
+      // run's just-written step-dependency frames. executeScript's contract is
+      // that the manager always calls loadData or writeFiles first.
 
       // Write script (with NaN-safety prelude)
       await run("docker", ["exec", "-i", CONTAINER_NAME, "sh", "-c", "cat > /data/script.py"], {
@@ -249,6 +305,7 @@ export class DockerWarmBackend implements WarmSandboxBackend {
 
   async destroy(): Promise<void> {
     await run("docker", ["rm", "-f", CONTAINER_NAME], { timeoutMs: 10_000 }).catch(() => {});
+    this.stagedHashes.clear();
     logger.info("Warm Docker container destroyed");
   }
 }

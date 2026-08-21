@@ -5,7 +5,7 @@ import { parseSandboxOutput } from "./parse-output";
 export function run(
   cmd: string,
   args: string[],
-  opts?: { input?: string; timeoutMs?: number; signal?: AbortSignal }
+  opts?: { input?: string | Buffer; timeoutMs?: number; signal?: AbortSignal }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const ac = new AbortController();
@@ -233,6 +233,71 @@ export function preflightLintError(lint: PreflightLintResult): string | null {
  * Parse execution output from a container that ran a Python script — a thin
  * Docker adapter over the shared runtime-agnostic parser (see parse-output.ts).
  */
+/**
+ * Fetch several container files in ONE `docker exec` (perf P3 — the post-run
+ * read was 4-5 separate `docker exec cat` round-trips per run). The shell
+ * prints, per file, a marker line carrying the exact BYTE size followed by the
+ * raw content, so the host can split byte-accurately no matter what the content
+ * contains (including the marker string itself). A missing file reports size
+ * -1 → null, matching the single-file `cat` behavior.
+ *
+ * Returns null when the exec itself failed (container gone / daemon error) —
+ * the caller falls back to per-file reads, which preserve the legacy
+ * every-read-fails-to-null behavior.
+ */
+const SIDECAR_MARKER = "===HERMETIC-SIDECAR===";
+
+export async function batchReadContainerFiles(
+  containerId: string,
+  paths: string[],
+  /** Injection seam for tests — intra-module calls bypass vi.mock. */
+  exec: typeof run = run
+): Promise<Map<string, string | null> | null> {
+  const script = paths
+    .map(
+      (p) =>
+        `if [ -f '${p}' ]; then s=$(wc -c < '${p}'); ` +
+        `printf '${SIDECAR_MARKER} %s %s\\n' '${p}' "$s"; cat '${p}'; ` +
+        `else printf '${SIDECAR_MARKER} %s -1\\n' '${p}'; fi`
+    )
+    .join("; ");
+  const result = await exec("docker", ["exec", containerId, "sh", "-c", script], {
+    timeoutMs: 30_000,
+  }).catch(() => null);
+  if (!result || result.exitCode !== 0) return null;
+
+  // Byte-accurate split: sizes are byte counts, so scan a Buffer, not the
+  // JS string (multi-byte UTF-8 would desynchronize string indices).
+  const buf = Buffer.from(result.stdout, "utf-8");
+  const marker = Buffer.from(SIDECAR_MARKER, "ascii");
+  const out = new Map<string, string | null>();
+  let off = 0;
+  while (off < buf.length) {
+    const at = buf.indexOf(marker, off);
+    if (at === -1) break;
+    const nl = buf.indexOf(0x0a, at);
+    if (nl === -1) break;
+    const headerLine = buf.subarray(at, nl).toString("ascii");
+    const m = headerLine.match(/^===HERMETIC-SIDECAR=== (\S+) (-?\d+)\s*$/);
+    if (!m) {
+      off = nl + 1;
+      continue;
+    }
+    const [, path, sizeStr] = m;
+    const size = parseInt(sizeStr, 10);
+    if (size < 0) {
+      out.set(path, null);
+      off = nl + 1;
+    } else {
+      out.set(path, buf.subarray(nl + 1, nl + 1 + size).toString("utf-8"));
+      off = nl + 1 + size;
+    }
+  }
+  // A partial map (interrupted output) must not masquerade as complete —
+  // unresolved paths fall back to per-file reads via the adapter below.
+  return out;
+}
+
 export async function parseExecutionOutput(
   containerId: string,
   start: number,
@@ -264,9 +329,24 @@ export async function parseExecutionOutput(
     containerGone,
     // Active skills' phase-keyed OOM remedies (empty when the caller has none).
     skillFailureHints: failureHints?.() ?? [],
-    readFile: async (path) => {
-      const result = await run("docker", ["exec", containerId, "cat", path]).catch(() => null);
-      return result && result.exitCode === 0 ? result.stdout : null;
-    },
+    readFile: (() => {
+      // Prefetch the known sidecars in ONE exec (perf P3), lazily on first read
+      // so a parse that never reads files (none today) pays nothing. Unknown
+      // paths and a failed batch fall back to the legacy per-file cat.
+      let prefetch: Promise<Map<string, string | null> | null> | undefined;
+      const KNOWN = [
+        "/data/stderr.txt",
+        "/data/stdout.txt",
+        "/data/hermetic_duckdb_cfg.txt",
+        "/data/output.json",
+      ];
+      return async (path: string) => {
+        prefetch ??= batchReadContainerFiles(containerId, KNOWN);
+        const map = await prefetch;
+        if (map && map.has(path)) return map.get(path) ?? null;
+        const result = await run("docker", ["exec", containerId, "cat", path]).catch(() => null);
+        return result && result.exitCode === 0 ? result.stdout : null;
+      };
+    })(),
   });
 }
