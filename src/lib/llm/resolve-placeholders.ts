@@ -767,17 +767,21 @@ export function resolveSpecPlaceholders(
   });
 
   // ── $chartData substitution ────────────────────────────────────
-  // Pass 1: top-level + nested keys
-  for (const [key, value] of Object.entries(chartData)) {
-    const placeholder = `"$chartData:${key}"`;
-    if (processed.includes(placeholder)) {
-      processed = processed.replaceAll(placeholder, JSON.stringify(unwrapChartRows(value)));
-    }
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      for (const [subKey, subVal] of Object.entries(value as Record<string, unknown>)) {
-        const subPlaceholder = `"$chartData:${key}.${subKey}"`;
-        if (processed.includes(subPlaceholder)) {
-          processed = processed.replaceAll(subPlaceholder, JSON.stringify(subVal));
+  // Pass 1: top-level + nested keys. Guarded like Pass 2 (perf P20): most
+  // streamed lines carry no chart binding, and this loop otherwise scans
+  // every chartData key (plus nested sub-keys) per line — O(lines × keys).
+  if (processed.includes("$chartData:")) {
+    for (const [key, value] of Object.entries(chartData)) {
+      const placeholder = `"$chartData:${key}"`;
+      if (processed.includes(placeholder)) {
+        processed = processed.replaceAll(placeholder, JSON.stringify(unwrapChartRows(value)));
+      }
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        for (const [subKey, subVal] of Object.entries(value as Record<string, unknown>)) {
+          const subPlaceholder = `"$chartData:${key}.${subKey}"`;
+          if (processed.includes(subPlaceholder)) {
+            processed = processed.replaceAll(subPlaceholder, JSON.stringify(subVal));
+          }
         }
       }
     }

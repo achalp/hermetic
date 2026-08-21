@@ -169,6 +169,10 @@ export async function saveHistoryEntry(input: HistorySaveInput): Promise<History
  */
 export async function pruneHistory(max = maxHistoryEntries()): Promise<number> {
   if (!Number.isFinite(max) || max <= 0) return 0;
+  // Cheap gate (perf P18): in the steady state (under cap) every save paid a
+  // full read+parse of up to `max` meta.json files just to prune nothing. One
+  // readdir count skips that; the full scan only runs when over the cap.
+  if ((await store().countRecords()) <= max) return 0;
   const metas = await listHistory(); // newest-first
   let pruned = 0;
   for (const victim of metas.slice(max)) {

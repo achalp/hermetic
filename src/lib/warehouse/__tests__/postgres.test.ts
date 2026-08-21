@@ -31,6 +31,10 @@ function makeClient() {
   };
 }
 
+/** Deferred pool.query registry: introspection tests resolve these manually to
+ *  pin that the four metadata queries run in PARALLEL (perf P16). */
+const poolQueries: { sql: string; resolve: (v: { rows: unknown[] }) => void }[] = [];
+
 vi.mock("pg", () => {
   class Pool {
     constructor(cfg: Record<string, unknown>) {
@@ -38,6 +42,10 @@ vi.mock("pg", () => {
     }
     connect() {
       return Promise.resolve(makeClient());
+    }
+    query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
+      executed.push({ sql, params });
+      return new Promise((resolve) => poolQueries.push({ sql, resolve }));
     }
     async end() {}
   }
@@ -58,6 +66,7 @@ const BASE: PostgresConnectionConfig = {
 
 beforeEach(() => {
   executed.length = 0;
+  poolQueries.length = 0;
   poolConfig = undefined;
   // Default: one page of two rows, then exhausted (len < batch → loop stops).
   let served = false;
@@ -154,5 +163,47 @@ describe("postgres executeSQL (finding 10 — streaming cursor)", () => {
     const cancel = executed.find((e) => /pg_cancel_backend/.test(e.sql));
     expect(cancel).toBeDefined();
     expect(cancel?.params).toEqual([4242]); // the captured backend pid
+  });
+});
+
+describe("introspectAllTables — parallel metadata queries (perf P16)", () => {
+  it("issues all four queries CONCURRENTLY and assembles the schema correctly", async () => {
+    const conn = createPostgresConnector(BASE);
+    const done = conn.introspectAllTables();
+
+    // Flush microtasks: with Promise.all, all 4 queries are in-flight BEFORE
+    // any resolves. The old serial code would have issued only 1 here.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(poolQueries).toHaveLength(4);
+    const sqls = poolQueries.map((q) => q.sql);
+    expect(sqls.some((s) => /information_schema\.columns/.test(s))).toBe(true);
+    expect(sqls.some((s) => /reltuples/.test(s))).toBe(true);
+    expect(sqls.some((s) => /PRIMARY KEY/.test(s))).toBe(true);
+    expect(sqls.some((s) => /FOREIGN KEY/.test(s))).toBe(true);
+
+    // Resolve each by shape and verify assembly is unchanged by the reorder.
+    for (const q of poolQueries) {
+      if (/information_schema\.columns/.test(q.sql)) {
+        q.resolve({
+          rows: [
+            { table_name: "orders", column_name: "id", data_type: "integer", is_nullable: "NO" },
+            { table_name: "orders", column_name: "amt", data_type: "numeric", is_nullable: "YES" },
+          ],
+        });
+      } else if (/reltuples/.test(q.sql)) {
+        q.resolve({ rows: [{ name: "orders", row_count: "42" }] });
+      } else if (/PRIMARY KEY/.test(q.sql)) {
+        q.resolve({ rows: [{ table_name: "orders", column_name: "id" }] });
+      } else {
+        q.resolve({ rows: [] });
+      }
+    }
+
+    const schemas = await done;
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0].name).toBe("orders");
+    expect(schemas[0].row_count_estimate).toBe(42);
+    expect(schemas[0].primary_key).toEqual(["id"]);
+    expect(schemas[0].columns.map((c) => c.name)).toEqual(["id", "amt"]);
   });
 });

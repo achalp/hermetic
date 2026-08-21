@@ -78,6 +78,16 @@ class TestSafeFloat(unittest.TestCase):
         self.assertEqual(safe_int(9.7), 9)
         self.assertIsNone(safe_int("n/a"))
 
+    def test_numpy_resolver_caches_after_first_call(self):
+        # perf P5: the per-element primitives must NOT run `import numpy` per
+        # call — the module resolves it once into a cached global. Pin the cache
+        # so a refactor back to per-call imports fails loudly.
+        from . import coerce
+
+        coerce.safe_float(1.5)
+        self.assertTrue(coerce._np_resolved)
+        self.assertIs(coerce._numpy(), coerce._np)
+
 
 class TestToNative(unittest.TestCase):
     def test_scalars_and_containers(self):

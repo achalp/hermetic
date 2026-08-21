@@ -35,7 +35,7 @@ import { setPathRoots } from "@/lib/paths";
 import { runPatchStream } from "@/lib/pipeline/patch-stream";
 import { runAskQuery } from "@/lib/pipeline/run-ask-query";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
-import { getStoredCSV } from "@/lib/csv/storage";
+import { getStoredCSV, getCSVContent, getWorkbookManifest } from "@/lib/csv/storage";
 import { composeAndStreamDashboard } from "@/lib/pipeline/dashboard-compose";
 import { parsePatchLines } from "@/lib/pipeline/patch-lines";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
@@ -158,5 +158,46 @@ describe("runAskQuery — CSV happy path", () => {
     expect(opts.schemaMode).toBe("sample");
     expect(opts.sight).toBe("sighted");
     expect(opts.drillDownContext?.filter_value).toBe("West");
+  });
+});
+
+describe("workbook sheets — parallel sibling reads (perf P12)", () => {
+  it("starts ALL sibling sheet reads before any resolves, and preserves manifest order", async () => {
+    const resolvers = new Map<string, (v: string) => void>();
+    const inFlight: string[] = [];
+    const sheetSchema = { row_count: 1, columns: [] };
+    vi.mocked(getWorkbookManifest).mockReturnValue({
+      sheets: [
+        { name: "Main", csvId: "csv-1", schema: sheetSchema },
+        { name: "Costs", csvId: "csv-2", schema: sheetSchema },
+        { name: "Refs", csvId: "csv-3", schema: sheetSchema },
+      ],
+      relationships: [],
+    } as never);
+    vi.mocked(getCSVContent).mockImplementation(async (id: string) => {
+      if (id === "csv-1") return "region,revenue\nWest,10\n";
+      inFlight.push(id);
+      return new Promise<string>((res) => resolvers.set(id, res));
+    });
+
+    const done = runPatchStream("test:ask", { write: () => {} }, async (stream) => {
+      await runAskQuery({ ...baseArgs(), stream } as never);
+    });
+
+    // Both sibling reads must be IN FLIGHT together (the old sequential loop
+    // would only have started csv-2 here, blocked on its resolution).
+    await vi.waitFor(() => expect(inFlight).toEqual(["csv-2", "csv-3"]));
+    resolvers.get("csv-2")!("cost\n1\n");
+    resolvers.get("csv-3")!("ref\n2\n");
+    await done;
+
+    // Assembly is byte-identical to the sequential version: both sheets staged,
+    // in manifest order (content-pinned; sheet-name sanitization is orthogonal).
+    const opts = mockedRunPipeline.mock.calls[0][3] as {
+      additionalFiles?: { path: string; content: string }[];
+      workbookContext?: string;
+    };
+    expect(opts.additionalFiles?.map((f) => f.content)).toEqual(["cost\n1\n", "ref\n2\n"]);
+    expect(opts.workbookContext).toBeTruthy();
   });
 });

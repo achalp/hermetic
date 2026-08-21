@@ -90,9 +90,11 @@ export function createSpecFinalizer(
       return { ...SKIP, raw: trimmed };
     }
 
-    // 1. Inline image placeholders (Ask mode only).
+    // 1. Inline image placeholders (Ask mode only). Guarded (perf P20): almost
+    // no lines carry an image token, and the per-key replaceAll otherwise scans
+    // every line against every placeholder with large base64 replacement values.
     let processed = trimmed;
-    if (config.imagePlaceholders) {
+    if (config.imagePlaceholders && processed.includes("IMAGE_PLACEHOLDER_")) {
       for (const [key, dataUri] of Object.entries(config.imagePlaceholders)) {
         processed = processed.replaceAll(`IMAGE_PLACEHOLDER_${key}`, dataUri);
       }

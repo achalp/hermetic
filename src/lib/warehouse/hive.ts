@@ -34,6 +34,9 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
   // write gate on this connector.
   const client = new HiveClient(TCLIService_types, TCLIService_types);
   let session: HiveSession | null = null;
+  /** Last listTables probe (tables + DESCRIBE rows), consumed AT MOST ONCE by
+   *  the introspect that follows on a cold connect — see listTables (perf P15). */
+  let lastProbe: { tables: string[]; described: Map<string, unknown[][]> } | null = null;
   let connected = false;
 
   const dbName = config.database || "default";
@@ -145,11 +148,13 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
       const { rows } = await runSessionQuery("SHOW TABLES");
 
       const tables: WarehouseTableInfo[] = [];
+      const described = new Map<string, unknown[][]>();
       for (const row of rows) {
         const tableName = String(row[0]);
         // Get column count via DESCRIBE
         try {
           const { rows: descRows } = await runSessionQuery(`DESCRIBE \`${tableName}\``);
+          described.set(tableName, descRows);
           const colCount = descRows.filter(
             (r) => r[0] && String(r[0]).trim() && !String(r[0]).startsWith("#")
           ).length;
@@ -170,20 +175,36 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
         }
       }
 
+      // Stash this probe's results for the introspect that follows on a cold
+      // connect (perf P15): the connect flow is listTables → introspectAllTables,
+      // and each used to re-issue the SAME SHOW TABLES + N DESCRIBEs — N+1
+      // duplicate Thrift round-trips. listTables ALWAYS queries fresh (it is the
+      // schema-change fingerprint probe, so it must never serve from a cache);
+      // the stash is consumed AT MOST ONCE so a later standalone introspect can
+      // never read stale results.
+      lastProbe = { tables: rows.map((r) => String(r[0])), described };
+
       return tables;
     },
 
     async introspectAllTables(): Promise<WarehouseTableSchema[]> {
       await ensureSession();
 
-      const { rows: tableRows } = await runSessionQuery("SHOW TABLES");
+      // Consume the immediately-preceding listTables probe when available
+      // (cold-connect flow) instead of re-issuing SHOW TABLES + per-table
+      // DESCRIBEs (perf P15). Consume-once: cleared before use.
+      const probe = lastProbe;
+      lastProbe = null;
+
+      const tableNames =
+        probe?.tables ?? (await runSessionQuery("SHOW TABLES")).rows.map((r) => String(r[0]));
       const schemas: WarehouseTableSchema[] = [];
 
-      for (const row of tableRows) {
-        const tableName = String(row[0]);
-
+      for (const tableName of tableNames) {
         try {
-          const { rows: descRows } = await runSessionQuery(`DESCRIBE \`${tableName}\``);
+          const descRows =
+            probe?.described.get(tableName) ??
+            (await runSessionQuery(`DESCRIBE \`${tableName}\``)).rows;
 
           const columns: WarehouseColumnInfo[] = [];
           for (const r of descRows) {

@@ -119,6 +119,19 @@ export class RecordDirStore {
     }
   }
 
+  /** Cheap record count: one readdir, no meta reads/parses (perf P18 — the
+   *  per-save prune gate must not pay an all-metas scan just to learn it is
+   *  under the cap, which is the steady state). */
+  async countRecords(): Promise<number> {
+    try {
+      await this.ensureDir();
+      const entries = await readdir(this.root, { withFileTypes: true });
+      return entries.filter((e) => e.isDirectory()).length;
+    } catch {
+      return 0;
+    }
+  }
+
   /** All record metas (corrupt entries skipped), unsorted — caller orders. */
   async listMetas<T>(): Promise<T[]> {
     try {

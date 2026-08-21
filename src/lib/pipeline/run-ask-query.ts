@@ -363,12 +363,21 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         if (manifest) {
           additionalFiles = [];
           const sheetPaths = new Map<string, string>();
-          for (const sheet of manifest.sheets) {
+          // Read all sibling sheets in PARALLEL (perf P12 — the sequential loop
+          // paid N serial disk reads before code-gen). Order is preserved by
+          // mapping over the manifest, so sheetPaths/additionalFiles are
+          // byte-identical to the sequential version.
+          const loaded = await Promise.all(
+            manifest.sheets.map(async (sheet) => ({
+              sheet,
+              content: sheet.csvId === csvId ? null : await getCSVContent(sheet.csvId),
+            }))
+          );
+          for (const { sheet, content } of loaded) {
             if (sheet.csvId === csvId) {
               sheetPaths.set(sheet.name, "/data/input.csv");
               continue;
             }
-            const content = await getCSVContent(sheet.csvId);
             if (content) {
               const safeName = sanitizeSheetName(sheet.name);
               const filePath = `/data/sheets/${safeName}.csv`;

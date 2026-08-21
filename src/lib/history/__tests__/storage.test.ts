@@ -68,6 +68,17 @@ describe("pruneHistory", () => {
     expect(entries.size).toBe(2);
   });
 
+  it("under the cap, reads NO meta.json — one readdir gates the whole scan (perf P18)", async () => {
+    // The steady state is under-cap: every save used to read+parse up to `max`
+    // meta files just to prune nothing. The gate must decide from a dir count.
+    addEntry(1000);
+    addEntry(2000);
+    const { readFile } = await import("fs/promises");
+    vi.mocked(readFile).mockClear();
+    expect(await pruneHistory(5)).toBe(0);
+    expect(vi.mocked(readFile)).not.toHaveBeenCalled();
+  });
+
   it("reads the cap from HERMETIC_MAX_HISTORY_ENTRIES", async () => {
     process.env.HERMETIC_MAX_HISTORY_ENTRIES = "2";
     for (const ts of [1, 2, 3, 4]) addEntry(ts);

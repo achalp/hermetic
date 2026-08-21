@@ -116,60 +116,61 @@ export function createPostgresConnector(config: PostgresConnectionConfig): Wareh
 
     async introspectAllTables(): Promise<WarehouseTableSchema[]> {
       // Get all columns for all tables in one query
-      const colRes = await pool.query(
-        `SELECT table_name, column_name, data_type, is_nullable
-         FROM information_schema.columns
-         WHERE table_schema = $1
-           AND table_name IN (
-             SELECT c.relname FROM pg_class c
-             JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = $1 AND c.relkind = 'r'
-           )
-         ORDER BY table_name, ordinal_position`,
-        [schemaName]
-      );
+      // The four introspection queries are independent reads — run them in
+      // PARALLEL over the pool (perf P16; max:3 pool, so 3 overlap and the 4th
+      // queues). Was 4 serial round-trips scaling with DB RTT.
+      const [colRes, countRes, pkRes, fkRes] = await Promise.all([
+        pool.query(
+          `SELECT table_name, column_name, data_type, is_nullable
+           FROM information_schema.columns
+           WHERE table_schema = $1
+             AND table_name IN (
+               SELECT c.relname FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = $1 AND c.relkind = 'r'
+             )
+           ORDER BY table_name, ordinal_position`,
+          [schemaName]
+        ),
+        pool.query(
+          `SELECT c.relname AS name, c.reltuples::bigint AS row_count
+           FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = $1 AND c.relkind = 'r'`,
+          [schemaName]
+        ),
+        pool.query(
+          `SELECT tc.table_name, kcu.column_name
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.key_column_usage kcu
+             ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+           WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
+           ORDER BY tc.table_name, kcu.ordinal_position`,
+          [schemaName]
+        ),
+        pool.query(
+          `SELECT tc.table_name, kcu.column_name,
+                  ccu.table_name AS references_table, ccu.column_name AS references_column
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.key_column_usage kcu
+             ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+           JOIN information_schema.constraint_column_usage ccu
+             ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+           WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1`,
+          [schemaName]
+        ),
+      ]);
 
-      // Get row counts
-      const countRes = await pool.query(
-        `SELECT c.relname AS name, c.reltuples::bigint AS row_count
-         FROM pg_class c
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE n.nspname = $1 AND c.relkind = 'r'`,
-        [schemaName]
-      );
       const rowCounts = new Map(
         countRes.rows.map((r) => [r.name, Math.max(0, Number(r.row_count))])
       );
 
-      // Get primary keys
-      const pkRes = await pool.query(
-        `SELECT tc.table_name, kcu.column_name
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.key_column_usage kcu
-           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-         WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
-         ORDER BY tc.table_name, kcu.ordinal_position`,
-        [schemaName]
-      );
       const primaryKeys = new Map<string, string[]>();
       for (const r of pkRes.rows) {
         const existing = primaryKeys.get(r.table_name) ?? [];
         existing.push(r.column_name);
         primaryKeys.set(r.table_name, existing);
       }
-
-      // Get foreign keys
-      const fkRes = await pool.query(
-        `SELECT tc.table_name, kcu.column_name,
-                ccu.table_name AS references_table, ccu.column_name AS references_column
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.key_column_usage kcu
-           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-         JOIN information_schema.constraint_column_usage ccu
-           ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
-         WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1`,
-        [schemaName]
-      );
       const foreignKeys = new Map<
         string,
         { column: string; references_table: string; references_column: string }[]
