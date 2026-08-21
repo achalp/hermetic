@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { ResponsiveLine } from "@nivo/line";
 import {
   useColorMap,
@@ -67,17 +68,26 @@ export function LineChartComponent({
   // catches the empty case before rendering.
   const y_keys = Array.isArray(props.y_keys) ? props.y_keys : [];
 
-  const raw = unwrapChartData(props.data);
-  const data = raw.filter((row) => row[props.x_key] != null);
+  // Memoized (perf P10): the filter + toNivoLineSeries auto-pivot (which scans
+  // every column's values in long format, O(cols×rows)) previously re-ran in
+  // the render body on every cross-filter click / expand / theme re-render.
+  const data = useMemo(
+    () => unwrapChartData(props.data).filter((row) => row[props.x_key] != null),
+    [props.data, props.x_key]
+  );
   const colors = useColorMap(y_keys, props.color_map);
   // Display labels: the legend and tooltip are prose, not schema. A reader
   // should never have to decode "churn_rate_pct_raw". Colors are positional,
   // so renaming the series id is safe.
-  const labelFor = (key: string): string => props.label_map?.[key] ?? key;
-  const series = toNivoLineSeries(data, props.x_key, y_keys).map((s) => ({
-    ...s,
-    id: labelFor(s.id),
-  }));
+  const series = useMemo(
+    () =>
+      toNivoLineSeries(data, props.x_key, y_keys).map((s) => ({
+        ...s,
+        id: props.label_map?.[s.id] ?? s.id,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, props.x_key, y_keys.join(" "), props.label_map]
+  );
   const curve = CURVE_MAP[props.curve ?? "monotone"];
   const tickValues = pickTickValues(data, props.x_key);
   const hasRotatedLabels = !!tickValues;

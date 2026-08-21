@@ -1,6 +1,7 @@
 "use client";
 
 import { clientLazy } from "@/components/lazy-client";
+import { jsonValueEqual } from "@/components/json-value-equal";
 import { defineRegistry, type Components } from "@/spec/react";
 import { catalog } from "@/lib/catalog";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
@@ -95,7 +96,13 @@ function lazyChart(loader: () => Promise<ComponentType<any>>): ComponentType<any
       const a = prev[key];
       const b = next[key];
       if (key === "props") {
-        if (JSON.stringify(a) !== JSON.stringify(b)) return false;
+        // Structural compare with JSON semantics (perf P8) — same memo behavior
+        // as the old double JSON.stringify, but no ~2×250KB string build per
+        // chart per render and early exit on the first difference. A SHALLOW
+        // compare is deliberately NOT used: the spec resolver rebuilds
+        // array/object literal props (data/y_keys/label_map) with fresh
+        // identities every render, so identity memoization would never hold.
+        if (!jsonValueEqual(a, b)) return false;
       } else if (typeof a === "function" && typeof b === "function") {
         continue;
       } else if (a !== b) {

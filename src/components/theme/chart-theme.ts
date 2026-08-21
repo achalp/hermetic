@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { PartialTheme } from "@nivo/theming";
 import { useTheme, type ThemeId } from "./theme-context";
 import { useThemeConfig } from "./theme-config";
@@ -413,11 +413,15 @@ export function useColorMap(
   colorMap?: Record<string, string> | null
 ): string[] {
   const themeColors = useChartColors();
-  const safeKeys = Array.isArray(keys) ? keys : [];
-  if (!colorMap) return themeColors.slice(0, Math.max(safeKeys.length, 1));
-  return safeKeys.map(
-    (k, i) => resolveColor(colorMap[k] ?? "") || themeColors[i % themeColors.length]
-  );
+  // Memoized (perf P10): the array is passed as `colors={...}` to nivo — a
+  // fresh identity per render forced downstream recomputation.
+  return useMemo(() => {
+    const safeKeys = Array.isArray(keys) ? keys : [];
+    if (!colorMap) return themeColors.slice(0, Math.max(safeKeys.length, 1));
+    return safeKeys.map(
+      (k, i) => resolveColor(colorMap[k] ?? "") || themeColors[i % themeColors.length]
+    );
+  }, [keys, colorMap, themeColors]);
 }
 
 /** Get theme-appropriate trend (up/down) colors for candlesticks, regression lines, etc. */
@@ -513,43 +517,48 @@ export function useNivoTheme(): PartialTheme {
   const { theme } = useTheme();
   const config = useThemeConfig();
   const { chart } = config;
-  const surface = (THEME_CHART_SURFACE[theme] ?? THEME_CHART_SURFACE.vanilla)[
-    dark ? "dark" : "light"
-  ];
+  // Memoized (perf P10): this object is passed as `theme={...}` to nivo — a
+  // fresh identity per render defeated nivo's internal layer memoization
+  // whenever a chart re-rendered for an unrelated reason.
+  return useMemo(() => {
+    const surface = (THEME_CHART_SURFACE[theme] ?? THEME_CHART_SURFACE.vanilla)[
+      dark ? "dark" : "light"
+    ];
 
-  const textColor = surface.text;
-  const baseGridColor = `rgba(${surface.gridBase},${chart.gridOpacity})`;
+    const textColor = surface.text;
+    const baseGridColor = `rgba(${surface.gridBase},${chart.gridOpacity})`;
 
-  // Make tooltip border dark-mode aware for themes that use it
-  const tooltipBorder =
-    chart.tooltipBorder !== "none"
-      ? dark
-        ? chart.tooltipBorder.replace("rgba(0,0,0,", "rgba(255,255,255,")
-        : chart.tooltipBorder
-      : undefined;
+    // Make tooltip border dark-mode aware for themes that use it
+    const tooltipBorder =
+      chart.tooltipBorder !== "none"
+        ? dark
+          ? chart.tooltipBorder.replace("rgba(0,0,0,", "rgba(255,255,255,")
+          : chart.tooltipBorder
+        : undefined;
 
-  return {
-    text: { fill: textColor, fontSize: chart.fontSize },
-    axis: {
-      ticks: { text: { fill: textColor, fontSize: chart.fontSize - 1 } },
-      legend: { text: { fill: textColor, fontSize: chart.fontSize } },
-    },
-    grid: {
-      line: {
-        stroke: baseGridColor,
-        ...(chart.gridDash ? { strokeDasharray: chart.gridDash } : {}),
+    return {
+      text: { fill: textColor, fontSize: chart.fontSize },
+      axis: {
+        ticks: { text: { fill: textColor, fontSize: chart.fontSize - 1 } },
+        legend: { text: { fill: textColor, fontSize: chart.fontSize } },
       },
-    },
-    tooltip: {
-      container: {
-        background: surface.tooltipBg,
-        color: surface.text,
-        fontSize: chart.fontSize,
-        borderRadius: chart.tooltipRadius,
-        boxShadow: chart.tooltipShadow,
-        ...(tooltipBorder ? { border: tooltipBorder } : {}),
+      grid: {
+        line: {
+          stroke: baseGridColor,
+          ...(chart.gridDash ? { strokeDasharray: chart.gridDash } : {}),
+        },
       },
-    },
-    legends: { text: { fill: textColor, fontSize: chart.fontSize - 1 } },
-  };
+      tooltip: {
+        container: {
+          background: surface.tooltipBg,
+          color: surface.text,
+          fontSize: chart.fontSize,
+          borderRadius: chart.tooltipRadius,
+          boxShadow: chart.tooltipShadow,
+          ...(tooltipBorder ? { border: tooltipBorder } : {}),
+        },
+      },
+      legends: { text: { fill: textColor, fontSize: chart.fontSize - 1 } },
+    };
+  }, [dark, theme, chart]);
 }

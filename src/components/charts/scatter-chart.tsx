@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { ResponsiveScatterPlot, ScatterPlotCustomSvgLayer } from "@nivo/scatterplot";
 import {
   useChartColors,
@@ -53,6 +54,56 @@ function linearRegression(data: Point[]) {
   return { slope, intercept };
 }
 
+/**
+ * Extract, validate, group, and bound the scatter points in ONE pass each.
+ * Pure — extracted for unit tests and memoization (perf P10: this ran in the
+ * render body per re-render, with per-group `filter` scans — O(groups×points) —
+ * and `Math.min(...spread)` over every point, which also RangeErrors on huge
+ * arrays). Bucketing via a Map preserves the exact first-appearance group order
+ * and within-group point order of the old filter-per-group code.
+ */
+export function buildScatterData(
+  rawData: Record<string, unknown>[],
+  xKey: string,
+  yKey: string,
+  groupKey: string | null
+): {
+  points: (Point & { group: string })[];
+  groupNames: string[];
+  series: { id: string; data: { x: number; y: number }[] }[];
+  minX: number;
+  maxX: number;
+} {
+  const points: (Point & { group: string })[] = [];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  const buckets = new Map<string, { x: number; y: number }[]>();
+  for (const d of rawData) {
+    const x = Number(d[xKey]);
+    const y = Number(d[yKey]);
+    if (isNaN(x) || isNaN(y)) continue;
+    const group = groupKey ? String(d[groupKey] ?? "default") : "default";
+    points.push({ x, y, group });
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    let bucket = buckets.get(group);
+    if (!bucket) {
+      bucket = [];
+      buckets.set(group, bucket);
+    }
+    bucket.push({ x, y });
+  }
+  const groupNames = [...buckets.keys()];
+  const series = groupNames.map((id) => ({ id, data: buckets.get(id)! }));
+  return {
+    points,
+    groupNames,
+    series,
+    minX: points.length > 0 ? minX : 0,
+    maxX: points.length > 0 ? maxX : 0,
+  };
+}
+
 export function ScatterChartComponent({
   props,
   emit,
@@ -74,36 +125,28 @@ export function ScatterChartComponent({
   const isExpanded = useChartExpanded();
 
   const rawData = unwrapChartData(props.data);
-  if (rawData.length === 0) {
-    return <ChartEmptyState height={chart.height} />;
-  }
-
   const xKey = props.x_key ?? "x";
   const yKey = props.y_key ?? "y";
   const groupKey = props.group_key ?? props.color_by ?? null;
 
-  // Extract and validate points
-  const points = rawData
-    .map((d) => ({
-      x: Number(d[xKey]),
-      y: Number(d[yKey]),
-      group: groupKey ? String(d[groupKey] ?? "default") : "default",
-    }))
-    .filter((p) => !isNaN(p.x) && !isNaN(p.y));
+  // Memoized single-pass extract/group/bounds (perf P10). Hooks stay ABOVE the
+  // empty-state early returns (rules of hooks).
+  const { points, groupNames, series, minX, maxX } = useMemo(
+    () => buildScatterData(rawData, xKey, yKey, groupKey),
+    [rawData, xKey, yKey, groupKey]
+  );
+  // Regression is O(points) — recompute only when the points change.
+  const regression = useMemo(
+    () => (props.show_regression && points.length > 0 ? linearRegression(points) : null),
+    [points, props.show_regression]
+  );
 
   if (points.length === 0) {
     return <ChartEmptyState height={chart.height} />;
   }
 
-  // Group data into nivo series format
-  const groupNames = groupKey ? Array.from(new Set(points.map((p) => p.group))) : ["default"];
-
-  const nivoData = groupNames.map((group, i) => ({
-    id: group,
-    data: (groupKey ? points.filter((p) => p.group === group) : points).map((p) => ({
-      x: p.x,
-      y: p.y,
-    })),
+  const nivoData = series.map((s, i) => ({
+    ...s,
     color: chartColors[i % chartColors.length],
   }));
 
@@ -118,12 +161,8 @@ export function ScatterChartComponent({
     hasMultipleGroups && !isExpanded && groupNames.length <= MAX_INLINE_LEGEND_GROUPS;
   const showCustomLegend = hasMultipleGroups && isExpanded;
 
-  // Regression line as a custom SVG layer
-  const regression = props.show_regression ? linearRegression(points) : null;
-
-  const minX = Math.min(...points.map((p) => p.x));
-  const maxX = Math.max(...points.map((p) => p.x));
-
+  // Regression line as a custom SVG layer (regression/minX/maxX are memoized
+  // above with the point extraction — perf P10).
   const regressionLayer: ScatterPlotCustomSvgLayer<{ x: number; y: number }> = ({
     xScale,
     yScale,

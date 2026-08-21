@@ -31,6 +31,43 @@ interface EventHandle {
   shouldPreventDefault: boolean;
 }
 
+/**
+ * Normalize LLM-shaped rows to nivo pie data: accept `label`/`value` keys or
+ * infer them (first string-ish → label, first number-ish → value), round to
+ * 2dp, and de-duplicate ids with an index suffix (React key warnings). Pure —
+ * extracted for unit tests and memoization (perf P10); the dedup is O(n) via a
+ * counting map (was O(n²): a slice+filter scan per row), with byte-identical
+ * "(2)", "(3)"… suffixing.
+ */
+export function normalizePieData(
+  rawData: Record<string, unknown>[]
+): { id: string; value: number }[] {
+  const normalized = rawData
+    .map((d) => {
+      if (d.label !== undefined && d.value !== undefined) {
+        return { id: String(d.label), value: Math.round(Number(d.value) * 100) / 100 };
+      }
+      const entries = Object.entries(d as Record<string, unknown>);
+      let label: string | undefined;
+      let value: number | undefined;
+      for (const [, v] of entries) {
+        if (label === undefined && typeof v === "string") label = v;
+        if (value === undefined && typeof v === "number") value = v;
+      }
+      if (label !== undefined && value !== undefined) {
+        return { id: label, value: Math.round(value * 100) / 100 };
+      }
+      return null;
+    })
+    .filter((d): d is { id: string; value: number } => d !== null && !isNaN(d.value));
+  const seen = new Map<string, number>();
+  return normalized.map((d) => {
+    const n = seen.get(d.id) ?? 0;
+    seen.set(d.id, n + 1);
+    return n > 0 ? { ...d, id: `${d.id} (${n + 1})` } : d;
+  });
+}
+
 export function PieChartComponent({
   props,
   emit,
@@ -65,32 +102,9 @@ export function PieChartComponent({
 
   const rawData = unwrapChartData(props.data);
 
-  // Normalize data: the LLM may use keys other than "label"/"value".
-  // Try to infer the correct keys from the first row.
-  const nivoData = rawData
-    .map((d) => {
-      if (d.label !== undefined && d.value !== undefined) {
-        return { id: String(d.label), value: Math.round(Number(d.value) * 100) / 100 };
-      }
-      // Infer: first string-ish key → label, first number-ish key → value
-      const entries = Object.entries(d as Record<string, unknown>);
-      let label: string | undefined;
-      let value: number | undefined;
-      for (const [, v] of entries) {
-        if (label === undefined && typeof v === "string") label = v;
-        if (value === undefined && typeof v === "number") value = v;
-      }
-      if (label !== undefined && value !== undefined) {
-        return { id: label, value: Math.round(value * 100) / 100 };
-      }
-      return null;
-    })
-    .filter((d): d is { id: string; value: number } => d !== null && !isNaN(d.value))
-    // Deduplicate ids: append index suffix for duplicates to avoid React key warnings
-    .map((d, i, arr) => {
-      const dupesBefore = arr.slice(0, i).filter((x) => x.id === d.id).length;
-      return dupesBefore > 0 ? { ...d, id: `${d.id} (${dupesBefore + 1})` } : d;
-    });
+  // Memoized (perf P10) — and the id-dedup is now O(n) via a counting map
+  // (was O(n²): a slice+filter scan per row), byte-identical suffixing.
+  const nivoData = useMemo(() => normalizePieData(rawData), [rawData]);
 
   const themeColors = useChartColors();
   const baseColors = props.colors
