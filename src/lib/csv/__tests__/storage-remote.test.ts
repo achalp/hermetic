@@ -27,3 +27,14 @@ describe("storeRemoteParquetRef / isRemoteFile", () => {
     expect(isRemoteFile("does-not-exist")).toBe(false);
   });
 });
+
+describe("L3: getCSVContent must not destroy ref entries (empty filePath)", () => {
+  it("returns null WITHOUT deleting a parquet-ref/remote entry", async () => {
+    const { storeCSV, getCSVContent, getStoredCSV } = await import("@/lib/csv/storage");
+    await storeCSV("ref-1", "", { filename: "x.parquet", row_count: 1, columns: [] } as never);
+    const entry = getStoredCSV("ref-1")!;
+    (entry as { filePath: string }).filePath = ""; // parquet-ref shape
+    expect(await getCSVContent("ref-1")).toBeNull();
+    expect(getStoredCSV("ref-1")).toBeDefined(); // live source ref SURVIVES
+  });
+});

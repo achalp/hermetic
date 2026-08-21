@@ -6,6 +6,7 @@ import {
   isLocalFile,
   isRemoteFile,
 } from "@/lib/csv/storage";
+import { getRunSignal } from "@/lib/pipeline/run-control";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
 import { runWithCostTracking } from "@/lib/cost/accumulator";
@@ -223,6 +224,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             });
             try {
               const outcome = await runWarehouseQuery({
+                signal: getRunSignal(),
                 tables: warehouse.tableSchemas,
                 connector,
                 warehouseType: warehouse.config.type,

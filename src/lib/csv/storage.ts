@@ -159,6 +159,13 @@ export function getStoredCSV(csvId: string): StoredCSV | undefined {
 export async function getCSVContent(csvId: string): Promise<string | null> {
   const entry = getStoredCSV(csvId);
   if (!entry) return null;
+  // L3 contract fix: parquet-ref/remote entries carry filePath "" — their
+  // content legitimately lives elsewhere. Deleting the entry on ANY read
+  // failure destroyed the LIVE source ref when an unguarded route (vizs/save,
+  // rerun) called this for such an entry; every later query then failed
+  // "CSV not found or expired". Only a real stored file that has vanished
+  // evicts the entry.
+  if (!entry.filePath) return null;
   try {
     return await readFile(entry.filePath, "utf-8");
   } catch {

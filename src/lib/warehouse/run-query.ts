@@ -84,6 +84,11 @@ export async function scanWindowHint(args: {
 export async function runWarehouseQuery(args: {
   tables: WarehouseTableSchema[];
   connector: WarehouseConnector;
+  /** The run's stop signal (L3 fix: every connector implements SERVER-side
+   *  cancellation — pg_cancel_backend, BigQuery job.cancel, ClickHouse HTTP
+   *  abort — but no caller passed a signal, so Stop left warehouse queries
+   *  running and BigQuery billing). Callers pass getRunSignal(). */
+  signal?: AbortSignal;
   warehouseType: WarehouseType;
   /** The framed question (Ask: the user's question; Investigate: the row-pull prompt). */
   question: string;
@@ -118,7 +123,9 @@ export async function runWarehouseQuery(args: {
         // "Cannot connect to API"). Hold the wake lock for the execution, same
         // as the Docker sandbox — this path was the one gap the sandbox-only
         // wake lock left open.
-        const csv = await withWakeLock("warehouse-query", () => args.connector.executeSQL(sql));
+        const csv = await withWakeLock("warehouse-query", () =>
+          args.connector.executeSQL(sql, args.signal)
+        );
         if (!csv || csv.trim() === "") throw new Error("SQL query returned no results");
         return csv;
       } catch (err) {

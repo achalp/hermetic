@@ -6,6 +6,7 @@ import {
   type InvestigateProgressEvent,
 } from "@/lib/pipeline/investigate-orchestrator";
 import { mergeStepEntries, buildDataQuality } from "./investigate-merge";
+import { getRunSignal } from "@/lib/pipeline/run-control";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { prewarmCodeGenCache } from "@/lib/llm/code-generation";
 import { runWithCostTracking } from "@/lib/cost/accumulator";
@@ -215,6 +216,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           let warehouseCsvContent: string;
           try {
             const outcome = await runWarehouseQuery({
+              signal: getRunSignal(),
               tables: warehouse.tableSchemas,
               connector,
               warehouseType: warehouse.config.type,
