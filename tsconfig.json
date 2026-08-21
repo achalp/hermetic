@@ -5,6 +5,14 @@
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
+    // Static-analysis L1 (verified 0 errors before adoption): a switch case
+    // falling through silently and a code path returning undefined implicitly
+    // are now compile errors forever, not advisory checks. The heavier flags
+    // (noUncheckedIndexedAccess: 1155 hits, exactOptionalPropertyTypes: 423)
+    // were sampled in security-critical files — all in-range-by-construction —
+    // and stay unadopted; enabling them wholesale would bury real signal.
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
