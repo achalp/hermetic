@@ -202,10 +202,18 @@ export function prepareWarmSandbox(
   additionalFiles?: AdditionalFile[]
 ): void {
   const rt = runtime ?? getActiveSandboxRuntime();
-  // Lazy-initialize backends, then prepare data (all fire-and-forget)
-  ensureBackendRegistered(rt).then((manager) => {
-    manager?.prepareData(csvId, csvContent, geojsonContent, additionalFiles);
-  });
+  // Lazy-initialize backends, then prepare data (all fire-and-forget).
+  // The .catch is defensive (static-analysis sweep): prepareData catches
+  // internally today, but an ensureBackendRegistered rejection (failed dynamic
+  // import, future backend-constructor throw) would otherwise surface as an
+  // unhandled rejection instead of a scoped warning.
+  ensureBackendRegistered(rt)
+    .then((manager) => {
+      manager?.prepareData(csvId, csvContent, geojsonContent, additionalFiles);
+    })
+    .catch((err) => {
+      logger.warn("Warm sandbox registration failed", { error: String(err) });
+    });
 }
 
 /** Warm up the (Docker) sandbox runtime. */
