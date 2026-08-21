@@ -143,10 +143,11 @@ export class DockerWarmBackend implements WarmSandboxBackend {
       logger.warn("Warm Docker: tar staging fell back to per-file writes", {
         error: errMessage(stageErr),
       });
+      ok = true;
       for (const file of toWrite) {
         const safePath = file.path.replace(/'/g, "'\\''");
         const safeDir = safePath.slice(0, safePath.lastIndexOf("/")) || "/data";
-        await run(
+        const w = await run(
           "docker",
           [
             "exec",
@@ -158,8 +159,11 @@ export class DockerWarmBackend implements WarmSandboxBackend {
           ],
           { input: file.content, timeoutMs: 15_000 }
         );
+        // L3 sweep: a nonzero-exit fallback write must NOT teach the skip set —
+        // recording an unwritten file's hash is an ABSORBING state (every later
+        // warm run would skip staging a file that isn't there).
+        if (w.exitCode !== 0) ok = false;
       }
-      ok = true; // per-file path matches the legacy behavior (no exit checks)
     }
     // Record ONLY verified writes — a failed cp must not teach the skip set.
     if (ok) {

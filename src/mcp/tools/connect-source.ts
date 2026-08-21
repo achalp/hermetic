@@ -187,27 +187,37 @@ async function connectWarehouse(
     );
   }
   const connector = deps.createConnector(saved.config);
-  await connector.testConnection();
-
-  // Cached, relationship-enriched introspection — the SAME path the web
-  // connect route uses (lib/warehouse/introspect.ts): schema-cache keyed by
-  // warehouseSourceKey, fingerprint-gated on the cheap table listing, with
-  // inferRelationships baked into the cached artifact. The raw fallback
-  // serves fake-deps suites that predate the seam.
   let tableInfos: WarehouseTableInfo[];
   let tableSchemas: WarehouseTableSchema[];
-  if (deps.introspectWithCache) {
-    ({ tables: tableInfos, tableSchemas } = await deps.introspectWithCache(
-      connector,
-      saved.config
-    ));
-  } else {
-    tableSchemas = await connector.introspectAllTables();
-    tableInfos = await connector.listTables();
+  // L3 sweep: until registerSource takes ownership below, THIS scope owns the
+  // connector — a failing testConnection/introspection must close it (the web
+  // connect route does; this path leaked credentialed sessions per failed
+  // connect, freed only at process exit).
+  try {
+    await connector.testConnection();
+
+    // Cached, relationship-enriched introspection — the SAME path the web
+    // connect route uses (lib/warehouse/introspect.ts): schema-cache keyed by
+    // warehouseSourceKey, fingerprint-gated on the cheap table listing, with
+    // inferRelationships baked into the cached artifact. The raw fallback
+    // serves fake-deps suites that predate the seam.
+    if (deps.introspectWithCache) {
+      ({ tables: tableInfos, tableSchemas } = await deps.introspectWithCache(
+        connector,
+        saved.config
+      ));
+    } else {
+      tableSchemas = await connector.introspectAllTables();
+      tableInfos = await connector.listTables();
+    }
+
+    // Flatten per-table FKs (native + inferred) into one join list — on the
+    // source so get_schema can surface it, and on the connect response now.
+  } catch (err) {
+    await connector.close().catch(() => {});
+    throw err;
   }
 
-  // Flatten per-table FKs (native + inferred) into one join list — on the
-  // source so get_schema can surface it, and on the connect response now.
   const relationships = tableSchemas.flatMap((t) =>
     (t.foreign_keys ?? []).map((fk) => ({ table: t.name, ...fk }))
   );

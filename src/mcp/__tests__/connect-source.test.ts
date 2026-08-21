@@ -318,3 +318,26 @@ describe("connect_source(connection_id) — shared cached introspection", () => 
     expect(connected.relationships).toBeUndefined();
   });
 });
+
+describe("L3: connector closed when connect fails before ownership transfer", () => {
+  it("closes the connector when testConnection throws (was a credentialed-session leak)", async () => {
+    const connector = fakeConnector();
+    connector.testConnection = async () => {
+      throw new Error("auth refused");
+    };
+    const closed: number[] = [];
+    const origClose = connector.close;
+    connector.close = async () => {
+      closed.push(1);
+      await origClose?.();
+    };
+    const { deps } = fakeDeps(connector);
+    const client = await connectedClient(deps, audit);
+    const res = await client.callTool({
+      name: "connect_source",
+      arguments: { connection_id: "conn-1" },
+    });
+    expect(res.isError).toBe(true);
+    expect(closed.length).toBe(1); // freed, not leaked until process exit
+  });
+});

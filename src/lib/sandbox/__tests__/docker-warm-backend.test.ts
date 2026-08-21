@@ -228,3 +228,20 @@ describe("DockerWarmBackend.warmup", () => {
     await expect(new DockerWarmBackend().warmup()).rejects.toThrow(/Range of CPUs/);
   });
 });
+
+it("L3: a nonzero-exit FALLBACK write does not teach the skip set", async () => {
+  const backend = new DockerWarmBackend();
+  // Non-ASCII path → tar builder rejects → per-file fallback; the write FAILS.
+  const weird = { path: "/data/skill_lib/héllo.py", content: "x" };
+  mockedRun.mockImplementation(async (_c, args) =>
+    args.join(" ").includes("cat > ")
+      ? { stdout: "", stderr: "disk full", exitCode: 1 }
+      : { stdout: "0", stderr: "", exitCode: 0 }
+  );
+  await backend.writeFiles([weird]);
+  // Not recorded → retried (and now succeeding) on the next run.
+  mockedRun.mockResolvedValue({ stdout: "0", stderr: "", exitCode: 0 });
+  mockedRun.mockClear();
+  await backend.writeFiles([weird]);
+  expect(mockedRun.mock.calls.some(([, a]) => a.join(" ").includes("cat > "))).toBe(true);
+});
