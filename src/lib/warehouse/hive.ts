@@ -95,45 +95,50 @@ export function createHiveConnector(config: HiveConnectionConfig): WarehouseConn
       runAsync: false,
     });
 
-    const columns: string[] = [];
-    const rows: unknown[][] = [];
+    // try/finally mirrors executeSQL below: a getSchema/fetchChunk throw must
+    // still close the operation handle, or every failed query leaks one on
+    // the server side for the session's lifetime.
+    try {
+      const columns: string[] = [];
+      const rows: unknown[][] = [];
 
-    // Get schema (column names)
-    const schema = await operation.getSchema();
-    if (schema?.columns) {
-      for (const col of schema.columns) {
-        columns.push(col.columnName);
-      }
-    }
-
-    // Fetch all rows
-    let hasMore = true;
-    while (hasMore) {
-      if (signal?.aborted) {
-        await operation.close().catch(() => {});
-        const e = new Error("Query aborted");
-        e.name = "AbortError";
-        throw e;
-      }
-      const result = await operation.fetchChunk({ maxRows: 10000 });
-      if (result && result.length > 0) {
-        for (const row of result) {
-          if (Array.isArray(row)) {
-            rows.push(row);
-          } else if (typeof row === "object" && row !== null) {
-            rows.push(columns.map((c) => (row as Record<string, unknown>)[c]));
-          }
+      // Get schema (column names)
+      const schema = await operation.getSchema();
+      if (schema?.columns) {
+        for (const col of schema.columns) {
+          columns.push(col.columnName);
         }
-      } else {
-        hasMore = false;
       }
-      if (hasMore) {
-        hasMore = await operation.hasMoreRows();
-      }
-    }
 
-    await operation.close();
-    return { columns, rows };
+      // Fetch all rows
+      let hasMore = true;
+      while (hasMore) {
+        if (signal?.aborted) {
+          const e = new Error("Query aborted");
+          e.name = "AbortError";
+          throw e;
+        }
+        const result = await operation.fetchChunk({ maxRows: 10000 });
+        if (result && result.length > 0) {
+          for (const row of result) {
+            if (Array.isArray(row)) {
+              rows.push(row);
+            } else if (typeof row === "object" && row !== null) {
+              rows.push(columns.map((c) => (row as Record<string, unknown>)[c]));
+            }
+          }
+        } else {
+          hasMore = false;
+        }
+        if (hasMore) {
+          hasMore = await operation.hasMoreRows();
+        }
+      }
+
+      return { columns, rows };
+    } finally {
+      await operation.close().catch(() => {});
+    }
   }
 
   return {

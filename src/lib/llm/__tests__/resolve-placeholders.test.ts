@@ -811,3 +811,55 @@ describe("currency bindings render as money", () => {
     expect(out).not.toContain("13.08 ");
   });
 });
+
+describe("step-qualified finding FIELD paths (L3 backlog #2)", () => {
+  // Investigate merges per-step findings under dotted TOP-LEVEL keys
+  // ("step_2.churn_trend"). A first-dot-only split resolved the bare name
+  // but never a field beneath it — resolveKeyPath must try the LONGEST
+  // dotted prefix as a single key first.
+  const findings = {
+    "step_2.churn_trend": { direction: "falling", slope: -0.4, p_value: 0.003 },
+    "step_2.mom_change": 1.2,
+    "significant_at_0.05": true,
+    trend: { p_value: 0.01 },
+  };
+
+  it("resolves $finding:step_2.churn_trend.direction (key at the SECOND dot)", () => {
+    const out = resolveSpecPlaceholders(
+      '{"content": "Churn is $finding:step_2.churn_trend.direction over H2."}',
+      {},
+      {},
+      findings
+    );
+    expect(out).toContain("Churn is falling over H2.");
+  });
+
+  it("value-form field path under a step-qualified key resolves too", () => {
+    expect(
+      resolveSpecPlaceholders('{"value": "$finding:step_2.churn_trend.slope"}', {}, {}, findings)
+    ).toBe('{"value": -0.4}');
+  });
+
+  it("keys with literal dots still resolve whole ($finding + $result parity)", () => {
+    expect(
+      resolveSpecPlaceholders('{"value": "$finding:significant_at_0.05"}', {}, {}, findings)
+    ).toBe('{"value": true}');
+    expect(
+      resolveSpecPlaceholders(
+        '{"value": "$result:significant_at_0.05"}',
+        { "significant_at_0.05": true },
+        {}
+      )
+    ).toBe('{"value": true}');
+  });
+
+  it("falls back to a shorter prefix when the longer key lacks the field", () => {
+    // The longest dotted prefix ("a.b") exists but misses the tail; the
+    // shorter split (a → b → c) resolves — greedy must not stop at the
+    // first prefix hit.
+    const layered = { "a.b": { other: 2 }, a: { b: { c: 1 } } };
+    expect(resolveSpecPlaceholders('{"value": "$finding:a.b.c"}', {}, {}, layered)).toBe(
+      '{"value": 1}'
+    );
+  });
+});

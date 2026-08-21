@@ -4,6 +4,10 @@ import { describe, it, expect, vi } from "vitest";
 
 /** Every statement the (mock) server received — the P15 test counts round-trips. */
 const executedSql: string[] = [];
+/** Statements whose operation handle was CLOSED — the leak test (L3 #10). */
+const closedSql: string[] = [];
+/** When set, fetchChunk throws for matching statements. */
+let throwFetchFor: RegExp | null = null;
 
 /** SQL-aware operation: SHOW TABLES / DESCRIBE / data queries each yield the
  *  right row shape, one chunk then exhausted. */
@@ -24,9 +28,14 @@ function opFor(sql: string) {
   };
   return {
     getSchema: async () => ({ columns: [{ columnName: "a" }, { columnName: "b" }] }),
-    fetchChunk: async () => (served ? [] : ((served = true), rowsFor())),
+    fetchChunk: async () => {
+      if (throwFetchFor?.test(sql)) throw new Error("thrift transport error mid-fetch");
+      return served ? [] : ((served = true), rowsFor());
+    },
     hasMoreRows: async () => false,
-    close: async () => {},
+    close: async () => {
+      closedSql.push(sql);
+    },
   };
 }
 
@@ -67,6 +76,20 @@ describe("hive connector", () => {
   it("rejects a write at the read-only gate", async () => {
     const conn = createConnector(CONFIG);
     await expect(async () => conn.executeSQL("INSERT INTO t VALUES (1)")).rejects.toThrow();
+  });
+
+  it("a fetchChunk throw still closes the operation handle (L3 backlog #10)", async () => {
+    // runSessionQuery closed only on the success/abort paths; a thrift throw
+    // mid-fetch leaked the server-side operation for the session's lifetime.
+    closedSql.length = 0;
+    throwFetchFor = /^SELECT 1$/;
+    try {
+      const conn = createConnector(CONFIG);
+      await expect(conn.testConnection()).rejects.toThrow("thrift transport error mid-fetch");
+      expect(closedSql).toContain("SELECT 1");
+    } finally {
+      throwFetchFor = null;
+    }
   });
 
   it("cold connect: introspectAllTables reuses the listTables probe — no duplicate SHOW/DESCRIBE (perf P15)", async () => {

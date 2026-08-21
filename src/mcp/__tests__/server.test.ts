@@ -1671,3 +1671,112 @@ describe("truncateAtBoundary (deep-dive summary cap, run-4 fix)", () => {
     expect(truncateAtBoundary("short", 100)).toBe("short");
   });
 });
+
+describe("dashboard plan tools resolve source_id → csvId (L3 backlog #1)", () => {
+  // getEditSurface/editDashboard key artifacts by csvId; the MCP registry
+  // hands hosts a DIFFERENT id (source_id). Passing source_id straight
+  // through silently found no artifacts for every valid source.
+  const planFinding = {
+    name: "price_trend",
+    dtype: "direction",
+    definition: "price_trend over the observed period",
+    value: { direction: "rising", slope_per_period: 0.06, p_value: 1.9e-12 },
+  };
+  const planArtifacts = {
+    code: "",
+    question: "How have prices changed?",
+    results: {},
+    chart_data: {},
+    datasets: {},
+    execution_ms: 0,
+    findings: { manifest_version: "1", findings: [planFinding] },
+    series: [
+      {
+        id: "annual_prices",
+        rows: [{ year: 1900, median: 0.3, n: 5000 }],
+        roles: {
+          x: { column: "year", kind: "temporal" },
+          measures: [{ column: "median", unit: "usd" }],
+          count: { column: "n" },
+        },
+      },
+    ],
+    plan: {
+      mode: "compiled",
+      purpose: "report",
+      plan: { nodes: [{ id: "n_a", op: "ANSWER", refs: ["price_trend"] }] },
+      overlay: {},
+    },
+  };
+
+  async function clientWithCompiledDashboard() {
+    const csvPath = join(dir, "rev.csv");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(csvPath, CSV_TEXT);
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { path: csvPath } })
+    ) as { source_id: string };
+    // Cache the compiled-run artifacts under the source's INTERNAL csvId —
+    // exactly where the pipeline writes them (never under the registry id).
+    const { getSource } = await import("../sources");
+    const csvId = (getSource(source_id) as { csvId: string }).csvId;
+    expect(csvId).not.toBe(source_id); // the ids genuinely differ
+    const { cacheArtifacts } = await import("@/lib/pipeline/artifacts-cache");
+    cacheArtifacts(csvId, planArtifacts as never);
+    return { client, source_id };
+  }
+
+  it("get_dashboard_plan finds the surface cached under the source's csvId", async () => {
+    const { client, source_id } = await clientWithCompiledDashboard();
+    const res = await client.callTool({
+      name: "get_dashboard_plan",
+      arguments: { source_id },
+    });
+    expect((res as { isError?: boolean }).isError).toBeFalsy();
+    const body = parseToolJson(res);
+    const plan = body.plan as { plan: { nodes: Array<{ id: string }> } };
+    expect(plan.plan.nodes.map((n) => n.id)).toContain("n_a");
+  });
+
+  it("edit_dashboard applies mutations against the source's csvId", async () => {
+    const { client, source_id } = await clientWithCompiledDashboard();
+    const res = await client.callTool({
+      name: "edit_dashboard",
+      arguments: { source_id, mutations: [{ kind: "hide", id: "n_a" }] },
+    });
+    expect((res as { isError?: boolean }).isError).toBeFalsy();
+    const body = parseToolJson(res);
+    expect(body.ok).toBe(true);
+    const doc = body.plan as { overlay: { hidden?: string[] } };
+    expect(doc.overlay.hidden).toContain("n_a");
+  });
+
+  it("both tools reject an unknown source_id like every other tool", async () => {
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    for (const call of [
+      { name: "get_dashboard_plan", arguments: { source_id: "nope" } },
+      {
+        name: "edit_dashboard",
+        arguments: { source_id: "nope", mutations: [{ kind: "hide", id: "x" }] },
+      },
+    ]) {
+      const res = await client.callTool(call);
+      expect((res as { isError?: boolean }).isError).toBe(true);
+      expect(String(parseToolJson(res).error)).toContain("Unknown source_id");
+    }
+  });
+
+  it("both tools refuse a warehouse source (no stable csvId) with unsupported_source", async () => {
+    const client = await connectedClient(fakeDeps(fakeConnector("")), audit);
+    const { source_id } = parseToolJson(
+      await client.callTool({ name: "connect_source", arguments: { connection_id: "conn-1" } })
+    ) as { source_id: string };
+    const res = await client.callTool({
+      name: "get_dashboard_plan",
+      arguments: { source_id },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    expect(String(parseToolJson(res).code)).toBe("unsupported_source");
+  });
+});

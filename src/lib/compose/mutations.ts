@@ -36,6 +36,10 @@ export function applyMutations(
     // The purpose rides the document — dropping it on copy silently reset
     // every recompile's depth budget and view family to dashboard defaults.
     ...(doc.purpose !== undefined ? { purpose: doc.purpose } : {}),
+    // Same for the geometry channel: geojsonKey is a run-level constant the
+    // edit-path recompile needs to re-bind the map — dropping it here made
+    // the map vanish on the FIRST edit (contracts/plan.ts).
+    ...(doc.geojsonKey !== undefined ? { geojsonKey: doc.geojsonKey } : {}),
     plan: { nodes: doc.plan.nodes.map((n) => ({ ...n, refs: [...n.refs] })) },
     overlay: {
       order: [...(doc.overlay.order ?? [])],

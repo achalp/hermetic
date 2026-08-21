@@ -19,6 +19,7 @@ import { streamText } from "ai";
 import type { DrillDownContext } from "@/lib/contracts/analysis-request";
 export type { DrillDownContext };
 import { getModel, cachedSystem } from "@/lib/llm/client";
+import { isContextLengthError } from "@/lib/llm/errors";
 
 import { catalog } from "@/lib/catalog";
 import { LLM_MAX_OUTPUT_TOKENS } from "@/lib/constants";
@@ -467,6 +468,14 @@ export async function composeAndStreamDashboard(args: {
       logger.error("Stream error", {
         error: errMessage(streamErr),
       });
+      // Typed error channel (`/state/__error`, contracts/stream-state) — the
+      // same line run-ask-query emits on a pipeline error. Without it, a
+      // compose failure AFTER the first emitted line was only logged: the
+      // stream ended cleanly and the truncated dashboard read as a success
+      // to every patch-stream consumer (CLI, MCP, history save).
+      emit(
+        JSON.stringify({ op: "add", path: "/state/__error", value: errMessage(streamErr) }) + "\n"
+      );
       if (lineCount === 0) {
         const errMsg = errMessage(streamErr);
         emit(JSON.stringify({ op: "add", path: "/root", value: "error" }) + "\n");
@@ -479,7 +488,7 @@ export async function composeAndStreamDashboard(args: {
               props: {
                 icon: "alert",
                 title: "Analysis Error",
-                content: errMsg.includes("too long")
+                content: isContextLengthError(errMsg)
                   ? "The analysis data is too large for the AI to process. Try a more specific question."
                   : errMsg,
                 severity: "error",

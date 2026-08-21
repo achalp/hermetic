@@ -1,6 +1,6 @@
 import { z as zAudit } from "zod";
 import { errMessage } from "@/lib/logger";
-import { McpToolError } from "@/mcp/errors";
+import { McpToolError, unknownSource } from "@/mcp/errors";
 import { auditHistoryEntry } from "@/lib/pipeline/audit";
 /**
  * The MCP server assembly (mcp-server spec §4).
@@ -51,7 +51,7 @@ import { runAnalysis, runAnalysisInput } from "./tools/run-analysis";
 import { verifyNarrative, verifyNarrativeInput } from "./tools/verify-narrative";
 import { persistDashboard, persistDashboardInput } from "./tools/persist-dashboard";
 import { exportDashboard, exportDashboardInput } from "./tools/export-dashboard";
-import { listSources } from "./sources";
+import { getSource, listSources } from "./sources";
 
 export const MCP_SERVER_NAME = "hermetic";
 /**
@@ -211,6 +211,27 @@ function withAudit<A extends Record<string, unknown>>(
       return errorResult(message, code);
     }
   };
+}
+
+/**
+ * Registry source_id → the csvId the compose/edit layer keys by. Every MCP
+ * tool takes the registry id (the ONLY handle hosts hold — sources.ts
+ * boundary invariant); getEditSurface/editDashboard key their artifact
+ * lookups by csvId, so passing the registry id straight through silently
+ * found nothing. Warehouse sources have no stable csvId (analyze
+ * materializes one mid-run), so dashboard editing is not supported for them.
+ */
+function resolveCsvId(sourceId: string): string {
+  const source = getSource(sourceId);
+  if (!source) throw unknownSource(sourceId);
+  if (source.kind !== "csv") {
+    throw new McpToolError(
+      "unsupported_source",
+      "Dashboard plan editing needs a source whose analysis hermetic computed from a " +
+        "csv/parquet source — warehouse dashboards are not editable via this tool."
+    );
+  }
+  return source.csvId;
 }
 
 export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
@@ -409,7 +430,7 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
     },
     withAudit(audit, "get_dashboard_plan", async (args: { source_id: string }) => {
       const { getEditSurface } = await import("@/lib/compose/edit");
-      const surface = await getEditSurface(args.source_id);
+      const surface = await getEditSurface(resolveCsvId(args.source_id));
       if (!surface) {
         throw new McpToolError(
           "invalid_input",
@@ -445,7 +466,7 @@ export function buildMcpServer(deps: McpDeps, audit: AuditSink): McpServer {
       async (args: { source_id: string; mutations: Record<string, unknown>[] }) => {
         const { editDashboard } = await import("@/lib/compose/edit");
         const result = await editDashboard(
-          args.source_id,
+          resolveCsvId(args.source_id),
           args.mutations as unknown as import("@/lib/contracts/plan").PlanMutation[]
         );
         if (!result.ok) throw new McpToolError("invalid_input", result.errors.join("; "));

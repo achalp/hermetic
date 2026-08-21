@@ -141,9 +141,24 @@ export async function executeSandbox(
     // unlike a bind-mount — with NO dependency on Docker's host file-sharing
     // config, so it works no matter where the host file lives).
     if (inputParquetPath) {
-      await run("docker", ["cp", inputParquetPath, `${id}:/data/input.parquet`], {
+      const cp = await run("docker", ["cp", inputParquetPath, `${id}:/data/input.parquet`], {
         timeoutMs: 120_000,
       });
+      if (cp.exitCode !== 0) {
+        // `run()` never throws — an unchecked failed cp left /data/input.parquet
+        // missing and surfaced later as a bogus retryable "file not found" code
+        // error that burned the whole retry budget on an infra problem.
+        const detail = cp.stderr.trim() || cp.stdout.trim() || `exit code ${cp.exitCode}`;
+        logger.warn("Docker: parquet staging cp failed", { errorHead: detail.slice(0, 300) });
+        return {
+          success: false,
+          error:
+            `Failed to copy the input Parquet into the sandbox container: ${detail}\n` +
+            `This is a Docker/infrastructure problem, not a code problem.`,
+          errorKind: "infra",
+          execution_ms: Date.now() - start,
+        };
+      }
     }
 
     // 2+3. Stage ALL text files in ONE `docker cp -` tar stream (perf P2 —
@@ -166,7 +181,26 @@ export async function executeSandbox(
     stageFiles.push({ path: "/data/script.py", content: pythonNanPrelude() + code });
     try {
       const archive = buildTarArchive(stageFiles);
-      await run("docker", ["cp", "-", `${id}:/data`], { input: archive, timeoutMs: 120_000 });
+      const staged = await run("docker", ["cp", "-", `${id}:/data`], {
+        input: archive,
+        timeoutMs: 120_000,
+      });
+      if (staged.exitCode !== 0) {
+        // Same infra fast-fail as the parquet cp above: a failed tar stage
+        // means script.py (and inputs) never landed — every later exec fails
+        // with a misleading, retryable-looking error.
+        const detail =
+          staged.stderr.trim() || staged.stdout.trim() || `exit code ${staged.exitCode}`;
+        logger.warn("Docker: tar staging cp failed", { errorHead: detail.slice(0, 300) });
+        return {
+          success: false,
+          error:
+            `Failed to stage files into the sandbox container: ${detail}\n` +
+            `This is a Docker/infrastructure problem, not a code problem.`,
+          errorKind: "infra",
+          execution_ms: Date.now() - start,
+        };
+      }
     } catch (stageErr) {
       // Fallback: the tar builder rejects unusual paths (non-ASCII, over-long)
       // rather than risk a mangled archive — stage those runs per-file, exactly

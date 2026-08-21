@@ -123,6 +123,22 @@ describe("runPipeline retry loop", () => {
     expect(mockedExec).toHaveBeenCalledTimes(1);
   });
 
+  it("a user Stop surfaces as the plain stop message, never 'failed after N attempts' (L3 backlog #5)", async () => {
+    mockedExec.mockResolvedValue({
+      success: false as const,
+      error: "Analysis stopped.",
+      errorKind: "stopped" as const,
+      execution_ms: 5,
+    });
+    const err = (await runPipeline(schema, "csv", "q").catch((e) => e)) as Error;
+    expect(err.message).toBe("Analysis stopped.");
+    expect(err.message).not.toMatch(/failed after/i);
+    expect(err.message).not.toMatch(/attempt/i);
+    // A cancellation never re-runs the user's just-cancelled work.
+    expect(mockedRetryLlm).not.toHaveBeenCalled();
+    expect(mockedExec).toHaveBeenCalledTimes(1);
+  });
+
   it("gives a semantically-empty result ONE fix attempt, then returns degraded", async () => {
     // Empty results + empty chart_data + empty datasets = degenerate verdict.
     const empty = {

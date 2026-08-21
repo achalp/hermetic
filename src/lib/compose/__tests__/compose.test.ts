@@ -693,6 +693,19 @@ describe("edit grammar — views, shown overlay, purpose survival", () => {
     expect(hidden.doc.overlay.hidden).toContain("table_annual_prices");
   });
 
+  it("geojsonKey survives the mutation round-trip (L3 backlog #3)", () => {
+    // The geometry channel is a run-level constant on the PlanDocument —
+    // applyMutations rebuilding the doc must carry it, or the first edit
+    // permanently unbinds the map from its FeatureCollection.
+    const geoDoc = { ...DOC, geojsonKey: "step_2_geojson" };
+    const out = applyMutations(geoDoc, [{ kind: "hide", id: "n_i" }], VIEW_IDS);
+    expect(out.errors).toEqual([]);
+    expect(out.doc.geojsonKey).toBe("step_2_geojson");
+    // A doc WITHOUT the key must not grow one.
+    const plain = applyMutations(DOC, [{ kind: "hide", id: "n_i" }], VIEW_IDS);
+    expect("geojsonKey" in plain.doc).toBe(false);
+  });
+
   it("set_width pairs consecutive halves into a two-column row at compile", () => {
     const withWidths = applyMutations(
       DOC,

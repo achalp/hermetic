@@ -73,11 +73,18 @@ function resolveKeyPath(obj: unknown, path: string): unknown {
   if (obj === null || obj === undefined || typeof obj !== "object") return undefined;
   const rec = obj as Record<string, unknown>;
   if (path in rec) return rec[path];
-  const dot = path.indexOf(".");
-  if (dot === -1) return undefined;
-  const head = path.slice(0, dot);
-  const tail = path.slice(dot + 1);
-  if (head in rec) return resolveKeyPath(rec[head], tail);
+  // Try every dotted prefix as a single key, LONGEST first — keys themselves
+  // contain dots (Investigate step-qualifies finding names: "step_2.churn_trend",
+  // stats emit "significant_at_0.05"), so a first-dot-only split missed every
+  // key past its first dot. Falls through to shorter prefixes when a longer
+  // one exists but the remainder doesn't resolve under it.
+  for (let dot = path.lastIndexOf("."); dot !== -1; dot = path.lastIndexOf(".", dot - 1)) {
+    const head = path.slice(0, dot);
+    if (head in rec) {
+      const resolved = resolveKeyPath(rec[head], path.slice(dot + 1));
+      if (resolved !== undefined) return resolved;
+    }
+  }
   return undefined;
 }
 

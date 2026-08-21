@@ -156,6 +156,27 @@ describe("parseSandboxOutput", () => {
     }
   });
 
+  it("classifies proxy-deny failures as network too (L3 backlog #8)", async () => {
+    // Python requests/urllib behind the egress gateway word a denied or dead
+    // proxy differently from a direct connection failure.
+    const wordings = [
+      "requests.exceptions.ProxyError: HTTPSConnectionPool(host='api.example.com', port=443): " +
+        "Max retries exceeded (Caused by ProxyError('Unable to connect to proxy', " +
+        "OSError('Tunnel connection failed: 403 Forbidden')))",
+      "urllib.error.URLError: <urlopen error Tunnel connection failed: 503 Service Unavailable>",
+      "requests.exceptions.ProxyError: Cannot connect to proxy.",
+    ];
+    for (const stderrText of wordings) {
+      const result = await parseSandboxOutput({
+        ...base,
+        exitCode: 1,
+        readFile: io({ "/data/stderr.txt": stderrText }),
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.errorKind).toBe("network");
+    }
+  });
+
   it("does NOT misclassify an ordinary code error as network (stays retryable)", async () => {
     const result = await parseSandboxOutput({
       ...base,

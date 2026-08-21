@@ -11,12 +11,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ── streamText transport mock: yields whatever `nextLines` is set to ──
 let nextLines: string[] = [];
 let throwOnStream = false;
+let throwMidStream = false;
+let streamErrorMessage = "model stream exploded";
 vi.mock("ai", () => ({
   streamText: vi.fn(() => ({
     // A fresh async iterable per call so a bounded-repair recompose re-streams.
     textStream: (async function* () {
-      if (throwOnStream) throw new Error("model stream exploded");
+      if (throwOnStream) throw new Error(streamErrorMessage);
       for (const l of nextLines) yield l + "\n";
+      if (throwMidStream) throw new Error(`${streamErrorMessage} mid-stream`);
     })(),
   })),
 }));
@@ -71,6 +74,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   nextLines = [];
   throwOnStream = false;
+  throwMidStream = false;
+  streamErrorMessage = "model stream exploded";
 });
 
 describe("composeAndStreamDashboard — generative path", () => {
@@ -152,6 +157,61 @@ describe("composeAndStreamDashboard — generative path", () => {
     const { patches } = await run(exec, baseOpts());
     expect(patches.some((p) => p.path === "/root" && p.value === "error")).toBe(true);
     expect(patches.some((p) => p.path === "/elements/error")).toBe(true);
+  });
+
+  it("rewrites only PROVIDER context-overflow errors, not any 'too long' (L3 backlog #7)", async () => {
+    const exec = {
+      success: true,
+      results: { total: 1 },
+      chart_data: {},
+      datasets: {},
+      images: {},
+      execution_ms: 1,
+    } as unknown as SandboxExecutionResult;
+
+    // True positive: the Anthropic wording gets the friendly rewrite.
+    throwOnStream = true;
+    streamErrorMessage = "prompt is too long: 214442 tokens > 200000 maximum";
+    const big = await run(exec, baseOpts());
+    const bigEl = big.patches.find((p) => p.path === "/elements/error");
+    expect((bigEl!.value as { props: { content: string } }).props.content).toContain(
+      "too large for the AI"
+    );
+
+    // False positive guard: a data-layer error keeps its REAL message.
+    streamErrorMessage = "value too long for type character varying(40)";
+    const pg = await run(exec, baseOpts());
+    const pgEl = pg.patches.find((p) => p.path === "/elements/error");
+    const content = (pgEl!.value as { props: { content: string } }).props.content;
+    expect(content).toContain("character varying(40)");
+    expect(content).not.toContain("too large for the AI");
+  });
+
+  it("emits /state/__error when the stream throws AFTER lines were emitted (L3 backlog #4)", async () => {
+    // A mid-stream failure used to be log-only once >=1 line had streamed:
+    // the run ended cleanly and a truncated dashboard read as success to
+    // every patch-stream consumer (CLI, MCP analyze, history save).
+    nextLines = [
+      '{"op":"add","path":"/root","value":"root"}',
+      '{"op":"add","path":"/elements/root","value":{"type":"Grid","props":{},"children":[]}}',
+    ];
+    throwMidStream = true;
+    const exec = {
+      success: true,
+      results: { total: 1 },
+      chart_data: {},
+      datasets: {},
+      images: {},
+      execution_ms: 1,
+    } as unknown as SandboxExecutionResult;
+
+    const { patches } = await run(exec, baseOpts());
+    const err = patches.find((p) => p.path === "/state/__error");
+    expect(typeof err?.value).toBe("string");
+    expect(String(err?.value)).toContain("exploded mid-stream");
+    // The shared reader now reports the run as failed.
+    const { readRunError } = await import("@/lib/pipeline/patch-lines");
+    expect(readRunError(patches)).toContain("exploded mid-stream");
   });
 
   it("skips grounding/verifiability work once the client has disconnected", async () => {

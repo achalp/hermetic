@@ -641,6 +641,12 @@ export async function runPipeline(
       .map((a, i) => `Attempt ${i + 1}: ${a.error.slice(0, 200).replace(/\n/g, " ")}`)
       .concat(`Attempt ${attempt + 1}: ${result.error.slice(0, 200).replace(/\n/g, " ")}`)
       .join("\n");
+    // A user Stop is not a failure — surface the plain stop message, never
+    // "Analysis failed after N attempts" with the cancellation buried in an
+    // attempt log the user has to read to learn they did this themselves.
+    if (result.errorKind === "stopped") {
+      throw new Error(result.error || "Analysis stopped.");
+    }
     // Report the ACTUAL attempt count, not MAX_RETRIES — a timeout fail-fast
     // (errorKind === "timeout") breaks after ONE attempt, so "failed after 3
     // retries" was a lie that sent every reader hunting for retries that

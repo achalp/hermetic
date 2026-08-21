@@ -383,8 +383,12 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
     // same network config fails identically, so retrying just burns the budget.
     // Fail fast like timeout/oom. Scoped to connection/DNS phrases so a local
     // file IOException doesn't match.
+    // Proxy-deny wordings (Python requests/urllib behind the egress gateway:
+    // a blocked host surfaces as "Tunnel connection failed: 403", a dead
+    // gateway as "Cannot connect to proxy" / ProxyError) classify the same
+    // way — the sandbox's network path failed, not the generated code.
     if (
-      /Could not establish connection|Connection refused|Could not resolve host|Name or service not known|Temporary failure in name resolution|Network is unreachable|Failed to connect to|Connection reset by peer/i.test(
+      /Could not establish connection|Connection refused|Could not resolve host|Name or service not known|Temporary failure in name resolution|Network is unreachable|Failed to connect to|Connection reset by peer|Tunnel connection failed|Cannot connect to proxy|ProxyError/i.test(
         stderr
       )
     ) {

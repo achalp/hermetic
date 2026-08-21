@@ -12,9 +12,13 @@ export function run(
     const timer = opts?.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined;
     // An external signal (a user Stop) aborts the same child — without this the
     // warm path could only kill on its own timeout, leaving the exec running.
+    // Named so completion can REMOVE it: the signal is run-lifetime and run()
+    // is called many times per run, so `{once:true}` alone accumulated one
+    // dead listener per call until the run actually aborted (if ever).
+    const onAbort = () => ac.abort();
     if (opts?.signal) {
       if (opts.signal.aborted) ac.abort();
-      else opts.signal.addEventListener("abort", () => ac.abort(), { once: true });
+      else opts.signal.addEventListener("abort", onAbort, { once: true });
     }
 
     const child = execFile(
@@ -23,6 +27,7 @@ export function run(
       { signal: ac.signal, maxBuffer: 50 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (timer) clearTimeout(timer);
+        opts?.signal?.removeEventListener("abort", onAbort);
         if (err && (err as NodeJS.ErrnoException).code === "ABORT_ERR") {
           // Distinguish a user abort from the internal timeout so the caller
           // isn't told "timed out" when the user pressed Stop.

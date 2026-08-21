@@ -156,6 +156,48 @@ describe("docker executeSandbox", () => {
     expect(calls().find((a) => a[0] === "rm")).toBeDefined();
   });
 
+  it("fails fast (infra) when the parquet docker cp exits nonzero (L3 backlog #6)", async () => {
+    mockedRun.mockImplementation(async (_cmd, args) => {
+      if (args[0] === "cp" && args[1] !== "-")
+        return { stdout: "", stderr: "no space left on device", exitCode: 1 };
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
+    const result = await executeSandbox("", "code", { inputParquetPath: "/tmp/m.parquet" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorKind).toBe("infra"); // fast-fail — never retried as a code bug
+      expect(result.error).toContain("no space left on device");
+      expect(result.error).toContain("input Parquet");
+    }
+    // The script never ran against a container missing its input...
+    expect(streamExec).not.toHaveBeenCalled();
+    // ...and cleanup still removed the container.
+    expect(calls().find((a) => a[0] === "rm")).toBeDefined();
+  });
+
+  it("fails fast (infra) when the batched tar staging cp exits nonzero (L3 backlog #6)", async () => {
+    mockedRun.mockImplementation(async (_cmd, args) => {
+      if (args[0] === "cp" && args[1] === "-")
+        return {
+          stdout: "",
+          stderr: "Error response from daemon: container not running",
+          exitCode: 1,
+        };
+      return { stdout: "0", stderr: "", exitCode: 0 };
+    });
+    const result = await executeSandbox("a,b\n1,2\n", "print('hi')");
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorKind).toBe("infra");
+      expect(result.error).toContain("container not running");
+      expect(result.error).toContain("stage files");
+    }
+    // A cp failure is NOT the tar-builder fallback case — no per-file writes.
+    expect(calls().some((a) => a.join(" ").includes("cat > "))).toBe(false);
+    expect(streamExec).not.toHaveBeenCalled();
+    expect(calls().find((a) => a[0] === "rm")).toBeDefined();
+  });
+
   it("always removes the container, even when execution throws", async () => {
     // Reject container CREATION specifically — the `docker info` memory probe
     // may run first and is allowed to no-op (it fails soft to an uncapped run).

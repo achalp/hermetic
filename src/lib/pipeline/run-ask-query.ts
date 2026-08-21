@@ -13,6 +13,7 @@ import { runWithCostTracking } from "@/lib/cost/accumulator";
 import { emitCostEpilogue } from "@/lib/cost/epilogue";
 import { runWithDiagnostics } from "@/lib/diagnostics/run-diagnostics";
 import { buildWorkbookContext, sanitizeSheetName } from "@/lib/llm/prompts";
+import { isContextLengthError } from "@/lib/llm/errors";
 import type { AdditionalFile } from "@/lib/sandbox";
 import { cacheGeneratedCode } from "@/lib/pipeline/code-cache";
 import { cacheArtifacts, getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
@@ -756,7 +757,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
                 props: {
                   icon: "alert",
                   title: "Analysis Error",
-                  content: errMsg.includes("too long")
+                  content: isContextLengthError(errMsg)
                     ? "The analysis data is too large for the AI to process. Try a more specific question."
                     : errMsg,
                   severity: "error",
