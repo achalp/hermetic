@@ -25,7 +25,7 @@ numpy; scipy is preferred for ANOVA when importable.
 import json
 import math
 
-from .coerce import safe_float, to_native
+from .coerce import safe_float, to_native, numpy_or_none
 
 # Module-level so tests and non-docker runtimes can repoint it. The file may
 # not be writable everywhere (host test runs) — _sidecar_write swallows.
@@ -1014,24 +1014,41 @@ def finding_distribution(values, unit=None):
             hi = min(lo + 1, n - 1)
             return xs[lo] + (xs[hi] - xs[lo]) * (i - lo)
 
-        mean = sum(xs) / n
         median = q(0.5)
-        var = sum((x - mean) ** 2 for x in xs) / n
-        std = var ** 0.5
-        mad = sorted(abs(x - median) for x in xs)[n // 2]
-        skew = (sum((x - mean) ** 3 for x in xs) / n) / (std ** 3) if std else 0.0
-        # O(n) modal share (same fix as regimes.profile_regimes): the
-        # max(set(xs), key=xs.count) form was O(n * distinct) — quadratic on
-        # continuous measures where nearly every value is distinct.
-        counts = {}
-        for x in xs:
-            counts[x] = counts.get(x, 0) + 1
-        modal_n = max(counts.values())
+        np = numpy_or_none()
+        if np is not None:
+            # Vectorized aggregates (perf P6) — plain aggregations only, every
+            # output rounded, so summation-order float differences cannot flip a
+            # value. `mad` keeps the exact upper-middle (n//2) semantics of the
+            # sorted-list index below (NOT np.median, which averages on even n).
+            a = np.asarray(xs, dtype=float)
+            mean = float(a.mean())
+            var = float(((a - mean) ** 2).mean())
+            std = var ** 0.5
+            mad = float(np.sort(np.abs(a - median))[n // 2])
+            skew = (float(((a - mean) ** 3).mean()) / (std ** 3)) if std else 0.0
+            _u, _uc = np.unique(a, return_counts=True)
+            distinct_n = len(_u)
+            modal_n = int(_uc.max())
+        else:
+            mean = sum(xs) / n
+            var = sum((x - mean) ** 2 for x in xs) / n
+            std = var ** 0.5
+            mad = sorted(abs(x - median) for x in xs)[n // 2]
+            skew = (sum((x - mean) ** 3 for x in xs) / n) / (std ** 3) if std else 0.0
+            # O(n) modal share (same fix as regimes.profile_regimes): the
+            # max(set(xs), key=xs.count) form was O(n * distinct) — quadratic on
+            # continuous measures where nearly every value is distinct.
+            counts = {}
+            for x in xs:
+                counts[x] = counts.get(x, 0) + 1
+            distinct_n = len(set(xs))
+            modal_n = max(counts.values())
         return {"n": n, "mean": round(mean, 4), "median": round(median, 4),
                 "std": round(std, 4), "mad": round(mad, 4), "skew": round(skew, 2),
                 "p25": round(q(0.25), 4), "p75": round(q(0.75), 4),
                 "min": xs[0], "max": xs[-1],
-                "distinct_share": round(len(set(xs)) / n, 3),
+                "distinct_share": round(distinct_n / n, 3),
                 "modal_share": round(modal_n / n, 3),
                 "n_zero_excluded": n_zx}
     except Exception:

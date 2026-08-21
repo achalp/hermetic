@@ -124,6 +124,11 @@ export async function generatePlan(args: {
    *  document ships a map of it, and the planner must not claim the data
    *  lacks geography (run 8df300b3 did exactly that). */
   hasGeojson?: boolean;
+  /** Severe post-compose lint advisories from a FIRST compiled pass (perf/
+   *  quality P13). Without these the bounded recompose was a BLIND re-roll:
+   *  the realizer is deterministic, so an uninformed identical plan reproduces
+   *  the identical defective prose. Present only on the single repair pass. */
+  repairAdvisories?: string[];
 }): Promise<{ plan: Plan; plannerErrors: string[] }> {
   const { projections } = projectManifestForPrompt(args.findings);
   const ctx: PlanContext = {
@@ -156,7 +161,11 @@ export async function generatePlan(args: {
   const geometrySection = args.hasGeojson
     ? `\n\n## Geometry\nA GeoJSON FeatureCollection of region/polygon geometry is available and the dashboard WILL include a map of it. Never state that the data lacks geographic information; an EXPLAIN about the map is welcome.`
     : "";
-  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}${seriesSection}${payloadsSection}${geometrySection}\n\nWrite the narrative.`;
+  const repairSection =
+    args.repairAdvisories && args.repairAdvisories.length > 0
+      ? `\n\n## Repair (a prior plan produced these DEFECTS — write a plan that avoids each)\n${args.repairAdvisories.map((a) => `- ${a}`).join("\n")}`
+      : "";
+  const prompt = `## Question\n${args.question}\n\n## Claims\n${JSON.stringify(projections)}${viewsSection}${seriesSection}${payloadsSection}${geometrySection}${repairSection}\n\nWrite the narrative.`;
   const errors: string[] = [];
   let feedback = "";
   let lastParsed: Plan | null = null;

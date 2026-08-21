@@ -250,9 +250,16 @@ export async function runPipeline(
   // the manifest-level advisory takes over.
   const ensureChecksDeclared = async (currentCode: string): Promise<string> => {
     if (!currentCode.includes("declare_finding(") || currentCode.includes("declare_check(")) {
+      // Journal the NON-firing case too (perf P11): the redo below is a full
+      // code-gen round-trip (~10-40s, serial, before the sandbox), and whether
+      // it is worth optimizing hinges entirely on how often it fires. Recording
+      // both outcomes makes the trigger RATE greppable from journals:
+      //   grep -h checks_redo data/runs/*/journal.jsonl | jq .fired
+      recordRunEvent({ type: "checks_redo", fired: false });
       return currentCode;
     }
     logger.info("Generated code declares findings but zero checks — targeted redo");
+    const redoStart = Date.now();
     try {
       return await generateFixedCode([
         {
@@ -260,8 +267,17 @@ export async function runPipeline(
           error:
             "The code declares findings but ZERO checks. The declared-checks contract requires interrogating the data BEFORE analysis with declare_check(name, definition, passed, evidence={...}) — checks derived from domain knowledge of THIS dataset (completeness/coverage stability, magnitude plausibility, grain/hierarchy, join-vs-shortcut agreement, window comparability, model-form fit), with COMPUTED evidence. Add the checks that validate this code's semantic decisions and keep everything else verbatim.",
         },
-      ]);
+      ]).then((redone) => {
+        recordRunEvent({ type: "checks_redo", fired: true, ms: Date.now() - redoStart });
+        return redone;
+      });
     } catch {
+      recordRunEvent({
+        type: "checks_redo",
+        fired: true,
+        failed: true,
+        ms: Date.now() - redoStart,
+      });
       return currentCode;
     }
   };

@@ -43,6 +43,11 @@ def _pandas():
     return _pd
 
 
+def numpy_or_none():
+    """Public cached-numpy accessor for sibling modules (perf P6)."""
+    return _numpy()
+
+
 def to_native(o):
     """Recursively coerce numpy/pandas/Decimal/datetime values to JSON-safe natives.
 

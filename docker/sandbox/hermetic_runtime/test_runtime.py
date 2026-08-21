@@ -1677,3 +1677,56 @@ class TestDeclaredPayloads(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVectorizedAggregateParity(unittest.TestCase):
+    """perf P6: the numpy fast paths in profile_regimes / finding_distribution
+    must produce EXACTLY the same (rounded) outputs as the pure-Python fallback
+    — a faster-but-different diagnostic profile could flip regime flags and
+    downstream statistical dispatch."""
+
+    def _force_no_numpy(self):
+        from . import coerce
+
+        coerce._np = None
+        coerce._np_resolved = True
+
+    def _restore_numpy(self):
+        from . import coerce
+
+        coerce._np = None
+        coerce._np_resolved = False
+
+    def _datasets(self):
+        import random
+
+        rng = random.Random(42)
+        return [
+            [rng.gauss(100, 30) for _ in range(5000)],  # continuous
+            [rng.choice([0.0, 0.0, 5.0, -3.0, 12.5]) for _ in range(3000)],  # ties/zeros/negatives
+            [7.0] * 100,  # all-equal → sd == 0 branch
+            [rng.lognormvariate(3, 1) for _ in range(2000)],  # heavy tail
+            [1.0, 2.0, 3.0],  # tiny
+        ]
+
+    def test_profile_regimes_parity(self):
+        from .regimes import profile_regimes
+
+        for vals in self._datasets():
+            with_np = profile_regimes(vals, unit="usd")
+            self._force_no_numpy()
+            try:
+                without_np = profile_regimes(vals, unit="usd")
+            finally:
+                self._restore_numpy()
+            self.assertEqual(with_np, without_np)
+
+    def test_finding_distribution_parity(self):
+        for vals in self._datasets():
+            with_np = finding_distribution(vals)
+            self._force_no_numpy()
+            try:
+                without_np = finding_distribution(vals)
+            finally:
+                self._restore_numpy()
+            self.assertEqual(with_np, without_np)

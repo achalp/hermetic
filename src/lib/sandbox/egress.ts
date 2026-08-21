@@ -12,7 +12,7 @@
  * connect patch (HERMETIC_HTTP_PROXY). Fail-closed: any path that misses the
  * proxy hits a network with no route out.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { hermeticPaths } from "@/lib/paths";
 import { DOCKER_SANDBOX_IMAGE } from "@/lib/constants";
 import { run } from "./docker-utils";
@@ -140,13 +140,36 @@ export interface EgressNetwork {
  * Create the internal network + gateway proxy for one run. The caller MUST
  * call teardown() in its finally.
  */
+/** Proxy source cache (perf P4): the script was re-read from disk on every
+ *  remote run. mtime-keyed so a dev edit still invalidates; reader injectable
+ *  for tests. Host stays the source of truth — the proxy is deliberately NOT
+ *  baked into the image, where a stale image would silently run an old proxy
+ *  (it is the egress security boundary). */
+let proxyCache: { mtimeMs: number; content: string } | null = null;
+
+export function loadProxyScript(
+  reader: (path: string) => string = (p) => readFileSync(p, "utf-8"),
+  mtime: (path: string) => number = (p) => statSync(p).mtimeMs
+): string {
+  const path = hermeticPaths.sandboxEgressProxyFile();
+  const mtimeMs = mtime(path);
+  if (!proxyCache || proxyCache.mtimeMs !== mtimeMs) {
+    proxyCache = { mtimeMs, content: reader(path) };
+  }
+  return proxyCache.content;
+}
+
+export function _resetProxyCacheForTests(): void {
+  proxyCache = null;
+}
+
 export async function setupEgressNetwork(
   runId: string,
   allowHosts: string[]
 ): Promise<EgressNetwork> {
   const networkName = `hermetic-egress-${runId}`;
   const gatewayName = `hermetic-egress-gw-${runId}`;
-  const proxyScript = readFileSync(hermeticPaths.sandboxEgressProxyFile(), "utf-8");
+  const proxyScript = loadProxyScript();
 
   await run("docker", ["network", "create", "--internal", networkName], { timeoutMs: 15_000 });
   try {
@@ -184,14 +207,26 @@ export async function setupEgressNetwork(
       ],
       { timeoutMs: 15_000 }
     );
-    await run("docker", ["network", "connect", "bridge", gatewayName], { timeoutMs: 15_000 });
-    await run("docker", ["exec", "-i", gatewayName, "sh", "-c", "cat > /tmp/egress-proxy.py"], {
-      input: proxyScript,
-      timeoutMs: 15_000,
-    });
-    await run("docker", ["exec", "-d", gatewayName, "python3", "/tmp/egress-proxy.py"], {
-      timeoutMs: 15_000,
-    });
+    // perf P4: write+start the proxy in ONE exec (nohup+& — the backgrounded
+    // python survives the exec shell's exit), and run it in PARALLEL with the
+    // bridge connect: both need only the running gateway, and neither depends
+    // on the other. Was 3 serial round-trips; now 2 concurrent ones. The
+    // readiness poll below still gates on the proxy actually accepting.
+    await Promise.all([
+      run("docker", ["network", "connect", "bridge", gatewayName], { timeoutMs: 15_000 }),
+      run(
+        "docker",
+        [
+          "exec",
+          "-i",
+          gatewayName,
+          "sh",
+          "-c",
+          "cat > /tmp/egress-proxy.py && nohup python3 /tmp/egress-proxy.py >/tmp/egress-proxy.out 2>&1 &",
+        ],
+        { input: proxyScript, timeoutMs: 15_000 }
+      ),
+    ]);
     // The proxy above is started fire-and-forget (`exec -d`); WAIT for it to
     // accept a connection before returning. Otherwise the analysis container's
     // first read can race an unbound listener and fail as a spurious "network
@@ -235,8 +270,16 @@ export async function setupEgressNetwork(
       NO_PROXY: "localhost,127.0.0.1",
     },
     proxyLogs: async () => {
-      const r = await run("docker", ["logs", gatewayName], { timeoutMs: 10_000 }).catch(() => null);
-      return r ? `${r.stdout}${r.stderr}` : "";
+      // The proxy now runs nohup'd with output redirected to a file (perf P4) —
+      // `docker logs` only carries the container MAIN process's stdio, so read
+      // the redirect file first and keep docker logs as a fallback source.
+      const [file, logs] = await Promise.all([
+        run("docker", ["exec", gatewayName, "cat", "/tmp/egress-proxy.out"], {
+          timeoutMs: 10_000,
+        }).catch(() => null),
+        run("docker", ["logs", gatewayName], { timeoutMs: 10_000 }).catch(() => null),
+      ]);
+      return `${file && file.exitCode === 0 ? file.stdout : ""}${logs ? `${logs.stdout}${logs.stderr}` : ""}`;
     },
     teardown: async () => {
       await run("docker", ["rm", "-f", gatewayName]).catch(() => {});

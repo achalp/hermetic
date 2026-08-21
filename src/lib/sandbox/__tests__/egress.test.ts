@@ -17,7 +17,13 @@ vi.mock("@/lib/sandbox/docker-utils", async (importOriginal) => {
   return { ...actual, run: vi.fn() };
 });
 
-import { deriveAllowedEgressHosts, egressPolicyFor, setupEgressNetwork } from "../egress";
+import {
+  deriveAllowedEgressHosts,
+  egressPolicyFor,
+  setupEgressNetwork,
+  loadProxyScript,
+  _resetProxyCacheForTests,
+} from "../egress";
 import { run } from "@/lib/sandbox/docker-utils";
 import { resetDaemonCpuCacheForTests } from "@/lib/sandbox/hardening";
 import { resetDaemonMemoryCacheForTests } from "@/lib/sandbox/memory-budget";
@@ -147,5 +153,45 @@ describe("setupEgressNetwork — gateway hardening (finding M5)", () => {
     // The proxy binds an unprivileged port (3128) + plain outbound TCP — no
     // capability is needed, so full cap-drop is safe.
     expect(gatewayCreate).not.toContain("--privileged");
+  });
+});
+
+describe("setupEgressNetwork — merged proxy start (perf P4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetDaemonCpuCacheForTests();
+    resetDaemonMemoryCacheForTests();
+    mockedRun.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
+  });
+
+  it("writes AND starts the proxy in ONE exec (nohup+&), with no separate exec -d start", async () => {
+    await setupEgressNetwork("testrunid1234", ["b.s3.amazonaws.com"]);
+    const cmds = mockedRun.mock.calls.map(([, args]) => args.join(" "));
+    const merged = cmds.filter(
+      (c) => c.includes("cat > /tmp/egress-proxy.py") && c.includes("nohup python3")
+    );
+    expect(merged).toHaveLength(1);
+    // The old 2-exec shape (separate detached start) is gone.
+    expect(cmds.some((c) => c.includes("exec -d"))).toBe(false);
+  });
+});
+
+describe("loadProxyScript — mtime-keyed cache (perf P4)", () => {
+  it("reads once per mtime; a changed mtime re-reads (dev edits still land)", () => {
+    _resetProxyCacheForTests();
+    let reads = 0;
+    const reader = () => {
+      reads++;
+      return "PROXY_SOURCE";
+    };
+    let mtimeMs = 1000;
+    const mtime = () => mtimeMs;
+    expect(loadProxyScript(reader, mtime)).toBe("PROXY_SOURCE");
+    expect(loadProxyScript(reader, mtime)).toBe("PROXY_SOURCE");
+    expect(reads).toBe(1); // cached — the per-run disk read is gone
+    mtimeMs = 2000;
+    loadProxyScript(reader, mtime);
+    expect(reads).toBe(2); // edit detected via mtime
+    _resetProxyCacheForTests();
   });
 });

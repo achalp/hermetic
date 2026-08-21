@@ -11,7 +11,7 @@ an empty profile, never a dead analysis. Thresholds are MATRIX DATA, not
 scattered constants — each cites its motivating run.
 """
 
-from .coerce import safe_float
+from .coerce import safe_float, numpy_or_none
 from .findings import _attestation_bar
 
 # Currency allowlist for the MONETARY regime — conservative: a miss loses a
@@ -53,20 +53,42 @@ def profile_regimes(values, counts=None, labels=None, unit=None):
         n = len(finite)
         prof = {"n_periods": len(ys), "n_values": n}
 
-        zero_share = sum(1 for y in finite if y == 0) / n
-        prof["zero_share"] = round(zero_share, 4)
-        prof["negative_share"] = round(sum(1 for y in finite if y < 0) / n, 4)
+        np = numpy_or_none()
+        if np is not None:
+            # Vectorized aggregates (perf P6): these were ~8 sequential pure-
+            # Python passes over the full array — the dominant per-claim cost on
+            # large runs. Plain aggregations only; every output is rounded, so
+            # summation-order float differences cannot flip a value. The pure-
+            # Python branch below stays as the numpy-absent fallback and is
+            # parity-tested against this one.
+            a = np.asarray(finite, dtype=float)
+            zero_share = float((a == 0).sum()) / n
+            prof["zero_share"] = round(zero_share, 4)
+            prof["negative_share"] = round(float((a < 0).sum()) / n, 4)
+            mean = float(a.mean())
+            sd = float(((a - mean) ** 2).mean()) ** 0.5
+            prof["skew"] = round(
+                float((((a - mean) / sd) ** 3).mean()), 3) if sd > 0 else 0.0
+            med = float(np.median(a))
+            mx = float(a.max())
+            prof["tail_ratio"] = round(mx / med, 1) if med > 0 else None
+            _uniq, _ucnts = np.unique(a, return_counts=True)
+            prof["distinct_share"] = round(len(_uniq) / n, 3)
+        else:
+            zero_share = sum(1 for y in finite if y == 0) / n
+            prof["zero_share"] = round(zero_share, 4)
+            prof["negative_share"] = round(sum(1 for y in finite if y < 0) / n, 4)
 
-        mean = sum(finite) / n
-        sd = (sum((y - mean) ** 2 for y in finite) / n) ** 0.5
-        prof["skew"] = round(
-            sum(((y - mean) / sd) ** 3 for y in finite) / n, 3) if sd > 0 else 0.0
+            mean = sum(finite) / n
+            sd = (sum((y - mean) ** 2 for y in finite) / n) ** 0.5
+            prof["skew"] = round(
+                sum(((y - mean) / sd) ** 3 for y in finite) / n, 3) if sd > 0 else 0.0
 
-        med = _median(finite)
-        mx = max(finite)
-        prof["tail_ratio"] = round(mx / med, 1) if med > 0 else None
+            med = _median(finite)
+            mx = max(finite)
+            prof["tail_ratio"] = round(mx / med, 1) if med > 0 else None
 
-        prof["distinct_share"] = round(len(set(finite)) / n, 3)
+            prof["distinct_share"] = round(len(set(finite)) / n, 3)
         # O(n) modal via a counting dict. The previous max(finite,
         # key=finite.count) was O(n^2) — an O(n) .count() per ELEMENT — and
         # profile_regimes runs inside _zero_screen for every unit=-passed
@@ -74,10 +96,13 @@ def profile_regimes(values, counts=None, labels=None, unit=None):
         # planet-scale run it burned ~20 MINUTES of pure Python per call.
         # THIS, not the network, was the 45s -> 23min exec regression
         # (runs 5cda7770/e1c88a71; the scan itself took 40 seconds).
-        _counts = {}
-        for _y in finite:
-            _counts[_y] = _counts.get(_y, 0) + 1
-        prof["modal_share"] = round(max(_counts.values()) / n, 3)
+        if np is not None:
+            prof["modal_share"] = round(int(_ucnts.max()) / n, 3)
+        else:
+            _counts = {}
+            for _y in finite:
+                _counts[_y] = _counts.get(_y, 0) + 1
+            prof["modal_share"] = round(max(_counts.values()) / n, 3)
 
         prof["monotone_x"] = True
         if labels is not None:

@@ -141,6 +141,11 @@ export async function composeAndStreamDashboard(args: {
           series: modeProduct.series,
           payloads: declaredPayloads,
           hasGeojson: geojsonKey !== undefined,
+          // P13: on the bounded repair pass, tell the planner WHAT was wrong.
+          // Previously the advisories only reached the GENERATIVE prompt, so a
+          // compiled repair re-rolled the plan blind — and the deterministic
+          // realizer then reproduced the same defective prose.
+          repairAdvisories: opts.repairAdvisories,
         });
         compiledPlanDoc = {
           plan,
