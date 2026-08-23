@@ -1,0 +1,73 @@
+name: Release
+
+# Tag-driven releases (phase 1 of the release path):
+#   git tag v0.2.0 && git push origin v0.2.0
+# Gate (lint/type-check/tests/build) → sandbox image to GHCR → GitHub Release
+# with auto-generated notes. Tags containing '-' (v0.2.0-rc.1) publish as
+# PRERELEASES, so the pipeline itself is testable without shipping a "latest".
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release
+  packages: write # push the sandbox image to GHCR
+
+jobs:
+  gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run type-check
+      - run: pnpm test
+      - run: pnpm run build
+        env:
+          ANTHROPIC_API_KEY: test-key-for-build
+
+  sandbox-image:
+    name: Sandbox image → GHCR
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}-sandbox
+          TAG=${GITHUB_REF_NAME#v}
+          docker build -t "$IMAGE:$TAG" docker/sandbox
+          docker push "$IMAGE:$TAG"
+          # Only stable tags move :latest — an rc must never become the default pull.
+          if [[ "$TAG" != *-* ]]; then
+            docker tag "$IMAGE:$TAG" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
+
+  release:
+    name: GitHub Release
+    needs: [gate, sandbox-image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$GITHUB_REF_NAME
+          FLAGS=""
+          [[ "$TAG" == *-* ]] && FLAGS="--prerelease"
+          gh release create "$TAG" --generate-notes $FLAGS \
+            --notes "Sandbox image: \`ghcr.io/${{ github.repository }}-sandbox:${TAG#v}\`"
