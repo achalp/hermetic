@@ -40,7 +40,9 @@
     "prepare": "husky",
     "cli": "tsx src/cli/main.ts",
     "mcp": "tsx src/mcp/main.ts",
-    "mcp:build-viewer": "node scripts/build-mcp-viewer.mjs"
+    "mcp:build-viewer": "node scripts/build-mcp-viewer.mjs",
+    "mcpb:build": "node scripts/build-mcp-viewer.mjs && node scripts/build-mcpb.mjs",
+    "mcpb:smoke": "node scripts/mcpb-smoke.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,mjs}": [
@@ -117,6 +119,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "^2.1.2",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@next/bundle-analyzer": "^16.1.6",

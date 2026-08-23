@@ -70,4 +70,25 @@ jobs:
           FLAGS=""
           [[ "$TAG" == *-* ]] && FLAGS="--prerelease"
           gh release create "$TAG" --generate-notes $FLAGS \
-            --notes "Sandbox image: \`ghcr.io/${{ github.repository }}-sandbox:${TAG#v}\`"
+            --notes "Sandbox image: \`ghcr.io/${{ github.repository }}-sandbox:${TAG#v}\`
+
+          Claude Desktop extension: \`hermetic.mcpb\` (attached below — Settings → Extensions → Install Extension)"
+
+  mcpb:
+    name: MCPB bundle → Release asset
+    needs: [gate, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run mcpb:build
+      - run: pnpm run mcpb:smoke
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" hermetic.mcpb --clobber

@@ -16,12 +16,12 @@
  * extension capability — a host that never asked pays nothing (the same
  * bargain as progress reporting).
  */
-import { resolve } from "node:path";
 import { z } from "zod";
 import { stripInternalState } from "@/lib/export/html-export";
 import type { McpDeps } from "./deps";
 import { McpToolError } from "./errors";
 import { viewUrl } from "./view-url";
+import { viewerDistDir } from "./viewer/dist-dir";
 
 /** The pre-declared template resource every dashboard-producing tool points at. */
 export const DASHBOARD_UI_URI = "ui://hermetic/dashboard";
@@ -36,7 +36,7 @@ export const UI_PAYLOAD_KEY = "__ui";
 export type AppUiDeps = Pick<McpDeps, "exportAppTemplateHtml">;
 
 /** The viewer build output — the same dist the export assembler reads. */
-const DIST = resolve(__dirname, "viewer", "dist");
+const DIST = viewerDistDir();
 
 const TEMPLATE_BUILD_HELP =
   "The viewer bundles are not built. Run `pnpm mcp:build-viewer` in the hermetic checkout, " +

@@ -14,10 +14,11 @@
  */
 import { z } from "zod";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { hermeticPaths } from "@/lib/paths";
 import type { ExportInput } from "@/lib/export/html-export";
 import type { McpDeps } from "../deps";
+import { viewerDistDir } from "../viewer/dist-dir";
 import { exportUrl } from "../view-url";
 import { McpToolError } from "../errors";
 import { withToolLog } from "./log";
@@ -28,7 +29,7 @@ export type ExportDashboardDeps = Pick<McpDeps, "loadHistoryEntry" | "exportDash
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The viewer build output — the same dist the embedded viewer serves. */
-const DIST = resolve(__dirname, "..", "viewer", "dist");
+const DIST = viewerDistDir();
 
 const EXPORT_BUILD_HELP =
   "The single-file export bundles are not built. Run `pnpm mcp:build-viewer` in the hermetic " +

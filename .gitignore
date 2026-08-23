@@ -61,4 +61,8 @@ test-fixtures/llm/*.miss.json
 
 # MCP embedded viewer build artifact
 src/mcp/viewer/dist/
+
+# .mcpb bundle build (release-path phase 2)
+/dist/
+*.mcpb
 batch-evals/

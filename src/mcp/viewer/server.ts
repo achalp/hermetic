@@ -25,8 +25,9 @@ import { RECORD_FILES } from "@/lib/record-store";
 // imported directly — the McpDeps seam covers tool handlers, not this server.
 import { exportDashboardHtml, exportFilename } from "@/lib/export/html-export";
 import { logger, errMessage } from "@/lib/logger";
+import { viewerDistDir } from "./dist-dir";
 
-const DIST = resolve(__dirname, "dist");
+const DIST = viewerDistDir();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MIME: Record<string, string> = {
