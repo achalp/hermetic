@@ -5,7 +5,7 @@
  * memo either goes stale (missed update) or thrashes (needless nivo rebuild).
  */
 import { describe, it, expect } from "vitest";
-import { jsonValueEqual } from "@/components/json-value-equal";
+import { jsonValueEqual } from "@/components/charts/json-value-equal";
 
 /** The old comparator's verdict, for parity checks. */
 const stringifyEqual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);

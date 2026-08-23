@@ -71,6 +71,12 @@ const TARGETS = [
       "src/spec/",
       "src/lib/contracts/",
       "src/lib/catalog.ts",
+      // Recorded API decision (spec §9.3 F4): the catalog was split into
+      // family objects (commit c7a5503) — same declared surface as catalog.ts,
+      // refactored into files; the split never widened these roots, leaving
+      // main's CI red on the isolation check.
+      "src/lib/catalog-components/",
+      "src/lib/catalog-components/**/*.ts",
       "src/lib/chart-stats.ts",
       "src/lib/constants.ts",
       "src/lib/basemap-constants.ts",

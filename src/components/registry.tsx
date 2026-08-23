@@ -1,7 +1,7 @@
 "use client";
 
 import { clientLazy } from "@/components/lazy-client";
-import { jsonValueEqual } from "@/components/json-value-equal";
+import { jsonValueEqual } from "@/components/charts/json-value-equal";
 import { defineRegistry, type Components } from "@/spec/react";
 import { catalog } from "@/lib/catalog";
 import type { DrillDownParams } from "@/lib/contracts/spec-types";
