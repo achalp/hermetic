@@ -36,6 +36,17 @@ Findings below were TRACED, not assumed — do not re-litigate without new evide
   server-side (BigQuery billing).
 - Docker is the ONLY sandbox runtime (E2B/microsandbox removed — they cannot
   enforce `--network none`). The capability gate rejects rather than degrades.
+- Long-lived processes inside containers start via `docker exec -d`, NEVER
+  `sh -c "... nohup ... &"` in a foreground exec: Docker >= 28 kills the exec
+  session's process group on exit (broke the egress gateway proxy — every
+  allowed remote read failed with EMPTY proxy diagnostics; PR #126).
+- Golden recording must pin machine state to CI's resolution (models +
+  composer.mode from repo defaults; fixtures on disk == HEAD) and re-emit
+  goldens from a REPLAY server (CI compares replay-vs-replay ordering).
+  Record mode is record-if-miss. Anything nondeterministic or host-derived
+  that feeds a prompt must be gated under llmReplayConfig() (exemplars,
+  harvest, sandboxMemoryGb label). HERMETIC_REPLAY_DEBUG=1 dumps full
+  request bytes per replay lookup for CI-vs-local diffing.
 
 ## Deferred with rationale (decide before attempting)
 
