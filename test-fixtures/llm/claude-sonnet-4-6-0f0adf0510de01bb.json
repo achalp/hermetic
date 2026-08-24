@@ -1,0 +1,180 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787591290",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787591290"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "{\"op\":\"add\",\"path\":\"/root"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":20},\"children\":[\"data-ctrl\"]}}\n{\"op\":\"add\",\"path\":\"/elements/data-ctrl\",\"value\":{\"type\":\"DataController\",\"props\":{\"source\":{\"statePath\":\"/datasets/main\"},\"filters\":[{\"key\":\"plan\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "column\":\"plan\",\"bindTo\":\"/filters/plan\",\"label\":\"Plan\",\"allowAll\":true}],\"pipeline\":[{\"op\":\"filter\"}],\"outputs\":[{\"statePath\":\"/computed/monthly\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"month\"],\"aggregations\":[{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\"as"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "\":\"expansion_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"churn_mrr\"}]},{\"op\":\"sort\",\"column\":\"month\",\"direction\":\"asc\"}]},{\"statePath\":\"/computed/plan_bar\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"plan\"],\"aggregations\":[{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"new_mrr\"},{\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "\":\"expansion_mrr\",\"fn\":\"sum\",\"as\":\"expansion_mrr\"}]}]}]},\"children\":[\"stat-grid\",\"charts-row\",\"plan-bar\",\"answer-text\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":4,\"gap\":12},\"children\":[\"stat-jump"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "-month\",\"stat-jump-delta\",\"stat-leading-plan\",\"stat-rows\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-jump-month\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Largest MRR Jump Month\",\"value\":\"$result:jump_month\"},\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-jump-delta\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"MRR Added That Month\",\"value\":\"$result:jump_delta\",\"format\":\"currency\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "precision\":0,\"trend\":\"up\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-leading-plan\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Top Contributing Plan\",\"value\":\"$result:leading_plan\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "description\":\"$result:leading_plan_delta added\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-rows\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Total Plan-Month Records"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "\",\"value\":\"$result:grain_month_plan_total_rows\",\"format\":\"number\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16,\"align\":\"stretch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "\"},\"children\":[\"waterfall-chart\",\"area-chart\"]}}\n{\"op\":\"add\",\"path\":\"/elements/waterfall-chart\",\"value\":{\"type\":\"WaterfallChart\",\"props\":{\"title\":\"Jump Decomposition: New MRR vs Expansion vs Churn\",\"data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "\":{\"$state\":\"/computed/waterfall\"},\"increasing_color\":\"emerald\",\"decreasing_color\":\"rose\",\"total"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "_color\":\"indigo\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/area-chart\",\"value\":{\"type\":\"AreaChart\",\"props\":{\"title\":\"Monthly MRR Components\",\"data\":{\"$state\":\"/computed/monthly\"},\"x_key\":\"month\",\"y_keys\":[\"new_mrr\",\"expansion_mrr\",\"churn_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "r\"],\"stacked\":false,\"color_map\":{\"new_mrr\":\"indigo\",\"expansion_mrr\":\"emerald\",\"churn_mrr\":\"rose\"},\"opacity\":0.6},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/plan-bar\",\"value\":{\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "type\":\"BarChart\",\"props\":{\"title\":\"New & Expansion MRR by Plan (Filtered Period)\",\"data\":{\"$state\":\"/computed/plan_bar\"},\"x_key\":\"plan\",\"y_keys\":[\"new_mrr\",\"expansion_mrr\"],\"color_map\":{\"new_mrr\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "indigo\",\"expansion_mrr\":\"emerald\"},\"label_map\":{\"new_mrr\":\"New MRR\",\"expansion_mrr\":\"Expansion MRR\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/answer-text\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"insight"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "\",\"content\":\"The single largest month-over-month net MRR jump was $result:jump_delta, occurring in $result:jump_month. The waterfall above breaks this into its three"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": " drivers: new customer revenue (change of $result:decomp_new_mrr_change), expansion from existing customers (change of $result:decomp_expansion_mrr_change), and the offsetting churn impact ($result:decomp_churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "impact). The $result:leading_plan plan was the primary contributor, accounting for $result:leading_plan_delta of the gain. The observation window runs from $result:obs_start through $result:obs_end, covering $result:current_state_period"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": " as the most recent period — currently sitting $result:current_state_pct_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "from_peak% from the series peak. This analysis covers $result:grain_month_plan_total_rows plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "-month records across a balanced panel; all data quality checks passed with no negative MRR or non-positive"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": " customer counts detected.\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/filters/plan\",\"value\":\"All\"}\n{\"op\":\"add\",\"path\":\"/state/computed/water"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787591290",
+      "delta": "fall\",\"value\":\"$chartData:waterfall\"}\n{\"op\":\"add\",\"path\":\"/state/computed/monthly\",\"value\":[]}\n{\"op\":\"add\",\"path\":\"/state/computed/plan_bar\",\"value\":[]}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787591290",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787591290"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 34754,
+          "noCache": 28517,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 4311,
+          "text": 4311,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 34754,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 4311
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

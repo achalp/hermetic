@@ -135,6 +135,10 @@ jobs:
         env:
           HERMETIC_LLM_MODE: replay
           ANTHROPIC_API_KEY: test-key-replay-only
+          # Replay diagnostics: dump full request bytes for every replay
+          # hit/miss into *.hit.json/*.miss.json — a golden failure's artifact
+          # then carries the exact bytes to diff against a local capture.
+          HERMETIC_REPLAY_DEBUG: "1"
         run: |
           pnpm start &
           for i in $(seq 1 60); do
@@ -186,5 +190,6 @@ jobs:
           name: golden-miss-diagnostics
           path: |
             test-fixtures/llm/*.miss.json
+            test-fixtures/llm/*.hit.json
             test-fixtures/golden/*.received.ndjson
           if-no-files-found: ignore

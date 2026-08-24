@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":4500,\"prompt\":[{\"content\":\"You are WRITING a data dashboard's narrative — an analyst telling the story, not a template printing fields. You receive the analysis' declared claims (findings with definitions and value_fields — no raw data). Respond with ONLY a JSON object:\\n{\\\"nodes\\\":[{\\\"op\\\":\\\"ANSWER|TREND|SHAPE|PEAK|ENDPOINT|CONTRAST|NOTE|CAVEAT|INSIGHT\\\",\\\"refs\\\":[\\\"<claim name>\\\", ...],\\\"text\\\":\\\"...\\\"}]}\\nRules:\\n- Every node's \\\"text\\\" IS the prose the reader sees: flowing sentences (2-4 for document styles) that interpret and CONNECT its claims — carry the thread from the previous node, vary sentence shape, subordinate the less important figure to the more important one. Never write label-colon-value (\\\"Churn trend: rising at X\\\").\\n- EVERY figure — number, year, month, count, percentage — MUST be a binding: $finding:<claim>.<field> (fields are listed per claim as value_fields). Literal digits anywhere in text are REJECTED. A node's bindings may only use claims listed in its refs.\\n- EXACTLY ONE ANSWER node at the TOP (only an opening METHOD may precede it): the direct answer to the user's question in plain words, figures bound. METHOD may instead close the document where the style's guidance says so.\\n- Document ops: SECTION (short heading, no refs) titles what follows. EXPLAIN narrates a chart — set \\\"anchor\\\" to that chart's id (listed under Charts) and the chart renders right below your words; every anchored chart needs its EXPLAIN. CALLOUT flags what deserves the reader's attention. METHOD explains how the analysis was done, grounded ONLY in the claims' stated definitions. CONCLUSION closes with the answer restated and its strongest figures (bound). NEXT_STEPS suggests follow-up QUESTIONS/ACTIONS (never phrased as findings). LIMITS states plainly what this analysis does not cover.\\n- CAVEAT nodes carry NO text (the system renders the check's own declared fields verbatim — a caveat is not yours to phr",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "```json\n{\n  \"nodes\": [\n    {\n      \"op\": \"ANSWER\",\n      \"refs\": [\"net_mrr_trend\", \"net_mrr_current_state\"],\n      \"text\": \"Net MRR trended $finding:net_mrr_trend.direction across Jan–Dec 2024, with OLS slope of $finding:net_mrr_trend.slope_per_period per month (95% CI: $finding:net_mrr_trend.slope_ci95, p = $finding:net_mrr_trend.p_value). Ending the year at $finding:net_mrr_current_state.latest_value in $finding:net_mrr_current_state.latest_period, the business closed $finding:net_mrr_current_state.pct_from_peak off its $finding:net_mrr_current_state.peak_value peak reached in $finding:net_mrr_current_state.peak_period.\"\n    },\n    {\n      \"op\": \"SECTION\",\n      \"text\": \"Monthly MRR Components\"\n    },\n    {\n      \"op\": \"VIEW\",\n      \"component\": \"DualAxisChart\",\n      \"series\": \"monthly_mrr_components\",\n      \"text\": \"Net, New, Expansion, and Churn MRR — Jan–Dec 2024\"\n    },\n    {\n      \"op\": \"EXPLAIN\",\n      \"anchor\": \"chart_monthly_mrr_components\",\n      \"refs\": [\"new_mrr_trend\", \"expansion_mrr_trend\", \"churn_mrr_trend\", \"net_mrr_step_change\"],\n      \"text\": \"New MRR moved $finding:new_mrr_trend.direction at $finding:new_mrr_trend.slope_per_period per month (p = $finding:new_mrr_trend.p_value), while expansion MRR followed a $finding:expansion_mrr_trend.direction trajectory at $finding:expansion_mrr_trend.slope_per_period per month (p = $finding:expansion_mrr_trend.p_value). Churn MRR drifted $finding:churn_mrr_trend.direction at $finding:churn_mrr_trend.slope_per_period per month (p = $finding:churn_mrr_trend.p_value), shaping the net result. No persistent step change survived the detection gates across the year.\"\n    },\n    {\n      \"op\": \"SECTION\",\n      \"text\": \"Early vs. Late 2024\"\n    },\n    {\n      \"op\": \"TREND\",\n      \"refs\": [\"net_mrr_split_comparison\"],\n      \"text\": \"Splitting the year at its midpoint makes the directional shift concrete: the early half ($finding:net_mrr_split_comparison.early_span, n = $finding:net_mrr_split_comparison.early_n months) carried a median net MRR of $finding:net_mrr_split_comparison.early_median, while the late half ($finding:net_mrr_split_comparison.late_span, n = $finding:net_mrr_split_comparison.late_n months) reached $finding:net_mrr_split_comparison.late_median — a $finding:net_mrr_split_comparison.multiplier× step in the central tendency between the two halves.\"\n    },\n    {\n      \"op\": \"SECTION\",\n      \"text\": \"What Drove the Change\"\n    },\n    {\n      \"op\": \"SHAPE\",\n      \"refs\": [\"net_mrr_change_decomposition\"],\n      \"text\": \"Decomposing Dec 2024 vs. Jan 2024, new MRR contributed $finding:net_mrr_change_decomposition.new_mrr_contribution to the net shift, expansion MRR added $finding:net_mrr_change_decomposition.expansion_mrr_contribution, and churn exerted a drag of $finding:net_mrr_change_decomposition.churn_drag. The dominant driver of the full-year change was $finding:net_mrr_change_decomposition.dominant.\"\n    },\n    {\n      \"op\": \"SECTION\",\n      \"text\": \"Plan-Level Breakdown\"\n    },\n    {\n      \"op\": \"EXPLAIN\",\n      \"anchor\": \"chart_plan_mrr_breakdown\",\n      \"refs\": [\"segment_heterogeneity\"],\n      \"text\": \"Across Enterprise, Pro, and Starter plans, monthly net MRR levels are significantly different from one another ($finding:segment_heterogeneity.test, p = $finding:segment_heterogeneity.p_value), with per-plan observation counts of $finding:segment_heterogeneity.group_ns. The heatmap below surfaces where within the year each plan contributed most to — or subtracted from — the aggregate trend.\"\n    },\n    {\n      \"op\": \"CAVEAT\",\n      \"refs\": [\"grain_plan_check\"],\n      \"anchor\": \"chart_plan_mrr_breakdown\"\n    },\n    {\n      \"op\": \"INSIGHT\",\n      \"refs\": [\"net_mrr_change_decomposition\", \"churn_mrr_trend\", \"expansion_mrr_trend\", \"net_mrr_split_comparison\"],\n      \"text\": \"The interplay between a $finding:expansion_mrr_trend.direction expansion trend and a $finding:churn_mrr_trend.direction churn trend is the structural story of 2024: the $finding:net_mrr_split_comparison.multiplier× jump in median net MRR from the early to late half suggests that expansion acceleration outpaced churn growth for long enough to produce a sustained level change, with the decomposition confirming $finding:net_mrr_change_decomposition.dominant as the single largest lever.\"\n    },\n    {\n      \"op\": \"METHOD\",\n      \"refs\": [\"net_mrr_trend\", \"new_mrr_trend\", \"expansion_mrr_trend\", \"churn_mrr_trend\", \"net_mrr_split_comparison\", \"net_mrr_change_decomposition\", \"segment_heterogeneity\"],\n      \"text\": \"Trends are OLS slopes across the $finding:net_mrr_split_comparison.early_n + $finding:net_mrr_split_comparison.late_n monthly observations in Jan–Dec 2024; the half-year comparison uses median net MRR for robustness to intra-half swings; segment differences are tested with $finding:segment_heterogeneity.test at the plan × month grain confirmed by the data-quality check.\"\n    },\n    {\n      \"op\": \"CONCLUSION\",\n      \"refs\": [\"net_mrr_trend\", \"net_mrr_current_state\", \"net_mrr_change_decomposition\"],\n      \"text\": \"Net MRR ended 2024 at $finding:net_mrr_current_state.latest_value, on a $finding:net_mrr_trend.direction OLS slope of $finding:net_mrr_trend.slope_per_period per month, driven primarily by $finding:net_mrr_change_decomposition.dominant — with new MRR contributing $finding:net_mrr_change_decomposition.new_mrr_contribution, expansion $finding:net_mrr_change_decomposition.expansion_mrr_contribution, and churn a drag of $finding:net_mrr_change_decomposition.churn_drag against the Jan baseline.\"\n    }\n  ]\n}\n```",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1787587365"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 17191,
+        "noCache": 10954,
+        "cacheRead": 6237
+      },
+      "outputTokens": {
+        "total": 1827,
+        "text": 1827,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 17191,
+        "input_tokens_details": {
+          "cached_tokens": 6237
+        },
+        "output_tokens": 1827
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1787587365"
+      }
+    },
+    "warnings": []
+  }
+}

@@ -121,6 +121,10 @@ export async function configureLLMReplayFromEnv(): Promise<void> {
   const { configureLLMReplay } = await import("./lib/llm/replay");
   const { resolve } = await import("node:path");
   const dir = process.env.HERMETIC_LLM_FIXTURES ?? "test-fixtures/llm";
-  configureLLMReplay({ mode, dir: resolve(dir) });
+  configureLLMReplay({
+    mode,
+    dir: resolve(dir),
+    debug: process.env.HERMETIC_REPLAY_DEBUG === "1",
+  });
   console.log(`[llm-replay] ${mode} mode, fixtures: ${dir}`);
 }

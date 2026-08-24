@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":8000,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches righ",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root\"}\n{\"op\":\"add\",\"path\":\"/elements/root\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":12},\"children\":[\"charts-row\",\"insight\"]}}\n{\"op\":\"add\",\"path\":\"/elements/charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":12,\"align\":\"stretch\"},\"children\":[\"line-churn-rate\",\"bar-churn-mrr\"]}}\n{\"op\":\"add\",\"path\":\"/elements/line-churn-rate\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Monthly churn rate % by plan\",\"data\":\"$chartData:plan_monthly_churn\",\"x_key\":\"month\",\"y_keys\":[\"churn_rate_pct\"],\"color_map\":{\"Enterprise\":\"indigo\",\"Pro\":\"emerald\",\"Starter\":\"amber\"},\"label_map\":{\"churn_rate_pct\":\"Churn rate %\"},\"show_dots\":false,\"curve\":\"monotone\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/bar-churn-mrr\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Monthly churn MRR by plan\",\"data\":\"$chartData:plan_monthly_churn\",\"x_key\":\"month\",\"y_keys\":[\"churn_mrr\"],\"stacked\":true,\"color_map\":{\"Enterprise\":\"indigo\",\"Pro\":\"emerald\",\"Starter\":\"amber\"},\"label_map\":{\"churn_mrr\":\"Churn MRR\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"insight\",\"content\":\"Plan churn rates are significantly heterogeneous (p=$result:plan_churn_rate_heterogeneity_p_value, $result:plan_churn_rate_heterogeneity_test), spanning $result:segment_range_pp pp — $result:highest_churn_rate_plan leads at $result:highest_churn_rate_plan_mean_pct% vs. $result:lowest_churn_rate_plan at $result:lowest_churn_rate_plan_mean_pct% — while overall churn MRR trends $result:overall_churn_mrr_trend_direction, peaking in $result:peak_churn_mrr_period and sitting $result:overall_churn_mrr_pct_from_peak% below that peak as of $result:overall_churn_mrr_current_period.\"},\"children\":[]}}",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1787587991"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 29124,
+        "noCache": 22887,
+        "cacheRead": 6237
+      },
+      "outputTokens": {
+        "total": 598,
+        "text": 598,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 29124,
+        "input_tokens_details": {
+          "cached_tokens": 6237
+        },
+        "output_tokens": 598
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1787587991"
+      }
+    },
+    "warnings": []
+  }
+}

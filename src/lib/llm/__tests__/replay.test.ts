@@ -107,6 +107,45 @@ describe("llmReplayMiddleware", () => {
     expect(replayed.usage).toEqual(recorded.usage);
   });
 
+  it("record mode replays an existing fixture instead of calling live again (record-if-miss)", async () => {
+    let liveCalls = 0;
+    let liveStreams = 0;
+    const model = wrapLanguageModel({
+      model: fakeModel(
+        () => liveCalls++,
+        () => liveStreams++
+      ) as never,
+      middleware: llmReplayMiddleware("codegen"),
+    });
+
+    configureLLMReplay({ mode: "record", dir });
+    const first = await model.doGenerate(PARAMS);
+    expect(liveCalls).toBe(1);
+
+    // Same request again, STILL in record mode: must serve the fixture. A
+    // second live call would get a different answer and overwrite it — any
+    // later prompt embedding the first answer then misses forever on replay.
+    const second = await model.doGenerate(PARAMS);
+    expect(liveCalls).toBe(1);
+    expect((second.content[0] as { text: string }).text).toBe(
+      (first.content[0] as { text: string }).text
+    );
+
+    // Distinct params for the stream half — generate/stream fixtures share
+    // the hash-keyed file namespace, and reusing PARAMS would collide with
+    // the generate fixture written above (kind-mismatch falls through live).
+    const STREAM_PARAMS = {
+      prompt: [{ role: "user", content: [{ type: "text", text: "q-stream" }] }],
+    } as never;
+    const s1 = await model.doStream(STREAM_PARAMS);
+    await drain(s1.stream); // recording finalizes when the stream drains
+    expect(liveStreams).toBe(1);
+    const again = await model.doStream(STREAM_PARAMS);
+    expect(liveStreams).toBe(1);
+    const chunks = await drain(again.stream);
+    expect(chunks.length).toBeGreaterThan(0);
+  });
+
   it("records then replays doStream chunk-for-chunk", async () => {
     let liveCalls = 0;
     const model = wrapLanguageModel({

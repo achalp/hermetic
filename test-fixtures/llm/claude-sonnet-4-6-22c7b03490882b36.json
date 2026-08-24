@@ -1,0 +1,265 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787589730",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787589730"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\n{\"op\":\"add\",\"path\":\"/elements/root\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":16},\"children\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "[\"controller\"]}}\n{\"op\":\"add\",\"path\":\"/elements/controller\",\"value\":{\"type\":\"DataController\",\"props\":{\"source\":{\"statePath\":\"/datasets/main\"},\"filters\":[{\"key\":\"plan\",\"column\":\"plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\",\"bindTo\":\"/filters/plan\",\"label\":\"Plan\",\"allowAll\":true}],\"pipeline\":[{\"op\":\"filter\"}],\"outputs\":[{\"statePath\":\"/computed/monthly_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "mrr\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"month\"],\"aggregations\":[{\"column\":\"net_new_mrr\",\"fn\":\"sum\",\"as\":\"net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\"},{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\"as\":\"expansion_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"churn_mrr\"}]},{\"op\":\"sort\",\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\":\"month\",\"direction\":\"asc\"}]},{\"statePath\":\"/computed/plan_pivot\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"month\"],\"aggregations\":[{\"column\":\"net_new_mrr\",\"fn\":\"sum\",\"as\":\"net_new_mrr\"}]},{\"op\":\"sort"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\",\"column\":\"month\",\"direction\":\"asc\"}]}]},\"children\":[\"headline-grid\",\"charts-row\",\"plan-row\",\"narrative\"]}}\n{\"op\":\"add\",\"path\":\"/elements/headline-grid\",\"value\":{\"type\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "LayoutGrid\",\"props\":{\"columns\":3,\"gap\":12},\"children\":[\"stat-rows\",\"stat-slope\",\"stat-month\",\"stat-delta\",\"stat-driver"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-rows\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Plan-Month Records\",\"value\":\"$result:grain_month_plan_total_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "rows\",\"format\":\"number\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-slope\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"MRR Trend (slope/month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": ")\",\"value\":\"$finding:net_new_mrr_trend.slope_per_period\",\"description\":\"OLS slope over observed period\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-month\",\"value\":{\"type\":\"StatCard\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "props\":{\"label\":\"Month of Largest MRR Jump\",\"value\":\"$result:peak_jump_month\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-delta\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"MoM Jump Size"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\",\"value\":\"$result:peak_jump_delta_usd\",\"format\":\"currency\",\"description\":\"Largest net new MRR gain month-over-month\"},\"children\":[]}}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "add\",\"path\":\"/elements/stat-driver\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Dominant Driver\",\"value\":\"$result:peak_jump_dominant_driver\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": ",\"align\":\"start\"},\"children\":[\"waterfall-col\",\"trend-col\"]}}\n{\"op\":\"add\",\"path\":\"/elements/waterfall-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":8},\"children\":[\"jump"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "-annotation\",\"waterfall-chart\"]}}\n{\"op\":\"add\",\"path\":\"/elements/jump-annotation\",\"value\":{\"type\":\"Annotation\",\"props\":{\"icon\":\"trend\",\"title\":\"Peak Jump Decomposition\",\"content\":\"The $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "result:peak_jump_month jump of $result:peak_jump_delta_usd breaks into new subscription revenue ($result:peak_jump_new_mrr_gain_usd), expansion revenue ($result:peak_jump_expansion_mrr_gain_usd),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": " and churn relief ($result:peak_jump_churn_relief_usd). The leading plan was $result:leading_plan, contributing $result:leading_plan_share_of_change of the step.\",\"severity\":\"info"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/waterfall-chart\",\"value\":{\"type\":\"WaterfallChart\",\"props\":{\"title\":\"Peak Jump Component Breakdown\",\"data\":{\"$state\":\"/computed/waterfall\"},\"orientation"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\":\"vertical\",\"increasing_color\":\"emerald\",\"decreasing_color\":\"rose\",\"total_color\":\"indigo\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "/computed/waterfall\",\"value\":\"$chartData:waterfall\"}\n{\"op\":\"add\",\"path\":\"/elements/trend-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":8},\"children\":[\"trend-chart\"]}}\n{\"op\":\"add\",\"path\":\"/elements/trend-chart\",\"value\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "{\"type\":\"LineChart\",\"props\":{\"title\":\"Monthly Net New MRR & Components\",\"data\":{\"$state\":\"/computed/monthly_mrr\"},\"x_key\":\"month\",\"y_keys\":[\"net_new_mrr\",\"new_mrr\",\"expansion_mrr\",\"churn_mrr\"],\"label"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "_map\":{\"net_new_mrr\":\"Net New MRR\",\"new_mrr\":\"New MRR\",\"expansion_mrr\":\"Expansion MRR\",\"churn_mrr\":\"Churn MRR\"},\"color_map\":{\"net_new_mrr\":\"ind"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "igo\",\"new_mrr\":\"emerald\",\"expansion_mrr\":\"cyan\",\"churn_mrr\":\"rose\"},\"show_dots\":true,\"curve\":\"monotone\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "state/computed/monthly_mrr\",\"value\":\"$chartData:monthly_net_new_mrr\"}\n{\"op\":\"add\",\"path\":\"/elements/plan-row\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":8},\"children\":[\"plan-het"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "-annotation\",\"plan-chart\"]}}\n{\"op\":\"add\",\"path\":\"/elements/plan-het-annotation\",\"value\":{\"type\":\"Annotation\",\"props\":{\"icon\":\"info\",\"title\":\"Plan-Level Heterogeneity\",\"content"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\":\"Plans differ significantly in net_new_mrr levels (p = $finding:plan_net_new_mrr_heterogeneity.p_value, $finding:plan_net_new_mrr_heterogeneity.test"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "). The bar chart shows monthly net_new_mrr for each plan, revealing which plan drove the peak.\",\"severity\":\"info\"},\"children\":[]}}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "add\",\"path\":\"/elements/plan-chart\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Net New MRR by Plan & Month\",\"data\":{\"$state\":\"/computed/plan_pivot\"},\"x_key\":\"month\",\"y_keys\":[\"net_new_mrr\"],\"label_map\":{\"net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "_new_mrr\":\"Net New MRR\"},\"color_map\":{\"net_new_mrr\":\"indigo\"},\"orientation\":\"vertical\",\"stacked\":false,\"selects\":{\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\":\"plan\",\"bindTo\":\"/filters/plan\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/plan_pivot\",\"value\":\"$chartData:plan_monthly_net_new_mrr\"}\n{\"op\":\"add\",\"path\":\"/elements/narrative\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "\":\"body\",\"content\":\"The largest month-over-month net_new_mrr jump occurred in $result:peak_jump_month, totaling $result:peak_jump_delta_usd. The waterfall decomposes this into three additive sources"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": ": new subscription revenue ($result:peak_jump_new_mrr_gain_usd), expansion from existing customers ($result:peak_jump_expansion_mrr_gain_usd), and reduced churn ($result:peak_jump_churn_relief_usd). Plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "-level analysis confirms plans behave differently (p = $finding:plan_net_new_mrr_heterogeneity.p_value), with $result:leading_plan responsible"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": " for $result:leading_plan_share_of_change of the change in that month. The overall monthly trend carries a slope of $finding:net_new_mrr_trend.slope_per_period (p = $finding:net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "_new_mrr_trend.p_value). The current period as of $finding:net_new_mrr_current_state.period sits at $finding:net_new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": "_mrr_current_state.pct_from_peak below the $finding:net_new_mrr_current_state.peak_period peak of $finding:net_new_mrr_current_state.peak_value"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": ". This analysis covers 36 plan-month records across 12 months and"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": " 3 plans, using summed MRR components per cell with no rows"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589730",
+      "delta": " excluded.\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/filters/plan\",\"value\":\"All\"}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787589730",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787589730"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 35016,
+          "noCache": 28779,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 5144,
+          "text": 5144,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 35016,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 5144
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

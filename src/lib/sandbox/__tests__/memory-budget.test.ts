@@ -98,4 +98,19 @@ describe("sandbox memory budget", () => {
     mockedRun.mockResolvedValue({ stdout: "not-a-number\n", stderr: "", exitCode: 0 });
     expect(await getDaemonMemoryBytes()).toBeNull();
   });
+
+  it("pins the GB label under the record/replay harness (machine-independent prompts)", async () => {
+    const { configureLLMReplay } = await import("@/lib/llm/replay");
+    try {
+      configureLLMReplay({ mode: "replay", dir: "/tmp/unused" });
+      // Whatever the daemon reports, the label embedded in prompts is fixed —
+      // otherwise every prompt hash is machine-specific and fixtures recorded
+      // on one host can never replay on another (the golden-transcript CI bug).
+      infoReturns(64 * GiB);
+      expect(await getSandboxMemoryLimitGbLabel()).toBe("4.0");
+      expect(mockedRun).not.toHaveBeenCalled();
+    } finally {
+      configureLLMReplay(null);
+    }
+  });
 });

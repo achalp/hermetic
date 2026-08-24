@@ -1,0 +1,180 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787590602",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787590602"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":20},\"children\":[\"dc\"]}}\n{\"op\":\"add\",\"path\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\"/elements/dc\",\"value\":{\"type\":\"DataController\",\"props\":{\"source\":{\"statePath\":\"/datasets/main\"},\"filters\":[{\"key\":\"plan-filter\",\"column\":\"plan\",\"bindTo\":\"/filters/plan\",\"label\":\"Plan\",\"allowAll\":true}],\"pipeline\":[{\"op\":\"filter\"}],\"outputs\":[{\"statePath\":\"/computed/net_mrr_trend\",\"pipeline\":[{\"op\":\"groupBy"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\",\"columns\":[\"month\"],\"aggregations\":[{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\"as\":\"expansion_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"churn_mrr\"}]},{\"op\":\"compute\",\"column\":\"gross_mrr\",\"expression\":\"add(new_mrr, expansion_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "r)\"},{\"op\":\"compute\",\"column\":\"net_new_mrr\",\"expression\":\"diff(gross_mrr, churn_mrr)\"},{\"op\":\"sort\",\"column\":\"month\",\"direction\":\"asc\"}]},{\"statePath\":\"/computed/plan_totals\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"plan\"],\"aggregations\":[{\"column\":\"new_mrr\",\"fn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\":\"sum\",\"as\":\"new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\"as\":\"expansion_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"churn_mrr\"}]},{\"op\":\"compute\",\"column\":\"gross_mrr\",\"expression\":\"add(new_mrr, expansion_mrr)\"},{\"op\":\"compute\",\"column\":\"net_new_mrr\",\"expression\":\"diff"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "(gross_mrr, churn_mrr)\"}]}]},\"children\":[\"stats-grid\",\"charts-row-1\",\"charts-row-2\",\"narrative\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stats-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":12},\"children\":[\"stat-grain\",\"stat-slope\",\"stat-peak\"]}}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "add\",\"path\":\"/elements/stat-grain\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Plan-Month Rows Analyzed\",\"value\":\"$result:data_grain_total_rows\",\"description\":\"12 months × 3 plans, no duplicates confirmed\"},\"children\":[]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\":\"add\",\"path\":\"/elements/stat-slope\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Net New MRR Monthly Slope\",\"value\":\"$finding:net_new_mrr_trend.slope_per_period\",\"format\":\"currency\",\"description\":\"OLS slope per period, Jan–Dec 2024 (p = $finding:net_new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "_mrr_trend.p_value)\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-peak\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Net New MRR Peak\",\"value\":\"$finding:net_new_mrr_peak.value\",\"format\":\"currency\",\"description\":\"Attested peak in $finding:net_new_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "mrr_peak.period\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/filters/plan\",\"value\":\"All\"}\n{\"op\":\"add\",\"path\":\"/elements/charts-row-1\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16,\"align\":\"stretch\"},\"children\":[\"chart-net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "-mrr\",\"chart-components\"]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-net-mrr\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Monthly Net New MRR\",\"data\":{\"$state\":\"/computed/net_mrr_trend\"},\"x_key\":\"month\",\"y_keys\":[\"net_new_mrr\"],\"label_map\":{\"net_new_mrr\":\"Net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": " New MRR\"},\"show_dots\":true,\"color_map\":{\"net_new_mrr\":\"indigo\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-components\",\"value\":{\"type\":\"AreaChart\",\"props\":{\"title\":\"MRR Components — New, Expansion, Churn\",\"data\":{\"$state\":\"/computed/net_mrr_trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\"},\"x_key\":\"month\",\"y_keys\":[\"new_mrr\",\"expansion_mrr\",\"churn_mrr\"],\"label_map\":{\"new_mrr\":\"New MRR\",\"expansion_mrr\":\"Expansion MRR\",\"churn_mrr\":\"Churn MRR\"},\"stacked\":false,\"color_map\":{\"new_mrr\":\"emerald\",\"expansion_mrr\":\"cyan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\",\"churn_mrr\":\"rose\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/net_mrr_trend\",\"value\":\"$chartData:monthly_mrr_components\"}\n{\"op\":\"add\",\"path\":\"/elements/charts-row-2\",\"value\":{\"type\":\"LayoutRow\",\"props\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "{\"gap\":16,\"align\":\"stretch\"},\"children\":[\"chart-plan-totals\",\"chart-waterfall\"]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-plan-totals\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Net New MRR by Plan — Full Period Total\",\"data\":{\"$state\":\"/computed/plan_totals\"},\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "x_key\":\"plan\",\"y_keys\":[\"net_new_mrr\",\"new_mrr\",\"expansion_mrr\",\"churn_mrr\"],\"label_map\":{\"net_new_mrr\":\"Net New MRR\",\"new_mrr\":\"New MRR\",\"expansion_mrr\":\"Expansion\",\"churn_mrr\":\"Churn\"},\"color_map\":{\"net_new_mrr\":\"indigo"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\",\"new_mrr\":\"emerald\",\"expansion_mrr\":\"cyan\",\"churn_mrr\":\"rose\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-waterfall\",\"value\":{\"type\":\"WaterfallChart\",\"props\":{\"title\":\"Net New MRR Change Decomposition (Dec vs Jan 2024)\",\"data\":{\"$state\":\"/computed/waterfall\"},\"orientation\":\"vertical"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "\",\"increasing_color\":\"emerald\",\"decreasing_color\":\"rose\",\"total_color\":\"indigo\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/waterfall\",\"value\":\"$chartData:waterfall\"}\n{\"op\":\"add\",\"path\":\"/elements/narrative\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"body\",\"content\":\"Net new MRR trended"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": " $finding:net_new_mrr_trend.direction over Jan–Dec 2024 at $finding:net_new_mrr_trend.slope_per_period per month (p = $finding:net_new_mrr_trend.p_value via OLS). The series reached its attested peak of"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": " $finding:net_new_mrr_peak.value in $finding:net_new_mrr_peak.period; the most recently attested level ($finding:net_new_mrr_current_state.period, $finding:net_new_mrr_current_state.value) sits $finding:net_new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "_mrr_current_state.pct_from_peak from that peak. Underlying components: new MRR trended $finding:new_mrr_trend.direction (slope $finding:new_mrr_trend"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": ".slope_per_period, p = $finding:new_mrr_trend.p_value), expansion MRR trended $finding:expansion_mrr_trend.direction (slope $finding:expansion_mrr_trend.slope_per_period, p = $finding:expansion_mrr_trend.p_value), and churn MRR trended $"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "finding:churn_mrr_trend.direction (slope $finding:churn_mrr_trend.slope_per_period, p = $finding:churn_mrr_trend.p_value). The three plans show significantly different net MRR levels ($finding:plan_net_mrr_heterogeneity.test, p = $finding:plan_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590602",
+      "delta": "net_mrr_heterogeneity.p_value). This analysis covers $finding:data_grain.months months across $finding:data_grain.plans plans ($finding:data_grain.total_rows plan-month rows), with all MRR components confirmed strictly non-zero.\"},\"children\":[]}}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787590602",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787590602"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 36128,
+          "noCache": 29891,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 8952,
+          "text": 8952,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 36128,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 8952
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

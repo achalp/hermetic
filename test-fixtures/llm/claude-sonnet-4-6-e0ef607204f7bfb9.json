@@ -1,0 +1,255 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the input data — from the path given in the \\\"Data Location\\\" section when one is present, else the default \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. DECLARES its outputs (the Analysis Product), then calls the preloaded helper\\n   write_output(...) — do NOT build the JSON or call json.dump yourself:\\n\\n   TIDY SERIES (anything a bar/line/area/scatter chart will draw — rows with an x column\\n   and measure columns) are DECLARED, adjacent to their computation, with their roles:\\n       declare_series(\\\"annual_prices\\\", df_rows,\\n           x=(\\\"year\\\", \\\"temporal\\\"),                      # kind: temporal | ordinal | categorical\\n           measures=[{\\\"column\\\": \\\"median_price\\\", \\\"unit\\\": \\\"usd\\\",\\n                      \\\"of\\\": \\\"price_trend\\\",              # finding this measure is the series view of\\n                      \\\"screened_by\\\": \\\"price_outlier_screen\\\",  # check that owns this measure's nulls\\n                      \\\"variant_of\\\": \\\"median_price_raw\\\"},      # raw sibling column, when screened\\n                     {\\\"column\\\": \\\"median_price_raw\\\", \\\"unit\\\": \\\"usd\\\"}],\\n           count=\\\"item_count\\\",                          # attestation column — ALWAYS declare when present\\n           group=None)                                  # category column for grouped series\\n   Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point\\n   at, exactly.\\n   SERIES KIND — declare the SHAPE when it is not an ordinary axis series (kind=\\\"axis\\\" is\\n   the default): kind=\\\"geo\\\" (rows carry lat + lng/lon columns — licenses the map views),\\n   kind=\\\"distribution\\\" (rows are the RAW VALUES of the measure — licenses histogram/box/\\n   violin; declare one for the sampl",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787589861",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787589861"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "```python\nimport pandas as pd\nimport numpy as np\n\ndf = pd.read_csv(\"/data/input.csv\")\ndf"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "[\"month\"] = pd.to_datetime(df[\"month\"])\ndf[\"new_mrr\"] = to_num(df[\"new_mrr\"])\ndf[\"churn_mrr\"] = to_num(df[\"churn_mrr\"])\ndf[\"customers\"] ="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " to_num(df[\"customers\"])\ndf[\"arpu\"] = to_num(df[\"arpu\"])\ndf = df.sort_values([\"plan\", \"month\"]).reset_index(drop=True)\n\nplans = sorted(df[\"plan\"].unique()."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "tolist())\n\ndeclare_check(\n    \"grain_check\",\n    definition=\"Each row is one plan-month; 36 rows = 3 plans × 12 months with no duplicates\",\n    passed=bool(len(df) == 36 and df.groupby"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "([\"plan\", \"month\"]).size().max() == 1),\n    evidence={\"n_rows\": int(len(df)), \"n_plans\": int(len(plans)), \"n_months\": int(df[\"month\"].nunique()), \"plans\": plans},\n    severity=\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "blocking\"\n)\n\n# churn rate = churn_mrr / customers (USD churned per customer per month)\ndf[\"churn_rate\"] = df[\"churn_mrr\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " / df[\"customers\"]\n\ndist = finding_distribution(df[\"churn_rate\"].values, unit=\"usd_per_customer\")\ndeclare_finding(\n    \"churn_rate_distribution\",\n    dist,\n    definition=\"Distribution of churn_mrr/customers across all plan-months in"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " 2024\",\n    dtype=\"distribution\",\n    unit=\"usd_per_customer\",\n    derived_from_columns=[\"churn_mrr\", \"customers\"]\n)\n\nplan_data = {p: df[df[\"plan\"] == p].sort_values(\"month\")."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "reset_index(drop=True) for p in plans}\n\n# --- Declare tidy series ---\nseries_rows = []\nfor plan in plans:\n    for _, row in plan_data[plan].iterrows():\n        series_rows.append({"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "\n            \"month\": row[\"month\"].strftime(\"%Y-%m\"),\n            \"plan\": plan,\n            \"churn_rate\": round(float(row[\"churn_rate\"]), 2),\n            \"churn_mrr\": int(row[\"churn_mrr\"]),\n            \"customers\": int(row[\"customers\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "]),\n        })\n\ndeclare_series(\n    \"churn_rate_by_plan\",\n    series_rows,\n    x=(\"month\", \"temporal\"),\n    measures=[{\n        \"column\": \"churn_rate\",\n        \"unit\": \"usd_per_customer\",\n        \"aggregates"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "\": {\"fn\": \"ratio\", \"numerator\": \"churn_mrr\", \"denominator\": \"customers\", \"from\": \"main\"}\n    }],\n    count=\"customers\",\n    group"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "=\"plan\"\n)\n\n# --- Per-plan findings ---\nplan_trends = {}\nplan_steps = {}\nplan_current = {}\nplan_medians = {}\n\nfor plan in plans:\n    p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "df = plan_data[plan]\n    labels = [m.strftime(\"%Y-%m\") for m in pdf[\"month\"]]\n    values = pdf[\"churn_rate\"].values\n    counts = pdf[\"customers\"].values.astype(int)\n    pk = plan.lower()\n\n    plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "_medians[plan] = float(np.median(values))\n\n    trend = finding_trend(values, unit=\"usd_per_customer\", labels=labels, counts=counts)\n    plan_trends[plan] = trend\n    declare_finding(\n        f\"churn_rate_trend_{"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "pk}\",\n        trend,\n        definition=f\"Count-weighted OLS trend of churn_mrr/customers for {plan} plan over 2024-01 to 2024-12\",\n        dtype=\"direction\",\n        unit=\"usd_per_customer\",\n        "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "derived_from_columns=[\"churn_mrr\", \"customers\"],\n        tags=[\"trend\", \"churn\"]\n    )\n\n    step = finding_step_change(values, labels=labels, counts=counts, unit=\"usd_per_customer\")\n    plan_steps[plan] = step\n    declare_finding(\n        f\"churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "rate_step_{pk}\",\n        step,\n        definition=f\"Largest persistent level shift in churn_mrr/customers for {plan} plan over 2024\",\n        dtype=\"step_change\",\n        unit=\"usd_per_customer\",\n        derived_from_columns=[\"churn_mrr\", \"customers\"],\n        tags=[\"step_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "change\", \"churn\"]\n    )\n\n    cur = finding_current_state(values, labels=labels, counts=counts, unit=\"usd_per_customer\")\n    plan_current[plan] = cur\n    declare_finding(\n        f\"churn_rate_current_{pk}\",\n        cur,\n        definition=f\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "Attested end-of-period churn_mrr/customers for {plan} plan\",\n        dtype=\"current_state\",\n        unit=\"usd_per_customer\",\n        derived_from_columns=[\"churn_mrr\", \"customers\"],\n        tags=[\"current_state\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " \"churn\"]\n    )\n\n    sup = finding_superlative(labels, values, counts=counts, kind=\"max\", unit=\"usd_per_customer\")\n    declare_finding(\n        f\"churn_rate_peak_{pk}\",\n        sup,\n        definition=f\"Attest"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "ation-weighted peak churn_mrr/customers for {plan} plan in 2024\",\n        dtype=\"superlative\",\n        unit=\"usd_per_customer\",\n        derived_from_columns=[\"churn_mrr\", \"customers\"],\n        tags=[\"superlative\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " \"churn\"]\n    )\n\n# --- Heterogeneity across plans ---\nhetero = finding_heterogeneity(\n    {p: plan_data[p][\"churn_rate\"].values for p in plans},\n    unit=\"usd_per_customer\"\n)\ndeclare_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "finding(\n    \"churn_rate_heterogeneity\",\n    hetero,\n    definition=f\"Statistical test ({hetero['test']}) for significant differences in churn_mrr/customers across Enterprise, Pro, and Starter plans over"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " 2024\",\n    dtype=\"heterogeneity\",\n    unit=\"usd_per_customer\",\n    derived_from_columns=[\"churn_mrr\", \"customers\"],\n    tags=[\"heterogeneity\", \"churn\"]\n)\n\n# --- Worst / best retention"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " ---\nworst_plan = max(plan_medians, key=plan_medians.get)\nbest_plan = min(plan_medians, key=plan_medians.get)\nchurn_range = max(plan_medians.values()) - min(plan_medians.values())\n\ndeclare_check(\n    \"worst_retention_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "identification\",\n    definition=\"Plan with worst retention identified as having the highest median churn_mrr/customers across 12 months of 2024\",\n    passed=True,\n    evidence={\n        \"plan_medians_u"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "sd_per_customer\": {p: round(v, 2) for p, v in sorted(plan_medians.items(), key=lambda x: -x[1])},\n        \"worst_plan\": worst_plan,\n        \"best_plan\": best_plan,\n    },\n    severity=\"caveat"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "\"\n)\n\ndeclare_value(\"worst_retention_plan\", worst_plan, label=\"Plan with worst retention (highest median churn rate)\")\ndeclare_value(\"best_retention_plan\", best_plan, label=\"Plan with best retention (lowest median churn rate)\")\ndeclare_value(\"segment_range_usd_per_customer"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "\", round(churn_range, 2),\n              label=\"Range of median churn rate across plans (USD churned per customer)\")\n\n# --- Bar chart: median churn rate per plan ---\nbar_rows"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " = [\n    {\"plan\": p, \"median_churn_rate\": round(plan_medians[p], 2)}\n    for p in sorted(plan_medians, key=plan_medians.get,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": " reverse=True)\n]\n\ndeclare_series(\n    \"median_churn_rate_by_plan\",\n    bar_rows,\n    x=(\"plan\", \"categorical\"),\n    measures=[{\"column\": \"median_churn_rate\", \"unit\": \"usd_per_customer\", \"of"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "\": \"churn_rate_heterogeneity\"}]\n)\n\nresults = {\n    \"worst_retention_plan\": worst_plan,\n    \"best_retention_plan\": best_plan,\n    \"segment_heter"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "ogeneity_significant\": hetero[\"significant\"],\n    \"segment_heterogeneity_p_value\": hetero[\"p_value\"],\n    \"segment_heterogeneity_test\": hetero[\"test\"],\n    \"segment_range_usd_per_customer\": round(churn_range, 2),\n}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "\n\nfor plan in plans:\n    pk = plan.lower()\n    results[f\"{pk}_median_churn_rate_usd_per_customer\"] = round(plan_medians[plan], 2)\n    results[f\"{pk}_churn_rate_trend_direction\"] = plan_trends[plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "][\"direction\"]\n    results[f\"{pk}_churn_rate_slope_per_period\"] = round(float(plan_trends[plan][\"slope_per_period\"]), 2)\n    results[f\"{pk}_churn_rate_trend_p_value\"] = plan_trends[plan][\"p_value\"]\n    cur"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "_val = plan_current[plan][\"value\"]\n    results[f\"{pk}_current_churn_rate_usd_per_customer\"] = round(float(cur_val), 2) if cur_val is not None else None\n    step"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "_val = plan_steps[plan].get(\"period\")\n    results[f\"{pk}_step_change_period\"] = step_val\n    results[f\"{pk}_step_change_delta\"] = round(float(plan_steps[plan][\"delta\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589861",
+      "delta": "]), 2) if plan_steps[plan].get(\"delta\") is not None else None\n\nwrite_output(\n    results=results,\n    chart_data={},\n    datasets={\"main\": df},\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787589861",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787589861"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 30857,
+          "noCache": 24620,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 5643,
+          "text": 5643,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 30857,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 5643
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

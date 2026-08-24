@@ -1,0 +1,360 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787590343",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787590343"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":24"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "},\"children\":[\"title-block\",\"scope-caption\",\"exec-summary\",\"s1-break"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\",\"s1-grid\",\"s1-bar-median\",\"s1-line-trend\",\"s1-insight\",\"s2-break\",\"s2-stats"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "-row\",\"s2-mrr-dynamics\",\"s2-scatter\",\"s2-high-low-bar\",\"s2-insight\",\"s2-decomp-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "annotation\",\"conclusion-block\"]}}\n{\"op\":\"add\",\"path\":\"/elements/title-block\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"What drives churn in"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " this data?\",\"variant\":\"heading\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/scope-caption\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Analysis window"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": ": Jan–Dec 2024 · 3 plans × 12 months (36 plan-month observations)\",\"variant\":\"body\"},\"children"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/exec-summary\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Churn is primarily a plan-tier structural problem,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " not a growth-quality problem. Step 1 reveals statistically significant heterogeneity across plans —"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " $result:step_1_worst_retention_plan churns the most (median $result:step_1_enterprise_median_churn_rate_usd_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "per_customer/customer) while $result:step_1_best_retention_plan performs best, a spread of $result:step_1_segment_range_usd_per_customer per"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " customer (Step 1). Step 2 shows that high-acquisition months produce only a $result:step_2_high_vs_low_churn_delta_usd delta"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " in churn per customer versus low-acquisition months, and the within-plan correlation between new MRR and churn intensity is near"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " zero — ruling out growth-phase quality degradation as the dominant driver (Step 2). The volume-quality decomposition confirms"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " the $result:step_2_churn_new_mrr_base_effect effect is dominant: more customers, not worse ones, accounts"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " for most of the churn MRR change (Step 2).\",\"variant\":\"insight\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s1-break\",\"value\":{\"type\":\"SectionBreak\",\"props\":{\"variant\":\"line\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "label\":\"Step 1 — Which plan has the worst retention?\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s1-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":16},\"children\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "[\"s1-stat-worst\",\"s1-stat-best\",\"s1-stat-range\"]}}\n{\"op\":\"add\",\"path\":\"/elements/s1-stat-worst\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Worst retention plan\",\"value\":{\"$"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "state\":\"/s1_worst_plan\"},\"description\":\"Highest median churn/customer\"},\"children\":[]}}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\":\"add\",\"path\":\"/state/s1_worst_plan\",\"value\":\"$result:step_1_worst_retention_plan\"}\n{\"op\":\"add\",\"path\":\"/elements/s1-stat-best\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Best retention plan\",\"value\":{\"$state\":\"/s1_best_plan\"},\"description\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "Lowest median churn/customer\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/s1_best_plan\",\"value\":\"$result:step_1_best_retention_plan\"}\n{\"op\":\"add\",\"path\":\"/elements/s1-stat-range\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Churn rate spread"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " across plans\",\"value\":{\"$state\":\"/s1_range\"},\"format\":\"currency\",\"description\":\"USD churned per customer, worst vs best plan\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/s1_range\",\"value\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "$result:step_1_segment_range_usd_per_customer\"}\n{\"op\":\"add\",\"path\":\"/elements/s1-bar-median\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Median churn rate by plan (USD/customer)\",\"data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\":\"$chartData:step_1_median_churn_rate_by_plan\",\"x_key\":\"plan\",\"y_keys\":[\"median_churn_rate\"],\"orientation\":\"vertical\",\"color_map"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\":{\"median_churn_rate\":\"indigo\"},\"label_map\":{\"median_churn_rate\":\"Median churn per customer (USD)\"},\"selects\":{\"column"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\":\"plan\",\"bindTo\":\"/filters/plan\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s1-line-trend\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Monthly churn rate by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " plan (USD/customer)\",\"data\":\"$chartData:step_1_churn_rate_by_plan\",\"x_key\":\"month\",\"y_keys\":[\"churn_rate\"],\"color_map\":{\"churn_rate\":\"rose\"},\"label_map\":{\"churn_rate\":\"Churn per customer (USD)\"},\"show"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "_dots\":true,\"curve\":\"monotone\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s1-insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Plan-level ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "urn heterogeneity is statistically significant (p = $result:step_1_segment_heterogeneity_p_value, $result:step_1_segment_heterogeneity_test"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "). $result:step_1_worst_retention_identification_worst_plan has the worst retention and $result:step_1_worst_retention_identification_best_plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " the best, confirming that plan tier is a structural churn driver. (Step 1)\",\"variant\":\"insight\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s2-break\",\"value\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "{\"type\":\"SectionBreak\",\"props\":{\"variant\":\"line\",\"label\":\"Step 2 — Does rapid acquisition degrade customer quality and drive higher churn?\"},\"children\":[]}}\n{\"op\":\"add\",\"path"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\":\"/elements/s2-stats-row\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":16},\"children\":[\"s2-stat-high\",\"s2-stat-low\",\"s2-stat-delta\"]}}\n{\"op\":\"add\",\"path\":\"/elements/s2-stat-high\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "Churn/customer — high acquisition months\",\"value\":{\"$state\":\"/s2_high\"},\"format\":\"currency\",\"description\":\"Mean USD/customer in top new-MRR months\"},\"children\":[]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "}}\n{\"op\":\"add\",\"path\":\"/state/s2_high\",\"value\":\"$result:step_2_high_acq_churn_per_customer_usd\"}\n{\"op\":\"add\",\"path\":\"/elements/s2-stat-low\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Churn/customer — low acquisition months\",\"value\":{\"$state\":\"/s2"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "_low\"},\"format\":\"currency\",\"description\":\"Mean USD/customer in bottom new-MRR months\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/s2_low\",\"value\":\"$result:step_2_low_acq_churn_per_customer_usd\"}\n{\"op\":\"add\",\"path\":\"/elements/s2-stat-delta\",\"value\":{\"type\":\"StatCard\",\"props\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "{\"label\":\"High vs low acquisition churn delta\",\"value\":{\"$state\":\"/s2_delta\"},\"format\":\"currency\",\"description\":\"Difference in churn/customer between acquisition tiers\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/s2_delta\",\"value\":\"$result:step_2_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "high_vs_low_churn_delta_usd\"}\n{\"op\":\"add\",\"path\":\"/elements/s2-mrr-dynamics\",\"value\":{\"type\":\"DualAxisChart\",\"props\":{\"title\":\"Monthly new MRR vs churn per customer (2024)"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\",\"data\":\"$chartData:step_2_monthly_mrr_dynamics\",\"x_key\":\"month\",\"left_series\":[{\"key\":\"total_new_mrr\",\"type\":\"bar\",\"label\":\"New"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " MRR (USD)\"}],\"right_series\":[{\"key\":\"churn_per_customer\",\"type\":\"line\",\"label\":\"Churn/customer (USD)\"}],\"left_label\":\"New MRR (USD)\",\"right_label\":\"Churn per customer (USD)\",\"x"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "_label\":\"Month\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s2-scatter\",\"value\":{\"type\":\"ScatterChart\",\"props\":{\"title\":\"New MRR vs churn per customer by plan-month\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "data\":\"$chartData:step_2_new_mrr_vs_churn_scatter\",\"x_key\":\"new_mrr\",\"y_key\":\"churn_per_customer\",\"x_label\":\"New MRR (USD)\",\"y_label\":\"Churn per customer (USD)\",\"show_regression"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "\":true,\"group_key\":\"plan\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s2-high-low-bar\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Churn per customer: high vs low acquisition months\",\"data\":\"$chartData:step_2_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "high_vs_low_acq_churn\",\"x_key\":\"acq_tier\",\"y_keys\":[\"churn_per_customer_mean\"],\"orientation\":\"vertical\",\"color_map\":{\"churn_per_customer_mean\":\"amber\"},\"label_map\":{\"churn_per_customer_mean\":\"Mean churn per customer (USD)\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s2-insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"Step 1 raised the hypothesis that plan-tier differences might"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " be compounded by a growth-quality dynamic — rapid acquisition stretching onbo"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "arding and producing weaker cohorts. Step 2 overturns that hypothesis: the within-plan correlation between new MRR"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " and churn per customer is near zero (Pearson r = $result:step_2_within_plan_new_mrr_churn_corr_pearson_r, p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " = $result:step_2_within_plan_new_mrr_churn_corr_pearson_p), and the volume-quality decomposition confirms that the $result:step_2_churn_new_mrr_base_effect effect accounts for most of the churn MRR change —"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " more customers, not worse ones. (Steps 1, 2)\",\"variant\":\"insight\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/s2-decomp-annotation\",\"value\":{\"type\":\"Annotation\",\"props\":{\"icon\":\"info\",\"title\":\"Churn rate"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " is a proxy metric\",\"content\":\"Total MRR stock is absent from this dataset. Churn rate is approxim"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "ated as churn_mrr / customers (dollar churn per customer). The between-plan correlation is inflated by scale"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " differences across tiers; the within-plan demeaned correlation is the clean quality-degrad"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": "ation signal.\",\"severity\":\"info\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/conclusion-block\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"content\":\"The primary lever"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " for reducing churn is plan-tier retention, not acquisition pacing — invest in onboarding, support, and product"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " depth differentiated by tier, focusing first on $result:step_1_worst_retention_identification_worst_plan. As"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " a next step, investigate whether specific cohorts or contract lengths within each plan explain the within-tier"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": " variance, and consider adding MRR stock to the dataset to compute a true revenue churn rate"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787590343",
+      "delta": ".\",\"variant\":\"body\"},\"children\":[]}}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787590343",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787590343"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 39707,
+          "noCache": 33470,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 2815,
+          "text": 2815,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 39707,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 2815
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

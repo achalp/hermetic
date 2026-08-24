@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":8000,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches righ",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root-col\"}\n{\"op\":\"add\",\"path\":\"/elements/root-col\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":12},\"children\":[\"stats-grid\",\"scatter-chart\",\"insight-text\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stats-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":8},\"children\":[\"stat-pearson\",\"stat-delta\",\"stat-high-low\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-pearson\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Overall Pearson r (new MRR vs churn/customer)\",\"value\":\"$result:overall_new_mrr_churn_intensity_corr_pearson_r\",\"format\":\"number\",\"precision\":2},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-delta\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"High vs Low Acquisition Churn Delta ($/customer)\",\"value\":\"$result:high_vs_low_churn_delta_usd\",\"format\":\"currency\",\"precision\":2},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-high-low\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Dominant Churn Driver\",\"value\":\"$result:churn_mrr_volume_quality_decomp_dominant\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/scatter-chart\",\"value\":{\"type\":\"ScatterChart\",\"props\":{\"title\":\"New MRR vs Churn per Customer by Plan\",\"data\":\"$chartData:new_mrr_vs_churn_scatter\",\"x_key\":\"new_mrr\",\"y_key\":\"churn_per_customer\",\"x_label\":\"New MRR ($)\",\"y_label\":\"Churn per Customer ($)\",\"group_key\":\"plan\",\"show_regression\":true},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight-text\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"insight\",\"content\":\"The within-plan correlation between new MRR and churn intensity is $result:within_plan_new_mrr_churn_corr_pearson_r (p=$result:within_plan_new_mrr_churn_corr_pearson_p), and high-acquisition months show $result:high_acq_churn_per_customer_usd vs $result:low_acq_churn_per_customer_usd churn per customer in low-acquisition months — $result:base_effect_churn_intensity suggests growth-phase quality degradation is $result:churn_new_mrr_base_effect.\"},\"children\":[]}}",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1787590309"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 29393,
+        "noCache": 23156,
+        "cacheRead": 6237
+      },
+      "outputTokens": {
+        "total": 647,
+        "text": 647,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 29393,
+        "input_tokens_details": {
+          "cached_tokens": 6237
+        },
+        "output_tokens": 647
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1787590309"
+      }
+    },
+    "warnings": []
+  }
+}

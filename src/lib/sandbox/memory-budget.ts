@@ -98,6 +98,13 @@ export async function sandboxMemoryRunArgs(): Promise<string[]> {
  * fabricated one.
  */
 export async function getSandboxMemoryLimitGbLabel(): Promise<string | null> {
+  // Under the record/replay harness the label is PINNED: it is embedded in the
+  // code-gen prompt (skills guidance "{{sandboxMemoryGb}}", schema block), so
+  // a host-derived value makes every prompt hash machine-specific — fixtures
+  // recorded on a 91 GB workstation can never replay on a 16 GB CI runner.
+  // Same gating pattern as exemplar retrieval / harvest (learning loop).
+  const { llmReplayConfig } = await import("@/lib/llm/replay");
+  if (llmReplayConfig()) return "4.0";
   const mb = await getSandboxMemoryLimitMb();
   if (mb == null) return null;
   return (mb / 1024).toFixed(1);

@@ -1,0 +1,440 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the input data — from the path given in the \\\"Data Location\\\" section when one is present, else the default \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. DECLARES its outputs (the Analysis Product), then calls the preloaded helper\\n   write_output(...) — do NOT build the JSON or call json.dump yourself:\\n\\n   TIDY SERIES (anything a bar/line/area/scatter chart will draw — rows with an x column\\n   and measure columns) are DECLARED, adjacent to their computation, with their roles:\\n       declare_series(\\\"annual_prices\\\", df_rows,\\n           x=(\\\"year\\\", \\\"temporal\\\"),                      # kind: temporal | ordinal | categorical\\n           measures=[{\\\"column\\\": \\\"median_price\\\", \\\"unit\\\": \\\"usd\\\",\\n                      \\\"of\\\": \\\"price_trend\\\",              # finding this measure is the series view of\\n                      \\\"screened_by\\\": \\\"price_outlier_screen\\\",  # check that owns this measure's nulls\\n                      \\\"variant_of\\\": \\\"median_price_raw\\\"},      # raw sibling column, when screened\\n                     {\\\"column\\\": \\\"median_price_raw\\\", \\\"unit\\\": \\\"usd\\\"}],\\n           count=\\\"item_count\\\",                          # attestation column — ALWAYS declare when present\\n           group=None)                                  # category column for grouped series\\n   Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point\\n   at, exactly.\\n   SERIES KIND — declare the SHAPE when it is not an ordinary axis series (kind=\\\"axis\\\" is\\n   the default): kind=\\\"geo\\\" (rows carry lat + lng/lon columns — licenses the map views),\\n   kind=\\\"distribution\\\" (rows are the RAW VALUES of the measure — licenses histogram/box/\\n   violin; declare one for the sampl",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787589565",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787589565"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "I'll identify the month with the largest Mo"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "M net_new_mrr jump, decompose it into its drivers (new MRR, expansion, churn), and break it down by plan."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "```"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "python\nimport pandas as pd"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\nimport numpy as np"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\n\ndf"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": " = pd.read_csv(\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "/input"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "csv\")\ndf[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "month"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\"] = pd.to_datetime"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "(df[\"month\"])\nfor"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": " col in [\"new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_mrr\", \"expansion_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "mrr\", \"churn_mrr\", \"customers\", \"arpu\"]:\n    df[col] = to_num(df[col])\ndf = df.sort_values("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "[\"month\", \"plan\"]).reset_index(drop=True)\n\n# --- Monthly totals (sum across plans) ---\nmonthly = df.groupby(\"month\")."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "agg(\n    new_mrr=(\"new_mrr\", \"sum\"),\n    expansion_mrr=(\"expansion_mrr\", \"sum\"),\n    churn_mrr=(\"churn_mrr\", \"sum\"),\n    n_plan_rows"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "=(\"plan\", \"count\"),\n).reset_index().sort_values(\"month\").reset_index(drop=True)\n\nmonthly[\"net_new_mrr\"] = monthly[\"new_mrr\"] + monthly[\"expansion_mrr\"] - monthly[\"churn_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "r\"]\nmonthly[\"delta_net_new_mrr\"] = monthly[\"net_new_mrr\"].diff()\nmonthly[\"delta_new_mrr\"]       = monthly[\"new_mrr\"].diff()\nmonthly[\"delta_expansion_mrr\"] = monthly[\"expansion_mrr\"].diff()\nmonthly[\"delta_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "churn_mrr\"]     = monthly[\"churn_mrr\"].diff()\n\n# Grain check\ndeclare_check = __builtins__[\"declare"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_check\"] if isinstance(__builtins__, dict) else None\n# use the preloaded helper\ndeclare"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_check(\"grain_month_plan\",\n    definition=\"Each ("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "month, plan) cell has exactly one row\",\n    passed=bool(df.groupby([\"month\", \"plan\"]).size().max() == 1),\n    evidence"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "={\"total_rows\": int(len(df)), \"unique_months\": int(df[\"month\"].nunique()), \"unique_plans\": int(df[\"plan\"].nunique())},"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\n    severity=\"blocking\")\n\n# --- Identify the peak-jump month ---\nmonthly_valid = monthly.dropna(subset=[\"delta"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_net_new_mrr\"]).copy()\npeak_idx = monthly_valid[\"delta_net_new_mrr\"].idxmax()\npeak_row  = monthly_valid.loc[peak_idx]\npeak_month     "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "= peak_row[\"month\"]\nprior_month    = peak_month - pd.DateOffset(months=1)\npeak_month_str = peak_month.strftime(\"%Y-%m\")\nprior_month_str = prior_month.strftime(\"%Y-%"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "m\")\n\ndelta_total      = float(peak_row[\"delta_net_new_mrr\"])\ndelta_new        = float(peak_row[\"delta_new_mrr\"])\ndelta_expansion  = float(peak_row[\"delta_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "expansion_mrr\"])\nchurn_relief     = float(-peak_row[\"delta_churn_mrr\"])   # positive = churn fell = tailwind\n\n# --- Formal step-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "change test on the level series ---\nlabels_all = [m.strftime(\"%Y-%m\") for m in monthly[\"month\"]]\nstep ="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": " finding_step_change(\n    monthly[\"net_new_mrr\"].values,\n    labels=labels_all,\n    counts=monthly[\"n_plan_rows\"].values,\n    unit=\"usd\",\n)"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\ndeclare_finding(\"net_new_mrr_step_change\", step,\n    definition=\"Largest single-period level shift in monthly net_new_mrr (all"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": " plans combined) over 2024-01 to 2024-12\",\n    dtype=\"step_change\",\n    unit=\"usd\",\n    derived"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"step_change\"])\n\n# --- Decompose the jump ---\ndecomp = finding_decompose(\n    delta_total"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": ",\n    {\n        \"new_mrr_gain\":        delta_new,\n        \"expansion_mrr_gain\":  delta_expansion,\n        \"churn_relief\":        churn_relief,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\n    }\n)\ndeclare_finding(\"peak_jump_decomposition\", decomp,\n    definition=\"Attribution of the largest MoM net_new_mrr jump into new_mrr change, expansion_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "mrr change, and churn_mrr change for 2024\",\n    dtype=\"decomposition\",\n    unit=\"usd\",\n    derived_from_findings=[\"net_new_mrr_step_change\"],\n    derived_from_columns=[\"new_mrr\", \"expansion_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "mrr\", \"churn_mrr\"],\n    tags=[\"decomposition\"])\n\n# --- Per-plan breakdown for peak vs prior month ---\npeak_plans  = df["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "df[\"month\"] == peak_month ][[\"plan\",\"new_mrr\",\"expansion_mrr\",\"churn_mrr\"]].copy()\nprior_plans = df[df[\"month\"] == prior_month][[\"plan\",\"new_mrr\",\"expansion_mrr\",\"churn_mrr\"]].copy"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "()\nfor frame in (peak_plans, prior_plans):\n    frame[\"net_new_mrr\"] = frame[\"new_mrr\"] + frame[\"expansion_mrr\"] - frame[\"churn_mrr\"]\n\nplan_c"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "mp = peak_plans.merge(prior_plans, on=\"plan\", suffixes=(\"_peak\",\"_prior\"))\nplan_cmp[\"delta_net_new_mrr\"]    = plan_cmp[\"net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_new_mrr_peak\"]    - plan_cmp[\"net_new_mrr_prior\"]\nplan_cmp[\"delta_new_mrr\"]        = plan_cmp[\"new_mrr_peak\"]        - plan_cmp[\"new_mrr_prior\"]\nplan_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "cmp[\"delta_expansion_mrr\"]  = plan_cmp[\"expansion_mrr_peak\"]  - plan_cmp[\"expansion_mrr_prior\"]\nplan_cmp[\"delta_churn_mrr\"]      = plan_cmp[\"churn_mrr_peak\"]      - plan_cmp[\"churn_mrr_prior\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\nplan_cmp = plan_cmp.sort_values(\"delta_net_new_mrr\", ascending=False).reset_index(drop=True)\nleading_plan       = str(plan_cmp.iloc[0][\"plan\"])\nleading"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_plan_delta = float(plan_cmp.iloc[0][\"delta_net_new_mrr\"])\nleading_plan_share = round(leading_plan_delta / delta_total * 100, 1) if delta_total else"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": " None\n\n# Leading plan attribution\nplan_delta_dict = {row[\"plan\"]: round(row[\"delta_net_new_mrr\"]) for _, row in plan_cmp.iterrows()}"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\nattr = finding_decompose(delta_total, {p: float(v) for p, v in plan_delta_dict.items()})\ndeclare_finding(\"peak"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_jump_plan_attribution\", attr,\n    definition=\"Which plan contributed most to the largest MoM net_new_mrr jump in 2024\",\n    dtype=\"attribution\",\n    unit=\"usd\",\n    derived_from_findings=[\"peak"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_jump_decomposition\"],\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"attribution\"])\n\ndeclare_value(\"peak_jump_month\",      peak_month_str,        "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "label=\"Month of largest MRR jump\")\ndeclare_value(\"peak_jump_delta_usd\",  round(delta_total),    "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "label=\"Largest MoM net_new_mrr jump (USD)\")\ndeclare_value(\"leading_plan\",         leading_plan,          label=\"Plan driving the jump\")\ndeclare_value"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "(\"leading_plan_share_pct\", leading_plan_share,  label=\"Leading plan share of jump (%)\")\n\n# --- Declare series ---\n# M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "oM delta series (all months with a prior)\nmom_rows"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": " = [\n    {\n        \"month\":               row[\"month\"].strftime(\"%Y-%m\"),\n        \"delta_net_new_mrr\":   round(row[\"delta_net_new_mrr\"]),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\n        \"delta_new_mrr\":       round(row[\"delta_new_mrr\"]),\n        \"delta_expansion_mrr\": round(row[\"delta_expansion_mrr\"]),\n        \"churn_drag_change\":   round(-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "row[\"delta_churn_mrr\"]),\n        \"n_plan_rows\":         int(row[\"n_plan_rows\"]),\n    }\n    for _, row in monthly_valid.iterrows()\n]\ndeclare_series(\"mom_net_new_mrr_delta\", mom_rows,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\n    x=(\"month\", \"temporal\"),\n    measures=[\n        {\"column\": \"delta_net_new_mrr\",   \"unit"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\": \"usd\"},\n        {\"column\": \"delta_new_mrr\",       \"unit\": \"usd\"},\n        {\"column\": \"delta_expansion_mrr\", \"unit\": \"usd\"},\n        {\"column\": \"churn_drag_change\",   \"unit\": \"usd\"},\n    ],\n    count"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "=\"n_plan_rows\")\n\n# Plan-level delta for the peak month\nplan_rows_out = [\n    {\n        \"plan\":                str"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "(row[\"plan\"]),\n        \"delta_net_new_mrr\":   round(row[\"delta_net_new_mrr\"]),\n        \"delta_new_mrr\":       round(row[\"delta_new_mrr\"]),\n        \"delta_expansion_mrr\": round(row[\"delta_expansion_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "r\"]),\n        \"delta_churn_mrr\":     round(row[\"delta_churn_mrr\"]),\n        \"net_new_mrr_prior\":   round(row[\"net_new_mrr_prior\"]),\n        \"net_new_mrr_peak\":    round(row[\"net_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "new_mrr_peak\"]),\n    }\n    for _, row in plan_cmp.iterrows()\n]\ndeclare_series(\"plan_mrr_jump_breakdown\", plan_rows_out,\n    x=(\"plan\", \"categorical\"),\n    measures=[\n        {\"column\": \"delta_net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_new_mrr\",   \"unit\": \"usd\"},\n        {\"column\": \"delta_new_mrr\",       \"unit\": \"usd\"},\n        {\"column\": \"delta_expansion_mrr\", \"unit\": \"usd\"},\n        {\"column\": \"delta_churn_mrr\",     \"unit\": \"usd\"},\n    "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "])\n\n# Waterfall: decomposition of the jump (what drove it)\nprior_net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_new_mrr = round(float(peak_row[\"net_new_mrr\"]) - delta_total)\nwaterfall = [\n    {\"label"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\": f\"Net New MRR ({prior_month_str})\", \"value\": prior_net_new_mrr,       \"type\": \"absolute\"},\n    {\"label\": \"New MRR gain\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "                     \"value\": round(delta_new),         \"type\": \"relative\"},\n    {\"label\": \"Expansion MRR gain\",               \"value\": round(delta_expansion),   \"type\": \"relative\"},\n    {\"label\": \"Churn change"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\",                     \"value\": round(churn_relief),       \"type\": \"relative\"},\n    {\"label\": f\"Net New MRR ({peak_month_str})\",  \"value\": round(float(peak_row[\"net_new_mrr\"])), \"type\": \"total"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\"},\n]\n\nresults = {\n    \"peak_jump_month\":               peak_month_str,\n    \"prior_month\":                   prior_month_str,\n    \"peak_jump_delta_usd\":           round(delta_total),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "\n    \"net_new_mrr_prior_month_usd\":   prior_net_new_mrr,\n    \"net_new_mrr_peak_month_usd\":    round(float(peak_row[\"net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_new_mrr\"])),\n    \"delta_new_mrr_usd\":             round(delta_new),\n    \"delta_expansion_mrr_usd\":       round(delta_expansion),\n    \"churn_relief_usd\":              round(churn_relief),\n    \"dominant"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "_driver\":               decomp[\"dominant\"],\n    \"leading_plan\":                  leading_plan,\n    \"leading_plan_delta_usd\":        round(leading_plan_delta),\n    \"leading_plan_share_pct\":        leading_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "plan_share,\n    \"step_change_period\":            step.get(\"period\"),\n    \"step_change_delta\":             step.get(\"delta\"),\n    \"step_change_detected\":          step.get(\"detected\", True),\n}\n\nwrite_output(\n    results=results,\n    chart_data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787589565",
+      "delta": "={\"mrr_jump_waterfall\": waterfall},\n    datasets={\"main\": df},\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787589565",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787589565"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 73010,
+          "noCache": 66773,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 7247,
+          "text": 7247,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 73010,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 7247
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

@@ -156,7 +156,7 @@ describe("setupEgressNetwork — gateway hardening (finding M5)", () => {
   });
 });
 
-describe("setupEgressNetwork — merged proxy start (perf P4)", () => {
+describe("setupEgressNetwork — proxy start survives the exec session (Docker >= 28)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDaemonCpuCacheForTests();
@@ -164,15 +164,17 @@ describe("setupEgressNetwork — merged proxy start (perf P4)", () => {
     mockedRun.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
   });
 
-  it("writes AND starts the proxy in ONE exec (nohup+&), with no separate exec -d start", async () => {
+  it("starts the proxy via a DETACHED exec, never a backgrounded foreground exec", async () => {
     await setupEgressNetwork("testrunid1234", ["b.s3.amazonaws.com"]);
     const cmds = mockedRun.mock.calls.map(([, args]) => args.join(" "));
-    const merged = cmds.filter(
-      (c) => c.includes("cat > /tmp/egress-proxy.py") && c.includes("nohup python3")
-    );
-    expect(merged).toHaveLength(1);
-    // The old 2-exec shape (separate detached start) is gone.
-    expect(cmds.some((c) => c.includes("exec -d"))).toBe(false);
+    // Modern Docker kills an exec session's process group when the session
+    // exits, so `sh -c "... nohup python3 ... &"` inside a foreground exec
+    // leaves NO proxy listening (empty diagnostics, every allowed read fails).
+    // The write stays its own exec; the start must be `exec -d`.
+    expect(cmds.some((c) => c.includes("cat > /tmp/egress-proxy.py"))).toBe(true);
+    const detachedStart = cmds.filter((c) => c.includes("exec -d") && c.includes("python3"));
+    expect(detachedStart).toHaveLength(1);
+    expect(cmds.some((c) => c.includes("nohup"))).toBe(false);
   });
 });
 

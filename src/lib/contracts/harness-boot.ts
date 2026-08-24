@@ -21,4 +21,8 @@ export interface LLMReplayConfig {
   mode: LLMReplayMode;
   /** Absolute path to the fixture directory (resolved by the harness). */
   dir: string;
+  /** Dump full request bytes for every replay-mode lookup (hit AND miss) as
+   *  *.hit.json diagnostics. Set by the harness from HERMETIC_REPLAY_DEBUG=1 —
+   *  lib code never reads the environment. */
+  debug?: boolean;
 }

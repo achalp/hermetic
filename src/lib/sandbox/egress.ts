@@ -207,26 +207,35 @@ export async function setupEgressNetwork(
       ],
       { timeoutMs: 15_000 }
     );
-    // perf P4: write+start the proxy in ONE exec (nohup+& — the backgrounded
-    // python survives the exec shell's exit), and run it in PARALLEL with the
-    // bridge connect: both need only the running gateway, and neither depends
-    // on the other. Was 3 serial round-trips; now 2 concurrent ones. The
-    // readiness poll below still gates on the proxy actually accepting.
+    // perf P4 (amended for Docker >= 28): the script write and the bridge
+    // connect still run in PARALLEL (both need only the running gateway), but
+    // the proxy START moved to its own `docker exec -d`. The old single-exec
+    // `nohup python3 ... &` pattern died with the exec session on modern
+    // Docker (observed on 29.6: the backgrounded python is killed when the
+    // foreground exec exits, the proxy never binds, and every allowed remote
+    // read fails "network error" with EMPTY proxy diagnostics — exactly the
+    // egress-proof failure signature). A detached exec is the supported way
+    // to leave a process running. The readiness poll below still gates on the
+    // proxy actually accepting.
     await Promise.all([
       run("docker", ["network", "connect", "bridge", gatewayName], { timeoutMs: 15_000 }),
-      run(
-        "docker",
-        [
-          "exec",
-          "-i",
-          gatewayName,
-          "sh",
-          "-c",
-          "cat > /tmp/egress-proxy.py && nohup python3 /tmp/egress-proxy.py >/tmp/egress-proxy.out 2>&1 &",
-        ],
-        { input: proxyScript, timeoutMs: 15_000 }
-      ),
+      run("docker", ["exec", "-i", gatewayName, "sh", "-c", "cat > /tmp/egress-proxy.py"], {
+        input: proxyScript,
+        timeoutMs: 15_000,
+      }),
     ]);
+    await run(
+      "docker",
+      [
+        "exec",
+        "-d",
+        gatewayName,
+        "sh",
+        "-c",
+        "python3 /tmp/egress-proxy.py >/tmp/egress-proxy.out 2>&1",
+      ],
+      { timeoutMs: 15_000 }
+    );
     // The proxy above is started fire-and-forget (`exec -d`); WAIT for it to
     // accept a connection before returning. Otherwise the analysis container's
     // first read can race an unbound listener and fail as a spurious "network

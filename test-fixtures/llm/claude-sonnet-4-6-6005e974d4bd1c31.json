@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/6.0.208\"},\"maxOutputTokens\":4500,\"prompt\":[{\"content\":\"You are WRITING a data dashboard's narrative — an analyst telling the story, not a template printing fields. You receive the analysis' declared claims (findings with definitions and value_fields — no raw data). Respond with ONLY a JSON object:\\n{\\\"nodes\\\":[{\\\"op\\\":\\\"ANSWER|TREND|SHAPE|PEAK|ENDPOINT|CONTRAST|NOTE|CAVEAT|INSIGHT\\\",\\\"refs\\\":[\\\"<claim name>\\\", ...],\\\"text\\\":\\\"...\\\"}]}\\nRules:\\n- Every node's \\\"text\\\" IS the prose the reader sees: flowing sentences (2-4 for document styles) that interpret and CONNECT its claims — carry the thread from the previous node, vary sentence shape, subordinate the less important figure to the more important one. Never write label-colon-value (\\\"Churn trend: rising at X\\\").\\n- EVERY figure — number, year, month, count, percentage — MUST be a binding: $finding:<claim>.<field> (fields are listed per claim as value_fields). Literal digits anywhere in text are REJECTED. A node's bindings may only use claims listed in its refs.\\n- EXACTLY ONE ANSWER node at the TOP (only an opening METHOD may precede it): the direct answer to the user's question in plain words, figures bound. METHOD may instead close the document where the style's guidance says so.\\n- Document ops: SECTION (short heading, no refs) titles what follows. EXPLAIN narrates a chart — set \\\"anchor\\\" to that chart's id (listed under Charts) and the chart renders right below your words; every anchored chart needs its EXPLAIN. CALLOUT flags what deserves the reader's attention. METHOD explains how the analysis was done, grounded ONLY in the claims' stated definitions. CONCLUSION closes with the answer restated and its strongest figures (bound). NEXT_STEPS suggests follow-up QUESTIONS/ACTIONS (never phrased as findings). LIMITS states plainly what this analysis does not cover.\\n- CAVEAT nodes carry NO text (the system renders the check's own declared fields verbatim — a caveat is not yours to phr",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "```json\n{\"nodes\":[{\"op\":\"ANSWER\",\"refs\":[\"net_new_mrr_trend\",\"cumulative_mrr_trend\",\"net_new_mrr_current_state\"],\"text\":\"Monthly net new MRR has been trending $finding:net_new_mrr_trend.direction at $finding:net_new_mrr_trend.slope_per_period per month, and cumulative MRR follows the same $finding:cumulative_mrr_trend.direction trajectory at $finding:cumulative_mrr_trend.slope_per_period per period — ending the observed window at $finding:net_new_mrr_current_state.latest_value in $finding:net_new_mrr_current_state.latest_period.\"},{\"op\":\"EXPLAIN\",\"anchor\":\"chart_mrr_over_time\",\"refs\":[\"net_new_mrr_trend\",\"cumulative_mrr_trend\",\"net_new_mrr_peak\",\"net_new_mrr_trough\"],\"text\":\"The chart below traces both monthly net new MRR and its running cumulative sum across the full observation window. The monthly series peaked at $finding:net_new_mrr_peak.value in $finding:net_new_mrr_peak.period and bottomed at $finding:net_new_mrr_trough.value in $finding:net_new_mrr_trough.period, with the OLS slope of $finding:net_new_mrr_trend.slope_per_period per month (95% CI: $finding:net_new_mrr_trend.slope_ci95) describing the underlying direction despite that volatility.\"},{\"op\":\"VIEW\",\"component\":\"DualAxisChart\",\"series\":\"mrr_over_time\",\"text\":\"Monthly net new MRR and cumulative MRR over time\"},{\"op\":\"CONTRAST\",\"refs\":[\"net_new_mrr_split_comparison\"],\"text\":\"Splitting the window at its midpoint, the early half carried a median net new MRR of $finding:net_new_mrr_split_comparison.early_median across $finding:net_new_mrr_split_comparison.early_n months ($finding:net_new_mrr_split_comparison.early_span), while the later half reached $finding:net_new_mrr_split_comparison.late_median across $finding:net_new_mrr_split_comparison.late_n months ($finding:net_new_mrr_split_comparison.late_span) — a $finding:net_new_mrr_split_comparison.multiplier multiple, reinforcing the upward direction identified by the trend test.\"},{\"op\":\"NOTE\",\"refs\":[\"net_new_mrr_step_change\"],\"text\":\"No persistent step change in net new MRR survived the detection gates, meaning the growth has been gradual rather than driven by a single discrete shift.\"},{\"op\":\"TREND\",\"refs\":[\"new_mrr_trend\",\"expansion_mrr_trend\",\"churn_mrr_trend\"],\"text\":\"Breaking the trend into its components: new MRR is moving $finding:new_mrr_trend.direction at $finding:new_mrr_trend.slope_per_period per month, expansion MRR $finding:expansion_mrr_trend.direction at $finding:expansion_mrr_trend.slope_per_period, while churn MRR is trending $finding:churn_mrr_trend.direction at $finding:churn_mrr_trend.slope_per_period — a configuration where growth inputs are accelerating and the drag is contained.\"},{\"op\":\"SHAPE\",\"refs\":[\"mrr_annual_decomposition\"],\"text\":\"Across the full period, the dominant driver of net MRR is $finding:mrr_annual_decomposition.dominant, with new MRR contributing $finding:mrr_annual_decomposition.new_mrr_contribution, expansion adding $finding:mrr_annual_decomposition.expansion_mrr_contribution, and churn dragging by $finding:mrr_annual_decomposition.churn_mrr_drag — and because this decomposition carries no residual, these three components fully account for total net MRR.\"},{\"op\":\"EXPLAIN\",\"anchor\":\"chart_mrr_by_plan\",\"refs\":[\"segment_heterogeneity\"],\"text\":\"The plan-level heatmap below reveals where that growth is concentrated. The ANOVA/Kruskal-Wallis test (p = $finding:segment_heterogeneity.p_value, via $finding:segment_heterogeneity.test) finds the difference across Enterprise, Pro, and Starter to be statistically significant, with plan counts of $finding:segment_heterogeneity.group_ns — so the aggregate trend masks meaningfully different trajectories by segment.\"},{\"op\":\"VIEW\",\"component\":\"StreamChart\",\"series\":\"mrr_by_plan\",\"text\":\"Net new MRR by plan over time\"},{\"op\":\"NOTE\",\"refs\":[\"net_new_mrr_current_state\"],\"text\":\"The most recent observation sits at $finding:net_new_mrr_current_state.value in $finding:net_new_mrr_current_state.period, which is $finding:net_new_mrr_current_state.pct_from_peak below the peak of $finding:net_new_mrr_current_state.peak_value recorded in $finding:net_new_mrr_current_state.peak_period.\"},{\"op\":\"METHOD\",\"refs\":[\"grain_check\",\"net_new_mrr_trend\",\"cumulative_mrr_trend\",\"segment_heterogeneity\"],\"text\":\"All trends were estimated via OLS regression on monthly plan-level MRR data spanning $finding:grain_check.months months and $finding:grain_check.plans plans ($finding:grain_check.rows rows confirmed by grain check); segment heterogeneity was assessed using $finding:segment_heterogeneity.test dispatch on plan-month net new MRR.\"},{\"op\":\"CONCLUSION\",\"refs\":[\"net_new_mrr_trend\",\"net_new_mrr_current_state\",\"mrr_annual_decomposition\"],\"text\":\"MRR is on a $finding:net_new_mrr_trend.direction trend at $finding:net_new_mrr_trend.slope_per_period per month, driven primarily by $finding:mrr_annual_decomposition.dominant and closing the period at $finding:net_new_mrr_current_state.latest_value — with no abrupt inflection, just steady compounding growth.\"}]}\n```",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1787587023"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 17889,
+        "noCache": 11652,
+        "cacheRead": 6237
+      },
+      "outputTokens": {
+        "total": 1558,
+        "text": 1558,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 17889,
+        "input_tokens_details": {
+          "cached_tokens": 6237
+        },
+        "output_tokens": 1558
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1787587023"
+      }
+    },
+    "warnings": []
+  }
+}

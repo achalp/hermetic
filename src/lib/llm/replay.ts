@@ -153,6 +153,32 @@ function writeMissDiagnostic(
   }
 }
 
+/** Replay diagnostics (cfg.debug): dump every replay-mode request, hit AND
+ *  miss, as *.hit.json. CI ships these in the golden-miss-diagnostics
+ *  artifact so a golden failure arrives with its exact request bytes — a
+ *  CI-vs-local prompt divergence becomes a file diff instead of a guessing
+ *  game (this is how the fixture-chain inconsistency and the Docker 29
+ *  egress regression were isolated). */
+function writeHitDiagnostic(
+  enabled: boolean | undefined,
+  dir: string,
+  costKey: string,
+  modelId: string,
+  hash: string,
+  params: unknown
+): void {
+  if (!enabled) return;
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${costKey.replace(/[^a-zA-Z0-9_-]/g, "_")}-${hash}.hit.json`),
+      JSON.stringify({ costKey, modelId, hash, request: params }, null, 2) + "\n"
+    );
+  } catch {
+    // diagnostic only
+  }
+}
+
 function missError(costKey: string, modelId: string, hash: string, dir: string): Error {
   return new Error(
     `LLM replay miss: no fixture for costKey=${costKey} model=${modelId} hash=${hash} in ${dir}. ` +
@@ -177,12 +203,30 @@ export function llmReplayMiddleware(costKey: string): LanguageModelMiddleware {
       const file = fixturePath(cfg.dir, costKey, hash);
 
       if (cfg.mode === "replay") {
+        writeHitDiagnostic(cfg.debug, cfg.dir, costKey, modelId, hash, params);
         if (!existsSync(file)) {
           writeMissDiagnostic(cfg.dir, costKey, modelId, hash, params);
           throw missError(costKey, modelId, hash, cfg.dir);
         }
         const fixture = JSON.parse(readFileSync(file, "utf8")) as GenerateFixture;
         return fixture.result as Awaited<ReturnType<typeof doGenerate>>;
+      }
+
+      // Record-if-miss: an identical request repeated DURING a recording pass
+      // must replay the already-recorded answer, not call live again. A second
+      // live call gets a different (nondeterministic) answer and overwrites
+      // the fixture — any later prompt that embedded the FIRST answer's
+      // results then permanently misses on replay (the ask-followup journey:
+      // its Q1 re-ask overwrote ask-basic's fixture, so Q2's recorded prompt
+      // referenced results no replayed Q1 could ever produce). To force a
+      // fresh recording, delete the fixture files first.
+      if (existsSync(file)) {
+        const fixture = JSON.parse(readFileSync(file, "utf8")) as GenerateFixture;
+        // Same hash but a stream fixture (kinds share the file namespace):
+        // record live rather than serve the wrong shape.
+        if (fixture.kind === "generate") {
+          return fixture.result as Awaited<ReturnType<typeof doGenerate>>;
+        }
       }
 
       const result = await doGenerate();
@@ -208,6 +252,7 @@ export function llmReplayMiddleware(costKey: string): LanguageModelMiddleware {
       const file = fixturePath(cfg.dir, costKey, hash);
 
       if (cfg.mode === "replay") {
+        writeHitDiagnostic(cfg.debug, cfg.dir, costKey, modelId, hash, params);
         if (!existsSync(file)) {
           writeMissDiagnostic(cfg.dir, costKey, modelId, hash, params);
           throw missError(costKey, modelId, hash, cfg.dir);
@@ -220,6 +265,20 @@ export function llmReplayMiddleware(costKey: string): LanguageModelMiddleware {
           },
         });
         return { stream } as Awaited<ReturnType<typeof doStream>>;
+      }
+
+      // Record-if-miss — same rationale as wrapGenerate above.
+      if (existsSync(file)) {
+        const fixture = JSON.parse(readFileSync(file, "utf8")) as StreamFixture;
+        if (fixture.kind === "stream") {
+          const stream = new ReadableStream({
+            start(controller) {
+              for (const chunk of fixture.chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          });
+          return { stream } as Awaited<ReturnType<typeof doStream>>;
+        }
       }
 
       const { stream, ...rest } = await doStream();
