@@ -13,7 +13,12 @@ export function normalizeTranscript(lines) {
   const out = [];
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line || line === "{}") continue; // keepalives / blank frames
+    if (!line || line === "{}") continue; // blank frames
+    // SSE comment heartbeats (": keepalive") are WALL-CLOCK noise: whether one
+    // lands before the first patch depends on how long pre-run probes take on
+    // the host (docker-less CI crosses the interval; a warm laptop does not).
+    // Deterministic journeys must not compare them.
+    if (line.startsWith(":")) continue;
     let parsed;
     try {
       parsed = JSON.parse(line);
