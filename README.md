@@ -37,7 +37,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 **Statistics as total functions.** The judgment calls that make analyses subtly wrong — is a `$0.00` price a real value or an unrecorded-value sentinel? can a 52-observation year headline a series whose typical year has 600? is the mean valid under this skew? which correlation coefficient survives these ties? — are not left to per-run model discretion. A tested statistical runtime (`docker/sandbox/hermetic_runtime`) profiles every declared series into a **regime profile** (zero inflation, heavy tails, contamination, count skew, thin edges, short series, ties…), and a closed **regime matrix** — every claim type × every regime, all cells explicit, the rendered table generated from the code and drift-pinned by tests — maps each hazard to its response. Where possible the response is enforced _inside_ the claim function: sentinel zeros are excluded automatically when a measure's unit is monetary, trends become count-weighted least squares when observation counts exist, heavy-tailed group comparisons dispatch to Kruskal–Wallis, provably disordered series are refused rather than fit, and thin periods are gated by a relative attestation bar. The claim layer cannot disagree with the declared policy, and identical data cannot produce different verdicts run to run.
 
-**Sandboxed execution.** Code runs in containers or microVMs with no access to the host filesystem. Docker containers run with networking disabled (`--network none`) by default; network is enabled only when the generated code actually reads a remote data source (cloud Parquet over `s3://`/`https://`), and those runs use a fresh ephemeral container rather than the shared warm one. Data is passed in via stdin and results are read from stdout. Warm sandbox modes (Docker, Microsandbox) reuse the underlying container across queries for speed but clear working data between runs. E2B creates a fresh cloud sandbox each time (network posture is E2B's).
+**Sandboxed execution.** Code runs in Docker containers with no access to the host filesystem. Containers run with networking disabled (`--network none`) by default; network is enabled only when the generated code actually reads a remote data source (cloud Parquet over `s3://`/`https://`), and those runs use a fresh ephemeral container on an internal network behind a deny-by-default egress proxy, never the shared warm one. Data is passed in via stdin and results are read from stdout. The warm container is reused across queries for speed but clears working data between runs. Docker is the only runtime — alternatives that couldn't enforce network isolation were removed, and runs that need guarantees the environment can't provide are rejected rather than degraded.
 
 **Adaptive UI, two composer architectures.** Dashboards are declarative render specs (an owned, vendored fork of JSON-Render — `src/spec`): charts, stat cards, tables, annotations, and filters tailored to each question. Two composers can produce that spec, selectable in Settings:
 
@@ -109,7 +109,7 @@ cd hermetic
 ./start.sh
 ```
 
-The setup script checks prerequisites, installs dependencies, sets up your chosen sandbox runtime, and starts the dev server. It will prompt you for an API key and let you choose between Docker and Microsandbox. For CI or scripted setups, `./start.sh --headless` (or `-y`) accepts defaults and skips every interactive question.
+The setup script checks prerequisites, installs dependencies, sets up the Docker sandbox, and starts the dev server. It will prompt you for an API key. For CI or scripted setups, `./start.sh --headless` (or `-y`) accepts defaults and skips every interactive question.
 
 It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP server — see [Using from Claude](#using-from-claude-mcp-server).
 
@@ -134,43 +134,13 @@ It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP ser
 
    Add credentials for your LLM provider (Anthropic API key, AWS credentials, or GCP project). See [Configuration](#configuration). For local-only usage with Ollama, no `.env.local` changes are needed. Configure it from the Settings UI instead.
 
-3. **Set up a sandbox runtime** (pick one):
-
-   **Option A: Docker** (default)
+3. **Set up the sandbox** (Docker — the only runtime):
 
    ```bash
    docker build -t hermetic-sandbox docker/sandbox
    ```
 
-   Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-
-   **Option B: Microsandbox** (lightweight microVMs)
-
-   ```bash
-   # Install the microsandbox server
-   curl -sSL https://get.microsandbox.dev | sh
-
-   # Start the server (dev mode, no API key required)
-   msb server start --dev
-   ```
-
-   Then set in `.env.local`:
-
-   ```
-   SANDBOX_RUNTIME=microsandbox
-   MICROSANDBOX_URL=http://127.0.0.1:5555
-   ```
-
-   Requires macOS Apple Silicon (M1+) or Linux with KVM.
-
-   **Option C: E2B** (cloud sandbox)
-
-   ```
-   SANDBOX_RUNTIME=e2b
-   E2B_API_KEY=your-e2b-key
-   ```
-
-   Sign up at [e2b.dev](https://e2b.dev).
+   Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a native Docker engine. Release builds are also published as `ghcr.io/achalp/hermetic-sandbox`.
 
 4. **Start the dev server**
 
@@ -261,7 +231,7 @@ It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP ser
 - **Composer architecture.** Switch between the generative and compiled composers from Settings (see [Philosophy](#philosophy)); the compiled path is what enables deterministic recompiles and dashboard editing.
 - **Local models.** MLX (Apple Silicon), llama.cpp, or Ollama. Detect, download, and activate models from the Settings drawer.
 - **Four themes.** Focus (emerald, default), Stamen (cartographic), Info is Beautiful (vivid), Pentagram (reductive). Each with light and dark variants.
-- **Sandbox runtimes.** Docker (local), E2B (cloud), Microsandbox (microVM).
+- **Sandbox runtime.** Docker, exclusively — the only runtime that can enforce full network isolation (`--network none`). The capability gate fails closed: a run that needs isolation the environment can't provide is rejected, never silently degraded.
 
 ## Using from Claude (MCP server)
 
@@ -271,7 +241,7 @@ Hermetic doubles as a [Model Context Protocol](https://modelcontextprotocol.io) 
 - **Embedded viewer**: dashboard links work with nothing else running (loopback-only server inside the MCP process), with the app's full theming and a download button.
 - **Inline dashboards (MCP Apps)**: hosts that support the [MCP Apps extension](https://modelcontextprotocol.io/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp) (Claude Desktop, VS Code, Goose) render `analyze`/`persist_dashboard` results as an interactive dashboard **inside the chat** — the spec travels as `structuredContent` to a sandboxed iframe (never into model context), and the viewer template is fully self-contained (no external requests). Text-only hosts see exactly the old JSON responses.
 - **Trust model**: guards sit on authorship — host-written SQL passes a read-only gate before any connector sees it, host-written Python runs with networking denied, host-written specs validate against the catalog in enforcing mode. Every call lands in an audit log; the egress allowlist is proven in CI by an exfiltration canary.
-- **Setup**: `./scripts/install-mcp.sh` (detects Claude Desktop/Code, asks, writes config, builds the viewer). Claude Code needs nothing inside this checkout — the repo's `.mcp.json` auto-prompts.
+- **Setup**: `./scripts/install-mcp.sh` (detects Claude Desktop/Code, asks, writes config, builds the viewer). Claude Code needs nothing inside this checkout — the repo's `.mcp.json` auto-prompts. Or skip the checkout entirely: every [GitHub Release](https://github.com/achalp/hermetic/releases) ships **`hermetic.mcpb`** — a one-file MCP bundle (server, viewer, Python runtime assets, keychain bindings for 7 platforms) that installs into Claude Desktop by double-click.
 
 Full tool reference, trust model, and observability guide: [docs/mcp.md](docs/mcp.md).
 
@@ -315,6 +285,7 @@ The SQL is available in the **Artifacts** panel (SQL tab) alongside the Python a
 
 - **Bounded scan from engine metadata (not a data scan).** Before generating SQL, Hermetic sizes a recent window from metadata — ClickHouse `system.tables` sort-key bounds, BigQuery `INFORMATION_SCHEMA.PARTITIONS` (partition values + row counts), with a `MIN/MAX` fallback on a real date column — and hands that exact window to SQL-gen so the query never trips the read/byte limit.
 - **Self-healing SQL.** A failed query is repaired by feeding the exact engine error back to the model — bad GROUP BY, memory blowup, a too-wide scan (`rows to read exceeded`), an empty result from a dead partition filter — and retried. Co-occurrence/pairwise questions are steered to array collapse + `ARRAY JOIN` instead of fact-table self-joins.
+- **Byte-budget result streaming.** Postgres, ClickHouse, BigQuery, and Databricks stream query results row-by-row under a byte budget, so an unexpectedly wide result aborts cleanly at the limit instead of OOM-killing the server after buffering gigabytes; buffered connectors get the same budget as a backstop cap.
 
 **Investigate adds more for its fan-out:**
 
@@ -606,28 +577,33 @@ pnpm lint:fix        # ESLint with auto-fix
 pnpm format          # Prettier format
 pnpm format:check    # Prettier check
 pnpm type-check      # TypeScript check
-pnpm test            # Run tests (vitest, ~2,400 tests)
+pnpm test            # Run tests (vitest, ~3,500 tests)
 pnpm test:watch      # Tests in watch mode
 python3 -m unittest docker.sandbox.hermetic_runtime.test_runtime   # Sandbox statistical runtime tests
 pnpm cli ask ...     # CLI harness (no web server)
 pnpm mcp             # MCP server over stdio
 pnpm mcp:build-viewer  # Build the embedded viewer + export bundles
+pnpm golden:check    # Golden transcripts vs a replay-mode server (offline)
 node scripts/ratchet.mjs         # Design-flaw counters (fail CI on regression)
 node scripts/isolation-check.mjs # Package-closure proof (spec / contracts / renderer)
 pnpm analyze         # Bundle analysis
+scripts/release.sh 0.2.0         # One-command release (bump, tag, push → CI releases)
 ```
 
-## Sandbox Runtimes
+CI pins behavior, not just types: **golden transcripts** replay the three core journeys (ask, follow-up, investigate) byte-for-byte against committed LLM fixtures — fully offline, real server, real Docker sandbox — so any refactor that changes the user-visible stream fails loudly. On a golden failure the CI artifact carries the exact request bytes (`*.hit.json`/`*.miss.json`) to diff against a local capture. The same job proves the CLI and MCP harnesses run framework-free, and runs the **egress allowlist proof** — real containers on a real internal network, with an exfiltration canary that must stay silent.
 
-Hermetic executes LLM-generated Python code in an isolated sandbox. Three runtimes are supported:
+### Releases
 
-| Runtime              | How it works                          | Requirements                                                                                               |
-| -------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Docker** (default) | Runs code in a local Docker container | [Docker Desktop](https://www.docker.com/products/docker-desktop/)                                          |
-| **Microsandbox**     | Runs code in a lightweight microVM    | macOS Apple Silicon or Linux with KVM; [microsandbox server](https://github.com/microsandbox/microsandbox) |
-| **E2B**              | Runs code in a cloud sandbox          | [E2B](https://e2b.dev) account and API key                                                                 |
+Tags drive releases: `scripts/release.sh <version>` bumps `package.json`, tags `v<version>`, and pushes; CI then gates (lint, types, full suite, build), pushes the sandbox image to `ghcr.io/achalp/hermetic-sandbox` (prereleases never move `:latest`), and publishes a GitHub Release with generated notes and the `hermetic.mcpb` bundle attached.
 
-Set `SANDBOX_RUNTIME` in `.env.local` to switch runtimes. The startup script (`start.sh`) lets you choose interactively.
+## Sandbox Runtime
+
+Hermetic executes LLM-generated Python code in an isolated **Docker** container — the only supported runtime. (E2B and Microsandbox were removed: neither can enforce `--network none`, and a sandbox that can't guarantee network isolation with your data inside it isn't a sandbox.) Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a native Docker engine.
+
+- Local-data runs execute with **networking denied outright**; remote-data runs get a deny-by-default egress allowlist enforced by a gateway proxy on an internal Docker network — proven in CI by an exfiltration canary, and compatible with modern Docker (≥ 28) engines.
+- Containers run hardened: non-root, `--cap-drop ALL`, pids/memory limits derived from the Docker daemon's real allocation.
+- The image is published per release as `ghcr.io/achalp/hermetic-sandbox` and built locally by `start.sh` otherwise.
+- A **warm container** is kept per data source, cutting per-run staging overhead to ~a third (unchanged runtime files are skipped via an exit-code-verified hash set).
 
 ## Configuration
 
