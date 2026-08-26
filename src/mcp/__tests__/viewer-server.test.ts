@@ -33,7 +33,14 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const get = (path: string) => fetch(`http://127.0.0.1:${viewer.port}${path}`);
+const base = () => `http://127.0.0.1:${viewer.port}`;
+// The data endpoints require the capability token (F9); append it so the
+// existing id-validation assertions reach their handlers.
+const get = (path: string) => {
+  const sep = path.includes("?") ? "&" : "?";
+  return fetch(`${base()}${path}${sep}t=${viewer.token}`);
+};
+const getRaw = (path: string, init?: RequestInit) => fetch(`${base()}${path}`, init);
 
 describe("viewer server", () => {
   it("serves a persisted spec with its question", async () => {
@@ -81,6 +88,28 @@ describe("viewer server", () => {
     } else {
       expect(res.status).toBe(503);
       expect(await res.text()).toContain("pnpm mcp:build-viewer");
+    }
+  });
+
+  it("rejects data requests with a missing or wrong token (F9)", async () => {
+    expect((await getRaw(`/api/spec/${ENTRY_ID}`)).status).toBe(403); // no token
+    expect((await getRaw(`/api/spec/${ENTRY_ID}?t=wrong`)).status).toBe(403);
+    expect((await getRaw(`/api/export/${ENTRY_ID}`)).status).toBe(403);
+    expect((await getRaw("/?restore=" + ENTRY_ID)).status).toBe(403); // page needs it too
+  });
+
+  it("the page load sets the token cookie; a same-origin fetch is then accepted", async () => {
+    const page = await getRaw(`/?restore=${ENTRY_ID}&t=${viewer.token}`);
+    // (200 with the built shell, or 503 if the viewer bundle isn't built here)
+    expect([200, 503]).toContain(page.status);
+    if (page.status === 200) {
+      const cookie = page.headers.get("set-cookie") ?? "";
+      expect(cookie).toContain("hermetic_viewer=");
+      // The cookie alone (no ?t=) authorizes the spec fetch.
+      const specViaCookie = await getRaw(`/api/spec/${ENTRY_ID}`, {
+        headers: { cookie: `hermetic_viewer=${viewer.token}` },
+      });
+      expect(specViaCookie.status).toBe(200);
     }
   });
 

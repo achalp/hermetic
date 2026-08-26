@@ -16,6 +16,7 @@
  *                          — the viewer entry's Download button targets this.
  */
 import { createServer, type Server } from "node:http";
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve, extname } from "node:path";
@@ -50,10 +51,15 @@ const EXPORT_BUILD_HELP =
 
 export interface ViewerServer {
   port: number;
+  /** Per-process capability token — links carry it, requests are checked against
+   *  it. Loopback binding stops the network; this stops OTHER local users/
+   *  processes reading dashboards off the port (F9). */
+  token: string;
   close(): Promise<void>;
 }
 
 export function startViewerServer(preferredPort: number): Promise<ViewerServer> {
+  const TOKEN = randomBytes(16).toString("hex");
   const server: Server = createServer(async (req, res) => {
     const send = (status: number, body: string | Buffer, type = "application/json") => {
       res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store" });
@@ -69,9 +75,15 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
       const url = new URL(req.url ?? "/", "http://localhost");
       const path = url.pathname;
 
+      // Capability check: the token arrives as ?t= on a fresh link, or as the
+      // cookie the page-load set for the viewer's same-origin /api/spec fetch.
+      const cookieTok = /(?:^|;\s*)hermetic_viewer=([0-9a-f]+)/.exec(req.headers.cookie ?? "");
+      const tokenOk = url.searchParams.get("t") === TOKEN || (cookieTok?.[1] ?? null) === TOKEN;
+
       if (path === "/api/health") return send(200, JSON.stringify({ ok: true }));
 
       if (path.startsWith("/api/spec/")) {
+        if (!tokenOk) return send(403, JSON.stringify({ error: "invalid or missing token" }));
         const id = path.slice("/api/spec/".length);
         if (!UUID_RE.test(id)) return send(400, JSON.stringify({ error: "invalid id" }));
         const entryDir = join(hermeticPaths.historyDir(), id);
@@ -90,6 +102,7 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
       }
 
       if (path.startsWith("/api/export/")) {
+        if (!tokenOk) return send(403, JSON.stringify({ error: "invalid or missing token" }));
         const id = path.slice("/api/export/".length);
         if (!UUID_RE.test(id)) return send(400, JSON.stringify({ error: "invalid id" }));
         const entryDir = join(hermeticPaths.historyDir(), id);
@@ -129,9 +142,17 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
       }
 
       if (path === "/" || path === "/index.html") {
+        if (!tokenOk) return send(403, "invalid or missing token", "text/plain; charset=utf-8");
         const shell = join(DIST, "viewer.html");
         if (!existsSync(shell)) return send(503, BUILD_HELP, "text/plain; charset=utf-8");
-        return send(200, await readFile(shell), MIME[".html"]);
+        res.writeHead(200, {
+          "Content-Type": MIME[".html"],
+          "Cache-Control": "no-store",
+          // The viewer JS then fetches /api/spec same-origin; the cookie carries
+          // the token so the link's ?t= need not be re-appended by the client.
+          "Set-Cookie": `hermetic_viewer=${TOKEN}; Path=/; SameSite=Strict; HttpOnly`,
+        });
+        return res.end(await readFile(shell));
       }
 
       if (path.startsWith("/assets/")) {
@@ -169,7 +190,7 @@ export function startViewerServer(preferredPort: number): Promise<ViewerServer> 
       if (settled) return;
       if (addr && typeof addr === "object") {
         settled = true;
-        resolvePromise({ port: addr.port, close: () => closeServer(server) });
+        resolvePromise({ port: addr.port, token: TOKEN, close: () => closeServer(server) });
       } else {
         settled = true;
         reject(new Error("viewer server: no address"));

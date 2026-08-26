@@ -155,11 +155,19 @@ console.error(`✔ history entry on disk with hermeticSpecVersion=1`);
 // page and the spec through the link the host would click.
 const viewerUrl = new URL(analysis.dashboard_url);
 if (viewerUrl.port === "3000") fail("dashboard_url still points at the web app, not the viewer");
-const page = await fetch(`${viewerUrl.origin}/`);
+// The embedded viewer requires the capability token (F9); the host clicks the
+// full dashboard_url, which carries ?t=. Prove a tokenless request is refused,
+// then fetch through the token like the host would.
+const vtok = viewerUrl.searchParams.get("t");
+if (!vtok) fail("dashboard_url missing the viewer token (?t=)");
+if ((await fetch(`${viewerUrl.origin}/api/spec/${analysis.history_id}`)).status !== 403) {
+  fail("viewer served a spec without the token — F9 gate not enforced");
+}
+const page = await fetch(analysis.dashboard_url);
 if (!page.ok) fail(`viewer page not served: ${page.status}`);
 const pageText = await page.text();
 if (!pageText.includes("viewer.js")) fail("viewer shell missing bundle reference");
-const specRes = await fetch(`${viewerUrl.origin}/api/spec/${analysis.history_id}`);
+const specRes = await fetch(`${viewerUrl.origin}/api/spec/${analysis.history_id}?t=${vtok}`);
 if (!specRes.ok) fail(`viewer /api/spec failed: ${specRes.status}`);
 const served = await specRes.json();
 if (served.spec.root !== spec.root) fail("viewer served a different spec than persisted");
