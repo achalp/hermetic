@@ -61,7 +61,7 @@ Expect: clean.
 
 You need a dbt project with a generated manifest. If you don't have one, use the bundled fixture:
 
-`/Users/achalp/dev/hermetic/data/test-fixtures/tier-1/dbt-enrichment/manifest.json`
+`data/test-fixtures/tier-1/dbt-enrichment/manifest.json` (relative to the repo root)
 
 This synthetic jaffle-shop manifest has 4 models + 1 source, all with table and column descriptions. It's database-named `jaffle` and schemas `analytics`, `staging`, `raw`. Bind it against any connection — the **schema.name fallback** in `applyDbtMetadata` lets it match even when the warehouse doesn't actually have a `jaffle` database, because lookups also fall back to schema.name.
 
