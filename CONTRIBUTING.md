@@ -86,3 +86,12 @@ src/
 - Include tests for new functionality
 - Update documentation if you change behavior
 - Ensure CI passes before requesting review
+
+## Data hygiene (enforced)
+
+Never commit real business data. `data/` is git-ignored except `data/test-fixtures/`,
+and a guard (`scripts/check-no-proprietary-data.mjs`) runs in pre-commit and CI: it
+rejects any path under `data/saved-vizs/` and scans tracked files for known
+proprietary dataset/column tokens. Sample data in tests must be synthetic. If the
+guard flags your change, the data does not belong in the repository — not in
+history, not in a fixture.

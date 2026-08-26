@@ -39,6 +39,9 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      - name: Proprietary-data guard
+        run: node scripts/check-no-proprietary-data.mjs
+
       - name: Modularization ratchet
         run: pnpm run ratchet
 

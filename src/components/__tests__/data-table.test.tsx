@@ -34,11 +34,11 @@ describe("DataTableComponent — record rows with mismatched headers", () => {
 
 describe("DataTableComponent — delta columns", () => {
   const base = {
-    columns: ["Metric", "Google", "vendor", "Δ"],
+    columns: ["Metric", "Baseline", "Variant", "Δ"],
     rows: [
-      ["QCR", "53.86%", "53.96%", "0.10"],
-      ["QTB", "44.55%", "44.24%", "-0.31"],
-      ["GMV", "7.59", "7.59", "0"],
+      ["Alpha", "53.86%", "53.96%", "0.10"],
+      ["Beta", "44.55%", "44.24%", "-0.31"],
+      ["Gamma", "7.59", "7.59", "0"],
     ],
   };
 
@@ -62,7 +62,7 @@ describe("DataTableComponent — delta columns", () => {
       <DataTableComponent
         props={{
           ...base,
-          columns: ["Metric", "Google", "vendor", "Delta"],
+          columns: ["Metric", "Baseline", "Variant", "Delta"],
           delta_columns: ["delta"],
         }}
       />
@@ -72,7 +72,7 @@ describe("DataTableComponent — delta columns", () => {
 
   it("leaves non-delta numeric columns untouched (no + prefix)", () => {
     render(<DataTableComponent props={{ ...base, delta_columns: ["Δ"] }} />);
-    // The "Google" 53.86% value must not get colored as a delta.
+    // The "Baseline" 53.86% value must not get colored as a delta.
     const cell = screen.getByText("53.86%");
     expect(cell.className).not.toContain("text-highlight-max");
   });
