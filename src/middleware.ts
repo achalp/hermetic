@@ -27,6 +27,11 @@ const RATE_WINDOW_MS = 60_000; // 1 minute
 // it without limit. Compact opportunistically once it exceeds the cap.
 const RATE_MAP_MAX_ENTRIES = 10_000;
 
+/** Test-only: clear the module-global rate map so cases don't bleed together. */
+export function __resetRateLimitForTests(): void {
+  rateMap.clear();
+}
+
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
   if (rateMap.size > RATE_MAP_MAX_ENTRIES) {
@@ -103,14 +108,20 @@ export function middleware(request: NextRequest) {
       pathname.startsWith("/api/ollama/");
 
     if (!isInternalPolling) {
-      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+      // All /api traffic is loopback (the default-deny origin guard above 403s
+      // anything else), so there is no fronting proxy and X-Forwarded-For is
+      // attacker-controlled: keying on it let a local client rotate the header
+      // to evade the cap, and collapsed legitimate callers into one shared
+      // "unknown" bucket. A single local user needs a single bucket — this
+      // guards against a runaway client, not multi-tenant abuse.
+      const key = "local";
 
-      if (isRateLimited(ip)) {
+      if (isRateLimited(key)) {
         // A 429 was previously invisible server-side — a client hitting the
         // limit just saw failing requests with nothing to debug from. The ip
         // is the rate key (identifies the caller, not data — same policy as
         // audit's file paths).
-        logger.warn("Rate limit exceeded", { path: pathname, ip });
+        logger.warn("Rate limit exceeded", { path: pathname });
         return NextResponse.json(
           { error: "Too many requests. Please try again later." },
           { status: 429 }

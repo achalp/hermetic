@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { middleware } from "@/middleware";
+import { middleware, __resetRateLimitForTests } from "@/middleware";
 
 /**
  * M3: the credential-writing /api/settings route must sit behind the same
@@ -12,6 +12,8 @@ const req = (path: string, headers: Record<string, string>) =>
   new NextRequest(new URL(`http://localhost${path}`), { headers });
 
 describe("middleware DNS-rebinding guard", () => {
+  beforeEach(() => __resetRateLimitForTests());
+
   it("blocks /api/settings from a foreign Origin (403)", () => {
     const res = middleware(req("/api/settings", { origin: "http://evil.example.com" }));
     expect(res.status).toBe(403);
@@ -89,5 +91,18 @@ describe("middleware DNS-rebinding guard", () => {
   it("allows /api/providers from a loopback Origin", () => {
     const res = middleware(req("/api/providers", { origin: "http://localhost:3000" }));
     expect(res.status).not.toBe(403);
+  });
+
+  it("rate-limits on a constant key — rotating X-Forwarded-For cannot evade (F8)", () => {
+    __resetRateLimitForTests();
+    const fire = (i: number) =>
+      middleware(
+        req("/api/query", { origin: "http://localhost:3000", "x-forwarded-for": `10.0.0.${i}` })
+      );
+    let last: ReturnType<typeof middleware> | undefined;
+    for (let i = 0; i <= 60; i++) last = fire(i); // 61 requests, each a different XFF
+    // A per-XFF key would give each a fresh bucket (all pass); the constant key
+    // shares one, so the 61st trips the 60/min cap.
+    expect(last!.status).toBe(429);
   });
 });
