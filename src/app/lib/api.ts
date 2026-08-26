@@ -838,11 +838,7 @@ export async function getWarehouseSample(
 // ── Scheduled re-runs ──────────────────────────────────────
 
 export type ScheduleCadence =
-  | "hourly"
-  | "daily-9am"
-  | "daily-eod"
-  | "weekly-monday"
-  | "on-file-change";
+  "hourly" | "daily-9am" | "daily-eod" | "weekly-monday" | "on-file-change";
 
 export interface ScheduleEntry {
   vizId: string;

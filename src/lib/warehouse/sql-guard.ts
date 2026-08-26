@@ -199,14 +199,14 @@ export function checkUnboundedLargeJoin(
 
   // 1) CROSS JOIN <largeBaseTable>
   const crossRe = /\bCROSS\s+JOIN\s+(`[^`]+`|[A-Za-z_][\w.]*)/gi;
-  for (let m; (m = crossRe.exec(sql)); ) {
+  for (let m; (m = crossRe.exec(sql));) {
     if (isLarge(m[1])) return bigMsg(sizeByKey.get(tableKey(m[1]))!);
   }
 
   // 2) JOIN <largeBaseTable> [alias] ON <clause> with no real equality (non-equi)
   const joinRe =
     /\bJOIN\s+(`[^`]+`|[A-Za-z_][\w.]*)(?:\s+(?:AS\s+)?[A-Za-z_]\w*)?\s+ON\b([\s\S]*?)(?=\b(?:JOIN|WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|WINDOW|QUALIFY|UNION|EXCEPT|INTERSECT)\b|\)|$)/gi;
-  for (let m; (m = joinRe.exec(sql)); ) {
+  for (let m; (m = joinRe.exec(sql));) {
     if (isLarge(m[1]) && !hasRealEquality(m[2])) return bigMsg(sizeByKey.get(tableKey(m[1]))!);
   }
 

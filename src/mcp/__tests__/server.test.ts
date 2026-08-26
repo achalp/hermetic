@@ -1324,15 +1324,13 @@ describe("MCP Apps (SEP-1865): template resource, tool linkage, gated structured
     const { tools } = await client.listTools();
     for (const name of ["analyze", "persist_dashboard"]) {
       const meta = tools.find((t) => t.name === name)?._meta as
-        | { ui?: { resourceUri?: string }; "ui/resourceUri"?: string }
-        | undefined;
+        { ui?: { resourceUri?: string }; "ui/resourceUri"?: string } | undefined;
       expect(meta?.ui?.resourceUri).toBe(UI_URI);
       // The deprecated flat key rides along for pre-final hosts.
       expect(meta?.["ui/resourceUri"]).toBe(UI_URI);
     }
     const schemaMeta = tools.find((t) => t.name === "get_schema")?._meta as
-      | { ui?: unknown }
-      | undefined;
+      { ui?: unknown } | undefined;
     expect(schemaMeta?.ui).toBeUndefined();
   });
 
@@ -1628,8 +1626,7 @@ describe("dashboard_data (the iframe's pull channel)", () => {
 
     const { tools } = await client.listTools();
     const meta = tools.find((t) => t.name === "dashboard_data")?._meta as
-      | { ui?: { visibility?: string[] } }
-      | undefined;
+      { ui?: { visibility?: string[] } } | undefined;
     expect(meta?.ui?.visibility).toEqual(["app"]);
 
     const result = await client.callTool({

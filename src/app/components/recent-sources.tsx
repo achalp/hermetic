@@ -3,11 +3,7 @@
 import { useState } from "react";
 
 export type RecentItemKind =
-  | "upload"
-  | "local-file"
-  | "local-folder"
-  | "remote-parquet"
-  | "warehouse";
+  "upload" | "local-file" | "local-folder" | "remote-parquet" | "warehouse";
 
 export interface RecentItem {
   id: string;

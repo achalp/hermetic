@@ -104,28 +104,31 @@ Gate: transcripts unchanged; ratchet rows for `server-only`, untyped `__` reads,
 ### Milestone M2 — parallel tracks (after M1)
 
 **Track A — Own the spec contract (WS2, 2–3 wk):**
-| PR | Content | Size |
-|---|---|---|
-| A1 | Vendor the fork under `src/spec/` (envelope, DSL, prompt gen, patch utils, React runtime) with upstream tests ported; **no consumer switched yet**. License attribution (Apache-2.0 NOTICE). | L |
-| A2 | Differential test rig: every existing fixture spec through upstream and fork — identical render trees; `applySpecPatch`/`setByPath` property-based differential tests; `catalog.prompt()` byte-identical vs 0c snapshot | M |
-| A3 | Switch consumers directory-by-directory (inputs → registry → app → lib/pipeline → routes), one PR each, transcripts + snapshots unchanged | M×5 |
-| A4 | Delete `@json-render/*` from package.json (+ dead `shadcn`); single `Spec` type; `validateSpec()` wired into tests and the compose path; `hermeticSpecVersion` written + compat shim + version test | M |
-| A5 | Delete `assemble-spec.ts` hand-mirror in favor of owned utils | S |
+
+| PR  | Content                                                                                                                                                                                                                 | Size |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| A1  | Vendor the fork under `src/spec/` (envelope, DSL, prompt gen, patch utils, React runtime) with upstream tests ported; **no consumer switched yet**. License attribution (Apache-2.0 NOTICE).                            | L    |
+| A2  | Differential test rig: every existing fixture spec through upstream and fork — identical render trees; `applySpecPatch`/`setByPath` property-based differential tests; `catalog.prompt()` byte-identical vs 0c snapshot | M    |
+| A3  | Switch consumers directory-by-directory (inputs → registry → app → lib/pipeline → routes), one PR each, transcripts + snapshots unchanged                                                                               | M×5  |
+| A4  | Delete `@json-render/*` from package.json (+ dead `shadcn`); single `Spec` type; `validateSpec()` wired into tests and the compose path; `hermeticSpecVersion` written + compat shim + version test                     | M    |
+| A5  | Delete `assemble-spec.ts` hand-mirror in favor of owned utils                                                                                                                                                           | S    |
 
 **Track B — Config & environment (WS3, 3–4 d):**
-| PR | Content | Size |
-|---|---|---|
-| B1 | `HermeticConfig` type + boot-time resolution in the Next harness; `validateEnv()`/logger registration become explicit boot calls | M |
-| B2 | `LLMClient`: single detection path, lazy provider imports, cost hook explicit, `cachedSystem`/`cachedText` as methods; ReplayTransport becomes a constructor arg | L |
-| B3 | Env inventory: `.env.example` complete; platform declaration; `server-timeouts.mjs` derives from shared constant | S |
+
+| PR  | Content                                                                                                                                                          | Size |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| B1  | `HermeticConfig` type + boot-time resolution in the Next harness; `validateEnv()`/logger registration become explicit boot calls                                 | M    |
+| B2  | `LLMClient`: single detection path, lazy provider imports, cost hook explicit, `cachedSystem`/`cachedText` as methods; ReplayTransport becomes a constructor arg | L    |
+| B3  | Env inventory: `.env.example` complete; platform declaration; `server-timeouts.mjs` derives from shared constant                                                 | S    |
 
 **Track C — Storage & state (WS4, 1.5 wk):**
-| PR | Content | Size |
-|---|---|---|
-| C1 | `HermeticPaths` module; all path consts route through it (harness supplies roots); credentials move into data dir | M |
-| C2 | `StateStore` interface + in-process impl; migrate the 11 stores behind it one-per-PR where risky (warehouse connectors and warm-sandbox are the two with live resources) | M×3 |
-| C3 | `RecordStore` unifying history/saved layouts; typed corrupt-record results | M |
-| C4 | TTL inversion (`isRunLive` injection); sweeper on the interface; in-place schema mutation fix | S |
+
+| PR  | Content                                                                                                                                                                  | Size |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
+| C1  | `HermeticPaths` module; all path consts route through it (harness supplies roots); credentials move into data dir                                                        | M    |
+| C2  | `StateStore` interface + in-process impl; migrate the 11 stores behind it one-per-PR where risky (warehouse connectors and warm-sandbox are the two with live resources) | M×3  |
+| C3  | `RecordStore` unifying history/saved layouts; typed corrupt-record results                                                                                               | M    |
+| C4  | TTL inversion (`isRunLive` injection); sweeper on the interface; in-place schema mutation fix                                                                            | S    |
 
 ### Milestone M3 — Orchestration (WS5, 1.5 wk; after B1/B2, benefits from C-track)
 

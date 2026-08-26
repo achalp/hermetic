@@ -73,13 +73,7 @@ export interface CostInfo {
 }
 
 export type PlanStepStatus =
-  | "pending"
-  | "running"
-  | "done"
-  | "success"
-  | "degraded"
-  | "failed"
-  | "removed";
+  "pending" | "running" | "done" | "success" | "degraded" | "failed" | "removed";
 
 /**
  * One investigate sub-question. Superset of the shapes the plan panel and the

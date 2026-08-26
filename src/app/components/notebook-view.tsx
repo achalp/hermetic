@@ -612,8 +612,7 @@ function CellControls({
 }
 
 type RenderEntry =
-  | { kind: "step"; cell: NotebookCellModel }
-  | { kind: "markdown"; id: string; content: string };
+  { kind: "step"; cell: NotebookCellModel } | { kind: "markdown"; id: string; content: string };
 
 /** Merge the saved layout with the live step cells: layout drives order and
  *  injects markdown; step cells missing from the layout (new ones) append. */

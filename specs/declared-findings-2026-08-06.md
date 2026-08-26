@@ -47,9 +47,7 @@ unversioned "stable contract" is a lucky one):
 {
   "manifest_version": "1.0", // minor bump = additive fields; major =
   // semantics change (e.g. §7 namespace activation)
-  "findings": [
-    /* entries */
-  ],
+  "findings": [/* entries */],
 }
 ```
 

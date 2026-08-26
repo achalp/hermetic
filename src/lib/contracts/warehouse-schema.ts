@@ -4,13 +4,7 @@
  */
 
 export type WarehouseType =
-  | "postgresql"
-  | "bigquery"
-  | "clickhouse"
-  | "trino"
-  | "hive"
-  | "snowflake"
-  | "databricks";
+  "postgresql" | "bigquery" | "clickhouse" | "trino" | "hive" | "snowflake" | "databricks";
 
 export interface WarehouseTableInfo {
   schema: string;

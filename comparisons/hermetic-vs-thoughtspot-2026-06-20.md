@@ -228,7 +228,7 @@ _Previous versions of this comparison: [2026-04-25](./hermetic-vs-thoughtspot-20
 | Self-hosted                             | Yes                                               | No (Cloud only)                      | Yes (Software / FedRAMP Government Cloud) |
 | BYO LLM                                 | Yes                                               | No                                   | Limited                                   |
 
-A team of 20 users on ThoughtSpot Pro = ~$1,000/month or ~$12,000/year, **plus** the 25-query/user/month Spotter cap that triggers overages. Mid-market Enterprise contracts typically start at **~$100K–$300K/year** with implementation services adding $50K–$200K. Hermetic costs $0 in licensing — your only spend is your own LLM API usage (or $0 with a local model), and Hermetic now shows that cost per analysis and optimizes it with prompt caching and cheaper models.
+A team of 20 users on ThoughtSpot Pro = ~~$1,000/month or ~$12,000/year, **plus** the 25-query/user/month Spotter cap that triggers overages. Mid-market Enterprise contracts typically start at **~~$100K–$300K/year** with implementation services adding $50K–$200K. Hermetic costs $0 in licensing — your only spend is your own LLM API usage (or $0 with a local model), and Hermetic now shows that cost per analysis and optimizes it with prompt caching and cheaper models.
 
 _(ThoughtSpot pricing carried forward unchanged from the 2026-04-25 baseline.)_
 

@@ -17,9 +17,7 @@ export interface ActionConfirm {
  * Action success handler
  */
 export type ActionOnSuccess =
-  | { navigate: string }
-  | { set: Record<string, unknown> }
-  | { action: string };
+  { navigate: string } | { set: Record<string, unknown> } | { action: string };
 
 /**
  * Action error handler
