@@ -62,7 +62,7 @@
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/theme-one-dark": "^6.1.3",
-    "@databricks/sql": "^1.13.0",
+    "@databricks/sql": "^2.0.0",
     "@deck.gl/aggregation-layers": "^9.2.9",
     "@deck.gl/core": "^9.2.9",
     "@deck.gl/geo-layers": "^9.2.9",
