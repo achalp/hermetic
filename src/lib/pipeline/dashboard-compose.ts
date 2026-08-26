@@ -315,8 +315,7 @@ export async function composeAndStreamDashboard(args: {
     const result = finalize(line);
     if (result.skip) return null;
     const val = result.patch?.value as
-      | { type?: unknown; props?: { label?: unknown; value?: unknown } }
-      | undefined;
+      { type?: unknown; props?: { label?: unknown; value?: unknown } } | undefined;
     if (val && typeof val === "object" && val.type === "StatCard") {
       const sig = JSON.stringify([val.props?.label, val.props?.value]);
       if (seenTileSigs.has(sig)) {

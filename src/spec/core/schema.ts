@@ -380,11 +380,9 @@ function createCatalogFromSchema<TDef extends SchemaDefinition, TCatalog>(
 ): Catalog<TDef, TCatalog> {
   // Extract component and action names
   const components = (catalogData as Record<string, unknown>).components as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const actions = (catalogData as Record<string, unknown>).actions as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
 
   const componentNames = components ? Object.keys(components) : [];
   const actionNames = actions ? Object.keys(actions) : [];
@@ -594,8 +592,7 @@ function generatePrompt<TDef extends SchemaDefinition, TCatalog>(
 
   // Build example using actual catalog component names and props to avoid hallucinations
   const allComponents = (catalog.data as Record<string, unknown>).components as
-    | Record<string, CatalogComponentDef>
-    | undefined;
+    Record<string, CatalogComponentDef> | undefined;
   const cn = catalog.componentNames;
   const comp1 = cn[0] || "Component";
   const comp2 = cn.length > 1 ? cn[1]! : comp1;
@@ -751,8 +748,7 @@ Note: state patches appear right after the elements that use them, so the UI fil
 
   // Actions section
   const actions = (catalog.data as Record<string, unknown>).actions as
-    | Record<string, { params?: z.ZodType; description?: string }>
-    | undefined;
+    Record<string, { params?: z.ZodType; description?: string }> | undefined;
 
   const builtInActions = catalog.schema.builtInActions ?? [];
   const hasCustomActions = actions && catalog.actionNames.length > 0;

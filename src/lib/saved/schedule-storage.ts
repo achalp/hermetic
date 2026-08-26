@@ -21,11 +21,7 @@ import { hermeticPaths } from "@/lib/paths";
 import { logger, errMessage } from "@/lib/logger";
 
 export type ScheduleCadence =
-  | "hourly"
-  | "daily-9am"
-  | "daily-eod"
-  | "weekly-monday"
-  | "on-file-change";
+  "hourly" | "daily-9am" | "daily-eod" | "weekly-monday" | "on-file-change";
 
 export interface ScheduleEntry {
   vizId: string;

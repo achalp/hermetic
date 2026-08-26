@@ -4,13 +4,13 @@ _Last updated: 2026-03-24_
 
 ## Overview
 
-| Category        | Hermetic                                 | ThoughtSpot                                                                  |
-| --------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
-| **Core Model**  | AI-first: question to complete dashboard | Search-first: type a query, get auto-chart                                   |
-| **Deployment**  | Self-hosted / local-first                | Cloud (ThoughtSpot Cloud) or self-hosted (ThoughtSpot Software)              |
-| **Pricing**     | Open source (free)                       | Essentials ~$25/user/mo, Pro ~$50/user/mo, Enterprise custom (~$137K/yr avg) |
-| **Target User** | Solo analyst, privacy-sensitive orgs     | Enterprise data teams, business users                                        |
-| **Acquisition** | N/A                                      | Acquired Mode Analytics for $200M (2024)                                     |
+| Category        | Hermetic                                 | ThoughtSpot                                                                    |
+| --------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| **Core Model**  | AI-first: question to complete dashboard | Search-first: type a query, get auto-chart                                     |
+| **Deployment**  | Self-hosted / local-first                | Cloud (ThoughtSpot Cloud) or self-hosted (ThoughtSpot Software)                |
+| **Pricing**     | Open source (free)                       | Essentials ~~$25/user/mo, Pro ~$50/user/mo, Enterprise custom (~~$137K/yr avg) |
+| **Target User** | Solo analyst, privacy-sensitive orgs     | Enterprise data teams, business users                                          |
+| **Acquisition** | N/A                                      | Acquired Mode Analytics for $200M (2024)                                       |
 
 ---
 

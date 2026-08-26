@@ -84,8 +84,7 @@ async function persistStepOutput(stepNo: number, result: PipelineResult): Promis
     const csv = primaryFrameCsv({
       stepNo,
       datasets: result.executionResult.datasets as
-        | Record<string, Record<string, unknown>[]>
-        | undefined,
+        Record<string, Record<string, unknown>[]> | undefined,
       chart_data: result.executionResult.chart_data as Record<string, unknown> | undefined,
     });
     if (!csv) return;
@@ -543,8 +542,7 @@ async function runOneSubQuestion(
     depSources.push({
       stepNo: d + 1,
       datasets: upstream.result.executionResult.datasets as
-        | Record<string, Record<string, unknown>[]>
-        | undefined,
+        Record<string, Record<string, unknown>[]> | undefined,
       chart_data: upstream.result.executionResult.chart_data as Record<string, unknown> | undefined,
     });
   }

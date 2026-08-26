@@ -14,13 +14,13 @@ _organically_ inside the pipeline, and each has hit a scaling wall:
 
 ### 1.1 Proto-skills (domain recipes as hardcoded prompt prose)
 
-| Artifact           | Where                                                         | What it is                                                                                                                               |
+| Artifact | Where | What it is |
 | ------------------ | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---------------------------- |
-| Geospatial recipe  | `prompts.ts` `buildGeospatialGuidance()`                      | ~6,000 words: bbox-first, two-phase boundary lookup, KD-tree routing, PLANET-SCALE counting recipe, map-must-show-answer, f-string traps |
-| Gating             | same fn                                                       | regex on schema column names (`geometry                                                                                                  | geom | …`) — include all-or-nothing |
-| Retry re-injection | `orchestrator.ts` + `buildRetryPromptMulti`                   | retries re-inject the recipe so a "repair" can't drop it (codegen-retry-hardening #1/#2)                                                 |
-| Review gate        | `code-review.ts`, gated on `buildGeospatialGuidance() !== ""` | Opus critic checks generated code against the recipe before execution                                                                    |
-| Failure-time hints | `parse-output.ts` phase-keyed OOM guidance                    | per-phase remedies fed into the retry prompt                                                                                             |
+| Geospatial recipe | `prompts.ts` `buildGeospatialGuidance()` | ~6,000 words: bbox-first, two-phase boundary lookup, KD-tree routing, PLANET-SCALE counting recipe, map-must-show-answer, f-string traps |
+| Gating | same fn | regex on schema column names (`geometry                                                                                                  | geom | …`) — include all-or-nothing |
+| Retry re-injection | `orchestrator.ts` + `buildRetryPromptMulti` | retries re-inject the recipe so a "repair" can't drop it (codegen-retry-hardening #1/#2) |
+| Review gate | `code-review.ts`, gated on `buildGeospatialGuidance() !== ""` | Opus critic checks generated code against the recipe before execution |
+| Failure-time hints | `parse-output.ts` phase-keyed OOM guidance | per-phase remedies fed into the retry prompt |
 
 **Lessons (from the review-gate spec + measured runs):**
 

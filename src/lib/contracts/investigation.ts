@@ -123,8 +123,7 @@ export interface PartialTrailStep {
  * steps in their natural order. Persists with the trace (and thus history).
  */
 export type NotebookLayoutCell =
-  | { kind: "step"; stepNo: number }
-  | { kind: "markdown"; id: string; content: string };
+  { kind: "step"; stepNo: number } | { kind: "markdown"; id: string; content: string };
 
 export interface NotebookLayout {
   cells: NotebookLayoutCell[];

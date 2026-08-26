@@ -27,8 +27,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
     // Restore workbook state if this was a multi-sheet viz
     let workbookInfo:
-      | { filename: string; sheetInfo: SheetInfo[]; relationships: SheetRelationship[] }
-      | undefined;
+      { filename: string; sheetInfo: SheetInfo[]; relationships: SheetRelationship[] } | undefined;
     if (viz.workbook) {
       workbookInfo = await restoreWorkbook(csvId, normalizedCsv, viz.workbook);
     } else {

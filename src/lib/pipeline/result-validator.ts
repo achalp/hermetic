@@ -42,8 +42,7 @@ export type SemanticFailureCode =
   | "semantic_all_zeros";
 
 export type ValidationVerdict =
-  | { ok: true }
-  | { ok: false; code: SemanticFailureCode; reason: string; suggestedFix: string };
+  { ok: true } | { ok: false; code: SemanticFailureCode; reason: string; suggestedFix: string };
 
 /** True if `v` is JS NaN or one of the common stringified nullish markers. */
 function isDegenerateScalar(v: unknown): boolean {

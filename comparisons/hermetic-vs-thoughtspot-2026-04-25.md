@@ -210,7 +210,7 @@ _Last updated: 2026-04-25_
 | Self-hosted                             | Yes           | No (Cloud only)                      | Yes (Software / FedRAMP Government Cloud) |
 | BYO LLM                                 | Yes           | No                                   | Limited                                   |
 
-A team of 20 users on ThoughtSpot Pro = ~$1,000/month or ~$12,000/year, **plus** the 25-query/user/month Spotter cap that triggers overages. Mid-market Enterprise contracts typically start at **~$100K–$300K/year** with implementation services adding $50K–$200K. Hermetic costs $0.
+A team of 20 users on ThoughtSpot Pro = ~~$1,000/month or ~$12,000/year, **plus** the 25-query/user/month Spotter cap that triggers overages. Mid-market Enterprise contracts typically start at **~~$100K–$300K/year** with implementation services adding $50K–$200K. Hermetic costs $0.
 
 ---
 

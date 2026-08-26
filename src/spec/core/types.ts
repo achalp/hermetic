@@ -142,11 +142,7 @@ export type OrCondition = { $or: VisibilityCondition[] };
  * - `OrCondition` — `{ $or: [...] }`, at least one must be true
  */
 export type VisibilityCondition =
-  | boolean
-  | SingleCondition
-  | SingleCondition[]
-  | AndCondition
-  | OrCondition;
+  boolean | SingleCondition | SingleCondition[] | AndCondition | OrCondition;
 
 /**
  * Flat UI tree structure (optimized for LLM generation)

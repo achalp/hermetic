@@ -192,10 +192,11 @@ All chart components accept data inline. Charts are rendered client-side using R
 #### `area-chart`
 
 Same interface as `line-chart` plus:
-| Prop | Type | Required | Notes |
-|------|------|----------|-------|
-| `stacked` | boolean | no | Stack areas |
-| `opacity` | number | no | Fill opacity, 0-1. Default `0.3` |
+
+| Prop      | Type    | Required | Notes                            |
+| --------- | ------- | -------- | -------------------------------- |
+| `stacked` | boolean | no       | Stack areas                      |
+| `opacity` | number  | no       | Fill opacity, 0-1. Default `0.3` |
 
 #### `pie-chart`
 
@@ -538,9 +539,7 @@ Upload a CSV file.
 ```json
 {
   "csv_id": "abc123",
-  "schema": {
-    /* CSVSchema object */
-  }
+  "schema": {/* CSVSchema object */}
 }
 ```
 
