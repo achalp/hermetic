@@ -107,9 +107,9 @@ export async function exportDashboardHtml(
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<!-- Browser-safe process shim: the inlined bundle has a few unguarded
-     process.env.* reads (from vendored deps); without this they throw
-     "process is not defined" and the dashboard never mounts from file://. -->
+<!-- Browser-safe process shim: the inlined bundle has a few unguarded reads
+     of the Node \`process\` global (from vendored deps); without this they
+     throw "process is not defined" and the dashboard never mounts from file. -->
 <script>globalThis.process=globalThis.process||{env:{}};</script>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="generator" content="hermetic" />
@@ -185,9 +185,9 @@ export async function exportAppTemplateHtml(input: {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<!-- Browser-safe process shim: the inlined bundle has a few unguarded
-     process.env.* reads (from vendored deps); without this they throw
-     "process is not defined" and the dashboard never mounts from file://. -->
+<!-- Browser-safe process shim: the inlined bundle has a few unguarded reads
+     of the Node \`process\` global (from vendored deps); without this they
+     throw "process is not defined" and the dashboard never mounts from file. -->
 <script>globalThis.process=globalThis.process||{env:{}};</script>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="generator" content="hermetic" />
