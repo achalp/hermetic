@@ -134,6 +134,34 @@ jobs:
       - run: pnpm run mcpb:build
       - run: pnpm run mcpb:smoke
 
+
+  # Browser e2e: renders a REAL dashboard (self-contained HTML export) in
+  # chromium and asserts it mounts with charts and no errors — the "rendering
+  # half" the offline golden/NDJSON tests can't reach.
+  e2e:
+    name: Browser e2e (dashboard render)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm mcp:build-viewer
+      - run: npx playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
+
   # Golden transcripts: replay-mode server + journey runner, fully offline
   # (LLM responses come from committed fixtures in test-fixtures/llm/;
   # scripts/golden/run-journeys.mjs header documents the recording flow).

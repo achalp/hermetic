@@ -42,7 +42,8 @@
     "mcp": "tsx src/mcp/main.ts",
     "mcp:build-viewer": "node scripts/build-mcp-viewer.mjs",
     "mcpb:build": "node scripts/build-mcp-viewer.mjs && node scripts/build-mcpb.mjs",
-    "mcpb:smoke": "node scripts/mcpb-smoke.mjs"
+    "mcpb:smoke": "node scripts/mcpb-smoke.mjs",
+    "test:e2e": "tsx scripts/e2e-build-fixture.mts && playwright test"
   },
   "lint-staged": {
     "*.{ts,tsx,mjs}": [
@@ -123,6 +124,7 @@
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@next/bundle-analyzer": "^16.1.6",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
