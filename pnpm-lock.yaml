@@ -21,8 +21,8 @@ importers:
         specifier: ^3.0.37
         version: 3.0.73(zod@4.4.3)
       '@clickhouse/client':
-        specifier: ^1.18.2
-        version: 1.21.0
+        specifier: ^1.23.1
+        version: 1.23.1
       '@codemirror/lang-python':
         specifier: ^6.2.1
         version: 6.2.1
@@ -171,8 +171,8 @@ importers:
         specifier: ^2.37.0
         version: 2.38.0(react@19.2.3)
       react-map-gl:
-        specifier: ^8.1.0
-        version: 8.1.1(mapbox-gl@1.13.3)(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+        specifier: ^8.1.2
+        version: 8.1.2(mapbox-gl@1.13.3)(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react-plotly.js:
         specifier: ^2.6.0
         version: 2.6.0(plotly.js@3.6.0(mapbox-gl@1.13.3))(react@19.2.3)
@@ -183,8 +183,8 @@ importers:
         specifier: ^2.4.0
         version: 2.4.3(asn1.js@5.4.1)
       three:
-        specifier: ^0.183.1
-        version: 0.183.2
+        specifier: ^0.185.1
+        version: 0.185.1
       trino-client:
         specifier: ^0.2.9
         version: 0.2.9
@@ -676,13 +676,9 @@ packages:
     resolution: {integrity: sha512-YstAqNb0MCN8PjdLCDfRsBcGVRN41f3vgLvaI0IrIcBp4AqILRSS0DeWNGkicC+f/zRIPJLc+9RURVSepwvfBw==}
     hasBin: true
 
-  '@clickhouse/client-common@1.21.0':
-    resolution: {integrity: sha512-UjvA32aaLKbQ5U735qAGdzohrOrfU8zFoOWIOWorWQk+7UzHZxq6pf4Uh/wQ08zAMb9cmkd9h9N1FV8zP8UCOg==}
-    deprecated: 'Deprecated: import from @clickhouse/client or @clickhouse/client-web instead.'
-
-  '@clickhouse/client@1.21.0':
-    resolution: {integrity: sha512-HJLHX60clPFV4ZYjhd9Radgfqkl0MX6T4GDaS6CK4K2cpMWW4uIDPzXjueIVJh+LRVt1pi7kJKn8BWjmbGAlEA==}
-    engines: {node: '>=16'}
+  '@clickhouse/client@1.23.1':
+    resolution: {integrity: sha512-vs3/Zc1dHvT171btW5nMoPsPCJ6QVJ5pp7obxzO5sjqwFx/jjz9wwCAqcFOdc2DhprugDBaVn+4dVY8hG3A9nw==}
+    engines: {node: '>=20'}
 
   '@codemirror/autocomplete@6.20.3':
     resolution: {integrity: sha512-tlosUqb+3BbxCxZdu4tKeRghPFC+QM7q4X5YhKV2eCmPG+1r2F3f4AaSz5sCrFqUtX4Jh20VFTKecl16MgiV9g==}
@@ -2733,8 +2729,8 @@ packages:
     resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
     engines: {node: '>= 20'}
 
-  '@vis.gl/react-mapbox@8.1.1':
-    resolution: {integrity: sha512-KMDTjtWESXxHS4uqWxjsvgQUHvuL3Z6SdKe68o7Nxma2qUfuyH3x4TCkIqGn3FQTrFvZLWvTnSAbGvtm+Kd13A==}
+  '@vis.gl/react-mapbox@8.1.2':
+    resolution: {integrity: sha512-g/TbFYympMg+TMS+ctASbcgIxEJRnYL7+VyCo2rI6dpG7dUP4wNOOAUxO8og6OH6QwavaQVYSHcY4mfQL7Ixbw==}
     peerDependencies:
       mapbox-gl: '>=3.5.0'
       react: '>=16.3.0'
@@ -2743,8 +2739,8 @@ packages:
       mapbox-gl:
         optional: true
 
-  '@vis.gl/react-maplibre@8.1.1':
-    resolution: {integrity: sha512-iUOfzJAhFAJwEZp1644tQb7LOTFgi5/GzdaztkhzNgFVuoF2Ez7guvwZjQAKB9CN2TlHTgNuYH8UW85kO7cVhw==}
+  '@vis.gl/react-maplibre@8.1.2':
+    resolution: {integrity: sha512-cjghAMHSJLO3sJ7N6iHJRG+n0l30LtiZ0TNND+HYhHgZDd8UMdNHwcnqQ7Ku0guY3lZ4Rw4LvMqpJYKcqbX39A==}
     peerDependencies:
       maplibre-gl: '>=4.0.0'
       react: '>=16.3.0'
@@ -5937,8 +5933,8 @@ packages:
     peerDependencies:
       react: '>=16.13.1'
 
-  react-map-gl@8.1.1:
-    resolution: {integrity: sha512-aSqFAFoxvY7wxbGI93Dz0E41171mkAb3GcNbnkFIotmu88OFw495os6mIDZSi7irYNT/PZEIOEHUxhun4ToGuQ==}
+  react-map-gl@8.1.2:
+    resolution: {integrity: sha512-7jBqPoyO30M9GR+qd8utPipWGmpuCPOIJA/ePjR6LjQEZoedTf1hSN1SDj2jj6or8NQxe+ztEi91Bwbs5C+f4A==}
     peerDependencies:
       mapbox-gl: '>=1.13.0'
       maplibre-gl: '>=1.13.0'
@@ -6523,6 +6519,9 @@ packages:
 
   three@0.183.2:
     resolution: {integrity: sha512-di3BsL2FEQ1PA7Hcvn4fyJOlxRRgFYBpMTcyOgkwJIaDOdJMebEFPA+t98EvjuljDx4hNulAGwF6KIjtwI5jgQ==}
+
+  three@0.185.1:
+    resolution: {integrity: sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==}
 
   thrift@0.16.0:
     resolution: {integrity: sha512-W8DpGyTPlIaK3f+e1XOCLxefaUWXtrOXAaVIDbfYhmVyriYeAKgsBVFNJUV1F9SQ2SPt2sG44AZQxSGwGj/3VA==}
@@ -7718,11 +7717,7 @@ snapshots:
     dependencies:
       commander: 2.20.3
 
-  '@clickhouse/client-common@1.21.0': {}
-
-  '@clickhouse/client@1.21.0':
-    dependencies:
-      '@clickhouse/client-common': 1.21.0
+  '@clickhouse/client@1.23.1': {}
 
   '@codemirror/autocomplete@6.20.3':
     dependencies:
@@ -10209,14 +10204,14 @@ snapshots:
 
   '@vercel/oidc@3.2.0': {}
 
-  '@vis.gl/react-mapbox@8.1.1(mapbox-gl@1.13.3)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@vis.gl/react-mapbox@8.1.2(mapbox-gl@1.13.3)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
     optionalDependencies:
       mapbox-gl: 1.13.3
 
-  '@vis.gl/react-maplibre@8.1.1(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@vis.gl/react-maplibre@8.1.2(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
       '@maplibre/maplibre-gl-style-spec': 19.3.3
       react: 19.2.3
@@ -13841,10 +13836,10 @@ snapshots:
       jerrypick: 1.1.2
       react: 19.2.3
 
-  react-map-gl@8.1.1(mapbox-gl@1.13.3)(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
+  react-map-gl@8.1.2(mapbox-gl@1.13.3)(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
     dependencies:
-      '@vis.gl/react-mapbox': 8.1.1(mapbox-gl@1.13.3)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@vis.gl/react-maplibre': 8.1.1(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@vis.gl/react-mapbox': 8.1.2(mapbox-gl@1.13.3)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@vis.gl/react-maplibre': 8.1.2(maplibre-gl@5.24.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
     optionalDependencies:
@@ -14648,6 +14643,8 @@ snapshots:
       three: 0.183.2
 
   three@0.183.2: {}
+
+  three@0.185.1: {}
 
   thrift@0.16.0:
     dependencies:
