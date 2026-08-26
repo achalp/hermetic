@@ -3,7 +3,7 @@
 **Date:** 2026-07-22
 **Status:** Design — supersedes the organic per-feature growth described below.
 **Related:** `spec/pre-execution-code-review-gate-2026-07-18.md` (judge > prose),
-`spec/competitive-feature-gaps-2026-04-25.md` (saved "recipes" gap),
+`specs/archive/competitive-feature-gaps-2026-04-25.md` (saved "recipes" gap),
 memory: `project_codegen_retry_hardening`, `project_investigate_cost_levers`,
 `project_sweeper_kills_live_containers` (lore-contamination motivator).
 
