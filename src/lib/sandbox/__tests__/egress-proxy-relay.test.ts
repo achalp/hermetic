@@ -56,3 +56,39 @@ describe("egress proxy relay (splice zero-copy)", () => {
     expect(out).toContain("RELAY_OK");
   });
 });
+
+// SSRF + allowlist-parsing hardening. Loads the proxy module and asserts the
+// IP-vetting classifier and newline-delimited ALLOW_HOSTS parsing directly.
+const SSRF_SCRIPT = `
+import importlib.util, os
+os.environ["ALLOW_HOSTS"] = "a.example.com\\nb.example.com\\n  c.example.com  "
+spec = importlib.util.spec_from_file_location("egp2", ${JSON.stringify(PROXY)})
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+# newline-delimited allowlist (a comma-bearing value can no longer inject a host)
+assert m.ALLOW_HOSTS == {"a.example.com", "b.example.com", "c.example.com"}, m.ALLOW_HOSTS
+assert m.allowed("a.example.com") and not m.allowed("evil.com")
+
+# metadata + loopback + unparseable are blocked; public + private LAN are allowed
+assert m._is_blocked_ip("169.254.169.254") is True   # cloud metadata (link-local)
+assert m._is_blocked_ip("127.0.0.1") is True          # loopback
+assert m._is_blocked_ip("::1") is True                # loopback v6
+assert m._is_blocked_ip("not-an-ip") is True          # unparseable
+assert m._is_blocked_ip("93.184.216.34") is False     # public
+assert m._is_blocked_ip("172.17.0.1") is False        # docker gateway (private, allowed)
+assert m._is_blocked_ip("10.0.0.5") is False          # private LAN (on-prem endpoint)
+print("SSRF_OK")
+`;
+
+describe("egress proxy SSRF guard + allowlist parsing", () => {
+  it.skipIf(!havePython)(
+    "blocks metadata/loopback, allows public+private, parses newline allowlist",
+    () => {
+      const out = execFileSync("python3", ["-c", SSRF_SCRIPT], {
+        encoding: "utf8",
+        timeout: 30_000,
+      });
+      expect(out).toContain("SSRF_OK");
+    }
+  );
+});

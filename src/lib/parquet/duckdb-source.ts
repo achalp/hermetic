@@ -140,7 +140,7 @@ export function isInternalHostname(hostname: string): boolean {
 export function isSafeParquetUrl(url: unknown): url is string {
   if (typeof url !== "string" || url.length === 0 || url.length > 2048) return false;
   if (!/^(s3|s3a|gs|gcs|az|azure|abfss?|https?):\/\//i.test(url)) return false;
-  if (/['"`\\;\n\r\t\0]/.test(url)) return false;
+  if (/[,'"`\\;\n\r\t\0]/.test(url)) return false;
   if (/^https?:\/\//i.test(url)) {
     try {
       if (isInternalHostname(new URL(url).hostname)) return false;

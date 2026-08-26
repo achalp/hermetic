@@ -154,6 +154,14 @@ describe("isSafeParquetUrl", () => {
     expect(isSafeParquetUrl("https://h/a\nb")).toBe(false); // newline
   });
 
+  it("rejects a comma — it delimited the egress allowlist (host-injection)", () => {
+    // s3:// URLs skip URL parsing, so a comma in the bucket used to smuggle an
+    // extra allowlisted host into the comma-joined ALLOW_HOSTS. Reject it, and
+    // the allowlist is now newline-delimited too (defense-in-depth).
+    expect(isSafeParquetUrl("s3://mybucket,evil.com,x/f.parquet")).toBe(false);
+    expect(isSafeParquetUrl("https://h/a,b.parquet")).toBe(false);
+  });
+
   it("rejects a non-object-store scheme and empty/overlong input", () => {
     expect(isSafeParquetUrl("file:///etc/passwd")).toBe(false);
     expect(isSafeParquetUrl("/data/local/x.parquet")).toBe(false);
