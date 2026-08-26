@@ -1,0 +1,22 @@
+# Dependency-update automation. Without this there was no mechanism to learn a
+# dependency had a CVE (100+ direct deps incl. database drivers + keychain).
+version: 2
+updates:
+  - package-ecosystem: "npm" # pnpm workspace (package.json / pnpm-lock.yaml)
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # One PR for routine dev-tooling bumps; app deps stay individual so a
+      # risky bump (a driver, a renderer) is reviewed on its own.
+      dev-dependencies:
+        dependency-type: "development"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker" # sandbox base image (docker/sandbox/Dockerfile)
+    directory: "/docker/sandbox"
+    schedule:
+      interval: "weekly"

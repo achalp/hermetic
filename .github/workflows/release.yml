@@ -9,25 +9,38 @@ on:
   push:
     tags: ["v*"]
 
+# Least privilege at the top; each job opts up to exactly what it needs, so the
+# pure `gate` job (which runs untrusted install + build) holds no write token.
 permissions:
-  contents: write # create the release
-  packages: write # push the sandbox image to GHCR
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   gate:
     name: Quality gate
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # gate runs only the local suite; it needs no write scope.
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Parity with the PR gate (.github/workflows/ci.yml) — the release commit
+      # must clear the SAME bar, not a weaker subset.
       - run: pnpm run lint
+      - run: node scripts/check-data-hygiene.mjs
+      - run: pnpm run ratchet
+      - run: pnpm run isolation
+      - run: pnpm run format:check
       - run: pnpm run type-check
-      - run: pnpm test
+      - run: pnpm test:coverage
       - run: pnpm run build
         env:
           ANTHROPIC_API_KEY: test-key-for-build
@@ -36,10 +49,14 @@ jobs:
     name: Sandbox image → GHCR
     needs: gate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # push to GHCR
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -60,8 +77,11 @@ jobs:
     name: GitHub Release
     needs: [gate, sandbox-image]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -78,10 +98,13 @@ jobs:
     name: MCPB bundle → Release asset
     needs: [gate, release]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # upload the asset to the release
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: pnpm

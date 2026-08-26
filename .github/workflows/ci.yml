@@ -17,18 +17,20 @@ jobs:
     name: Lint, Type Check & Build
     runs-on: ubuntu-latest
 
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         node-version: [20, 22]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
@@ -62,15 +64,16 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Use Node.js 22
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: pnpm
@@ -78,31 +81,58 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build the sandbox image so the docker-gated regression tests actually
+      # run (hardening-smoke, egress-proxy-relay) instead of silently skipping —
+      # the no-new-privileges incident had a green suite while skipped.
+      - name: Build sandbox image
+        run: docker build -t hermetic-sandbox ./docker/sandbox/
+
       - name: Run tests with coverage
         run: pnpm test:coverage
 
-  # Python runtime tests: the ONLY guard on Python<->JSON contract drift.
-  # docker/sandbox/hermetic_runtime/test_runtime.py mirrors the series-kind,
-  # payload, and field-contract JSON the TypeScript side reads — those mirror
-  # assertions (test_*_contract_mirror_matches_the_host_json) fail loudly when
-  # the two languages diverge. Stdlib unittest, no third-party deps: pandas/
-  # numpy-dependent cases skip cleanly when absent, so no install step is
-  # needed and the mirror/contract tests still run. Invoked from repo root so
-  # the host-JSON mirror paths resolve.
+  # Python runtime tests: the guard on Python<->JSON contract drift AND the
+  # statistical-runtime correctness suite. Runs on the SAME interpreter + pinned
+  # libs the sandbox image ships (docker/sandbox/Dockerfile) so the numpy/pandas/
+  # scipy-dependent cases (~a third of the suite, incl. the vectorized-aggregate
+  # parity test) actually execute instead of skipping — a bare interpreter left
+  # them silently unrun and validated a Python the product never runs.
   python-runtime:
     name: Python Runtime Contract Mirror
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Python (matches the sandbox image)
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
-      - name: Run runtime tests (contract mirror)
+      - name: Install the sandbox's pinned scientific stack
+        run: pip install pandas==2.2.3 numpy==2.2.4 scipy==1.15.2
+
+      - name: Run runtime tests (contract mirror + statistics)
         run: python3 -m unittest docker.sandbox.hermetic_runtime.test_runtime
+
+  # The .mcpb Claude Desktop bundle is only built at tag time by release.yml, so
+  # a build-mcpb.mjs / bundle regression was undiscoverable until a release.
+  # Build + smoke it on every PR in its own job (isolated so a bundle flake
+  # never takes down the golden proofs).
+  mcpb-bundle:
+    name: MCPB bundle build + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run mcpb:build
+      - run: pnpm run mcpb:smoke
 
   # Golden transcripts: replay-mode server + journey runner, fully offline
   # (LLM responses come from committed fixtures in test-fixtures/llm/;
@@ -110,15 +140,16 @@ jobs:
   golden-transcripts:
     name: Golden Transcripts
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Use Node.js 22
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: pnpm
@@ -188,9 +219,10 @@ jobs:
       # recorded fixtures without reproducing the runner environment.
       - name: Upload miss diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: golden-miss-diagnostics
+          retention-days: 14
           path: |
             test-fixtures/llm/*.miss.json
             test-fixtures/llm/*.hit.json
