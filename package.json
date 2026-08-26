@@ -112,7 +112,7 @@
     "react-plotly.js": "^2.6.0",
     "server-only": "^0.0.1",
     "snowflake-sdk": "^2.4.0",
-    "three": "^0.183.1",
+    "three": "^0.185.1",
     "trino-client": "^0.2.9",
     "uuid": "^13.0.0",
     "yaml": "^2.9.0",
