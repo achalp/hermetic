@@ -63,6 +63,7 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     HERMETIC_DATA_ROOT: dataRoot, // keep the run hermetic — no ~/.hermetic writes
+    HERMETIC_LOCAL_FILE_ROOTS: scratch, // permit the scratch csv past the connect_source path-jail (#128)
     HERMETIC_MCP_VIEWER_PORT: "0", // ephemeral port — never collide with a dev server
   },
   stderr: "inherit",
