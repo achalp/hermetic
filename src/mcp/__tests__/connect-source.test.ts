@@ -151,11 +151,16 @@ let audit: AuditEntry[];
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "mcp-connect-test-"));
+  // The connect_source path-jail (isPathAllowed) confines reads to the home dir
+  // + HERMETIC_LOCAL_FILE_ROOTS; permit this test's temp dir like a real user's
+  // configured data folder.
+  process.env.HERMETIC_LOCAL_FILE_ROOTS = dir;
   setPathRoots({ dataRoot: dir, scratchRoot: join(dir, "scratch"), userRoot: join(dir, "user") });
   clearSources();
   audit = [];
 });
 afterEach(() => {
+  delete process.env.HERMETIC_LOCAL_FILE_ROOTS;
   setPathRoots({});
   rmSync(dir, { recursive: true, force: true });
 });
@@ -243,6 +248,19 @@ describe("connect_source(path) — shared ingestion pipeline", () => {
     const payload = parseToolJson(res);
     expect(payload.code).toBe("invalid_input");
     expect(String(payload.error)).toContain("no data rows");
+  });
+
+  it("rejects a path outside the allowed roots (jail — prompt-injection defense)", async () => {
+    const { deps } = fakeDeps(fakeConnector());
+    const client = await connectedClient(deps, audit);
+    const res = await client.callTool({
+      name: "connect_source",
+      arguments: { path: "/etc/passwd" },
+    });
+    expect((res as { isError?: boolean }).isError).toBe(true);
+    const payload = parseToolJson(res);
+    expect(payload.code).toBe("invalid_input");
+    expect(String(payload.error)).toContain("outside the allowed folders");
   });
 
   it("a large CSV materializes to a bind-mounted (local-parquet) source", async () => {

@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("snowflake-sdk", () => ({
   default: {
+    configure: vi.fn(),
     createConnection: vi.fn(() => ({
       connect: (cb: (e?: unknown) => void) => cb(),
       execute: ({ complete }: { complete: (e: unknown, s: unknown, rows: unknown[]) => void }) => {
@@ -38,5 +39,14 @@ describe("snowflake connector", () => {
   it("rejects a write at the read-only gate", async () => {
     const conn = createConnector(CONFIG);
     await expect(async () => conn.executeSQL("UPDATE t SET a=1")).rejects.toThrow();
+  });
+
+  it("disables snowflake-sdk file logging (no plaintext ./snowflake.log)", async () => {
+    const snowflake = (await import("snowflake-sdk")).default as unknown as {
+      configure: ReturnType<typeof vi.fn>;
+    };
+    snowflake.configure.mockClear();
+    createConnector(CONFIG);
+    expect(snowflake.configure).toHaveBeenCalledWith({ logLevel: "OFF" });
   });
 });

@@ -22,6 +22,7 @@ let snowflakeDestroyed = false;
 
 vi.mock("snowflake-sdk", () => {
   const fake = {
+    configure() {},
     createConnection() {
       return {
         connect(cb: (err: Error | null) => void) {

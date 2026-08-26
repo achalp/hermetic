@@ -36,6 +36,7 @@ import { ingestFromDeps, type McpDeps } from "../deps";
 import { registerSource, type McpSource } from "../sources";
 import { persistSources } from "../source-persist";
 import { McpToolError } from "../errors";
+import { isPathAllowed, PATH_NOT_ALLOWED_ERROR } from "@/lib/local-files/security";
 import { summarizeSource } from "./get-schema";
 import { withToolLog } from "./log";
 import { IngestError, type IngestResult } from "@/lib/sources/ingest";
@@ -127,6 +128,10 @@ async function connectPath(
   sheet: string | undefined,
   label: string | undefined
 ): Promise<McpSource | Record<string, unknown>> {
+  // Root-jail parity with the web routes (browse/select/schema all call this):
+  // MCP is host-model-driven, so a prompt-injected path must not escape the
+  // allowed roots (home dir by default). `abs` is already resolve()'d; confine it.
+  if (!isPathAllowed(abs)) throw new McpToolError("invalid_input", PATH_NOT_ALLOWED_ERROR);
   let result: IngestResult;
   try {
     result = await ingestFromDeps(deps)(

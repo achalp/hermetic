@@ -25,6 +25,10 @@ interface SnowflakeRow {
 
 /** Convert a value to a CSV-safe string, handling nulls properly. */
 export function createSnowflakeConnector(config: SnowflakeConnectionConfig): WarehouseConnector {
+  // The SDK defaults to INFO-level FILE logging into the process CWD
+  // (./snowflake.log), writing connection metadata (host/account/user/db) in
+  // plaintext that the app's redacting logger never sees. Turn it off.
+  snowflake.configure({ logLevel: "OFF" });
   const databaseName = config.database.toUpperCase();
   const schemaName = (config.schema ?? "PUBLIC").toUpperCase();
 

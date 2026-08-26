@@ -233,11 +233,15 @@ let audit: AuditEntry[];
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "mcp-test-"));
+  // connect_source(path) now jails to home + HERMETIC_LOCAL_FILE_ROOTS; permit
+  // this test's temp dir like a user's configured data folder.
+  process.env.HERMETIC_LOCAL_FILE_ROOTS = dir;
   setPathRoots({ dataRoot: dir, scratchRoot: join(dir, "scratch"), userRoot: join(dir, "user") });
   clearSources();
   audit = [];
 });
 afterEach(() => {
+  delete process.env.HERMETIC_LOCAL_FILE_ROOTS;
   setPathRoots({});
   rmSync(dir, { recursive: true, force: true });
 });
