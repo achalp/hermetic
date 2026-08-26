@@ -8,9 +8,10 @@
  * not its contents), everything else passes through only if it is a short
  * scalar.
  */
-import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { hermeticPaths } from "@/lib/paths";
+import { logger, errMessage } from "@/lib/logger";
 
 export interface AuditEntry {
   ts: string;
@@ -72,10 +73,28 @@ export type AuditSink = (entry: AuditEntry) => void;
 
 /**
  * Rotation threshold: the MCP process lives as long as its host app and the
- * file was append-only with no bound. One prior generation (`.1`) keeps
- * recent traceability without a log-management dependency.
+ * file was append-only with no bound. Rotation keeps AUDIT_KEEP numbered
+ * generations (shifted, not overwritten — the old `rename(file, file.1)` lost
+ * every generation but the newest on the second rotation).
+ *
+ * Integrity note: a per-line keychain-HMAC hash chain (tamper-evidence) was
+ * considered but deferred — the MCP audit file can be appended by more than one
+ * MCP process (Desktop + Code), so an in-process chain would fork under
+ * concurrent writes; a robust version needs per-write locking + a keychain read
+ * and is its own change. This fix closes the concrete gaps: silent data loss on
+ * rotation, silent write failures, and a world-readable file.
  */
 export const AUDIT_ROTATE_BYTES = 5 * 1024 * 1024;
+export const AUDIT_KEEP = 3;
+
+/** Shift generations file.(N-1)→file.N … file.1→file.2, file→file.1 (no loss). */
+function rotateAudit(file: string): void {
+  for (let i = AUDIT_KEEP - 1; i >= 1; i--) {
+    const from = `${file}.${i}`;
+    if (existsSync(from)) renameSync(from, `${file}.${i + 1}`);
+  }
+  renameSync(file, `${file}.1`);
+}
 
 /** Default sink: JSONL under the data root (hermeticPaths owns the layout). */
 export function fileAuditSink(): AuditSink {
@@ -84,13 +103,17 @@ export function fileAuditSink(): AuditSink {
       const file = hermeticPaths.mcpAuditFile();
       mkdirSync(dirname(file), { recursive: true });
       try {
-        if (statSync(file).size > AUDIT_ROTATE_BYTES) renameSync(file, `${file}.1`);
+        if (statSync(file).size > AUDIT_ROTATE_BYTES) rotateAudit(file);
       } catch {
-        // ENOENT on first write, or a failed stat/rename — append regardless.
+        // ENOENT on first write, or a failed stat/rotate — append regardless.
       }
-      appendFileSync(file, JSON.stringify(entry) + "\n");
-    } catch {
-      // Audit must never take the tool call down with it.
+      // 0600: the audit log names sources/tools; it must not be world-readable.
+      // mode applies on creation only, which is exactly the new-file case.
+      appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
+    } catch (err) {
+      // Audit must never take the tool call down — but a swallowed write is
+      // indistinguishable from "no tool call", so make the failure visible.
+      logger.warn("MCP audit write failed", { error: errMessage(err) });
     }
   };
 }
