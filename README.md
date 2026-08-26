@@ -520,7 +520,7 @@ src/
     skills/             Skill system: triggers, guidance, review rules, helpers (docs/creating-skills.md)
     pipeline/           Orchestration: Ask/Investigate runners, retry loops, review gate,
                         patch streaming, run control, grounding verification, audit, caches
-    sandbox/            Execution: Docker / E2B / Microsandbox, capability descriptors,
+    sandbox/            Execution: Docker (only enforced runtime; E2B/Microsandbox scaffolding retained, experimental/unwired), capability descriptors,
                         egress allowlist (CI-proven exfiltration canary), lifecycle
     export/             Single-file HTML export assembler
     history/, saved/, cost/, diagnostics/   Persistence, scheduling, cost capture, run records
@@ -660,13 +660,19 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 
 ### Sandbox Runtime
 
-| Variable               | Required                | Default                 | Description                                                      |
-| ---------------------- | ----------------------- | ----------------------- | ---------------------------------------------------------------- |
-| `SANDBOX_RUNTIME`      | No                      | `docker`                | Sandbox runtime: `docker`, `e2b`, or `microsandbox`              |
-| `E2B_API_KEY`          | If runtime=e2b          |                         | E2B API key                                                      |
-| `MICROSANDBOX_URL`     | If runtime=microsandbox | `http://127.0.0.1:5555` | Microsandbox server URL                                          |
-| `MICROSANDBOX_API_KEY` | No                      |                         | Microsandbox API key                                             |
-| `MICROSANDBOX_IMAGE`   | No                      | `microsandbox/python`   | Docker Hub image for the sandbox (packages installed at startup) |
+| Variable          | Required | Default  | Description                                                                |
+| ----------------- | -------- | -------- | -------------------------------------------------------------------------- |
+| `SANDBOX_RUNTIME` | No       | `docker` | Sandbox runtime. **Docker is the only enforced runtime** — see note below. |
+
+> **Experimental runtimes.** E2B and Microsandbox scaffolding (and the
+> `@e2b/code-interpreter` / `microsandbox` dependencies) are retained but
+> **not currently wired or tested**, and cannot be selected: `SANDBOX_RUNTIME`
+> resolves to `docker` regardless. Docker is enforced because it is the only
+> runtime that can guarantee `--network none` network isolation with your data
+> inside the container — the core of the sandbox's security model. A stale
+> `SANDBOX_RUNTIME=e2b`/`microsandbox` (and the old `E2B_API_KEY` /
+> `MICROSANDBOX_*` variables) is ignored rather than silently degrading that
+> guarantee.
 
 ## Components
 
