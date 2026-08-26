@@ -10,6 +10,7 @@
 # Deny is the default: anything not explicitly allowed gets 403 and a log
 # line on stderr.
 import fcntl
+import ipaddress
 import os
 import socket
 import struct
@@ -17,7 +18,7 @@ import sys
 import threading
 from urllib.parse import urlsplit
 
-ALLOW_HOSTS = {h.strip().lower() for h in os.environ.get("ALLOW_HOSTS", "").split(",") if h.strip()}
+ALLOW_HOSTS = {h.strip().lower() for h in os.environ.get("ALLOW_HOSTS", "").splitlines() if h.strip()}
 PORT = int(os.environ.get("PROXY_PORT", "3128"))
 
 
@@ -28,6 +29,47 @@ def log(msg):
 
 def allowed(host):
     return host.lower() in ALLOW_HOSTS
+
+
+def _is_blocked_ip(ip):
+    """Block cloud-metadata (169.254.169.254 / fd00:ec2::254 are link-local),
+    loopback, multicast, reserved, and 0.0.0.0. Private LAN ranges stay ALLOWED
+    — legitimate on-prem/self-hosted data endpoints and the docker host gateway
+    (host.docker.internal) resolve there. Unparseable → blocked."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+def _safe_connect(host, port):
+    """The name allowlist (allowed()) is checked by the caller; this closes the
+    gap where an allowlisted NAME resolves to an internal IP — SSRF to the cloud
+    metadata service is instance-credential theft on a cloud-hosted deployment.
+    Resolve, reject non-routable targets, and connect to the VETTED sockaddr (not
+    re-resolving), which also defeats DNS-rebinding between check and connect.
+    Returns a connected socket, or None to deny."""
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return None
+    for family, _t, _proto, _canon, sockaddr in infos:
+        ip = sockaddr[0]
+        if _is_blocked_ip(ip):
+            log(f"DENY {host} -> non-routable {ip}")
+            return None
+        try:
+            return socket.create_connection(sockaddr[:2], timeout=30)
+        except OSError:
+            continue
+    return None
 
 
 # A billions-row remote scan can go minutes without a byte on the socket
@@ -163,12 +205,21 @@ def handle(client):
         method, target = parts[0], parts[1]
 
         if method == "CONNECT":
-            host, _, port = target.partition(":")
+            host, _, port_s = target.partition(":")
             if not allowed(host):
                 log(f"DENY CONNECT {host}")
                 client.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\n")
                 return
-            upstream = socket.create_connection((host, int(port or 443)), timeout=30)
+            try:
+                port = int(port_s) if port_s else 443
+            except ValueError:
+                log(f"DENY CONNECT {host} bad port {port_s!r}")
+                client.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+                return
+            upstream = _safe_connect(host, port)
+            if upstream is None:
+                client.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+                return
             client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             pump(client, upstream)
             return
@@ -180,7 +231,16 @@ def handle(client):
             log(f"DENY {method} {host}")
             client.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\n")
             return
-        upstream = socket.create_connection((host, url.port or 80), timeout=30)
+        try:
+            port = url.port or 80
+        except ValueError:
+            log(f"DENY {method} {host} bad port")
+            client.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            return
+        upstream = _safe_connect(host, port)
+        if upstream is None:
+            client.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+            return
         # Rewrite to origin-form and forward the rest verbatim.
         origin = (url.path or "/") + (f"?{url.query}" if url.query else "")
         rest = head.split(b"\r\n", 1)[1]

@@ -198,7 +198,7 @@ export async function setupEgressNetwork(
         ...(await sandboxHardeningRunArgs()),
         ...(await sandboxMemoryRunArgs()),
         "-e",
-        `ALLOW_HOSTS=${allowHosts.join(",")}`,
+        `ALLOW_HOSTS=${allowHosts.join("\n")}`,
         "-e",
         `PROXY_PORT=${EGRESS_PROXY_PORT}`,
         DOCKER_SANDBOX_IMAGE,
