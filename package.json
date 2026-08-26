@@ -58,7 +58,7 @@
     "@ai-sdk/anthropic": "^3.0.46",
     "@ai-sdk/google-vertex": "^4.0.68",
     "@ai-sdk/openai": "^3.0.37",
-    "@clickhouse/client": "^1.18.2",
+    "@clickhouse/client": "^1.23.1",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/theme-one-dark": "^6.1.3",
