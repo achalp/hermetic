@@ -412,7 +412,7 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
       byName,
       new Set()
     )!;
-    expect(didNot).toContain("pools groups of very different sizes");
+    expect(didNot).toContain("mixes groups of very different sizes");
     // Pure-prose riders (no bindings) always attach — the catch-all clause
     // cannot be fingerprinted and the disclosure is the point.
     const catchall = F("top_cat", "superlative", {
@@ -452,7 +452,9 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
     const text = realizeClaim(sup);
     // The rider names its subject claim (run 31c1cfa9): deictic phrasings
     // misattribute when several claims' riders share a node.
-    expect(text).toContain("Candidates screened out of the top cat pick as thin");
+    expect(text).toContain(
+      "Some options were left out of the top cat comparison for having too little data"
+    );
     expect(text).toContain("$finding:top_cat.thin_periods_skipped");
     // With a DIFFERING raw extreme, the fuller raw-beside-attested rider
     // carries the disclosure instead — never both.
@@ -468,8 +470,8 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
         thin_bar: 120,
       })
     );
-    expect(differing).toContain("For peak, the raw extreme is");
-    expect(differing).not.toContain("Candidates screened out");
+    expect(differing).toContain("For peak, the highest actual value is");
+    expect(differing).not.toContain("Some options were left out");
     // Nothing skipped → no rider.
     expect(
       realizeClaim(
@@ -481,7 +483,7 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
           thin_bar: 5,
         })
       )
-    ).not.toContain("Candidates screened out");
+    ).not.toContain("Some options were left out");
   });
 
   // Run 31c1cfa9's single audit high: the ANSWER referenced BOTH
@@ -520,8 +522,8 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
       new Set()
     );
     expect(text).toContain("The winner for top spend category is a catch-all bucket");
-    expect(text).toContain("Candidates screened out of the top spend category pick");
-    expect(text).toContain("Attestation for top merchant rests on a bar relaxed to");
+    expect(text).toContain("Some options were left out of the top spend category comparison");
+    expect(text).toContain("This top merchant result is based on limited data");
     // No deixis left to misattribute.
     expect(text).not.toContain("Attestation here");
     expect(text).not.toContain("That leader");
@@ -637,7 +639,7 @@ describe("narrated compiled mode — authored prose, figures must bind", () => {
     expect(text).toContain("$finding:cat_het.test");
     expect(text).toContain("$finding:cat_het.p_value");
     // The pooling disclosure fires — smallest group is n = 2 (< 6).
-    expect(text).toContain("pools groups of very different sizes");
+    expect(text).toContain("mixes groups of very different sizes");
     expect(text).toContain("$finding:cat_het.group_ns");
     // Balanced groups: no rider.
     const balanced = realizeClaim(
