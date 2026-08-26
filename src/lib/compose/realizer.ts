@@ -86,7 +86,7 @@ export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[]
       if (!("value" in v)) break;
       if (v.raw_value !== undefined && v.raw_value !== null && v.raw_value !== v.value) {
         riders.push(
-          `For ${label}, the raw extreme is ${b(n, "raw_value")} in ${b(n, "raw_period")} (n = ${b(n, "raw_n")}), under the ${b(n, "thin_bar")}-observation attestation bar — ${b(n, "thin_periods_skipped")} thin periods were screened from the attested pick.`
+          `For ${label}, the highest actual value is ${b(n, "raw_value")} in ${b(n, "raw_period")} (based on ${b(n, "raw_n")} record(s)); ${b(n, "thin_periods_skipped")} period(s) with too little data (fewer than ${b(n, "thin_bar")} records) were left out of the pick.`
         );
       } else if (
         typeof v.thin_periods_skipped === "number" &&
@@ -101,7 +101,7 @@ export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[]
         // the bar of 5 and nothing said so, which materially framed "top
         // category". Colon-form for number-noun agreement.
         riders.push(
-          `Candidates screened out of the ${label} pick as thin under the ${b(n, "thin_bar")}-observation attestation bar: ${b(n, "thin_periods_skipped")}.`
+          `Some options were left out of the ${label} comparison for having too little data — fewer than ${b(n, "thin_bar")} data points each: ${b(n, "thin_periods_skipped")}.`
         );
       }
       // A catch-all winner is a statement about unclassified residue, not
@@ -124,7 +124,7 @@ export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[]
         // Phrased to dodge number-noun agreement: thin_bar is a binding, so
         // "of 1 observations" was ungrammatical at n = 1 (run 093c9785).
         riders.push(
-          `Attestation for ${label} rests on a bar relaxed to ${b(n, "thin_bar")}, because the series is uniformly thin.`
+          `This ${label} result is based on limited data — every option had only a little, so it includes ones with as few as ${b(n, "thin_bar")} data points.`
         );
       }
       break;
@@ -134,7 +134,7 @@ export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[]
         // Colon-form to dodge number-noun agreement on a binding: "The
         // final 1 periods were excluded" shipped in run dfe3ea32.
         riders.push(
-          `Trailing periods excluded from the end of the ${label} series: ${b(n, "excluded_trailing")} (${b(n, "excluded_reason")}); the latest raw observation is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (n = ${b(n, "latest_n")})` : ""}.`
+          `The ${b(n, "excluded_trailing")} most recent period(s) of ${label} were left out (${b(n, "excluded_reason")}); the latest actual figure is ${b(n, "latest_value")} in ${b(n, "latest_period")}${v.latest_n !== null && v.latest_n !== undefined ? ` (based on ${b(n, "latest_n")} record(s))` : ""}.`
         );
       }
       break;
@@ -148,7 +148,7 @@ export function riderClauses(f: FindingEntry, disclosed?: Set<string>): string[]
           : [];
       if (groups.length > 0 && Math.min(...groups) < THIN_GROUP_DISCLOSURE_N) {
         riders.push(
-          `The ${label} test pools groups of very different sizes (group sizes: ${b(n, "group_ns")}) — the smallest contribute only a handful of observations, so treat the verdict as directional for them.`
+          `The ${label} comparison mixes groups of very different sizes (${b(n, "group_ns")}) — the smallest have only a handful of records, so treat their result as a rough indication.`
         );
       }
       break;
