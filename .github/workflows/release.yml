@@ -53,6 +53,8 @@ jobs:
     permissions:
       contents: read
       packages: write # push to GHCR
+      id-token: write # OIDC for build-provenance attestation
+      attestations: write # write the provenance attestation
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Log in to GHCR
@@ -62,16 +64,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
+        id: push
         run: |
           IMAGE=ghcr.io/${{ github.repository }}-sandbox
           TAG=${GITHUB_REF_NAME#v}
           docker build -t "$IMAGE:$TAG" docker/sandbox
           docker push "$IMAGE:$TAG"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG" | cut -d@ -f2)
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           # Only stable tags move :latest — an rc must never become the default pull.
           if [[ "$TAG" != *-* ]]; then
             docker tag "$IMAGE:$TAG" "$IMAGE:latest"
             docker push "$IMAGE:latest"
           fi
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-name: ${{ steps.push.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
   release:
     name: GitHub Release
@@ -89,10 +101,18 @@ jobs:
           TAG=$GITHUB_REF_NAME
           FLAGS=""
           [[ "$TAG" == *-* ]] && FLAGS="--prerelease"
+          REPO="${{ github.repository }}"
           gh release create "$TAG" --generate-notes $FLAGS \
-            --notes "Sandbox image: \`ghcr.io/${{ github.repository }}-sandbox:${TAG#v}\`
+            --notes "Sandbox image: \`ghcr.io/${REPO}-sandbox:${TAG#v}\`
 
-          Claude Desktop extension: \`hermetic.mcpb\` (attached below — Settings → Extensions → Install Extension)"
+          Claude Desktop extension: \`hermetic.mcpb\` (attached below — Settings → Extensions → Install Extension)
+
+          **Verify artifacts** (build provenance is attested via GitHub):
+          \`\`\`
+          gh attestation verify oci://ghcr.io/${REPO}-sandbox:${TAG#v} --repo ${REPO}
+          gh attestation verify hermetic.mcpb --repo ${REPO}
+          sha256sum -c hermetic.mcpb.sha256
+          \`\`\`"
 
   mcpb:
     name: MCPB bundle → Release asset
@@ -101,6 +121,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write # upload the asset to the release
+      id-token: write # OIDC for build-provenance attestation
+      attestations: write # write the provenance attestation
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -111,7 +133,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run mcpb:build
       - run: pnpm run mcpb:smoke
-      - name: Attach to release
+      - name: Attest bundle build provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: hermetic.mcpb
+      - name: Checksum and attach to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" hermetic.mcpb --clobber
+        run: |
+          sha256sum hermetic.mcpb > hermetic.mcpb.sha256
+          gh release upload "$GITHUB_REF_NAME" hermetic.mcpb hermetic.mcpb.sha256 --clobber
