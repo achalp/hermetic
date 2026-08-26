@@ -32,9 +32,28 @@ describe("middleware DNS-rebinding guard", () => {
     expect(res.status).not.toBe(403);
   });
 
-  it("does not guard an unlisted route from a foreign Origin", () => {
+  // Default-deny (inverted from the old prefix allowlist): EVERY /api/ route is
+  // guarded, including ones no allowlist named. These previously leaked LAN-side.
+  it("blocks a previously-unlisted /api route from a foreign Origin (default-deny)", () => {
     const res = middleware(req("/api/plan", { origin: "http://evil.example.com" }));
-    expect(res.status).not.toBe(403);
+    expect(res.status).toBe(403);
+  });
+
+  it.each(["/api/history", "/api/artifacts/x", "/api/cost", "/api/diagnostics", "/api/vizs"])(
+    "blocks %s (formerly unguarded, LAN-readable) from a foreign Origin",
+    (path) => {
+      expect(middleware(req(path, { origin: "http://evil.example.com" })).status).toBe(403);
+    }
+  );
+
+  it("still allows a data route from the UI's loopback Origin", () => {
+    expect(middleware(req("/api/history", { origin: "http://localhost:3000" })).status).not.toBe(
+      403
+    );
+  });
+
+  it("does NOT guard non-/api page routes (UI only, no data)", () => {
+    expect(middleware(req("/results", { origin: "http://evil.example.com" })).status).not.toBe(403);
   });
 
   // finding H3: the local model-process routes spawn downloads / start servers /
