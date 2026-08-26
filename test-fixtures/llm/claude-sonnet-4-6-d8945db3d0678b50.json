@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/7.0.77\"},\"maxOutputTokens\":8000,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root\"}\n{\"op\":\"add\",\"path\":\"/elements/root\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":12},\"children\":[\"charts-row\",\"stat-row\",\"insight\"]}}\n{\"op\":\"add\",\"path\":\"/elements/charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":12},\"children\":[\"chart-trend\",\"chart-per-cust\"]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-trend\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Monthly Churn MRR by Plan (2024)\",\"data\":\"$chartData:churn_mrr_by_plan_monthly\",\"x_key\":\"month\",\"y_keys\":[\"enterprise\",\"pro\",\"starter\"],\"color_map\":{\"enterprise\":\"indigo\",\"pro\":\"amber\",\"starter\":\"rose\"},\"label_map\":{\"enterprise\":\"Enterprise\",\"pro\":\"Pro\",\"starter\":\"Starter\"},\"curve\":\"monotone\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/chart-per-cust\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Pooled Churn per Customer by Plan\",\"data\":\"$chartData:churn_rate_per_customer_by_plan\",\"x_key\":\"plan\",\"y_keys\":[\"churn_per_customer_usd\"],\"orientation\":\"vertical\",\"color_map\":{\"churn_per_customer_usd\":\"indigo\"},\"label_map\":{\"churn_per_customer_usd\":\"Churn / Customer ($)\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-row\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":8},\"children\":[\"stat-enterprise\",\"stat-pro\",\"stat-starter\"]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-enterprise\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Enterprise Churn / Customer\",\"value\":\"$result:enterprise_pooled_churn_per_customer_usd\",\"format\":\"currency\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-pro\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Pro Churn / Customer\",\"value\":\"$result:pro_pooled_churn_per_customer_usd\",\"format\":\"currency\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-starter\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Starter Churn / Customer\",\"value\":\"$result:starter_pooled_churn_per_customer_usd\",\"format\":\"currency\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"insight\",\"content\":\"The $result:highest_churn_rate_plan plan carries the highest churn per customer at $result:highest_churn_rate_per_customer_usd USD, with the worst single period being $result:highest_churn_rate_per_customer_period — suggesting plan-specific retention pressure rather than a scale artifact, particularly given statistically significant heterogeneity across plans (p = $result:churn_rate_per_customer_plan_heterogeneity_p_value, $result:churn_rate_per_customer_plan_heterogeneity_test).\"},\"children\":[]}}",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1787783836"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 27678,
+        "noCache": 21441,
+        "cacheRead": 6237
+      },
+      "outputTokens": {
+        "total": 810,
+        "text": 810,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 27678,
+        "input_tokens_details": {
+          "cached_tokens": 6237
+        },
+        "output_tokens": 810
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1787783836"
+      }
+    },
+    "warnings": []
+  }
+}

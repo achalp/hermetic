@@ -1,0 +1,217 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right after the ",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787783127",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783127"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"layout-root"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "\"}\n{\"op\":\"add\",\"path\":\"/elements/layout-root\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":20},\"children\":[\"dc\"]}}\n{\"op\":\"add\",\"path\":\"/elements/dc\",\"value\":{\"type\":\"DataController\",\"props\":{\"source\":{\"statePath\":\"/datasets/main\"},\"filters\":[{\"key"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "\":\"plan-filter\",\"column\":\"plan\",\"bindTo\":\"/filters/plan\",\"label\":\"Plan\",\"allowAll\":true}],\"pipeline\":[{\"op\":\"filter\"},{\"op\":\"compute\",\"column\":\"gross_add\",\"expression\":\"add(new_mrr, expansion_mrr)\"},{\"op\":\"compute\",\"column\":\"net_new_mrr\",\"expression\":\"subtract(gross_add,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": " churn_mrr)\"}],\"outputs\":[{\"statePath\":\"/computed/monthly_components\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[\"month\"],\"aggregations\":[{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\"as\":\"expansion_mrr\"},{\"column\":\"ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "urn_mrr\",\"fn\":\"sum\",\"as\":\"churn_mrr\"},{\"column\":\"net_new_mrr\",\"fn\":\"sum\",\"as\":\"net_new_mrr\"}]},{\"op\":\"sort\",\"column\":\"month\",\"direction\":\"asc\"}]},{\"statePath\":\"/computed/plan_net\",\"pipeline\":[{\"op\":\"pivot\",\"rowKey\":\"month\",\"columnKey"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "\":\"plan\",\"valueKey\":\"net_new_mrr\",\"aggFn\":\"sum\"}]},{\"statePath\":\"/computed/stats\",\"format\":\"stats\",\"pipeline\":[{\"op\":\"groupBy\",\"columns\":[],\"aggregations\":[{\"column\":\"new_mrr\",\"fn\":\"sum\",\"as\":\"total_new_mrr\"},{\"column\":\"expansion_mrr\",\"fn\":\"sum\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "as\":\"total_expansion_mrr\"},{\"column\":\"churn_mrr\",\"fn\":\"sum\",\"as\":\"total_churn_mrr\"},{\"column\":\"net_new_mrr\",\"fn\":\"sum\",\"as\":\"total_net_new_mrr\"}]}]}]},\"children\":[\"headline-grid\",\"charts-row\",\"plan-line\",\"hetero-ann\",\"narrative"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "\"]}}\n{\"op\":\"add\",\"path\":\"/elements/headline-grid\",\"value\":{\"type\":\"LayoutGrid\",\"props\":{\"columns\":3,\"gap\":12},\"children\":[\"stat-new-mrr\",\"stat-trend\",\"stat-peak\"]}}\n{\"op\":\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "add\",\"path\":\"/elements/stat-new-mrr\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Total New MRR (Jan–Dec 2024)\",\"value\":\"$result:total_new_mrr_usd\",\"format\":\"currency\",\"precision"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "\":0},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/stat-trend\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Net New MRR Monthly Slope"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "\",\"value\":\"$finding:net_new_mrr_trend.slope_per_period\",\"format\":\"currency\",\"precision\":0,\"description\":\"OLS slope per month across all plans\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "elements/stat-peak\",\"value\":{\"type\":\"StatCard\",\"props\":{\"label\":\"Net New MRR Peak\",\"value\":\"$finding:net_new_mrr_peak.value\",\"format\":\"currency\",\"precision\":0,\"description\":\"Peak month: $finding:net_new_mrr_peak.period\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "state/filters/plan\",\"value\":\"All\"}\n{\"op\":\"add\",\"path\":\"/state/computed/stats\",\"value\":{}}\n{\"op\":\"add\",\"path\":\"/elements/charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":16"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": ",\"align\":\"stretch\"},\"children\":[\"mrr-components\",\"cumul-line\"]}}\n{\"op\":\"add\",\"path\":\"/elements/mrr-components\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": " MRR Components\",\"data\":{\"$state\":\"/computed/monthly_components\"},\"x_key\":\"month\",\"y_keys\":[\"new_mrr\",\"expansion_mrr\",\"churn_mrr\",\"net_new_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "mrr\"],\"show_dots\":true,\"color_map\":{\"new_mrr\":\"emerald\",\"expansion_mrr\":\"indigo\",\"churn_mrr\":\"rose\",\"net_new_mrr\":\"amber\"},\"label_map\":{\"new_mrr\":\"New MRR\",\"expansion_mrr\":\"Expansion M"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "RR\",\"churn_mrr\":\"Churn MRR\",\"net_new_mrr\":\"Net New MRR\"}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/monthly_components\",\"value\":\"$chartData:monthly_mrr_components\"}\n{\"op"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "\":\"add\",\"path\":\"/elements/cumul-line\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Cumulative Net New MRR\",\"data\":{\"$state\":\"/computed/cumulative\"},\"x_key\":\"period\",\"y_keys\":[\"cumulative"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "_net_mrr\"],\"show_dots\":true,\"color_map\":{\"cumulative_net_mrr\":\"violet\"},\"label_map\":{\"cumulative_net_mrr\":\"Cumulative Net MRR\"},\"curve\":\"monotone\"},\"children\":[]}}\n{\"op\":\"add\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "path\":\"/state/computed/cumulative\",\"value\":\"$chartData:cumulative_net_mrr\"}\n{\"op\":\"add\",\"path\":\"/elements/plan-line\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Net New MRR by Plan\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "data\":{\"$state\":\"/computed/plan_net\"},\"x_key\":\"month\",\"y_keys\":[\"Enterprise\",\"Pro\",\"Starter\"],\"show_dots\":true,\"color_map\":{\"Enterprise\":\"indigo\",\"Pro\":\"emerald\",\"Starter\":\"amber\"},\"label_map\":{\"Enterprise\":\"Enterprise\",\"Pro\":\"Pro\",\"Starter\":\"Starter\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "}},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/state/computed/plan_net\",\"value\":\"$chartData:plan_monthly_net_mrr\"}\n{\"op\":\"add\",\"path\":\"/elements/hetero-ann\",\"value\":{\"type\":\"Annotation\",\"props\":{\"icon\":\"alert\",\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "title\":\"Plan-Level Distributions Differ Significantly\",\"content\":\"A $finding:plan_net_mrr_heterogeneity.test test confirms that monthly net new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": " MRR distributions are not uniform across plans (p = $finding:plan_net_mrr_heterogeneity.p_value). Plan mix materially shapes the aggregate trend — use"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": " the Plan filter to isolate each segment.\",\"severity\":\"warning\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "elements/narrative\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"body\",\"content\":\"Net new MRR trended $finding:net_new_mrr_trend.direction through Jan–Dec 2024, with a monthly OLS slope of $finding:net_new_mrr_trend.slope_per_period ("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "p = $finding:net_new_mrr_trend.p_value). The series reached its attested peak of $finding:net_new_mrr_peak.value in $finding:net_new_mrr_peak.period and closed at $finding:net_new_mrr_current_state.value — $finding:net_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "new_mrr_current_state.pct_from_peak from that peak. The early-half median was $finding:net_new_mrr_split_comparison.early_median vs. $finding:net_new_mrr_split_comparison.late_median in the second half ($finding:net_new_mrr_split_comparison.multipl"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "ier×). Cumulative net new MRR trended $finding:cumulative_mrr_trend.direction (slope $finding:cumulative_mrr_trend.slope_per_period per month, p = $finding:cumulative_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "r_trend.p_value). Gross adds totalled $finding:mrr_gross_adds_decomposition.new_mrr from new customers and $finding:mrr_gross_adds_decomposition.expansion_mrr from expansion. No persistent step"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": "-change was detected in the monthly series. Analysis covered 12 months × 3 plans (Starter, Pro, Enterprise); each monthly aggregate combines exactly 3 plan rows with"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783127",
+      "delta": " uniform weighting.\"},\"children\":[]}}}"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787783127",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783127"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 36740,
+          "noCache": 36740,
+          "cacheRead": 0
+        },
+        "outputTokens": {
+          "total": 8705,
+          "text": 8705,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 36740,
+          "output_tokens": 8705
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}
