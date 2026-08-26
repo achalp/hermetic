@@ -49,14 +49,14 @@ async function main(): Promise<void> {
 
   // Embedded viewer: dashboard links resolve without the web harness.
   // HERMETIC_MCP_VIEWER=off disables (links fall back to localhost:3000).
-  let viewerHandle: { port: number; close(): Promise<void> } | null = null;
+  let viewerHandle: { port: number; token: string; close(): Promise<void> } | null = null;
   if (process.env.HERMETIC_MCP_VIEWER !== "off") {
     const { startViewerServer } = await import("./viewer/server");
     const { setViewUrlBase } = await import("./view-url");
     const preferred = Number(process.env.HERMETIC_MCP_VIEWER_PORT ?? 4848);
     try {
       viewerHandle = await startViewerServer(preferred);
-      setViewUrlBase(`http://127.0.0.1:${viewerHandle.port}`);
+      setViewUrlBase(`http://127.0.0.1:${viewerHandle.port}`, viewerHandle.token);
       console.error(`[hermetic-mcp] viewer on http://127.0.0.1:${viewerHandle.port}`);
     } catch (err) {
       console.error(
