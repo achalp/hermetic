@@ -10,7 +10,7 @@ dataset — **2.54 billion rows** across 512 Parquet files on S3. Every approach
 that reads all 2.5B rows at full resolution pays a multi-GB / multi-hour S3
 scan and blows the 20-minute sandbox budget (measured: California's 13.7M
 buildings alone take ~3 min; the planet is ~185× that). There is no named
-region to prune on. See `fixes.md` (2026-07-09 "which building in the WORLD"
+region to prune on. See `archive/fixes.md` (2026-07-09 "which building in the WORLD"
 run `a6ae0b22`, which timed out at the full 20-min budget).
 
 We need a technique that answers a global spatial superlative **without reading

@@ -8,11 +8,11 @@
 > `export_url` on analyze + viewer Download button), governance floor
 > (`__`-state strip, as-of watermark, exposure line). v2 (DuckDB-WASM
 > Parquet snapshots) remains open. Supersedes the distribution section (§6) of
-> `specs/published-artifacts-sharing-2026-06-17.md`; inherits its locked
+> `specs/archive/published-artifacts-sharing-2026-06-17.md`; inherits its locked
 > decisions on interactivity tiers, grain materialization, governance, and
 > the Tier-3 handoff. Those analyses still stand; what changed is HOW the
 > artifact travels.
-> Related: `specs/competitive-feature-gaps-2026-04-25.md` item 8 (static
+> Related: `specs/archive/competitive-feature-gaps-2026-04-25.md` item 8 (static
 > shareable export — identified as the "I can't show this to a colleague"
 > gap); MCP viewer (`src/mcp/viewer/`, spec §4 M3).
 

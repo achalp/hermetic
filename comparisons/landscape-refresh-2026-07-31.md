@@ -71,7 +71,7 @@ conversational follow-ups. Every column of the June matrices that said
 **Where the set is genuinely ahead of Hermetic:** team collaboration and
 sharing (all of them), semantic-model governance (Snowflake/ThoughtSpot),
 mobile (Power BI), distribution/audience (ChatGPT). These remain deliberate
-non-goals per the Tier-3 stance in `competitive-feature-gaps-2026-04-25.md` —
+non-goals per the Tier-3 stance in `specs/archive/competitive-feature-gaps-2026-04-25.md` —
 except sharing, where the static-export path (Parquet snapshot + DuckDB-WASM
 bundle, spec'd 2026-06-17) is the local-first answer and still open.
 

@@ -31,7 +31,7 @@ Hermetic explores the idea that LLMs can generate correct data analysis code **w
 
 **Shape over samples.** Instead of sending rows to the LLM, Hermetic extracts the schema (column names, types, distributions, ranges, cardinality, correlations) and shares only that metadata as context. The LLM never sees actual data rows by default. This keeps data private, reduces token usage, and forces the model to reason about structure rather than memorize values.
 
-**Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated sandbox (Docker, microVM, or cloud), and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data. (A **composer sight** setting can optionally let the composer see computed values to sharpen phrasing — the binding discipline is unchanged either way, and the Verify panel records which mode ran.)
+**Blind execution.** The LLM generates Python code but never sees the results. Code runs in an isolated Docker sandbox, and the execution output (scalars, chart data, datasets) flows directly to the UI composition step. The LLM composing the dashboard works from result schemas and placeholders, not raw numbers. Every number displayed comes from actual computation on the real data. (A **composer sight** setting can optionally let the composer see computed values to sharpen phrasing — the binding discipline is unchanged either way, and the Verify panel records which mode ran.)
 
 **Claims, not prose.** The generated analysis doesn't just compute — it **declares** what it found. `declare_finding` records each claim (name, typed value, plain-language definition) adjacent to the computation that produced it; `declare_check` records the data-quality checks the model designed for this dataset, with computed evidence, executed as code; `declare_series`/`declare_value` declare the chart data with **roles** (which column is time, which are measures, their units, the observation count, the raw-vs-screened variants, and how a measure re-aggregates from the source table — the recipe that lets a dashboard filter honestly instead of guessing). Narrative binds these claims (`$finding:` placeholders resolved server-side) instead of restating them, a lint battery cross-checks prose, results, charts, and claims against each other, and anything shipped that points at a declaration which doesn't exist — a cited finding, an executed screen, a methodological decision — is flagged or repaired before it reaches you.
 
@@ -830,11 +830,12 @@ When Ollama is activated in Settings, it takes priority over cloud providers. De
 - [PptxGenJS](https://github.com/gitbrent/PptxGenJS) for PowerPoint presentations
 - [html-to-image](https://github.com/bubkoo/html-to-image) for chart PNG snapshots
 
-**Sandbox runtimes**
+**Sandbox runtime**
 
-- [Docker](https://www.docker.com/) for local container execution
-- [E2B](https://e2b.dev/) for cloud sandbox execution
-- [Microsandbox](https://github.com/microsandbox/microsandbox) for microVM execution
+- [Docker](https://www.docker.com/) for local container execution — the only
+  supported runtime (it alone can enforce `--network none`). E2B/Microsandbox
+  scaffolding is retained but unwired and experimental; see the "Experimental
+  runtimes" note above.
 
 **Development**
 
