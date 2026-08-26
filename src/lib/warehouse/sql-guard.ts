@@ -41,11 +41,19 @@ const READ_ONLY_FIRST_KEYWORD = /^\s*(select|with|show|describe|desc|explain|val
 // an UNQUOTED identifier colliding with one of these is vanishingly rare, and
 // failing closed is correct for a security gate.
 const WRITE_KEYWORD =
-  /\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|call|copy|vacuum|refresh)\b/i;
+  /\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|call|copy|vacuum|refresh|into)\b/i;
 
 // EXPLAIN ANALYZE (incl. the option-list form `EXPLAIN (ANALYZE, …)`) EXECUTES
 // the statement being explained; plain EXPLAIN only plans and stays allowed.
 const EXPLAIN_ANALYZE = /^explain\s*(analy[sz]e\b|\([^)]*\banaly[sz]e\b)/i;
+
+// Functions that read the filesystem, reach out over the network, or run
+// arbitrary statements — all callable from inside an otherwise-valid SELECT, so
+// the first-keyword + write-keyword gates miss them. Defense-in-depth only: the
+// documented setup is a GRANT SELECT-only database role (see README > Data
+// Warehouses), which forecloses this class regardless of the guard.
+const DANGEROUS_FUNCTION =
+  /\b(dblink|dblink_exec|lo_import|lo_export|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_file|pg_sleep)\s*\(/i;
 
 export function assertReadOnlySql(sql: string): void {
   const clean = stripNoise(sql).trim();
@@ -76,6 +84,14 @@ export function assertReadOnlySql(sql: string): void {
         `Only a single SELECT/WITH query is allowed against the warehouse — write/DDL ` +
         `keywords are rejected anywhere in the statement, including inside a CTE. ` +
         `If you referenced a column whose name collides with a SQL keyword, quote the identifier.`
+    );
+  }
+  const fn = DANGEROUS_FUNCTION.exec(clean);
+  if (fn) {
+    throw new Error(
+      `Refusing to execute SQL calling "${fn[1].toLowerCase()}()" — filesystem/network/exec ` +
+        `functions are not allowed. Connect with a read-only role (GRANT SELECT) — see the ` +
+        `README's Data Warehouses section.`
     );
   }
 }

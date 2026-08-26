@@ -28,6 +28,29 @@ describe("assertReadOnlySql", () => {
     }
   });
 
+  it("rejects SELECT ... INTO (creates a table despite the SELECT lead)", () => {
+    expect(() => assertReadOnlySql("SELECT * INTO new_orders FROM orders")).toThrow(/read-only/i);
+    expect(() => assertReadOnlySql("SELECT id INTO TEMP t FROM c")).toThrow(/read-only/i);
+  });
+
+  it("rejects filesystem/network/exec functions callable inside a SELECT", () => {
+    for (const sql of [
+      "SELECT pg_read_file('/etc/passwd')",
+      "SELECT pg_ls_dir('/')",
+      "SELECT lo_import('/etc/passwd')",
+      "SELECT dblink_exec('...', 'DELETE FROM t')",
+      "SELECT pg_sleep(10)",
+    ]) {
+      expect(() => assertReadOnlySql(sql), sql).toThrow(/not allowed|read-only/i);
+    }
+  });
+
+  it("still allows a legitimate SELECT whose text merely mentions a function name in a string", () => {
+    expect(() =>
+      assertReadOnlySql("SELECT * FROM logs WHERE msg = 'called pg_sleep once'")
+    ).not.toThrow();
+  });
+
   it("rejects multi-statement SQL (the classic '; DROP TABLE' tail)", () => {
     expect(() => assertReadOnlySql("SELECT 1; DROP TABLE users")).toThrow(/multi-statement/i);
   });

@@ -286,6 +286,17 @@ The SQL is available in the **Artifacts** panel (SQL tab) alongside the Python a
 - **Bounded scan from engine metadata (not a data scan).** Before generating SQL, Hermetic sizes a recent window from metadata — ClickHouse `system.tables` sort-key bounds, BigQuery `INFORMATION_SCHEMA.PARTITIONS` (partition values + row counts), with a `MIN/MAX` fallback on a real date column — and hands that exact window to SQL-gen so the query never trips the read/byte limit.
 - **Self-healing SQL.** A failed query is repaired by feeding the exact engine error back to the model — bad GROUP BY, memory blowup, a too-wide scan (`rows to read exceeded`), an empty result from a dead partition filter — and retried. Co-occurrence/pairwise questions are steered to array collapse + `ARRAY JOIN` instead of fact-table self-joins.
 - **Byte-budget result streaming.** Postgres, ClickHouse, BigQuery, and Databricks stream query results row-by-row under a byte budget, so an unexpectedly wide result aborts cleanly at the limit instead of OOM-killing the server after buffering gigabytes; buffered connectors get the same budget as a backstop cap.
+- **Read-only SQL gate — but connect with a read-only role.** Every generated query passes `assertReadOnlySql` (single SELECT/WITH only; write/DDL keywords, `SELECT … INTO`, multi-statement tails, `EXPLAIN ANALYZE`, and filesystem/network functions like `pg_read_file`/`dblink`/`lo_import` are rejected anywhere in the statement). This is defense-in-depth, not the boundary: **create a dedicated read-only role and connect as that**, so the database itself forecloses writes. For PostgreSQL:
+
+  ```sql
+  CREATE ROLE hermetic_ro LOGIN PASSWORD '…';
+  GRANT CONNECT ON DATABASE mydb TO hermetic_ro;
+  GRANT USAGE ON SCHEMA public TO hermetic_ro;
+  GRANT SELECT ON ALL TABLES IN SCHEMA public TO hermetic_ro;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO hermetic_ro;
+  ```
+
+  The examples below use a superuser only for brevity; do not do that in production.
 
 **Investigate adds more for its fan-out:**
 
