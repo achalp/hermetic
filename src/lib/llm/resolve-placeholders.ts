@@ -334,7 +334,34 @@ function stripRefusedSentences(line: string): string {
  *  ("churn_volume_effect" → "churn volume effect"). */
 const IDENTIFIER_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** ISO-ish period strings read like machine keys ("2024-12"); humanize the
+ *  common month/day grains so a non-technical reader sees "December 2024". */
+function humanizePeriod(value: string): string {
+  let m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(value);
+  if (m) return `${MONTHS[Number(m[2]) - 1]} ${m[1]}`;
+  m = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.exec(value);
+  if (m) return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
+  return value;
+}
+
 function humanizeIfIdentifier(value: string): string {
+  const dated = humanizePeriod(value);
+  if (dated !== value) return dated;
   return IDENTIFIER_RE.test(value) ? value.replace(/_/g, " ") : value;
 }
 
@@ -397,15 +424,39 @@ const MEASURE_UNIT_FIELDS = new Set([
  *  A statement analysis shipped "1138.4 usd", "37.2759" and "16.635" into
  *  prose (run 77051c9d) — parseFloat().toString() drops the cent and the
  *  grouping, so totals read like float dumps rather than amounts. */
-function formatCurrencyInline(value: number): string {
-  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const CURRENCY_SYMBOL: Record<string, string> = {
+  usd: "$",
+  dollar: "$",
+  dollars: "$",
+  $: "$",
+  eur: "\u20ac",
+  "\u20ac": "\u20ac",
+  gbp: "\u00a3",
+  "\u00a3": "\u00a3",
+  jpy: "\u00a5",
+  "\u00a5": "\u00a5",
+};
+
+/** The prefix symbol for a currency unit, or "" for currencies without one we
+ *  render as a symbol (cad/aud/chf/cents/dm keep the unit suffix instead). */
+function currencySymbol(unit: string | undefined): string {
+  return (unit && CURRENCY_SYMBOL[unit.trim().toLowerCase()]) || "";
+}
+
+function formatCurrencyInline(value: number, unit?: string): string {
+  const grouped = value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const sym = currencySymbol(unit);
+  return sym ? `${sym}${grouped}` : grouped;
 }
 
 /** Inline numeric formatting. toFixed(4) rounds tiny magnitudes to 0 — a
  *  p-value of 9e-7 must never narrate as "p = 0". Pass `unit` so monetary
  *  bindings get money precision; without it a currency reads as a raw float. */
 function formatInlineNumber(value: number, unit?: string): string {
-  if (isCurrencyUnit(unit)) return formatCurrencyInline(value);
+  if (isCurrencyUnit(unit)) return formatCurrencyInline(value, unit);
   if (Number.isInteger(value)) return String(value);
   if (value !== 0 && Math.abs(value) < 0.00005) return value.toExponential(2);
   return parseFloat(value.toFixed(4)).toString();
@@ -435,9 +486,9 @@ const isScalar = (x: unknown): x is number | string =>
   typeof x === "number" || (typeof x === "string" && x.length > 0);
 
 const fmtEntry = (val: number | string, unit?: string): string => {
-  if (typeof val !== "number") return String(val);
+  if (typeof val !== "number") return humanizeIfIdentifier(String(val));
   const num = formatInlineNumber(val, unit);
-  if (!unit) return num;
+  if (!unit || currencySymbol(unit)) return num; // unitless, or symbol embedded
   if (unit === "%" || unit === "pct") return `${num}%`;
   return `${num} ${unit}`;
 };
@@ -459,7 +510,9 @@ export function renderInlineValue(value: unknown, unit?: string): string | null 
     if (value.length === 2 && value.every((x) => typeof x === "number")) {
       const [lo, hi] = value as number[];
       const span = `${formatInlineNumber(lo, unit)} to ${formatInlineNumber(hi, unit)}`;
-      return unit && unit !== "%" && unit !== "pct" ? `${span} ${unit}` : span;
+      return unit && !currencySymbol(unit) && unit !== "%" && unit !== "pct"
+        ? `${span} ${unit}`
+        : span;
     }
     if (value.length > 0 && value.length <= SEQUENCE_MAX && value.every(isScalar)) {
       const parts = value.map((x) => fmtEntry(x, unit));
@@ -635,6 +688,7 @@ function withUnit(num: string, unit: string, following: string): string {
     .slice(0, 64)
     .split(/[^\p{L}\p{N}%]+/u)
     .slice(0, 4);
+  if (currencySymbol(unit)) return num; // "$224,600.00" — symbol embedded
   if (ahead.some((w) => w.toLowerCase() === unit.toLowerCase())) return num;
   if (unit === "%" && /^\s*%/.test(following)) return num;
   return unit === "%" ? `${num}%` : `${num} ${unit}`;

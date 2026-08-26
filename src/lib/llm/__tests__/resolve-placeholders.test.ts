@@ -478,7 +478,7 @@ describe("$series alias + declared units (analysis-product spec §2)", () => {
       { median_price: "usd" } // declared via declare_value(unit="usd")
     );
     // usd → currency precision (2dp); the declared unit wins over morphology.
-    expect(out).toContain("Median 24.50 usd");
+    expect(out).toContain("Median $24.50"); // currency renders with the symbol, not a "usd" suffix
     expect(out).toContain("61.2% of menus"); // _pct fallback untouched
   });
 
