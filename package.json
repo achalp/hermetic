@@ -108,7 +108,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-globe.gl": "^2.37.0",
-    "react-map-gl": "^8.1.0",
+    "react-map-gl": "^8.1.2",
     "react-plotly.js": "^2.6.0",
     "server-only": "^0.0.1",
     "snowflake-sdk": "^2.4.0",
