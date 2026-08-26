@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: this workflow runs untrusted PR code (install, build,
+# playwright) and needs only to read the checkout. Every job inherits this;
+# none needs a write token. (OpenSSF Scorecard Token-Permissions.)
+permissions:
+  contents: read
+
+# One in-flight run per ref: a new push cancels the superseded run so rapid
+# PR pushes don't leave docker builds + playwright + golden burning runners.
+# Never cancel on main (post-merge signal must complete).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 # Dependencies are managed with pnpm. The committed pnpm-lock.yaml is
 # registry-agnostic (content-addressed integrity), so the SAME lockfile
 # installs against a corporate Artifactory mirror on local machines and the
@@ -255,3 +268,23 @@ jobs:
             test-fixtures/llm/*.hit.json
             test-fixtures/golden/*.received.ndjson
           if-no-files-found: ignore
+
+  # Dependency vulnerability gate. This is DIFF-BASED on purpose: it fails a PR
+  # that INTRODUCES a dependency with a known high/critical advisory, without
+  # red-flagging every PR against the pre-existing backlog (much of which is
+  # transitive through the retained-but-unwired experimental sandbox deps —
+  # e2b/microsandbox — i.e. code the product never runs). Dependabot
+  # (dependabot.yml) drives the backlog down; this stops new vulnerable deps
+  # from landing in the meantime. PR-only (the action requires a base to diff).
+  dependency-review:
+    name: Dependency Review (new-vuln gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
