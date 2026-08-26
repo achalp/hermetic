@@ -1,0 +1,10 @@
+# Default owner for the repository. A review is requested from the owner on
+# every PR touching these paths. Update as maintainers are added.
+* @achalp
+
+# Security-sensitive surfaces — flagged for extra scrutiny.
+/src/lib/sandbox/ @achalp
+/docker/sandbox/ @achalp
+/src/lib/warehouse/ @achalp
+/src/lib/secrets.ts @achalp
+/.github/ @achalp

@@ -19,20 +19,27 @@ ignores the pnpm lockfile and can produce a divergent dependency tree.
    git checkout -b feat/your-feature
    ```
 2. Make your changes
-3. Ensure code quality passes:
+3. Ensure code quality passes — CI runs **all** of these, so run them locally:
    ```bash
    pnpm lint
+   pnpm run ratchet      # modularization design-flaw counters (must not regress)
+   pnpm run isolation    # package-closure proof (spec / contracts / renderer)
+   pnpm run format:check
    pnpm type-check
    pnpm test
    ```
-   (A pre-push hook runs `pnpm type-check && pnpm test` automatically.)
+   A pre-push hook runs `pnpm type-check && pnpm test` automatically. **Never
+   bypass it with `--no-verify`.** If your change touches prompts or the stream
+   protocol, re-record the golden transcripts and commit the diff in the same
+   PR — see [docs/golden-recording-pass.md](docs/golden-recording-pass.md).
 4. Commit with a descriptive message:
    ```
    feat: add support for parquet files
    fix: handle empty CSV columns gracefully
    docs: update API route documentation
    ```
-5. Open a Pull Request against `main`
+5. Open a Pull Request against `main`. We use branch → PR → squash-merge;
+   every fix ships with a regression test.
 
 ## Code Style
 
@@ -56,7 +63,7 @@ src/
     excel/       Excel file handling
     llm/         LLM integration & prompt generation
     pipeline/    Query orchestration pipeline
-    sandbox/     Code execution (Docker / E2B / microsandbox)
+    sandbox/     Code execution (Docker)
     saved/       Saved visualization storage
 ```
 
@@ -65,13 +72,13 @@ src/
 1. Create the component in `src/components/charts/`
 2. Register it in `src/components/registry.tsx`
 3. Add the schema to `src/lib/catalog.ts`
-4. Add chart colors via `useChartColors()` or `useColorMap()` from `chart-theme.ts`
+4. Add chart colors via `useChartColors()` or `useColorMap()` from `src/components/theme/chart-theme.ts`
 
 ## Adding a New Theme
 
-1. Add the theme ID to `ThemeId` in `src/lib/theme-context.tsx`
+1. Add the theme ID to `ThemeId` in `src/components/theme/theme-context.tsx`
 2. Add CSS variable overrides (light + dark) in `src/app/globals.css`
-3. Add a chart color palette in `src/lib/chart-theme.ts` (`THEME_CHART_COLORS`)
+3. Add a chart color palette in `src/components/theme/chart-theme.ts` (`THEME_CHART_COLORS`)
 4. Add trend colors in `THEME_TREND_COLORS`
 
 ## Reporting Issues

@@ -216,6 +216,15 @@ for (const f of ["prelude.py", "egress-proxy.py"]) {
   cpSync(join(ROOT, "docker", "sandbox", f), join(OUT, "docker", "sandbox", f));
 }
 
+// License texts travel with the redistributed bundle. Apache-2.0 §4(d) requires
+// the vendored json-render NOTICE to accompany derivative distributions, and the
+// bundled OFL fonts require their license alongside the font files.
+mkdirSync(join(OUT, "licenses"), { recursive: true });
+cpSync(join(ROOT, "LICENSE"), join(OUT, "LICENSE"));
+cpSync(join(ROOT, "THIRD-PARTY-NOTICES.md"), join(OUT, "THIRD-PARTY-NOTICES.md"));
+cpSync(join(ROOT, "src", "spec", "LICENSE"), join(OUT, "licenses", "json-render-LICENSE"));
+cpSync(join(ROOT, "src", "spec", "NOTICE.md"), join(OUT, "licenses", "json-render-NOTICE.md"));
+
 // ── 4. Manifest ──────────────────────────────────────────────────────
 const manifest = {
   manifest_version: "0.3",
