@@ -46,36 +46,17 @@ function isRateLimited(ip: string): boolean {
 }
 
 /**
- * Routes that read or resolve HOST-FILESYSTEM paths OR write credentials. All
- * of them get the DNS-rebinding origin guard — previously only /api/local-files/
- * did, while /api/upload (local path selection) and the query routes (which
- * resolve local mounts via isLocalFile) were uncovered (audit §2.6 middleware
- * gap). /api/settings (M3) writes provider credentials, so it belongs here too.
+ * Default-deny origin guard. EVERY /api/ route requires a local request (loopback
+ * Origin, or absent-Origin with a loopback Host — see isLocalRequest). This is an
+ * allowlist inverted to a denylist: the previous LOCAL_PATH_ROUTES prefix list
+ * left history/artifacts/cost/diagnostics/vizs/skills/audit reachable from the
+ * LAN and left every state-changing POST (suggest, schedule, rerun) CSRF-drivable
+ * by any visited page. The app is local-first: the UI always carries a loopback
+ * Origin/Host, and no internal caller (CLI/MCP drive lib directly, not HTTP), so
+ * guarding all of /api/ costs legitimate callers nothing. Non-/api page routes
+ * serve only UI, never data, so they are intentionally not guarded here.
  */
-const LOCAL_PATH_ROUTES = [
-  "/api/local-files/",
-  "/api/upload",
-  "/api/query",
-  "/api/warehouse/",
-  "/api/settings",
-  // Local model-process control: download (spawns HF fetch), start (spawns a
-  // model server), delete (rmSync of model files), stop/pull. Absent from this
-  // list, they were CSRF-drivable by any visited page via a no-preflight simple
-  // request (Sec-3 H3). The UI's own status/models/platform polling still
-  // passes — it carries a loopback Origin/Host — so the guard only rejects the
-  // cross-origin caller. Rate-limit exemption (isInternalPolling below) is
-  // unchanged; this adds the DNS-rebinding/origin gate, not a rate cap.
-  "/api/local-llm/",
-  "/api/ollama/",
-  // PUT /api/providers writes API keys to the OS keychain and switches the
-  // active provider. Browser CSRF is blocked today because PUT is preflighted
-  // and no ACAO is returned, but a non-browser localhost process (or a future
-  // POST alias) would write credentials unchecked — origin-guard it for
-  // defense-in-depth, consistent with /api/settings (Sec-3).
-  "/api/providers",
-];
 
-/** True when `value` (an Origin URL, or a bare `host:port`) is a loopback host. */
 function isLoopback(value: string | null, viaUrl: boolean): boolean {
   if (!value) return false;
   try {
@@ -107,10 +88,8 @@ export function middleware(request: NextRequest) {
   // into requesting this localhost server with a foreign Origin. Any route
   // touching host paths or credentials requires a local (or absent-Origin but
   // loopback-Host — CLI, curl, same-origin GET) request.
-  if (LOCAL_PATH_ROUTES.some((r) => pathname.startsWith(r))) {
-    if (!isLocalRequest(request)) {
-      return NextResponse.json({ error: "Local access only" }, { status: 403 });
-    }
+  if (pathname.startsWith("/api/") && !isLocalRequest(request)) {
+    return NextResponse.json({ error: "Local access only" }, { status: 403 });
   }
 
   if (pathname.startsWith("/api/")) {
