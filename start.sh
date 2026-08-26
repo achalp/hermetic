@@ -530,6 +530,14 @@ case "$RUNTIME_CHOICE" in
   *) RUNTIME="docker" ;;
 esac
 
+# Docker is the only enforced runtime (the app forces it — see lib/config.ts).
+# E2B/microsandbox are experimental scaffolding; don't set up a runtime the app
+# will ignore. Fall back to Docker with a clear message rather than silently.
+if [ "$RUNTIME" != "docker" ]; then
+  warn "$RUNTIME is experimental and not currently wired — using Docker, the only enforced runtime."
+  RUNTIME="docker"
+fi
+
 ok "Selected $RUNTIME"
 
 # ── 3. Validate & start sandbox runtime ──────────────────
@@ -1058,22 +1066,26 @@ step "Checking llmfit"
 
 if command -v llmfit &>/dev/null; then
   ok "llmfit already installed ($(llmfit --version 2>/dev/null || echo 'unknown version'))"
+elif [ "$HERMETIC_HEADLESS" = "1" ]; then
+  # Never fetch-and-run a third-party install script non-interactively. A
+  # headless/CI run must not silently execute `curl https://... | sh`.
+  ok "Skipped in headless mode — model recommendations use a static list (install llmfit yourself if wanted)"
 else
   echo ""
   echo -e "    ${BOLD}llmfit${RESET} recommends the best local models for your hardware."
   echo -e "    ${DIM}It detects your RAM/GPU and scores models by fit, speed, and quality.${RESET}"
+  echo -e "    ${DIM}Installing fetches from Homebrew or runs a script from https://llmfit.axjns.dev${RESET}"
   echo ""
   echo -e "    ${BOLD}1)${RESET} Install now"
-  echo -e "    ${BOLD}2)${RESET} Skip"
+  echo -e "    ${BOLD}2)${RESET} Skip (default)"
   echo ""
-  echo -n "    Choose [1]: "
+  echo -n "    Choose [2]: "
   read -r LLMFIT_CHOICE
 
-  case "${LLMFIT_CHOICE:-1}" in
-    2)
-      ok "Skipped — model recommendations will fall back to a static list"
-      ;;
-    *)
+  # Opt-IN: install only on an explicit "1". A network-fetched binary must not
+  # be the Enter-key default.
+  case "${LLMFIT_CHOICE:-2}" in
+    1)
       if command -v brew &>/dev/null; then
         echo -e "    ${DIM}Installing via Homebrew...${RESET}"
         if brew install llmfit 2>&1 | tail -3; then
@@ -1102,6 +1114,9 @@ else
           warn "Could not install llmfit — model recommendations will use a static list"
         fi
       fi
+      ;;
+    *)
+      ok "Skipped — model recommendations will fall back to a static list"
       ;;
   esac
 fi

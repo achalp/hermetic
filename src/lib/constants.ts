@@ -159,6 +159,11 @@ export const MODEL_PRICING: Record<string, ModelPrice> = {
 // Docker is the only sandbox runtime. E2B and microsandbox were removed after
 // the M3 network-isolation decision made them reject every local-data run (they
 // can't enforce --network none) — see PR #108 and the cloud-sandbox removal.
+// Docker is the ONLY selectable runtime — the only one that can enforce
+// --network none (the sandbox's security model). The @e2b/code-interpreter and
+// microsandbox deps + scaffolding are retained as EXPERIMENTAL and UNWIRED (a
+// stale SANDBOX_RUNTIME=e2b resolves to docker, see lib/config.ts); wiring them
+// back would require re-adding a backend that preserves the isolation guarantee.
 export const AVAILABLE_RUNTIMES = [{ id: "docker", label: "Docker (Local)" }] as const;
 
 export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"];

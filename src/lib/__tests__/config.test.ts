@@ -35,6 +35,19 @@ describe("validateEnv", () => {
     vi.unstubAllEnvs();
   });
 
+  it("forces docker: a stale SANDBOX_RUNTIME=e2b is ignored, not degraded", async () => {
+    // The README documents E2B/microsandbox as experimental + not selectable —
+    // Docker is enforced for the --network none isolation guarantee. A leftover
+    // SANDBOX_RUNTIME=e2b from an old .env must resolve to docker, never silently
+    // run on a runtime that can't isolate the network.
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-key");
+    vi.stubEnv("SANDBOX_RUNTIME", "e2b");
+    vi.stubEnv("LLM_PROVIDER", "");
+    const { validateEnv } = await import("../config");
+    expect(validateEnv().SANDBOX_RUNTIME).toBe("docker");
+    vi.unstubAllEnvs();
+  });
+
   it("succeeds with valid ANTHROPIC_API_KEY (auto-detect)", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-test-key");
     vi.stubEnv("SANDBOX_RUNTIME", "docker");
