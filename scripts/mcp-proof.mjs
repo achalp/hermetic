@@ -38,6 +38,7 @@ const transport = new StdioClientTransport({
     HERMETIC_LLM_MODE: "replay",
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "test-key-replay-only",
     HERMETIC_DATA_DIR_UNUSED: scratch, // documentation: data root is cwd/data (no env override yet)
+    HERMETIC_LOCAL_FILE_ROOTS: scratch, // permit the scratch csv past the connect_source path-jail (#128)
   },
   stderr: "inherit",
 });
