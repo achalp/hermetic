@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-haiku-4-5-20251001",
+  "modelId": "claude-haiku-4-5-20251001",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/7.0.77\"},\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analysis planner. Given a user's question and a dataset schema, decompose the question into the FEWEST, most penetrating sub-questions that together answer the original. Favor sharp, insightful questions that directly answer what was asked over broad coverage — never pad for breadth. The user prompt specifies the target count for this request; treat it as a ceiling, not a quota.\\n\\nEach sub-question should:\\n- Be answerable by ONE Python data-analysis script (groupBy, aggregation, simple chart, statistical test, etc.)\\n- Reference real columns from the schema\\n- Have a clear analytical purpose distinct from the others\\n- Not duplicate work across sub-questions\\n\\nDeclare dependencies as `depends_on`: an array of prior sub-question indices (0-based) whose results this one needs. Use `[]` (empty array) for sub-questions that can run independently — those execute in parallel. Use `[N]` when the sub-question needs ONE prior result (e.g. \\\"Now drill into the top region from step 1\\\"). Use `[N, M]` when it genuinely needs BOTH (e.g. \\\"Compare the top region from step 1 with the bottom region from step 2\\\"). Cap dependencies at 3 priors per sub-question. All indices in `depends_on` MUST be less than the sub-question's own index.\\n\\nPick decomposition styles that fit the question:\\n- Investigate-an-anomaly: trend → segments → time-of-onset → correlated factors → recommendation\\n- Compare-two-things: each side's metrics (independent) → side-by-side comparison (depends_on both) → drivers of difference\\n- Profile-a-segment: descriptives → distribution → outliers → context vs. rest of population\\n- Trend-analysis: overall trend → by-segment trend → seasonality → outliers → year-over-year\\n\\nOutput STRICT JSON matching this schema:\\n{\\n  \\\"approach\\\": \\\"1-2 sentence approach summary\\\",\\n  \\\"subQuestions\\\": [\\n    {\\n      \\\"question\\\": \\\"single focused question\\\",\\n      \\\"rational",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "```json\n{\n  \"approach\": \"Identify where churn concentrates by segment and time, then test whether churn stems from customer retention quality or is paired with expansion as a structural symptom.\",\n  \"subQuestions\": [\n    {\n      \"question\": \"What is the monthly trend of churn_mrr by plan in 2024, and which plan has the highest churn rate per customer?\",\n      \"rationale\": \"Identifies the highest-risk segments and months, and normalizes by company size to isolate whether churn is a plan-specific retention problem or a scale artifact.\",\n      \"depends_on\": []\n    },\n    {\n      \"question\": \"Do months with high expansion_mrr also have high churn_mrr, and does this relationship vary by plan?\",\n      \"rationale\": \"Directly tests the anomalously high 0.98 correlation between expansion and churn, distinguishing whether they are paired symptoms of a cohort or onboarding issue versus independent phenomena.\",\n      \"depends_on\": []\n    }\n  ]\n}\n```",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1787783632"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 14884,
+        "noCache": 8636,
+        "cacheRead": 6248
+      },
+      "outputTokens": {
+        "total": 5236,
+        "text": 5236,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 14884,
+        "input_tokens_details": {
+          "cached_tokens": 6248
+        },
+        "output_tokens": 5236
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1787783632"
+      }
+    },
+    "warnings": []
+  }
+}

@@ -1,0 +1,200 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the input data — from the path given in the \\\"Data Location\\\" section when one is present, else the default \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. DECLARES its outputs (the Analysis Product), then calls the preloaded helper\\n   write_output(...) — do NOT build the JSON or call json.dump yourself:\\n\\n   TIDY SERIES (anything a bar/line/area/scatter chart will draw — rows with an x column\\n   and measure columns) are DECLARED, adjacent to their computation, with their roles:\\n       declare_series(\\\"annual_prices\\\", df_rows,\\n           x=(\\\"year\\\", \\\"temporal\\\"),                      # kind: temporal | ordinal | categorical\\n           measures=[{\\\"column\\\": \\\"median_price\\\", \\\"unit\\\": \\\"usd\\\",\\n                      \\\"of\\\": \\\"price_trend\\\",              # finding this measure is the series view of\\n                      \\\"screened_by\\\": \\\"price_outlier_screen\\\",  # check that owns this measure's nulls\\n                      \\\"variant_of\\\": \\\"median_price_raw\\\"},      # raw sibling column, when screened\\n                     {\\\"column\\\": \\\"median_price_raw\\\", \\\"unit\\\": \\\"usd\\\"}],\\n           count=\\\"item_count\\\",                          # attestation column — ALWAYS declare when present\\n           group=None)                                  # category column for grouped series\\n   Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point\\n   at, exactly.\\n   SERIES KIND — declare the SHAPE when it is not an ordinary axis series (kind=\\\"axis\\\" is\\n   the default): kind=\\\"geo\\\" (rows carry lat + lng/lon columns — licenses the map views),\\n   kind=\\\"distribution\\\" (rows are the RAW VALUES of the measure — licenses histogram/box/\\n   violin; declare one for the sampl",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787783632",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783632"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "```python\nimport pandas as pd"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\nimport numpy as np\nimport re\nfrom scipy import stats\n\ndf = pd.read_csv(\"/data/input.csv\")\ndf[\"month\"] = pd.to_datetime(df[\"month\"])\ndf = df.sort_values([\"plan\", \"month\"]).reset_index(drop=True)\n\nfor col in [\"expansion_mrr\", \"churn_mrr\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " \"new_mrr\", \"customers\", \"arpu\"]:\n    df[col] = to_num(df[col])\n\nplans = sorted(df[\"plan\"].unique())\nplan_key_map = {p: re.sub(r\"[^a-z0-9]+\", \"_\", p.lower()).strip(\"_\") for p in plans}\n\n# Data"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " grain check\nmonths_per_plan = df.groupby(\"plan\")[\"month\"].nunique()\ndeclare_check(\"data_grain\",\n    definition=\"Each row is one plan-month combination; expect 12 months x 3 plans = 36 rows\",\n    passed=(len(df) == 36"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " and len(plans) == 3 and int(months_per_plan.min()) == 12),\n    evidence={\"total_rows\": int(len(df)), \"n_plans\": int(len(plans)), \"months_per_plan\": months_per_plan.to_dict()},\n    severity=\"blocking\")\n\n# ---"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " Overall correlation ---\noverall_corr = finding_correlation(\n    df[\"expansion_mrr\"].tolist(),\n    df[\"churn_mrr\"].tolist(),\n    x_unit=\"usd\",\n    y_unit=\"usd\"\n)\ndeclare_finding(\"expansion_churn_correlation_overall\", overall_corr,\n    definition=\"Pearson"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " and Spearman correlation between expansion_mrr and churn_mrr across all 36 plan-month observations in 2024\",\n    dtype=\"correlation\",\n    unit=\"usd\",\n    derived_from_columns=[\"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"correlation\"])\n\n# --- Per-plan correlations ---\nper"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "_plan_corr = {}\nfor plan in plans:\n    plan_df = df[df[\"plan\"] == plan]\n    corr = finding_correlation(\n        plan_df[\"expansion_mrr\"].tolist(),\n        plan_df[\"churn_mrr\"].tolist(),\n        x_unit=\"usd\",\n        y_unit=\"usd\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n    )\n    pk = plan_key_map[plan]\n    per_plan_corr[plan] = corr\n    declare_finding(\"expansion_churn_correlation_\" + pk, corr,\n        definition=\"Pearson and Spearman correlation between expansion_mrr and churn_mrr for"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " one plan tier across 12 months of 2024\",\n        dtype=\"correlation\",\n        unit=\"usd\",\n        derived_from_columns=[\"expansion_mrr\", \"churn_mrr\"],\n        tags=[\"correlation\", \"per_plan\"])\n\n# --- Churn-to-expansion ratio: how much churn per dollar of"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " expansion ---\ndf[\"churn_expansion_ratio\"] = df[\"churn_mrr\"] / df[\"expansion_mrr\"]\n\nratio_dist = finding_distribution(df[\"churn_expansion_ratio\"].dropna())\ndeclare_finding(\"churn_expansion_ratio_distribution\", ratio_dist,\n    "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "definition=\"Distribution of churn_mrr divided by expansion_mrr across all 36 plan-month observations in 2024\",\n    dtype=\"distribution\",\n    unit=\"ratio\",\n    derived_from_columns=[\"churn_mrr\", \"expansion_mrr\"],\n    tags="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "[\"distribution\"])\n\nratio_groups = {plan: df[df[\"plan\"] == plan][\"churn_expansion_ratio\"].dropna().tolist() for plan in plans}\nratio_heterogeneity = finding_heterogeneity(ratio_groups)\ndeclare_finding(\"churn_expansion_ratio_plan_heterogeneity\", ratio_heterogeneity"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": ",\n    definition=\"One-way ANOVA or Kruskal-Wallis test of whether the churn_mrr to expansion_mrr ratio differs across plan tiers in 2024\",\n    dtype=\"heterogeneity\",\n    unit=\"ratio\",\n    derived_from_columns=[\"churn_mrr\", \"expansion_mrr\", \"plan\"],"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n    tags=[\"heterogeneity\"],\n    derived_from_findings=[\"expansion_churn_correlation_overall\"])\n\n# --- OLS slope per plan: churn dollars per expansion dollar ---\nfor plan in plans:\n    plan_df = df[df[\"plan\"] == plan].dropna(subset=[\"expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "_mrr\", \"churn_mrr\"])\n    slope, intercept, r, p_val, se = stats.linregress(plan_df[\"expansion_mrr\"], plan_df[\"churn_mrr\"])\n    pk = plan_key_map[plan]\n    declare_finding(\"churn_on_expansion_ols_\" + pk,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n        {\"slope\": round(slope, 3), \"intercept\": round(intercept, 2), \"r2\": round(r**2, 3), \"p\": p_val},\n        definition=\"OLS regression slope of churn_mrr on expansion_mrr for one plan tier: churn dollars per expansion dollar, 12 months of 2024\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n        dtype=\"regression\",\n        unit=\"usd\",\n        derived_from_columns=[\"churn_mrr\", \"expansion_mrr\"],\n        tags=[\"regression\", \"per_plan\"])\n\n# --- Scatter series: expansion_mrr vs churn_mrr, grouped by plan ---\nscatter_rows"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " = df[[\"plan\", \"expansion_mrr\", \"churn_mrr\"]].copy()\nscatter_rows[\"month_label\"] = df[\"month\"].dt.strftime(\"%Y-%m\")\ndeclare_series(\"expansion_vs_churn_by_plan\",\n    scatter_rows.to_dict(orient=\"records\"),\n    x=(\"expansion_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\", \"ordinal\"),\n    measures=[{\"column\": \"churn_mrr\", \"unit\": \"usd\"}],\n    group=\"plan\")\n\n# --- Time series per plan ---\nfor plan in plans:\n    plan_df = df[df[\"plan\"] == plan].copy()\n    plan_df[\"month_label\"] = plan_df[\"month\"].dt.str"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "ftime(\"%Y-%m\")\n    pk = plan_key_map[plan]\n    declare_series(\"monthly_expansion_churn_\" + pk,\n        plan_df[[\"month_label\", \"expansion_mrr\", \"churn_mrr\"]].to_dict(orient=\"records\"),\n        x=(\"month_label\", \"temporal\"),\n        measures=["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n            {\"column\": \"expansion_mrr\", \"unit\": \"usd\"},\n            {\"column\": \"churn_mrr\", \"unit\": \"usd\"}\n        ])\n\n# --- Box series: churn/expansion ratio distribution by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " plan ---\nratio_rows = df[[\"plan\", \"churn_expansion_ratio\"]].dropna().copy()\ndeclare_series(\"churn_expansion_ratio_by_plan_dist\",\n    ratio_rows.to_dict(orient=\"records"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\"),\n    x=(\"plan\", \"categorical\"),\n    measures=[{\"column\": \"churn_expansion_ratio\", \"unit\": \"ratio\"}])\n\n# --- Results: custom values not covered by auto-mirrors ---\nresults = {\n    \"relationship_varies_by_plan\": ratio_heterogeneity[\"significant\"],\n    \"ratio"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "_heterogeneity_p\": ratio_heterogeneity[\"p_value\"],\n    \"ratio_heterogeneity_test\": ratio_heterogeneity[\"test\"],\n    \"overall_pearson_r\": round(overall_corr[\"pearson_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "r\"], 3),\n    \"overall_preferred_coefficient\": overall_corr[\"preferred\"],\n}\nfor plan in plans:\n    pk = plan_key_map[plan]\n    results[pk + \"_median_churn_expansion_ratio\"] = round(\n        float(df"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "[df[\"plan\"] == plan][\"churn_expansion_ratio\"].median()), 3\n    )\n    results[pk + \"_pearson_r\"] = round(per_plan_corr[plan][\"pearson_r\"], 3)\n\nwrite_output(\n    results"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "=results,\n    chart_data={},\n    datasets={\"main\": df}\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787783632",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783632"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 31422,
+          "noCache": 25185,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 16720,
+          "text": 16720,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 31422,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 16720
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

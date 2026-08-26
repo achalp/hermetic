@@ -1,0 +1,225 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the input data — from the path given in the \\\"Data Location\\\" section when one is present, else the default \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. DECLARES its outputs (the Analysis Product), then calls the preloaded helper\\n   write_output(...) — do NOT build the JSON or call json.dump yourself:\\n\\n   TIDY SERIES (anything a bar/line/area/scatter chart will draw — rows with an x column\\n   and measure columns) are DECLARED, adjacent to their computation, with their roles:\\n       declare_series(\\\"annual_prices\\\", df_rows,\\n           x=(\\\"year\\\", \\\"temporal\\\"),                      # kind: temporal | ordinal | categorical\\n           measures=[{\\\"column\\\": \\\"median_price\\\", \\\"unit\\\": \\\"usd\\\",\\n                      \\\"of\\\": \\\"price_trend\\\",              # finding this measure is the series view of\\n                      \\\"screened_by\\\": \\\"price_outlier_screen\\\",  # check that owns this measure's nulls\\n                      \\\"variant_of\\\": \\\"median_price_raw\\\"},      # raw sibling column, when screened\\n                     {\\\"column\\\": \\\"median_price_raw\\\", \\\"unit\\\": \\\"usd\\\"}],\\n           count=\\\"item_count\\\",                          # attestation column — ALWAYS declare when present\\n           group=None)                                  # category column for grouped series\\n   Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point\\n   at, exactly.\\n   SERIES KIND — declare the SHAPE when it is not an ordinary axis series (kind=\\\"axis\\\" is\\n   the default): kind=\\\"geo\\\" (rows carry lat + lng/lon columns — licenses the map views),\\n   kind=\\\"distribution\\\" (rows are the RAW VALUES of the measure — licenses histogram/box/\\n   violin; declare one for the sampl",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787783632",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783632"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "```python\nimport pandas as pd\nimport numpy as np\n\ndf = pd.read_csv(\"/data/input.csv\")\ndf[\"month\"] = pd.to_datetime(df[\"month\"])\ndf = df.sort_values([\"month\", \"plan\"]).reset_index(drop=True)\n\nfor col in"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " [\"new_mrr\", \"expansion_mrr\", \"churn_mrr\", \"customers\", \"arpu\"]:\n    df[col] = to_num(df[col])\n\ndf[\"churn_per_customer\"] = df[\"churn_mrr\"] / df[\"customers\"]\n\nplans = sorted(df[\"plan\"].unique())\nplan_key_map ="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " {p: p.lower().replace(\" \", \"_\") for p in plans}\n\n# --- CHECKS ---\ndeclare_check(\"data_grain\",\n    definition=\"Data contains 3 plans x 12 months = 36 rows with no missing plan-months\",\n    passed=bool(len(df) == 36"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " and df[\"plan\"].nunique() == 3 and df[\"month\"].nunique() == 12),\n    evidence={\"row_count\": len(df), \"plan_count\": int(df[\"plan\"].nunique()), \"month_count\": int(df[\"month\"].nunique())},\n    severity=\"blocking\")\n\ndeclare_check(\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "customers_nonzero\",\n    definition=\"All customer counts > 0, so churn_mrr per customer is defined for every row\",\n    passed=bool((df[\"customers\"] > 0).all()),\n    evidence={\"min_customers\": int(df[\"customers\"].min()), \"zero_rows\": int((df[\"customers\"] == 0).sum())})"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n\ndeclare_check(\"churn_rate_convention\",\n    definition=\"Churn rate per customer uses pooled rate: sum(churn_mrr) / sum(customers) per plan across 2024, not mean of monthly per-period rates, to avoid averaging rates"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " over a growing customer base\",\n    passed=True,\n    evidence={\"convention\": \"pooled_ratio\"})\n\n# --- PER-PLAN TRENDS ---\nplan_trends = {}\nfor plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " in plans:\n    pk = plan_key_map[plan]\n    plan_df = df[df[\"plan\"] == plan].sort_values(\"month\")\n    labels = plan_df[\"month\"].dt.strftime(\"%Y-%m\").tolist()\n    churn_vals = plan_df[\"churn_mrr\"].tolist()"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n\n    trend = finding_trend(churn_vals, unit=\"usd\", labels=labels)\n    plan_trends[plan] = trend\n    declare_finding(f\"churn_mrr_trend_{pk}\", trend,\n        definition=f\"OLS direction of monthly churn_mrr for the {plan} plan over the observed range Jan–Dec 2024\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n        dtype=\"direction\", unit=\"usd\",\n        derived_from_columns=[\"churn_mrr\", \"month\"],\n        tags=[\"trend\", \"churn\", \"plan\"])\n\n    step = finding_step_change(churn_vals, labels=labels, unit=\"usd\")\n    declare_finding(f\"churn_mrr_step_change"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "_{pk}\", step,\n        definition=f\"Largest persistent single-period level shift in monthly churn_mrr for the {plan} plan in 2024\",\n        dtype=\"step_change\", unit=\"usd\",\n        derived_from_columns=[\"churn_mrr\"],\n        tags=[\"step_change\", \"churn\", \"plan\"])\n\n    current"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " = finding_current_state(churn_vals, labels=labels, window=3, unit=\"usd\")\n    declare_finding(f\"churn_mrr_current_state_{pk}\", current,\n        definition=f\"Where churn_mrr ends for the {plan} plan, from the last complete observation in 2024\",\n        dtype"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "=\"current_state\", unit=\"usd\",\n        derived_from_columns=[\"churn_mrr\"],\n        tags=[\"current_state\", \"churn\", \"plan\"])\n\n# --- HETEROGENEITY ACROSS PLANS ---\ngroups_churn = {plan: df[df[\"plan\"] == plan][\"churn_mrr\"].tolist() for plan in plans"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "}\nhetero_churn = finding_heterogeneity(groups_churn, unit=\"usd\")\ndeclare_finding(\"churn_mrr_plan_heterogeneity\", hetero_churn,\n    definition=\"Statistical test (ANOVA or Kruskal-Wallis, dispatched"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " by regime profile) for whether monthly churn_mrr levels differ across Enterprise, Pro, and Starter plans in 2024\",\n    dtype=\"heterogeneity\", unit=\"usd\",\n    derived_from_columns=[\"churn_mrr\", \"plan\"],\n    tags=[\"heterogeneity\", \"ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "urn\"])\n\ngroups_rate = {plan: df[df[\"plan\"] == plan][\"churn_per_customer\"].tolist() for plan in plans}\nhetero_rate = finding_heterogeneity(groups_rate, unit=\"usd\")\ndeclare_finding(\"churn_rate_per_customer_plan_heterogeneity\", hetero"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "_rate,\n    definition=\"Statistical test for whether churn_mrr per customer (churn_mrr / customers) differs across the three plans in 2024\",\n    dtype=\"heterogeneity\", unit=\"usd\",\n    derived_from_columns=[\"churn_mrr\", \"customers\", \"plan\"],\n    "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "tags=[\"heterogeneity\", \"churn_rate\"])\n\n# --- POOLED CHURN RATE PER CUSTOMER BY PLAN ---\nplan_pooled_rates = {}\nfor plan in plans:\n    plan_df = df[df[\"plan\"] == plan]\n    plan_pooled_rates[plan] = plan_df[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "churn_mrr\"].sum() / plan_df[\"customers\"].sum()\n\nrate_labels = list(plans)\nrate_values = [plan_pooled_rates[p] for p in plans]\nrate_counts = [12] * len(plans)\nsup_rate = finding_superlative(rate_labels, rate_values, counts=rate_counts,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " kind=\"max\", unit=\"usd\")\ndeclare_finding(\"highest_churn_rate_per_customer\", sup_rate,\n    definition=\"Plan with the highest pooled churn_mrr per customer (sum churn_mrr / sum customers across Jan–Dec 2024) among Enterprise"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": ", Pro, and Starter\",\n    dtype=\"superlative\", unit=\"usd\",\n    derived_from_columns=[\"churn_mrr\", \"customers\", \"plan\"],\n    derived_from_findings=[\"churn_rate_per_customer_plan_heterogeneity\"],\n    tags=[\"superlative\", \"churn_rate\"])\n\nfor plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " in plans:\n    pk = plan_key_map[plan]\n    declare_value(f\"{pk}_pooled_churn_per_customer_usd\",\n        round(float(plan_pooled_rates[plan]), 2),\n        label=f\"{plan} pooled churn MRR per customer"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " across 2024\", unit=\"usd\")\n\n# --- DECLARE SERIES ---\nmonths_sorted = sorted(df[\"month\"].unique())\n\n# 1. Monthly churn_mrr by plan (wide format, line chart)\nchurn_wide"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " = []\nfor m in months_sorted:\n    m_str = pd.Timestamp(m).strftime(\"%Y-%m\")\n    row = {\"month\": m_str}\n    for plan in plans:\n        pk = plan_key_map[plan]\n        val = df[(df[\"month\"] == m) & (df[\"plan\"] == plan)][\"ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "urn_mrr\"]\n        row[pk] = float(val.iloc[0]) if len(val) > 0 else None\n    churn_wide.append(row)\n\ndeclare_series(\"churn_mrr_by_plan_monthly\", churn_wide,\n    x=(\"month\", \"temporal\"),\n    measures=[\n        {\"column\": plan"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "_key_map[p], \"unit\": \"usd\", \"of\": f\"churn_mrr_trend_{plan_key_map[p]}\"}\n        for p in plans\n    ])\n\n# 2. Pooled churn rate per customer by plan (bar chart)\nrate_bar_rows = [{\"plan\": p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": ", \"churn_per_customer_usd\": round(float(plan_pooled_rates[p]), 2)} for p in plans]\ndeclare_series(\"churn_rate_per_customer_by_plan\", rate_bar_rows,\n    x=(\"plan\", \"categorical\"),\n    measures=[{\"column\": \""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "churn_per_customer_usd\", \"unit\": \"usd\", \"of\": \"highest_churn_rate_per_customer\"}])\n\n# 3. Monthly churn per customer by plan (wide format, line chart)\nrate_wide = []\nfor m in months_sorted:\n    m_str = pd.Timestamp(m).strftime(\"%"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "Y-%m\")\n    row = {\"month\": m_str}\n    for plan in plans:\n        pk = plan_key_map[plan]\n        val_df = df[(df[\"month\"] == m) & (df[\"plan\"] == plan)]\n        if len(val_df) > 0:\n            row[f\"{pk}_churn_per_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "cust\"] = round(float(val_df[\"churn_mrr\"].iloc[0] / val_df[\"customers\"].iloc[0]), 2)\n        else:\n            row[f\"{pk}_churn_per_cust\"] = None\n    rate_wide.append(row)\n\ndeclare_series(\"churn_rate_per_customer_monthly_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "by_plan\", rate_wide,\n    x=(\"month\", \"temporal\"),\n    measures=[\n        {\"column\": f\"{plan_key_map[p]}_churn_per_cust\", \"unit\": \"usd\"}\n        for p in plans\n    ])\n\n# --- RESULTS"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": " ---\nresults = {\n    \"highest_churn_rate_plan\": sup_rate[\"period\"],\n    \"highest_churn_rate_per_customer_usd\": round(float(sup_rate[\"value\"]), 2),\n}\n\nwrite_output(\n    results=results,\n    chart_data={},\n    datasets={\"main\": df},"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783632",
+      "delta": "\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787783632",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783632"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 31427,
+          "noCache": 25190,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 14311,
+          "text": 14311,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 31427,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 14311
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

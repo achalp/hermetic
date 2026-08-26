@@ -1,0 +1,335 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the input data — from the path given in the \\\"Data Location\\\" section when one is present, else the default \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. DECLARES its outputs (the Analysis Product), then calls the preloaded helper\\n   write_output(...) — do NOT build the JSON or call json.dump yourself:\\n\\n   TIDY SERIES (anything a bar/line/area/scatter chart will draw — rows with an x column\\n   and measure columns) are DECLARED, adjacent to their computation, with their roles:\\n       declare_series(\\\"annual_prices\\\", df_rows,\\n           x=(\\\"year\\\", \\\"temporal\\\"),                      # kind: temporal | ordinal | categorical\\n           measures=[{\\\"column\\\": \\\"median_price\\\", \\\"unit\\\": \\\"usd\\\",\\n                      \\\"of\\\": \\\"price_trend\\\",              # finding this measure is the series view of\\n                      \\\"screened_by\\\": \\\"price_outlier_screen\\\",  # check that owns this measure's nulls\\n                      \\\"variant_of\\\": \\\"median_price_raw\\\"},      # raw sibling column, when screened\\n                     {\\\"column\\\": \\\"median_price_raw\\\", \\\"unit\\\": \\\"usd\\\"}],\\n           count=\\\"item_count\\\",                          # attestation column — ALWAYS declare when present\\n           group=None)                                  # category column for grouped series\\n   Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point\\n   at, exactly.\\n   SERIES KIND — declare the SHAPE when it is not an ordinary axis series (kind=\\\"axis\\\" is\\n   the default): kind=\\\"geo\\\" (rows carry lat + lng/lon columns — licenses the map views),\\n   kind=\\\"distribution\\\" (rows are the RAW VALUES of the measure — licenses histogram/box/\\n   violin; declare one for the sampl",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787783265",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783265"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "I'll compute the month with"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " the largest MoM net new MRR jump, decompose it by MRR component (new/expansion/churn), and attribute it by"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " plan.\n\n```python\nimport pandas as pd\nimport numpy as np\nimport duckdb\n\ndf = pd.read_csv(\"/data/input.csv\")\ndf[\"month\"] = pd.to_datetime(df[\"month\"])\ndf = df.sort_values([\"month\", \"plan\"]).reset_index(drop=True)\n\n#"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " ── Monthly aggregates ────────────────────────────────────────────────────────\nmonthly = df.groupby(\"month\").agg(\n    new_mrr=(\"new_mrr\", \"sum\"),\n    expansion_mrr="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "(\"expansion_mrr\", \"sum\"),\n    churn_mrr=(\"churn_mrr\", \"sum\"),\n    customers=(\"customers\", \"sum\"),\n    row_count=(\"plan\", \"count\"),\n).reset_index()\nmonthly[\"period\"] = monthly[\"month\"].dt.strftime(\"%Y-%m\")"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\nmonthly = monthly.sort_values(\"month\").reset_index(drop=True)\nmonthly[\"net_new_mrr\"] = monthly[\"new_mrr\"] + monthly[\"expansion_mrr\"] - monthly[\"churn_mrr\"]\n\ndeclare_check(\n    \"monthly_aggregation_grain\",\n    definition=\"Each calendar"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " month aggregates exactly 3 plan rows (Starter, Pro, Enterprise)\",\n    passed=bool((monthly[\"row_count\"] == 3).all()),\n    evidence={\n        \"n_months\": int(len(monthly)),\n        \"plans"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "_per_month_min\": int(monthly[\"row_count\"].min()),\n        \"plans_per_month_max\": int(monthly[\"row_count\"].max()),\n    },\n    severity=\"blocking\",\n)\n\n# ── MoM deltas ────────────────────────────────────────────────────────────"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "────\nmonthly[\"net_new_mrr_delta\"]   = monthly[\"net_new_mrr\"].diff()\nmonthly[\"new_mrr_delta\"]       = monthly[\"new_mrr\"].diff()\nmonthly[\"expansion_mrr_delta\"] = monthly[\"expansion_mrr\"].diff()\nmonthly[\"ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "urn_mrr_delta\"]     = monthly[\"churn_mrr\"].diff()\n\n# ── Step-change finding (formal persistent-shift test) ────────────────────"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "────\nstep = finding_step_change(\n    monthly[\"net_new_mrr\"].tolist(),\n    labels=monthly[\"period\"].tolist(),\n    counts=monthly[\"row_count\"].tolist(),\n    unit=\"usd\",\n)\ndeclare_finding("
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\n    \"net_new_mrr_step_change\", step,\n    definition=\"Largest persistent month-over-month shift in aggregate net new MRR (new + expansion − churn) across all plans, 2024-01 "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "to 2024-12\",\n    dtype=\"step_change\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"step_change\", \"mrr\"],\n)\n\n# "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "── Largest raw MoM jump (max absolute delta) ─────────────────────────────────\nvalid_idx = monthly.dropna(subset=[\"net_new_mrr_delta\"]).index\njump_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "pos  = monthly.loc[valid_idx, \"net_new_mrr_delta\"].idxmax()\njump_row  = monthly.loc[jump_pos]\nprior_row = monthly.loc[jump_pos - 1]\n\njump_period  = jump_row[\"period\"]\nprior_period = prior_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "row[\"period\"]\njump_delta   = float(jump_row[\"net_new_mrr_delta\"])\n\n# ── Component decomposition ───────────────────────────────────────────────────\ndelta_new             = float(jump_row[\"new_mrr_delta\"])\ndelta_expansion       = float(jump_row[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "expansion_mrr_delta\"])\ndelta_churn_impact    = float(-jump_row[\"churn_mrr_delta\"])  # sign-adjusted: negative when churn rose\n\ndecomp = finding_decompose(\n    total_change=jump_delta,\n    terms={\n        \"new_mrr_change\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "      delta_new,\n        \"expansion_mrr_change\": delta_expansion,\n        \"churn_mrr_impact\":    delta_churn_impact,\n    },\n)\ndeclare_finding(\n    \"mrr_jump_component_decomposition\", decomp,\n    definition=f\"Attribution of the {jump_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "period} net new MRR jump ({prior_period}→{jump_period}) across MRR components: new, expansion, and churn impact (−Δchurn)\",\n    dtype=\"decomposition\", unit=\"usd\",\n    derived_from_findings=[\"net_new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "_mrr_step_change\"],\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"decomposition\", \"mrr\"],\n)\n\n# ── Per-plan attribution for jump month vs prior ──"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "────────────────────────────\nplan_jump = df[df[\"month\"] == jump_row[\"month\"]][[\"plan\", \"new_mrr\", \"expansion_mrr\", \"churn_mrr\", \"customers\"]].copy()\nplan_jump[\"net_new_mrr\"] = plan_jump[\"new_mrr\"] + plan_jump"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "[\"expansion_mrr\"] - plan_jump[\"churn_mrr\"]\n\nplan_prior = df[df[\"month\"] == prior_row[\"month\"]][[\"plan\", \"new_mrr\", \"expansion_mrr\", \"churn_mrr\"]].copy()\nplan_prior = plan_prior."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "rename(columns={\n    \"new_mrr\": \"new_mrr_prior\", \"expansion_mrr\": \"expansion_mrr_prior\", \"churn_mrr\": \"churn_mrr_prior\",\n})\nplan_prior[\"net_new_mrr_prior\"] = plan_prior[\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "new_mrr_prior\"] + plan_prior[\"expansion_mrr_prior\"] - plan_prior[\"churn_mrr_prior\"]\n\nplan_delta = plan_jump.merge(plan_prior, on=\"plan\")\nplan_delta[\"net_new_mrr_delta\"]   = plan_delta[\"net_new_mrr\"] -"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " plan_delta[\"net_new_mrr_prior\"]\nplan_delta[\"new_mrr_delta\"]       = plan_delta[\"new_mrr\"] - plan_delta[\"new_mrr_prior\"]\nplan_delta[\"expansion_mrr_delta\"] = plan_delta[\"expansion_mrr\"] - plan_delta[\"expansion_mrr_prior\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\nplan_delta[\"churn_mrr_delta\"]     = plan_delta[\"churn_mrr\"] - plan_delta[\"churn_mrr_prior\"]\nplan_delta[\"share_of_jump_pct\"]   = (100 * plan_delta[\"net_new_mrr_delta"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\"] / jump_delta).round(1)\nplan_delta = plan_delta.sort_values(\"net_new_mrr_delta\", ascending=False).reset_index(drop=True)\n\ndominant_plan       = plan_delta.loc[0, \"plan\"]\ndominant_plan_delta = float(plan_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "delta.loc[0, \"net_new_mrr_delta\"])\ndominant_plan_share = float(plan_delta.loc[0, \"share_of_jump_pct\"])\n\nper_plan_records = [\n    {\n        \"plan\": r"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "[\"plan\"],\n        \"net_new_mrr_jump_month\":  int(round(r[\"net_new_mrr\"])),\n        \"net_new_mrr_prior_month\": int(round(r[\"net_new_mrr_prior\"])),\n        \"net_new_mrr_delta\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "       int(round(r[\"net_new_mrr_delta\"])),\n        \"new_mrr_delta\":           int(round(r[\"new_mrr_delta\"])),\n        \"expansion_mrr_delta\":     int(round(r[\"expansion_mrr_delta\"])),\n        \"churn_mrr_delta"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\":         int(round(r[\"churn_mrr_delta\"])),\n        \"share_of_jump_pct\":       round(float(r[\"share_of_jump_pct\"]), 1),\n    }\n    for _, r in plan_delta.iterrows()\n]\n\ndeclare_finding(\n    \"mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "jump_plan_attribution\",\n    {\n        \"jump_period\":              jump_period,\n        \"prior_period\":             prior_period,\n        \"total_jump_usd\":           int(round(jump_delta)),\n        \"dominant_plan\":            dominant_plan,\n        \"dominant_plan_delta_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "usd\":  int(round(dominant_plan_delta)),\n        \"dominant_plan_share_pct\":  dominant_plan_share,\n        \"per_plan\":                 per_plan_records,\n    },\n    definition=f\"Per-plan contribution to the {jump_period} net new MRR jump; dominant"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " plan identified by largest delta in net new MRR vs {prior_period}\",\n    dtype=\"attribution\",\n    derived_from_findings=[\"mrr_jump_component_decomposition\"],\n    derived_from_columns=[\"new_mrr\", \"expansion_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "r\", \"churn_mrr\"],\n    tags=[\"attribution\", \"plan\"],\n)\n\n# ── SERIES ────────────────────────────────────────────────────────────────────\n\n# MoM delta series (all months with"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " valid delta)\nmom_rows = []\nfor _, r in monthly.iloc[1:].iterrows():\n    mom_rows.append({\n        \"period\":              r[\"period\"],\n        \""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "net_new_mrr_delta\":   int(round(r[\"net_new_mrr_delta\"])),\n        \"new_mrr_delta\":       int(round(r[\"new_mrr_delta\"])),\n        \"expansion_mrr_delta\": int(round(r[\"expansion_mrr_delta\"])),\n        \"churn_mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "delta\":     int(round(r[\"churn_mrr_delta\"])),\n        \"plan_count\":          int(r[\"row_count\"]),\n    })\n\ndeclare_series(\n    \"mrr_mom_delta\", mom_rows,\n    x=(\"period\", \"temporal\"),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\n    measures=[\n        {\"column\": \"net_new_mrr_delta\",   \"unit\": \"usd\", \"of\": \"net_new_mrr_step_change\"},\n        {\"column\": \"new_mrr_delta\",        \"unit\": \"usd\"},\n        {\"column\": \"expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "_mrr_delta\",  \"unit\": \"usd\"},\n        {\"column\": \"churn_mrr_delta\",      \"unit\": \"usd\"},\n    ],\n    count=\"plan_count\",\n)\n\n# Per-plan comparison at the jump month\ndeclare"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "_series(\n    \"plan_mrr_jump_comparison\", per_plan_records,\n    x=(\"plan\", \"categorical\"),\n    measures=[\n        {\"column\": \"net_new_mrr_jump_month\",  \"unit\": \"usd\"},\n        {\"column\": \"net_new_mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "prior_month\", \"unit\": \"usd\"},\n        {\"column\": \"net_new_mrr_delta\",       \"unit\": \"usd\", \"of\": \"mrr_jump_plan_attribution\"},\n        {\"column\": \"new_mrr_delta\",           \"unit\": \"usd\"},\n        {\"column\": \"expansion_mrr_delta\",     \"unit"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\": \"usd\"},\n        {\"column\": \"churn_mrr_delta\",         \"unit\": \"usd\"},\n    ],\n)\n\n# ── Waterfall chart ───────────────────────────────────────────────────────────\nwaterfall_data = [\n    {\"label\": f\"{prior_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "period} Net New MRR\",  \"value\": int(round(float(prior_row[\"net_new_mrr\"]))), \"type\": \"absolute\"},\n    {\"label\": \"↑ New MRR change\",             "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\"value\": int(round(delta_new)),          \"type\": \"relative\"},\n    {\"label\": \"↑ Expansion MRR change\",       \"value\": int(round(delta_expansion)),    \"type\": \"relative\"},\n    {\"label\": \"Churn MRR impact\",             \"value\": int(round"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "(delta_churn_impact)), \"type\": \"relative\"},\n    {\"label\": f\"{jump_period} Net New MRR\",   \"value\": int(round(float(jump_row[\"net_new_mrr\"]))), \"type\": \"total\"},\n]\n\n# "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "── Results ───────────────────────────────────────────────────────────────────\nprior_net = float(prior_row[\"net_new_mrr\"])\njump_delta_p"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "ct = round(100 * jump_delta / prior_net, 1) if prior_net != 0 else None\n\nresults = {\n    # Headline answer\n    \"jump_period\":                "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "      jump_period,\n    \"prior_period\":                     prior_period,\n    \"jump_delta_usd\":                   int(round(jump_delta)),\n    \"jump_delta_pct\":                   jump_delta_pct,\n    \"prior_net_new_mrr_usd\":            int(round(prior"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "_net)),\n    \"jump_net_new_mrr_usd\":             int(round(float(jump_row[\"net_new_mrr\"]))),\n    # Component breakdown (mirrors decomp finding fields)\n    \"jump_new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "_mrr_change_usd\":          int(round(delta_new)),\n    \"jump_expansion_mrr_change_usd\":    int(round(delta_expansion)),\n    \"jump_churn_mrr_impact_usd\":        int(round(delta_churn_impact)),\n    \"jump_decomposition_dominant\":      decomp"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "[\"dominant\"],\n    \"jump_decomposition_residual\":      int(round(float(decomp[\"residual\"]))),\n    # Plan attribution\n    \"jump_dominant_plan\":               dominant_plan,\n    \"jump_dominant_plan_delta_usd\":     "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "int(round(dominant_plan_delta)),\n    \"jump_dominant_plan_share_pct\":     round(dominant_plan_share, 1),\n    # Step-change alignment\n    \"step_change_detected\":             bool(step.get(\"detected\", True)),\n    \"step_change_period"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": "\":               step.get(\"period\"),\n    \"step_change_delta_usd\":            int(round(float(step[\"delta\"]))) if step.get(\"delta\") is not None else None,\n    \"step_change_agrees_with_raw_max\":  step.get(\"period\") == jump_period if step.get(\"detected\", True) else"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787783265",
+      "delta": " False,\n}\n\nwrite_output(\n    results=results,\n    chart_data={\"mrr_jump_waterfall\": waterfall_data},\n    datasets={\"main\": df},\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787783265",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787783265"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 33345,
+          "noCache": 27108,
+          "cacheRead": 6237
+        },
+        "outputTokens": {
+          "total": 14470,
+          "text": 14470,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 33345,
+          "input_tokens_details": {
+            "cached_tokens": 6237
+          },
+          "output_tokens": 14470
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,357 @@
+{
+  "kind": "stream",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"abortSignal\":{},\"includeRawChunks\":false,\"maxOutputTokens\":16384,\"prompt\":[{\"content\":\"You are a data analyst. You will be given a CSV schema and a user question.\\n\\nYour job is to write a single Python script that:\\n1. Reads the input data — from the path given in the \\\"Data Location\\\" section when one is present, else the default \\\"/data/input.csv\\\"\\n2. Performs the necessary analysis using pandas, numpy, scipy\\n3. DECLARES its outputs (the Analysis Product), then calls the preloaded helper\\n   write_output(...) — do NOT build the JSON or call json.dump yourself:\\n\\n   TIDY SERIES (anything a bar/line/area/scatter chart will draw — rows with an x column\\n   and measure columns) are DECLARED, adjacent to their computation, with their roles:\\n       declare_series(\\\"annual_prices\\\", df_rows,\\n           x=(\\\"year\\\", \\\"temporal\\\"),                      # kind: temporal | ordinal | categorical\\n           measures=[{\\\"column\\\": \\\"median_price\\\", \\\"unit\\\": \\\"usd\\\",\\n                      \\\"of\\\": \\\"price_trend\\\",              # finding this measure is the series view of\\n                      \\\"screened_by\\\": \\\"price_outlier_screen\\\",  # check that owns this measure's nulls\\n                      \\\"variant_of\\\": \\\"median_price_raw\\\"},      # raw sibling column, when screened\\n                     {\\\"column\\\": \\\"median_price_raw\\\", \\\"unit\\\": \\\"usd\\\"}],\\n           count=\\\"item_count\\\",                          # attestation column — ALWAYS declare when present\\n           group=None)                                  # category column for grouped series\\n   Roles are REFERENCES: of/screened_by/variant_of name the finding/check/column they point\\n   at, exactly.\\n   SERIES KIND — declare the SHAPE when it is not an ordinary axis series (kind=\\\"axis\\\" is\\n   the default): kind=\\\"geo\\\" (rows carry lat + lng/lon columns — licenses the map views),\\n   kind=\\\"distribution\\\" (rows are the RAW VALUES of the measure — licenses histogram/box/\\n   violin; declare one for the sampl",
+  "chunks": [
+    {
+      "type": "stream-start",
+      "warnings": []
+    },
+    {
+      "type": "text-start",
+      "id": "msg_1787782872",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787782872"
+        }
+      }
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "I'll write a Python script to analyze the MRR trend over time, computing"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " net new MRR, cumulative growth, component trends, and per-plan breakdowns.\n\n```python\nimport pandas as pd\nimport numpy as np\nimport re\n\ndf = pd.read_csv(\"/data/input.csv\")\ndf[\"month\"] ="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " pd.to_datetime(df[\"month\"])\ndf = df.sort_values([\"month\", \"plan\"])\n\n# Aggregate by month across all plans\nmonthly = df.groupby(\"month\", sort=True).agg(\n    new_mrr=(\"new_mrr\", \"sum\"),\n    expansion_mrr=(\"expansion_mrr\", \"sum\"),"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "\n    churn_mrr=(\"churn_mrr\", \"sum\"),\n    customers=(\"customers\", \"sum\"),\n).reset_index()\n\nmonthly[\"net_new_mrr\"] = monthly[\"new_mrr\"] + monthly[\"expansion_mrr\"] - monthly[\"churn_mrr\"]\nmonthly[\"gross_adds_mrr\"] = monthly[\"new_mr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "r\"] + monthly[\"expansion_mrr\"]\nmonthly[\"period_label\"] = monthly[\"month\"].dt.strftime(\"%Y-%m\")\nmonthly[\"cumulative_net_mrr\"] = monthly[\"net_new_mrr\"].cumsum()\n\nn_months = len(monthly)\nlabels = monthly[\"period_label\"].tolist()\ncounts_3 = [3"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "] * n_months  # 3 plan rows per month\n\nnet_vals = monthly[\"net_new_mrr\"].tolist()\nnew_vals = monthly[\"new_mrr\"].tolist()\nexp_vals = monthly[\"expansion_mrr\"].tolist()\nchurn_vals = monthly[\"churn_mrr\"].tolist()"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "\ncumul_vals = monthly[\"cumulative_net_mrr\"].tolist()\n\n# --- Checks ---\nplans_per_month = df.groupby(\"month\").size()\ndeclare_check(\"monthly_aggregation_grain\",\n    definition=\"Each monthly aggregate combines exactly 3 plan-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "rows (Starter, Pro, Enterprise) — uniform weighting is valid\",\n    passed=bool((plans_per_month == 3).all()),\n    evidence={"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "\n        \"plans_per_month_min\": int(plans_per_month.min()),\n        \"plans_per_month_max\": int(plans_per_month.max()),\n        \"n_months\": n_months,\n        \"n_plans\": int(df[\"plan\"].nunique()),\n        "
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "\"plans\": sorted(df[\"plan\"].unique().tolist()),\n    },\n    severity=\"blocking\")\n\ndeclare_check(\"net_new_mrr_zero_policy\",\n    definition=\"Net new MRR is a signed"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " difference (new + expansion - churn); zero is a legitimate value meaning no net change,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " not a sentinel\",\n    passed=True,\n    evidence={\n        \"n_zero_net_months\": int((monthly[\"net_new_mrr\"] == 0).sum()),\n        \"min_net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "\": int(monthly[\"net_new_mrr\"].min()),\n        \"max_net_new_mrr\": int(monthly[\"net_new_mrr\"].max()),\n    },\n    severity=\"caveat\")\n\n# --- Net new MRR trend ---\nnet_trend = finding_trend(net_vals,"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " unit=\"usd\", labels=labels, counts=counts_3)\ndeclare_finding(\"net_new_mrr_trend\", net_trend,\n    definition=\"OLS trend of monthly net new MRR (new + expansion minus churn) across all plans, Jan-Dec 2024\",\n    dtype=\"direction\", unit=\"usd\",\n    derived"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"trend\"])\n\n# --- Step change ---\nnet_step = finding_step_change(net_vals, labels=labels, counts=counts_3, unit=\"usd\")\ndeclare_finding(\"net_new_mrr_step_change\", net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_step,\n    definition=\"Largest persistent single-period level shift in monthly net new MRR across all plans, Jan-Dec 2024\",\n    dtype=\"step_change\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"step"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_change\"])\n\n# --- Cumulative MRR trend ---\ncumul_trend = finding_trend(cumul_vals, unit=\"usd\", labels=labels, counts=counts_3)\ndeclare_finding(\"cumulative_mrr_trend\", cumul_trend,\n    definition=\"OLS trend of cumulative net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " new MRR (running sum of monthly net MRR from Jan 2024 baseline) across all plans\",\n    dtype=\"direction\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "mrr\"],\n    tags=[\"trend\"])\n\n# --- Component trends ---\nnew_trend = finding_trend(new_vals, unit=\"usd\", labels=labels, counts=counts_3)\ndeclare_finding(\"new_mrr_trend\", new_trend,\n    definition=\"OLS trend of monthly new MRR from new customer acquisition across all plans, Jan-Dec"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " 2024\",\n    dtype=\"direction\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\"],\n    tags=[\"trend\"])\n\nexp_trend = finding_trend(exp_vals, unit=\"usd\", labels=labels, counts=counts_3)\ndeclare_finding(\"expansion_mrr_trend\", exp_trend,\n    definition=\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "OLS trend of monthly expansion MRR from existing customer upgrades across all plans, Jan-Dec 2024\",\n    dtype=\"direction\", unit=\"usd\",\n    derived_from_columns=[\"expansion_mrr\"],\n    tags=[\"trend\"])\n\nchurn_trend = finding_trend(churn_vals, unit=\"usd\", labels=labels, counts=counts"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_3)\ndeclare_finding(\"churn_mrr_trend\", churn_trend,\n    definition=\"OLS trend of monthly churned MRR across all plans, Jan-Dec 2024\",\n    dtype=\"direction\", unit=\"usd\",\n    derived_from_columns=[\"churn_mrr\"],\n    tags=[\"trend\"])\n\n# --- Current state"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " ---\nnet_current = finding_current_state(net_vals, labels=labels, counts=counts_3, unit=\"usd\")\ndeclare_finding(\"net_new_mrr_current_state\", net_current,\n    definition=\"Ending state of monthly net new MRR from the last fully-attested observation in"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " the Jan-Dec 2024 window\",\n    dtype=\"current_state\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"current_state\"])\n\n# --- Superlative:"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " peak month ---\nnet_peak = finding_superlative(labels, net_vals, counts=counts_3, kind=\"max\", unit=\"usd\")\ndeclare_finding(\"net_new_mrr_peak\", net_peak,\n    definition=\"Month with the highest attestation-"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "weighted net new MRR across all plans, Jan-Dec 2024\",\n    dtype=\"superlative\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"superlative\"])\n\n# --- Split comparison ---\nsplit_comp = finding"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_split_comparison(labels, net_vals, unit=\"usd\")\ndeclare_finding(\"net_new_mrr_split_comparison\", split_comp,\n    definition=\"Early-half vs late-half comparison of monthly net new MRR at the pinned midpoint of"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " the Jan-Dec 2024 window\",\n    dtype=\"comparison\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n    tags=[\"comparison\"])\n\n# --- Decomposition: new vs expansion share of gross adds ---\ntotal_new = int(monthly[\"new_mrr\"]."
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "sum())\ntotal_expansion = int(monthly[\"expansion_mrr\"].sum())\ntotal_churn = int(monthly[\"churn_mrr\"].sum())\ntotal_gross = total_new + total_expansion\ntotal_net = total_new + total_expansion - total_churn\n\ndecomp = finding_decompose(total_gross, {\"new_mrr\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " total_new, \"expansion_mrr\": total_expansion})\ndeclare_finding(\"mrr_gross_adds_decomposition\", decomp,\n    definition=\"Attribution of cumulative gross MRR adds to new-customer acquisition vs existing-customer expansion, all plans Jan-Dec 2024\",\n    dtype=\"decomposition\", unit=\"usd\",\n    derived_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "from_columns=[\"new_mrr\", \"expansion_mrr\"],\n    tags=[\"decomposition\"])\n\n# --- Per-plan data ---\nplan_monthly = df.groupby([\"plan\", \"month\"], sort=True).agg(\n    new_mrr=(\"new_mrr\", \"sum\"),\n    expansion_mrr=(\"expansion"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_mrr\", \"sum\"),\n    churn_mrr=(\"churn_mrr\", \"sum\"),\n    customers=(\"customers\", \"sum\"),\n).reset_index()\nplan_monthly[\"net_new_mrr\"] = plan_monthly[\"new_mrr\"] + plan_monthly[\"expansion_mrr\"] - plan_monthly[\"churn_mrr\"]"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "\nplan_monthly[\"period_label\"] = plan_monthly[\"month\"].dt.strftime(\"%Y-%m\")\n\nplans = sorted(df[\"plan\"].unique())\nplan_trend_results = {}\nfor plan in plans:\n    pdata = plan_monthly[plan_monthly[\"plan\"] == plan].sort_values(\"month\")\n    p_vals = pdata[\"net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_new_mrr\"].tolist()\n    p_labels = pdata[\"period_label\"].tolist()\n    p_counts = [1] * len(p_vals)\n    p_trend = finding_trend(p_vals, unit=\"usd\", labels=p_labels, counts=p_counts)\n    p_key = re.sub(r\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "[^a-z0-9]+\", \"_\", plan.lower()).strip(\"_\")\n    declare_finding(f\"net_new_mrr_trend_{p_key}\", p_trend,\n        definition=f\"OLS trend of monthly net new MRR for the {plan} plan, Jan-Dec 2024\",\n        dtype=\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "direction\", unit=\"usd\",\n        derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn_mrr\"],\n        tags=[\"trend\", \"segment\"])\n    plan_trend_results[plan] = p_trend\n\n# --- Segment heterogeneity ---\nplan_groups = {plan: plan_monthly[plan_monthly"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "[\"plan\"] == plan][\"net_new_mrr\"].tolist() for plan in plans}\nhetero = finding_heterogeneity(plan_groups, unit=\"usd\")\ndeclare_finding(\"plan_net_mrr_heterogeneity\", hetero,\n    definition=\"One-way ANOVA or Kruskal-Wal"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "lis test (dispatched by regime profile) for differences in monthly net new MRR distributions across Starter, Pro, and Enterprise plans, Jan-Dec 2024\",\n    dtype=\"heterogeneity\", unit=\"usd\",\n    derived_from_columns=[\"new_mrr\", \"expansion_mrr\", \"churn"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_mrr\"],\n    tags=[\"heterogeneity\"])\n\nplan_medians = {plan: float(np.median(vals)) for plan, vals in plan_groups.items()}\nsegment_range_usd = max(plan_medians.values()) - min(plan_medians.values())\n\n#"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " --- Declare series ---\nmonthly_component_rows = []\nfor _, row in monthly.iterrows():\n    monthly_component_rows.append({\n        \"period\": row[\"period_label\"],\n        \"new_mrr\": int(row[\"new_mrr\"]),\n        \"expansion_mrr\": int(row[\"expansion_mrr\"]),\n        \"ch"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "urn_mrr\": int(row[\"churn_mrr\"]),\n        \"net_new_mrr\": int(row[\"net_new_mrr\"]),\n        \"row_count\": 3,\n    })\n\ndeclare_series(\"monthly_mrr_components\", monthly_component_rows,\n    x=(\"period\", \"temporal\"),\n    measures=["
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "\n        {\"column\": \"new_mrr\", \"unit\": \"usd\",\n         \"aggregates\": {\"fn\": \"sum\", \"column\": \"new_mrr\", \"from\": \"main\"}},\n        {\"column\": \"expansion_mrr\", \"unit\": \"usd\",\n         \"aggregates\": {\"fn\": \"sum\", \"column\": \"expansion_mrr\","
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " \"from\": \"main\"}},\n        {\"column\": \"churn_mrr\", \"unit\": \"usd\",\n         \"aggregates\": {\"fn\": \"sum\", \"column\": \"churn_mrr\", \"from\": \"main\"}},\n        {\"column\": \"net_new_mrr\", \"unit\": \"usd\",\n         \"of\": \"net_new"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_mrr_trend\"},\n    ],\n    count=\"row_count\")\n\ncumul_rows = [\n    {\"period\": row[\"period_label\"], \"cumulative_net_mrr\": int(row[\"cumulative_net_mrr\"]), \"row_count\": 3}\n    for _, row in monthly.iterrows()\n]\ndeclare_series(\""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "cumulative_net_mrr\", cumul_rows,\n    x=(\"period\", \"temporal\"),\n    measures=[{\"column\": \"cumulative_net_mrr\", \"unit\": \"usd\", \"of\": \"cumulative_mrr_trend\"}],\n    count=\"row_count\")\n\nplan_rows = []\nfor _, row"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " in plan_monthly.iterrows():\n    plan_rows.append({\n        \"period\": row[\"period_label\"],\n        \"plan\": row[\"plan\"],\n        \"net_new_mrr\": int(row[\"net_new_mrr\"]),\n        \"new_mrr\": int(row[\"new_mrr\"]),\n        \"expansion_mrr\":"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": " int(row[\"expansion_mrr\"]),\n        \"churn_mrr\": int(row[\"churn_mrr\"]),\n    })\n\ndeclare_series(\"plan_monthly_net_mrr\", plan_rows,\n    x=(\"period\", \"temporal\"),\n    measures=[\n        {\"column\": \"net_new_mrr\", \"unit\": \"u"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "sd\"},\n        {\"column\": \"new_mrr\", \"unit\": \"usd\"},\n        {\"column\": \"expansion_mrr\", \"unit\": \"usd\"},\n        {\"column\": \"churn_mrr\", \"unit\": \"usd\"},\n    ],\n    group=\"plan\")\n\n# --- Results ---\nresults = {\n    \"net_new_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_trend_direction\": net_trend[\"direction\"],\n    \"net_new_mrr_slope_per_period\": round(net_trend[\"slope_per_period\"]),\n    \"net_new_mrr_trend_p_value\": net_trend[\"p_value\"],\n    \"net_new_mrr_step_change_period\": net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_step[\"period\"],\n    \"net_new_mrr_step_change_delta\": round(net_step[\"delta\"]) if net_step.get(\"delta\") is not None else None,\n    \"cumulative_mrr_trend_direction\": cumul_trend[\"direction\"],\n    \"cumulative_mrr_slope_per_period\": round(cumul"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_trend[\"slope_per_period\"]),\n    \"new_mrr_trend_direction\": new_trend[\"direction\"],\n    \"new_mrr_slope_per_period\": round(new_trend[\"slope_per_period\"]),\n    \"expansion_mrr_trend_direction\": exp_trend[\"direction\"],\n    \"expansion_mrr"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_slope_per_period\": round(exp_trend[\"slope_per_period\"]),\n    \"churn_mrr_trend_direction\": churn_trend[\"direction\"],\n    \"churn_mrr_slope_per_period\": round(churn_trend[\"slope_per_period\"]),\n    \"net_new_mrr_current_period\": net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "_current[\"period\"],\n    \"net_new_mrr_current_value\": round(net_current[\"value\"]) if net_current.get(\"value\") is not None else None,\n    \"net_new_mrr_pct_from_peak\": round(net_current[\"pct_from_peak\"], 1) if net_current"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": ".get(\"pct_from_peak\") is not None else None,\n    \"net_new_mrr_peak_period\": net_peak[\"period\"],\n    \"net_new_mrr_peak_value\": round(net_peak[\"value\"]) if net_peak.get(\"value\") is not None else None,\n    \"net_new_mrr_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "early_median\": round(split_comp[\"early_median\"]),\n    \"net_new_mrr_late_median\": round(split_comp[\"late_median\"]),\n    \"net_new_mrr_multiplier\": round(split_comp[\"multiplier\"], 2) if split_comp.get(\"multiplier\") is not None else None,\n    \""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "mrr_new_share_pct\": round(total_new / total_gross * 100, 1),\n    \"mrr_expansion_share_pct\": round(total_expansion / total_gross * 100, 1),\n    \"mrr_churn_to_gross_pct\": round(total_churn / total_"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "gross * 100, 1),\n    \"total_new_mrr_usd\": total_new,\n    \"total_expansion_mrr_usd\": total_expansion,\n    \"total_churn_mrr_usd\": total_churn,\n    \"total_net_new_mrr_usd\": total_net"
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": ",\n    \"segment_heterogeneity_significant\": hetero[\"significant\"],\n    \"segment_heterogeneity_p_value\": hetero[\"p_value\"],\n    \"segment_range_usd\": round(segment_range_usd),\n    \"plan_net_mrr_trends\": {\n        plan: {\n            \""
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "direction\": t[\"direction\"],\n            \"slope_per_period\": round(t[\"slope_per_period\"]),\n            \"p_value\": t[\"p_value\"],\n        }\n        for plan, t in plan_trend_results.items()\n    },\n}\n\nwrite_output(\n    results=results,\n    chart_data={},\n    datasets="
+    },
+    {
+      "type": "text-delta",
+      "id": "msg_1787782872",
+      "delta": "{\"main\": df},\n)\n```"
+    },
+    {
+      "type": "text-end",
+      "id": "msg_1787782872",
+      "providerMetadata": {
+        "openai": {
+          "itemId": "msg_1787782872"
+        }
+      }
+    },
+    {
+      "type": "finish",
+      "finishReason": {
+        "unified": "stop"
+      },
+      "usage": {
+        "inputTokens": {
+          "total": 31530,
+          "noCache": 31530,
+          "cacheRead": 0
+        },
+        "outputTokens": {
+          "total": 20852,
+          "text": 20852,
+          "reasoning": 0
+        },
+        "raw": {
+          "input_tokens": 31530,
+          "output_tokens": 20852
+        }
+      },
+      "providerMetadata": {
+        "openai": {
+          "responseId": null
+        }
+      }
+    }
+  ]
+}
