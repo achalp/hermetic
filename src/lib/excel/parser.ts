@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import Papa from "papaparse";
 import type { SheetInfo } from "@/lib/contracts/data-schema";
+import { assertXlsxDecompressionSafe } from "@/lib/excel/zip-guard";
 
 export interface ExcelMeta {
   sheets: SheetInfo[];
@@ -113,6 +114,10 @@ export async function parseExcelMeta(buffer: Buffer | ArrayBuffer): Promise<Exce
     buffer instanceof ArrayBuffer
       ? buffer
       : buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  // Zip-bomb guard (F2): reject before exceljs decompresses the whole archive
+  // into memory. Reads declared uncompressed sizes from the ZIP central
+  // directory; no-op for a non-ZIP buffer (exceljs then raises its own error).
+  assertXlsxDecompressionSafe(arrayBuffer);
   await workbook.xlsx.load(arrayBuffer as ArrayBuffer);
 
   const sheets: SheetInfo[] = [];

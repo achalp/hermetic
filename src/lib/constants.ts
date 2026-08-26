@@ -28,6 +28,13 @@ export const WAREHOUSE_LARGE_JOIN_ROWS = 5_000_000;
 export const PARQUET_MATERIALIZE_THRESHOLD = 100_000;
 export const MAX_CSV_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
 export const MAX_CSV_SIZE_LABEL = "100MB";
+// An .xlsx is a ZIP of highly-compressible XML: a ~100MB upload (the compressed
+// cap above) can inflate to tens of GB and OOM the process (a zip bomb). exceljs
+// fully decompresses on load with no size bound of its own, so we cap the SUM of
+// the archive's DECLARED uncompressed sizes (read from the ZIP central directory
+// WITHOUT decompressing) before handing the buffer to exceljs. 2 GiB is well
+// past any legitimate spreadsheet this tool should ingest and well under an OOM.
+export const MAX_XLSX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
 export const SANDBOX_TIMEOUT_MS = 30_000; // 30 seconds
 // Large local Parquet and remote cloud datasets (e.g. Overture buildings, 2.5B
 // rows read over S3) legitimately need minutes to scan — not a bug, just big.

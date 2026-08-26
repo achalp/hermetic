@@ -4,6 +4,7 @@ import type { CSVSchema } from "@/lib/contracts/data-schema";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { DOCKER_SANDBOX_IMAGE, SANDBOX_TIMEOUT_MS, LOCAL_MOUNT_PATH } from "@/lib/constants";
 import { run } from "@/lib/sandbox/docker-utils";
+import { egressPolicyFor, setupEgressNetwork, type EgressNetwork } from "@/lib/sandbox/egress";
 import { parseJsonWithPythonNonFinite } from "@/lib/sandbox/parse-output";
 import { pythonNanPrelude } from "@/lib/sandbox/prelude";
 import { friendlyParquetError } from "@/lib/parquet/friendly-error";
@@ -27,15 +28,47 @@ async function runSchemaExtraction(args: {
   filename: string;
   /** Host path to bind-mount at LOCAL_MOUNT_PATH (local files); omit for remote. */
   mountHostPath?: string;
+  /**
+   * Remote source to read over the network. When set, the container is joined
+   * to the L7 egress-allowlist gateway derived from this URL (never the default
+   * bridge). When omitted, the container gets `--network none`.
+   */
+  remoteEgress?: { url: string; creds?: RemoteCreds };
   /** Exec timeout — remote reads over the network need longer. */
   timeoutMs: number;
 }): Promise<CSVSchema> {
   const containerId = `hermetic-parquet-schema-${randomUUID()}`;
-  const runArgs = ["run", "-d", "--name", containerId];
-  if (args.mountHostPath) runArgs.push("-v", `${args.mountHostPath}:${LOCAL_MOUNT_PATH}:ro`);
-  runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", "300");
+  let egress: EgressNetwork | undefined;
 
   try {
+    const runArgs = ["run", "-d", "--name", containerId];
+    if (args.mountHostPath) runArgs.push("-v", `${args.mountHostPath}:${LOCAL_MOUNT_PATH}:ro`);
+    if (args.remoteEgress) {
+      // Remote read: the container must reach the source host and nothing else.
+      // Route it through the SAME L7 allowlist gateway the analysis path uses
+      // (setupEgressNetwork). The proxy resolves each host at connect time and
+      // refuses any that lands on loopback / link-local / RFC-1918 / metadata —
+      // defeating both a DNS name that resolves to an internal IP AND DNS
+      // rebinding, neither of which the connect-time isSafeParquetUrl guard can
+      // catch. A source with no derivable host FAILS CLOSED here rather than
+      // silently joining the default bridge with full egress (finding F1).
+      const policy = egressPolicyFor(args.remoteEgress.url, args.remoteEgress.creds);
+      if (policy.mode === "deny" || !policy.hosts?.length) {
+        throw new Error(
+          "Refusing to read this remote source: no safe egress host could be derived from the URL."
+        );
+      }
+      egress = await setupEgressNetwork(containerId.slice(-12), policy.hosts);
+      runArgs.push("--network", egress.networkName);
+      for (const [k, v] of Object.entries(egress.env)) runArgs.push("-e", `${k}=${v}`);
+    } else {
+      // Local bind-mounted read: no remote source, so no network at all
+      // (deny-by-default, matching the analysis path). The image pre-bundles
+      // the DuckDB extensions, so the offline INSTALL/LOAD still works.
+      runArgs.push("--network", "none");
+    }
+    runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", "300");
+
     await run("docker", runArgs, { timeoutMs: 15_000 });
 
     await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
@@ -99,6 +132,7 @@ async function runSchemaExtraction(args: {
     };
   } finally {
     await run("docker", ["rm", "-f", containerId], { timeoutMs: 10_000 }).catch(() => {});
+    await egress?.teardown().catch(() => {});
   }
 }
 
@@ -170,7 +204,9 @@ export async function extractRemoteParquetSchema(
     script: buildRemoteParquetSchemaScript(url, duckdbRemoteAuthSql(creds), isHivePartitioned),
     csvId,
     filename,
-    // No mount — the container reads the URL over its network.
+    // No mount — the container reads the URL over the egress-allowlist gateway
+    // derived from `url` (+ creds for region/endpoint), never the open bridge.
+    remoteEgress: { url, creds },
     timeoutMs: SANDBOX_TIMEOUT_MS * 4, // 120s — remote reads are slower
   });
 
@@ -199,10 +235,22 @@ export async function computeRemoteParquetFingerprint(
     throw new Error("Remote Parquet fingerprint requires the Docker sandbox runtime.");
   }
   const containerId = `hermetic-parquet-fp-${randomUUID()}`;
+  let egress: EgressNetwork | undefined;
   try {
-    await run("docker", ["run", "-d", "--name", containerId, DOCKER_SANDBOX_IMAGE, "sleep", "60"], {
-      timeoutMs: 15_000,
-    });
+    // The fingerprint globs the remote object store — a network read — so it
+    // goes through the same egress-allowlist gateway as extraction (finding F1),
+    // and fails closed if no safe host derives from the URL.
+    const policy = egressPolicyFor(readUrl, creds);
+    if (policy.mode === "deny" || !policy.hosts?.length) {
+      throw new Error(
+        "Refusing to fingerprint this remote source: no safe egress host could be derived from the URL."
+      );
+    }
+    egress = await setupEgressNetwork(containerId.slice(-12), policy.hosts);
+    const runArgs = ["run", "-d", "--name", containerId, "--network", egress.networkName];
+    for (const [k, v] of Object.entries(egress.env)) runArgs.push("-e", `${k}=${v}`);
+    runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", "60");
+    await run("docker", runArgs, { timeoutMs: 15_000 });
     await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
       input:
         pythonNanPrelude() +
@@ -234,5 +282,6 @@ export async function computeRemoteParquetFingerprint(
     return `files:${parsed.n}:${parsed.fp}`;
   } finally {
     await run("docker", ["rm", "-f", containerId], { timeoutMs: 10_000 }).catch(() => {});
+    await egress?.teardown().catch(() => {});
   }
 }

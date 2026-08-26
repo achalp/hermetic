@@ -36,6 +36,14 @@ describe("buildRemoteParquetSchemaScript — reuses the shared tail", () => {
     expect(s).toContain("LOAD spatial");
   });
 
+  it("pins s3_url_style from the env so vhost-only egress allowlists still read (F1)", () => {
+    // Under the egress proxy AWS is reachable ONLY via bucket vhost; DuckDB
+    // defaults to path-style and would 403. The script must honor the
+    // HERMETIC_S3_URL_STYLE the gateway sets, exactly like the analysis prelude.
+    expect(s).toContain('_os.environ.get("HERMETIC_S3_URL_STYLE")');
+    expect(s).toContain("SET s3_url_style=?");
+  });
+
   it("reads the remote URL directly and counts rows from footers (no scan)", () => {
     expect(s).toContain(`read_parquet('${url}')`);
     expect(s).toContain(`PATTERN = '${url}'`);

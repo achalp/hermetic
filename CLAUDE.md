@@ -32,6 +32,14 @@ Findings below were TRACED, not assumed — do not re-litigate without new evide
   executor boundary (`applyRemoteAuth`); RemoteCreds live in the OS keychain.
 - `getCSVContent` must never evict an entry with empty `filePath` (parquet/
   remote refs) — doing so destroys the live source.
+- Remote Parquet schema-extraction AND fingerprint containers route through
+  `setupEgressNetwork` (the L7 allowlist gateway), NEVER the default bridge; a
+  source with no derivable egress host FAILS CLOSED. Local (bind-mount)
+  extraction gets `--network none`. `isSafeParquetUrl`'s literal-hostname check
+  is a cheap first pass, NOT the boundary — the proxy's resolve-and-reject is
+  what stops a DNS name pointing at an internal IP (and rebinding). The remote
+  DuckDB scripts pin `s3_url_style` from `HERMETIC_S3_URL_STYLE` or vhost-only
+  allowlists 403 every s3 read (schema-extractor.ts / schema-script.ts; F1).
 - `runWarehouseQuery` callers pass `getRunSignal()` — Stop must cancel
   server-side (BigQuery billing).
 - Docker is the ONLY sandbox runtime (E2B/microsandbox removed — they cannot

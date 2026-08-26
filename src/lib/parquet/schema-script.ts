@@ -5,6 +5,19 @@ import {
   normalizeRemoteParquetUrl,
 } from "@/lib/parquet/duckdb-source";
 
+// Under the egress-allowlist proxy, AWS/GCS are reachable ONLY via their
+// virtual-hosted host (deriveAllowedEgressHosts allows `bucket.s3.amazonaws.com`,
+// never the generic `s3.amazonaws.com`). DuckDB defaults to path-style, which
+// would 403 at the proxy, so — exactly as the analysis prelude does — pin
+// s3_url_style from HERMETIC_S3_URL_STYLE (set to "vhost" by setupEgressNetwork
+// for AWS). Parameterized SET, and a no-op when the env var is unset (local /
+// custom-endpoint reads). Mirrors docker/sandbox/prelude.py.
+const S3_URL_STYLE_FROM_ENV_PY = `import os as _os
+_s3_style = _os.environ.get("HERMETIC_S3_URL_STYLE")
+if _s3_style:
+    con.execute("SET s3_url_style=?", [_s3_style])
+`;
+
 /**
  * The source-agnostic tail of the extraction script: given `describe`,
  * `row_count`, a `stats_data` temp table (aliased `STATS_TABLE`), and the
@@ -431,7 +444,7 @@ FOOTER_SAMPLE_FILES = 32
 
 con = duckdb.connect()
 con.sql("${DUCKDB_CLOUD_PRELUDE}")
-${auth}
+${S3_URL_STYLE_FROM_ENV_PY}${auth}
 PATTERN = '${url}'
 READ_FULL = "${readExpr}"
 
@@ -507,7 +520,7 @@ import json
 
 con = duckdb.connect()
 con.sql("${DUCKDB_CLOUD_PRELUDE}")
-${auth}
+${S3_URL_STYLE_FROM_ENV_PY}${auth}
 row = con.sql(
     "SELECT coalesce(md5(string_agg(file, chr(10) ORDER BY file)), 'empty') AS fp, "
     "count(*) AS n FROM glob('${url}')"
