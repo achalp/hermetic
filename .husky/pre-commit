@@ -1,2 +1,2 @@
-node scripts/check-no-proprietary-data.mjs --staged
+node scripts/check-data-hygiene.mjs --staged
 npx lint-staged
