@@ -44,6 +44,18 @@ function upload(name: string, content: string): Request {
 beforeEach(() => vi.clearAllMocks());
 
 describe("POST /api/upload — validation contract", () => {
+  it("rejects an upload whose declared Content-Length exceeds the cap before buffering (F7)", async () => {
+    // The pre-check reads content-length and 413s before formData() buffers the
+    // body — otherwise a multi-GB POST OOMs the process before file.size runs.
+    const req = new Request("http://localhost/api/upload", {
+      method: "POST",
+      headers: { "content-length": String(4096 + 4 * 1024 * 1024) },
+      body: "x",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(413);
+  });
+
   it("400s when no file is provided", async () => {
     const form = new FormData();
     const res = await POST(

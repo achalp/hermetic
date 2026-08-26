@@ -28,6 +28,17 @@ function uploadErrorMessage(err: IngestError, isExcel: boolean): string {
 
 export async function POST(request: Request) {
   try {
+    // Reject an oversized upload BEFORE formData() buffers the entire body into
+    // memory (App Router route handlers have no default body cap, so a multi-GB
+    // POST OOMs the process before the file.size check below runs). Content-
+    // Length carries multipart framing, so allow a small margin over the cap.
+    const declared = Number(request.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declared) && declared > MAX_CSV_SIZE_BYTES + 1024 * 1024) {
+      return NextResponse.json(
+        { error: `File too large. Maximum size is ${MAX_CSV_SIZE_LABEL}.` },
+        { status: 413 }
+      );
+    }
     const formData = await request.formData();
     const file = formData.get("csv") as File | null;
 
