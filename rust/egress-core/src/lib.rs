@@ -29,11 +29,16 @@
 //! fetch. That thin edge (reqwest/hyper/rustls) is left as the [`Fetcher`] trait
 //! with a TODO stub — see its docs — so the decision logic stays pure.
 
+pub mod fetch;
 pub mod ip;
 pub mod url;
 
 use std::net::IpAddr;
 
+pub use fetch::{
+    authorize_and_fetch, authorize_and_fetch_with, Credentials, FetchError, SystemFetcher,
+    SystemResolver,
+};
 pub use ip::is_blocked_ip;
 pub use url::{parse_url, ParsedUrl};
 
@@ -243,6 +248,12 @@ pub struct AllowedFetch {
     pub method: Method,
     /// The streaming download cap to enforce while reading the response body.
     pub cap: ByteCounter,
+    /// The full, already-validated request URL (scheme://host[:port]/path?query).
+    /// The [`Fetcher`] edge needs the path/query and the scheme, which the
+    /// host/port/addrs fields above do not carry. This is the URL that PARSED to
+    /// the vetted host — the edge uses it for the request-target, the `Host`
+    /// header, and TLS SNI, while physically connecting only to `addrs`.
+    pub url: String,
 }
 
 /// Resolve `host` and reject if ANY resolved address is internal/non-routable.
@@ -305,6 +316,7 @@ pub fn authorize_fetch<R: Resolver>(
         addrs,
         method: Method::Get,
         cap: ByteCounter::new(cap),
+        url: raw_url.to_string(),
     })
 }
 
@@ -312,11 +324,11 @@ pub fn authorize_fetch<R: Resolver>(
 // The real-network edge — deliberately OUT of the decision path (TODO stub).
 // ---------------------------------------------------------------------------
 
-/// The thin, untrusted-here network edge. Everything above is pure and unit
-/// tested; the actual TLS/HTTP fetch is NOT — it belongs to a separate,
-/// integration-tested component (reqwest / hyper + rustls). It is a trait here
-/// so the decision core never links a network stack and tests never hit a
-/// socket.
+/// The thin network edge. Everything above is pure and unit tested; the actual
+/// TLS/HTTP fetch is a trait here so the DECISION path (ip/url/authorize_fetch)
+/// never depends on it and its tests never hit a socket. The real implementation
+/// is [`SystemFetcher`] (ureq + rustls) in [`fetch`]; tests inject a fake so the
+/// redirect/cap wiring is exercised offline.
 ///
 /// # Contract the implementation MUST honor (all enforced by the types above)
 /// - Connect to `target.addrs` directly; do **not** re-resolve `target.host`
@@ -329,10 +341,6 @@ pub fn authorize_fetch<R: Resolver>(
 ///   resolve-and-reject) for that hop before continuing.
 /// - Feed every body chunk's length to `target.cap` and abort the moment it
 ///   returns [`CapStatus::Aborted`]; never pre-allocate from `Content-Length`.
-///
-/// TODO(phase-1b-remote): implement `SystemFetcher` with reqwest+rustls in a
-/// sibling crate/module; keep this trait so this crate stays network-free and
-/// fully unit-testable.
 pub trait Fetcher {
     /// Perform the vetted GET, streaming the body under the cap, and return the
     /// bytes (or the intercepted redirect / an error) to the caller.

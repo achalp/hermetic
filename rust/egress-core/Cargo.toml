@@ -10,10 +10,18 @@ publish = false
 name = "hermetic_egress_core"
 path = "src/lib.rs"
 
-# Intentionally std-only: no dependencies.
-#  - Keeps the crate buildable/testable OFFLINE (no crates.io fetch).
-#  - The security-critical decision path has zero third-party surface.
-# The real-network edge (reqwest/hyper/rustls) lives OUTSIDE this crate behind
-# the `Fetcher` trait (see src/lib.rs) so the decision logic stays pure and
-# fully unit-testable without a socket.
+# The security-critical DECISION path (ip.rs / url.rs / authorize_fetch) stays
+# std-only and has zero third-party surface — it is unit-tested without a socket.
+#
+# The real-network edge (`fetch.rs::SystemFetcher`, §6a / build-log D7) needs a
+# TLS+HTTP client, so it takes exactly one dependency:
+#   ureq — blocking, synchronous, no async runtime; a natural fit for the
+#          GET-only / no-auto-redirect / stream-and-cap model. Its custom
+#          `Resolver` hook is what lets us CONNECT to the pre-vetted IPs and
+#          never re-resolve (DNS-rebind defense; see fetch.rs).
+#   rustls (via ureq's default `tls` feature, webpki/Mozilla roots) — NOT
+#          native-tls: portable, standard cert validation, no custom CA.
+# `gzip`/`json`/`charset` are turned OFF: the byte-cap must count RAW wire bytes,
+# so we must not let the client transparently inflate the body under us.
 [dependencies]
+ureq = { version = "=2.10.1", default-features = false, features = ["tls"] }
