@@ -18,8 +18,23 @@ import { hermeticRuntimeFiles } from "./runtime-files";
  * bug class the pipeline orchestrator documents fixing for runPipeline:
  * a swapped pair type-checked fine and failed at runtime).
  */
+/**
+ * The WASM runtime's executor, INJECTED by the harness (spec §4a, build log D1):
+ * the browser-transport executor in the desktop app; a Node executor in CI. The
+ * sandbox layer never imports it — the real executor delegates to the sandboxed
+ * webview worker, so it is supplied like hooks/runId. Absent ⇒ a wasm run fails
+ * cleanly (headless contexts have no browser worker).
+ */
+export type WasmExecutor = (
+  csvContent: string,
+  code: string,
+  opts: { additionalFiles?: AdditionalFile[]; geojsonContent?: string | null }
+) => Promise<ExecutionResult>;
+
 export interface SandboxExecOptions {
   runtime?: SandboxRuntimeId;
+  /** The WASM executor, injected by the harness (see WasmExecutor). */
+  wasmExecutor?: WasmExecutor;
   geojsonContent?: string | null;
   additionalFiles?: AdditionalFile[];
   /** Enables the warm-container fast path (not for E2B). */
@@ -72,7 +87,8 @@ export type SandboxRoutePlan =
   | { kind: "docker-egress"; hosts: string[] } // remote source → L7 host-allowlist
   | { kind: "docker-deny" } // remote source, no derivable host → fail CLOSED
   | { kind: "warm" } // warm reused container (always --network none)
-  | { kind: "ephemeral" }; // ephemeral executor; docker gets --network none
+  | { kind: "ephemeral" } // ephemeral executor; docker gets --network none
+  | { kind: "wasm" }; // the WASM runtime: run in the sandboxed webview worker (no Docker)
 
 export interface SandboxRouteInput {
   runtime: SandboxRuntimeId;
@@ -101,6 +117,13 @@ export function planSandboxRouting(i: SandboxRouteInput): SandboxRoutePlan {
     remoteIo: codeDoesRemoteIo(i.code),
   });
   if (capabilityError) return { kind: "reject", error: capabilityError };
+
+  // The WASM runtime runs in the sandboxed webview worker (spec §4a). A wasm run
+  // that clears the gate is necessarily LOCAL-only (its caps reject mount/remote —
+  // capabilities.ts), so there is no Docker network decision to make: route it
+  // straight to the wasm executor. (supportsRemoteIO/supportsMount flip on later —
+  // build log D2 — at which point their branches land above this.)
+  if (i.runtime === "wasm") return { kind: "wasm" };
 
   // Local data (a bind-mount or a copied-in Parquet) is FORCED offline,
   // regardless of what the generated code contains.
@@ -160,6 +183,24 @@ export function executeSandbox(
   // prelude imports). Injected HERE — the single dispatch point — so all
   // runtimes and the warm paths get it identically.
   const additionalFiles = [...hermeticRuntimeFiles(), ...(opts.additionalFiles ?? [])];
+
+  // The WASM runtime: hand off to the harness-supplied executor (browser worker
+  // in the app; Node in CI — build log D1). No Docker involved. A context with no
+  // executor configured (e.g. headless, no webview) fails cleanly rather than
+  // silently falling through to Docker.
+  if (plan.kind === "wasm") {
+    if (!opts.wasmExecutor) {
+      return Promise.resolve({
+        success: false,
+        error:
+          "The WASM sandbox runtime is selected but no WASM executor is configured " +
+          "in this context (it requires the desktop app's webview). Use the Docker runtime here.",
+        errorKind: "user-config",
+        execution_ms: 0,
+      });
+    }
+    return opts.wasmExecutor(csvContent, code, { additionalFiles, geojsonContent });
+  }
 
   if (plan.kind === "docker-mount") {
     return dockerExecutor(csvContent, code, {

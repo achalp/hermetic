@@ -43,17 +43,19 @@ export const RUNTIME_CAPABILITIES: Record<SandboxRuntimeId, RuntimeCapabilities>
     supportsRemoteIO: true,
     supportsWarm: true,
   },
-  // Pyodide + DuckDB-WASM (optional Docker-free runtime). ALL FALSE by design
-  // until its execution worker + the §7 in-browser escape suite exist and pass:
-  // an un-hardened WASM runtime embedded in a JS host reaches ambient network via
-  // the `import js` FFI, so it CANNOT yet claim network isolation. With every flag
-  // false the gate REJECTS every wasm run (the switch-to-Docker messages), which
-  // is the honest, safe default. supportsNetworkPolicy/RemoteIO flip only in
-  // Phase 1c, gated on the escape suite, in the same PR (mirroring the M3
-  // discipline). See specs/pyodide-wasm-sandbox-2026-08-26.md §7.
+  // Pyodide + DuckDB-WASM (optional Docker-free runtime). Its PRODUCTION executor
+  // is the sandboxed webview worker (spec §4 Option B), whose isolation is
+  // enforced by the exec-context CSP and PROVEN by the in-browser escape suite
+  // (e2e/wasm-escape-suite.spec.ts) — so `supportsNetworkPolicy: true` is honest:
+  // a local-data wasm run is isolated exactly as Docker's --network none is. The
+  // Node-Pyodide executor is CI/parity-only and never handles user data (build
+  // log D1). The remaining flags stay FALSE until their paths ship + test (build
+  // log D2): supportsRemoteIO (the Rust egress fetch, §6a), supportsMount
+  // (big-data Parquet), supportsWarm (the warm pool). Until then those runs
+  // honestly route to Docker. See specs/pyodide-wasm-build-log.md.
   wasm: {
     supportsMount: false,
-    supportsNetworkPolicy: false,
+    supportsNetworkPolicy: true,
     supportsRemoteIO: false,
     supportsWarm: false,
   },
