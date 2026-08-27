@@ -173,7 +173,16 @@ export const MODEL_PRICING: Record<string, ModelPrice> = {
 // back would require re-adding a backend that preserves the isolation guarantee.
 export const AVAILABLE_RUNTIMES = [{ id: "docker", label: "Docker (Local)" }] as const;
 
-export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"];
+// `wasm` (Pyodide + DuckDB-WASM, an optional Docker-free runtime) is a KNOWN
+// runtime the type system + capability gate must account for, but it is
+// deliberately NOT in AVAILABLE_RUNTIMES — not user-selectable — until its
+// executor and the §7 isolation escape suite land (Phase 1c). Registering it
+// here forces the exhaustive RUNTIME_CAPABILITIES Record (capabilities.ts) to
+// declare it and makes planSandboxRouting handle it; today its capabilities are
+// all false, so the gate honestly REJECTS every wasm run (switch-to-Docker
+// message) rather than running un-isolated. See
+// specs/pyodide-wasm-sandbox-2026-08-26.md.
+export type SandboxRuntimeId = (typeof AVAILABLE_RUNTIMES)[number]["id"] | "wasm";
 
 /** Static fallback — prefer getActiveSandboxRuntime() which checks runtime config */
 export const DEFAULT_SANDBOX_RUNTIME: SandboxRuntimeId =

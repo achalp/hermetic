@@ -43,6 +43,20 @@ export const RUNTIME_CAPABILITIES: Record<SandboxRuntimeId, RuntimeCapabilities>
     supportsRemoteIO: true,
     supportsWarm: true,
   },
+  // Pyodide + DuckDB-WASM (optional Docker-free runtime). ALL FALSE by design
+  // until its execution worker + the §7 in-browser escape suite exist and pass:
+  // an un-hardened WASM runtime embedded in a JS host reaches ambient network via
+  // the `import js` FFI, so it CANNOT yet claim network isolation. With every flag
+  // false the gate REJECTS every wasm run (the switch-to-Docker messages), which
+  // is the honest, safe default. supportsNetworkPolicy/RemoteIO flip only in
+  // Phase 1c, gated on the escape suite, in the same PR (mirroring the M3
+  // discipline). See specs/pyodide-wasm-sandbox-2026-08-26.md §7.
+  wasm: {
+    supportsMount: false,
+    supportsNetworkPolicy: false,
+    supportsRemoteIO: false,
+    supportsWarm: false,
+  },
 };
 
 /** What a specific execution request needs from the runtime. */
