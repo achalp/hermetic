@@ -49,16 +49,24 @@ export interface WasmRunInput {
  * member, its path is an opaque object key (§6a #1). Read-only GET; streaming
  * byte-cap; resolve-and-reject internal IPs; no cross-host redirects.
  */
-export interface EgressGuard {
-  /** Approve/deny a worker fetch request against the run's authorized source. */
-  authorize(req: EgressRequest): EgressVerdict;
-}
-
 export interface EgressRequest {
   /** The run this request belongs to (matched against the sidecar-set authorization). */
   runId: string;
   /** The URL the worker wants fetched (host validated against the derived allowlist). */
   url: string;
+}
+
+/**
+ * The authorization the TRUSTED sidecar establishes out-of-band for a run
+ * (§6a #1/#2). `allowedHosts` is derived from the STORED source URL — never the
+ * worker's — via deriveAllowedEgressHosts; the worker's requested URL is honored
+ * only if its host is a member. A run with no remote source has an empty
+ * allowlist, so every worker fetch is refused (local-run `connect-src 'none'`
+ * parity). The guard NEVER consults a worker-supplied source id.
+ */
+export interface EgressAuthorization {
+  runId: string;
+  allowedHosts: readonly string[];
 }
 
 export type EgressVerdict = { allowed: true; host: string } | { allowed: false; reason: string };

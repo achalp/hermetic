@@ -41,7 +41,11 @@ const TARGETS = [
     // seam stays clean as parallel phase work lands. The Pyodide executor
     // (integration glue → parse-output/runtime-files) is the impure edge and is
     // intentionally OUTSIDE this boundary.
-    include: ["src/lib/sandbox/wasm/relay.ts", "src/lib/sandbox/wasm/contract.ts"],
+    include: [
+      "src/lib/sandbox/wasm/relay.ts",
+      "src/lib/sandbox/wasm/contract.ts",
+      "src/lib/sandbox/wasm/egress-guard.ts",
+    ],
     excludeTests: true,
     allowed: ["src/lib/sandbox/wasm/", "src/lib/contracts/", "src/spec/core/"],
   },
