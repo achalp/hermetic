@@ -69,20 +69,15 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// signing is a documented follow-on** — those require canonical-request signing
 /// over method/path/headers/payload-hash, not a static header. A pre-signed URL
 /// works today (it needs no credential and passes as [`Credentials::None`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Credentials {
     /// No credential (public object or pre-signed URL).
+    #[default]
     None,
     /// `Authorization: Bearer <token>`.
     Bearer(String),
     /// An arbitrary single request header (e.g. a provider-specific token header).
     Header { name: String, value: String },
-}
-
-impl Default for Credentials {
-    fn default() -> Self {
-        Credentials::None
-    }
 }
 
 // ---------------------------------------------------------------------------

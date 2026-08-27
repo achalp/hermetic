@@ -243,3 +243,39 @@ strict-CSP blob-load is the last hardening step"). The acceptance gate is writte
 **Status:** the handoff is BUILT and MECHANISM-tested end to end; the strict-CSP
 offline boot is the single documented open item, gated by `test.fixme` and this
 decision. No capability was flipped on an unproven path (D5 held).
+
+### D9 — Rust Fetcher edge DONE + tested; supportsRemoteIO flip HELD (path not yet wired)
+
+**Built + tested (D7 core):** the real-network `Fetcher` for `rust/egress-core/`,
+behind the already-tested §6a decision logic. `SystemFetcher` (ureq + rustls,
+Mozilla roots) connects ONLY to the vetted `AllowedFetch::addrs` via a constant
+ureq resolver — DNS is never consulted at fetch time, so DNS-rebinding cannot point
+it anywhere new (the Rust analogue of the proxy's "connect to the vetted sockaddr").
+GET-only, standard cert validation, `Content-Length` untrusted (streamed in 64 KiB
+chunks through `ByteCounter`), no auto-redirect (`.redirects(0)`; each hop re-runs
+the FULL allowlist + resolve-and-reject, bounded to 5). 59 cargo tests pass under
+`cargo test --locked` (the exact CI command), including the §7 T6 egress vectors:
+internal-IP + non-allowlist refusal BEFORE any connect (fake fetcher panics if
+reached), redirect-to-internal / -non-allowlisted / relative-redirect refused,
+byte-cap abort, lying 100 GB Content-Length ignored, GET-only, redirect-loop bound.
+(The T6 vectors live in Rust, not the browser escape suite, because remote fetch
+runs NATIVE — the worker under `connect-src 'none'` never fetches.)
+
+**Why supportsRemoteIO stays FALSE (the flip is NOT yet honest).** The capability
+gate flipping to true would ADMIT remote runs to the wasm runtime — but a remote
+read cannot actually complete there yet, for two independent reasons:
+
+1. the wasm worker can't boot under the strict CSP (E2.5 / D8 open), and
+2. there is NO bridge from the sandbox's remote read to the native Fetcher — the
+   worker (no network) would need to call OUT to the Tauri host over IPC, which
+   runs `authorize_and_fetch` and returns bytes. That worker→Rust IPC command is
+   not built.
+   D2 is explicit: keep `supportsRemoteIO` FALSE "until their paths are wired + tested";
+   D7 itself invokes the M3 "flip in the SAME change as the green suite" discipline. No
+   green end-to-end remote-read suite can exist without (1)+(2). So the flag holds, and
+   remote/big-data honestly route to Docker (D3). **Recommended:** land the flip with
+   the worker→Rust IPC bridge in a future change, gated on an e2e that reads a real
+   remote object through the wasm runtime. The Fetcher — the hard, security-critical
+   core of that path — is DONE and adversarially tested.
+   _Alternative rejected:_ flip now on the built-but-unwired edge — exactly the false
+   "remote works" claim D2/D5 forbid.
