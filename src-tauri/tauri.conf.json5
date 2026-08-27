@@ -5,43 +5,43 @@
 // (natively supported by Tauri) lets the §7 security decisions carry real inline
 // comments — see specs/pyodide-wasm-sandbox-2026-08-26.md §4a + §7.
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Hermetic",
-  "version": "0.1.0",
-  "identifier": "com.hermetic.desktop",
+  $schema: "https://schema.tauri.app/config/2",
+  productName: "Hermetic",
+  version: "0.1.0",
+  identifier: "com.hermetic.desktop",
 
-  "build": {
+  build: {
     // Phase 0/dev: point at the existing Next dev server.
     // FOLLOW-ON (Phase 0c, §4a): replace with the bundled Node standalone-server
     // sidecar spawned as an externalBin; the window then loads the sidecar's
     // localhost origin instead of this dev URL. See src/lib.rs.
-    "devUrl": "http://localhost:3000",
+    devUrl: "http://localhost:3000",
 
     // Placeholder so the config validates without a built bundle. The REAL
     // frontend is the server-rendered Next app served by the sidecar (the app is
     // NOT output:'export'-able — §4a), so this static dir is a stand-in for
     // `cargo build` / config-check only.
-    "frontendDist": "../dist-placeholder"
+    frontendDist: "../dist-placeholder",
   },
 
-  "app": {
+  app: {
     // §7 #1: no window.__TAURI__ injected into the page — removes an ambient
     // host-reachable global from untrusted webview JS.
-    "withGlobalTauri": false,
+    withGlobalTauri: false,
 
-    "windows": [
+    windows: [
       {
-        "title": "Hermetic",
-        "width": 1280,
-        "height": 832,
-        "minWidth": 800,
-        "minHeight": 600,
-        "resizable": true,
-        "fullscreen": false
-      }
+        title: "Hermetic",
+        width: 1280,
+        height: 832,
+        minWidth: 800,
+        minHeight: 600,
+        resizable: true,
+        fullscreen: false,
+      },
     ],
 
-    "security": {
+    security: {
       // The APP-document CSP (reasonably tight).
       //
       // NOTE: the untrusted EXECUTION WORKER does NOT use this — it carries its
@@ -54,22 +54,17 @@
       // exfil). The packaged-build app CSP below is further tightened (§7 #5b:
       // drop huggingface.co, constrain connect-src/img-src) once the sidecar
       // origin is known.
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:3000 ws://localhost:3000; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+      csp: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:3000 ws://localhost:3000; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       // Capability grants live in capabilities/default.json — MINIMAL by design
       // (§7 #1): NO fs/shell/http/dialog/os permissions.
-    }
+    },
   },
 
-  "bundle": {
-    "active": true,
-    "targets": "all",
+  bundle: {
+    active: true,
+    targets: "all",
     // Placeholder icons (generated). `cargo build` does not consume these;
     // `tauri build` bundling does. Replace before Phase 3 productionization.
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.ico"
-    ]
-  }
+    icon: ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+  },
 }

@@ -164,6 +164,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm mcp:build-viewer
       - run: npx playwright install --with-deps chromium
+      - name: Pre-cache Pyodide wheels for the browser-analysis e2e
+        run: node scripts/cache-pyodide-wheels.mjs
       - run: pnpm test:e2e
       - name: Upload Playwright report on failure
         if: failure()

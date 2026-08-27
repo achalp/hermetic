@@ -16,6 +16,13 @@ const ROOT = process.cwd();
 const PYODIDE_DIR = join(ROOT, "node_modules", "pyodide");
 const RUNTIME_DIR = join(ROOT, "docker", "sandbox", "hermetic_runtime");
 
+// numpy/pandas wheels are fetched at runtime and cached into node_modules/pyodide.
+// A fresh install (CI) has none, so skip unless present (CI pre-caches them via
+// scripts/cache-pyodide-wheels.mjs in the e2e job). Never fails on a cold machine.
+const wheelsPresent = readdirSync(PYODIDE_DIR).some(
+  (f) => f.endsWith(".whl") && (f.startsWith("numpy") || f.startsWith("pandas"))
+);
+
 function runtimeFiles(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const f of readdirSync(RUNTIME_DIR)) {
@@ -130,6 +137,10 @@ test.afterAll(async () => {
 test("a real pandas analysis runs in-browser (no Docker, local wheels) → correct envelope", async ({
   page,
 }) => {
+  test.skip(
+    !wheelsPresent,
+    "numpy/pandas wheels not cached — run scripts/cache-pyodide-wheels.mjs"
+  );
   await page.goto(base);
   await page.waitForFunction(() => (window as unknown as { __result: unknown }).__result !== null, {
     timeout: 90_000,
