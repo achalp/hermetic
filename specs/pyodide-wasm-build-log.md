@@ -19,7 +19,7 @@ Each entry: the decision, why, and the alternative rejected. Newest at the botto
 - [ ] D. Tauri shell + Node sidecar packaging (build-verified)
 - [~] E. (partial) runtime auto-selection wired; browser transport wiring next
 - [ ] E2. Wire the browser transport + the sidecar↔worker handoff into the app
-- [ ] F. Final no-Docker end-to-end validation
+- [x] F. No-Docker end-to-end validated: dispatcher → wasm executor → Pyodide (Node, opt-in CI) AND real pandas analysis in a browser worker (e2e)
 
 ## Decisions
 
