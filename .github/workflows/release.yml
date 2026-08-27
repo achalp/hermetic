@@ -2,9 +2,11 @@ name: Release
 
 # Tag-driven releases (phase 1 of the release path):
 #   git tag v0.2.0 && git push origin v0.2.0
-# Gate (lint/type-check/tests/build) → sandbox image to GHCR → GitHub Release
-# with auto-generated notes. Tags containing '-' (v0.2.0-rc.1) publish as
-# PRERELEASES, so the pipeline itself is testable without shipping a "latest".
+# Gate (lint/type-check/tests/build + Python contract mirror) → sandbox image to
+# GHCR → GitHub Release that BUILDS + smokes + attests the .mcpb and attaches it
+# atomically at creation (a bundle failure blocks publication). Tags containing
+# '-' (v0.2.0-rc.1) publish as PRERELEASES, so the pipeline itself is testable
+# without shipping a "latest".
 on:
   push:
     tags: ["v*"]
@@ -32,8 +34,15 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Parity with the PR gate (.github/workflows/ci.yml) — the release commit
-      # must clear the SAME bar, not a weaker subset.
+      # Re-verify the EXACT tagged commit against the core of the PR gate
+      # (.github/workflows/ci.yml): lint, hygiene, ratchet, isolation, format,
+      # type-check, full tests + coverage, build — PLUS the Python runtime
+      # contract mirror below (the shipped sandbox's interpreter). The browser
+      # e2e, golden-transcripts, and Node-20 matrix leg run on the PR that gates
+      # every commit into main and are deliberately NOT re-run here to keep a tag
+      # push fast — so this is a strong re-check of the release commit, not the
+      # literal superset of ci.yml. (Branch protection making that PR pass
+      # mandatory before merge is the belt to this suspenders — see README.)
       - run: pnpm run lint
       - run: node scripts/check-data-hygiene.mjs
       - run: pnpm run ratchet
@@ -44,6 +53,16 @@ jobs:
       - run: pnpm run build
         env:
           ANTHROPIC_API_KEY: test-key-for-build
+      # The sandbox image ships this interpreter + these pinned libs; the mirror
+      # catches Python<->JSON contract drift that would break the shipped image.
+      - name: Set up Python (matches the sandbox image)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Python runtime contract mirror
+        run: |
+          pip install pandas==2.2.3 numpy==2.2.4 scipy==1.15.2
+          python3 -m unittest docker.sandbox.hermetic_runtime.test_runtime
 
   sandbox-image:
     name: Sandbox image → GHCR
@@ -85,44 +104,21 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
+  # Build + smoke + attest the .mcpb, THEN create the release with the bundle
+  # and its checksum attached at creation. Ordering matters: the old pipeline
+  # published the GitHub Release first and built the bundle in a later job, so a
+  # bundle build/smoke failure left a public release whose notes referenced a
+  # `hermetic.mcpb` asset that never uploaded. Now a bundle failure aborts before
+  # any release exists, and `gh release create` attaches the assets atomically.
   release:
-    name: GitHub Release
+    name: GitHub Release (+ attested bundle)
     needs: [gate, sandbox-image]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write # create the release
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG=$GITHUB_REF_NAME
-          FLAGS=""
-          [[ "$TAG" == *-* ]] && FLAGS="--prerelease"
-          REPO="${{ github.repository }}"
-          gh release create "$TAG" --generate-notes $FLAGS \
-            --notes "Sandbox image: \`ghcr.io/${REPO}-sandbox:${TAG#v}\`
-
-          Claude Desktop extension: \`hermetic.mcpb\` (attached below — Settings → Extensions → Install Extension)
-
-          **Verify artifacts** (build provenance is attested via GitHub):
-          \`\`\`
-          gh attestation verify oci://ghcr.io/${REPO}-sandbox:${TAG#v} --repo ${REPO}
-          gh attestation verify hermetic.mcpb --repo ${REPO}
-          sha256sum -c hermetic.mcpb.sha256
-          \`\`\`"
-
-  mcpb:
-    name: MCPB bundle → Release asset
-    needs: [gate, release]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # upload the asset to the release
+      contents: write # create the release + upload assets
       id-token: write # OIDC for build-provenance attestation
-      attestations: write # write the provenance attestation
+      attestations: write # write the bundle provenance attestation
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -137,9 +133,23 @@ jobs:
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: hermetic.mcpb
-      - name: Checksum and attach to release
+      - name: Create release with the attested, checksummed bundle attached
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TAG=$GITHUB_REF_NAME
+          FLAGS=""
+          [[ "$TAG" == *-* ]] && FLAGS="--prerelease"
+          REPO="${{ github.repository }}"
           sha256sum hermetic.mcpb > hermetic.mcpb.sha256
-          gh release upload "$GITHUB_REF_NAME" hermetic.mcpb hermetic.mcpb.sha256 --clobber
+          gh release create "$TAG" hermetic.mcpb hermetic.mcpb.sha256 --generate-notes $FLAGS \
+            --notes "Sandbox image: \`ghcr.io/${REPO}-sandbox:${TAG#v}\`
+
+          Claude Desktop extension: \`hermetic.mcpb\` (attached below — Settings → Extensions → Install Extension)
+
+          **Verify artifacts** (build provenance is attested via GitHub):
+          \`\`\`
+          gh attestation verify oci://ghcr.io/${REPO}-sandbox:${TAG#v} --repo ${REPO}
+          gh attestation verify hermetic.mcpb --repo ${REPO}
+          sha256sum -c hermetic.mcpb.sha256
+          \`\`\`"
