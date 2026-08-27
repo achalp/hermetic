@@ -326,9 +326,11 @@ true`, via the Rust-core egress path in §6a, NOT worker `fetch`). The bytes are
   DuckDB-WASM is single-threaded with no disk-spill, so the WASM heap has no OOM
   valve; the tier **caps input size** and rejects above it (`supportsMount`/big-data
   via Docker's `>=100k`-row Parquet path stays Docker-only). The cap is a
-  first-class capability, **measured in Phase 0(a)** — and it is the
-  value-proposition gate (§10): if the cap is too low to cover normal personal
-  datasets, reconsider.
+  first-class capability, **measured in Phase 0(a)** (`spikes/wasm-phase-0/`):
+  read_csv → groupby ran clean to **400 MB / 5.3M rows** (WASM heap ~1.45 GB;
+  wasm32 ~2 GB is the wall at ~3.6× heap:CSV), so the cap is set **~250–300 MB** —
+  far above a normal personal dataset. The value-proposition gate (§10) is
+  **GREEN**.
 
 **Codegen consequence.** A no-Docker user has no fallback, so the WASM tier needs
 a **codegen prompt variant** that stays in-envelope: DuckDB-WASM-shaped SQL (§6),
