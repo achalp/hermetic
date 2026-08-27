@@ -99,3 +99,27 @@ under the controls (100% coverage on pure logic, isolation boundary, ratchet, 6
 CI jobs). The remaining work to make the running PRODUCT use it interactively is
 E2 (the live sidecar↔webview handoff) + C (the Rust Fetcher for remote) + Tauri
 0c packaging — each a well-scoped build against tested seams, not an open question.
+
+### D6 — BUILD E2 (approved 2026-08-27): the live sidecar↔webview execution handoff.
+
+Chosen transport: an HTTP callback over the EXISTING NDJSON stream (no WebSocket —
+Next lacks native ws; the stream is already open). The wasm run's injected
+`wasmExecutor` (Node) emits an "execute-request" patch carrying {id, code, files}
+into the stream, registers a pending resolver, and awaits it; the browser reads
+the patch, runs the client executor in the worker, and POSTs the relay-validated
+envelope to /api/wasm-result?id=…, which resolves the pending promise →
+parseSandboxOutput → ExecutionResult → the orchestrator resumes. orchestrator.ts
+is touched MINIMALLY (it already dispatches to opts.wasmExecutor); the wasmExecutor
+is injected through the pipeline like hooks/runId. Increments E2.1 client-executor,
+E2.2 callback endpoint + registry + factory, E2.3 pipeline injection, E2.4 frontend
+handler, E2.5 running-app Playwright acceptance. Each with tests.
+_Alternative rejected:_ a raw WebSocket server (needs a custom Next server; more
+surface for less fit than the callback-over-stream).
+
+### D7 — BUILD REMOTE (approved 2026-08-27): the Rust Fetcher edge + flip supportsRemoteIO.
+
+Implement the real-network `Fetcher` behind the tested §6a decision logic (a
+minimal Rust HTTP+TLS client), connecting only to vetted addresses (no re-resolve),
+GET-only, standard cert validation, no auto-redirect, streaming byte-cap. Add the
+§7 T6 vectors to the escape suite. Flip supportsRemoteIO → true in the SAME change
+as the green suite (M3 discipline). Ties remote firmly to the Tauri build.
