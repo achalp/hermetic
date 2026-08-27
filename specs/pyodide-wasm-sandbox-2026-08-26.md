@@ -481,12 +481,19 @@ may `RUNTIME_CAPABILITIES.wasm.supportsNetworkPolicy` be set `true`:
 nodeIntegration:false, nodeIntegrationInWorker:false`).
 2. **The exec-context CSP is THE load-bearing network control** (not the FFI
    scrub — see #3). The worker document carries **one** policy, written once:
-   `default-src 'none'; script-src 'self' blob:; connect-src 'none'; img-src 'none';
-worker-src 'none'; child-src 'none'`. (`script-src 'none'` — v2.1's typo — would
-   stop Pyodide loading; the correct value is `'self' blob:`.) `worker-src/child-src
-'none'` blocks the `new Worker`/iframe **fresh-realm** escape. This holds
-   regardless of any captured JS reference, so it — not the scrub — is what proves
-   "no egress."
+   `default-src 'none'; script-src blob: 'wasm-unsafe-eval'; connect-src 'none';
+img-src 'none'; worker-src 'none'; child-src 'none'`. **`script-src` must NOT
+   include `'self'`** — the Phase 0(b) escape suite
+   (`e2e/wasm-escape-suite.spec.ts`, run in real chromium) PROVED that `'self'`
+   permits same-origin `importScripts()` / dynamic `import()` to an attacker-chosen
+   URL — a real exfil channel (data rides the URL; the request leaves even though
+   the "script" never executes, because `connect-src 'none'` does NOT govern script
+   loads). Pyodide is loaded from **pre-fetched `blob:` URLs**, so `script-src blob:`
+   runs it while blocking same-origin script-URL egress; `'wasm-unsafe-eval'`
+   permits `WebAssembly.compile` only. `worker-src/child-src 'none'` blocks the
+   `new Worker`/iframe **fresh-realm** escape. This holds regardless of any captured
+   JS reference (proven in-browser: a `fetch` reference saved before any scrub is
+   still CSP-blocked), so it — not the scrub — is what proves "no egress."
 3. **FFI global-scrub = defense-in-depth ONLY.** Deleting `fetch/WebSocket/…` from
    the worker global before user code is a **denylist** and cannot prove absence
    (captured refs, `Function('return this')()`, `self.constructor`, getters,
@@ -794,6 +801,13 @@ committed delivery vehicle.
   the app and can hold Docker's isolation line; Pyodide specifically because it
   ships the prebuilt numpy/pandas/scipy wheels the runtime needs (WASI-CPython
   can't). Microsandbox stays shelved.
+- v2.6 → **Phase 0(b) build finding** (`e2e/wasm-escape-suite.spec.ts`, real
+  chromium): the escape suite passes — `connect-src 'none'` blocks
+  fetch/XHR/WebSocket/sendBeacon/EventSource from the worker, and a `fetch`
+  reference captured before any scrub is still blocked (CSP is the boundary). It
+  **caught a real §7 bug**: the exec-CSP's `script-src 'self'` permitted
+  same-origin `importScripts()`/`import()` exfil (data in the URL). Corrected to
+  `script-src blob: 'wasm-unsafe-eval'` (Pyodide loads from blob:, not 'self').
 - v2.5 → **correction**: warehouse pulls are NOT a WASM non-goal (v2.4's §2 was
   wrong). Warehouse connection/query runs in the **sidecar** via native drivers
   (`run-ask-query.ts:203/227`, `run-investigate-query.ts:218`), returning CSV the
