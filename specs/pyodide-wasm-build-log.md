@@ -14,11 +14,13 @@ Each entry: the decision, why, and the alternative rejected. Newest at the botto
 - [x] Integration: Node executor, transport-node, duckdb-bridge, duckdb-engine
 - [x] Rust egress core (decision logic, 44 tests)
 - [x] A. Runtime dispatch: route executeSandbox to the wasm executor + flip caps
-- [ ] B. Combined strict-CSP browser execution (Pyodide from blobs, connect-src 'none')
-- [ ] C. Rust Fetcher edge (real TLS/HTTP behind the decisions)
+- [ ] B. Combined strict-CSP browser execution (Pyodide from blobs, connect-src 'none') — E2.5/D8 open item
+- [~] C. Rust Fetcher edge (real TLS/HTTP behind the decisions) — BUILT (agent, 15 tests); reconcile + flip pending (D7)
 - [x] D. Tauri shell scaffold + cargo-build verified (sidecar packaging = 0c, deferred)
-- [~] E. (partial) runtime auto-selection wired; browser transport wiring next
-- [ ] E2. Wire the browser transport + the sidecar↔worker handoff into the app
+- [x] E. runtime auto-selection wired
+- [~] E2. sidecar↔webview handoff MECHANISM built + unit-tested end to end (E2.2 registry,
+  E2.3 sidecar+route+injection, E2.4 browser controller+worker route+hook). Only the
+  strict-CSP offline Pyodide boot remains (E2.5 gate, D8) — no capability flipped on it.
 - [x] F. No-Docker end-to-end validated: dispatcher → wasm executor → Pyodide (Node, opt-in CI) AND real pandas analysis in a browser worker (e2e)
 
 ## Decisions
@@ -191,3 +193,53 @@ minimal Rust HTTP+TLS client), connecting only to vetted addresses (no re-resolv
 GET-only, standard cert validation, no auto-redirect, streaming byte-cap. Add the
 §7 T6 vectors to the escape suite. Flip supportsRemoteIO → true in the SAME change
 as the green suite (M3 discipline). Ties remote firmly to the Tauri build.
+
+### D8 — E2.5 blocker characterized: offline Pyodide boot vs the strict exec CSP (FLAG FOR REVIEW)
+
+**What I proved tonight (E2.2–E2.4, all committed + tested):** the entire live
+sidecar↔webview handoff MECHANISM. Sidecar: pending-handoff registry (100%),
+`/api/wasm-result` route, `ambientWasmExecutor` injected into all 3 orchestrator
+`executeSandbox` sites, `__wasm_exec` emitted as a stream patch. Browser: the pure
+`createClientHandoff` controller (100%, idempotent, always-answers-the-sidecar),
+`/api/wasm-worker` served under the exact strict `WASM_EXEC_CSP`, the `useWasmHandoff`
+hook wired into the stream, and history-hygiene stripping. Unit/route/hook tests all
+green; type-check + ratchet + isolation + wasm-100% green.
+
+**The one unproven step (E2.5), now precisely characterized.** Booting Pyodide with
+ZERO network under `connect-src 'none'` + `script-src blob:` (no 'self'). Pyodide
+resolves `pyodide.asm.mjs` via `import()`, and its `.wasm` + `python_stdlib.zip` via
+`fetch`, ALL against a _directory_ `indexURL`. The strict CSP blocks same-origin
+`import()`/`fetch`, and Pyodide's public API (`indexURL`, `lockFileURL`,
+`packageBaseUrl`, `stdlibURL`) offers no clean "here are the bytes" override for the
+core `.asm`/`.wasm`. So `loadPyodide({indexURL})` cannot boot under the strict CSP as
+written. This is the SAME "last hardening step" the repo's own
+`wasm-browser-exec.spec.ts` header already flagged ("Combining them under a single
+strict-CSP blob-load is the last hardening step"). The acceptance gate is written
+(`e2e/wasm-live-handoff.spec.ts`, `test.fixme`) ready to iterate.
+
+**Options (need your call — I did NOT unilaterally weaken the boundary):**
+
+1. **Blob-URL asset redirection** — main thread fetches every asset (`.asm.mjs`,
+   `.wasm`, stdlib, wheels) as bytes, exposes them as `blob:` URLs, and drives
+   Pyodide to load each from its blob (custom `locateFile` / `Module.wasmBinary` /
+   per-asset URL config). `script-src blob:` permits `import(blob:)`; whether
+   `fetch(blob:)` is allowed under `connect-src 'none'` needs empirical check — if
+   not, the `.wasm`/stdlib must go through `wasmBinary`/FS-preload, not fetch.
+   Most faithful to §7; most Pyodide-internals spelunking; version-coupled.
+2. **Same-origin service-worker asset host** — a SW serves the bundled assets so the
+   worker "fetches" locally. But `connect-src 'none'` blocks the worker's fetch
+   BEFORE the SW sees it — so this needs `connect-src 'self'` too, i.e. option 3.
+3. **Tauri-local `connect-src 'self'` refinement (RECOMMENDED for the desktop product).**
+   In the Tauri app 'self' is a local custom protocol (`tauri://localhost`) — a
+   request to 'self' NEVER leaves the machine, so `connect-src 'self'` has NO network
+   egress channel at all; Pyodide boots normally from bundled same-origin assets.
+   Keep `script-src` WITHOUT 'self' (the documented script-URL-exfil channel stays
+   closed). Residual risk is only in a hypothetical WEB deploy (untrusted code could
+   hit same-origin `/api/*`); the WASM tier's actual target is the DESKTOP download,
+   where this is airtight. My recommendation: ship the desktop path on
+   `connect-src 'self'` (local-only), keep `connect-src 'none'` as the web-deploy
+   target pending option 1. This flips the boundary, so it is YOUR decision, not mine.
+
+**Status:** the handoff is BUILT and MECHANISM-tested end to end; the strict-CSP
+offline boot is the single documented open item, gated by `test.fixme` and this
+decision. No capability was flipped on an unproven path (D5 held).
