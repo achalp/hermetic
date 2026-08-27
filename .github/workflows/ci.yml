@@ -308,4 +308,4 @@ jobs:
       - name: WASM executor compute-parity
         env:
           HERMETIC_WASM_TEST: "1"
-        run: pnpm exec vitest run src/lib/sandbox/__tests__/wasm-executor.test.ts
+        run: pnpm exec vitest run src/lib/sandbox/wasm/__tests__/executor.test.ts

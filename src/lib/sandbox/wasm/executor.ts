@@ -15,8 +15,8 @@
  * untrusted user data over a network; it runs fixtures.
  */
 import { dirname } from "node:path";
-import { parseSandboxOutput } from "./parse-output";
-import { hermeticRuntimeFiles } from "./runtime-files";
+import { parseSandboxOutput } from "../parse-output";
+import { hermeticRuntimeFiles } from "../runtime-files";
 import type { ExecutionResult, AdditionalFile } from "@/lib/contracts/execution";
 
 const WORK_DIR = "/data";

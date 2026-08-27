@@ -35,6 +35,17 @@ const TARGETS = [
     allowed: ["src/lib/contracts/", "src/spec/core/"],
   },
   {
+    name: "wasm sandbox (pure logic seam)",
+    // The untrusted-execution subsystem's PURE modules (relay, phase contracts,
+    // and future shim/egress/transport logic). Held to a tight surface so the
+    // seam stays clean as parallel phase work lands. The Pyodide executor
+    // (integration glue → parse-output/runtime-files) is the impure edge and is
+    // intentionally OUTSIDE this boundary.
+    include: ["src/lib/sandbox/wasm/relay.ts", "src/lib/sandbox/wasm/contract.ts"],
+    excludeTests: true,
+    allowed: ["src/lib/sandbox/wasm/", "src/lib/contracts/", "src/spec/core/"],
+  },
+  {
     name: "renderer (→ @hermetic/renderer)",
     include: [
       "src/components/charts/**/*.ts",

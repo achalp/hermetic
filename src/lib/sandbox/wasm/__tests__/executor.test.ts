@@ -7,7 +7,7 @@
  * suite — like the live-warehouse tests. Runs in a dedicated CI job.
  */
 import { describe, it, expect, afterAll } from "vitest";
-import { executeSandbox, _resetWasmRuntimeForTests } from "@/lib/sandbox/wasm-executor";
+import { executeSandbox, _resetWasmRuntimeForTests } from "@/lib/sandbox/wasm/executor";
 
 const OPTED_IN = process.env.HERMETIC_WASM_TEST === "1";
 
