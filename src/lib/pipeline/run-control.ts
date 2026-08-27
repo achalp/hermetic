@@ -7,6 +7,9 @@ import { logger } from "@/lib/logger";
 import type { SkillFailureHint } from "@/lib/skills/types";
 import { stateNamespace } from "@/lib/state-store";
 import { registerRunLivenessProbe } from "@/lib/store-ttl";
+import { getHandoffRegistry } from "@/lib/sandbox/wasm/handoff-singleton";
+import { createStreamWasmExecutor, type WasmExecuteRequest } from "@/lib/sandbox/wasm/handoff";
+import type { WasmExecutor } from "@/lib/sandbox";
 
 /**
  * Per-run control registry — the single mechanism behind "stop on demand" and
@@ -39,6 +42,8 @@ interface RunControl {
   containers: Set<string>;
   /** Forwards sandbox progress to the run's patch stream. */
   onProgress?: (p: SandboxProgress) => void;
+  /** Dispatches a WASM execute-request into the run's patch stream (webview handoff). */
+  onWasmExecute?: (req: WasmExecuteRequest) => void;
   /** Active skills' phase-keyed OOM remedies (see skills/types.ts). */
   failureHints?: SkillFailureHint[];
   startedAt: number;
@@ -68,11 +73,13 @@ const containerOwner = stateNamespace<string>("run-container-owner");
  */
 export function registerRun(
   runId: string,
-  onProgress?: (p: SandboxProgress) => void
+  onProgress?: (p: SandboxProgress) => void,
+  onWasmExecute?: (req: WasmExecuteRequest) => void
 ): AbortController {
   const existing = runs.get(runId);
   if (existing) {
     existing.onProgress = onProgress ?? existing.onProgress;
+    existing.onWasmExecute = onWasmExecute ?? existing.onWasmExecute;
     return existing.controller;
   }
   const controller = new AbortController();
@@ -80,6 +87,7 @@ export function registerRun(
     controller,
     containers: new Set(),
     onProgress,
+    onWasmExecute,
     startedAt: Date.now(),
     stopped: false,
   });
@@ -215,4 +223,34 @@ export function ambientSandboxHooks(): SandboxRunHooks {
     onContainerEnd: unregisterContainer,
     failureHints: getRunFailureHints,
   };
+}
+
+/**
+ * Dispatch a WASM execute-request into the current run's patch stream. Throws if
+ * there is no active run or the run registered no webview dispatcher (a headless
+ * or non-streaming caller) — the stream executor catches it and returns a clean
+ * failure rather than silently hanging on a handoff nobody will answer.
+ */
+function dispatchWasmExecute(req: WasmExecuteRequest): void {
+  const runId = getRunId();
+  const rc = runId ? runs.get(runId) : undefined;
+  if (!rc?.onWasmExecute) {
+    throw new Error(
+      "No live webview stream to run the WASM sandbox in (the desktop app must be connected)."
+    );
+  }
+  rc.onWasmExecute(req);
+}
+
+/**
+ * The orchestration layer's WASM executor: routes a run's code to the webview
+ * worker over the open patch stream (dispatchWasmExecute) and awaits the browser's
+ * POSTed result via the shared handoff registry. Passed to executeSandbox as
+ * `wasmExecutor`; only invoked when the active runtime is "wasm".
+ */
+export function ambientWasmExecutor(): WasmExecutor {
+  return createStreamWasmExecutor({
+    registry: getHandoffRegistry(),
+    emit: dispatchWasmExecute,
+  });
 }

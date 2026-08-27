@@ -45,11 +45,19 @@ export function createStreamWasmExecutor(o: StreamWasmExecutorOpts): WasmExecuto
   return async (csvContent, code, execOpts) => {
     const start = Date.now();
     const { id, promise } = o.registry.create();
-    o.emit({ type: "wasm-execute", id, csvContent, code, files: execOpts.additionalFiles ?? [] });
+    // The normal path awaits `promise` through the race below, but the cleanup
+    // reject() in catch (e.g. when emit throws before the race starts) would
+    // otherwise reject an un-awaited promise → an unhandled rejection. A benign
+    // catch marks it consumed; the race still sees a real rejection normally.
+    void promise.catch(() => {});
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
     try {
+      // Emit INSIDE the try: if the run has no live stream to dispatch into,
+      // `emit` throws — the catch below rejects the pending handoff (no leak)
+      // and returns a clean failure instead of an unhandled rejection.
+      o.emit({ type: "wasm-execute", id, csvContent, code, files: execOpts.additionalFiles ?? [] });
       const envelope = await Promise.race([
         promise,
         new Promise<never>((_, reject) => {
@@ -93,6 +101,9 @@ export function createStreamWasmExecutor(o: StreamWasmExecutorOpts): WasmExecuto
         executionMs: Date.now() - start,
       });
     } catch (err) {
+      // Release the pending entry (no-op if already settled by resolve/timeout)
+      // so a failed dispatch never leaks a handoff into the registry.
+      o.registry.reject(id, "handoff aborted");
       return {
         success: false,
         error: timedOut

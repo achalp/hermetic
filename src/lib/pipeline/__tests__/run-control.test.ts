@@ -59,7 +59,9 @@ import {
   endRun,
   setRunFailureHints,
   getRunFailureHints,
+  ambientWasmExecutor,
 } from "@/lib/pipeline/run-control";
+import { getHandoffRegistry } from "@/lib/sandbox/wasm/handoff-singleton";
 
 // runWithRunId mints a random id; capture it so the test can drive stopRun().
 async function inRun<T>(fn: (runId: string) => Promise<T>): Promise<T> {
@@ -189,5 +191,35 @@ describe("run-control", () => {
   it("skill failure hint accessors are safe no-ops outside a run context", () => {
     setRunFailureHints([{ pattern: "x", hint: "y", skill: "z" }]);
     expect(getRunFailureHints()).toEqual([]);
+  });
+});
+
+describe("ambientWasmExecutor (live webview handoff)", () => {
+  it("dispatches to the run's webview and completes when the browser posts back", async () => {
+    await inRun(async (runId) => {
+      const reg = getHandoffRegistry();
+      // The registered dispatcher stands in for the patch stream + browser: it
+      // resolves the pending handoff as /api/wasm-result would on a POST.
+      registerRun(runId, undefined, (req) => {
+        expect(req.type).toBe("wasm-execute");
+        expect(req.code).toBe("print(1)");
+        reg.resolve(req.id, {
+          exitCode: 0,
+          output: { results: { ok: 1 }, chart_data: {}, images: {} },
+        });
+      });
+      const result = await ambientWasmExecutor()("a,b\n1,2\n", "print(1)", {});
+      expect(result.success, JSON.stringify(result)).toBe(true);
+    });
+  });
+
+  it("fails cleanly (no hang) when the run registered no webview stream", async () => {
+    await inRun(async (runId) => {
+      registerRun(runId); // no onWasmExecute dispatcher
+      const result = await ambientWasmExecutor()("a,b\n1,2\n", "print(1)", {});
+      expect(result.success).toBe(false);
+      // the failed dispatch left no pending handoff behind
+      expect(getHandoffRegistry().size()).toBe(0);
+    });
   });
 });

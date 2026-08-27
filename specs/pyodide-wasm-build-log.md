@@ -116,6 +116,37 @@ handler, E2.5 running-app Playwright acceptance. Each with tests.
 _Alternative rejected:_ a raw WebSocket server (needs a custom Next server; more
 surface for less fit than the callback-over-stream).
 
+**E2.2 (done, commit 32ad2c2):** `handoff-registry.ts` (pure, 100%-covered:
+create/resolve/reject/size over a pending-promise Map) + `handoff.ts`
+(`createStreamWasmExecutor`: emit the request, race the registry promise against a
+supervisor timeout, relay-validate the envelope, decode via parseSandboxOutput).
+
+**E2.3 (done):** the sidecar half of the handoff, fully wired into the run pipeline.
+
+- `handoff-singleton.ts` — ONE registry shared by the pipeline and the result route
+  via `stateBox` (globalThis slot), because they compile into separate dev module
+  graphs; ids are crypto UUIDs. Coverage-excluded (wraps the 100%-covered registry).
+- `POST /api/wasm-result?id=…` — the browser posts its envelope here; coarse guard
+  (id present, object body, 64 MiB cap, NaN-coerced exitCode) then `resolve()`. The
+  body is UNTRUSTED; the relay in handoff.ts is the real gate. 404 on unknown/settled
+  id (a guessed/late/timed-out POST). 5 route tests.
+- `run-control.ts` — `RunControl.onWasmExecute` + `registerRun`'s 3rd param;
+  `dispatchWasmExecute` (ambient, throws if no live stream) + `ambientWasmExecutor()`
+  (binds the singleton registry to the dispatcher). 2 round-trip tests.
+- `patch-stream.ts` — `emitWasmExecute` writes the request as a `/state/__wasm_exec`
+  patch (same convention as `__progress`/`__exec`); registered as the run's dispatcher.
+- `orchestrator.ts` — `wasmExecutor: ambientWasmExecutor()` beside `hooks` at all 3
+  executeSandbox sites (the analyze/investigate/edit paths).
+- Hardening: emit moved INSIDE handoff.ts's try (a dispatch throw → clean failure,
+  not an unhandled rejection); catch always `reject()`s the entry (no leak); a benign
+  `promise.catch` marks the raw promise consumed.
+- **Known limitation:** the non-streaming refresh/rerun routes (`/api/vizs/[id]/{refresh,rerun}`,
+  `/api/history/[id]/refresh`) cannot do a live webview handoff (no open stream to
+  dispatch into). Under the wasm runtime they already fail cleanly with the
+  "no WASM executor configured — use Docker" user-config error. Making them work
+  needs either a streaming refactor or a headless in-process wasm path — deferred,
+  not silently wrong. E2.4 wires the browser side (the `__wasm_exec` effect + POST).
+
 ### D7 — BUILD REMOTE (approved 2026-08-27): the Rust Fetcher edge + flip supportsRemoteIO.
 
 Implement the real-network `Fetcher` behind the tested §6a decision logic (a

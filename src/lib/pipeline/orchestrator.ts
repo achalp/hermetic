@@ -33,6 +33,7 @@ import {
   isRunStopped,
   setRunFailureHints,
   ambientSandboxHooks,
+  ambientWasmExecutor,
 } from "@/lib/pipeline/run-control";
 import { getPurposeCodegenScope } from "@/lib/purpose-prompts";
 import { getRunId } from "@/lib/run-context";
@@ -441,6 +442,7 @@ export async function runPipeline(
       localMountPath,
       inputParquetPath,
       hooks: ambientSandboxHooks(),
+      wasmExecutor: ambientWasmExecutor(),
       // Container attribution label — like hooks, injected here because the
       // sandbox layer never reads run-context itself.
       runId: getRunId(),
@@ -586,6 +588,7 @@ export async function runPipeline(
         localMountPath,
         inputParquetPath,
         hooks: ambientSandboxHooks(),
+        wasmExecutor: ambientWasmExecutor(),
         runId: getRunId(),
       }
     );
@@ -732,6 +735,7 @@ export async function runPipelineWithCode(
     localMountPath: options.localMountPath,
     inputParquetPath: options.inputParquetPath,
     hooks: ambientSandboxHooks(),
+    wasmExecutor: ambientWasmExecutor(),
     runId: getRunId(),
   });
 
