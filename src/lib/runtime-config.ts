@@ -39,6 +39,14 @@ export interface RuntimeConfig {
   llamaCpp?: LlamaCppConfig;
   claudeCli?: ClaudeCliConfig;
   sandboxRuntime?: SandboxRuntimeId;
+  /**
+   * Last-probed Docker availability (persisted by /api/runtimes). Drives the
+   * no-Docker auto-selection: when Docker is unavailable and the user hasn't
+   * pinned a runtime, execution defaults to the `wasm` runtime (§11 / build
+   * log). `undefined` = never probed → treated as "assume Docker" (current
+   * behavior preserved).
+   */
+  dockerAvailable?: boolean;
   /** User-selected LLM provider override (takes priority over auto-detection) */
   activeProvider?: string;
   /**
@@ -253,11 +261,25 @@ export function getActiveModels(): { codeGen: string; uiCompose: string } {
 }
 
 /**
- * The active sandbox runtime. Docker is the only runtime (E2B/microsandbox were
- * removed — they can't enforce network isolation, see the M3 decision), so this
- * is constant; kept as a function so call sites and the extension point survive
- * if another runtime is ever added.
+ * Pure runtime-selection decision (§11 / build log). An explicit user pin wins;
+ * otherwise a machine with NO Docker falls back to the browser-sandbox `wasm`
+ * runtime, and everything else uses Docker (the default + the "Docker unknown"
+ * case, preserving current behavior). Kept pure so it is exhaustively tested.
+ */
+export function resolveActiveRuntime(
+  userPinned: SandboxRuntimeId | undefined,
+  dockerAvailable: boolean | undefined
+): SandboxRuntimeId {
+  if (userPinned) return userPinned;
+  if (dockerAvailable === false) return "wasm";
+  return "docker";
+}
+
+/**
+ * The active sandbox runtime for this machine. Docker unless the user pinned a
+ * runtime or Docker was probed absent (→ wasm). See resolveActiveRuntime.
  */
 export function getActiveSandboxRuntime(): SandboxRuntimeId {
-  return "docker";
+  const cfg = getRuntimeConfig();
+  return resolveActiveRuntime(cfg.sandboxRuntime, cfg.dockerAvailable);
 }

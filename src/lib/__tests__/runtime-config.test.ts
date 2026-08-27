@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   getRuntimeConfig,
+  resolveActiveRuntime,
   setRuntimeConfig,
   clearRuntimeConfigCache,
   getActiveModels,
@@ -179,5 +180,24 @@ describe("getActiveEffort — per-phase overrides", () => {
     clearRuntimeConfigCache();
     expect(getActiveEffort("compose")).toBeNull();
     expect(getActiveEffort(null)).toBeNull();
+  });
+});
+
+describe("resolveActiveRuntime — no-Docker fallback (§11)", () => {
+  it("an explicit user pin always wins", () => {
+    expect(resolveActiveRuntime("docker", false)).toBe("docker");
+    expect(resolveActiveRuntime("wasm", true)).toBe("wasm");
+  });
+
+  it("no pin + Docker absent → wasm", () => {
+    expect(resolveActiveRuntime(undefined, false)).toBe("wasm");
+  });
+
+  it("no pin + Docker present → docker", () => {
+    expect(resolveActiveRuntime(undefined, true)).toBe("docker");
+  });
+
+  it("no pin + Docker availability unknown → docker (preserve current behavior)", () => {
+    expect(resolveActiveRuntime(undefined, undefined)).toBe("docker");
   });
 });

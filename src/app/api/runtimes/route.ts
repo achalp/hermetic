@@ -31,15 +31,22 @@ export async function GET() {
   const dockerImageOk = dockerDaemonOk ? await checkDockerImage() : false;
   const dockerOk = dockerDaemonOk && dockerImageOk;
 
-  // Docker is the only runtime (E2B/microsandbox removed).
+  // Persist the probe so getActiveSandboxRuntime() can auto-fall-back to the
+  // browser-sandbox `wasm` runtime on a machine with no Docker (§11 / build log).
+  setRuntimeConfig({ dockerAvailable: dockerOk });
+
   const runtimes: RuntimeStatus[] = [
     { id: "docker", label: "Docker (Local)", available: dockerOk },
+    // The no-Docker fallback: the browser-sandbox WASM runtime, surfaced as
+    // available when Docker is absent (it runs in the desktop webview).
+    { id: "wasm", label: "In-browser (WASM)", available: !dockerOk },
   ];
 
   logger.debug("Runtime availability", {
     docker: dockerOk,
     docker_daemon: dockerDaemonOk,
     docker_image: dockerImageOk,
+    wasm_fallback: !dockerOk,
   });
 
   return NextResponse.json(runtimes);

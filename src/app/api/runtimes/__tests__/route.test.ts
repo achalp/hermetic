@@ -42,10 +42,19 @@ describe("GET /api/runtimes", () => {
     expect(runtimes.find((r: { id: string }) => r.id === "docker").available).toBe(false);
   });
 
-  it("lists Docker as the only runtime", async () => {
+  it("lists Docker + the WASM fallback; wasm is available only when Docker is absent", async () => {
+    // Docker present → wasm listed but not the active fallback.
     execFile.mockImplementation((_cmd, _args, _opts, cb) => cb(null));
-    const runtimes = await (await GET()).json();
-    expect(runtimes.map((r: { id: string }) => r.id)).toEqual(["docker"]);
+    let runtimes = await (await GET()).json();
+    expect(runtimes.map((r: { id: string }) => r.id)).toEqual(["docker", "wasm"]);
+    expect(runtimes.find((r: { id: string }) => r.id === "wasm").available).toBe(false);
+    expect(setRuntimeConfig).toHaveBeenCalledWith({ dockerAvailable: true });
+
+    // Docker absent → wasm becomes the available fallback + the probe persists false.
+    execFile.mockImplementation((_cmd, _args, _opts, cb) => cb(new Error("no daemon")));
+    runtimes = await (await GET()).json();
+    expect(runtimes.find((r: { id: string }) => r.id === "wasm").available).toBe(true);
+    expect(setRuntimeConfig).toHaveBeenCalledWith({ dockerAvailable: false });
   });
 });
 
