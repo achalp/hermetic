@@ -52,6 +52,17 @@ relative diff 1.7e-13** (most metrics bitwise-identical; worst is ANOVA p at
 parity gate can use a **tight ~1e-9 tolerance**, not a loose one. Compute-parity
 is comprehensively de-risked (pure-math exact; numpy/scipy near-exact).
 
+### 5. Sync/async bridge mechanism (Phase 1b-shim, spec §6-A) — feasible
+
+`node spikes/wasm-phase-0/atomics-bridge.mjs` proves the hardest compute-side
+unknown after the memory ceiling: a **synchronous** Python-side call (like
+`duckdb.sql(q).df()`, no `await`) can block on `Atomics.wait` against a
+`SharedArrayBuffer` while an **async** engine (standing in for DuckDB-WASM) runs a
+Promise off-thread and `Atomics.notify`s — result delivered synchronously, 20ms
+round-trip. So the sync/async impedance mismatch is **bridgeable**; remaining
+integration = real DuckDB-WASM in the engine worker + the browser COOP/COEP infra
+(a 0(b) item) + Pyodide's Python↔JS FFI wiring. The mechanism itself is proven.
+
 ## What this de-risks / what's still open
 
 - De-risked: the fatal "physics" question — WASM can hold and analyze real
