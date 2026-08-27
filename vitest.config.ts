@@ -48,6 +48,7 @@ export default defineConfig({
         "src/lib/sandbox/wasm/executor.ts",
         "src/lib/sandbox/wasm/transport-node.ts",
         "src/lib/sandbox/wasm/duckdb-bridge.ts",
+        "src/lib/sandbox/wasm/duckdb-engine.ts",
       ],
       // Floors act as a regression ratchet, set a few points below current.
       // Global is low because ~69 chart components are presentational and
