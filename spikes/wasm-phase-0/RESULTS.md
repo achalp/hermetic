@@ -42,6 +42,16 @@ read_csv → groupby path at growing sizes:
   groupby), which comfortably covers a non-technical user's spreadsheet/export.
   A normal personal dataset is single-digit to low-tens of MB — far inside this.
 
+### 4. numpy/scipy tolerance parity — effectively exact
+
+`node spikes/wasm-phase-0/scipy-tolerance.mjs` runs pearsonr/spearmanr/f_oneway/
+kruskal + numpy aggregates on a fixed dataset in both engines. WASM (numpy 2.4.6)
+vs native (numpy 2.2.4 + scipy 1.15.2 — **different versions AND BLAS**): **max
+relative diff 1.7e-13** (most metrics bitwise-identical; worst is ANOVA p at
+1.7e-13). The reviews' BLAS-divergence concern is real but negligible — the §9
+parity gate can use a **tight ~1e-9 tolerance**, not a loose one. Compute-parity
+is comprehensively de-risked (pure-math exact; numpy/scipy near-exact).
+
 ## What this de-risks / what's still open
 
 - De-risked: the fatal "physics" question — WASM can hold and analyze real
