@@ -17,21 +17,8 @@
 import { dirname } from "node:path";
 import { parseSandboxOutput } from "../parse-output";
 import { hermeticRuntimeFiles } from "../runtime-files";
+import { WASM_WORK_DIR as WORK_DIR, WASM_PRELUDE } from "./runtime-constants";
 import type { ExecutionResult, AdditionalFile } from "@/lib/contracts/execution";
-
-const WORK_DIR = "/data";
-
-// Minimal WASM-safe prelude — the Docker prelude's daemon threads / cgroup guards
-// / os.environ proxy plumbing don't exist in WASM (spec §5). Keep only the
-// stdlib-safe bits the output contract needs: sys.path for hermetic_runtime, and
-// json allow_nan so write_output can emit NaN/Infinity.
-const WASM_PRELUDE = `
-import sys, json
-sys.path.insert(0, "${WORK_DIR}")
-_orig_dump, _orig_dumps = json.dump, json.dumps
-json.dump = lambda obj, fp, **kw: _orig_dump(obj, fp, **{**kw, "allow_nan": True})
-json.dumps = lambda obj, **kw: _orig_dumps(obj, **{**kw, "allow_nan": True})
-`;
 
 // One Pyodide instance per process, lazily booted + kept warm; packages loaded
 // once. Dynamic import keeps `pyodide` out of the production bundle.

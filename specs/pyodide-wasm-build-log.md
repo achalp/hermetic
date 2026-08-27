@@ -147,6 +147,43 @@ supervisor timeout, relay-validate the envelope, decode via parseSandboxOutput).
   needs either a streaming refactor or a headless in-process wasm path — deferred,
   not silently wrong. E2.4 wires the browser side (the `__wasm_exec` effect + POST).
 
+**E2.4 (done — control plane; strict-CSP boot is the E2.5 gate):** the browser half.
+
+- Contract: `WasmExecuteRequest` + `__wasm_exec` moved into the shared
+  `stream-state` contract (browser imports it with NO server code); added to
+  `StreamState` + `RESERVED_STATE_KEYS` (now 15). `handoff.ts` re-exports the type.
+  Also forwarded `geojsonContent` through the request (was silently dropped).
+- `client-handoff.ts` (pure, 100%-covered, in the isolation boundary):
+  `createClientHandoff({run, post, onError})` — idempotent per id (the stream
+  re-delivers the same `__wasm_exec` every render), and on a worker failure still
+  POSTs a non-zero envelope so the sidecar resolves instead of timing out.
+- `runtime-constants.ts` (leaf, shared): `WASM_WORK_DIR`, `WASM_PRELUDE`,
+  `WASM_EXEC_CSP` — extracted so the Node parity executor AND the browser worker
+  run byte-identical prelude/CSP (no drift). executor.ts now imports them.
+- `GET /api/wasm-worker` — serves the classic worker under `WASM_EXEC_CSP` (the
+  worker inherits the CSP from its own script response = the §7 boundary). Tests
+  pin: no `'self'`, `connect-src 'none'`, shared prelude embedded.
+- `use-wasm-handoff.ts` (hook) + `app/lib/wasm-worker-client.ts` (the impure
+  worker-boot + fetch-POST edges, in the sanctioned fetch site) — wired into
+  `use-analysis-stream` (no-op under Docker). Hook tested with injected edges.
+- History hygiene: `withoutHandoffState()` strips `__wasm_exec` (code + CSV bytes)
+  at the single persist seam (`persistHistoryEntry`) — never bloats history, and a
+  RESTORE won't fire a spurious worker boot + 404 POST. Pure + tested.
+- Tests added: client-handoff (6), wasm-worker route (3), use-wasm-handoff (2),
+  stream-state strip/keys (3). type-check + ratchet + isolation (17-file seam) +
+  wasm 100%-coverage all green.
+
+**E2.5 — the one remaining gate (offline Pyodide under the strict CSP):** the worker
+runs under `connect-src 'none'`, so it cannot fetch its own package/wasm bytes. The
+control plane above delivers pyodide.js as a blob (script-src blob:), but a fully
+OFFLINE asset path (main-thread pre-fetch → FS inject, or a Tauri custom-protocol
+asset host) for the numpy/pandas/stdlib bytes is NOT yet proven — the escape suite
+validated the CSP blocks egress but does not boot Pyodide, and the analysis e2e
+boots Pyodide only under a LOOSER CSP. Per D5 this is NOT claimed working until a
+running-app acceptance test boots Pyodide under `WASM_EXEC_CSP` against the bundled
+assets and completes a real analysis end to end. That test needs the Tauri bundle's
+megabyte assets and is the honest stopping point for tonight if it can't go green.
+
 ### D7 — BUILD REMOTE (approved 2026-08-27): the Rust Fetcher edge + flip supportsRemoteIO.
 
 Implement the real-network `Fetcher` behind the tested §6a decision logic (a

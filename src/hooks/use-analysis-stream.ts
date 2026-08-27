@@ -6,6 +6,7 @@ import type { Spec } from "@/lib/contracts/spec";
 import type { AnalysisRequestContext } from "@/lib/contracts/analysis-request";
 import type { SchemaMode } from "@/lib/contracts/data-schema";
 import { readStreamState, type CostInfo } from "@/lib/contracts/stream-state";
+import { useWasmHandoff } from "@/hooks/use-wasm-handoff";
 import { buildInvestigateScope } from "@/app/components/spec-insights";
 import { logClient } from "@/app/lib/client-log";
 
@@ -152,6 +153,11 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
       }
     },
   });
+
+  // The live sidecar↔webview handoff (WASM runtime): watch the streaming spec for
+  // a `__wasm_exec` request, run it in the CSP-locked worker, POST the result. A
+  // no-op under Docker (no such request is ever emitted).
+  useWasmHandoff(spec);
 
   // Keep current question in sync
   useEffect(() => {

@@ -15,15 +15,12 @@ import { errMessage } from "@/lib/logger";
 import { validateWorkerResult } from "./relay";
 import type { HandoffRegistry } from "./handoff-registry";
 import type { ExecutionResult, AdditionalFile } from "@/lib/contracts/execution";
+import type { WasmExecuteRequest } from "@/lib/contracts/stream-state";
 
-/** The message the sidecar emits into the stream for the browser to execute. */
-export interface WasmExecuteRequest {
-  type: "wasm-execute";
-  id: string;
-  csvContent: string;
-  code: string;
-  files: AdditionalFile[];
-}
+// The execute-request shape is defined in the shared stream-state contract (the
+// browser consumer imports it without any server code). Re-exported here so the
+// sidecar-side importers (run-control, patch-stream) keep their existing import.
+export type { WasmExecuteRequest };
 
 export interface StreamWasmExecutorOpts {
   registry: HandoffRegistry;
@@ -57,7 +54,14 @@ export function createStreamWasmExecutor(o: StreamWasmExecutorOpts): WasmExecuto
       // Emit INSIDE the try: if the run has no live stream to dispatch into,
       // `emit` throws — the catch below rejects the pending handoff (no leak)
       // and returns a clean failure instead of an unhandled rejection.
-      o.emit({ type: "wasm-execute", id, csvContent, code, files: execOpts.additionalFiles ?? [] });
+      o.emit({
+        type: "wasm-execute",
+        id,
+        csvContent,
+        code,
+        files: execOpts.additionalFiles ?? [],
+        geojsonContent: execOpts.geojsonContent ?? null,
+      });
       const envelope = await Promise.race([
         promise,
         new Promise<never>((_, reject) => {
