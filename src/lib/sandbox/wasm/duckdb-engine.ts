@@ -67,11 +67,12 @@ export const duckdbEngine: DuckDbEngine = async function duckdbEngine(
   const req: NodeRequire = (0, eval)("require");
   // This fn is .toString()-shipped into the bridge worker, so module scope can't
   // persist the memoized DB connection across queries; globalThis is the only
-  // per-worker singleton available here.
-  const g = globalThis as unknown as {
-    // ratchet-allow: lib-globalthis-stores
+  // per-worker singleton available here. (The cast is compile-time only — erased
+  // before .toString(), so the type name never reaches the shipped worker source.)
+  type DuckDbGlobal = {
     __hermeticDuckDbBlocking?: Promise<{ conn: { query(sql: string): unknown } }>;
   };
+  const g = globalThis as unknown as DuckDbGlobal; // ratchet-allow: lib-globalthis-stores
 
   // Boot the real WASM engine ONCE (in-process, blocking bundle — no worker of its
   // own). Memoized so every later query on this bridge reuses the same connection.
