@@ -41,9 +41,13 @@ export default defineConfig({
         // The wasm executor is Pyodide-in-Node integration glue — it can't be
         // unit-covered (boots the WASM runtime + fetches wheels). It is covered
         // by the opt-in wasm-parity CI job (HERMETIC_WASM_TEST=1), not this run.
-        // Every OTHER file under src/lib/sandbox/wasm/** is PURE logic held to
-        // 100% coverage by the threshold below — new wasm logic starts at 100%.
+        // Every OTHER PURE file under src/lib/sandbox/wasm/** is held to 100%
+        // coverage by the threshold below — new wasm logic starts at 100%. The
+        // few files listed here are INTEGRATION edges (boot workers / SAB /
+        // Pyodide) covered by dedicated integration tests, not the unit run.
         "src/lib/sandbox/wasm/executor.ts",
+        "src/lib/sandbox/wasm/transport-node.ts",
+        "src/lib/sandbox/wasm/duckdb-bridge.ts",
       ],
       // Floors act as a regression ratchet, set a few points below current.
       // Global is low because ~69 chart components are presentational and

@@ -1,0 +1,19 @@
+[package]
+name = "hermetic-egress-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure, unit-tested §6a egress-proxy DECISION logic for the Tauri Rust core (allowlist + resolve-and-reject + terminating-fetch guarantees). std-only, no network in the decision path."
+license = "UNLICENSED"
+publish = false
+
+[lib]
+name = "hermetic_egress_core"
+path = "src/lib.rs"
+
+# Intentionally std-only: no dependencies.
+#  - Keeps the crate buildable/testable OFFLINE (no crates.io fetch).
+#  - The security-critical decision path has zero third-party surface.
+# The real-network edge (reqwest/hyper/rustls) lives OUTSIDE this crate behind
+# the `Fetcher` trait (see src/lib.rs) so the decision logic stays pure and
+# fully unit-testable without a socket.
+[dependencies]

@@ -309,3 +309,15 @@ jobs:
         env:
           HERMETIC_WASM_TEST: "1"
         run: pnpm exec vitest run src/lib/sandbox/wasm/__tests__/executor.test.ts
+
+  # The Rust egress core (§6a decision logic: IP classification, host allowlist,
+  # redirect/rebind guards, byte-cap) — cargo unit tests, no network.
+  rust-egress-core:
+    name: Rust egress core (cargo test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: cargo test
+        working-directory: rust/egress-core
+        run: cargo test --locked

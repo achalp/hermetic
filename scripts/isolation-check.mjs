@@ -45,6 +45,7 @@ const TARGETS = [
       "src/lib/sandbox/wasm/relay.ts",
       "src/lib/sandbox/wasm/contract.ts",
       "src/lib/sandbox/wasm/egress-guard.ts",
+      "src/lib/sandbox/wasm/prelude.ts",
     ],
     excludeTests: true,
     allowed: ["src/lib/sandbox/wasm/", "src/lib/contracts/", "src/spec/core/"],
