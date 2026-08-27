@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal capability set for the main webview (§7 #1: the IPC surface reachable from webview JS must be EMPTY of host-touching commands). Grants ONLY core defaults + basic window controls. Deliberately NO fs/shell/http/dialog/os permissions — adding any would give untrusted page/worker JS a host-touching `invoke` target and break the sandbox boundary.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-close"
+  ]
+}

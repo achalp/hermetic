@@ -17,7 +17,8 @@ Each entry: the decision, why, and the alternative rejected. Newest at the botto
 - [ ] B. Combined strict-CSP browser execution (Pyodide from blobs, connect-src 'none')
 - [ ] C. Rust Fetcher edge (real TLS/HTTP behind the decisions)
 - [ ] D. Tauri shell + Node sidecar packaging (build-verified)
-- [ ] E. Wire the browser transport + the sidecar↔worker handoff into the app
+- [~] E. (partial) runtime auto-selection wired; browser transport wiring next
+- [ ] E2. Wire the browser transport + the sidecar↔worker handoff into the app
 - [ ] F. Final no-Docker end-to-end validation
 
 ## Decisions

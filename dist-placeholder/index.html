@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hermetic</title>
+  </head>
+  <body>
+    <!--
+      Placeholder frontend bundle. This exists ONLY so tauri.conf.json's
+      `frontendDist` resolves during config validation / `cargo build`.
+      The real UI is the server-rendered Next app served by the Node sidecar
+      (externalBin) at its localhost origin — see src-tauri/src/lib.rs and
+      specs/pyodide-wasm-sandbox-2026-08-26.md §4a.
+    -->
+    <main>
+      <h1>Hermetic desktop shell</h1>
+      <p>Scaffold placeholder — the Node sidecar serves the real app.</p>
+    </main>
+  </body>
+</html>
