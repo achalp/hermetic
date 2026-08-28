@@ -310,7 +310,7 @@ jobs:
       - name: WASM executor compute-parity
         env:
           HERMETIC_WASM_TEST: "1"
-        run: pnpm exec vitest run src/lib/sandbox/wasm/__tests__/executor.test.ts src/lib/sandbox/wasm/__tests__/end-to-end.test.ts
+        run: pnpm exec vitest run src/lib/sandbox/wasm/__tests__/executor.test.ts src/lib/sandbox/wasm/__tests__/end-to-end.test.ts src/lib/sandbox/wasm/__tests__/parquet-convert.test.ts src/lib/sandbox/__tests__/remote-fetch-materialize.test.ts
 
   # The Rust egress core (§6a decision logic: IP classification, host allowlist,
   # redirect/rebind guards, byte-cap) — cargo unit tests, no network.
