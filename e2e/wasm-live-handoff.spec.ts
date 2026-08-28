@@ -1,88 +1,116 @@
 /**
- * E2.5 — the live-handoff ACCEPTANCE GATE (spec §4a / build log D6, D8).
+ * E2.5 — the live-handoff ACCEPTANCE GATE (spec §4a / build log D6, D8=self).
  *
- * This encodes the one remaining hardening step for the WASM live path: booting
- * Pyodide + running a real analysis inside a worker locked under the STRICT
- * execution CSP (`connect-src 'none'`, `script-src blob:` with NO 'self') — the
- * exact policy the escape suite proved airtight. Every OTHER piece of the handoff
- * is already validated:
- *   - the sidecar registry + result route + pipeline injection (E2.3 unit tests),
- *   - the browser controller + worker route CSP + hook wiring (E2.4 unit tests),
- *   - Pyodide EXECUTION in a real worker under a LOOSER CSP (wasm-browser-analysis),
- *   - egress ISOLATION under `connect-src 'none'` (wasm-escape-suite).
+ * Proves the last hardening step of the WASM live path: the PRODUCTION execution
+ * worker (the exact `WASM_WORKER_SOURCE` the /api/wasm-worker route ships) boots
+ * Pyodide + numpy/pandas and runs a REAL hermetic_runtime analysis to a correct
+ * envelope, INSIDE a worker locked under the production `WASM_EXEC_CSP` (D8=self:
+ * `script-src 'self' … ; connect-src 'self'` — same-origin only; in Tauri 'self'
+ * is the local app protocol, so no internet egress). The request shape and the
+ * `{id, exitCode, output, stderr}` reply are the exact contract the browser client
+ * (app/lib/wasm-worker-client) + the sidecar registry drive.
  *
- * What is unproven — and what this gate exists to prove — is the COMBINATION:
- * Pyodide booting with ZERO network (its `.asm.mjs` via import(), its `.wasm` and
- * `python_stdlib.zip` via fetch, all resolved against a *directory* indexURL) when
- * the CSP forbids same-origin script/connect. Pyodide's public API exposes no clean
- * "here are the bytes" path for these, so a solution needs one of the D8 options
- * (blob-URL asset redirection, a same-origin service-worker host, or the
- * Tauri-local `connect-src 'self'` refinement). Until one lands this is `fixme`:
- * flip it to `test(...)` and iterate the offline blob-delivery below once chosen.
+ * Every OTHER piece is already unit-proven: sidecar registry + result route +
+ * injection (E2.3), browser controller + hook + CSP header (E2.4), egress isolation
+ * under connect-src 'none' (wasm-escape-suite). This gate closes the combination.
  *
- * Assets: node_modules/pyodide (present as dev deps). No CDN, no network.
+ * Assets: node_modules/pyodide (dev deps) + docker/sandbox/hermetic_runtime. No CDN.
  */
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { WASM_EXEC_CSP } from "../src/lib/sandbox/wasm/runtime-constants";
+import { WASM_WORKER_SOURCE } from "../src/lib/sandbox/wasm/worker-source";
 
-const PYODIDE_DIR = join(process.cwd(), "node_modules", "pyodide");
-const assetsPresent = existsSync(join(PYODIDE_DIR, "pyodide.asm.wasm"));
+const ROOT = process.cwd();
+const PYODIDE_DIR = join(ROOT, "node_modules", "pyodide");
+const RUNTIME_DIR = join(ROOT, "docker", "sandbox", "hermetic_runtime");
+const assetsPresent =
+  existsSync(join(PYODIDE_DIR, "pyodide.asm.wasm")) &&
+  readdirSync(PYODIDE_DIR).some((f) => f.startsWith("numpy") && f.endsWith(".whl"));
 
-// The worker: boot Pyodide from MAIN-THREAD-delivered blob URLs (no network), run
-// a tiny analysis, post the raw envelope. This is the strict-CSP boot attempt.
-const WORKER_JS = `
-self.onmessage = async (e) => {
-  const { pyodideScriptUrl, indexURL, code } = e.data;
-  try {
-    importScripts(pyodideScriptUrl); // blob: — allowed by script-src blob:
-    const pyodide = await self.loadPyodide({ indexURL }); // ← the strict-CSP fetch wall
-    const out = await pyodide.runPythonAsync(code);
-    self.postMessage({ ok: true, out: String(out) });
-  } catch (err) {
-    self.postMessage({ ok: false, error: String((err && err.message) || err) });
-  }
-};
+// The hermetic_runtime package as the request's `files` (absolute /data paths) —
+// exactly what the sidecar prepends before dispatch.
+function runtimeFiles(): { path: string; content: string }[] {
+  return readdirSync(RUNTIME_DIR)
+    .filter((f) => f.endsWith(".py") && !f.startsWith("test_"))
+    .map((name) => ({
+      path: `/data/hermetic_runtime/${name}`,
+      content: readFileSync(join(RUNTIME_DIR, name), "utf8"),
+    }));
+}
+
+const CSV = "region,revenue\nnorth,190\nsouth,250\neast,175\nwest,380\n";
+const ANALYSIS = `
+import pandas as pd
+from hermetic_runtime.findings import declare_finding
+from hermetic_runtime.output import write_output
+df = pd.read_csv("/data/input.csv")
+total = float(df["revenue"].sum())
+top = str(df.sort_values("revenue", ascending=False).iloc[0]["region"])
+declare_finding(name="total_revenue", value=total, definition="Sum of revenue.", dtype="number", unit="usd")
+write_output(results={"row_count": int(len(df)), "total_revenue": total, "top_region": top})
 `;
+
+const CT: Record<string, string> = {
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".wasm": "application/wasm",
+  ".json": "application/json",
+  ".zip": "application/zip",
+  ".whl": "application/octet-stream",
+};
 
 let server: Server;
 let base: string;
 
 test.beforeAll(async () => {
+  const request = {
+    type: "wasm-execute",
+    id: "e2e-1",
+    csvContent: CSV,
+    code: ANALYSIS,
+    files: runtimeFiles(),
+  };
   server = createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
     if (url === "/exec-worker.js") {
+      // The PRODUCTION worker source under the PRODUCTION CSP.
       res.writeHead(200, {
         "content-type": "text/javascript",
-        "content-security-policy": WASM_EXEC_CSP, // the STRICT boundary CSP
+        "content-security-policy": WASM_EXEC_CSP,
       });
-      res.end(WORKER_JS);
+      res.end(WASM_WORKER_SOURCE);
+      return;
+    }
+    if (url === "/request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(request));
       return;
     }
     if (url.startsWith("/pyodide/")) {
       const name = url.slice("/pyodide/".length);
       try {
-        res.writeHead(200, { "content-type": "application/octet-stream" });
+        res.writeHead(200, {
+          "content-type": CT[name.slice(name.lastIndexOf("."))] ?? "application/octet-stream",
+        });
         res.end(readFileSync(join(PYODIDE_DIR, name)));
       } catch {
         res.writeHead(404).end("nf");
       }
       return;
     }
-    // Host page: MAIN thread pre-fetches pyodide.js as a blob, boots the worker.
     res.writeHead(200, { "content-type": "text/html" });
     res.end(`<!doctype html><meta charset=utf-8><title>live-handoff</title><script>
       window.__result = null;
       (async () => {
-        const js = await (await fetch("/pyodide/pyodide.js")).blob();
-        const scriptUrl = URL.createObjectURL(js);
+        const request = await (await fetch("/request.json")).json();
         const w = new Worker("/exec-worker.js");
         w.onmessage = (e) => { window.__result = e.data; };
-        w.onerror = (e) => { window.__result = { ok:false, error:String(e.message||e) }; };
-        w.postMessage({ pyodideScriptUrl: scriptUrl, indexURL: "/pyodide/", code: "6*7" });
+        w.onerror = (e) => { window.__result = { error: String(e.message||e) }; };
+        w.postMessage({ indexURL: "/pyodide/", request });
       })();
     </script>`);
   });
@@ -94,22 +122,33 @@ test.afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
 });
 
-// FIXME(E2.5 / build log D8): un-fixme once offline Pyodide boot under the strict
-// CSP is solved (D8 option chosen). The wiring around it (registry, route, hook,
-// controller) is already unit-proven; this is the last hardening step.
-test.fixme("Pyodide boots + runs under the strict exec CSP (connect-src 'none')", async ({
+test("the production worker boots + runs a real analysis under WASM_EXEC_CSP (D8=self)", async ({
   page,
 }) => {
-  test.skip(!assetsPresent, "node_modules/pyodide assets not present");
+  test.skip(!assetsPresent, "node_modules/pyodide numpy/pandas wheels not present");
   await page.goto(base);
-  await page.waitForFunction(
-    () => (window as unknown as { __result?: unknown }).__result !== null,
-    {
-      timeout: 90_000,
-    }
-  );
+  await page.waitForFunction(() => (window as unknown as { __result: unknown }).__result !== null, {
+    timeout: 120_000,
+  });
   const result = await page.evaluate(
-    () => (window as unknown as { __result: { ok: boolean } }).__result
+    () =>
+      (
+        window as unknown as {
+          __result: { id?: string; exitCode?: number; output?: string; error?: string };
+        }
+      ).__result
   );
-  expect(result.ok, JSON.stringify(result)).toBe(true);
+
+  expect(result.error, `worker error: ${result.error}`).toBeFalsy();
+  expect(result.id).toBe("e2e-1");
+  expect(result.exitCode).toBe(0);
+
+  // The raw envelope the sidecar would relay + decode: correct pandas result.
+  const envelope = JSON.parse(result.output!);
+  expect(envelope.results).toMatchObject({ row_count: 4, total_revenue: 995, top_region: "west" });
+  expect(
+    (envelope.findings as { name?: string; value?: unknown }[]).find(
+      (f) => f.name === "total_revenue"
+    )?.value
+  ).toBe(995);
 });

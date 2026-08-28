@@ -14,13 +14,15 @@ Each entry: the decision, why, and the alternative rejected. Newest at the botto
 - [x] Integration: Node executor, transport-node, duckdb-bridge, duckdb-engine
 - [x] Rust egress core (decision logic, 44 tests)
 - [x] A. Runtime dispatch: route executeSandbox to the wasm executor + flip caps
-- [ ] B. Combined strict-CSP browser execution (Pyodide from blobs, connect-src 'none') — E2.5/D8 open item
-- [~] C. Rust Fetcher edge (real TLS/HTTP behind the decisions) — BUILT (agent, 15 tests); reconcile + flip pending (D7)
+- [x] B. Browser execution under the PRODUCTION exec CSP — D8=self resolved; the production
+      worker boots Pyodide + pandas and runs a real analysis under WASM_EXEC_CSP (E2.5 e2e GREEN)
+- [x] C. Rust Fetcher edge (real TLS/HTTP behind the decisions) — BUILT + 59 cargo tests incl T6 (D7)
 - [x] D. Tauri shell scaffold + cargo-build verified (sidecar packaging = 0c, deferred)
 - [x] E. runtime auto-selection wired
-- [~] E2. sidecar↔webview handoff MECHANISM built + unit-tested end to end (E2.2 registry,
-  E2.3 sidecar+route+injection, E2.4 browser controller+worker route+hook). Only the
-  strict-CSP offline Pyodide boot remains (E2.5 gate, D8) — no capability flipped on it.
+- [x] E2. sidecar↔webview handoff built + tested end to end: E2.2 registry, E2.3 sidecar+route+
+      injection, E2.4 browser controller+worker route+hook, E2.5 running-worker acceptance GREEN
+      (production worker boots + runs under the production CSP). Remaining for the full PRODUCT:
+      remote (D9 IPC bridge) + big-data + Tauri 0c packaging.
 - [x] F. No-Docker end-to-end validated: dispatcher → wasm executor → Pyodide (Node, opt-in CI) AND real pandas analysis in a browser worker (e2e)
 
 ## Decisions
@@ -87,9 +89,11 @@ already exist and are tested.
 1. `cd src-tauri && cargo build` → the shell builds (verified in CI: tauri-shell job).
 2. With Docker stopped: the app's /api/runtimes reports docker unavailable + wasm
    available, and getActiveSandboxRuntime() resolves to `wasm` (unit-tested).
-3. [BLOCKED on E2] Launch the Tauri app, upload a CSV, ask a question → a dashboard
-   renders with the analysis run in the webview worker (no Docker). This is the one
-   step that needs E2 (the live handoff) built.
+3. [E2 BUILT — manual smoke] Launch the Tauri app, upload a CSV, ask a question → a
+   dashboard renders with the analysis run in the webview worker (no Docker). Every
+   seam is now built + tested (E2.2–E2.5); the production worker boot + run under the
+   production CSP is e2e-proven (wasm-live-handoff). This step is the final in-app
+   integration smoke — no longer blocked on unbuilt code.
 4. Escape suite + browser-analysis e2e green in CI (they are) = isolation + compute
    proven for the path E2 will drive.
 
@@ -279,3 +283,40 @@ read cannot actually complete there yet, for two independent reasons:
    core of that path — is DONE and adversarially tested.
    _Alternative rejected:_ flip now on the built-but-unwired edge — exactly the false
    "remote works" claim D2/D5 forbid.
+
+### D10 — E2.5 RESOLVED (D8=self): the live handoff boots + runs under the production CSP.
+
+Per your call, the production execution CSP is **D8 option 3** — the Tauri-local
+`connect-src 'self'` (and `script-src 'self' 'wasm-unsafe-eval' blob:`). Security model:
+in the Tauri desktop app `'self'` is `tauri://localhost`, a request to which NEVER
+leaves the machine — so `'self'` carries NO internet egress channel, and Pyodide's
+`import js` FFI has no network host to reach but the local app. `'self'` is required
+because Pyodide loads its `.asm` via `import()` (script-src) and its `.wasm`/stdlib/
+wheels via `fetch` (connect-src) from the bundled same-origin dist. This is the exact
+policy the browser-analysis e2e already proved boots + runs.
+
+**Proven, not asserted.** `WASM_WORKER_SOURCE` (the SHARED string the /api/wasm-worker
+route ships) is now booted by `e2e/wasm-live-handoff.spec.ts` under the real
+`WASM_EXEC_CSP`: Pyodide + numpy/pandas load, the hermetic_runtime analysis runs, and
+the `{id, exitCode, output, stderr}` envelope decodes to the correct pandas result
+(row_count 4, total_revenue 995, top_region west). **The e2e passes** (5.5s, headless
+chromium). The worker source is shared (not copied) so the gate validates exactly what
+ships. Ledger B + E2 flip to done.
+
+**Changes:** WASM_EXEC_CSP → the self policy (runtime-constants, with the security model
+documented); worker source extracted to `worker-source.ts` (shared route ⇄ e2e); the
+main-thread runner simplified (no blob dance — same-origin importScripts); worker-route
+CSP test updated to the same-origin invariants (no `*`, no `http(s):` host, connect-src
+'self'); E2.5 e2e un-fixme'd → green.
+
+**RESIDUAL (follow-up hardening, not blocking):** under `connect-src 'self'` the worker
+can also reach the app's own `/api/*` (same-origin). No data can LEAVE the machine, but
+untrusted code could call local endpoints. Recommended future hardening: serve exec
+assets from a distinct origin, or reject exec-worker-originated `/api` requests (an
+`Sec-Fetch`/origin guard). Filed here; the WASM tier's target is the local desktop
+download, where the exfil boundary already holds.
+
+**D9 update:** with E2.5 green, remote's ONLY remaining dependency is the worker→native-
+Rust IPC bridge (a Tauri command invoking `authorize_and_fetch`) + the sandbox remote-
+read interception that uses it + a green remote-read e2e. The boot is no longer a
+blocker. `supportsRemoteIO` still holds FALSE until that bridge ships (D2/M3).

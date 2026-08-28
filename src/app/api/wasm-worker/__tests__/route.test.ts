@@ -8,18 +8,23 @@ import { WASM_EXEC_CSP, WASM_PRELUDE } from "@/lib/sandbox/wasm/runtime-constant
  * header invariants ARE the security boundary; regressing them is a real hole.
  */
 describe("GET /api/wasm-worker", () => {
-  it("serves the worker under the exact escape-suite exec CSP", () => {
+  it("serves the worker under the shared WASM_EXEC_CSP (D8=self)", () => {
     const res = GET();
     expect(res.headers.get("content-security-policy")).toBe(WASM_EXEC_CSP);
     expect(res.headers.get("content-type")).toContain("text/javascript");
   });
 
-  it("CSP omits 'self' from script-src and blocks all egress (connect-src 'none')", () => {
+  it("restricts the worker to same-origin only (Tauri-local model, D8=self)", () => {
     const csp = GET().headers.get("content-security-policy")!;
-    // A same-origin script URL is an exfil channel — must NOT be allowed.
-    expect(csp).not.toContain("'self'");
-    expect(csp).toContain("connect-src 'none'");
-    expect(csp).toContain("script-src blob: 'wasm-unsafe-eval'");
+    // default-src 'none' + connect-src 'self' = no cross-origin host reachable;
+    // in Tauri 'self' is the local app protocol, so there is no internet egress.
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("connect-src 'self'");
+    // No wildcard / external hosts may ever appear — that WOULD open egress.
+    expect(csp).not.toContain("*");
+    expect(csp).not.toMatch(/https?:/);
+    // 'self' scopes script-src to the bundled dist; blob: + wasm-unsafe-eval only.
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval' blob:");
   });
 
   it("embeds the SHARED prelude (cannot drift from the Node parity executor)", async () => {

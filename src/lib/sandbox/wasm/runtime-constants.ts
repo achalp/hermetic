@@ -12,20 +12,34 @@
 export const WASM_WORK_DIR = "/data";
 
 /**
- * The execution-context CSP (spec §7 #2) delivered on the WORKER SCRIPT response,
- * so it governs the worker that runs untrusted analysis code. `connect-src 'none'`
- * is the load-bearing boundary: even a captured `fetch`/`WebSocket` ref (or
- * Pyodide's `import js` FFI, which reaches the same worker globals) cannot
- * exfiltrate. `script-src` deliberately OMITS 'self' — a same-origin importScripts
- * / import() URL is itself an exfil channel (data in the path; the request leaves
- * even if the script never runs). Pyodide therefore loads from pre-fetched blob:
- * URLs (`script-src blob:`); 'wasm-unsafe-eval' permits WebAssembly.compile only.
- * This is the exact string the escape suite (e2e/wasm-escape-suite) proved airtight
- * — keep them identical.
+ * The execution-context CSP (spec §7 #2 / build log D8=self) delivered on the
+ * WORKER SCRIPT response, so it governs the worker that runs untrusted analysis
+ * code. This is the PRODUCTION (Tauri desktop) policy.
+ *
+ * SECURITY MODEL — platform isolation, not connect-src 'none'. Here `'self'` is the
+ * Tauri custom protocol (`tauri://localhost`): a same-origin request NEVER leaves
+ * the machine, so `script-src 'self'` and `connect-src 'self'` carry NO internet
+ * egress channel — an attacker cannot exfiltrate even via Pyodide's `import js`
+ * FFI, because there is no network host reachable but the local app. This is why
+ * `'self'` is admissible here even though it is a real exfil channel on the web:
+ * the WASM tier ships as the DESKTOP download (build log D3), where 'self' is local.
+ * `'self'` is required so Pyodide can load its `.asm` (via `import()`, script-src)
+ * and its `.wasm`/stdlib/wheels (via `fetch`, connect-src) from the bundled,
+ * same-origin dist — the exact policy the browser-analysis e2e proves boots + runs.
+ *
+ * RESIDUAL (documented, follow-up hardening): under `connect-src 'self'` the worker
+ * can also reach the app's own same-origin `/api/*` routes. No data can LEAVE the
+ * machine, but untrusted code could call local endpoints — a future hardening
+ * should serve the exec assets from a distinct origin or reject exec-worker-
+ * originated `/api` requests. Tracked in build log D10.
+ *
+ * WEB-DEPLOY TARGET (not this build): the strict `connect-src 'none'; script-src
+ * blob:` policy — proven airtight by e2e/wasm-escape-suite — remains the goal for a
+ * hypothetical web deployment, gated on the offline blob-asset plumbing (D8 opt 1).
  */
 export const WASM_EXEC_CSP =
-  "default-src 'none'; script-src blob: 'wasm-unsafe-eval'; " +
-  "connect-src 'none'; img-src 'none'; worker-src 'none'; child-src 'none'";
+  "default-src 'none'; script-src 'self' 'wasm-unsafe-eval' blob:; " +
+  "connect-src 'self'; img-src 'none'; worker-src 'none'; child-src 'none'";
 
 /**
  * Minimal WASM-safe Python prelude. The Docker prelude's daemon threads / cgroup
