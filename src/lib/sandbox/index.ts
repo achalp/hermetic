@@ -3,6 +3,7 @@ import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { RUNTIME_CAPABILITIES, unsupportedCapabilityError } from "./capabilities";
 import { getWarmManager } from "./warm-sandbox";
+import { getInputRegistry } from "./wasm/input-singleton";
 import type { ExecutionResult, AdditionalFile, SandboxRunHooks } from "@/lib/contracts/execution";
 export type { AdditionalFile };
 import type { SandboxRuntimeId } from "@/lib/constants";
@@ -28,7 +29,12 @@ import { hermeticRuntimeFiles } from "./runtime-files";
 export type WasmExecutor = (
   csvContent: string,
   code: string,
-  opts: { additionalFiles?: AdditionalFile[]; geojsonContent?: string | null }
+  opts: {
+    additionalFiles?: AdditionalFile[];
+    geojsonContent?: string | null;
+    /** Same-origin token URLs the worker fetches into its FS (build log D11). */
+    fetchInputs?: { path: string; url: string }[];
+  }
 ) => Promise<ExecutionResult>;
 
 export interface SandboxExecOptions {
@@ -199,7 +205,22 @@ export function executeSandbox(
         execution_ms: 0,
       });
     }
-    return opts.wasmExecutor(csvContent, code, { additionalFiles, geojsonContent });
+    // A host-materialized parquet (e.g. a remote source fetched via the Rust egress
+    // core — build log D11) is delivered to the CSP-locked worker as a same-origin
+    // token URL it fetches into its FS (option B), never a path and never the remote
+    // URL. Released once the run resolves (the worker has fetched it by then).
+    const fetchInputs: { path: string; url: string }[] = [];
+    let inputToken: string | undefined;
+    if (inputParquetPath) {
+      inputToken = getInputRegistry().register({ hostPath: inputParquetPath, runId: opts.runId });
+      fetchInputs.push({ path: "/data/input.parquet", url: `/api/wasm-input/${inputToken}` });
+    }
+    const result = opts.wasmExecutor(csvContent, code, {
+      additionalFiles,
+      geojsonContent,
+      fetchInputs,
+    });
+    return inputToken ? result.finally(() => getInputRegistry().release(inputToken!)) : result;
   }
 
   if (plan.kind === "docker-mount") {

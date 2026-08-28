@@ -131,6 +131,14 @@ export interface WasmExecuteRequest {
   files: AdditionalFile[];
   /** Optional GeoJSON written to /data/input.geojson (choropleth analyses). */
   geojsonContent?: string | null;
+  /**
+   * Host-materialized inputs the worker FETCHES into its FS before running (build
+   * log D11, delivery option B): a remote source is materialized host-side through
+   * the Rust egress core, then delivered here as a same-origin `/api/wasm-input/
+   * <token>` URL (allowed by connect-src 'self'). The worker never sees the remote
+   * URL — only the local `path` to write and the token URL to GET.
+   */
+  fetchInputs?: { path: string; url: string }[];
 }
 
 /** Everything the orchestration layer writes into `spec.state`. */

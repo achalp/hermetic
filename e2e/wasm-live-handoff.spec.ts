@@ -48,11 +48,16 @@ import pandas as pd
 from hermetic_runtime.findings import declare_finding
 from hermetic_runtime.output import write_output
 df = pd.read_csv("/data/input.csv")
+# A host-materialized input the worker FETCHED via a same-origin token URL (D11 / B).
+remote = pd.read_csv("/data/remote.csv")
 total = float(df["revenue"].sum())
 top = str(df.sort_values("revenue", ascending=False).iloc[0]["region"])
 declare_finding(name="total_revenue", value=total, definition="Sum of revenue.", dtype="number", unit="usd")
-write_output(results={"row_count": int(len(df)), "total_revenue": total, "top_region": top})
+write_output(results={"row_count": int(len(df)), "total_revenue": total, "top_region": top, "remote_rows": int(len(remote))})
 `;
+
+// The "remote" object, delivered to the worker over the same-origin input endpoint.
+const REMOTE_CSV = "id\n10\n20\n30\n";
 
 const CT: Record<string, string> = {
   ".js": "text/javascript",
@@ -73,6 +78,8 @@ test.beforeAll(async () => {
     csvContent: CSV,
     code: ANALYSIS,
     files: runtimeFiles(),
+    // Option B: the worker fetches this same-origin URL into /data/remote.csv.
+    fetchInputs: [{ path: "/data/remote.csv", url: "/wasm-input/tok" }],
   };
   server = createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
@@ -83,6 +90,12 @@ test.beforeAll(async () => {
         "content-security-policy": WASM_EXEC_CSP,
       });
       res.end(WASM_WORKER_SOURCE);
+      return;
+    }
+    if (url === "/wasm-input/tok") {
+      // Stands in for /api/wasm-input/<token> (the run-scoped host-file endpoint).
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      res.end(REMOTE_CSV);
       return;
     }
     if (url === "/request.json") {
@@ -145,7 +158,13 @@ test("the production worker boots + runs a real analysis under WASM_EXEC_CSP (D8
 
   // The raw envelope the sidecar would relay + decode: correct pandas result.
   const envelope = JSON.parse(result.output!);
-  expect(envelope.results).toMatchObject({ row_count: 4, total_revenue: 995, top_region: "west" });
+  // remote_rows:3 proves the worker fetched the same-origin input into its FS (D11/B).
+  expect(envelope.results).toMatchObject({
+    row_count: 4,
+    total_revenue: 995,
+    top_region: "west",
+    remote_rows: 3,
+  });
   expect(
     (envelope.findings as { name?: string; value?: unknown }[]).find(
       (f) => f.name === "total_revenue"

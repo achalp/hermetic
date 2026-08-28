@@ -53,6 +53,9 @@ export default defineConfig({
         // globalThis-backed singleton (shared with the /api/wasm-result route);
         // its registry logic is 100%-covered in handoff-registry.test.ts.
         "src/lib/sandbox/wasm/handoff-singleton.ts",
+        // globalThis-backed input-token singleton (shared with /api/wasm-input);
+        // its registry logic is 100%-covered in input-registry.test.ts.
+        "src/lib/sandbox/wasm/input-singleton.ts",
       ],
       // Floors act as a regression ratchet, set a few points below current.
       // Global is low because ~69 chart components are presentational and

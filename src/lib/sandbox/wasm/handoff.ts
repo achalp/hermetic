@@ -33,7 +33,11 @@ export interface StreamWasmExecutorOpts {
 type WasmExecutorFn = (
   csvContent: string,
   code: string,
-  opts: { additionalFiles?: AdditionalFile[]; geojsonContent?: string | null }
+  opts: {
+    additionalFiles?: AdditionalFile[];
+    geojsonContent?: string | null;
+    fetchInputs?: { path: string; url: string }[];
+  }
 ) => Promise<ExecutionResult>;
 
 export function createStreamWasmExecutor(o: StreamWasmExecutorOpts): WasmExecutorFn {
@@ -61,6 +65,7 @@ export function createStreamWasmExecutor(o: StreamWasmExecutorOpts): WasmExecuto
         code,
         files: execOpts.additionalFiles ?? [],
         geojsonContent: execOpts.geojsonContent ?? null,
+        ...(execOpts.fetchInputs?.length ? { fetchInputs: execOpts.fetchInputs } : {}),
       });
       const envelope = await Promise.race([
         promise,

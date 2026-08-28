@@ -39,6 +39,18 @@ self.onmessage = async (e) => {
       if (slash > 0) pyodide.FS.mkdirTree(f.path.slice(0, slash));
       pyodide.FS.writeFile(f.path, f.content);
     }
+    // Host-materialized inputs (D11 / option B): FETCH each same-origin token URL
+    // (connect-src 'self') and write the raw bytes to its FS path. The remote fetch
+    // already happened host-side through the Rust egress core — the worker only ever
+    // touches a local, run-scoped same-origin URL.
+    for (const inp of (request.fetchInputs || [])) {
+      const resp = await fetch(inp.url);
+      if (!resp.ok) throw new Error("input fetch failed (" + resp.status + "): " + inp.path);
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      const slash = inp.path.lastIndexOf("/");
+      if (slash > 0) pyodide.FS.mkdirTree(inp.path.slice(0, slash));
+      pyodide.FS.writeFile(inp.path, bytes);
+    }
     pyodide.FS.writeFile(WORK_DIR + "/input.csv", request.csvContent || "");
     if (request.geojsonContent) pyodide.FS.writeFile(WORK_DIR + "/input.geojson", request.geojsonContent);
 

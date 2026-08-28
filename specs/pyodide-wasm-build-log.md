@@ -370,3 +370,40 @@ destPath})` spawns the bin, streams stdout → file, maps exit→error-kind, rem
    Node/pipeline tests). Keep `supportsRemoteIO` semantics honest per D9/D2.
    _Status:_ the security-critical + reusable half (the Rust edge + the Node bridge) is
    DONE and tested; the remaining half is delivery + pipeline wiring behind decision (1).
+
+### D12 — Remote delivery (option B, your call): token-scoped same-origin input endpoint — BUILT + e2e-PROVEN.
+
+The host→worker delivery half of remote (D11 step 1), chosen = B. A host-materialized
+file reaches the CSP-locked worker as a same-origin token URL it fetches into its FS —
+never a path, never the remote URL.
+
+**Built + tested:**
+
+- `input-registry.ts` (pure, 100%-covered, in the isolation boundary):
+  register(hostPath)→token · resolve(token)→path · release · releaseRun. Tokens are
+  unguessable crypto UUIDs (via the `input-singleton` globalThis wrapper).
+- `GET /api/wasm-input/<token>` — streams ONLY the registered host file (stat-guarded,
+  no-store); unknown/released token → 404. The worker holds a TOKEN (a capability),
+  never a path — no traversal, no arbitrary host-file read. 3 route tests.
+- Contract: `WasmExecuteRequest.fetchInputs?: {path,url}[]`. The worker-source FETCHES
+  each same-origin URL (connect-src 'self') and writes the bytes to its FS path before
+  running. Threaded through handoff.ts + the WasmExecutor type.
+- `executeSandbox` wasm branch: an `inputParquetPath` is registered → a token →
+  `fetchInputs:[{path:"/data/input.parquet", url:"/api/wasm-input/<token>"}]`, and the
+  token is released when the run resolves (`.finally`).
+
+**PROVEN end to end:** `e2e/wasm-live-handoff.spec.ts` now delivers a same-origin input
+via `fetchInputs` and the analysis reads it — under the PRODUCTION `WASM_EXEC_CSP`
+(D8=self). The worker fetches `/wasm-input/tok` into `/data/remote.csv`, pandas reads
+it, and the envelope reports `remote_rows: 3`. **The e2e passes.** So the delivery
+mechanism the whole remote path needs is real and CSP-validated.
+
+**Remaining (the last mechanical mile):** the two-orchestrator pipeline branch —
+`runtime==="wasm" && isRemote` → `materializeRemoteToFile` (allowlist from
+`egressPolicyFor`, creds from `stored.remoteCreds`) → set `inputParquetPath` + the
+LOCAL-parquet code context (like the warehouse path). Then remote sources run no-Docker.
+NB: for remote PARQUET the browser worker also needs a parquet reader (DuckDB-WASM or a
+pyarrow load) — the worker does pandas today; a materialize-to-CSV shim or wiring
+DuckDB-WASM into the worker is the compute-side follow-on. The security + delivery
+spine (Rust egress edge → Node materialize → token endpoint → worker fetch) is DONE and
+tested; what's left is the pipeline branch that calls it and the worker's parquet read.
