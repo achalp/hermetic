@@ -50,6 +50,12 @@ export interface SandboxExecOptions {
   /** Materialized Parquet copied into the container (Docker only). */
   inputParquetPath?: string;
   /**
+   * WASM-only: host files the worker fetches into its FS as `workerPath` (via a
+   * run-scoped token URL — build log D13). Used to deliver a host-materialized
+   * remote source (converted to CSV) onto the worker's local pandas path.
+   */
+  wasmFetchInputs?: { workerPath: string; hostPath: string }[];
+  /**
    * Orchestration capabilities (stop signal, progress, container registry,
    * failure hints). The executors never import the run registry — the caller
    * supplies these (run-control's ambientSandboxHooks() inside pipeline/).
@@ -205,22 +211,32 @@ export function executeSandbox(
         execution_ms: 0,
       });
     }
-    // A host-materialized parquet (e.g. a remote source fetched via the Rust egress
-    // core — build log D11) is delivered to the CSP-locked worker as a same-origin
-    // token URL it fetches into its FS (option B), never a path and never the remote
-    // URL. Released once the run resolves (the worker has fetched it by then).
-    const fetchInputs: { path: string; url: string }[] = [];
-    let inputToken: string | undefined;
-    if (inputParquetPath) {
-      inputToken = getInputRegistry().register({ hostPath: inputParquetPath, runId: opts.runId });
-      fetchInputs.push({ path: "/data/input.parquet", url: `/api/wasm-input/${inputToken}` });
-    }
+    // Host-materialized inputs (e.g. a remote source fetched via the Rust egress core
+    // then converted to CSV — build log D11/D13) are delivered to the CSP-locked worker
+    // as same-origin token URLs it fetches into its FS (option B), never a path and
+    // never the remote URL. Tokens are released once the run resolves (the worker has
+    // fetched them by then). `inputParquetPath` → /data/input.parquet is the built-in
+    // case; `wasmFetchInputs` carries any additional {workerPath ← hostPath} mappings.
+    const materialized: { workerPath: string; hostPath: string }[] = [
+      ...(inputParquetPath
+        ? [{ workerPath: "/data/input.parquet", hostPath: inputParquetPath }]
+        : []),
+      ...(opts.wasmFetchInputs ?? []),
+    ];
+    const tokens: string[] = [];
+    const fetchInputs = materialized.map((m) => {
+      const token = getInputRegistry().register({ hostPath: m.hostPath, runId: opts.runId });
+      tokens.push(token);
+      return { path: m.workerPath, url: `/api/wasm-input/${token}` };
+    });
     const result = opts.wasmExecutor(csvContent, code, {
       additionalFiles,
       geojsonContent,
       fetchInputs,
     });
-    return inputToken ? result.finally(() => getInputRegistry().release(inputToken!)) : result;
+    return tokens.length
+      ? result.finally(() => tokens.forEach((t) => getInputRegistry().release(t)))
+      : result;
   }
 
   if (plan.kind === "docker-mount") {

@@ -25,6 +25,9 @@ import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
 import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
+import { materializeRemoteCsvForWasm } from "@/lib/sandbox/remote-fetch";
+import { hermeticPaths } from "@/lib/paths";
+import { unlink } from "node:fs/promises";
 import type { RemoteAuthSubst } from "@/lib/parquet/duckdb-source";
 import { composeInvestigation } from "@/lib/llm/investigate-composer";
 import { buildValuesSection } from "@/lib/pipeline/dashboard-compose";
@@ -178,6 +181,9 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
       // Hoisted above the try so the catch can persist the partial
       // per-step trail when the run dies mid-investigation (OBS-8).
       let trailRecorder: TraceRecorder | null = null;
+      // Hoisted so the finally always deletes the host-materialized remote CSV,
+      // even if the investigation throws mid-run (build log D13).
+      let wasmRemoteCsvPath: string | undefined;
       try {
         // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
         // The pull is intentionally row-level (not pre-aggregated): the
@@ -299,6 +305,22 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           ));
         }
 
+        // WASM + remote (build log D13): the worker has NO network, so materialize the
+        // remote source HOST-SIDE (Rust egress core) + convert parquet→CSV, and read a
+        // local /data/input.csv on the worker's proven pandas path. Overrides the
+        // httpfs context set above; delivered to every sub-step via wasmFetchInputs;
+        // cleaned up after the investigation.
+        if (sandboxRuntime === "wasm" && isRemote) {
+          ({ csvPath: wasmRemoteCsvPath } = await materializeRemoteCsvForWasm(stored, {
+            workDir: hermeticPaths.scratchDir(),
+          }));
+          localFileContext = undefined; // read the delivered /data/input.csv (base prompt default)
+          remoteAuthSubst = undefined;
+        }
+        const wasmFetchInputs = wasmRemoteCsvPath
+          ? [{ workerPath: "/data/input.csv", hostPath: wasmRemoteCsvPath }]
+          : undefined;
+
         // ── Drill-as-sub-investigation cost gate ──
         // A scoped follow-up (chart drill or sticky follow-up) is classified
         // lookup-vs-deep. Lookups — and any auto-routed follow-up beyond the
@@ -342,6 +364,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               localMountPath,
               localFileContext,
               remoteAuthSubst,
+              wasmFetchInputs,
             });
             await composeAndStreamDashboard({
               executionResult: cheap.executionResult,
@@ -503,6 +526,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           localFileContext,
           remoteAuthSubst,
           inputParquetPath: warehouseParquetFile,
+          wasmFetchInputs,
           runtime: sandboxRuntime,
           model: codeGenModel,
           originalQuestion: question,
@@ -1334,6 +1358,9 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           }) + "\n"
         );
       } finally {
+        // The host-materialized remote CSV was consumed by every sub-step's worker
+        // fetch; drop it (build log D13).
+        if (wasmRemoteCsvPath) await unlink(wasmRemoteCsvPath).catch(() => {});
         // ── Cost/diagnostics epilogue: runs for every exit path (cheap
         // fast-path, main investigation, or error) before the stream
         // closes. Shared with Ask — lib/cost/epilogue.ts. ──

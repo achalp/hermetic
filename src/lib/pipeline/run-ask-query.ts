@@ -9,6 +9,9 @@ import {
 import { getRunSignal } from "@/lib/pipeline/run-control";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
 import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
+import { materializeRemoteCsvForWasm } from "@/lib/sandbox/remote-fetch";
+import { hermeticPaths } from "@/lib/paths";
+import { unlink } from "node:fs/promises";
 import { runWithCostTracking } from "@/lib/cost/accumulator";
 import { emitCostEpilogue } from "@/lib/cost/epilogue";
 import { runWithDiagnostics } from "@/lib/diagnostics/run-diagnostics";
@@ -399,6 +402,18 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           else if (stage === "retrying") emitProgress("retrying", stepOffset + 2);
         };
 
+        // WASM + remote (build log D13): the webview worker has NO network, so a
+        // remote source is materialized HOST-SIDE through the Rust egress core and
+        // converted parquet→CSV; the worker then reads a local /data/input.csv on its
+        // proven pandas path (so the generated code does no remote IO). Delivered to
+        // the worker below via wasmFetchInputs; cleaned up after the run.
+        let wasmRemoteCsvPath: string | undefined;
+        if (sandboxRuntime === "wasm" && isRemote) {
+          ({ csvPath: wasmRemoteCsvPath } = await materializeRemoteCsvForWasm(stored, {
+            workDir: hermeticPaths.scratchDir(),
+          }));
+        }
+
         // Build local file context for LLM prompt (tells it where to read
         // data). A materialized warehouse pull was docker-cp'd to
         // /data/input.parquet (no mount) — same resolvers as Investigate.
@@ -406,14 +421,18 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           ? { localFileContext: warehouseParquetContext, remoteAuthSubst: undefined }
           : isLocal
             ? { ...resolveLocalSource(stored), remoteAuthSubst: undefined }
-            : isRemote
-              ? resolveRemoteSource(
-                  stored.remoteParquetUrl!,
-                  stored.schema.row_count,
-                  stored.isHivePartitioned,
-                  stored.remoteCreds
-                )
-              : { localFileContext: undefined, remoteAuthSubst: undefined };
+            : wasmRemoteCsvPath
+              ? // Reads the delivered /data/input.csv (the base prompt's default) —
+                // NO httpfs, NO remoteAuthSubst.
+                { localFileContext: undefined, remoteAuthSubst: undefined }
+              : isRemote
+                ? resolveRemoteSource(
+                    stored.remoteParquetUrl!,
+                    stored.schema.row_count,
+                    stored.isHivePartitioned,
+                    stored.remoteCreds
+                  )
+                : { localFileContext: undefined, remoteAuthSubst: undefined };
 
         // Run the code-gen + sandbox pipeline. When the caller supplied
         // pre-edited code via context.code (Edit-and-Rerun), skip the
@@ -443,10 +462,15 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             localFileContext,
             priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
             inputParquetPath: warehouseParquetFile,
+            wasmFetchInputs: wasmRemoteCsvPath
+              ? [{ workerPath: "/data/input.csv", hostPath: wasmRemoteCsvPath }]
+              : undefined,
             purpose,
             remoteAuthSubst,
           });
         }
+        // The host-materialized remote CSV is consumed once the worker fetched it.
+        if (wasmRemoteCsvPath) await unlink(wasmRemoteCsvPath).catch(() => {});
 
         // NOTE: deliberately NO `if (closed()) return` here. The
         // execution is the expensive, already-paid part — a client

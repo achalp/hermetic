@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/sandbox/runtime-files", () => ({ hermeticRuntimeFiles: () => [] }));
 
 import { executeSandbox, type WasmExecutor } from "@/lib/sandbox";
+import { getInputRegistry } from "@/lib/sandbox/wasm/input-singleton";
 import type { ExecutionResult } from "@/lib/contracts/execution";
 
 const success: ExecutionResult = {
@@ -57,5 +58,32 @@ describe("executeSandbox — wasm dispatch", () => {
     });
     expect(wasmExecutor).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
+  });
+
+  it("delivers wasmFetchInputs as token URLs to the worker, and releases them after (D13)", async () => {
+    let sizeDuringRun = -1;
+    const wasmExecutor = vi.fn<WasmExecutor>(async (_csv, _code, opts) => {
+      // The host path is NOT exposed — the worker gets an opaque /api/wasm-input token.
+      expect(opts.fetchInputs).toHaveLength(1);
+      const fi = opts.fetchInputs![0];
+      expect(fi.path).toBe("/data/input.csv");
+      expect(fi.url).toMatch(/^\/api\/wasm-input\/[0-9a-f-]{36}$/);
+      expect(fi.url).not.toContain("/tmp/"); // never the host path
+      sizeDuringRun = getInputRegistry().size();
+      return success;
+    });
+
+    const before = getInputRegistry().size();
+    await executeSandbox("", "print(1)", {
+      runtime: "wasm",
+      wasmExecutor,
+      runId: "run-d13",
+      wasmFetchInputs: [
+        { workerPath: "/data/input.csv", hostPath: "/tmp/materialized-remote.csv" },
+      ],
+    });
+
+    expect(sizeDuringRun).toBe(before + 1); // token live during the run
+    expect(getInputRegistry().size()).toBe(before); // released after (no leak)
   });
 });

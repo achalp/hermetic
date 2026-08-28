@@ -20,6 +20,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.37
         version: 3.0.73(zod@4.4.3)
+      '@aws-crypto/sha256-js':
+        specifier: 5.2.0
+        version: 5.2.0
       '@clickhouse/client':
         specifier: ^1.23.1
         version: 1.23.1
@@ -107,6 +110,12 @@ importers:
       '@nivo/treemap':
         specifier: ^0.99.0
         version: 0.99.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@smithy/protocol-http':
+        specifier: 5.5.1
+        version: 5.5.1
+      '@smithy/signature-v4':
+        specifier: 5.5.1
+        version: 5.5.1
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.2.3(react@19.2.3))(react@19.2.3)

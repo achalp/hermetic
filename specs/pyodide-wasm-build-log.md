@@ -19,6 +19,7 @@ Each entry: the decision, why, and the alternative rejected. Newest at the botto
 - [x] C. Rust Fetcher edge (real TLS/HTTP behind the decisions) — BUILT + 59 cargo tests incl T6 (D7)
 - [x] D. Tauri shell scaffold + cargo-build verified (sidecar packaging = 0c, deferred)
 - [x] E. runtime auto-selection wired
+- [x] Remote sources (no-Docker): host-side materialize (Rust egress) → parquet→CSV → worker local read; both orchestrators wired (D11–D14). Live-S3 = manual smoke.
 - [x] E2. sidecar↔webview handoff built + tested end to end: E2.2 registry, E2.3 sidecar+route+
       injection, E2.4 browser controller+worker route+hook, E2.5 running-worker acceptance GREEN
       (production worker boots + runs under the production CSP). Remaining for the full PRODUCT:
@@ -443,3 +444,40 @@ Decisions this needs (surfaced, not unilaterally taken):
 (`wasm+remote` → local-CSV context, drop remoteParquetUrl for the executor) + worker
 input-order fix. Each mechanical against the built spine. Public/pre-signed remote works
 end to end WITHOUT the signer; S3-key sources need it.
+
+### D14 — Remote for WASM: COMPLETE (host-side materialize → local CSV; both orchestrators wired).
+
+The full no-Docker remote path is implemented and wired end to end:
+
+- **Signer:** `@smithy/signature-v4` (+ `@smithy/protocol-http`, `@aws-crypto/sha256-js`)
+  added as direct deps. `s3-presign.ts` — `presignS3GetUrl` (deterministic via an
+  injected date). 3 unit tests (structure + determinism + secret-never-in-URL).
+- **Resolution:** `remote-fetch.ts` `resolveRemoteHttpsFetch` — `s3://` → vhost HTTPS
+  (pre-signed with the user's keys when present; keys stay host-side), `https://`
+  passthrough; folder globs / hive / `gs://` fail EXPLICITLY (routed to Docker). Vetted
+  allowlist via `deriveAllowedEgressHosts`. 4 unit tests.
+- **Materialize+convert:** `materializeRemoteCsvForWasm` — resolve → `egress-fetch`
+  (§6a) → `parquetToCsv` (DuckDB-WASM in-process) → local CSV, intermediate parquet
+  deleted. Gated integration test drives the whole chain with a fake bin serving a real
+  parquet.
+- **Delivery:** `SandboxExecOptions.wasmFetchInputs` → the executeSandbox wasm branch
+  registers each host file → a token → an `/api/wasm-input/<token>` fetchInput, released
+  after the run. The worker fetches inputs LAST (override order) so the remote CSV lands
+  at `/data/input.csv`. Dispatch test asserts the token URL (never the host path) +
+  no-leak.
+- **Pipeline (BOTH orchestrators):** run-ask-query AND run-investigate-query take a
+  `wasm && isRemote` branch — materialize host-side, read the delivered `/data/input.csv`
+  (base-prompt default, no httpfs, no remoteAuthSubst), thread `wasmFetchInputs` (through
+  investigate-orchestrator to every sub-step), and delete the temp CSV in the finally.
+
+**No capability flip needed / done:** the wasm sandbox NEVER does in-sandbox remote IO —
+the host materializes and the generated code reads a LOCAL CSV, so `codeDoesRemoteIo`
+stays false and the gate passes with `supportsRemoteIO` correctly FALSE (D9's insight).
+
+**Scope + honest gaps:** single-file `s3://`/`https://` sources work; folder/hive/`gs://`
+route to Docker with a clear message. The one gap unchanged since D9: a REAL S3 fetch
+can't run in CI (no bucket; loopback blocked), so S3 signing's final proof is a MANUAL
+live-bucket smoke — every layer is unit/integration/e2e-tested, the SigV4 is the SDK's,
+and the delivery is CSP-proven, but "a real bucket accepts our signed GET" is verified
+by hand, not CI. parquet→CSV materializes the whole object (bounded-memory COPY on disk);
+very large sources are still best on Docker.

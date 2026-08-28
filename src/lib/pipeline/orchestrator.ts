@@ -73,6 +73,8 @@ export interface PipelineOptions {
   priorTurns?: ConversationTurn[];
   /** Host Parquet file to docker-cp into the sandbox (/data/input.parquet). */
   inputParquetPath?: string;
+  /** WASM-only: host files the worker fetches into its FS (build log D13). */
+  wasmFetchInputs?: { workerPath: string; hostPath: string }[];
   purpose?: string;
   /**
    * Real S3 credentials to splice into generated code at the sandbox boundary
@@ -107,6 +109,7 @@ export async function runPipeline(
     localFileContext,
     priorTurns,
     inputParquetPath,
+    wasmFetchInputs,
     purpose,
     remoteAuthSubst,
   } = options;
@@ -441,6 +444,7 @@ export async function runPipeline(
       csvId: schema.csv_id,
       localMountPath,
       inputParquetPath,
+      wasmFetchInputs,
       hooks: ambientSandboxHooks(),
       wasmExecutor: ambientWasmExecutor(),
       // Container attribution label — like hooks, injected here because the
@@ -587,6 +591,7 @@ export async function runPipeline(
         csvId: schema.csv_id,
         localMountPath,
         inputParquetPath,
+        wasmFetchInputs,
         hooks: ambientSandboxHooks(),
         wasmExecutor: ambientWasmExecutor(),
         runId: getRunId(),
