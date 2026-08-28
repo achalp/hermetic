@@ -407,3 +407,39 @@ pyarrow load) — the worker does pandas today; a materialize-to-CSV shim or wir
 DuckDB-WASM into the worker is the compute-side follow-on. The security + delivery
 spine (Rust egress edge → Node materialize → token endpoint → worker fetch) is DONE and
 tested; what's left is the pipeline branch that calls it and the worker's parquet read.
+
+### D13 — Remote completion: host-side parquet→CSV BUILT; the wall is S3 SigV4 signing.
+
+Completing remote for WASM means bringing a remote source onto the worker's proven
+pandas-CSV path (the worker does pandas, not parquet). Two host-side steps:
+
+1. **materialize** the remote object through the Rust egress core (D11 — DONE), and
+2. **convert** parquet→CSV host-side so the worker reads CSV (D13 — DONE).
+
+**Built + tested (D13):** `parquet-convert.ts` — `parquetToCsv()` runs the
+`@duckdb/duckdb-wasm` blocking bundle IN-PROCESS in Node (NODE_RUNTIME → real FS, no
+Docker, no worker), `COPY (read_parquet) TO … CSV`. Its own `createRequire` boot
+(the shared `duckdb-engine` uses `eval("require")`, which only resolves when shipped
+into a CJS worker). Gated integration test (HERMETIC_WASM_TEST) writes a real parquet
+and round-trips it to CSV. Coverage-excluded (DuckDB-WASM edge).
+
+**The wall — S3 SigV4 signing.** `RemoteCreds` is S3 access-key/secret. `egress-fetch`
+supports bearer/pre-signed/public URLs, NOT SigV4-signed S3 requests. The clean fix is
+to PRE-SIGN the S3 GET URL HOST-SIDE (keys never leave the machine) and let egress-fetch
+fetch the pre-signed URL through the §6a core — keeping BOTH proper signing AND the
+SSRF/IP-pinning boundary (using DuckDB-httpfs directly would bypass §6a — rejected).
+Decisions this needs (surfaced, not unilaterally taken):
+
+- **Signer:** `@smithy/signature-v4` is present TRANSITIVELY (not a declared dep);
+  make it a direct dep and use it (battle-tested), vs. hand-roll SigV4 (no dep, but
+  error-prone). Recommend the dep.
+- **Validation reality:** a real remote fetch CANNOT run in CI (no bucket; the policy
+  blocks loopback). A golden vector proves the algorithm, not that a live bucket
+  accepts it — so S3 remote's final validation is a MANUAL live-bucket smoke. This is
+  the same honest gap flagged since D9.
+
+**Remaining after the signer:** the combined materialize helper (presign → egress-fetch
+→ parquet-convert → deliver via option-B token) + the two-orchestrator pipeline branch
+(`wasm+remote` → local-CSV context, drop remoteParquetUrl for the executor) + worker
+input-order fix. Each mechanical against the built spine. Public/pre-signed remote works
+end to end WITHOUT the signer; S3-key sources need it.

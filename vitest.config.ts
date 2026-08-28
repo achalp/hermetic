@@ -49,6 +49,8 @@ export default defineConfig({
         "src/lib/sandbox/wasm/transport-node.ts",
         "src/lib/sandbox/wasm/duckdb-bridge.ts",
         "src/lib/sandbox/wasm/duckdb-engine.ts",
+        // Host-side parquet→CSV (DuckDB-WASM in-process); gated integration test.
+        "src/lib/sandbox/wasm/parquet-convert.ts",
         "src/lib/sandbox/wasm/handoff.ts",
         // globalThis-backed singleton (shared with the /api/wasm-result route);
         // its registry logic is 100%-covered in handoff-registry.test.ts.
