@@ -320,3 +320,53 @@ download, where the exfil boundary already holds.
 Rust IPC bridge (a Tauri command invoking `authorize_and_fetch`) + the sandbox remote-
 read interception that uses it + a green remote-read e2e. The boot is no longer a
 blocker. `supportsRemoteIO` still holds FALSE until that bridge ships (D2/M3).
+
+### D11 — Remote for WASM: host-side materialization via the Rust egress core (FOUNDATION built + tested).
+
+**The design (resolved).** The WASM worker has no network (connect-src 'self' → same-
+origin only), so it CANNOT fetch `s3://…`/remote hosts — and it must not. So a remote
+source is MATERIALIZED HOST-SIDE before dispatch: the Node sidecar fetches the object
+through the §6a Rust egress core, and the worker reads it as a LOCAL file (exactly the
+existing warehouse-parquet path: `inputParquetPath` → `/data/input.parquet`, read
+offline). Consequence: the generated code reads a LOCAL file, so `codeDoesRemoteIo`
+stays FALSE and the sandbox boundary is unchanged — `supportsRemoteIO` (an in-sandbox
+capability) is not even the relevant flag; the wasm sandbox never does remote IO.
+
+**Built + tested tonight (the sidecar ⇄ Rust-Fetcher bridge):**
+
+- `rust/egress-core/src/bin/egress-fetch.rs` — a thin bin over the tested
+  `authorize_and_fetch`: argv URL + `HERMETIC_EGRESS_ALLOWLIST` + creds-via-ENV (never
+  argv) → streams vetted bytes to stdout; documented exit codes (1 denied · 2 transport
+  · 3 cap · 4/5 redirect · 64 usage). Fails closed on an empty allowlist. `tests/
+egress_fetch_bin.rs` (5 tests): empty-allowlist, off-allowlist, internal-IP, usage,
+  all refuse BEFORE connect. `cargo test --locked` = 64 Rust tests (CI picks it up).
+- `src/lib/sandbox/egress-fetch.ts` — `materializeRemoteToFile({url, allowlist, creds,
+destPath})` spawns the bin, streams stdout → file, maps exit→error-kind, removes the
+  partial file on any failure, passes a MINIMAL child env (ratchet-clean). 5 tests via a
+  fake bin. `hermeticPaths.egressFetchBin()` + `HERMETIC_EGRESS_FETCH_BIN` (env-config)
+  resolve the binary (Tauri bundle sets it).
+- Reuses the ONE adversarially-tested Rust core via subprocess (not a napi build) —
+  matches the egress-proxy precedent; a native binding is a heavier follow-on.
+
+**Remaining wiring (well-scoped, against these tested seams) + ONE decision:**
+
+1. **[DECISION — recommend B] deliver the materialized BINARY parquet into the CSP-locked
+   worker.** The worker's FS is populated from the JSON `request.files` (strings) or by
+   fetching same-origin. Options: (A) base64 the bytes into `request.files` — trivial but
+   memory-bound + bloats the NDJSON stream; only viable for small objects. (B) a
+   same-origin data endpoint `/api/wasm-input/<token>` the worker FETCHES into its FS —
+   streams large files, and it's the SAME mechanism the worker already uses for the
+   Pyodide dist under connect-src 'self'. **Recommend B** (general, streaming, reuses the
+   proven pattern). This is the one real fork; the rest is mechanical.
+2. Pipeline (run-ask-query + run-investigate-query): for `runtime==="wasm" && isRemote`,
+   take a materialize branch — `materializeRemoteToFile` (allowlist from
+   `egressPolicyFor(remoteParquetUrl)`, creds from `stored.remoteCreds`) → a temp file →
+   the LOCAL-parquet code context (like `warehouseParquetContext`) + deliver via (B).
+   Temp-file lifecycle (create → deliver → clean up on run end).
+3. Then remote sources run no-Docker; validate with a MANUAL live-bucket smoke (a real
+   allowlisted host — a fully-real remote e2e CANNOT run offline in CI, because
+   `is_blocked_ip(127.0.0.1)` correctly refuses loopback, so there is no in-CI real
+   remote to hit; the green suite is the Rust socket + decision tests + the mocked
+   Node/pipeline tests). Keep `supportsRemoteIO` semantics honest per D9/D2.
+   _Status:_ the security-critical + reusable half (the Rust edge + the Node bridge) is
+   DONE and tested; the remaining half is delivery + pipeline wiring behind decision (1).
