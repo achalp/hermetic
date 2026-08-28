@@ -16,14 +16,17 @@ import { materializeRemoteToFile, EgressFetchError } from "@/lib/sandbox/egress-
  * received — proving those cross the boundary and nothing else is inherited.
  */
 let dir: string;
-const FAKE = `#!/usr/bin/env node
-const url = process.argv[2] || "";
-const mode = url.replace(/^https?:\\/\\//, "").split("/")[0]; // host = mode
-if (mode === "ok") { process.stdout.write("BYTES:" + (process.env.HERMETIC_EGRESS_ALLOWLIST||"")); process.exit(0); }
-if (mode === "bearer") { process.stdout.write("AUTH:" + (process.env.HERMETIC_EGRESS_BEARER||"none")); process.exit(0); }
-if (mode === "deny") { process.stderr.write("egress-fetch: denied: Host"); process.exit(1); }
-if (mode === "cap") { process.stderr.write("cap exceeded after 999"); process.exit(3); }
-process.exit(2);
+// A pure-builtin /bin/sh fake (absolute-path shebang → no PATH lookup, and printf/[
+// are shell builtins) so it runs under the MINIMAL env the wrapper passes the child
+// (no PATH — correct for the real compiled bin). Behavior is chosen by the URL host.
+const FAKE = `#!/bin/sh
+rest="\${1#*://}"
+mode="\${rest%%/*}"
+if [ "$mode" = "ok" ]; then printf 'BYTES:%s' "$HERMETIC_EGRESS_ALLOWLIST"; exit 0; fi
+if [ "$mode" = "bearer" ]; then printf 'AUTH:%s' "\${HERMETIC_EGRESS_BEARER:-none}"; exit 0; fi
+if [ "$mode" = "deny" ]; then printf 'egress-fetch: denied: Host' >&2; exit 1; fi
+if [ "$mode" = "cap" ]; then printf 'cap exceeded after 999' >&2; exit 3; fi
+exit 2
 `;
 let binPath: string;
 
