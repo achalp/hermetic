@@ -473,6 +473,77 @@ fi
 
 ok "Node.js $(node -v)"
 
+# ── 1b. Launch mode: embedded desktop app vs web+Docker (build log D15) ──────
+# Two ways to run Hermetic:
+#   • the embedded DESKTOP app (Tauri + the WASM sandbox) — NO Docker, and the same
+#     thing a non-technical user downloads as an executable; and
+#   • the WEB app + Docker — this cloned repo's DEFAULT (unchanged behavior).
+# Headless (-y) always takes the default (web+Docker), so CI/automation is untouched.
+step "Choose how to run"
+
+# Locate a built native binary (produced by `pnpm desktop:build`).
+NATIVE_BIN=""
+for _c in \
+  "src-tauri/target/release/hermetic-desktop" \
+  src-tauri/target/release/bundle/appimage/*.AppImage; do
+  [ -e "$_c" ] && { NATIVE_BIN="$_c"; break; }
+done
+HAS_TAURI_CLI=false
+[ -x node_modules/.bin/tauri ] && HAS_TAURI_CLI=true
+
+echo ""
+echo -e "    ${BOLD}1)${RESET} Desktop app ${DIM}— embedded, no Docker (WASM runtime)${RESET}   [$([ -n "$NATIVE_BIN" ] && echo "${GREEN}built${RESET}" || echo "${YELLOW}not built${RESET}")]"
+echo -e "    ${BOLD}2)${RESET} Desktop app — dev mode ${DIM}— tauri dev, no Docker${RESET}       [$($HAS_TAURI_CLI && echo "${GREEN}ready${RESET}" || echo "${YELLOW}installs deps${RESET}")]"
+echo -e "    ${BOLD}3)${RESET} Web app + Docker ${DIM}— this repo's default${RESET}               ${GREEN}[default]${RESET}"
+echo ""
+echo -n "    Choose [3]: "
+read -r LAUNCH_MODE
+LAUNCH_MODE="${LAUNCH_MODE:-3}"
+
+launch_native_binary() {
+  if [ -z "$NATIVE_BIN" ]; then
+    warn "No built desktop app found."
+    echo -e "    Build it with: ${BOLD}pnpm desktop:build${RESET}  ${DIM}(needs the Rust toolchain + webkit dev headers)${RESET}"
+    echo -e "    …or download a prebuilt executable from the releases page."
+    echo -n "    Build it now? [y/N]: "
+    read -r _b
+    if [[ "${_b:-n}" =~ ^[Yy]$ ]]; then
+      command -v cargo &>/dev/null || fail "cargo (Rust) not found — install from https://rustup.rs then re-run."
+      pnpm install --frozen-lockfile >/dev/null 2>&1 || pnpm install
+      pnpm desktop:build || fail "desktop build failed"
+      for _c in "src-tauri/target/release/hermetic-desktop" src-tauri/target/release/bundle/appimage/*.AppImage; do
+        [ -e "$_c" ] && { NATIVE_BIN="$_c"; break; }
+      done
+    else
+      echo -e "    ${DIM}Falling back to Web app + Docker.${RESET}"
+      return 1
+    fi
+  fi
+  [ -n "$NATIVE_BIN" ] || return 1
+  ok "Launching the desktop app (no Docker) — $NATIVE_BIN"
+  echo -e "    ${DIM}Press Ctrl+C to stop.${RESET}"
+  exec "$NATIVE_BIN"
+}
+
+case "$LAUNCH_MODE" in
+  1)
+    launch_native_binary || true # falls through to Web+Docker on decline
+    if [ -n "$NATIVE_BIN" ]; then exec "$NATIVE_BIN"; fi
+    ;;
+  2)
+    ok "Desktop app in dev mode (tauri dev) — no Docker"
+    if ! $HAS_TAURI_CLI; then
+      pnpm install --frozen-lockfile >/dev/null 2>&1 || pnpm install
+    fi
+    command -v cargo &>/dev/null || fail "cargo (Rust) not found — install from https://rustup.rs then re-run."
+    echo -e "    ${DIM}Starting the Next dev server + the Tauri window. Press Ctrl+C to stop.${RESET}"
+    exec pnpm desktop:dev
+    ;;
+  *)
+    ok "Web app + Docker (default)"
+    ;;
+esac
+
 # ── 2. Choose sandbox runtime ────────────────────────────
 step "Choosing sandbox runtime"
 

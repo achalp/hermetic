@@ -71,3 +71,10 @@ batch-evals/
 e2e/.artifacts/
 test-results/
 playwright-report/
+rust/**/target/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Desktop sidecar bundle (assembled by scripts/build-desktop-sidecar.mjs) — large build artifact
+/src-tauri/sidecar/*
+!/src-tauri/sidecar/.gitkeep

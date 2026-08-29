@@ -4,7 +4,7 @@ import path from "path";
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    exclude: ["node_modules", ".next"],
+    exclude: ["node_modules", ".next", "src-tauri"],
     environment: "node",
     setupFiles: ["./src/test-setup.ts"],
     coverage: {
@@ -38,6 +38,26 @@ export default defineConfig({
         // server start, not unit-testable (canonical coverage exclusion).
         "src/instrumentation.ts",
         "src/instrumentation-node.ts",
+        // The wasm executor is Pyodide-in-Node integration glue — it can't be
+        // unit-covered (boots the WASM runtime + fetches wheels). It is covered
+        // by the opt-in wasm-parity CI job (HERMETIC_WASM_TEST=1), not this run.
+        // Every OTHER PURE file under src/lib/sandbox/wasm/** is held to 100%
+        // coverage by the threshold below — new wasm logic starts at 100%. The
+        // few files listed here are INTEGRATION edges (boot workers / SAB /
+        // Pyodide) covered by dedicated integration tests, not the unit run.
+        "src/lib/sandbox/wasm/executor.ts",
+        "src/lib/sandbox/wasm/transport-node.ts",
+        "src/lib/sandbox/wasm/duckdb-bridge.ts",
+        "src/lib/sandbox/wasm/duckdb-engine.ts",
+        // Host-side parquet→CSV (DuckDB-WASM in-process); gated integration test.
+        "src/lib/sandbox/wasm/parquet-convert.ts",
+        "src/lib/sandbox/wasm/handoff.ts",
+        // globalThis-backed singleton (shared with the /api/wasm-result route);
+        // its registry logic is 100%-covered in handoff-registry.test.ts.
+        "src/lib/sandbox/wasm/handoff-singleton.ts",
+        // globalThis-backed input-token singleton (shared with /api/wasm-input);
+        // its registry logic is 100%-covered in input-registry.test.ts.
+        "src/lib/sandbox/wasm/input-singleton.ts",
       ],
       // Floors act as a regression ratchet, set a few points below current.
       // Global is low because ~69 chart components are presentational and
@@ -56,6 +76,16 @@ export default defineConfig({
           lines: 75,
           functions: 75,
           branches: 64,
+        },
+        // The wasm subsystem is NEW and starts at 100% — every pure-logic line,
+        // branch, and function is covered (the Pyodide executor is excluded above
+        // and covered by the wasm-parity job). This is a hard gate, not a floor:
+        // a new wasm/ module ships with full coverage or the run goes red.
+        "src/lib/sandbox/wasm/**": {
+          statements: 100,
+          lines: 100,
+          functions: 100,
+          branches: 100,
         },
       },
     },

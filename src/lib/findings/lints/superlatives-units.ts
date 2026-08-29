@@ -269,8 +269,7 @@ export function surfaceUndeclaredFailedChecks(
     added.push({
       name: base,
       dtype: "check",
-      definition:
-        "computed by the analysis but never declared as a check — surfaced so its failure cannot pass silently",
+      definition: "An automatic data-quality check on this result did not pass",
       value: { passed: false, ...(Object.keys(evidence).length > 0 ? { evidence } : {}) },
       tags: ["check", "caveat", "auto_surfaced"],
     } as FindingEntry);
@@ -618,8 +617,7 @@ export function surfaceUndeclaredScreens(
     added.push({
       name: base,
       dtype: "screen",
-      definition:
-        "an outlier screen computed by the analysis but never declared — surfaced so its result cannot pass silently",
+      definition: "An outlier screen the analysis ran on this data flagged one or more values",
       value: { passed: value === 0, evidence },
       tags: ["check", "caveat", "auto_surfaced"],
     } as FindingEntry);

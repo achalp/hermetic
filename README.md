@@ -113,6 +113,32 @@ The setup script checks prerequisites, installs dependencies, sets up the Docker
 
 It also offers to connect hermetic to Claude Desktop / Claude Code as an MCP server — see [Using from Claude](#using-from-claude-mcp-server).
 
+### Two ways to run Hermetic
+
+There are two runtimes, from one codebase:
+
+- **Web app + Docker** — what `./start.sh` sets up by default. The dev server plus a Docker sandbox for executing analysis code. Best for development and for machines that already run Docker.
+- **Embedded desktop app** — a single platform executable (Tauri) that runs the analysis in a **WebAssembly sandbox (Pyodide + DuckDB-WASM), no Docker required**. This is the download for non-technical users.
+
+`./start.sh` (from a clone) asks up front which you want:
+
+| Choice                              | What runs                                                            | Docker? |
+| ----------------------------------- | -------------------------------------------------------------------- | ------- |
+| **1) Desktop app**                  | the built native executable (embedded WASM runtime)                  | no      |
+| **2) Desktop app — dev mode**       | `pnpm desktop:dev` (`tauri dev`): Next dev server + the Tauri window | no      |
+| **3) Web app + Docker** _(default)_ | the current dev server + Docker sandbox                              | yes     |
+
+Pressing Enter (or `--headless`) keeps the default (**3**), so nothing about the existing flow changes.
+
+**Build the desktop executable yourself** (needs the Rust toolchain + your OS's webview dev headers):
+
+```bash
+pnpm desktop:build     # egress-fetch (release) → tauri build → src-tauri/target/release/bundle/
+pnpm desktop:dev       # or run it in dev mode (Next dev server + Tauri window)
+```
+
+A `tauri build` produces a **per-OS** installer and must be run **on each target OS** (native webview + code signing are per-platform); prebuilt, signed downloads are published from the releases page.
+
 ### Manual Setup
 
 1. **Install dependencies**

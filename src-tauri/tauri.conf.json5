@@ -1,0 +1,72 @@
+// Tauri v2 config for the Hermetic desktop shell.
+//
+// This is `tauri.conf.json5` (not `.json`) ON PURPOSE: Tauri parses config with
+// deny-unknown-fields, so a plain-JSON `"//comment"` key fails the build. JSON5
+// (natively supported by Tauri) lets the §7 security decisions carry real inline
+// comments — see specs/pyodide-wasm-sandbox-2026-08-26.md §4a + §7.
+{
+  $schema: "https://schema.tauri.app/config/2",
+  productName: "Hermetic",
+  version: "0.1.0",
+  identifier: "com.hermetic.desktop",
+
+  build: {
+    // `tauri dev`: start the Next dev server; the window loads it (src/lib.rs dev
+    // branch). `tauri build`: assemble the sidecar (Next standalone + node + assets)
+    // BEFORE bundling, so `resources.sidecar` exists. Run from the project root.
+    beforeDevCommand: "pnpm dev",
+    beforeBuildCommand: "pnpm desktop:sidecar",
+    devUrl: "http://localhost:3000",
+
+    // The REAL frontend is the server-rendered Next app served by the sidecar (the
+    // app is NOT output:'export'-able — §4a). This placeholder dir only satisfies the
+    // config schema / bundler; the window never loads it (src/lib.rs points at the
+    // sidecar's loopback origin in release, or devUrl in dev).
+    frontendDist: "../dist-placeholder",
+  },
+
+  app: {
+    // §7 #1: no window.__TAURI__ injected into the page — removes an ambient
+    // host-reachable global from untrusted webview JS.
+    withGlobalTauri: false,
+
+    // NO static windows: the main window is created in src/lib.rs::run() AFTER the
+    // Node sidecar is ready, pointed at its loopback origin (build log D15). A
+    // config window would load the frontendDist placeholder first and flash.
+    windows: [],
+
+    security: {
+      // The APP-document CSP (reasonably tight).
+      //
+      // NOTE: the untrusted EXECUTION WORKER does NOT use this — it carries its
+      // OWN stricter blob-document CSP written at RUNTIME (§7 #2):
+      //   default-src 'none'; script-src blob: 'wasm-unsafe-eval';
+      //   connect-src 'none'; img-src 'none'; worker-src 'none'; child-src 'none'
+      // That worker CSP is THE load-bearing network control and is intentionally
+      // NOT expressed here. `script-src` there must NOT include 'self' (the
+      // Phase 0(b) escape suite proved 'self' permits importScripts()/import()
+      // exfil). The packaged-build app CSP below is further tightened (§7 #5b:
+      // drop huggingface.co, constrain connect-src/img-src) once the sidecar
+      // origin is known.
+      csp: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:3000 ws://localhost:3000; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      // Capability grants live in capabilities/default.json — MINIMAL by design
+      // (§7 #1): NO fs/shell/http/dialog/os permissions.
+    },
+  },
+
+  bundle: {
+    active: true,
+    targets: "all",
+    // Placeholder icons (generated). `cargo build` does not consume these;
+    // `tauri build` bundling does. Replace before Phase 3 productionization.
+    icon: ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+
+    // The assembled Node sidecar (build log D15) — the Next standalone server + the
+    // Node runtime + pyodide dist + egress-fetch bin + the docker/sandbox runtime
+    // package. Built by `scripts/build-desktop-sidecar.mjs` BEFORE `tauri build`
+    // (see beforeBuildCommand). Copied into the app's resource dir; src/lib.rs spawns
+    // `<resources>/sidecar/node server.js`. `cargo check` does not validate that the
+    // dir exists (bundling does), so the shell still compiles pre-build.
+    resources: { sidecar: "sidecar" },
+  },
+}

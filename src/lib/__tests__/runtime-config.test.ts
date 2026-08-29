@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   getRuntimeConfig,
+  resolveActiveRuntime,
+  getActiveSandboxRuntime,
   setRuntimeConfig,
   clearRuntimeConfigCache,
   getActiveModels,
@@ -179,5 +181,42 @@ describe("getActiveEffort — per-phase overrides", () => {
     clearRuntimeConfigCache();
     expect(getActiveEffort("compose")).toBeNull();
     expect(getActiveEffort(null)).toBeNull();
+  });
+});
+
+describe("resolveActiveRuntime — no-Docker fallback (§11)", () => {
+  it("an explicit user pin always wins", () => {
+    expect(resolveActiveRuntime("docker", false)).toBe("docker");
+    expect(resolveActiveRuntime("wasm", true)).toBe("wasm");
+  });
+
+  it("no pin + Docker absent → wasm", () => {
+    expect(resolveActiveRuntime(undefined, false)).toBe("wasm");
+  });
+
+  it("no pin + Docker present → docker", () => {
+    expect(resolveActiveRuntime(undefined, true)).toBe("docker");
+  });
+
+  it("no pin + Docker availability unknown → docker (preserve current behavior)", () => {
+    expect(resolveActiveRuntime(undefined, undefined)).toBe("docker");
+  });
+});
+
+describe("getActiveSandboxRuntime — HERMETIC_FORCE_RUNTIME (desktop channel, D15)", () => {
+  afterEach(() => {
+    delete process.env.HERMETIC_FORCE_RUNTIME;
+  });
+
+  it("forces wasm even when Docker is present (the packaged desktop app)", () => {
+    process.env.HERMETIC_FORCE_RUNTIME = "wasm";
+    setRuntimeConfig({ dockerAvailable: true }); // Docker present + no pin → would be docker
+    expect(getActiveSandboxRuntime()).toBe("wasm");
+  });
+
+  it("ignores a bogus value and falls back to normal resolution", () => {
+    process.env.HERMETIC_FORCE_RUNTIME = "nonsense";
+    setRuntimeConfig({ sandboxRuntime: "docker" });
+    expect(getActiveSandboxRuntime()).toBe("docker");
   });
 });

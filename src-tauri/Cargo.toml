@@ -1,0 +1,39 @@
+[package]
+name = "hermetic-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Hermetic desktop shell (Tauri v2) — the no-Docker delivery vehicle. The webview IS the §7 security boundary; the untrusted Pyodide/DuckDB-WASM execution worker lives inside it. See specs/pyodide-wasm-sandbox-2026-08-26.md §4a + §7."
+license = "UNLICENSED"
+publish = false
+
+# Binary + library split is the Tauri v2 convention: `main.rs` is a thin shim
+# over `lib.rs::run()` so the same entrypoint can be reused by mobile targets
+# and integration tests.
+[lib]
+name = "hermetic_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+# `config-json5` lets tauri-build parse tauri.conf.json5 (real inline comments
+# for the §7 security rationale — a strict-JSON config forbids comment keys).
+tauri-build = { version = "2", features = ["config-json5"] }
+
+[dependencies]
+# `withGlobalTauri:false` (§7 #1) is set in tauri.conf.json; no plugins are
+# enabled here on purpose — every Tauri plugin (fs/shell/http/dialog/os) would
+# widen the IPC surface reachable from webview JS, which §7 #1 requires to be
+# empty of host-touching commands. Add plugins ONLY behind a capability grant.
+# `config-json5` mirrors the build-dep so `generate_context!` reads the same
+# JSON5 config at compile time.
+tauri = { version = "2", features = ["config-json5"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Release profile mirrors Tauri's recommended size/hardening defaults. Not
+# load-bearing for `cargo build` (debug), but pins the shipped-binary shape.
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

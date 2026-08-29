@@ -220,6 +220,8 @@ interface OrchestrateOptions {
    * Mutually exclusive with localMountPath.
    */
   inputParquetPath?: string;
+  /** WASM-only: host files the worker fetches into its FS (build log D13). */
+  wasmFetchInputs?: { workerPath: string; hostPath: string }[];
   /** Reported per-sub-question and per-wave status updates. */
   onProgress?: (event: InvestigateProgressEvent) => void;
 }
@@ -261,6 +263,7 @@ function runCsvSubQuestion(
     remoteAuthSubst: options.remoteAuthSubst,
     priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
     inputParquetPath: options.inputParquetPath,
+    wasmFetchInputs: options.wasmFetchInputs,
     purpose: options.purpose,
   });
 }

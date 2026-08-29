@@ -384,6 +384,37 @@ export function realizeNode(
   return realizeNodeTemplate(node, byName, rideredClaims);
 }
 
+/**
+ * A CAVEAT split into a PLAIN one-line content and the TECHNICAL evidence figures,
+ * so the callout reads like a human note and the raw numbers live behind a "what does
+ * this mean?" disclosure (compile.ts) instead of trailing the sentence as
+ * `(n flagged: 21, window: 21, k: 3.5)`. `evidence` carries $finding bindings that the
+ * resolver fills, same as any prop. Returns null when the ref has no finding (the
+ * caller falls back to realizeNode).
+ */
+export function realizeCaveat(
+  node: PlanNode,
+  byName: Map<string, FindingEntry>
+): { content: string; evidence: string | null } | null {
+  const name = node.refs[0];
+  if (!name) return null;
+  const f = byName.get(name);
+  if (!f) return null;
+  const v = (f.value && typeof f.value === "object" ? f.value : {}) as Record<string, unknown>;
+  const nested =
+    v.evidence !== null && typeof v.evidence === "object" && !Array.isArray(v.evidence)
+      ? (v.evidence as Record<string, unknown>)
+      : undefined;
+  const ev = nested ?? v;
+  const prefix = nested ? "evidence." : "";
+  const evParts = Object.entries(ev)
+    .filter(([, x]) => typeof x === "number")
+    .slice(0, 3)
+    .map(([k]) => `${humanize(k)}: ${b(name, `${prefix}${k}`)}`);
+  const content = `${cap(f.definition.trim().replace(/\.$/, ""))}.`;
+  return { content, evidence: evParts.length > 0 ? evParts.join(", ") : null };
+}
+
 /** The TEMPLATE rendering of a node, authored text ignored — the
  *  deterministic floor. Used as realizeNode's no-text path, and by the
  *  post-render invariant (spec §2.M5) to replace a node whose authored

@@ -9,8 +9,14 @@ import type { FindingsManifest } from "@/lib/contracts/findings";
 import type { AnalysisProduct } from "@/lib/contracts/product";
 import type { Plan, PlanOverlay } from "@/lib/contracts/plan";
 import type { HeadlineTile } from "@/lib/findings/headline-plan";
-import { realizeNode } from "./realizer";
-import { failedCheckBanner, tileElement, humanizeId, type SpecPatchLine } from "./scaffold";
+import { realizeNode, realizeCaveat } from "./realizer";
+import {
+  failedCheckBanner,
+  tileElement,
+  humanizeId,
+  DATA_CHECK_EXPLANATION,
+  type SpecPatchLine,
+} from "./scaffold";
 import { compileViewNode } from "./view-compilers";
 import { deriveViews, viewDefaultWidths } from "./views";
 import { deriveAggregatingController, deriveController, rebindViewPatch } from "./controller";
@@ -170,13 +176,24 @@ export function compileDashboard(input: CompileInput): string[] {
           (f.value as Record<string, unknown>).passed === false
         );
       });
+      // Plain content + the technical evidence moved behind a "what does this mean?"
+      // disclosure (redesign): the callout reads like a human note, not a dev log.
+      const cav = realizeCaveat(node, byName);
+      const details = [
+        DATA_CHECK_EXPLANATION,
+        cav?.evidence ? `The figures behind it — ${cav.evidence}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       value = {
         type: "Annotation",
         props: {
-          title: `Data check: ${humanizeId(node.refs[0] ?? "caveat")}`,
-          content: text,
+          title: humanizeId(node.refs[0] ?? "caveat"),
+          content: cav?.content ?? text,
           severity: failed ? "warning" : "info",
           icon: failed ? "alert" : "check",
+          details,
+          detailsLabel: "What does this check mean?",
         },
         children: [],
       };

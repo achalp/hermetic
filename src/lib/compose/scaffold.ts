@@ -71,21 +71,44 @@ export function tileElement(tile: HeadlineTile, i: number): SpecPatchLine {
   };
 }
 
+/**
+ * Plain-language explanation of what a "data check" is — shown behind the callouts'
+ * "what does this mean?" disclosure so a non-technical reader can understand a flag
+ * without wading through the mechanics. Kept here so the summary banner and the
+ * per-check caveats (compile.ts) share one wording.
+ */
+export const DATA_CHECK_EXPLANATION =
+  "A data check is an automatic test the analysis runs to catch problems in the numbers — " +
+  "like totals that don't reconcile or values that look unusual. A check that doesn't pass " +
+  "isn't necessarily an error; it's a signal to read the related figure with a little extra care.";
+
 export function failedCheckBanner(failed: FindingEntry[]): SpecPatchLine | null {
   if (failed.length === 0) return null;
+  const blocking = failed.some((f) => f.tags?.includes("blocking"));
+  const names = failed.map((f) => humanizeId(f.name));
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   return {
     op: "add",
     path: "/elements/compiled_check_banner",
     value: {
       type: "Annotation",
       props: {
-        icon: "alert",
-        severity: failed.some((f) => f.tags?.includes("blocking")) ? "error" : "warning",
+        // Flag (🚩), not the alarm bell, unless a check is genuinely blocking — the
+        // note is a "read with care", not an error.
+        icon: blocking ? "alert" : "flag",
+        severity: blocking ? "error" : "warning",
         title:
           failed.length === 1
-            ? "A data check failed — read the caveats below"
-            : `${failed.length} data checks failed — read the caveats below`,
-        content: failed.map((f) => `${f.name}: ${f.definition}`).join(" · "),
+            ? "One result is worth a closer look"
+            : `${failed.length} results are worth a closer look`,
+        content:
+          `${list} didn't fully pass an automatic quality check. ` +
+          `The related figures still stand — they just deserve a second glance, explained in the notes on this page.`,
+        details: DATA_CHECK_EXPLANATION,
+        detailsLabel: "What does this mean?",
       },
       children: [],
     },

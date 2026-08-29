@@ -3,6 +3,7 @@ import { dirname } from "path";
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL, isValidModelId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
+import { envConfig } from "@/lib/harness-slot";
 import { logger, errMessage } from "@/lib/logger";
 
 export interface OllamaConfig {
@@ -39,6 +40,14 @@ export interface RuntimeConfig {
   llamaCpp?: LlamaCppConfig;
   claudeCli?: ClaudeCliConfig;
   sandboxRuntime?: SandboxRuntimeId;
+  /**
+   * Last-probed Docker availability (persisted by /api/runtimes). Drives the
+   * no-Docker auto-selection: when Docker is unavailable and the user hasn't
+   * pinned a runtime, execution defaults to the `wasm` runtime (§11 / build
+   * log). `undefined` = never probed → treated as "assume Docker" (current
+   * behavior preserved).
+   */
+  dockerAvailable?: boolean;
   /** User-selected LLM provider override (takes priority over auto-detection) */
   activeProvider?: string;
   /**
@@ -253,11 +262,31 @@ export function getActiveModels(): { codeGen: string; uiCompose: string } {
 }
 
 /**
- * The active sandbox runtime. Docker is the only runtime (E2B/microsandbox were
- * removed — they can't enforce network isolation, see the M3 decision), so this
- * is constant; kept as a function so call sites and the extension point survive
- * if another runtime is ever added.
+ * Pure runtime-selection decision (§11 / build log). An explicit user pin wins;
+ * otherwise a machine with NO Docker falls back to the browser-sandbox `wasm`
+ * runtime, and everything else uses Docker (the default + the "Docker unknown"
+ * case, preserving current behavior). Kept pure so it is exhaustively tested.
+ */
+export function resolveActiveRuntime(
+  userPinned: SandboxRuntimeId | undefined,
+  dockerAvailable: boolean | undefined
+): SandboxRuntimeId {
+  if (userPinned) return userPinned;
+  if (dockerAvailable === false) return "wasm";
+  return "docker";
+}
+
+/**
+ * The active sandbox runtime for this machine. Docker unless the user pinned a
+ * runtime or Docker was probed absent (→ wasm). See resolveActiveRuntime.
  */
 export function getActiveSandboxRuntime(): SandboxRuntimeId {
-  return "docker";
+  // Desktop channel (build log D15): the packaged Tauri app FORCES its runtime via
+  // HERMETIC_FORCE_RUNTIME (=wasm) — it ships the WASM tier and no Docker, and must
+  // stay predictable even on a user machine that happens to have Docker. Harness
+  // populates the env; lib reads the sanctioned envConfig snapshot, never the raw environment.
+  const forced = envConfig().HERMETIC_FORCE_RUNTIME;
+  if (forced === "wasm" || forced === "docker") return forced;
+  const cfg = getRuntimeConfig();
+  return resolveActiveRuntime(cfg.sandboxRuntime, cfg.dockerAvailable);
 }

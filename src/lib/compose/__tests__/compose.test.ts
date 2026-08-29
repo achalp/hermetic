@@ -782,7 +782,8 @@ describe("edit grammar — views, shown overlay, purpose survival", () => {
     });
     const bannerLine = lines.find((l) => l.includes('"/elements/compiled_check_banner"'));
     expect(bannerLine).toBeDefined();
-    expect(bannerLine).toContain("outlier_scan"); // the outliers screen is in the banner
+    // The outliers screen is named in the banner (humanized, plain-language redesign).
+    expect(bannerLine).toContain("Outlier Scan");
   });
 
   it("restore_document replays a snapshot — the undo primitive, still governed", () => {

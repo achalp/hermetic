@@ -1,0 +1,47 @@
+{
+  "kind": "generate",
+  "costKey": "claude-sonnet-4-6",
+  "modelId": "claude-sonnet-4-6",
+  "requestPreview": "{\"headers\":{\"user-agent\":\"ai/7.0.77\"},\"maxOutputTokens\":8000,\"prompt\":[{\"content\":\"You are a UI generator that outputs JSON.\\n\\nOUTPUT FORMAT (JSONL, RFC 6902 JSON Patch):\\nOutput JSONL (one JSON object per line) using RFC 6902 JSON Patch operations to build a UI tree.\\nEach line is a JSON patch operation (add, remove, replace). Start with /root, then stream /elements and /state patches interleaved so the UI fills in progressively as it streams.\\n\\nExample output (each line is a separate JSON object):\\n\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/root\\\",\\\"value\\\":\\\"main\\\"}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/main\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"children\\\":[\\\"child-1\\\",\\\"list\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/child-1\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/list\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutRow\\\",\\\"props\\\":{},\\\"repeat\\\":{\\\"statePath\\\":\\\"/items\\\",\\\"key\\\":\\\"id\\\"},\\\"children\\\":[\\\"item\\\"]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/elements/item\\\",\\\"value\\\":{\\\"type\\\":\\\"LayoutColumn\\\",\\\"props\\\":{},\\\"children\\\":[]}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items\\\",\\\"value\\\":[]}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/0\\\",\\\"value\\\":{\\\"id\\\":\\\"1\\\",\\\"title\\\":\\\"First Item\\\"}}\\n{\\\"op\\\":\\\"add\\\",\\\"path\\\":\\\"/state/items/1\\\",\\\"value\\\":{\\\"id\\\":\\\"2\\\",\\\"title\\\":\\\"Second Item\\\"}}\\n\\nNote: state patches appear right after the elements that use them, so the UI fills in as it streams. ONLY use component types from the AVAILABLE COMPONENTS list below.\\n\\nINITIAL STATE:\\nSpecs include a /state field to seed the state model. Components with { $bindState } or { $bindItem } read from and write to this state, and $state expressions read from it.\\nCRITICAL: You MUST include state patches whenever your UI displays data via $state, $bindState, $bindItem, $item, or $index expressions, or uses repeat to iterate over arrays. Without state, these references resolve to nothing and repeat lists render zero items.\\nOutput state patches right",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"op\":\"add\",\"path\":\"/root\",\"value\":\"root\"}\n{\"op\":\"add\",\"path\":\"/elements/root\",\"value\":{\"type\":\"LayoutColumn\",\"props\":{\"gap\":12},\"children\":[\"charts-row\",\"per-customer-bar\",\"insight\"]}}\n{\"op\":\"add\",\"path\":\"/elements/charts-row\",\"value\":{\"type\":\"LayoutRow\",\"props\":{\"gap\":12},\"children\":[\"mrr-line\",\"per-cust-line\"]}}\n{\"op\":\"add\",\"path\":\"/elements/mrr-line\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Monthly Churn MRR by Plan (2024)\",\"data\":\"$chartData:churn_mrr_by_plan_monthly\",\"x_key\":\"month\",\"y_keys\":[\"enterprise\",\"pro\",\"starter\"],\"label_map\":{\"enterprise\":\"Enterprise\",\"pro\":\"Pro\",\"starter\":\"Starter\"},\"color_map\":{\"enterprise\":\"rose\",\"pro\":\"amber\",\"starter\":\"indigo\"},\"curve\":\"monotone\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/per-cust-line\",\"value\":{\"type\":\"LineChart\",\"props\":{\"title\":\"Churn per Customer by Plan (Monthly)\",\"data\":\"$chartData:churn_rate_per_customer_monthly_by_plan\",\"x_key\":\"month\",\"y_keys\":[\"enterprise_churn_per_cust\",\"pro_churn_per_cust\",\"starter_churn_per_cust\"],\"label_map\":{\"enterprise_churn_per_cust\":\"Enterprise\",\"pro_churn_per_cust\":\"Pro\",\"starter_churn_per_cust\":\"Starter\"},\"color_map\":{\"enterprise_churn_per_cust\":\"rose\",\"pro_churn_per_cust\":\"amber\",\"starter_churn_per_cust\":\"indigo\"},\"curve\":\"monotone\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/per-customer-bar\",\"value\":{\"type\":\"BarChart\",\"props\":{\"title\":\"Pooled Churn per Customer by Plan (USD)\",\"data\":\"$chartData:churn_rate_per_customer_by_plan\",\"x_key\":\"plan\",\"y_keys\":[\"churn_per_customer_usd\"],\"label_map\":{\"churn_per_customer_usd\":\"Churn / Customer ($)\"},\"color_map\":{\"churn_per_customer_usd\":\"rose\"},\"orientation\":\"vertical\"},\"children\":[]}}\n{\"op\":\"add\",\"path\":\"/elements/insight\",\"value\":{\"type\":\"TextBlock\",\"props\":{\"variant\":\"insight\",\"content\":\"The $result:highest_churn_rate_plan plan carries the highest normalized churn burden at $result:highest_churn_rate_per_customer_usd per customer; plan-level heterogeneity in churn MRR is statistically significant ($result:churn_mrr_plan_heterogeneity_test, p=$result:churn_mrr_plan_heterogeneity_p_value), confirming that churn concentration is plan-specific rather than a uniform scale effect.\"},\"children\":[]}}",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_1788021379"
+          }
+        }
+      }
+    ],
+    "finishReason": {
+      "unified": "stop"
+    },
+    "usage": {
+      "inputTokens": {
+        "total": 26924,
+        "noCache": 16477,
+        "cacheRead": 10447
+      },
+      "outputTokens": {
+        "total": 754,
+        "text": 754,
+        "reasoning": 0
+      },
+      "raw": {
+        "input_tokens": 26924,
+        "input_tokens_details": {
+          "cached_tokens": 10447
+        },
+        "output_tokens": 754
+      }
+    },
+    "providerMetadata": {
+      "openai": {
+        "responseId": "resp_1788021379"
+      }
+    },
+    "warnings": []
+  }
+}

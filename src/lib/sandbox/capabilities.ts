@@ -43,6 +43,22 @@ export const RUNTIME_CAPABILITIES: Record<SandboxRuntimeId, RuntimeCapabilities>
     supportsRemoteIO: true,
     supportsWarm: true,
   },
+  // Pyodide + DuckDB-WASM (optional Docker-free runtime). Its PRODUCTION executor
+  // is the sandboxed webview worker (spec §4 Option B), whose isolation is
+  // enforced by the exec-context CSP and PROVEN by the in-browser escape suite
+  // (e2e/wasm-escape-suite.spec.ts) — so `supportsNetworkPolicy: true` is honest:
+  // a local-data wasm run is isolated exactly as Docker's --network none is. The
+  // Node-Pyodide executor is CI/parity-only and never handles user data (build
+  // log D1). The remaining flags stay FALSE until their paths ship + test (build
+  // log D2): supportsRemoteIO (the Rust egress fetch, §6a), supportsMount
+  // (big-data Parquet), supportsWarm (the warm pool). Until then those runs
+  // honestly route to Docker. See specs/pyodide-wasm-build-log.md.
+  wasm: {
+    supportsMount: false,
+    supportsNetworkPolicy: true,
+    supportsRemoteIO: false,
+    supportsWarm: false,
+  },
 };
 
 /** What a specific execution request needs from the runtime. */

@@ -164,6 +164,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm mcp:build-viewer
       - run: npx playwright install --with-deps chromium
+      - name: Pre-cache Pyodide wheels for the browser-analysis e2e
+        run: node scripts/cache-pyodide-wheels.mjs
       - run: pnpm test:e2e
       - name: Upload Playwright report on failure
         if: failure()
@@ -288,3 +290,71 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
+
+  # Phase 1a of the WASM sandbox: run the wasm executor's compute-parity test
+  # (Pyodide-in-Node against the real hermetic_runtime) — opt-in via
+  # HERMETIC_WASM_TEST so it stays out of the default fast suite. CI-only; the
+  # runtime is flag-gated off for users until the §7 escape suite lands.
+  wasm-parity:
+    name: WASM executor parity (Pyodide)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: WASM executor compute-parity
+        env:
+          HERMETIC_WASM_TEST: "1"
+        run: pnpm exec vitest run src/lib/sandbox/wasm/__tests__/executor.test.ts src/lib/sandbox/wasm/__tests__/end-to-end.test.ts src/lib/sandbox/wasm/__tests__/parquet-convert.test.ts src/lib/sandbox/__tests__/remote-fetch-materialize.test.ts
+
+  # The Rust egress core (§6a decision logic: IP classification, host allowlist,
+  # redirect/rebind guards, byte-cap) — cargo unit tests, no network.
+  rust-egress-core:
+    name: Rust egress core (cargo test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: cargo test
+        working-directory: rust/egress-core
+        run: cargo test --locked
+
+  # The Tauri desktop shell — cargo check against the installed webkit (needs the
+  # gtk/webkit dev headers on the runner). Build-verifies the shell + its §7
+  # capability/CSP config compiles; the full packaged build is Phase 3.
+  tauri-shell:
+    name: Tauri shell (cargo check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install webkit/gtk dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --locked
+
+  # Desktop packaging smoke (build log D15): the Next STANDALONE server, assembled
+  # into a sidecar, actually SERVES — GET /api/health → 200 under the forced wasm
+  # runtime. This is what the Tauri shell (cargo check above) wraps and spawns.
+  desktop-sidecar:
+    name: Desktop sidecar smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Assemble the sidecar + assert it serves /api/health
+        run: node scripts/desktop-sidecar-smoke.mjs

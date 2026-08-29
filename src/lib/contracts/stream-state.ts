@@ -19,6 +19,7 @@
  */
 
 import type { Spec } from "@/lib/contracts/spec";
+import type { AdditionalFile } from "@/lib/contracts/execution";
 // Type-only re-export — erased at runtime; grounding.ts is a zero-import
 // pure module, so this adds no server dependency to client bundles.
 import type { GroundingReport } from "./grounding";
@@ -115,6 +116,31 @@ export interface SynthesisState {
   conclusion?: string;
 }
 
+/**
+ * `/state/__wasm_exec` — a live webview execute-request (the sidecar↔webview
+ * handoff; build log D6). The Node run emits this into the stream; the browser
+ * worker runs {code, csvContent, files} under the locked exec-CSP and POSTs the
+ * result envelope to `/api/wasm-result?id=…`. Shared here (not in the server
+ * handoff module) so the browser consumer imports it without any server code.
+ */
+export interface WasmExecuteRequest {
+  type: "wasm-execute";
+  id: string;
+  csvContent: string;
+  code: string;
+  files: AdditionalFile[];
+  /** Optional GeoJSON written to /data/input.geojson (choropleth analyses). */
+  geojsonContent?: string | null;
+  /**
+   * Host-materialized inputs the worker FETCHES into its FS before running (build
+   * log D11, delivery option B): a remote source is materialized host-side through
+   * the Rust egress core, then delivered here as a same-origin `/api/wasm-input/
+   * <token>` URL (allowed by connect-src 'self'). The worker never sees the remote
+   * URL — only the local `path` to write and the token URL to GET.
+   */
+  fetchInputs?: { path: string; url: string }[];
+}
+
 /** Everything the orchestration layer writes into `spec.state`. */
 export interface StreamState {
   __progress?: ProgressMeta;
@@ -134,6 +160,7 @@ export interface StreamState {
   __dataQuality?: DataQualityState;
   __grounding?: GroundingReport;
   __synthesis?: SynthesisState;
+  __wasm_exec?: WasmExecuteRequest;
   __error?: string;
 }
 
@@ -152,6 +179,7 @@ export const RESERVED_STATE_KEYS = [
   "__dataQuality",
   "__grounding",
   "__synthesis",
+  "__wasm_exec",
   "__error",
 ] as const satisfies readonly (keyof StreamState)[];
 
@@ -176,4 +204,20 @@ export function readStreamState(
 export function findReservedStateKeyViolations(state: unknown): string[] {
   if (!state || typeof state !== "object") return [];
   return Object.keys(state).filter((k) => k.startsWith("__"));
+}
+
+/**
+ * Return a spec copy with the transient `__wasm_exec` handoff removed (build log
+ * D6). That request carries the run's code + CSV bytes purely to drive the webview
+ * worker — it is a control message, never dashboard content. Stripping it before
+ * persistence keeps it out of history (no code/CSV bloat) and stops a RESTORE from
+ * firing a spurious worker boot + 404 POST for a run that is long over. Non-mutating
+ * (the caller's live spec is untouched); a no-op when the key is absent.
+ */
+export function withoutHandoffState<T extends { state?: unknown }>(spec: T): T {
+  const state = spec?.state;
+  if (!state || typeof state !== "object" || !("__wasm_exec" in state)) return spec;
+  const rest = { ...(state as Record<string, unknown>) };
+  delete rest.__wasm_exec;
+  return { ...spec, state: rest };
 }

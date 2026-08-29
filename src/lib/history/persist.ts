@@ -13,6 +13,7 @@ import { getCachedArtifacts } from "@/lib/pipeline/artifacts-cache";
 import { getConversationTurns } from "@/lib/pipeline/conversation-cache";
 import { saveHistoryEntry } from "@/lib/history/storage";
 import { summarizeSpec } from "@/lib/spec-summary";
+import { withoutHandoffState } from "@/lib/contracts/stream-state";
 import type { HistoryMeta } from "@/lib/contracts/storage-types";
 import { logger } from "@/lib/logger";
 
@@ -61,9 +62,13 @@ export async function persistHistoryEntry(
   let csvContent: string | undefined;
   if (sourceType === "upload" && !isRemote) csvContent = (await getCSVContent(csvId)) ?? undefined;
 
+  // Strip the transient webview handoff request (code + CSV bytes) — a control
+  // message, not dashboard content; never persisted (build log D6).
+  const persistedSpec = withoutHandoffState(spec);
+
   const meta = await saveHistoryEntry({
     question,
-    spec,
+    spec: persistedSpec,
     generatedCode,
     schema: stored.schema,
     artifacts: artifacts ?? undefined,

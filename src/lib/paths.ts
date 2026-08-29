@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
-import { harnessSlot } from "@/lib/harness-slot";
+import { harnessSlot, envConfig } from "@/lib/harness-slot";
 
 /**
  * THE owner of hermetic's on-disk layout (modularization M2-C1, spec §3.2
@@ -84,4 +84,19 @@ export const hermeticPaths = {
   sandboxRuntimeAssetsDir: () => join(roots().assetRoot, "docker", "sandbox", "hermetic_runtime"),
   sandboxPreludeFile: () => join(roots().assetRoot, "docker", "sandbox", "prelude.py"),
   sandboxEgressProxyFile: () => join(roots().assetRoot, "docker", "sandbox", "egress-proxy.py"),
+  /**
+   * The Rust `egress-fetch` binary (build log D9) — the host-side remote-read edge
+   * for the WASM runtime. Production (Tauri) sets HERMETIC_EGRESS_FETCH_BIN to the
+   * bundled binary; dev falls back to the cargo build output (debug).
+   */
+  egressFetchBin: () =>
+    envConfig().HERMETIC_EGRESS_FETCH_BIN ??
+    join(roots().assetRoot, "rust", "egress-core", "target", "debug", "egress-fetch"),
+  /**
+   * The Pyodide distribution served at `/pyodide/*` for the WASM worker (build log
+   * D15). Production (Tauri) sets HERMETIC_PYODIDE_DIR to the bundled dist; dev
+   * serves it straight from node_modules.
+   */
+  pyodideDir: () =>
+    envConfig().HERMETIC_PYODIDE_DIR ?? join(roots().assetRoot, "node_modules", "pyodide"),
 } as const;

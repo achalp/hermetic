@@ -42,10 +42,21 @@ describe("GET /api/runtimes", () => {
     expect(runtimes.find((r: { id: string }) => r.id === "docker").available).toBe(false);
   });
 
-  it("lists Docker as the only runtime", async () => {
+  it("lists Docker + WASM; WASM is ALWAYS selectable (no Docker needed), Docker tracks the probe", async () => {
+    // Docker present → both available (the user can still pick the built-in runtime).
     execFile.mockImplementation((_cmd, _args, _opts, cb) => cb(null));
-    const runtimes = await (await GET()).json();
-    expect(runtimes.map((r: { id: string }) => r.id)).toEqual(["docker"]);
+    let runtimes = await (await GET()).json();
+    expect(runtimes.map((r: { id: string }) => r.id)).toEqual(["docker", "wasm"]);
+    expect(runtimes.find((r: { id: string }) => r.id === "docker").available).toBe(true);
+    expect(runtimes.find((r: { id: string }) => r.id === "wasm").available).toBe(true);
+    expect(setRuntimeConfig).toHaveBeenCalledWith({ dockerAvailable: true });
+
+    // Docker absent → docker unavailable, wasm still available (+ the probe persists false).
+    execFile.mockImplementation((_cmd, _args, _opts, cb) => cb(new Error("no daemon")));
+    runtimes = await (await GET()).json();
+    expect(runtimes.find((r: { id: string }) => r.id === "docker").available).toBe(false);
+    expect(runtimes.find((r: { id: string }) => r.id === "wasm").available).toBe(true);
+    expect(setRuntimeConfig).toHaveBeenCalledWith({ dockerAvailable: false });
   });
 });
 
@@ -53,11 +64,13 @@ describe("PATCH /api/runtimes", () => {
   const patch = (body: unknown) =>
     PATCH(new Request("http://x/api/runtimes", { method: "PATCH", body: JSON.stringify(body) }));
 
-  it("persists a valid runtime selection", async () => {
-    const res = await patch({ sandboxRuntime: "docker" });
-    expect(res.status).toBe(200);
-    expect((await res.json()).sandboxRuntime).toBe("docker");
-    expect(setRuntimeConfig).toHaveBeenCalledWith({ sandboxRuntime: "docker" });
+  it("persists a valid runtime selection (docker or wasm)", async () => {
+    for (const rt of ["docker", "wasm"]) {
+      const res = await patch({ sandboxRuntime: rt });
+      expect(res.status).toBe(200);
+      expect((await res.json()).sandboxRuntime).toBe(rt);
+      expect(setRuntimeConfig).toHaveBeenCalledWith({ sandboxRuntime: rt });
+    }
   });
 
   it("rejects an unknown runtime", async () => {

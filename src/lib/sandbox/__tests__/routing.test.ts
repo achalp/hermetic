@@ -63,17 +63,47 @@ describe("planSandboxRouting — the network-dispatch table", () => {
     expect(plan({ remoteParquetUrl: "not a url", code: REMOTE_CODE }).kind).toBe("docker-deny");
   });
 
-  // The capability gate + its reject branch (and the M3 networkIsolation reject)
-  // only ever fired for the non-Docker runtimes, which have been removed. Docker
-  // supports every capability, so plan() never rejects now; the gate remains as a
-  // defensive extension point for any future runtime.
-
   describe("warm/ephemeral fallback (Docker)", () => {
     it("docker local CSV with a csvId → warm", () => {
       expect(plan({ runtime: "docker" }).kind).toBe("warm");
     });
     it("docker local CSV without a csvId → ephemeral", () => {
       expect(plan({ runtime: "docker", hasCsvId: false }).kind).toBe("ephemeral");
+    });
+  });
+
+  // The `wasm` runtime (Pyodide+DuckDB-WASM). Its production executor is the
+  // sandboxed webview worker, whose isolation the §7 escape suite proves, so
+  // `supportsNetworkPolicy` is now true (capabilities.ts, build log D2): a LOCAL
+  // wasm run routes to the wasm executor. mount + remote stay rejected until their
+  // paths ship (supportsMount / supportsRemoteIO false) — the honest "switch to
+  // Docker" for those.
+  describe("wasm runtime — local runs route to the wasm executor", () => {
+    it("wasm local CSV → wasm (browser-isolated, no Docker)", () => {
+      expect(plan({ runtime: "wasm" }).kind).toBe("wasm");
+      expect(plan({ runtime: "wasm", hasCsvId: false }).kind).toBe("wasm");
+    });
+
+    it("wasm never falls through to a Docker plan for a local run", () => {
+      const p = plan({ runtime: "wasm" });
+      expect(p.kind).not.toBe("warm");
+      expect(p.kind).not.toBe("ephemeral");
+      expect(p.kind).not.toBe("docker-mount");
+    });
+
+    it("wasm with a bind-mount → reject (mount unsupported, → Docker)", () => {
+      const p = plan({ runtime: "wasm", hasMount: true });
+      expect(p.kind).toBe("reject");
+      if (p.kind === "reject") expect(p.error).toMatch(/docker/i);
+    });
+
+    it("wasm with a remote source + remote code → reject (remote IO unsupported, → Docker)", () => {
+      const p = plan({ runtime: "wasm", remoteParquetUrl: "s3://b/x.parquet", code: REMOTE_CODE });
+      expect(p.kind).toBe("reject");
+    });
+
+    it("wasm with network:'deny' local run still routes to wasm", () => {
+      expect(plan({ runtime: "wasm", network: "deny" }).kind).toBe("wasm");
     });
   });
 });

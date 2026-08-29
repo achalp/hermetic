@@ -19,6 +19,7 @@ import { runWithRunId, getRunId } from "@/lib/run-context";
 import { parsePatchLines, readRunError } from "@/lib/pipeline/patch-lines";
 import { diagEvent } from "@/lib/diagnostics/run-diagnostics";
 import { registerRun, endRun, type SandboxProgress } from "@/lib/pipeline/run-control";
+import type { WasmExecuteRequest } from "@/lib/sandbox/wasm/handoff";
 import {
   openRunChannel,
   publishRunLine,
@@ -102,7 +103,7 @@ export async function runPatchStream(
     const runId = getRunId()!;
     // Register the run so the stop endpoint can abort it and the sandbox
     // runner can subscribe to its signal + stream execution progress.
-    registerRun(runId, emitExecProgress);
+    registerRun(runId, emitExecProgress, emitWasmExecute);
     // Open the run's output channel; its buffer IS emittedLines (single
     // source of truth — replayed to a reconnecting client, and read by the
     // disconnect history-save). See run-stream-hub.
@@ -155,6 +156,20 @@ export async function runPatchStream(
         emit(JSON.stringify({ op: "add", path: "/state", value: { [key]: p } }) + "\n");
       } else {
         emit(JSON.stringify({ op: "add", path: `/state/${key}`, value: p }) + "\n");
+      }
+    }
+
+    // Push a webview execute-request into the stream as a state patch. The
+    // client's worker runs it and POSTs the result to /api/wasm-result, which
+    // resolves the pending handoff (see sandbox/wasm/handoff-registry). Each
+    // request carries a fresh id, so an "add" that replaces the prior value
+    // still triggers the client effect that watches __wasm_exec.id.
+    function emitWasmExecute(req: WasmExecuteRequest) {
+      if (!stateInitialized) {
+        stateInitialized = true;
+        emit(JSON.stringify({ op: "add", path: "/state", value: { __wasm_exec: req } }) + "\n");
+      } else {
+        emit(JSON.stringify({ op: "add", path: "/state/__wasm_exec", value: req }) + "\n");
       }
     }
 
