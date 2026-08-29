@@ -104,6 +104,23 @@ export async function raiseServerTimeouts(): Promise<void> {
 export async function installBootConfig(): Promise<void> {
   const { installEnvConfig } = await import("./harness/env-config");
   installEnvConfig("snapshot");
+
+  // Desktop sidecar (Tauri, build log D15): the bundle is READ-ONLY, so the
+  // packaged app points the writable roots at an OS app-data dir and the asset
+  // root at the bundle. Harness code may read process.env directly; lib never
+  // does. A dev/docker run sets none of these → the cwd/home defaults hold.
+  const rootEnv: Record<string, string | undefined> = {
+    assetRoot: process.env.HERMETIC_ASSET_ROOT,
+    dataRoot: process.env.HERMETIC_DATA_ROOT,
+    userRoot: process.env.HERMETIC_USER_ROOT,
+    scratchRoot: process.env.HERMETIC_SCRATCH_ROOT,
+  };
+  const roots = Object.fromEntries(Object.entries(rootEnv).filter(([, v]) => v));
+  if (Object.keys(roots).length > 0) {
+    const { setPathRoots } = await import("./lib/paths");
+    setPathRoots(roots);
+  }
+
   // Env validation is an explicit boot step, not an import side effect
   // (previously ran at config.ts module load — modularization M2-B1).
   const { validateEnv, EnvError } = await import("./lib/config");

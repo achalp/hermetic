@@ -3,6 +3,7 @@ import { dirname } from "path";
 import { CODE_GEN_MODEL, UI_COMPOSE_MODEL, isValidModelId } from "@/lib/constants";
 import type { SandboxRuntimeId } from "@/lib/constants";
 import { hermeticPaths } from "@/lib/paths";
+import { envConfig } from "@/lib/harness-slot";
 import { logger, errMessage } from "@/lib/logger";
 
 export interface OllamaConfig {
@@ -280,6 +281,12 @@ export function resolveActiveRuntime(
  * runtime or Docker was probed absent (→ wasm). See resolveActiveRuntime.
  */
 export function getActiveSandboxRuntime(): SandboxRuntimeId {
+  // Desktop channel (build log D15): the packaged Tauri app FORCES its runtime via
+  // HERMETIC_FORCE_RUNTIME (=wasm) — it ships the WASM tier and no Docker, and must
+  // stay predictable even on a user machine that happens to have Docker. Harness
+  // populates the env; lib reads the sanctioned envConfig snapshot, never the raw environment.
+  const forced = envConfig().HERMETIC_FORCE_RUNTIME;
+  if (forced === "wasm" || forced === "docker") return forced;
   const cfg = getRuntimeConfig();
   return resolveActiveRuntime(cfg.sandboxRuntime, cfg.dockerAvailable);
 }

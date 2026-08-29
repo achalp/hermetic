@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   getRuntimeConfig,
   resolveActiveRuntime,
+  getActiveSandboxRuntime,
   setRuntimeConfig,
   clearRuntimeConfigCache,
   getActiveModels,
@@ -199,5 +200,23 @@ describe("resolveActiveRuntime — no-Docker fallback (§11)", () => {
 
   it("no pin + Docker availability unknown → docker (preserve current behavior)", () => {
     expect(resolveActiveRuntime(undefined, undefined)).toBe("docker");
+  });
+});
+
+describe("getActiveSandboxRuntime — HERMETIC_FORCE_RUNTIME (desktop channel, D15)", () => {
+  afterEach(() => {
+    delete process.env.HERMETIC_FORCE_RUNTIME;
+  });
+
+  it("forces wasm even when Docker is present (the packaged desktop app)", () => {
+    process.env.HERMETIC_FORCE_RUNTIME = "wasm";
+    setRuntimeConfig({ dockerAvailable: true }); // Docker present + no pin → would be docker
+    expect(getActiveSandboxRuntime()).toBe("wasm");
+  });
+
+  it("ignores a bogus value and falls back to normal resolution", () => {
+    process.env.HERMETIC_FORCE_RUNTIME = "nonsense";
+    setRuntimeConfig({ sandboxRuntime: "docker" });
+    expect(getActiveSandboxRuntime()).toBe("docker");
   });
 });
