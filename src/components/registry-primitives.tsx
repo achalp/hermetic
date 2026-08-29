@@ -92,6 +92,15 @@ export interface AnnotationProps {
   content: string;
   severity?: "info" | "warning" | "success" | "error" | null;
   icon?: "alert" | "info" | "trend" | "check" | "flag" | null;
+  /**
+   * Optional plain-language explanation shown behind a "What does this mean?"
+   * disclosure. Keeps the callout itself short + human while the technical detail
+   * (the check's mechanics, evidence figures) stays one click away for anyone who
+   * wants it. Rendered as a native <details> so it also degrades to open in print.
+   */
+  details?: string | null;
+  /** Override the disclosure label (default: "What does this mean?"). */
+  detailsLabel?: string | null;
 }
 
 export interface TrendIndicatorProps {
@@ -322,9 +331,17 @@ export function AnnotationComponent({ props }: { props: AnnotationProps }) {
     >
       <div className="flex items-start gap-2">
         <span className="text-lg">{ICON_MAP[props.icon ?? "info"]}</span>
-        <div>
+        <div className="min-w-0">
           <p className="font-semibold">{props.title}</p>
           <p className="mt-1 text-sm opacity-90">{props.content}</p>
+          {props.details ? (
+            <details className="annotation-details mt-2 text-xs opacity-80">
+              <summary className="cursor-pointer select-none opacity-80 hover:opacity-100">
+                {props.detailsLabel ?? "What does this mean?"}
+              </summary>
+              <p className="mt-1 leading-relaxed">{props.details}</p>
+            </details>
+          ) : null}
         </div>
       </div>
     </div>

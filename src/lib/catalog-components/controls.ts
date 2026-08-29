@@ -11,6 +11,10 @@ export const catalogControls = {
       title: z.string(),
       content: z.string(),
       severity: z.enum(["info", "warning", "success", "error"]).nullable(),
+      // Optional plain-language explanation behind a "What does this mean?" reveal —
+      // keeps the callout short + human while the technical detail is one click away.
+      details: z.string().nullable().optional(),
+      detailsLabel: z.string().nullable().optional(),
     }),
     description: "Callout for highlighting a specific finding, outlier, or caveat.",
   },

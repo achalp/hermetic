@@ -219,6 +219,30 @@ describe("AnnotationComponent", () => {
     const div = container.firstElementChild as HTMLElement;
     expect(div.className).toContain("border-warning-border");
   });
+
+  it("renders a 'what does this mean?' disclosure when details are given", () => {
+    const { container } = render(
+      <AnnotationComponent
+        props={{
+          title: "Amount Outliers",
+          content: "An outlier screen flagged some values.",
+          details: "A data check is an automatic test…",
+          detailsLabel: "What does this check mean?",
+        }}
+      />
+    );
+    const details = container.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(screen.getByText("What does this check mean?")).toBeDefined();
+    expect(screen.getByText("A data check is an automatic test…")).toBeDefined();
+  });
+
+  it("omits the disclosure when no details are given", () => {
+    const { container } = render(
+      <AnnotationComponent props={{ title: "Note", content: "Plain callout" }} />
+    );
+    expect(container.querySelector("details")).toBeNull();
+  });
 });
 
 // ── TrendIndicator ─────────────────────────────────────────
