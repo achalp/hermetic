@@ -54,6 +54,15 @@ fn wait_ready(port: u16, timeout: Duration) -> bool {
 /// Resolve the bundled sidecar dir (the assembled Next standalone server + node +
 /// assets). Bundled under the app resource dir as `sidecar/` (tauri.conf resources).
 fn sidecar_dir(app: &tauri::App) -> Option<PathBuf> {
+    // Explicit override (dev / testing): point at an already-assembled sidecar so the
+    // packaged code path can be exercised from a fast debug build, without a full
+    // `tauri build`. Wins over the bundled resource dir.
+    if let Ok(d) = std::env::var("HERMETIC_SIDECAR_DIR") {
+        let p = PathBuf::from(d);
+        if p.join("server.js").exists() {
+            return Some(p);
+        }
+    }
     let dir = app.path().resource_dir().ok()?.join("sidecar");
     if dir.join("server.js").exists() {
         Some(dir)
@@ -107,10 +116,15 @@ pub fn run() {
         // reachable from untrusted webview JS. The sidecar is spawned from Rust below.
         .manage(Sidecar(Mutex::new(None)))
         .setup(|app| {
-            // DEV (`tauri dev`, debug build): ALWAYS use the hot-reload Next dev server
-            // (devUrl) and never spawn the bundled sidecar — even if a stale one exists
-            // under target/debug/. RELEASE: spawn the bundled sidecar.
-            let bundled = if cfg!(debug_assertions) { None } else { sidecar_dir(app) };
+            // DEV (`tauri dev`, debug build): use the hot-reload Next dev server (devUrl)
+            // and never spawn a (possibly stale) sidecar — UNLESS HERMETIC_SIDECAR_DIR is
+            // set to explicitly test the packaged path. RELEASE: always spawn the sidecar.
+            let force_sidecar = std::env::var("HERMETIC_SIDECAR_DIR").is_ok();
+            let bundled = if cfg!(debug_assertions) && !force_sidecar {
+                None
+            } else {
+                sidecar_dir(app)
+            };
             let url = match bundled {
                 Some(dir) => {
                     let (child, base) = spawn_sidecar(app, &dir)?;
