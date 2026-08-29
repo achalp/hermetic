@@ -37,9 +37,11 @@ export async function GET() {
 
   const runtimes: RuntimeStatus[] = [
     { id: "docker", label: "Docker (Local)", available: dockerOk },
-    // The no-Docker fallback: the browser-sandbox WASM runtime, surfaced as
-    // available when Docker is absent (it runs in the desktop webview).
-    { id: "wasm", label: "In-browser (WASM)", available: !dockerOk },
+    // The WASM runtime runs in the browser worker (Pyodide + DuckDB-WASM) — it needs
+    // NO Docker and works in the web app AND the desktop app, so it is ALWAYS a valid
+    // choice, not just a Docker-absent fallback (build log D17). When Docker is absent
+    // it's also the auto-default (getActiveSandboxRuntime).
+    { id: "wasm", label: "Built-in (WASM · no Docker)", available: true },
   ];
 
   logger.debug("Runtime availability", {
@@ -52,12 +54,12 @@ export async function GET() {
   return NextResponse.json(runtimes);
 }
 
-/** Persist the user's sandbox runtime selection (Docker only). */
+/** Persist the user's sandbox runtime selection (Docker or the built-in WASM runtime). */
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
     const runtime = body.sandboxRuntime;
-    if (runtime !== "docker") {
+    if (runtime !== "docker" && runtime !== "wasm") {
       return NextResponse.json({ error: "Invalid runtime" }, { status: 400 });
     }
     setRuntimeConfig({ sandboxRuntime: runtime });

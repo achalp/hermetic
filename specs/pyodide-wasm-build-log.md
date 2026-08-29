@@ -576,3 +576,16 @@ Running `./start.sh` → desktop-dev surfaced two more issues beyond the hash ho
    server, because a prior build left one under target/debug/. Fixed: in debug builds
    the shell ALWAYS uses the Next dev server (devUrl) and never the sidecar; only
    release spawns it.
+
+### D17 — Settings: the built-in (WASM) runtime is now a SELECTABLE choice, not just a fallback.
+
+Reported: Settings → Inference showed only "Docker (Local)". Cause: `/api/runtimes`
+marked `wasm` `available: !dockerOk` (so it was hidden whenever Docker was present) and
+the PATCH handler rejected any runtime but `docker`. But the WASM runtime now runs fully
+in the browser worker (Pyodide + DuckDB-WASM via /pyodide/ + the E2 handoff) in BOTH the
+web app and the desktop app — so it is a real choice, not merely the no-Docker fallback.
+Fix: `wasm` is `available: true` always (relabeled "Built-in (WASM · no Docker)"), and
+the PATCH accepts `docker` OR `wasm` (persists the pin; getActiveSandboxRuntime honors
+it — HERMETIC_FORCE_RUNTIME still overrides in the packaged desktop app). The picker
+already renders every available runtime and persists via setActiveSandboxRuntime, so no
+UI change was needed. Tests updated.
