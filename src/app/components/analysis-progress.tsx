@@ -252,22 +252,9 @@ export function InvestigationCaveats({ spec }: { spec: Spec | null }) {
           code.
         </div>
       )}
-      {hasAdvisories && (
-        // Same warn banner idiom as the untraceable-figures message above —
-        // these are advisory consistency checks, never a verdict on truth.
-        <div
-          className="border px-3 py-2 text-sm"
-          style={{
-            borderRadius: "var(--radius-card)",
-            borderColor: "var(--color-warning-border)",
-            background: "var(--color-warning-bg)",
-            color: "var(--color-warning-text)",
-          }}
-        >
-          <span className="font-medium">Advisory checks on the narrative:</span>
-          <GroundingAdvisories grounding={g!} />
-        </div>
-      )}
+      {/* Self-contained, plain-language "A few notes on this summary" block with a
+          technical-details reveal (redesign) — no external warn box / header. */}
+      {hasAdvisories && <GroundingAdvisories grounding={g!} />}
       {hasDq && (
         <div
           className="border border-border-default px-3 py-2 text-sm"

@@ -119,9 +119,11 @@ describe("grounding advisories", () => {
       screen.getByText(/rising trend but the computed trend result says falling/)
     ).toBeTruthy();
     expect(
-      screen.getByText(/Computed but not mentioned: august_step, churn_by_cohort\./)
+      screen.getByText(
+        /Computed but not called out in the write-up: august_step, churn_by_cohort\./
+      )
     ).toBeTruthy();
-    expect(screen.getByText(/\(median_revenue\) is not shown in a headline stat/)).toBeTruthy();
+    expect(screen.getByText(/\(median_revenue\) isn't shown as a headline stat/)).toBeTruthy();
     expect(screen.getByText(/derivation contradiction/)).toBeTruthy();
   });
 

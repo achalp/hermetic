@@ -219,38 +219,53 @@ export function hasGroundingAdvisories(g: GroundingReport): boolean {
 export function GroundingAdvisories({ grounding }: { grounding: GroundingReport }) {
   const items: string[] = [];
   for (const c of grounding.contradictions ?? []) {
-    items.push(`Contradiction: ${c}.`);
+    items.push(`Something didn't line up: ${c}.`);
   }
   if ((grounding.unnarratedFindings?.length ?? 0) > 0) {
-    items.push(`Computed but not mentioned: ${grounding.unnarratedFindings!.join(", ")}.`);
+    items.push(
+      `Computed but not called out in the write-up: ${grounding.unnarratedFindings!.join(", ")}.`
+    );
   }
   if (grounding.questionPrimaryMiss) {
     items.push(
-      `The finding that answers the question (${grounding.questionPrimaryMiss}) is not shown in a headline stat.`
+      `The number that answers your question (${grounding.questionPrimaryMiss}) isn't shown as a headline stat.`
     );
   }
   const details = grounding.findingIssues ?? [];
   if (items.length === 0 && details.length === 0) return null;
-  // Two-tier rendering: the banner speaks in USER language (a rollup per
-  // category); the raw engineering diagnostics ($finding: bindings, lint
-  // kinds) live behind a disclosure for the Trail-inclined.
+  // Human prose up top (a plain rollup per category); the raw engineering
+  // diagnostics ($finding: bindings, lint kinds) live behind a "technical
+  // details" reveal — same two-tier idiom as the redesigned data-check callouts.
   const rollup = summarizeFindingIssues(details);
   return (
     <div
-      className="mt-1 flex flex-col gap-0.5 text-xs"
-      style={{ color: "var(--color-warning-text)" }}
+      className="mt-1 border p-3 text-sm"
+      style={{
+        borderRadius: "var(--radius-card)",
+        borderColor: "var(--color-border)",
+        background: "var(--color-surface-2, transparent)",
+        color: "var(--color-text-secondary)",
+      }}
     >
-      <ul className="flex flex-col gap-0.5">
+      <p className="font-medium" style={{ color: "var(--color-text-primary)" }}>
+        A few notes on this summary
+      </p>
+      <p className="mt-1 text-xs opacity-90">
+        While putting this together, a few automatic consistency checks turned up small things worth
+        mentioning. None of them change the results — they&rsquo;re just for transparency:
+      </p>
+      <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-xs">
         {[...items, ...rollup].map((t, i) => (
-          // Advisory, not verdicts: same ▲ warn idiom as the untraceable-
-          // figures message, never blocking, never "verified".
-          <li key={i}>&#9650; {t}</li>
+          <li key={i}>{t}</li>
         ))}
       </ul>
       {details.length > 0 && (
-        <details className="mt-1">
-          <summary className="cursor-pointer text-t-tertiary">
-            {details.length} detailed diagnostic{details.length === 1 ? "" : "s"}
+        <details className="mt-2 text-xs">
+          <summary
+            className="cursor-pointer select-none opacity-80 hover:opacity-100"
+            style={{ textDecoration: "underline", textUnderlineOffset: 2 }}
+          >
+            Show the technical details
           </summary>
           <ul className="mt-1 flex flex-col gap-0.5 text-t-tertiary">
             {details.map((f, i) => (
@@ -270,19 +285,23 @@ function summarizeFindingIssues(details: string[]): string[] {
   const nulls = count((d) => d.includes('resolves to "null"') || d.includes("resolves to \u0000"));
   if (nulls > 0)
     out.push(
-      `${nulls} claim${nulls === 1 ? " was" : "s were"} removed because the analysis did not compute the value cleanly.`
+      `We left out ${nulls} figure${nulls === 1 ? "" : "s"} the analysis couldn't compute cleanly.`
     );
   const units = count((d) => d.includes("unit") && d.includes("narrative"));
-  if (units > 0) out.push(`${units} figure${units === 1 ? " carries" : "s carry"} a unit caveat.`);
+  if (units > 0)
+    out.push(`${units} figure${units === 1 ? " comes" : "s come"} with a note about its units.`);
   const dropped = count((d) => d.startsWith("dropped a sentence"));
   if (dropped > 0)
-    out.push(`${dropped} sentence${dropped === 1 ? " was" : "s were"} removed as not applicable.`);
+    out.push(
+      `We trimmed ${dropped} sentence${dropped === 1 ? "" : "s"} that didn't apply to this data.`
+    );
   const tiles = count((d) => d.includes("headline tile"));
   if (tiles > 0)
-    out.push(`${tiles} planned headline stat${tiles === 1 ? " is" : "s are"} missing.`);
+    out.push(`${tiles} planned headline number${tiles === 1 ? "" : "s"} couldn't be shown.`);
   const linkage = count((d) => d.includes("no finding derives from both"));
-  if (linkage > 0) out.push("A connection the data supports is not stated in the narrative.");
+  if (linkage > 0) out.push("A connection the data supports isn't stated in the write-up.");
   const rest = details.length - nulls - units - dropped - tiles - linkage;
-  if (rest > 0) out.push(`${rest} other consistency note${rest === 1 ? "" : "s"} (see details).`);
+  if (rest > 0)
+    out.push(`${rest} other small note${rest === 1 ? "" : "s"} — see the technical details below.`);
   return out;
 }
