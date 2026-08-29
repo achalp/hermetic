@@ -4,7 +4,7 @@ import path from "path";
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    exclude: ["node_modules", ".next"],
+    exclude: ["node_modules", ".next", "src-tauri"],
     environment: "node",
     setupFiles: ["./src/test-setup.ts"],
     coverage: {
