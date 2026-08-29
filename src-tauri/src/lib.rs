@@ -78,6 +78,11 @@ fn spawn_sidecar(app: &tauri::App, dir: &PathBuf) -> std::io::Result<(Child, Str
         .join(if cfg!(windows) { "egress-fetch.exe" } else { "egress-fetch" });
 
     let child = Command::new(node)
+        // Preload the hashed-externals hook (build log D16) — works around the Next 16
+        // Turbopack production bug where external modules (pg, @napi-rs/keyring, …) are
+        // required under an unresolvable content-hash suffix. Then the standalone entry.
+        .arg("--require")
+        .arg("./hash-externals-hook.cjs")
         .arg("server.js")
         .current_dir(dir)
         .env("HOSTNAME", "127.0.0.1")

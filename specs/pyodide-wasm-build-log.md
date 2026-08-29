@@ -533,3 +533,29 @@ type-check/ratchet/isolation/tests. Size (~0.5–0.8G before pyodide) is a follo
 **Other distribution channels (memory: distribution-strategy) remain future phases:**
 the .mcpb Claude-Desktop extension + `npx hermetic` (Phase 1) and brew/winget (cheap
 derivatives) reuse this same standalone/sidecar layer.
+
+### D16 — Packaged-app bug: Next 16 Turbopack production external-module resolution.
+
+Running the packaged sidecar (not just my shallow /api/health smoke) surfaced a real
+bug: the standalone server crashed loading EXTERNAL modules —
+`require("pg-587764f78a6c7a9c")`, `import("@napi-rs/keyring-77f6e008788a8a96")`,
+`rimraf-<hash>`, … — an unresolvable content-HASH suffix. Root cause: Next 16.1.6's
+Turbopack PRODUCTION build emits external ids with a `-<16hex>` suffix (BOTH the ESM
+`import()` and CJS `require()` paths); `next start` installs a resolver that hides it,
+but the trimmed standalone `server.js` does not — so warehouse (pg), OS keychain
+(@napi-rs/keyring), cleanup (rimraf), etc. fail in the packaged app. (Webpack build is
+non-viable here — separate errors. The app had only ever run via `next dev`, so
+production mode was never exercised until the desktop sidecar.)
+
+**Fix (small, keeps the 356M standalone):** a preload hook the Tauri core runs as
+`node --require ./hash-externals-hook.cjs server.js`. It patches BOTH the CJS resolver
+(`Module._resolveFilename`) and the ESM resolve hook (`module.register`): try the id
+verbatim, and ONLY on a not-found failure that matches `<pkg>-<16hex>`, retry with the
+hash stripped. Legit packages are never touched (they resolve first try). Copied into
+the bundle by the sidecar assembly.
+
+**Lesson — the smoke was too shallow.** A /api/health 200 masked boot-time external
+failures. The CI smoke now spawns EXACTLY as Tauri does (`--require` the hook) AND
+asserts the boot log has NO "Failed to load external module" / ERR_MODULE_NOT_FOUND —
+so this regression can't slip again. Verified: sidecar serves with 0 external-load
+failures.

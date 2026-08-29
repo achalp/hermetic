@@ -32,21 +32,36 @@ try {
   });
 
   const port = "3987";
-  console.log(`[smoke] spawning node server.js on :${port}…`);
-  child = spawn(join(OUT, process.platform === "win32" ? "node.exe" : "node"), ["server.js"], {
-    cwd: OUT,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      PORT: port,
-      HOSTNAME: "127.0.0.1",
-      HERMETIC_ASSET_ROOT: OUT,
-      HERMETIC_DATA_ROOT: join(DATA, "data"),
-      HERMETIC_USER_ROOT: join(DATA, "user"),
-      HERMETIC_SCRATCH_ROOT: join(DATA, "scratch"),
-      HERMETIC_FORCE_RUNTIME: "wasm",
-    },
-  });
+  // EXACTLY how the Tauri core spawns it (build log D16): --require the hashed-
+  // externals hook, then the standalone entry. Capture output so we can assert the
+  // BOOT is clean, not just that /api/health returns 200 (a shallow check let the
+  // Next-16 external-module bug through the first time).
+  console.log(`[smoke] spawning node --require hash-externals-hook.cjs server.js on :${port}…`);
+  let serverOut = "";
+  child = spawn(
+    join(OUT, process.platform === "win32" ? "node.exe" : "node"),
+    ["--require", "./hash-externals-hook.cjs", "server.js"],
+    {
+      cwd: OUT,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        PORT: port,
+        HOSTNAME: "127.0.0.1",
+        HERMETIC_ASSET_ROOT: OUT,
+        HERMETIC_DATA_ROOT: join(DATA, "data"),
+        HERMETIC_USER_ROOT: join(DATA, "user"),
+        HERMETIC_SCRATCH_ROOT: join(DATA, "scratch"),
+        HERMETIC_FORCE_RUNTIME: "wasm",
+      },
+    }
+  );
+  const capture = (b) => {
+    serverOut += b.toString();
+    process.stdout.write(b);
+  };
+  child.stdout.on("data", capture);
+  child.stderr.on("data", capture);
 
   let ok = false;
   for (let i = 0; i < 40; i++) {
@@ -64,7 +79,19 @@ try {
     }
   }
   if (!ok) throw new Error("sidecar did not serve /api/health in time");
-  console.log("[smoke] PASS — the assembled sidecar serves the app.");
+
+  // Give boot a beat to load warehouse/secrets modules, then assert NO external
+  // module failed to load (the Next-16 Turbopack production bug the hook fixes).
+  await sleep(1500);
+  const extFail = serverOut.match(/Failed to load external module|ERR_MODULE_NOT_FOUND/);
+  if (extFail) {
+    throw new Error(
+      `sidecar logged an external-module load failure (the hashed-externals hook is not working): ${extFail[0]}`
+    );
+  }
+  console.log(
+    "[smoke] PASS — the assembled sidecar serves the app with no external-load failures."
+  );
 } finally {
   cleanup();
 }

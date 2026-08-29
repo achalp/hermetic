@@ -162,6 +162,14 @@ async function main() {
   await chmod(join(OUT, nodeName), 0o755).catch(() => {});
   log(`node runtime copied (${process.execPath})`);
 
+  // 7) The hashed-externals preload hook (build log D16): the Tauri sidecar runs
+  // `node --require ./hash-externals-hook.cjs server.js` to work around the Next 16
+  // Turbopack production external-module bug. Both files must sit next to server.js.
+  for (const f of ["hash-externals-hook.cjs", "hash-externals-hook.mjs"]) {
+    await copyFile(join(ROOT, "scripts", "desktop", f), join(OUT, f));
+  }
+  log("hashed-externals hook copied");
+
   // A tiny manifest the Rust spawn / docs can read.
   await writeFile(
     join(OUT, "sidecar-manifest.json"),
