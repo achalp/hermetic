@@ -589,3 +589,62 @@ the PATCH accepts `docker` OR `wasm` (persists the pin; getActiveSandboxRuntime 
 it — HERMETIC_FORCE_RUNTIME still overrides in the packaged desktop app). The picker
 already renders every available runtime and persists via setActiveSandboxRuntime, so no
 UI change was needed. Tests updated.
+
+### D18 — SPIKE (R1): DuckDB + httpfs DOES work in the Tauri webview worker. Remote big-data on the desktop tier is FEASIBLE.
+
+Context: the "NN in Seattle" analysis (Overture buildings, `s3://overturemaps-us-west-2/
+.../theme=buildings/type=building`) cannot run on the desktop tier today —
+`resolveRemoteHttpsFetch` fails closed on hive/glob sources ("needs Docker"), the worker
+loads only numpy+pandas, and D13 materialization is WHOLE-FILE (the source is 512 part
+files / 257 GB, measured). The question was whether a ranged remote read is possible at
+all under the production CSP.
+
+Measured facts (all in the REAL Tauri webview, webkit2gtk, under WASM_EXEC_CSP):
+
+1. Sync XHR + `Range` WORKS in a classic worker: HTTP 206, magic `PAR1`; a 1 MiB
+   mid-file range returned exactly 1,048,576 bytes. This is the mechanism duckdb-wasm
+   relies on (`.open("GET", url, !1)` + `setRequestHeader("Range", ...)`).
+2. Sync XHR is not exotic — it is duckdb-wasm's ONLY I/O path. The "async" bundle's
+   worker uses it too (`duckdb-browser-eh.worker.js`: `.open("GET", _.dataUrl, !1)`).
+   Asyncify is compiled OUT (`_emscripten_has_asyncify = () => 0`); no JSPI symbols
+   ship, and JSPI is not in WebKit anyway. There is no async-I/O variant.
+3. DuckDB-WASM boots and runs SQL inside that worker under the CSP (`SELECT 41+1` → 42).
+   Pair the BLOCKING browser glue with `duckdb-mvp.wasm`; `duckdb-eh.wasm` traps with
+   `call_indirect to a signature that does not match`.
+4. Extension autoload hits `https://extensions.duckdb.org/...` and is correctly BLOCKED
+   by `connect-src 'self'`. Fix: host the extensions same-origin (exactly as we already
+   do for Pyodide wheels) and `SET custom_extension_repository` +
+   `autoinstall_extension_repository` to that path. parquet + httpfs then load fine.
+5. `registerFileURL(..., DuckDBDataProtocol.HTTP, directIO)` buffers the WHOLE file —
+   one GET, 525 MB, 14,557 ms — with directIO true OR false. It never even issues a HEAD.
+   Do NOT use this path for remote sources.
+6. The **httpfs extension** reading the URL directly is the ranged path, and it works:
+   HEAD -> 200, len=525,687,024
+   GET bytes=525424880-... -> 206, 262,144 B (tail probe)
+   GET bytes=525066711-... -> 206, 620,313 B (footer)
+   `SELECT count(*)` = 4,940,678 rows in **828 ms**, transferring **882,457 B = 0.168%**
+   of the file. The Seattle bbox predicate returned in 733 ms having read NO data pages —
+   row-group statistics pruned the file outright. Predicate pushdown works.
+
+Design consequences:
+
+- Remote big-data on the desktop tier is FEASIBLE. Pruning all 257 GB costs ~452 MB of
+  footer reads (512 x ~882 KB), not a 257 GB download.
+- The worker needs a SAME-ORIGIN URL (`connect-src 'self'`), so the sidecar must expose
+  a token-scoped range endpoint that forwards `Range` through the Rust egress core —
+  which therefore needs Range/206 support (`fetch.rs` has none today).
+- DuckDB issues its own ranges, so the core does NOT need to drive pushdown itself.
+- Sequential sync XHR means ~3 round trips per file; host-side parallel PREFETCH of the
+  file tails (the host knows the file list at token-mint time) collapses the latency
+  without changing DuckDB's blocking behaviour or widening the trust boundary — the host
+  fetches only from the already-authorized URL set.
+- Security: this is the first `/api/*` route that deliberately reaches the internet, so
+  the D10 residual ("worker can call same-origin /api") must be re-argued in the spec.
+  The worker never chooses a DESTINATION (token-bound URL set), only byte offsets; the
+  residual covert channel is the offsets themselves, which is low-bandwidth and needs
+  third-party bucket log access to exploit. Still strictly tighter than the Docker
+  tier's L7 allowlist proxy.
+
+Open (not blockers): Arrow→pandas marshalling cost at ~300k rows; combined Pyodide +
+DuckDB RSS in one renderer (each WASM module has its OWN 4 GB linear memory, so this is
+an RSS question, not an address-space one); DuckDB-WASM cannot spill, so bound result sets.
