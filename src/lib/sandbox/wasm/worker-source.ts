@@ -1,4 +1,5 @@
 import { WASM_PRELUDE, WASM_WORK_DIR } from "./runtime-constants";
+import { DUCKDB_BOOT_FN_SOURCE, DUCKDB_PY_SHIM } from "./duckdb-worker";
 
 /**
  * The execution Web Worker source (spec §4a / build log D6, D8=self), shared by the
@@ -18,6 +19,7 @@ import { WASM_PRELUDE, WASM_WORK_DIR } from "./runtime-constants";
  */
 export const WASM_WORKER_SOURCE = `
 "use strict";
+${DUCKDB_BOOT_FN_SOURCE}
 self.onmessage = async (e) => {
   const { indexURL, request } = e.data || {};
   const id = request && request.id;
@@ -25,6 +27,12 @@ self.onmessage = async (e) => {
     importScripts(indexURL + "pyodide.js"); // same-origin bundled dist (script-src 'self')
     const pyodide = await self.loadPyodide({ indexURL });
     await pyodide.loadPackage(["numpy", "pandas"]);
+    // DuckDB is booted only when the request asks (build log D18): the engine is a
+    // 41MB wasm module, so a pandas-only run must not pay for it. Parameters arrive
+    // as DATA — the CSP allows wasm-unsafe-eval but NOT unsafe-eval.
+    if (request.duckdb) {
+      await __hermeticBootDuckDb(request.duckdb.base, request.duckdb.aliases || []);
+    }
 
     const WORK_DIR = ${JSON.stringify(WASM_WORK_DIR)};
     // Clean + recreate the workdir, then stage the run's files (the request's files
@@ -63,7 +71,10 @@ self.onmessage = async (e) => {
     // lights up identically to Docker.
     let exitCode = 0;
     try {
-      await pyodide.runPythonAsync(${JSON.stringify(WASM_PRELUDE)} + "\\n" + request.code);
+      const duckShim = request.duckdb ? ${JSON.stringify(DUCKDB_PY_SHIM)} + "\\n" : "";
+      await pyodide.runPythonAsync(
+        ${JSON.stringify(WASM_PRELUDE)} + "\\n" + duckShim + request.code
+      );
     } catch (err) {
       exitCode = 1;
       pyodide.FS.writeFile(WORK_DIR + "/stderr.txt", String((err && err.message) || err));

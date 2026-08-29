@@ -34,47 +34,55 @@ export const DUCKDB_BUNDLE_FILE = "duckdb-bundle.js";
 export const DUCKDB_WASM_FILE = "duckdb-mvp.wasm";
 
 /**
- * JS that boots DuckDB in the worker and installs `self.__hermeticDuckQuery`.
- * `base` is the same-origin /duckdb/ prefix. Returns a function body evaluated
- * inside the worker, so it may not close over anything in this module.
+ * STATIC worker-side boot code, embedded once in the worker source. It takes its
+ * parameters as DATA at call time (`base`, `aliases` from the request) rather than
+ * being generated per-run — the worker CSP allows `wasm-unsafe-eval` but NOT
+ * `unsafe-eval`, so per-request JS could never be eval'd. Nothing here closes over
+ * the module; it is embedded as text.
+ *
+ * Installs `self.__hermeticDuckQuery(sql) -> json text`, the single entry point
+ * the Python shim calls.
  */
-export function duckdbBootSource(
-  base: string,
-  aliases: ReadonlyArray<{ name: string; url: string }>
-) {
-  // httpfs is only INSTALLed when a remote source exists: it is a separate
-  // extension download, and a local-file run should not pay for it.
-  const remote =
-    aliases.length === 0
-      ? ""
-      : `
-  _conn.query("INSTALL httpfs"); _conn.query("LOAD httpfs");
-  for (const a of ${JSON.stringify(aliases)}) {
-    const _href = new URL(a.url, self.location.origin).href;
-    // directIO=true → httpfs issues RANGE reads. With false, duckdb buffers the
-    // WHOLE object (D18 measured 525MB / 14.5s for what ranges answered in 828ms).
-    _db.registerFileURL(a.name, _href, _duck.DuckDBDataProtocol.HTTP, true);
-  }`;
-
-  return `
-  importScripts(${JSON.stringify(base)} + ${JSON.stringify(DUCKDB_BUNDLE_FILE)});
-  const _duck = self.DuckDBB;
-  const _db = await _duck.createDuckDB(
-    { mvp: { mainModule: ${JSON.stringify(base)} + ${JSON.stringify(DUCKDB_WASM_FILE)}, mainWorker: null } },
-    new _duck.VoidLogger(),
-    _duck.BROWSER_RUNTIME
+export const DUCKDB_BOOT_FN_SOURCE = `
+async function __hermeticBootDuckDb(base, aliases) {
+  importScripts(base + ${JSON.stringify(DUCKDB_BUNDLE_FILE)});
+  const duck = self.DuckDBB;
+  const db = await duck.createDuckDB(
+    { mvp: { mainModule: base + ${JSON.stringify(DUCKDB_WASM_FILE)}, mainWorker: null } },
+    new duck.VoidLogger(),
+    duck.BROWSER_RUNTIME
   );
-  await _db.instantiate();
-  const _conn = _db.connect();
-  // Same-origin extension repository — the CDN default is blocked by CSP (D18).
-  const _repo = new URL(${JSON.stringify(base)} + "ext", self.location.origin).href;
-  _conn.query("SET custom_extension_repository='" + _repo + "'");
-  _conn.query("SET autoinstall_extension_repository='" + _repo + "'");
-  _conn.query("INSTALL parquet"); _conn.query("LOAD parquet");${remote}
-  // The single entry point the Python shim calls. Returns JSON text so nothing
-  // but plain data crosses the FFI boundary.
-  self.__hermeticDuckQuery = (sql) => _conn.query(String(sql)).toString();
+  await db.instantiate();
+  const conn = db.connect();
+  // Same-origin extension repository. DuckDB's built-in default points at a public
+  // CDN, which connect-src 'self' correctly blocks (D18 measured it as status 0),
+  // so both repository settings are redirected here before any autoload happens.
+  const repo = new URL(base + "ext", self.location.origin).href;
+  conn.query("SET custom_extension_repository='" + repo + "'");
+  conn.query("SET autoinstall_extension_repository='" + repo + "'");
+  conn.query("INSTALL parquet"); conn.query("LOAD parquet");
+  // httpfs only when a remote source is registered: it is a separate extension
+  // download, and a local-file run should not pay for it.
+  if (aliases && aliases.length > 0) {
+    conn.query("INSTALL httpfs"); conn.query("LOAD httpfs");
+    for (const a of aliases) {
+      const href = new URL(a.url, self.location.origin).href;
+      // directIO=true → httpfs issues RANGE reads. With false, duckdb buffers the
+      // WHOLE object (D18: 525MB / 14.5s for what ranges answered in 828ms).
+      db.registerFileURL(a.name, href, duck.DuckDBDataProtocol.HTTP, true);
+    }
+  }
+  self.__hermeticDuckQuery = (sql) => conn.query(String(sql)).toString();
+}
 `;
+
+/**
+ * Does this generated code need the DuckDB engine booted? Booting costs a 41MB
+ * wasm module, so a pandas-only run must not pay for it. Matched as a real import
+ * statement, mirroring how prelude.ts detects unsupported packages.
+ */
+export function codeNeedsDuckDb(code: string): boolean {
+  return /\b(?:import|from)\s+duckdb\b/.test(code);
 }
 
 /**

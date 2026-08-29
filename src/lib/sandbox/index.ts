@@ -3,6 +3,7 @@ import { codeNeedsNetwork, codeDoesRemoteIo } from "./docker-utils";
 import { logger } from "@/lib/logger";
 import { RUNTIME_CAPABILITIES, unsupportedCapabilityError } from "./capabilities";
 import { getWarmManager } from "./warm-sandbox";
+import { codeNeedsDuckDb } from "./wasm/duckdb-worker";
 import { getInputRegistry } from "./wasm/input-singleton";
 import type { ExecutionResult, AdditionalFile, SandboxRunHooks } from "@/lib/contracts/execution";
 export type { AdditionalFile };
@@ -34,6 +35,13 @@ export type WasmExecutor = (
     geojsonContent?: string | null;
     /** Same-origin token URLs the worker fetches into its FS (build log D11). */
     fetchInputs?: { path: string; url: string }[];
+    /**
+     * Boot DuckDB in the worker (build log D18). `base` is the same-origin /duckdb/
+     * asset prefix; each alias maps a SQL-visible name to a token-scoped
+     * `/api/wasm-range/<token>` URL, so generated SQL never contains the upstream
+     * object-store URL. Omitted ⇒ the engine is not booted (it is a 41MB module).
+     */
+    duckdb?: { base: string; aliases: { name: string; url: string }[] };
   }
 ) => Promise<ExecutionResult>;
 
@@ -47,6 +55,12 @@ export interface SandboxExecOptions {
   csvId?: string;
   /** Bind-mount source for browsed local files (Docker only). */
   localMountPath?: string;
+  /**
+   * DuckDB range-token aliases for the WASM tier (build log D18): each maps a
+   * SQL-visible name to a `/api/wasm-range/<token>` URL. Set by the pipeline for a
+   * remote source; their presence also forces the engine to boot.
+   */
+  wasmDuckDbAliases?: { name: string; url: string }[];
   /** Materialized Parquet copied into the container (Docker only). */
   inputParquetPath?: string;
   /**
@@ -229,10 +243,17 @@ export function executeSandbox(
       tokens.push(token);
       return { path: m.workerPath, url: `/api/wasm-input/${token}` };
     });
+    // DuckDB (build log D18): booted in the worker ONLY when this run needs it —
+    // the engine is a 41MB wasm module, so a pandas-only run must not pay for it.
+    // Remote sources additionally register range-token ALIASES (opts.wasmDuckDbAliases)
+    // so generated SQL addresses a same-origin name, never the upstream object store.
+    const duckAliases = opts.wasmDuckDbAliases ?? [];
+    const needsDuckDb = duckAliases.length > 0 || codeNeedsDuckDb(code);
     const result = opts.wasmExecutor(csvContent, code, {
       additionalFiles,
       geojsonContent,
       fetchInputs,
+      ...(needsDuckDb ? { duckdb: { base: "/duckdb/", aliases: duckAliases } } : {}),
     });
     return tokens.length
       ? result.finally(() => tokens.forEach((t) => getInputRegistry().release(t)))
