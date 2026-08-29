@@ -11,16 +11,17 @@
   identifier: "com.hermetic.desktop",
 
   build: {
-    // Phase 0/dev: point at the existing Next dev server.
-    // FOLLOW-ON (Phase 0c, §4a): replace with the bundled Node standalone-server
-    // sidecar spawned as an externalBin; the window then loads the sidecar's
-    // localhost origin instead of this dev URL. See src/lib.rs.
+    // `tauri dev`: start the Next dev server; the window loads it (src/lib.rs dev
+    // branch). `tauri build`: assemble the sidecar (Next standalone + node + assets)
+    // BEFORE bundling, so `resources.sidecar` exists. Run from the project root.
+    beforeDevCommand: "pnpm dev",
+    beforeBuildCommand: "pnpm desktop:sidecar",
     devUrl: "http://localhost:3000",
 
-    // Placeholder so the config validates without a built bundle. The REAL
-    // frontend is the server-rendered Next app served by the sidecar (the app is
-    // NOT output:'export'-able — §4a), so this static dir is a stand-in for
-    // `cargo build` / config-check only.
+    // The REAL frontend is the server-rendered Next app served by the sidecar (the
+    // app is NOT output:'export'-able — §4a). This placeholder dir only satisfies the
+    // config schema / bundler; the window never loads it (src/lib.rs points at the
+    // sidecar's loopback origin in release, or devUrl in dev).
     frontendDist: "../dist-placeholder",
   },
 
@@ -29,17 +30,10 @@
     // host-reachable global from untrusted webview JS.
     withGlobalTauri: false,
 
-    windows: [
-      {
-        title: "Hermetic",
-        width: 1280,
-        height: 832,
-        minWidth: 800,
-        minHeight: 600,
-        resizable: true,
-        fullscreen: false,
-      },
-    ],
+    // NO static windows: the main window is created in src/lib.rs::run() AFTER the
+    // Node sidecar is ready, pointed at its loopback origin (build log D15). A
+    // config window would load the frontendDist placeholder first and flash.
+    windows: [],
 
     security: {
       // The APP-document CSP (reasonably tight).
@@ -66,5 +60,13 @@
     // Placeholder icons (generated). `cargo build` does not consume these;
     // `tauri build` bundling does. Replace before Phase 3 productionization.
     icon: ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+
+    // The assembled Node sidecar (build log D15) — the Next standalone server + the
+    // Node runtime + pyodide dist + egress-fetch bin + the docker/sandbox runtime
+    // package. Built by `scripts/build-desktop-sidecar.mjs` BEFORE `tauri build`
+    // (see beforeBuildCommand). Copied into the app's resource dir; src/lib.rs spawns
+    // `<resources>/sidecar/node server.js`. `cargo check` does not validate that the
+    // dir exists (bundling does), so the shell still compiles pre-build.
+    resources: { sidecar: "sidecar" },
   },
 }

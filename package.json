@@ -43,7 +43,11 @@
     "mcp:build-viewer": "node scripts/build-mcp-viewer.mjs",
     "mcpb:build": "node scripts/build-mcp-viewer.mjs && node scripts/build-mcpb.mjs",
     "mcpb:smoke": "node scripts/mcpb-smoke.mjs",
-    "test:e2e": "tsx scripts/e2e-build-fixture.mts && playwright test"
+    "test:e2e": "tsx scripts/e2e-build-fixture.mts && playwright test",
+    "desktop:sidecar": "node scripts/build-desktop-sidecar.mjs",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "node scripts/build-desktop.mjs",
+    "tauri": "tauri"
   },
   "lint-staged": {
     "*.{ts,tsx,mjs}": [

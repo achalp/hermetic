@@ -1,0 +1,4 @@
+Placeholder so `resources.sidecar` resolves at cargo-check/CI time (tauri-build
+validates the path exists). The REAL sidecar is assembled here by
+scripts/build-desktop-sidecar.mjs before `tauri build` — its (large) contents are
+gitignored; only this file is tracked. See build log D15.
