@@ -559,3 +559,20 @@ failures. The CI smoke now spawns EXACTLY as Tauri does (`--require` the hook) A
 asserts the boot log has NO "Failed to load external module" / ERR_MODULE_NOT_FOUND —
 so this regression can't slip again. Verified: sidecar serves with 0 external-load
 failures.
+
+### D16b — Deeper packaging fixes: incomplete-external repair + dev never spawns the sidecar.
+
+Running `./start.sh` → desktop-dev surfaced two more issues beyond the hash hook (D16):
+
+1. **Turbopack traces external package MANIFESTS but not their FILES.** ~19 packages
+   (rimraf, apache-arrow, axios, uuid, semver, …) landed in the standalone with only a
+   `package.json` — so even after the hook resolves `rimraf-<hash>` → `rimraf`, Node
+   fails on the missing `rimraf/rimraf.js`. Fix: the sidecar assembly now REPAIRS each
+   traced package whose entry file is missing (or whose dir holds only package.json) by
+   copying the COMPLETE package from source — surgical, so node_modules stays ~305M (vs
+   1.9G for full deps). Verified: rimraf complete, sidecar boots with 0 external-load
+   failures.
+2. **`tauri dev` was spawning a (stale) bundled sidecar** instead of the hot-reload dev
+   server, because a prior build left one under target/debug/. Fixed: in debug builds
+   the shell ALWAYS uses the Next dev server (devUrl) and never the sidecar; only
+   release spawns it.

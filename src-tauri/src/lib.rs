@@ -107,9 +107,11 @@ pub fn run() {
         // reachable from untrusted webview JS. The sidecar is spawned from Rust below.
         .manage(Sidecar(Mutex::new(None)))
         .setup(|app| {
-            // Release: spawn the bundled sidecar and point the window at it. Debug
-            // (`tauri dev`): use the dev server (devUrl in tauri.conf) — no sidecar.
-            let url = match sidecar_dir(app) {
+            // DEV (`tauri dev`, debug build): ALWAYS use the hot-reload Next dev server
+            // (devUrl) and never spawn the bundled sidecar — even if a stale one exists
+            // under target/debug/. RELEASE: spawn the bundled sidecar.
+            let bundled = if cfg!(debug_assertions) { None } else { sidecar_dir(app) };
+            let url = match bundled {
                 Some(dir) => {
                     let (child, base) = spawn_sidecar(app, &dir)?;
                     app.state::<Sidecar>().0.lock().unwrap().replace(child);

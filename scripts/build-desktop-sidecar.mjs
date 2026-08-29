@@ -84,6 +84,58 @@ function buildStandaloneWithoutData() {
   }
 }
 
+/** Does the package's declared entry (main / index.js / an exports target) exist on disk? */
+async function entryPresent(pkgDir, pj) {
+  const cands = [];
+  if (typeof pj.main === "string") cands.push(pj.main, `${pj.main}.js`, join(pj.main, "index.js"));
+  const dot = pj.exports && (typeof pj.exports === "string" ? pj.exports : pj.exports?.["."]);
+  const dotFile =
+    typeof dot === "string" ? dot : dot && (dot.require || dot.import || dot.default || dot.node);
+  if (typeof dotFile === "string") cands.push(dotFile);
+  if (!pj.main && !pj.exports) cands.push("index.js");
+  for (const c of cands) if (await has(join(pkgDir, c.replace(/^\.\//, "")))) return true;
+  return false;
+}
+
+/** Recursively find + repair traced packages missing their files (see caller). */
+async function repairIncompletePackages(outNm, srcNm, rel = "") {
+  const { readdir, readFile } = await import("node:fs/promises");
+  let entries;
+  try {
+    entries = await readdir(join(outNm, rel), { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+    const name = e.name;
+    if (rel === "" && name.startsWith("@")) {
+      await repairIncompletePackages(outNm, srcNm, name); // scope dir → recurse one level
+      continue;
+    }
+    const pkgRel = rel ? `${rel}/${name}` : name;
+    const outPkg = join(outNm, pkgRel);
+    const pjPath = join(outPkg, "package.json");
+    if (!(await has(pjPath))) continue;
+    let pj;
+    try {
+      pj = JSON.parse(await readFile(pjPath, "utf8"));
+    } catch {
+      continue;
+    }
+    const onlyManifest =
+      (await import("node:fs/promises").then((m) => m.readdir(outPkg))).length === 1;
+    if (onlyManifest || !(await entryPresent(outPkg, pj))) {
+      const srcPkg = join(srcNm, pkgRel);
+      if (await has(srcPkg)) {
+        await rm(outPkg, { recursive: true, force: true });
+        await cp(srcPkg, outPkg, { recursive: true, dereference: true });
+        log(`repaired incomplete package: ${pkgRel}`);
+      }
+    }
+  }
+}
+
 async function main() {
   if (!(await has(STANDALONE))) {
     log("no .next/standalone — building (data/ moved aside)…");
@@ -112,13 +164,13 @@ async function main() {
   ]) {
     await rm(join(OUT, junk), { recursive: true, force: true });
   }
-  // 1c) Ensure @duckdb/duckdb-wasm is present (host-side parquet→CSV requires it at
-  // runtime via createRequire; the tracer may miss the dynamic require).
-  const dd = join("node_modules", "@duckdb", "duckdb-wasm");
-  if (!(await has(join(OUT, dd))) && (await has(join(ROOT, dd)))) {
-    await cp(join(ROOT, dd), join(OUT, dd), { recursive: true });
-    log("@duckdb/duckdb-wasm ensured in bundle");
-  }
+  // 1c) REPAIR incomplete externalized packages. Turbopack's standalone tracer copies
+  // an external package's package.json but NOT its files (pg, rimraf, @napi-rs/keyring,
+  // snowflake-sdk, …) — so the server crashes at runtime ("Cannot find module
+  // .../rimraf/rimraf.js"). For every traced package whose entry file is missing (or
+  // whose dir holds ONLY package.json), copy the COMPLETE package from source. Surgical
+  // — only the ~dozen broken externals are refilled, so the bundle stays ~small.
+  await repairIncompletePackages(join(OUT, "node_modules"), join(ROOT, "node_modules"));
   // 2) Static + public (Next standalone does NOT copy these itself).
   await cp(join(ROOT, ".next", "static"), join(OUT, ".next", "static"), { recursive: true });
   if (await has(join(ROOT, "public")))
