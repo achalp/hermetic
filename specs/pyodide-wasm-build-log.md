@@ -701,3 +701,35 @@ SECURITY — unchanged and still owed a decision: `/api/wasm-range` is the first
 worker can call same-origin /api") should be re-argued in the spec before this
 ships to users. The worker picks offsets within a token-bound URL, never a
 destination; the residual channel is the offsets themselves.
+
+### D20 — Parity gate: is `/api/wasm-range` at-or-better than the Docker path? YES, on every axis.
+
+Approved on the condition of parity-or-better with Docker. TRACED against
+`docker/sandbox/egress-proxy.py`, not assumed:
+
+| Control                | Docker (egress-proxy.py)                                                                                                                                                         | WASM range path                                                                     | Verdict       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------- |
+| HTTP method            | **Any.** `method` is read from the sandbox's request line and forwarded verbatim (`upstream.sendall(f"{method} {origin} …")`, ~L247) — PUT/POST/DELETE included                  | **GET only.** `Method` is a one-variant enum by construction                        | WASM tighter  |
+| Request headers        | **Verbatim.** `rest = head.split(b"\r\n",1)[1]` is forwarded unchanged — any header, incl. Authorization                                                                         | **None from the worker.** Only `Range`, re-serialized from parsed integers          | WASM tighter  |
+| Request body           | **Yes** — `pump()` relays both directions                                                                                                                                        | **None**                                                                            | WASM tighter  |
+| HTTPS                  | **Opaque CONNECT tunnel** (~L205-224): `200 Connection Established` then `pump()`. The proxy sees NOTHING inside; arbitrary requests and arbitrary upload to an allowlisted host | **No tunnel.** TLS terminates in the core; the worker never speaks to the upstream  | WASM tighter  |
+| Destination choice     | Sandbox picks host + path, from ALLOW_HOSTS                                                                                                                                      | **Fixed by the token.** The worker cannot name a host or a path — only byte offsets | WASM tighter  |
+| Private LAN (RFC-1918) | **ALLOWED** by design (`_is_blocked_ip` blocks loopback/link-local/multicast/reserved only — on-prem endpoints + host.docker.internal)                                           | **BLOCKED** (ip.rs: the desktop LAN is itself a threat surface, spec §6a)           | WASM tighter  |
+| Byte bound             | None on a tunnel (MAX_CONNECTIONS only)                                                                                                                                          | Per-request 64 MB + a per-token run budget charged BEFORE serving                   | WASM tighter  |
+| Redirects              | Sandbox's own client follows; each new host re-checked                                                                                                                           | Never followed; re-authorized per hop in the core                                   | Equal/tighter |
+| DNS rebinding          | Connects to the vetted sockaddr                                                                                                                                                  | Same (IP pinning)                                                                   | Equal         |
+
+Exfiltration, the axis that matters most: Docker lets sandboxed code **POST arbitrary
+bytes** to an allowlisted host, or open a TLS tunnel and send anything at all. The
+WASM path lets it vary **byte offsets in a GET to a URL it cannot name** — a channel
+of a few bytes per request that additionally requires access to the third-party
+bucket's logs to read.
+
+So the D10 residual is re-argued and RESOLVED for this route: `/api/wasm-range` is
+the first same-origin `/api/*` route that deliberately reaches the internet, but the
+capability it hands untrusted code is **strictly smaller than what the Docker tier
+already grants**. The parity condition is met. Shipping is approved.
+
+Standing invariant this creates — do not regress it: the range route must never gain
+a caller-supplied method, header, body, or destination. If any of those is ever
+needed, the parity argument above has to be re-run, not assumed.
