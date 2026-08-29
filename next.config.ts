@@ -17,8 +17,28 @@ const nextConfig: NextConfig = {
   // bundle, else the host-side parquet→CSV conversion 404s in the packaged app.
   ...(STANDALONE
     ? {
+        // Pin the trace root to THIS dir so the include/exclude globs resolve
+        // relative to the repo (else Next may guess a parent and the globs miss).
+        outputFileTracingRoot: import.meta.dirname,
         outputFileTracingIncludes: {
-          "*": ["./node_modules/@duckdb/duckdb-wasm/dist/**"],
+          "*": ["node_modules/@duckdb/duckdb-wasm/dist/**"],
+        },
+        // CRITICAL: never trace RUNTIME STATE or dev-only trees into the bundle.
+        // `data/` holds models (multi-GB GGUFs), history, and uploads — tracing it
+        // exploded the bundle + filled the disk. pyodide is copied separately by the
+        // sidecar script. These are host paths the app reads AT RUNTIME, not deps.
+        outputFileTracingExcludes: {
+          "*": [
+            "data/**",
+            "node_modules/pyodide/**",
+            ".git/**",
+            "test-fixtures/**",
+            "e2e/**",
+            "src-tauri/**",
+            "rust/**",
+            "coverage/**",
+            "playwright-report/**",
+          ],
         },
       }
     : {}),

@@ -17,7 +17,7 @@
  * builds egress-fetch for the target triple (see scripts/build-desktop.mjs / docs).
  */
 import { cp, rm, mkdir, stat, chmod, writeFile, copyFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -39,14 +39,55 @@ function log(m) {
   console.log(`[sidecar] ${m}`);
 }
 
-async function main() {
-  if (!(await has(STANDALONE))) {
-    log("no .next/standalone — building (HERMETIC_STANDALONE=1 next build)…");
+/**
+ * Build the Next standalone with `data/` moved ASIDE. The Turbopack standalone
+ * tracer (Next 16) copies the whole `data/` dir — runtime state incl. multi-GB model
+ * GGUFs — into .next/standalone, ignoring outputFileTracingExcludes; that fills the
+ * disk and bloats the bundle. An atomic rename (same fs) keeps it out of the trace
+ * root; a finally + signal handlers ALWAYS restore it (never strand a user's history).
+ */
+function buildStandaloneWithoutData() {
+  // Turbopack (Next 16) standalone tracing copies the whole repo subtree, ignoring
+  // outputFileTracingExcludes — so RUNTIME STATE (data/: multi-GB models, history)
+  // and BUILD ARTIFACTS (rust/ + src-tauri/ target dirs, a prior sidecar assembly)
+  // would be copied into .next/standalone, filling the disk. Move each aside with an
+  // atomic rename (same fs) for the build; a finally + signal handlers ALWAYS
+  // restore, so a user's data/ (history) is never stranded.
+  const asides = ["data", "rust", "src-tauri"]
+    .map((rel) => ({
+      dir: join(ROOT, rel),
+      bak: join(ROOT, `.${rel.replace(/\//g, "-")}-build-bak`),
+    }))
+    .filter((a) => existsSync(a.dir));
+  const restore = () => {
+    for (const a of asides) {
+      try {
+        if (existsSync(a.bak)) renameSync(a.bak, a.dir);
+      } catch (e) {
+        console.error(`[sidecar] WARN could not restore ${a.dir} from ${a.bak}: ${e}`);
+      }
+    }
+  };
+  for (const a of asides) {
+    if (existsSync(a.bak)) throw new Error(`${a.bak} already exists — restore it before building`);
+    renameSync(a.dir, a.bak);
+  }
+  for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => (restore(), process.exit(1)));
+  try {
     execFileSync("pnpm", ["build"], {
       cwd: ROOT,
       stdio: "inherit",
       env: { ...process.env, HERMETIC_STANDALONE: "1" },
     });
+  } finally {
+    restore();
+  }
+}
+
+async function main() {
+  if (!(await has(STANDALONE))) {
+    log("no .next/standalone — building (data/ moved aside)…");
+    buildStandaloneWithoutData();
   }
 
   log(`assembling → ${OUT}`);
@@ -55,6 +96,29 @@ async function main() {
 
   // 1) The standalone server (server.js + its traced node_modules + package.json).
   await cp(STANDALONE, OUT, { recursive: true });
+  // 1b) Post-clean: drop any RUNTIME/dev dirs Turbopack over-traced into the bundle
+  // (belt-and-suspenders to the move-aside — it ignores outputFileTracingExcludes).
+  for (const junk of [
+    "data",
+    ".git",
+    "test-fixtures",
+    "e2e",
+    "coverage",
+    "playwright-report",
+    "src-tauri", // Rust target + a prior sidecar assembly — recursive multi-GB bloat
+    "rust", // egress-core target (the bin is copied to bin/ below)
+    "docs",
+    join("node_modules", ".cache"),
+  ]) {
+    await rm(join(OUT, junk), { recursive: true, force: true });
+  }
+  // 1c) Ensure @duckdb/duckdb-wasm is present (host-side parquet→CSV requires it at
+  // runtime via createRequire; the tracer may miss the dynamic require).
+  const dd = join("node_modules", "@duckdb", "duckdb-wasm");
+  if (!(await has(join(OUT, dd))) && (await has(join(ROOT, dd)))) {
+    await cp(join(ROOT, dd), join(OUT, dd), { recursive: true });
+    log("@duckdb/duckdb-wasm ensured in bundle");
+  }
   // 2) Static + public (Next standalone does NOT copy these itself).
   await cp(join(ROOT, ".next", "static"), join(OUT, ".next", "static"), { recursive: true });
   if (await has(join(ROOT, "public")))
@@ -63,8 +127,11 @@ async function main() {
   await cp(join(ROOT, "docker", "sandbox"), join(OUT, "docker", "sandbox"), { recursive: true });
 
   // 4) Pyodide dist (served at /pyodide/*). Best-effort: large; warn if absent.
+  //    SIDECAR_SKIP_PYODIDE=1 skips the ~200MB copy (CI smoke of server boot only).
   const pyodide = join(ROOT, "node_modules", "pyodide");
-  if (await has(pyodide)) {
+  if (process.env.SIDECAR_SKIP_PYODIDE === "1") {
+    log("SKIP pyodide copy (SIDECAR_SKIP_PYODIDE=1) — server-boot smoke only");
+  } else if (await has(pyodide)) {
     await cp(pyodide, join(OUT, "pyodide"), { recursive: true });
     log("pyodide dist copied");
   } else log("WARN pyodide dist missing — the wasm runtime will 404 /pyodide/*");
