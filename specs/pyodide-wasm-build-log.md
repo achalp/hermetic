@@ -481,3 +481,55 @@ live-bucket smoke — every layer is unit/integration/e2e-tested, the SigV4 is t
 and the delivery is CSP-proven, but "a real bucket accepts our signed GET" is verified
 by hand, not CI. parquet→CSV materializes the whole object (bounded-memory COPY on disk);
 very large sources are still best on Docker.
+
+### D15 — Phase 0c: the desktop channel is CONNECTED — two ways to run Hermetic.
+
+The user gets TWO options from ONE codebase:
+• **Web app + Docker** — `./start.sh` (this repo's DEFAULT, unchanged), or
+• **Embedded desktop app** — a platform executable (Tauri + the WASM runtime, NO
+Docker) — the same thing a non-technical user downloads.
+
+Built + validated this session (all committed):
+
+- **Next standalone + /pyodide/ route.** `output:'standalone'` gated by
+  HERMETIC_STANDALONE; a path-traversal-guarded GET /pyodide/* serves the Pyodide
+  dist SAME-ORIGIN so the worker boots under the D8=self CSP. This ALSO fixed a real
+  gap — the wasm runtime couldn't load in the running app before (the e2e used a
+  standalone server).
+- **The sidecar SERVES (the load-bearing proof).** scripts/build-desktop-sidecar.mjs
+  assembles .next/standalone + static/public + docker/sandbox runtime + pyodide +
+  egress-fetch + node into one dir; spawning `node server.js` from it returns
+  /api/health → 200 {runtime:"wasm"}, /pyodide/pyodide.js, /api/wasm-worker. A CI job
+  (desktop-sidecar) asserts this on every push.
+- **Turbopack tracing tamed.** Next 16 Turbopack copies the whole repo subtree into
+  the standalone (ignoring outputFileTracingExcludes — webpack is broken here), so
+  data/ (multi-GB models, history) + rust/ + src-tauri/ blew the bundle to 6.5G+. The
+  build moves those ASIDE (atomic rename, ALWAYS restored via finally + signal
+  handlers — proven safe on a SIGTERM timeout, nothing stranded) → ~805M standalone.
+- **Packaged-app boot.** installBootConfig honors HERMETIC_{ASSET,DATA,USER,SCRATCH}_ROOT
+  → setPathRoots (bundle is read-only; writable roots go to the OS app-data dir).
+  getActiveSandboxRuntime honors HERMETIC_FORCE_RUNTIME=wasm (predictable even if the
+  user has Docker).
+- **Tauri core CONNECTED.** src/lib.rs .setup() resolves the bundled sidecar, picks a
+  free loopback port, spawns `node server.js` with the packaged env, waits for
+  readiness, and builds the window at the loopback origin (dev branch → the Next dev
+  server). Child killed on RunEvent::Exit. STILL no invoke handlers / no shell plugin
+  (§7 #1) — spawning is Rust-only. tauri.conf: window created programmatically,
+  resources.sidecar, before{Dev,Build}Command. cargo check --locked green.
+- **start.sh dual-option.** After the Node check, before any Docker setup: [1] desktop
+  app (native binary; offers to build/download if absent) · [2] desktop dev (`tauri
+dev`) · [3] web+Docker (DEFAULT, unchanged; headless -y always takes it).
+- **One-command build.** scripts/build-desktop.mjs → `pnpm desktop:build` (egress-fetch
+  release → `tauri build`, which assembles the sidecar + bundles the app).
+
+**Release-env boundary (NOT doable in this Linux/headless CI):** a real `tauri build`
+produces a per-OS installer + must run ON each target (native webview + code signing
+are per-OS); the sidecar's bundled `node` is THIS platform's — a cross-build drops in
+the target-triple node. GUI launch, signing, notarization, and download hosting are
+release-ops. Everything CI-validatable is green: cargo check, the sidecar-serves smoke,
+type-check/ratchet/isolation/tests. Size (~0.5–0.8G before pyodide) is a follow-on
+(Turbopack over-traces node_modules).
+
+**Other distribution channels (memory: distribution-strategy) remain future phases:**
+the .mcpb Claude-Desktop extension + `npx hermetic` (Phase 1) and brew/winget (cheap
+derivatives) reuse this same standalone/sidecar layer.
