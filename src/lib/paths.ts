@@ -92,4 +92,11 @@ export const hermeticPaths = {
   egressFetchBin: () =>
     envConfig().HERMETIC_EGRESS_FETCH_BIN ??
     join(roots().assetRoot, "rust", "egress-core", "target", "debug", "egress-fetch"),
+  /**
+   * The Pyodide distribution served at `/pyodide/*` for the WASM worker (build log
+   * D15). Production (Tauri) sets HERMETIC_PYODIDE_DIR to the bundled dist; dev
+   * serves it straight from node_modules.
+   */
+  pyodideDir: () =>
+    envConfig().HERMETIC_PYODIDE_DIR ?? join(roots().assetRoot, "node_modules", "pyodide"),
 } as const;
