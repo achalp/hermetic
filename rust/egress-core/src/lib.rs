@@ -232,6 +232,55 @@ pub enum Method {
     Get,
 }
 
+/// A validated HTTP byte range. Constructing one is proof that the spec matched
+/// the single form we accept — `bytes=START[-END]`, START <= END, no multi-range
+/// and no suffix (`bytes=-N`) form. We re-SERIALIZE from the parsed numbers
+/// rather than forwarding the caller's string, so nothing a worker typed is ever
+/// echoed verbatim into an upstream request header (§6a: the core issues only
+/// requests it constructed itself).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ByteRange {
+    pub start: u64,
+    /// Inclusive end. `None` = open-ended ("bytes=START-").
+    pub end: Option<u64>,
+}
+
+impl ByteRange {
+    /// Render the canonical `bytes=START-END` header value from parsed numbers.
+    pub fn to_header_value(&self) -> String {
+        match self.end {
+            Some(e) => format!("bytes={}-{}", self.start, e),
+            None => format!("bytes={}-", self.start),
+        }
+    }
+}
+
+/// Parse `bytes=START[-END]`, rejecting everything else. Deliberately strict:
+/// multi-range (`bytes=0-1,5-6`) would make the response multipart, and the
+/// suffix form (`bytes=-500`) needs the total length to interpret — neither is
+/// needed by DuckDB's parquet reader, so both fail closed.
+pub fn parse_byte_range(spec: &str) -> Option<ByteRange> {
+    let rest = spec.trim().strip_prefix("bytes=")?;
+    if rest.contains(',') {
+        return None; // multi-range → multipart response; refused
+    }
+    let (a, b) = rest.split_once('-')?;
+    if a.is_empty() {
+        return None; // suffix form `bytes=-N`; refused
+    }
+    let start: u64 = a.parse().ok()?;
+    let end = if b.is_empty() {
+        None
+    } else {
+        let e: u64 = b.parse().ok()?;
+        if e < start {
+            return None; // inverted range
+        }
+        Some(e)
+    };
+    Some(ByteRange { start, end })
+}
+
 /// A fully vetted fetch target. Holding one is proof that the URL parsed, the
 /// scheme is http(s), the host is allowlisted, and EVERY resolved address is
 /// public/routable. The thin network edge ([`Fetcher`]) consumes this — it does
@@ -254,6 +303,9 @@ pub struct AllowedFetch {
     /// the vetted host — the edge uses it for the request-target, the `Host`
     /// header, and TLS SNI, while physically connecting only to `addrs`.
     pub url: String,
+    /// Optional validated byte range. `Some` ⇒ the edge sends a `Range` header
+    /// built by [`ByteRange::to_header_value`] and expects a 206.
+    pub range: Option<ByteRange>,
 }
 
 /// Resolve `host` and reject if ANY resolved address is internal/non-routable.
@@ -311,6 +363,7 @@ pub fn authorize_fetch<R: Resolver>(
     let addrs = resolve_and_vet(&parsed.host, resolver)?;
 
     Ok(AllowedFetch {
+        range: None,
         host: parsed.host,
         port: parsed.port,
         addrs,
@@ -352,6 +405,9 @@ pub trait Fetcher {
 pub enum FetchOutcome {
     /// A complete body that stayed under the cap.
     Body(Vec<u8>),
+    /// A 206 partial body for a requested range, plus the upstream
+    /// `Content-Range` (the caller needs its total to answer HEAD/size probes).
+    PartialBody { body: Vec<u8>, content_range: String },
     /// A 3xx with its `Location` — the core re-authorizes this hop before
     /// following (never auto-followed inside the edge).
     Redirect { location: String },

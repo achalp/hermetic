@@ -27,7 +27,10 @@
 use std::io::Write;
 use std::process::ExitCode;
 
-use hermetic_egress_core::fetch::{authorize_and_fetch, Credentials, FetchError, SystemResolver};
+use hermetic_egress_core::fetch::{
+    authorize_and_fetch, authorize_and_fetch_range, Credentials, FetchError, SystemResolver,
+};
+use hermetic_egress_core::parse_byte_range;
 
 const DEFAULT_CAP_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -72,6 +75,42 @@ fn main() -> ExitCode {
         Credentials::None
     };
 
+    // Optional RANGE mode (build log D18): the sidecar's range endpoint sets this
+    // so DuckDB-WASM in the worker can read parquet footers instead of whole
+    // objects. The spec is VALIDATED here and re-serialized by the core — a
+    // malformed/multi-range/suffix spec fails closed rather than being forwarded.
+    let range = match std::env::var("HERMETIC_EGRESS_RANGE") {
+        Ok(spec) => match parse_byte_range(&spec) {
+            Some(r) => Some(r),
+            None => {
+                eprintln!("egress-fetch: refusing — malformed HERMETIC_EGRESS_RANGE {spec:?}");
+                return ExitCode::from(64);
+            }
+        },
+        Err(_) => None,
+    };
+
+    if let Some(r) = range {
+        return match authorize_and_fetch_range(&url, &allowlist, &SystemResolver, &creds, cap, r) {
+            Ok((bytes, content_range)) => {
+                // ONE metadata line on stderr (marker-prefixed so it can never be
+                // confused with a diagnostic), body on stdout.
+                eprintln!(
+                    "EGRESS-META {{\"contentRange\":{:?},\"bytes\":{}}}",
+                    content_range,
+                    bytes.len()
+                );
+                let mut out = std::io::stdout().lock();
+                if let Err(e) = out.write_all(&bytes).and_then(|_| out.flush()) {
+                    eprintln!("egress-fetch: write failed: {e}");
+                    return ExitCode::from(2);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(err) => report(err),
+        };
+    }
+
     match authorize_and_fetch(&url, &allowlist, &SystemResolver, &creds, cap) {
         Ok(bytes) => {
             // Bytes → stdout (binary-safe); a broken pipe is a transport failure.
@@ -96,4 +135,20 @@ fn main() -> ExitCode {
             ExitCode::from(code)
         }
     }
+}
+
+/// Map a [`FetchError`] to this binary's documented exit code + stderr message.
+/// Shared by the whole-object and RANGE paths so the two can never drift.
+fn report(err: FetchError) -> ExitCode {
+    let (code, msg) = match &err {
+        FetchError::Denied(r) => (1, format!("denied: {r:?}")),
+        FetchError::Transport(m) => (2, format!("transport: {m}")),
+        FetchError::CapExceeded { read } => (3, format!("cap exceeded after {read} bytes")),
+        FetchError::RedirectNotAllowed(r) => (4, format!("redirect denied: {r:?}")),
+        FetchError::UnparseableRedirect(l) => (5, format!("unparseable redirect: {l}")),
+        FetchError::BadRedirectScheme(s) => (5, format!("bad redirect scheme: {s}")),
+        FetchError::TooManyRedirects => (4, "too many redirects".to_string()),
+    };
+    eprintln!("egress-fetch: {msg}");
+    ExitCode::from(code)
 }

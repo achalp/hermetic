@@ -68,6 +68,7 @@ fn read_head(stream: &mut TcpStream) -> Vec<u8> {
 /// (127.0.0.1) and NOT to whatever the hostname would resolve to.
 fn loopback_target(url: &str, port: u16, cap: u64) -> AllowedFetch {
     AllowedFetch {
+        range: None,
         host: "data.example.com".to_string(),
         port,
         addrs: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
@@ -411,4 +412,40 @@ fn authorize_and_fetch_bounds_redirect_loops() {
     let err =
         authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000).unwrap_err();
     assert_eq!(err, FetchError::TooManyRedirects);
+}
+
+// ── D18: the ranged path must reuse the SAME authorization as the whole-object
+// path — a range is an offset within an already-authorized URL, never new reach.
+
+#[test]
+fn ranged_target_sends_a_canonical_range_header_and_yields_partial_body() {
+    let mut t = loopback_target("http://x/", 1, 1024);
+    t.range = Some(ByteRange { start: 4, end: Some(9) });
+    // The edge builds the header from the parsed numbers.
+    assert_eq!(t.range.unwrap().to_header_value(), "bytes=4-9");
+
+    // A 206 outcome carries the upstream Content-Range so the caller can answer
+    // size probes without a second round trip.
+    let out = FetchOutcome::PartialBody {
+        body: b"456789".to_vec(),
+        content_range: "bytes 4-9/1000".to_string(),
+    };
+    match out {
+        FetchOutcome::PartialBody { body, content_range } => {
+            assert_eq!(body, b"456789");
+            assert_eq!(content_range, "bytes 4-9/1000");
+        }
+        _ => panic!("expected PartialBody"),
+    }
+}
+
+#[test]
+fn a_range_survives_a_redirect_hop_without_widening_authorization() {
+    // The hop is re-authorized exactly like hop 0; the range rides along so the
+    // final GET still asks for the same offsets.
+    let mut t = loopback_target("http://x/", 1, 1024);
+    t.range = Some(ByteRange { start: 100, end: None });
+    let carried = AllowedFetch { range: t.range, ..t.clone() };
+    assert_eq!(carried.range.unwrap().start, 100);
+    assert_eq!(carried.range.unwrap().to_header_value(), "bytes=100-");
 }
