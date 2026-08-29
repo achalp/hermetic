@@ -80,6 +80,41 @@ try {
   }
   if (!ok) throw new Error("sidecar did not serve /api/health in time");
 
+  // No DANGLING symlinks anywhere in the bundle (build log D22). Turbopack leaves
+  // hash-suffixed links pointing at ABSOLUTE build-machine paths under
+  // .next/standalone; once that dir is cleaned they dangle, and `tauri build` then
+  // dies resolving its resource glob ("resource path … doesn't exist") — a failure
+  // that never shows up in a boot test, because the app boots fine without them.
+  {
+    const { readdir, stat } = await import("node:fs/promises");
+    const dangling = [];
+    await (async function walk(d) {
+      let entries;
+      try {
+        entries = await readdir(d, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        const full = join(d, e.name);
+        if (e.isSymbolicLink()) {
+          try {
+            await stat(full);
+          } catch {
+            dangling.push(full.slice(OUT.length + 1));
+          }
+        } else if (e.isDirectory()) await walk(full);
+      }
+    })(OUT);
+    if (dangling.length > 0) {
+      throw new Error(
+        `sidecar contains ${dangling.length} dangling symlink(s) — tauri build will ` +
+          `fail resolving resources: ${dangling.join(", ")}`
+      );
+    }
+    console.log("[smoke] no dangling symlinks in the bundle");
+  }
+
   // Give boot a beat to load warehouse/secrets modules, then assert NO external
   // module failed to load (the Next-16 Turbopack production bug the hook fixes).
   await sleep(1500);

@@ -789,3 +789,30 @@ offset-choice channel.
 Not yet proven: the full Seattle NN run end-to-end in the app. The pieces are live-
 tested individually (enumeration, ranges, prefetch, DuckDB-in-worker) but the joined
 path has not been exercised against a real question.
+
+### D22 — `tauri build` failure: Turbopack's hashed externals are DANGLING SYMLINKS.
+
+Symptom (release packaging only — the app boots fine, so no boot test caught it):
+
+    resource path `sidecar/.next/node_modules/@napi-rs/keyring-77f6e008788a8a96` doesn't exist
+    ELIFECYCLE Command failed with exit code 101
+
+Root cause: Next 16 Turbopack materializes its hashed external modules as symlinks
+under `.next/node_modules/`, pointing at ABSOLUTE paths on the build machine:
+
+    @napi-rs/keyring-77f6e008788a8a96 -> /abs/.../.next/standalone/node_modules/@napi-rs/keyring
+
+Those targets live OUTSIDE the assembled bundle, so all six dangle the moment the
+standalone dir is cleaned or the bundle moves. `tauri build` then aborts while
+resolving its resource glob. This is the same D16 hash-suffix mechanism seen from a
+new angle: D16 fixed RUNTIME resolution (the preload hook strips `-<16hex>`), but
+left the broken links sitting in the tree, where only the packager trips over them.
+
+Fix: `pruneDanglingSymlinks()` runs LAST in the sidecar assembly and deletes them.
+Safe because the hook resolves those specifiers from real `node_modules/` and
+`repairIncompletePackages()` has already completed those packages — verified by
+booting the pruned tree: Ready in 60ms, **zero external-load errors**, /api/health 200.
+
+Guard: the desktop-sidecar smoke test now fails if ANY dangling symlink remains in
+the bundle. Verified the guard actually fires against a planted link — a green boot
+test alone would never have caught this, which is exactly how it reached a user.
