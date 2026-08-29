@@ -648,3 +648,56 @@ Design consequences:
 Open (not blockers): Arrow→pandas marshalling cost at ~300k rows; combined Pyodide +
 DuckDB RSS in one renderer (each WASM module has its OWN 4 GB linear memory, so this is
 an RSS question, not an address-space one); DuckDB-WASM cannot spill, so bound result sets.
+
+### D19 — Implementing D18: the range edge, the DuckDB assets, and the worker engine (3 commits).
+
+Landed on `wasm/d18-spike-findings`:
+
+1. **Rust `Range` + `/api/wasm-range/<token>`** — `ByteRange`/`parse_byte_range`
+   accept ONLY `bytes=START[-END]`; multi-range, suffix (`bytes=-N`), inverted,
+   wrong-unit and junk all fail closed. The header is RE-SERIALIZED from parsed
+   numbers, so no caller string reaches the wire. `authorize_and_fetch_range` reuses
+   the identical authorization path and carries the range across redirect hops.
+   The endpoint charges a per-token budget BEFORE fetching, bounds one request at
+   64 MB, 404s unknown tokens, and never leaks the upstream URL or core diagnostic.
+   HEAD answers size via a `bytes=0-0` GET so the core stays GET-only.
+   _Live-verified against S3_: HEAD → 525,687,024 without downloading; `bytes=0-3`
+   → 206 + `PAR1`; a footer range ends with the `PAR1` trailer.
+
+2. **Same-origin DuckDB assets** (`scripts/build-duckdb-wasm-assets.mjs`,
+   `/duckdb/[...path]`) — classic-worker IIFE bundle, `duckdb-mvp.wasm` only, and a
+   vendored extension repository for parquet + httpfs. The DuckDB version is
+   obtained by BOOTING duckdb and reading `SELECT version()`: the npm version
+   (1.33.1) is the JS wrapper's, not the engine's (v1.5.4), and the wasm binary
+   carries several version-shaped strings — guessing 404s.
+
+3. **Worker engine** — the boot function is embedded STATICALLY and called with
+   `(base, aliases)` as request DATA; the CSP allows `wasm-unsafe-eval` but NOT
+   `unsafe-eval`, so per-request JS is impossible by construction. Booted only when
+   `codeNeedsDuckDb(code)` or a remote alias exists (the engine is a 41 MB module).
+   No SharedArrayBuffer and no COOP/COEP: the blocking build is synchronous end to
+   end, so `duckdb-bridge.ts`'s Atomics machinery is not on this path at all.
+
+Net effect: **`import duckdb` now works on the no-Docker tier** for local data, and
+the host can serve authorized remote bytes by range.
+
+STILL OPEN — the Seattle NN case specifically. `resolveRemoteHttpsFetch` still fails
+closed on hive/glob sources. Closing it needs three things that are a design step,
+not a wiring step:
+
+- **Enumerate** the 512 part files. S3 LIST is a GET on the bucket with query
+  params, so the core can do it, but the result must be parsed and bounded.
+- **Alias fan-out**: DuckDB accepts `read_parquet([...])` over a list, so N files
+  means N tokens/aliases — or one token that authorizes a URL PREFIX (fewer
+  tokens, slightly wider capability; decide deliberately).
+- **Prompt**: the model must be told the alias names to query instead of the s3://
+  URL, or generated SQL will keep naming a source the worker cannot address.
+
+Also still true from D18: host-side parallel PREFETCH of file tails is what makes
+512 sequential footer reads acceptable (~3 round trips each, sync XHR). Not built.
+
+SECURITY — unchanged and still owed a decision: `/api/wasm-range` is the first
+`/api/*` route that deliberately reaches the internet, so the D10 residual ("the
+worker can call same-origin /api") should be re-argued in the spec before this
+ships to users. The worker picks offsets within a token-bound URL, never a
+destination; the residual channel is the offsets themselves.
