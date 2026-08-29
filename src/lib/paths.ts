@@ -99,4 +99,13 @@ export const hermeticPaths = {
    */
   pyodideDir: () =>
     envConfig().HERMETIC_PYODIDE_DIR ?? join(roots().assetRoot, "node_modules", "pyodide"),
+  /**
+   * The DuckDB-WASM browser assets served same-origin at /duckdb/* (build log D18):
+   * the classic-worker bundle, the .wasm modules, and the `ext/` extension repository.
+   * The worker CSP is `connect-src 'self'`, so extension autoload MUST resolve here —
+   * duckdb's default (extensions.duckdb.org) is correctly blocked. Production (Tauri)
+   * sets HERMETIC_DUCKDB_DIR to the bundled dir; dev falls back to the build output.
+   */
+  duckdbWasmDir: () =>
+    envConfig().HERMETIC_DUCKDB_DIR ?? join(roots().assetRoot, "public", "duckdb-wasm"),
 } as const;
