@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- this IS a CommonJS preload
+   (`node --require`) that must patch Module._resolveFilename BEFORE any ESM loads;
+   require() is mandatory here and import() would defeat the purpose. */
 /**
  * Workaround for a Next 16 Turbopack PRODUCTION-build bug (build log D16): external
  * modules are emitted with an unresolvable content-hash suffix, e.g. the server does
