@@ -733,3 +733,59 @@ already grants**. The parity condition is met. Shipping is approved.
 Standing invariant this creates — do not regress it: the range route must never gain
 a caller-supplied method, header, body, or destination. If any of those is ever
 needed, the parity argument above has to be re-run, not assumed.
+
+### D21 — Hive / multi-file remote sources now work on the WASM tier.
+
+The old gate ("folder / hive-partitioned source — needs Docker") was correct for
+D13's mechanism (fetch ONE object → convert to CSV). Since D18/D19 DuckDB runs IN
+the worker and reads by range, so "exactly one file" stopped being inherent. Four
+pieces replace the gate:
+
+1. **Enumeration** (`s3-list.ts`, `enumerateRemoteParquetFiles`). An S3 listing is
+   `GET /?list-type=2&prefix=…` on the bucket host — an ordinary GET the core already
+   performs against an already-allowlisted host, so this adds NO egress capability
+   and does not reopen the D20 parity argument. Narrow regex reader rather than an XML
+   parser (no DTD/entity surface on a path fed by a remote server); folder
+   placeholders and non-parquet keys are dropped; continuation tokens are followed
+   only when `IsTruncated`; bounded by MAX_ENUMERATED_FILES. Live: **512 files,
+   257 GB, deterministic order, in 857 ms**.
+
+2. **One token PER FILE** (`wasm/remote-hive.ts`), never a prefix-scoped token. A
+   prefix token would let the worker supply part of the path — i.e. choose a
+   destination — which is exactly the property D20 rests on and records as a standing
+   invariant. N tokens keep it intact for N Map entries.
+
+3. **Alias naming is CORRECTNESS.** `hive_partitioning=true` derives partition columns
+   from the path (`theme=buildings` → column `theme`). Synthetic alias names would
+   silently drop them and a GROUP BY on one would return different results rather than
+   fail. Aliases keep the object key verbatim.
+   Related bug caught by its own test: `encodeURIComponent` escapes `=`, and S3 treats
+   `theme%3Dbuildings` as a DIFFERENT key — this is precisely how the D18 spike first
+   got a 404 from a URL curl fetched fine. `encodeS3Key` preserves `=`.
+
+4. **No prompt change needed.** The model is already told to write
+   `CREATE OR REPLACE VIEW data AS SELECT * FROM <readExpr>` and query `data`; the
+   host composes `readExpr`. The WASM path just emits `read_parquet([...aliases],
+hive_partitioning=true)` instead of the s3:// glob. `resolveWasmRemoteSource` also
+   omits the cloud prelude (INSTALL httpfs would hit the blocked CDN — the worker
+   already has it from the same-origin repository) and the auth SQL (there are no
+   credentials in the worker; each file is reachable only via its own token).
+
+5. **Footer prefetch** (`wasm/footer-prefetch.ts`). DuckDB's sync-XHR reads are
+   strictly sequential — ~1500 serial round trips to footer 512 files. But that is a
+   property of DUCKDB'S REQUEST PATTERN, not of our fetch path: the host knows the
+   file list at token-mint time and warms every tail in parallel (16-way) while
+   Pyodide is still booting. DuckDB still blocks on each request; each now resolves
+   from memory. Best-effort by design — a prefetch failure is never fatal, the worker
+   just fetches on demand. Only a FULLY covered range is served from cache; a partial
+   hit would truncate the response and corrupt DuckDB's read.
+   Live: 8 real footers warmed in parallel, each ending in the `PAR1` trailer.
+
+Security posture is UNCHANGED from D20: no new verb, no new destination, no new
+authority. Prefetch reads bytes the worker was already entitled to request, and by
+scheduling more of the traffic host-side it slightly NARROWS the residual
+offset-choice channel.
+
+Not yet proven: the full Seattle NN run end-to-end in the app. The pieces are live-
+tested individually (enumeration, ranges, prefetch, DuckDB-in-worker) but the joined
+path has not been exercised against a real question.

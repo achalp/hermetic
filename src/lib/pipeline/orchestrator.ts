@@ -75,6 +75,8 @@ export interface PipelineOptions {
   inputParquetPath?: string;
   /** WASM-only: host files the worker fetches into its FS (build log D13). */
   wasmFetchInputs?: { workerPath: string; hostPath: string }[];
+  /** DuckDB range-token aliases for a multi-file remote source (build log D21). */
+  wasmDuckDbAliases?: { name: string; url: string }[];
   purpose?: string;
   /**
    * Real S3 credentials to splice into generated code at the sandbox boundary
@@ -110,6 +112,7 @@ export async function runPipeline(
     priorTurns,
     inputParquetPath,
     wasmFetchInputs,
+    wasmDuckDbAliases,
     purpose,
     remoteAuthSubst,
   } = options;
@@ -445,6 +448,7 @@ export async function runPipeline(
       localMountPath,
       inputParquetPath,
       wasmFetchInputs,
+      wasmDuckDbAliases,
       hooks: ambientSandboxHooks(),
       wasmExecutor: ambientWasmExecutor(),
       // Container attribution label — like hooks, injected here because the
@@ -592,6 +596,7 @@ export async function runPipeline(
         localMountPath,
         inputParquetPath,
         wasmFetchInputs,
+        wasmDuckDbAliases,
         hooks: ambientSandboxHooks(),
         wasmExecutor: ambientWasmExecutor(),
         runId: getRunId(),

@@ -10,7 +10,12 @@
  * wraps is covered in range-registry.test.ts.
  */
 import { stateBox } from "@/lib/state-store";
-import { createRangeRegistry, type RangeRegistry } from "./range-registry";
+import {
+  createRangeRegistry,
+  createWarmCache,
+  type RangeRegistry,
+  type WarmCache,
+} from "./range-registry";
 
 const box = stateBox<RangeRegistry>("wasm-range-registry", () =>
   createRangeRegistry(() => crypto.randomUUID())
@@ -19,4 +24,11 @@ const box = stateBox<RangeRegistry>("wasm-range-registry", () =>
 /** The shared registry — same instance for the sidecar and the range route. */
 export function getRangeRegistry(): RangeRegistry {
   return box.get();
+}
+
+const warmBox = stateBox<WarmCache>("wasm-range-warm-cache", () => createWarmCache());
+
+/** The shared footer-prefetch cache — written by the prefetcher, read by the route. */
+export function getWarmCache(): WarmCache {
+  return warmBox.get();
 }

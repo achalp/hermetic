@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getRangeRegistry } from "@/lib/sandbox/wasm/range-singleton";
+import { getRangeRegistry, getWarmCache } from "@/lib/sandbox/wasm/range-singleton";
 import { fetchRemoteRange, EgressFetchError } from "@/lib/sandbox/egress-fetch";
 import { logger } from "@/lib/logger";
 
@@ -78,6 +78,27 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
 
   const canonical =
     parsed.end === undefined ? `bytes=${parsed.start}-` : `bytes=${parsed.start}-${parsed.end}`;
+
+  // Footer prefetch (D21): DuckDB's sync-XHR reads are strictly sequential, so the
+  // host warms every file's tail in parallel BEFORE the worker starts. A hit here
+  // turns a ~60ms network round trip into a memory read. Only a FULLY covered range
+  // is served — a partial hit would truncate the response and corrupt DuckDB's read.
+  if (parsed.end !== undefined) {
+    const warm = getWarmCache().get(src.url, parsed.start, parsed.end);
+    if (warm) {
+      return new NextResponse(new Uint8Array(warm) as unknown as BodyInit, {
+        status: 206,
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-length": String(warm.length),
+          "accept-ranges": "bytes",
+          "cache-control": "no-store",
+          "content-range": `bytes ${parsed.start}-${parsed.end}/*`,
+          "x-hermetic-warm": "1",
+        },
+      });
+    }
+  }
 
   try {
     const { body, contentRange, total } = await fetchRemoteRange({

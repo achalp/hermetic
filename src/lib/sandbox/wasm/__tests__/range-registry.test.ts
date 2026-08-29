@@ -96,3 +96,37 @@ describe("parseContentRangeTotal", () => {
     expect(parseContentRangeTotal("bytes */525687024")).toBeNull();
   });
 });
+
+describe("warm cache — footer prefetch (D21)", () => {
+  const U = "https://b.s3.amazonaws.com/part-0.parquet";
+
+  it("serves a range fully covered by the warmed window", async () => {
+    const { createWarmCache } = await import("@/lib/sandbox/wasm/range-registry");
+    const c = createWarmCache();
+    // Warmed the last 10 bytes of a 100-byte object: [90..99]
+    c.put(U, 90, Buffer.from("0123456789"));
+    expect(c.get(U, 90, 99)?.toString()).toBe("0123456789");
+    expect(c.get(U, 95, 97)?.toString()).toBe("567");
+  });
+
+  it("MISSES rather than truncating when the range is only partly covered", async () => {
+    const { createWarmCache } = await import("@/lib/sandbox/wasm/range-registry");
+    const c = createWarmCache();
+    c.put(U, 90, Buffer.from("0123456789"));
+    // A partial hit served as if complete would corrupt DuckDB's read.
+    expect(c.get(U, 85, 95)).toBeUndefined(); // starts before the window
+    expect(c.get(U, 95, 105)).toBeUndefined(); // runs past the window
+    expect(c.get("https://other/x", 90, 99)).toBeUndefined(); // different object
+  });
+
+  it("is keyed by url and clears per url", async () => {
+    const { createWarmCache } = await import("@/lib/sandbox/wasm/range-registry");
+    const c = createWarmCache();
+    c.put(U, 0, Buffer.from("aa"));
+    c.put("https://b/other.parquet", 0, Buffer.from("bb"));
+    expect(c.size()).toBe(2);
+    c.clearUrls([U]);
+    expect(c.get(U, 0, 1)).toBeUndefined();
+    expect(c.size()).toBe(1);
+  });
+});

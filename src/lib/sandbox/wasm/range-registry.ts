@@ -101,3 +101,53 @@ export function createRangeRegistry(nextToken: () => string): RangeRegistry {
     },
   };
 }
+
+/**
+ * A warmed byte window from the host-side footer prefetch (build log D21). The
+ * range endpoint checks this before going upstream, so DuckDB's sequential footer
+ * reads resolve against memory instead of the network.
+ */
+export interface WarmWindow {
+  start: number;
+  body: Buffer;
+}
+
+/**
+ * Prefetch cache keyed by upstream URL. Deliberately separate from the token table:
+ * a warmed window is derived data (it can always be re-fetched), whereas a token is
+ * a capability. Keeping them apart means a cache miss can never become an
+ * authorization decision.
+ */
+export interface WarmCache {
+  put(url: string, start: number, body: Buffer): void;
+  /** The warmed slice covering [start,end] inclusive, or undefined. */
+  get(url: string, start: number, end: number): Buffer | undefined;
+  clearUrls(urls: readonly string[]): void;
+  size(): number;
+}
+
+export function createWarmCache(): WarmCache {
+  const windows = new Map<string, WarmWindow>();
+  return {
+    put(url, start, body) {
+      windows.set(url, { start, body });
+    },
+    get(url, start, end) {
+      const w = windows.get(url);
+      if (!w) return undefined;
+      // Only serve a request FULLY covered by the warmed window; a partial hit
+      // would silently truncate the response and corrupt DuckDB's read.
+      if (start < w.start) return undefined;
+      const offset = start - w.start;
+      const length = end - start + 1;
+      if (offset + length > w.body.length) return undefined;
+      return w.body.subarray(offset, offset + length);
+    },
+    clearUrls(urls) {
+      for (const u of urls) windows.delete(u);
+    },
+    size() {
+      return windows.size;
+    },
+  };
+}

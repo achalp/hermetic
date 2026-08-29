@@ -8,8 +8,24 @@ import {
 } from "@/lib/csv/storage";
 import { getRunSignal } from "@/lib/pipeline/run-control";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
-import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
-import { materializeRemoteCsvForWasm } from "@/lib/sandbox/remote-fetch";
+import {
+  resolveLocalSource,
+  resolveRemoteSource,
+  resolveWasmRemoteSource,
+} from "@/lib/parquet/duckdb-source";
+import {
+  materializeRemoteCsvForWasm,
+  enumerateRemoteParquetFiles,
+} from "@/lib/sandbox/remote-fetch";
+import {
+  buildHiveAliases,
+  buildHiveReadExpr,
+  budgetForFile,
+  encodeS3Key,
+} from "@/lib/sandbox/wasm/remote-hive";
+import { getRangeRegistry, getWarmCache } from "@/lib/sandbox/wasm/range-singleton";
+import { prefetchFooters } from "@/lib/sandbox/wasm/footer-prefetch";
+import { deriveAllowedEgressHosts } from "@/lib/sandbox/egress";
 import { hermeticPaths } from "@/lib/paths";
 import { unlink } from "node:fs/promises";
 import { runWithCostTracking } from "@/lib/cost/accumulator";
@@ -408,7 +424,55 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // proven pandas path (so the generated code does no remote IO). Delivered to
         // the worker below via wasmFetchInputs; cleaned up after the run.
         let wasmRemoteCsvPath: string | undefined;
-        if (sandboxRuntime === "wasm" && isRemote) {
+        // A FOLDER / hive source on the WASM tier (build log D21): enumerate the
+        // prefix host-side, mint one range token per file, and let DuckDB in the
+        // worker range-read them. One token per file (never a prefix-scoped token)
+        // keeps the D20 invariant intact — the worker picks offsets, not destinations.
+        let wasmDuckDbAliases: { name: string; url: string }[] | undefined;
+        let wasmHiveReadExpr: string | undefined;
+        const wasmMultiFile =
+          sandboxRuntime === "wasm" &&
+          isRemote &&
+          Boolean(stored.isHivePartitioned || stored.remoteParquetUrl?.includes("*"));
+
+        if (wasmMultiFile) {
+          const { host, objects } = await enumerateRemoteParquetFiles(stored, {
+            signal: getRunSignal(),
+          });
+          const aliases = buildHiveAliases(objects, host, (url: string, sizeBytes: number) =>
+            getRangeRegistry().register({
+              url,
+              allowlist: deriveAllowedEgressHosts(stored.remoteParquetUrl!, stored.remoteCreds),
+              ...(getRunId() ? { runId: getRunId()! } : {}),
+              budgetBytes: budgetForFile(sizeBytes),
+            })
+          );
+          wasmDuckDbAliases = aliases;
+          wasmHiveReadExpr = buildHiveReadExpr(aliases, Boolean(stored.isHivePartitioned));
+          // Fire-and-forget: warm every file's tail IN PARALLEL while the worker is
+          // still booting Pyodide. DuckDB's sync-XHR footer reads are sequential, so
+          // this is what turns ~1500 serial round trips into cache hits. Deliberately
+          // NOT awaited and never fatal — the worker can always fetch on demand.
+          const egressHosts = deriveAllowedEgressHosts(
+            stored.remoteParquetUrl!,
+            stored.remoteCreds
+          );
+          void prefetchFooters(
+            objects.map((o) => ({
+              url: `https://${host}/${encodeS3Key(o.key)}`,
+              allowlist: egressHosts,
+              sizeBytes: o.size,
+            })),
+            (url, start, body) => getWarmCache().put(url, start, body),
+            { signal: getRunSignal() }
+          ).catch(() => {});
+
+          logger.info("WASM remote: enumerated hive source", {
+            runId: getRunId(),
+            files: aliases.length,
+            totalBytes: objects.reduce((n, o) => n + o.size, 0),
+          });
+        } else if (sandboxRuntime === "wasm" && isRemote) {
           ({ csvPath: wasmRemoteCsvPath } = await materializeRemoteCsvForWasm(stored, {
             workDir: hermeticPaths.scratchDir(),
           }));
@@ -425,14 +489,20 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
               ? // Reads the delivered /data/input.csv (the base prompt's default) —
                 // NO httpfs, NO remoteAuthSubst.
                 { localFileContext: undefined, remoteAuthSubst: undefined }
-              : isRemote
-                ? resolveRemoteSource(
-                    stored.remoteParquetUrl!,
+              : wasmHiveReadExpr
+                ? resolveWasmRemoteSource(
+                    wasmHiveReadExpr,
                     stored.schema.row_count,
-                    stored.isHivePartitioned,
-                    stored.remoteCreds
+                    stored.isHivePartitioned
                   )
-                : { localFileContext: undefined, remoteAuthSubst: undefined };
+                : isRemote
+                  ? resolveRemoteSource(
+                      stored.remoteParquetUrl!,
+                      stored.schema.row_count,
+                      stored.isHivePartitioned,
+                      stored.remoteCreds
+                    )
+                  : { localFileContext: undefined, remoteAuthSubst: undefined };
 
         // Run the code-gen + sandbox pipeline. When the caller supplied
         // pre-edited code via context.code (Edit-and-Rerun), skip the
@@ -465,12 +535,19 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             wasmFetchInputs: wasmRemoteCsvPath
               ? [{ workerPath: "/data/input.csv", hostPath: wasmRemoteCsvPath }]
               : undefined,
+            wasmDuckDbAliases,
             purpose,
             remoteAuthSubst,
           });
         }
         // The host-materialized remote CSV is consumed once the worker fetched it.
         if (wasmRemoteCsvPath) await unlink(wasmRemoteCsvPath).catch(() => {});
+        // Range tokens are capabilities: release them the moment the run is done so
+        // a later request cannot reuse one (they are also run-scoped in the registry).
+        if (wasmDuckDbAliases?.length) {
+          const rid = getRunId();
+          if (rid) getRangeRegistry().releaseRun(rid);
+        }
 
         // NOTE: deliberately NO `if (closed()) return` here. The
         // execution is the expensive, already-paid part — a client

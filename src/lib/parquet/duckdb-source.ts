@@ -437,3 +437,28 @@ export function resolveLocalSource(stored: StoredCSV): {
   }
   return {};
 }
+
+/**
+ * Code-gen context for a remote folder/hive source on the WASM tier (build log D21).
+ *
+ * Same `CREATE OR REPLACE VIEW data AS SELECT * FROM <readExpr>` shape the Docker
+ * path uses — so generated SQL is identical in structure — but with two deliberate
+ * omissions:
+ *
+ *  - NO cloud prelude. `INSTALL httpfs` would try DuckDB's public CDN, which the
+ *    worker's `connect-src 'self'` correctly blocks (D18). The worker already has
+ *    httpfs loaded from the same-origin extension repository before the code runs.
+ *  - NO auth SQL. There are no credentials in the worker by design: each file is
+ *    reachable only through its own range token, and the upstream URL is resolved
+ *    host-side. Nothing for the generated code to authenticate with.
+ *
+ * `readExpr` here lists ALIASES (the object keys), not the s3:// URL — see
+ * wasm/remote-hive.ts for why the keys are preserved verbatim.
+ */
+export function resolveWasmRemoteSource(
+  readExpr: string,
+  rowCount: number,
+  isHivePartitioned = false
+): { localFileContext: string; remoteAuthSubst?: RemoteAuthSubst } {
+  return { localFileContext: parquetFolderContext(readExpr, rowCount, isHivePartitioned) };
+}
