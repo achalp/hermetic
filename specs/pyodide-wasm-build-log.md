@@ -1196,3 +1196,63 @@ regression tests, both verified by mutation (removing the listener fails both).
 "type-check + full suite" as done. This is the same lesson one level deeper: the
 suite passed locally AND in CI's own run — the failure was in the _exit code_, from
 an error outside any test. A green test count is not a green run.
+
+### D31 — First live Overture connect: three defects, and one accusation I had to withdraw.
+
+The run got further than expected. Host fingerprint, 512-file enumeration (276 GB)
+in 903 ms, the two-hop handoff, Pyodide boot, DuckDB boot, same-origin parquet +
+httpfs — all of D18–D27 worked. It died on the FIRST range request, with two errors
+that turned out to be one causal chain.
+
+**1. HEAD returned 200 where DuckDB requires 206.** From duckdb-wasm's source, an
+HTTP-protocol file opens like this:
+
+    xhr.open("HEAD", url); xhr.setRequestHeader("Range", "bytes=0-");
+    if (contentLength !== null && xhr.status == 206) { …use it as the file size… }
+
+Our handler answered **200**. So the size probe failed on every file, every time,
+and DuckDB fell through to a path that ends in a whole-object GET. Now: a probe
+carrying a Range gets 206 + `Content-Range`; a bare HEAD still gets 200.
+
+**2. The 416 said nothing.** The bare GET is still refused — serving a whole object
+is what this endpoint exists to prevent — but it now logs the offending spec and
+returns a diagnostic. This is the same empty-diagnostics trap the egress gateway hit
+in PR #126, and CLAUDE.md already warns about it.
+
+The comment being replaced asserted _"DuckDB always sends a Range on data reads"_.
+That is false — Emscripten's lazy-file reader sets the header conditionally
+(`fileSize !== chunkSize && setRequestHeader(…)`). A confident, unverified assertion
+written into a security boundary is what made the failure unreadable.
+
+**3. `_setThrew` — and the accusation I withdrew.** The run ended in
+`ReferenceError: Can't find variable: _setThrew`, thrown from `invoke_viii` inside
+the DuckDB bundle. My first hypothesis was that our esbuild IIFE bundling had
+dropped the declaration. Measured before acting: **345 references, 0 declarations —
+in the UPSTREAM `duckdb-browser-blocking.mjs` as well as in our bundle, identical
+counts.** Not a bundling artifact. The accusation was wrong and the check is what
+caught it.
+
+Every call site is inside an Emscripten `invoke_*` catch block — the C++ exception
+path — which is why it stayed hidden: happy paths never enter it, and the D18 spike
+ran a full query. The first real DuckDB error is what surfaced it, and it buried the
+actual cause (the failed range read) behind a meaningless name.
+
+Options considered and rejected:
+
+- **Reimplement `_setThrew` in JS.** The historical version stores `__THREW__` state
+  that the WASM side reads back. A JS-only stub lets the module continue believing
+  nothing was thrown — trading a loud crash for silent corruption.
+- **Switch to the eh module.** The blocking build IS the MVP glue (it ships
+  `invoke_*`), so pairing it with `duckdb-eh.wasm` is precisely the `call_indirect
+signature mismatch` from D18. The MVP choice was correct for this glue; there is
+  no eh variant of the blocking build to move to.
+
+So the shim does the one honest thing available: it makes the failure LEGIBLE. The
+process still stops, but with a message naming the upstream defect and saying what
+actually happened — DuckDB raised an error and could not report it — so the NEXT
+failure in this path is diagnosable instead of anonymous. The asset build asserts the
+shim is applied AND still needed, so an upstream fix retires it rather than shadowing
+a real `_setThrew`.
+
+**Still unverified:** whether fixing (1) is enough for the Seattle case to complete.
+That needs another live run.

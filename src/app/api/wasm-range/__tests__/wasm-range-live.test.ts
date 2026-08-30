@@ -38,6 +38,8 @@ gated("/api/wasm-range — live ranged reads through the Rust core", () => {
     getRangeRegistry().register({ url: URL_, allowlist: [HOST], budgetBytes, runId: "live" });
 
   it("HEAD reports the object size without downloading it", async () => {
+    // No Range on this probe → 200. DuckDB's own probe sends `Range: bytes=0-`
+    // and requires 206; that shape is pinned offline in route-protocol.test.ts.
     const res = await HEAD(rangeReq(), ctx(mint()));
     expect(res.status).toBe(200);
     expect(res.headers.get("content-length")).toBe(String(TOTAL));
