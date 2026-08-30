@@ -24,7 +24,12 @@ import {
 import { getPurposeMaxSubQuestions } from "@/lib/purpose-prompts";
 import { runWarehouseQuery } from "@/lib/warehouse/run-query";
 import { storeWarehouseResult } from "@/lib/warehouse/materialize-result";
-import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
+import {
+  resolveLocalSource,
+  resolveRemoteSource,
+  isLocalParquetSource,
+} from "@/lib/parquet/duckdb-source";
+import { materializeLocalParquetCsvForWasm } from "@/lib/parquet/host-materialize";
 import { materializeRemoteCsvForWasm } from "@/lib/sandbox/remote-fetch";
 import { hermeticPaths } from "@/lib/paths";
 import { unlink } from "node:fs/promises";
@@ -183,7 +188,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
       let trailRecorder: TraceRecorder | null = null;
       // Hoisted so the finally always deletes the host-materialized remote CSV,
       // even if the investigation throws mid-run (build log D13).
-      let wasmRemoteCsvPath: string | undefined;
+      let wasmCsvPath: string | undefined;
       try {
         // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
         // The pull is intentionally row-level (not pre-aggregated): the
@@ -280,8 +285,13 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // In Parquet mode (local mount, materialized warehouse, or remote
         // URL) the analysis reads Parquet directly, so we never load the
         // (large) CSV into memory.
+        // On wasm a local CSV has no mount to read from, so it takes the ordinary
+        // content path; a local PARQUET is converted host-side below (build log D25).
+        const wasmLocalCsv = sandboxRuntime === "wasm" && isLocal && !isLocalParquetSource(stored);
         const csvContent =
-          isLocal || isRemote || warehouseParquetFile ? "" : ((await getCSVContent(csvId)) ?? "");
+          (isLocal && !wasmLocalCsv) || isRemote || warehouseParquetFile
+            ? ""
+            : ((await getCSVContent(csvId)) ?? "");
         const geojsonContent = stored.schema.has_geojson ? await getGeoJSONContent(csvId) : null;
 
         // Mount path + code-gen "Data Location" context. A materialized
@@ -294,7 +304,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         let remoteAuthSubst: RemoteAuthSubst | undefined;
         if (warehouseParquetFile) {
           localFileContext = warehouseParquetContext;
-        } else if (isLocal) {
+        } else if (isLocal && sandboxRuntime !== "wasm") {
           ({ localMountPath, localFileContext } = resolveLocalSource(stored));
         } else if (isRemote) {
           ({ localFileContext, remoteAuthSubst } = resolveRemoteSource(
@@ -311,14 +321,27 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // httpfs context set above; delivered to every sub-step via wasmFetchInputs;
         // cleaned up after the investigation.
         if (sandboxRuntime === "wasm" && isRemote) {
-          ({ csvPath: wasmRemoteCsvPath } = await materializeRemoteCsvForWasm(stored, {
+          ({ csvPath: wasmCsvPath } = await materializeRemoteCsvForWasm(stored, {
             workDir: hermeticPaths.scratchDir(),
           }));
           localFileContext = undefined; // read the delivered /data/input.csv (base prompt default)
           remoteAuthSubst = undefined;
+        } else if (sandboxRuntime === "wasm" && isLocal && isLocalParquetSource(stored)) {
+          // Local parquet with no bind-mount: convert host-side with the in-process
+          // DuckDB and deliver the CSV, exactly as the remote path does (D25).
+          ({ csvPath: wasmCsvPath } = await materializeLocalParquetCsvForWasm({
+            localPath: (stored.localFolderPath || stored.localPath)!,
+            isFolder: Boolean(stored.localFolderPath),
+            ...(stored.isHivePartitioned !== undefined
+              ? { isHivePartitioned: stored.isHivePartitioned }
+              : {}),
+            rowCount: stored.schema.row_count,
+            workDir: hermeticPaths.scratchDir(),
+          }));
+          localFileContext = undefined;
         }
-        const wasmFetchInputs = wasmRemoteCsvPath
-          ? [{ workerPath: "/data/input.csv", hostPath: wasmRemoteCsvPath }]
+        const wasmFetchInputs = wasmCsvPath
+          ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
           : undefined;
 
         // ── Drill-as-sub-investigation cost gate ──
@@ -1360,7 +1383,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
       } finally {
         // The host-materialized remote CSV was consumed by every sub-step's worker
         // fetch; drop it (build log D13).
-        if (wasmRemoteCsvPath) await unlink(wasmRemoteCsvPath).catch(() => {});
+        if (wasmCsvPath) await unlink(wasmCsvPath).catch(() => {});
         // ── Cost/diagnostics epilogue: runs for every exit path (cheap
         // fast-path, main investigation, or error) before the stream
         // closes. Shared with Ask — lib/cost/epilogue.ts. ──

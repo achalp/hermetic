@@ -505,3 +505,56 @@ fn parse_url_default_ports() {
     assert_eq!(parse_url("http://h.com").unwrap().port, 80);
     assert_eq!(parse_url("https://h.com").unwrap().port, 443);
 }
+
+// ── D18: byte-range parsing (the worker picks OFFSETS; it must never be able to
+// smuggle a header value through, nor request a form we can't frame safely) ──
+
+#[test]
+fn parse_byte_range_accepts_the_two_supported_forms() {
+    assert_eq!(
+        parse_byte_range("bytes=0-3"),
+        Some(ByteRange { start: 0, end: Some(3) })
+    );
+    assert_eq!(
+        parse_byte_range("bytes=525066711-"),
+        Some(ByteRange { start: 525066711, end: None })
+    );
+    // surrounding whitespace is tolerated, the value is still canonicalized
+    assert_eq!(
+        parse_byte_range("  bytes=10-20  "),
+        Some(ByteRange { start: 10, end: Some(20) })
+    );
+    // single byte (used to probe total size for a HEAD)
+    assert_eq!(
+        parse_byte_range("bytes=0-0"),
+        Some(ByteRange { start: 0, end: Some(0) })
+    );
+}
+
+#[test]
+fn parse_byte_range_fails_closed_on_everything_else() {
+    // multi-range would make the response multipart — we cannot frame it
+    assert_eq!(parse_byte_range("bytes=0-1,5-6"), None);
+    // suffix form needs the total length to interpret
+    assert_eq!(parse_byte_range("bytes=-500"), None);
+    // inverted
+    assert_eq!(parse_byte_range("bytes=9-2"), None);
+    // wrong/absent unit, junk, and header-injection attempts
+    assert_eq!(parse_byte_range("0-3"), None);
+    assert_eq!(parse_byte_range("items=0-3"), None);
+    assert_eq!(parse_byte_range("bytes=abc"), None);
+    assert_eq!(parse_byte_range(""), None);
+    assert_eq!(parse_byte_range("bytes=0-3\r\nX-Evil: 1"), None);
+}
+
+#[test]
+fn byte_range_header_value_is_reserialized_not_echoed() {
+    // The header the edge sends is built from the PARSED numbers, so no caller
+    // string ever reaches the wire verbatim.
+    let r = parse_byte_range("  bytes=10-20  ").unwrap();
+    assert_eq!(r.to_header_value(), "bytes=10-20");
+    assert_eq!(
+        ByteRange { start: 7, end: None }.to_header_value(),
+        "bytes=7-"
+    );
+}

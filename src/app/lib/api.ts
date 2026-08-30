@@ -4,6 +4,11 @@
  */
 
 import type { CSVSchema, SheetInfo, SheetRelationship } from "@/lib/contracts/data-schema";
+import {
+  connectRemoteParquet,
+  type RemoteParquetCreds,
+  type RemoteParquetResult,
+} from "@/app/lib/remote-parquet-connect";
 import type { HistoryMeta, SavedVizMeta } from "@/lib/contracts/storage-types";
 import type { WarehouseConnectionConfig } from "@/lib/contracts/connection-configs";
 import type { WarehouseTableInfo, WarehouseTableSchema } from "@/lib/contracts/warehouse-schema";
@@ -608,17 +613,9 @@ export async function extractLocalSchema(
 }
 
 /** Optional S3 credentials for a private cloud Parquet source (anon by default). */
-export interface RemoteParquetCreds {
-  s3Region?: string;
-  s3AccessKeyId?: string;
-  s3SecretAccessKey?: string;
-  s3Endpoint?: string;
-}
-
-export interface RemoteParquetResult {
-  csv_id: string;
-  schema: CSVSchema;
-}
+// Both shapes are owned by the connect module (it is what sends and reads them);
+// re-exported here so existing importers of the typed client are unaffected.
+export type { RemoteParquetCreds, RemoteParquetResult } from "@/app/lib/remote-parquet-connect";
 
 /**
  * Register a remote cloud Parquet URL (s3:// or https://) that DuckDB reads
@@ -631,12 +628,10 @@ export async function extractRemoteParquetSchema(
   /** "Ignore cache / re-read schema" — bypass the schema cache and overwrite it. */
   force?: boolean
 ): Promise<RemoteParquetResult> {
-  const res = await fetch("/api/remote-parquet/schema", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, creds, force }),
-  });
-  return json<RemoteParquetResult>(res);
+  // On the built-in (wasm) runtime this is a TWO-HOP flow — the server hands back
+  // a job the browser runs in its worker — so the protocol lives in its own module
+  // rather than in this per-endpoint client (build log D27/D29).
+  return connectRemoteParquet({ url, creds, force }, json);
 }
 
 // ── Active runs (reconnect to an analysis that survived a client drop) ──

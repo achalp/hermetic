@@ -108,6 +108,21 @@ export function materializeRemoteToFile(o: MaterializeRemoteOptions): Promise<{ 
       reject(err);
     };
 
+    // The destination stream needs its OWN error handler: `createWriteStream`
+    // opens the file asynchronously, so a dest that is unwritable, full, or whose
+    // directory vanished mid-flight emits here — and with no listener Node turns
+    // that into an UNCAUGHT EXCEPTION rather than a rejected promise. After
+    // `settled` this is a no-op, which is what makes a late open error harmless.
+    out.on("error", (err: Error) => {
+      void fail(
+        new EgressFetchError(
+          `egress-fetch could not write the destination: ${err.message}`,
+          "transport",
+          null
+        )
+      );
+    });
+
     child.stdout.on("data", (chunk: Buffer) => {
       bytes += chunk.length;
     });
@@ -140,6 +155,104 @@ export function materializeRemoteToFile(o: MaterializeRemoteOptions): Promise<{ 
           code
         )
       );
+    });
+  });
+}
+
+/** Options for {@link fetchRemoteRange} — a bounded, ranged read of ONE authorized URL. */
+export interface FetchRemoteRangeOptions {
+  url: string;
+  allowlist: string[];
+  /** Canonical `bytes=START-END` / `bytes=START-`; validated again in Rust. */
+  range: string;
+  capBytes?: number;
+  creds?: { bearer: string } | { headerName: string; headerValue: string };
+  binPath?: string;
+  signal?: AbortSignal;
+}
+
+/** The upstream `Content-Range` total, e.g. 525687024 from "bytes 0-3/525687024". */
+export function parseContentRangeTotal(contentRange: string): number | null {
+  const m = /^bytes\s+\d+-\d+\/(\d+)$/.exec(contentRange.trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * Ranged read through the Rust egress core (build log D18). Same authorization
+ * path as {@link materializeRemoteToFile} — allowlist, resolve-and-reject, IP
+ * pinning, no-follow redirects, streaming cap — the only difference is that the
+ * core sends a `Range` header and a 206 comes back with its `Content-Range`.
+ *
+ * Buffers in memory ON PURPOSE: callers request footers and row groups (KBs–MBs),
+ * never whole objects, and `capBytes` bounds it. The body is the response the
+ * `/api/wasm-range` route streams straight back to the worker's DuckDB.
+ */
+export function fetchRemoteRange(
+  o: FetchRemoteRangeOptions
+): Promise<{ body: Buffer; contentRange: string; total: number | null }> {
+  const bin = o.binPath ?? hermeticPaths.egressFetchBin();
+  const env: Record<string, string> = {
+    HERMETIC_EGRESS_ALLOWLIST: o.allowlist.join(","),
+    HERMETIC_EGRESS_RANGE: o.range,
+  };
+  if (o.capBytes && o.capBytes > 0) env.HERMETIC_EGRESS_CAP_BYTES = String(o.capBytes);
+  if (o.creds && "bearer" in o.creds) {
+    env.HERMETIC_EGRESS_BEARER = o.creds.bearer;
+  } else if (o.creds) {
+    env.HERMETIC_EGRESS_HEADER_NAME = o.creds.headerName;
+    env.HERMETIC_EGRESS_HEADER_VALUE = o.creds.headerValue;
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, [o.url], { env: env as NodeJS.ProcessEnv, signal: o.signal });
+    const chunks: Buffer[] = [];
+    let stderr = "";
+    let settled = false;
+
+    child.stdout.on("data", (c: Buffer) => chunks.push(c));
+    child.stderr.on("data", (c: Buffer) => {
+      if (stderr.length < 4096) stderr += c.toString();
+    });
+
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      reject(new EgressFetchError(`egress-fetch spawn failed: ${err.message}`, "spawn", null));
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        const kind = kindForExit(code);
+        reject(
+          new EgressFetchError(
+            `egress-fetch range failed (${kind}, exit ${code}): ${stderr.trim() || "no diagnostic"}`,
+            kind,
+            code
+          )
+        );
+        return;
+      }
+      // The bin emits exactly one marker-prefixed metadata line on stderr.
+      const meta = /^EGRESS-META (\{.*\})$/m.exec(stderr);
+      let contentRange = "";
+      if (meta) {
+        try {
+          contentRange = String(
+            (JSON.parse(meta[1]) as { contentRange?: string }).contentRange ?? ""
+          );
+        } catch {
+          contentRange = "";
+        }
+      }
+      resolve({
+        body: Buffer.concat(chunks),
+        contentRange,
+        total: parseContentRangeTotal(contentRange),
+      });
     });
   });
 }

@@ -16,7 +16,7 @@
  * HERMETIC_SANDBOX_RUNTIME=wasm. Cross-platform release fetches the TARGET node +
  * builds egress-fetch for the target triple (see scripts/build-desktop.mjs / docs).
  */
-import { cp, rm, mkdir, stat, chmod, writeFile, copyFile } from "node:fs/promises";
+import { cp, rm, mkdir, stat, chmod, writeFile, copyFile, readdir } from "node:fs/promises";
 import { existsSync, renameSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -136,6 +136,54 @@ async function repairIncompletePackages(outNm, srcNm, rel = "") {
   }
 }
 
+/**
+ * Remove DANGLING symlinks left in the assembled tree (build log D22).
+ *
+ * Next 16 Turbopack materializes its hashed external modules as symlinks under
+ * `.next/node_modules/`, pointing at ABSOLUTE paths in the build machine's
+ * `.next/standalone/node_modules/…`:
+ *
+ *   @napi-rs/keyring-77f6e008788a8a96 -> /abs/path/.next/standalone/node_modules/@napi-rs/keyring
+ *
+ * Those targets are outside the bundle, so every one of them dangles the moment the
+ * standalone dir is cleaned or the bundle is moved to another machine. `tauri build`
+ * then aborts resolving its resource glob:
+ *
+ *   resource path `sidecar/.next/node_modules/@napi-rs/keyring-…` doesn't exist
+ *
+ * They are safe to delete: the hashed-externals preload hook (D16) resolves those
+ * specifiers by stripping the `-<16hex>` suffix and loading the real package from
+ * `node_modules/`, and repairIncompletePackages() has already ensured that package
+ * is complete. The desktop-sidecar smoke test asserts a boot with ZERO external-load
+ * errors, which is what keeps this honest.
+ *
+ * Returns the removed paths so the assembly can report them rather than silently
+ * mutating the tree.
+ */
+async function pruneDanglingSymlinks(dir, removed = []) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return removed;
+  }
+  for (const e of entries) {
+    const full = join(dir, e.name);
+    if (e.isSymbolicLink()) {
+      // stat() follows the link: ENOENT ⇒ the target is gone.
+      try {
+        await stat(full);
+      } catch {
+        await rm(full, { force: true });
+        removed.push(full);
+      }
+    } else if (e.isDirectory()) {
+      await pruneDanglingSymlinks(full, removed);
+    }
+  }
+  return removed;
+}
+
 async function main() {
   if (!(await has(STANDALONE))) {
     log("no .next/standalone — building (data/ moved aside)…");
@@ -238,6 +286,16 @@ async function main() {
       2
     )
   );
+  // Must run LAST: earlier steps copy trees in, and a dangling link anywhere under
+  // OUT breaks `tauri build`'s resource resolution (D22).
+  const pruned = await pruneDanglingSymlinks(OUT);
+  if (pruned.length > 0) {
+    log(
+      `pruned ${pruned.length} dangling symlink(s): ` +
+        pruned.map((p) => p.slice(OUT.length + 1)).join(", ")
+    );
+  }
+
   log("done");
 }
 

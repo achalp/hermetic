@@ -589,3 +589,610 @@ the PATCH accepts `docker` OR `wasm` (persists the pin; getActiveSandboxRuntime 
 it — HERMETIC_FORCE_RUNTIME still overrides in the packaged desktop app). The picker
 already renders every available runtime and persists via setActiveSandboxRuntime, so no
 UI change was needed. Tests updated.
+
+### D18 — SPIKE (R1): DuckDB + httpfs DOES work in the Tauri webview worker. Remote big-data on the desktop tier is FEASIBLE.
+
+Context: the "NN in Seattle" analysis (Overture buildings, `s3://overturemaps-us-west-2/
+.../theme=buildings/type=building`) cannot run on the desktop tier today —
+`resolveRemoteHttpsFetch` fails closed on hive/glob sources ("needs Docker"), the worker
+loads only numpy+pandas, and D13 materialization is WHOLE-FILE (the source is 512 part
+files / 257 GB, measured). The question was whether a ranged remote read is possible at
+all under the production CSP.
+
+Measured facts (all in the REAL Tauri webview, webkit2gtk, under WASM_EXEC_CSP):
+
+1. Sync XHR + `Range` WORKS in a classic worker: HTTP 206, magic `PAR1`; a 1 MiB
+   mid-file range returned exactly 1,048,576 bytes. This is the mechanism duckdb-wasm
+   relies on (`.open("GET", url, !1)` + `setRequestHeader("Range", ...)`).
+2. Sync XHR is not exotic — it is duckdb-wasm's ONLY I/O path. The "async" bundle's
+   worker uses it too (`duckdb-browser-eh.worker.js`: `.open("GET", _.dataUrl, !1)`).
+   Asyncify is compiled OUT (`_emscripten_has_asyncify = () => 0`); no JSPI symbols
+   ship, and JSPI is not in WebKit anyway. There is no async-I/O variant.
+3. DuckDB-WASM boots and runs SQL inside that worker under the CSP (`SELECT 41+1` → 42).
+   Pair the BLOCKING browser glue with `duckdb-mvp.wasm`; `duckdb-eh.wasm` traps with
+   `call_indirect to a signature that does not match`.
+4. Extension autoload hits `https://extensions.duckdb.org/...` and is correctly BLOCKED
+   by `connect-src 'self'`. Fix: host the extensions same-origin (exactly as we already
+   do for Pyodide wheels) and `SET custom_extension_repository` +
+   `autoinstall_extension_repository` to that path. parquet + httpfs then load fine.
+5. `registerFileURL(..., DuckDBDataProtocol.HTTP, directIO)` buffers the WHOLE file —
+   one GET, 525 MB, 14,557 ms — with directIO true OR false. It never even issues a HEAD.
+   Do NOT use this path for remote sources.
+6. The **httpfs extension** reading the URL directly is the ranged path, and it works:
+   HEAD -> 200, len=525,687,024
+   GET bytes=525424880-... -> 206, 262,144 B (tail probe)
+   GET bytes=525066711-... -> 206, 620,313 B (footer)
+   `SELECT count(*)` = 4,940,678 rows in **828 ms**, transferring **882,457 B = 0.168%**
+   of the file. The Seattle bbox predicate returned in 733 ms having read NO data pages —
+   row-group statistics pruned the file outright. Predicate pushdown works.
+
+Design consequences:
+
+- Remote big-data on the desktop tier is FEASIBLE. Pruning all 257 GB costs ~452 MB of
+  footer reads (512 x ~882 KB), not a 257 GB download.
+- The worker needs a SAME-ORIGIN URL (`connect-src 'self'`), so the sidecar must expose
+  a token-scoped range endpoint that forwards `Range` through the Rust egress core —
+  which therefore needs Range/206 support (`fetch.rs` has none today).
+- DuckDB issues its own ranges, so the core does NOT need to drive pushdown itself.
+- Sequential sync XHR means ~3 round trips per file; host-side parallel PREFETCH of the
+  file tails (the host knows the file list at token-mint time) collapses the latency
+  without changing DuckDB's blocking behaviour or widening the trust boundary — the host
+  fetches only from the already-authorized URL set.
+- Security: this is the first `/api/*` route that deliberately reaches the internet, so
+  the D10 residual ("worker can call same-origin /api") must be re-argued in the spec.
+  The worker never chooses a DESTINATION (token-bound URL set), only byte offsets; the
+  residual covert channel is the offsets themselves, which is low-bandwidth and needs
+  third-party bucket log access to exploit. Still strictly tighter than the Docker
+  tier's L7 allowlist proxy.
+
+Open (not blockers): Arrow→pandas marshalling cost at ~300k rows; combined Pyodide +
+DuckDB RSS in one renderer (each WASM module has its OWN 4 GB linear memory, so this is
+an RSS question, not an address-space one); DuckDB-WASM cannot spill, so bound result sets.
+
+### D19 — Implementing D18: the range edge, the DuckDB assets, and the worker engine (3 commits).
+
+Landed on `wasm/d18-spike-findings`:
+
+1. **Rust `Range` + `/api/wasm-range/<token>`** — `ByteRange`/`parse_byte_range`
+   accept ONLY `bytes=START[-END]`; multi-range, suffix (`bytes=-N`), inverted,
+   wrong-unit and junk all fail closed. The header is RE-SERIALIZED from parsed
+   numbers, so no caller string reaches the wire. `authorize_and_fetch_range` reuses
+   the identical authorization path and carries the range across redirect hops.
+   The endpoint charges a per-token budget BEFORE fetching, bounds one request at
+   64 MB, 404s unknown tokens, and never leaks the upstream URL or core diagnostic.
+   HEAD answers size via a `bytes=0-0` GET so the core stays GET-only.
+   _Live-verified against S3_: HEAD → 525,687,024 without downloading; `bytes=0-3`
+   → 206 + `PAR1`; a footer range ends with the `PAR1` trailer.
+
+2. **Same-origin DuckDB assets** (`scripts/build-duckdb-wasm-assets.mjs`,
+   `/duckdb/[...path]`) — classic-worker IIFE bundle, `duckdb-mvp.wasm` only, and a
+   vendored extension repository for parquet + httpfs. The DuckDB version is
+   obtained by BOOTING duckdb and reading `SELECT version()`: the npm version
+   (1.33.1) is the JS wrapper's, not the engine's (v1.5.4), and the wasm binary
+   carries several version-shaped strings — guessing 404s.
+
+3. **Worker engine** — the boot function is embedded STATICALLY and called with
+   `(base, aliases)` as request DATA; the CSP allows `wasm-unsafe-eval` but NOT
+   `unsafe-eval`, so per-request JS is impossible by construction. Booted only when
+   `codeNeedsDuckDb(code)` or a remote alias exists (the engine is a 41 MB module).
+   No SharedArrayBuffer and no COOP/COEP: the blocking build is synchronous end to
+   end, so `duckdb-bridge.ts`'s Atomics machinery is not on this path at all.
+
+Net effect: **`import duckdb` now works on the no-Docker tier** for local data, and
+the host can serve authorized remote bytes by range.
+
+STILL OPEN — the Seattle NN case specifically. `resolveRemoteHttpsFetch` still fails
+closed on hive/glob sources. Closing it needs three things that are a design step,
+not a wiring step:
+
+- **Enumerate** the 512 part files. S3 LIST is a GET on the bucket with query
+  params, so the core can do it, but the result must be parsed and bounded.
+- **Alias fan-out**: DuckDB accepts `read_parquet([...])` over a list, so N files
+  means N tokens/aliases — or one token that authorizes a URL PREFIX (fewer
+  tokens, slightly wider capability; decide deliberately).
+- **Prompt**: the model must be told the alias names to query instead of the s3://
+  URL, or generated SQL will keep naming a source the worker cannot address.
+
+Also still true from D18: host-side parallel PREFETCH of file tails is what makes
+512 sequential footer reads acceptable (~3 round trips each, sync XHR). Not built.
+
+SECURITY — unchanged and still owed a decision: `/api/wasm-range` is the first
+`/api/*` route that deliberately reaches the internet, so the D10 residual ("the
+worker can call same-origin /api") should be re-argued in the spec before this
+ships to users. The worker picks offsets within a token-bound URL, never a
+destination; the residual channel is the offsets themselves.
+
+### D20 — Parity gate: is `/api/wasm-range` at-or-better than the Docker path? YES, on every axis.
+
+Approved on the condition of parity-or-better with Docker. TRACED against
+`docker/sandbox/egress-proxy.py`, not assumed:
+
+| Control                | Docker (egress-proxy.py)                                                                                                                                                         | WASM range path                                                                     | Verdict       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------- |
+| HTTP method            | **Any.** `method` is read from the sandbox's request line and forwarded verbatim (`upstream.sendall(f"{method} {origin} …")`, ~L247) — PUT/POST/DELETE included                  | **GET only.** `Method` is a one-variant enum by construction                        | WASM tighter  |
+| Request headers        | **Verbatim.** `rest = head.split(b"\r\n",1)[1]` is forwarded unchanged — any header, incl. Authorization                                                                         | **None from the worker.** Only `Range`, re-serialized from parsed integers          | WASM tighter  |
+| Request body           | **Yes** — `pump()` relays both directions                                                                                                                                        | **None**                                                                            | WASM tighter  |
+| HTTPS                  | **Opaque CONNECT tunnel** (~L205-224): `200 Connection Established` then `pump()`. The proxy sees NOTHING inside; arbitrary requests and arbitrary upload to an allowlisted host | **No tunnel.** TLS terminates in the core; the worker never speaks to the upstream  | WASM tighter  |
+| Destination choice     | Sandbox picks host + path, from ALLOW_HOSTS                                                                                                                                      | **Fixed by the token.** The worker cannot name a host or a path — only byte offsets | WASM tighter  |
+| Private LAN (RFC-1918) | **ALLOWED** by design (`_is_blocked_ip` blocks loopback/link-local/multicast/reserved only — on-prem endpoints + host.docker.internal)                                           | **BLOCKED** (ip.rs: the desktop LAN is itself a threat surface, spec §6a)           | WASM tighter  |
+| Byte bound             | None on a tunnel (MAX_CONNECTIONS only)                                                                                                                                          | Per-request 64 MB + a per-token run budget charged BEFORE serving                   | WASM tighter  |
+| Redirects              | Sandbox's own client follows; each new host re-checked                                                                                                                           | Never followed; re-authorized per hop in the core                                   | Equal/tighter |
+| DNS rebinding          | Connects to the vetted sockaddr                                                                                                                                                  | Same (IP pinning)                                                                   | Equal         |
+
+Exfiltration, the axis that matters most: Docker lets sandboxed code **POST arbitrary
+bytes** to an allowlisted host, or open a TLS tunnel and send anything at all. The
+WASM path lets it vary **byte offsets in a GET to a URL it cannot name** — a channel
+of a few bytes per request that additionally requires access to the third-party
+bucket's logs to read.
+
+So the D10 residual is re-argued and RESOLVED for this route: `/api/wasm-range` is
+the first same-origin `/api/*` route that deliberately reaches the internet, but the
+capability it hands untrusted code is **strictly smaller than what the Docker tier
+already grants**. The parity condition is met. Shipping is approved.
+
+Standing invariant this creates — do not regress it: the range route must never gain
+a caller-supplied method, header, body, or destination. If any of those is ever
+needed, the parity argument above has to be re-run, not assumed.
+
+### D21 — Hive / multi-file remote sources now work on the WASM tier.
+
+The old gate ("folder / hive-partitioned source — needs Docker") was correct for
+D13's mechanism (fetch ONE object → convert to CSV). Since D18/D19 DuckDB runs IN
+the worker and reads by range, so "exactly one file" stopped being inherent. Four
+pieces replace the gate:
+
+1. **Enumeration** (`s3-list.ts`, `enumerateRemoteParquetFiles`). An S3 listing is
+   `GET /?list-type=2&prefix=…` on the bucket host — an ordinary GET the core already
+   performs against an already-allowlisted host, so this adds NO egress capability
+   and does not reopen the D20 parity argument. Narrow regex reader rather than an XML
+   parser (no DTD/entity surface on a path fed by a remote server); folder
+   placeholders and non-parquet keys are dropped; continuation tokens are followed
+   only when `IsTruncated`; bounded by MAX_ENUMERATED_FILES. Live: **512 files,
+   257 GB, deterministic order, in 857 ms**.
+
+2. **One token PER FILE** (`wasm/remote-hive.ts`), never a prefix-scoped token. A
+   prefix token would let the worker supply part of the path — i.e. choose a
+   destination — which is exactly the property D20 rests on and records as a standing
+   invariant. N tokens keep it intact for N Map entries.
+
+3. **Alias naming is CORRECTNESS.** `hive_partitioning=true` derives partition columns
+   from the path (`theme=buildings` → column `theme`). Synthetic alias names would
+   silently drop them and a GROUP BY on one would return different results rather than
+   fail. Aliases keep the object key verbatim.
+   Related bug caught by its own test: `encodeURIComponent` escapes `=`, and S3 treats
+   `theme%3Dbuildings` as a DIFFERENT key — this is precisely how the D18 spike first
+   got a 404 from a URL curl fetched fine. `encodeS3Key` preserves `=`.
+
+4. **No prompt change needed.** The model is already told to write
+   `CREATE OR REPLACE VIEW data AS SELECT * FROM <readExpr>` and query `data`; the
+   host composes `readExpr`. The WASM path just emits `read_parquet([...aliases],
+hive_partitioning=true)` instead of the s3:// glob. `resolveWasmRemoteSource` also
+   omits the cloud prelude (INSTALL httpfs would hit the blocked CDN — the worker
+   already has it from the same-origin repository) and the auth SQL (there are no
+   credentials in the worker; each file is reachable only via its own token).
+
+5. **Footer prefetch** (`wasm/footer-prefetch.ts`). DuckDB's sync-XHR reads are
+   strictly sequential — ~1500 serial round trips to footer 512 files. But that is a
+   property of DUCKDB'S REQUEST PATTERN, not of our fetch path: the host knows the
+   file list at token-mint time and warms every tail in parallel (16-way) while
+   Pyodide is still booting. DuckDB still blocks on each request; each now resolves
+   from memory. Best-effort by design — a prefetch failure is never fatal, the worker
+   just fetches on demand. Only a FULLY covered range is served from cache; a partial
+   hit would truncate the response and corrupt DuckDB's read.
+   Live: 8 real footers warmed in parallel, each ending in the `PAR1` trailer.
+
+Security posture is UNCHANGED from D20: no new verb, no new destination, no new
+authority. Prefetch reads bytes the worker was already entitled to request, and by
+scheduling more of the traffic host-side it slightly NARROWS the residual
+offset-choice channel.
+
+Not yet proven: the full Seattle NN run end-to-end in the app. The pieces are live-
+tested individually (enumeration, ranges, prefetch, DuckDB-in-worker) but the joined
+path has not been exercised against a real question.
+
+### D22 — `tauri build` failure: Turbopack's hashed externals are DANGLING SYMLINKS.
+
+Symptom (release packaging only — the app boots fine, so no boot test caught it):
+
+    resource path `sidecar/.next/node_modules/@napi-rs/keyring-77f6e008788a8a96` doesn't exist
+    ELIFECYCLE Command failed with exit code 101
+
+Root cause: Next 16 Turbopack materializes its hashed external modules as symlinks
+under `.next/node_modules/`, pointing at ABSOLUTE paths on the build machine:
+
+    @napi-rs/keyring-77f6e008788a8a96 -> /abs/.../.next/standalone/node_modules/@napi-rs/keyring
+
+Those targets live OUTSIDE the assembled bundle, so all six dangle the moment the
+standalone dir is cleaned or the bundle moves. `tauri build` then aborts while
+resolving its resource glob. This is the same D16 hash-suffix mechanism seen from a
+new angle: D16 fixed RUNTIME resolution (the preload hook strips `-<16hex>`), but
+left the broken links sitting in the tree, where only the packager trips over them.
+
+Fix: `pruneDanglingSymlinks()` runs LAST in the sidecar assembly and deletes them.
+Safe because the hook resolves those specifiers from real `node_modules/` and
+`repairIncompletePackages()` has already completed those packages — verified by
+booting the pruned tree: Ready in 60ms, **zero external-load errors**, /api/health 200.
+
+Guard: the desktop-sidecar smoke test now fails if ANY dangling symlink remains in
+the bundle. Verified the guard actually fires against a planted link — a green boot
+test alone would never have caught this, which is exactly how it reached a user.
+
+### D24 — Ingest is a SECOND wall: why D18–D21 doesn't already cover schema extraction.
+
+Reported from the built-in runtime when connecting the Overture source:
+
+    schema-cache fingerprint probe failed; re-extracting
+      error: "Remote Parquet fingerprint requires the Docker sandbox runtime."
+    /api/remote-parquet/schema failed
+      "Cloud Parquet schema extraction is currently only supported with the Docker sandbox runtime."
+
+Five Docker-only gates, all UPSTREAM of the execution work:
+
+| Location                          | Gate                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------- |
+| `parquet/schema-extractor.ts:199` | cloud parquet schema extraction                                                 |
+| `parquet/schema-extractor.ts:235` | remote parquet fingerprint                                                      |
+| `parquet/schema-extractor.ts:156` | LOCAL parquet schema extraction                                                 |
+| `parquet/materialize.ts:42`       | parquet materialization                                                         |
+| `sandbox/capabilities.ts:103`     | "Parquet/local-file analysis is only supported with the Docker sandbox runtime" |
+
+**Correcting D21's framing.** D21 said the remaining gap was an unexercised joined
+path. That was understated: the Seattle NN question could never have run on the
+built-in runtime regardless, because it fails at SOURCE CONNECTION, before the
+pipeline is entered. Hive support was not the last piece; ingest is an independent
+second wall.
+
+**Why the D18–D21 machinery doesn't reach here — TWO DOORS.** Everything built so far
+hangs off the pipeline (`run-ask-query.ts`), entered when a QUESTION is asked. Schema
+extraction hangs off `/api/remote-parquet/schema`, entered when a SOURCE IS
+CONNECTED. The execution path assumes three things connect does not have:
+
+1. **A run.** Range tokens are minted with `runId` and released by `releaseRun()`.
+   Connect has no run — nothing to scope a token to, nothing to clean up with.
+2. **A live stream** (the real blocker). `createStreamWasmExecutor` dispatches by
+   `emit({type:"wasm-execute"})` INTO the NDJSON response stream of an in-flight
+   query. Connect is not a streaming endpoint; there is no channel to push down.
+3. **A booted worker.** DuckDB boots per execute-request from `request.duckdb`.
+
+So the parts are not missing — they are reachable only through a door connect never
+walks through. That is what "requires Docker" was really encoding: Docker needs none
+of it, because it runs a container synchronously from wherever it is called.
+
+**DECIDED: extract in the worker.** Chosen over the footer-only sparse-file trick
+(which depends on DuckDB tolerating a file whose data pages are zeros) and over
+hand-parsing the parquet thrift footer. It reuses the proven path instead of adding a
+second, subtly different one.
+
+Reuse is high — range endpoint, token registry, S3 enumeration, `encodeS3Key`, the
+DuckDB boot function, the same-origin extension repository, and alias naming all
+apply unchanged. `DESCRIBE SELECT * FROM read_parquet([...])` over the FIRST file is
+the query path in miniature.
+
+Three things are genuinely new:
+
+1. **Connect-scoped tokens** — a short-TTL lease instead of a `runId` scope.
+2. **A "describe" job shape** — metadata only; no analysis, no output envelope.
+3. **A trust note that must not be skipped**: the schema would arrive FROM THE
+   CLIENT rather than being computed server-side. Defensible here — the schema
+   feeds prompt context only, never a security decision, and is derived from bytes
+   the host is already authorized to fetch — but it moves who computes it, and that
+   belongs in the spec explicitly rather than by omission.
+
+The dispatch problem is smaller than it looks: the RETURN path is already general
+(`POST /api/wasm-result?id=…`, keyed by the handoff registry, not by any stream), and
+connect is USER-INITIATED, so the client already owns the worker (`use-wasm-handoff`
+/ `runInWorker`) and can drive it directly rather than waiting to be pushed a job.
+
+The three LOCAL gates (schema-extractor.ts:156, materialize.ts:42,
+capabilities.ts:103) need none of this: host-side DuckDB already performs exactly
+that work in `parquet-convert.ts` (node-blocking, in-process, no Docker). Those look
+like routing, and are the cheap half — do them first.
+
+### D25 — The LOCAL half of the ingest wall is down: no Docker needed to read a local Parquet.
+
+D24 called these three gates "the cheap half" and said they looked like routing.
+Two of them were. The third was not, and the reason matters more than the fix.
+
+**The trap: lifting the CONNECT gate alone makes things worse.** Letting
+`extractParquetSchema` succeed on the built-in runtime moves the failure from
+source-connect to the first QUESTION — `resolveLocalSource` sets `localMountPath`,
+`hasMount` goes true, and `capabilities.ts` rejects. The user would have invested a
+connect and a question before hearing "switch to Docker". So the schema gate and the
+execution path had to land together, or not at all.
+
+**What shipped.**
+
+| Piece                         | What it does                                                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sandbox/wasm/host-duckdb.ts` | The ONE in-process DuckDB (node-blocking, `NODE_RUNTIME`), extracted from `parquet-convert.ts` — two callers now need it and a second boot buys nothing |
+| `parquet/host-schema.ts`      | Profiles a local parquet file/folder into a `CSVSchema` with no container                                                                               |
+| `parquet/host-materialize.ts` | Converts a local parquet file/folder → one CSV for delivery to the worker                                                                               |
+| `csv/schema.ts`               | `extractSchema` takes optional `dtype` overrides                                                                                                        |
+| `duckdb-source.ts`            | `isLocalParquetSource` — ONE definition of "is this local source parquet"                                                                               |
+
+**Staying at one profiler, not two.** The obvious shape — re-implement
+`SHARED_STATS_TAIL`'s ~400 lines of per-column SQL in TypeScript — leaves two
+profilers that drift silently, only one of them testable without Docker. Instead the
+work splits by who is actually authoritative: DuckDB answers what only DuckDB knows
+(column TYPES via `DESCRIBE`, the true ROW COUNT via parquet footers), and a bounded
+row sample goes to `extractSchema` — the profiler the CSV path has always used —
+with those types passed in as `dtype` overrides. So the stats logic has one
+implementation, and the CSV round-trip cannot mistype a column.
+
+The honest difference: the container profiles a 500k-row sample with SQL aggregates,
+the host profiles 50k rows in JavaScript, because the TS profiler walks every value
+several times per column. `row_count` is exact either way. That is a difference in
+stats PRECISION, not correctness — and it is why this is a parallel path, not a
+replacement for Docker.
+
+One in-contract divergence, deliberate: the Python script maps STRUCT/LIST/MAP/
+GEOMETRY to `"complex"`, which is **not in the `CSVSchema` dtype union**. The host
+mapper returns `"string"` for those (which is what they are once serialized) rather
+than copying an out-of-contract value into a stored schema.
+
+**Execution: a CSV bridge, with a ceiling that refuses rather than degrades.** The
+worker has no filesystem, so local parquet is converted host-side and delivered as
+`/data/input.csv` — the identical shape the remote path has used since D13, so the
+worker sees ONE delivery mechanism. The cost is real: a CSV bridge materializes the
+whole dataset, which is exactly what parquet exists to avoid. Hence
+`WASM_LOCAL_CSV_MAX_ROWS` (2M, checked BEFORE booting DuckDB) and
+`WASM_LOCAL_CSV_MAX_BYTES` (512 MB, checked on the written file, since a few hundred
+wide string columns defeat a row cap). Over either, it names Docker and stops.
+
+The upgrade that removes the ceiling is serving the LOCAL file over a ranged endpoint
+so DuckDB-in-the-worker reads only the row groups it needs — the same trick D18–D21
+already built for remote. The caps live as two named constants for that reason.
+
+**Two gates deliberately NOT lifted:**
+
+- `materialize.ts` (CSV → Parquet) stays Docker-only. It exists so analysis can read
+  a big CSV as a MOUNTED parquet; on the wasm tier that parquet would be converted
+  straight back to CSV to run. Ingest already skips it on non-Docker and keeps the
+  CSV — the throw is the backstop, and now says why.
+- `capabilities.ts`'s mount message was NARROWED, not removed. It no longer claims
+  "Parquet/local-file analysis" needs Docker (false as of this entry); it names what
+  actually still does — a copied-in Parquet, i.e. a materialized warehouse pull,
+  which has no delivery path yet.
+
+**Still open: the REMOTE half.** `schema-extractor.ts:199` (cloud parquet schema) and
+`:235` (remote fingerprint) are untouched. They need the extract-in-worker machinery
+D24 specified — connect-scoped token leases, a describe-only job shape, and
+client-driven dispatch — and the trust note that goes with it. The Seattle/Overture
+case is still blocked on those two.
+
+**Pre-existing, not introduced here:** the `src/lib/sandbox/wasm/**` coverage
+threshold (100%) was already failing at HEAD (87.43%). These changes moved it to
+87.50%. `pnpm lint` OOMs on the bundled `src-tauri/sidecar/.../viewer/dist` chunks —
+also pre-existing; the touched files lint clean individually.
+
+### D26 — Remote fingerprint, off Docker: the container was not doing anything the host cannot.
+
+`computeRemoteParquetFingerprint` was the FIRST error the built-in runtime actually
+reported when connecting the Overture source ("Remote Parquet fingerprint requires
+the Docker sandbox runtime"), so it is worth being precise about what it needed.
+
+It runs DuckDB's `glob()` over the object store and digests the file listing. The
+container contributed the DuckDB binary — but the LISTING is an S3 `list-type=2`
+call, and `enumerateRemoteParquetFiles` has performed exactly that through the Rust
+egress core since D21, with the allowlist, resolve-and-reject, IP pinning,
+no-redirect and byte cap intact. So the host path is composition of two shipped
+pieces, not a second implementation of the fingerprint idea.
+
+**Same semantics, deliberately different FORMAT.** Both digests detect the same
+change — files added, removed, or rewritten under new names, which is how
+Spark/Delta/Iceberg/Hive writers emit data. But the Docker digest is over DuckDB's
+`s3://bucket/key` strings and this one is over listed keys, so on an UNCHANGED source
+the two disagree. The prefixes (`files:` vs `s3list:`) make that impossible to
+confuse: switching runtimes reads as "changed" and re-extracts, which is correct.
+Unifying them would mean comparing incomparable digests and calling a stale schema
+fresh — the failure this format split exists to prevent.
+
+One improvement fell out for free: the listing already carries object SIZES, so the
+host digest includes them. That closes the Docker digest's blind spot — a file
+rewritten in place under the same name — at no extra request.
+
+A single `https://` object has no listing, so it falls back to its size, read with a
+one-byte ranged GET (the total arrives in `Content-Range`, so no new verb and no
+meaningful transfer).
+
+Gate 2 of 5 down. Remaining: `schema-extractor.ts:199`, cloud parquet SCHEMA
+extraction — still the extract-in-worker job D24 specified.
+
+### D27 — The last ingest gate: remote schema extraction runs in the worker.
+
+D24 decided this and named three genuinely new pieces. All three shipped; the
+dispatch problem turned out smaller than the write-up expected, and one design
+detail was wrong in a way worth recording.
+
+**The two hops.** Connect is not a streaming endpoint, so there is nothing to
+`emit()` a job into. But connect is USER-INITIATED — the browser already owns a
+worker (`runInWorker`) and can be handed a job rather than waiting to be pushed one.
+So `/api/remote-parquet/schema` on the built-in runtime returns
+`{needs_worker: true, job}` instead of a schema, the client runs it, and
+`/api/remote-parquet/schema/complete` turns the envelope into a stored schema. No
+handoff registry, no stream, no server-side pending promise.
+
+**The profiler is REUSED, not forked.** `worker-source.ts` already returns
+`/data/output.json` as the envelope's `output` — the same file the container path
+reads. So `SHARED_STATS_TAIL` runs in the worker completely unchanged, and only the
+SETUP preamble is new. What that preamble deliberately omits is the point:
+
+- no cloud prelude / `INSTALL httpfs` — the worker reads alias names bound to
+  `/api/wasm-range/<token>` URLs;
+- no credential SQL and no `s3_url_style` — a token IS the authorization, and the
+  worker never learns a bucket, a region, or a key.
+
+Two costs are bounded because the worker, unlike a container, pays them in a WASM
+heap over ranged reads: `STATS_SAMPLE_SIZE` drops from 500k to 50k rows, and footers
+are read from at most 16 files and extrapolated.
+
+**Connect-scoped LEASES.** Query tokens are released deterministically by
+`releaseRun`. These have no run, so time is the only ceiling guaranteed to arrive:
+`expiresAt` on the token, checked on READ (not merely by a sweeper) so a lapsed lease
+stops working the moment it lapses. The completion route still releases the tokens
+explicitly in a `finally` — including when the profile is REJECTED, since a failed
+extraction that leaked its capabilities would be the worse bug. The TTL is a
+backstop, not the intended lifetime.
+
+**The trust note, stated rather than implied.** The schema is now computed
+CLIENT-SIDE and posted back, so the host trusts the browser's arithmetic. That is
+defensible for exactly two reasons: the schema feeds PROMPT CONTEXT and never a
+security decision, and it is derived from bytes the host itself authorized and
+fetched. What the host does not delegate is the part that matters — the URL, the
+credentials, the allowlist, the token budgets, the lease, and the csvId all come
+from the server's own lease table, keyed by an id the server issued. The body
+contributes only a profile, whose shape is validated before storage. A forged or
+replayed POST can at worst supply a wrong profile for a connect the user already
+started; it cannot name a new source or revive a token. **If a future consumer ever
+makes a trust decision from a schema, this changes.**
+
+**A design detail D24 got wrong.** The first cut keyed the single-file-vs-multi-file
+branch off `splitS3Prefix(readUrl)`. That succeeds for a LITERAL single-file key too,
+so `s3://b/a/f.parquet` would have been listed as the prefix `a/f.parquet/`, matched
+nothing, and failed with "No Parquet files found" — a confident error about a source
+that was fine. The correct discriminant is the one the query path already uses:
+glob-or-hive. Caught by tracing the s3 case rather than the Overture case.
+
+**Caching across a two-hop extraction.** `resolveWithCache` wraps read + extract +
+write in one call, which a client round trip cannot fit inside. `readWasmSchemaCache`
+is the lookup half, deliberately mirroring the same policy (a `force` or a failed
+fingerprint probe means extract fresh — correctness over speed) rather than inventing
+a second, laxer one. The write happens in hop 2 under a FRESHLY computed fingerprint,
+not one captured at hand-out time: if the source changed while the worker profiled
+it, the entry must describe what was actually read.
+
+All five D24 gates are now down. What remains before the Seattle/Overture case can be
+called done is a real end-to-end run on the packaged desktop app — this is proven by
+unit tests and by every piece having shipped and been exercised separately, NOT yet
+by a live connect.
+
+### D28 — Coverage: the wasm 100% gate was red, and one guard it protected was dead code.
+
+The `src/lib/sandbox/wasm/**` threshold is a HARD 100% gate, not a floor — it had
+been failing at 87.4% since before D25, which means it had stopped being a gate at
+all. Three files were responsible, and each wanted a different answer.
+
+**`footer-prefetch.ts` (8% → 100%).** D21 shipped the prefetcher with no unit test.
+Writing them found a real defect: the `if (end < start) continue` guard could never
+fire, because `Math.max(0, sizeBytes - 1)` on `end` had already clamped the inversion
+away. A zero-byte target therefore fell through to a `bytes=0-0` fetch — a real
+request for a byte that does not exist. The guard now tests the size, which is what
+it always meant. (`parquetObjectsOnly` drops zero-byte entries upstream, so nothing
+was hitting this in production — but the function takes arbitrary targets, and a
+guard that cannot fire is not a guard.)
+
+**`range-registry.ts` (98.4% → 100%).** The uncovered branches were `?? 0` fallbacks
+guarding a state that could not exist: two parallel maps (`sources` and `used`) keyed
+by the same token, where one could in principle hold a key the other did not. It
+never could — every mutation touched both — so the fallbacks were unreachable code
+that only looked like safety. Collapsed into ONE map of `{src, used}`, which makes
+the bad state unrepresentable instead of defended against. That is the same shape of
+fix as the guard above: delete the dead defense, keep the real one.
+
+**`range-singleton.ts` (40% → 100%).** Its own doc comment claimed it was
+"coverage-excluded", and it never was — the exclusion was written but not added to
+the config when D18 landed. The two sibling singletons ARE excluded on that
+rationale, so matching them would have been consistent. Tested instead: the property
+it exists to guarantee (one instance across separate dev module graphs; a token
+minted through one call resolves through another) is worth an assertion, and
+"unguessable token, not a counter" is worth pinning explicitly.
+
+**Then the same pass over D25–D27.** Those shipped outside the wasm gate, so nothing
+was enforcing them. Two genuinely untested guards turned up:
+
+- the 512 MB CSV byte ceiling in `host-materialize.ts` — the ROW cap was tested, the
+  byte cap never was, including its "delete the partial file" and "a cleanup failure
+  must not mask the ceiling error" paths;
+- the `parquet_file_metadata` → `COUNT(*)` fallback in `host-schema.ts`, which is
+  what stops an unreadable footer from silently reporting a dataset as empty. Also
+  now covered: a metadata query that throws a NON-Error value, which `err.message`
+  would have turned from a recoverable fallback into a crash.
+
+The route pair went from untested-on-the-wasm-branch to covering the actual protocol:
+job-vs-schema discrimination, lease recording, cache-hit re-stamping, and — the one
+that mattered — that a FAILED cache write still returns the schema, since a source
+that has become unlistable must not turn a successful extraction into a failed
+connect.
+
+**A ratchet so this does not decay.** `src/lib/parquet/**` now carries a threshold a
+few points under its current numbers (88/88/82/86 vs 91.4/90.8/86.3). Not a hard gate
+— the older container code around the new paths does not reach 100% — but enough that
+the D25–D27 work cannot drift back toward the much lower `src/lib` floor unnoticed.
+Verified by mutation: raising the statement floor to 93 fails the run.
+
+Both leftovers from D27 are now clean too: 0 lint warnings in the touched trees
+(including two pre-existing ones), and `test:coverage` reports no threshold errors.
+
+### D29 — CI red on a gate I never ran: the modularization ratchet.
+
+D25–D28 were reported as done on the strength of type-check + the full suite +
+coverage. CI runs more than that, and `pnpm run ratchet` — a design-flaw counter
+whose baseline may only ever go DOWN — caught two regressions I had introduced and
+never looked for.
+
+**`error-message-ternary` 0 → 1.** `host-schema.ts` wrote the inline
+`err instanceof Error ? err.message : String(err)` instead of `errMessage(err)` from
+`lib/logger`. The metric's rationale is better than "be consistent": the inline
+ternary discards the stack and cause chain, which is exactly what a novel failure
+needs to be localized. One-line fix.
+
+**`oversized-modules` 1 → 2.** `src/app/lib/api.ts` crossed the 1300-line limit —
+1282 on main, 1310 after D27. The tempting fix is to shave a few lines; the honest
+one is that the code I added never belonged there. `api.ts` is a per-endpoint typed
+client, and connect on the built-in runtime is a two-hop ORCHESTRATION spanning two
+endpoints and a worker round trip. That is a different kind of thing, and it now
+lives in `app/lib/remote-parquet-connect.ts` with `RemoteParquetResult` /
+`RemoteParquetCreds` owned there (re-exported from `api.ts`, so no caller changed).
+api.ts is back to 1277 — BELOW where it started — and the protocol gained an
+injectable `run`, so the round trip is now testable without a worker or a network.
+It has five tests it never had.
+
+**A flaky test of my own making, caught by the hook.** The first push attempt failed
+the pre-push suite and then passed on a re-run. The cause was in the new test file:
+it `vi.stubGlobal("fetch", …)` and never restored it, so the stub outlived the file
+and could be seen by another suite reusing the worker (`api.test.ts` stubs fetch
+too). The repo convention is `afterEach(() => vi.unstubAllGlobals())` and I had
+simply omitted it. Worth naming because the tempting response to an intermittent red
+is to re-run until green — which here would have shipped a flake into CI.
+
+**The process lesson, which is the point of this entry.** "Type-check + full suite"
+is the pre-push hook, and I had been treating it as the definition of done. The
+lint-and-build job also runs `ratchet`, `isolation`, `format:check` and `build`. The
+first three take seconds. Running them locally is now part of finishing, not part of
+reacting to a red PR — the whole set is green here before this push.
+
+### D30 — A CI-only unhandled error, and the real defect underneath it.
+
+The `Tests` job went red with all 3844 tests PASSING and no threshold breach:
+
+    Vitest caught 1 unhandled error during the test run.
+    Uncaught Exception: ENOENT: open '/tmp/egress-fetch-test-XXXX/nope.parquet'
+    This error originated in "src/lib/sandbox/__tests__/egress-fetch.test.ts"
+
+Nothing in D28/D29 touched `egress-fetch.ts`. The honest read is that the D28 work
+added test files to the same worker and shifted timing enough to expose a latent bug
+— it did not cause it.
+
+**The defect.** `materializeRemoteToFile` does `createWriteStream(o.destPath)` and
+never attaches an `'error'` listener to it. `createWriteStream` opens the file
+ASYNCHRONOUSLY, so a destination that is unwritable, out of space, or whose directory
+vanished mid-flight emits on that stream — and an `'error'` event with no listener is
+promoted by Node to an uncaught exception. In the test the last case spawns a missing
+binary, `afterAll` removes the temp dir, and the stream's pending `open` lands after
+both.
+
+It is worse than an unhandled event, which is what the mutation check showed: with
+the listener removed, the "unwritable destination" test does not fail fast — it
+**hangs for 5 seconds and times out**. Nothing else settles that promise. So on a
+real host with a full disk or an unwritable cache dir, a remote materialization would
+have hung rather than reported an error.
+
+**The fix** routes the stream error into the same `fail()` path everything else uses:
+reject with an `EgressFetchError`, delete any partial file, and no-op if the promise
+already settled — which is exactly what makes a LATE open error harmless. Two
+regression tests, both verified by mutation (removing the listener fails both).
+
+**What this says about the previous entry.** D29 claimed the fix for treating
+"type-check + full suite" as done. This is the same lesson one level deeper: the
+suite passed locally AND in CI's own run — the failure was in the _exit code_, from
+an error outside any test. A green test count is not a green run.

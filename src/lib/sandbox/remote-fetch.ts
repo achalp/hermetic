@@ -15,7 +15,14 @@ import { randomUUID } from "node:crypto";
 import { unlink, mkdir } from "node:fs/promises";
 import { deriveAllowedEgressHosts } from "./egress";
 import { presignS3GetUrl } from "./s3-presign";
-import { materializeRemoteToFile } from "./egress-fetch";
+import { materializeRemoteToFile, fetchRemoteRange } from "./egress-fetch";
+import {
+  parseS3ListXml,
+  parquetObjectsOnly,
+  splitS3Prefix,
+  MAX_ENUMERATED_FILES,
+  type S3Object,
+} from "./s3-list";
 import { parquetToCsv } from "./wasm/parquet-convert";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
 
@@ -41,9 +48,14 @@ function s3VhostHost(bucket: string, creds?: RemoteCreds): string {
 export async function resolveRemoteHttpsFetch(stored: StoredRemote): Promise<RemoteFetchPlan> {
   const raw = stored.remoteParquetUrl;
   if (!raw) return { ok: false, unsupported: "no remote URL" };
-  // A glob/folder or hive tree is a multi-file scan — not a single-file GET.
+  // A glob/folder or hive tree is a multi-file scan, which this SINGLE-OBJECT path
+  // cannot express. It is no longer a dead end though: the caller enumerates the
+  // prefix and range-reads each file through DuckDB in the worker instead
+  // (enumerateRemoteParquetFiles + wasm/remote-hive.ts, build log D21). This branch
+  // stays so a caller that reaches the single-file path with a folder still fails
+  // closed rather than silently fetching one arbitrary shard.
   if (raw.includes("*") || stored.isHivePartitioned) {
-    return { ok: false, unsupported: "folder / hive-partitioned source (needs Docker)" };
+    return { ok: false, unsupported: "folder / hive-partitioned source (use the multi-file path)" };
   }
 
   const allowlist = deriveAllowedEgressHosts(raw, stored.remoteCreds);
@@ -114,4 +126,72 @@ export async function materializeRemoteCsvForWasm(
     await unlink(parquetPath).catch(() => {}); // drop the intermediate parquet
   }
   return { csvPath };
+}
+
+/**
+ * Enumerate every parquet object under a hive/glob source (build log D21).
+ *
+ * Runs through the SAME authorization path as every other fetch: an S3 listing is
+ * `GET /?list-type=2&prefix=…` on the bucket host, which is already on the run's
+ * allowlist. No new verb, no new destination, no new capability — which is why
+ * lifting the hive gate does not reopen the D20 parity argument.
+ *
+ * Returns objects in listing order (lexicographic by key), so the resulting SQL
+ * file list is deterministic across runs — goldens and caches depend on that.
+ */
+export async function enumerateRemoteParquetFiles(
+  stored: StoredRemote,
+  opts?: { binPath?: string; signal?: AbortSignal; maxFiles?: number }
+): Promise<{ host: string; objects: S3Object[] }> {
+  const raw = stored.remoteParquetUrl;
+  if (!raw) throw new Error("enumerate: no remote URL");
+  const split = splitS3Prefix(raw);
+  if (!split) throw new Error(`enumerate: not an s3:// source: ${raw}`);
+
+  const host = s3VhostHost(split.bucket, stored.remoteCreds);
+  const allowlist = deriveAllowedEgressHosts(raw, stored.remoteCreds);
+  if (allowlist.length === 0)
+    throw new Error("enumerate: no allowlisted host (internal/unsupported)");
+
+  const cap = opts?.maxFiles ?? MAX_ENUMERATED_FILES;
+  const objects: S3Object[] = [];
+  let token: string | undefined;
+
+  // <= 1 page per 1000 objects; the ceiling below also bounds this loop.
+  for (let page = 0; page < Math.ceil(cap / 1000) + 1; page++) {
+    const qs = new URLSearchParams({ "list-type": "2", prefix: split.prefix, "max-keys": "1000" });
+    if (token) qs.set("continuation-token", token);
+    let url = `https://${host}/?${qs.toString()}`;
+    const c = stored.remoteCreds;
+    if (c?.s3AccessKeyId && c.s3SecretAccessKey) {
+      url = await presignS3GetUrl({
+        httpsUrl: url,
+        accessKeyId: c.s3AccessKeyId,
+        secretAccessKey: c.s3SecretAccessKey,
+        region: c.s3Region ?? "us-east-1",
+      });
+    }
+    const { body } = await fetchRemoteRange({
+      url,
+      allowlist,
+      // A listing has no meaningful range; ask for a generous window and let the
+      // core's cap bound it. S3 ignores Range on a listing and returns 200, which
+      // fetchRemoteRange reports honestly (empty contentRange) rather than as 206.
+      range: "bytes=0-8388607",
+      capBytes: 8 * 1024 * 1024,
+      ...(opts?.binPath ? { binPath: opts.binPath } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    });
+    const parsed = parseS3ListXml(body.toString("utf8"));
+    objects.push(...parquetObjectsOnly(parsed.objects));
+    if (objects.length > cap) {
+      throw new Error(
+        `enumerate: source expands to more than ${cap} parquet files — refusing ` +
+          `(narrow the source, or use the Docker runtime which scans server-side)`
+      );
+    }
+    if (!parsed.nextToken) return { host, objects };
+    token = parsed.nextToken;
+  }
+  return { host, objects };
 }

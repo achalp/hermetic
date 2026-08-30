@@ -49,6 +49,9 @@ export default defineConfig({
         "src/lib/sandbox/wasm/transport-node.ts",
         "src/lib/sandbox/wasm/duckdb-bridge.ts",
         "src/lib/sandbox/wasm/duckdb-engine.ts",
+        // Boots the in-process DuckDB-WASM engine (the shared host connection);
+        // gated integration tests cover it, not the unit run.
+        "src/lib/sandbox/wasm/host-duckdb.ts",
         // Host-side parquet→CSV (DuckDB-WASM in-process); gated integration test.
         "src/lib/sandbox/wasm/parquet-convert.ts",
         "src/lib/sandbox/wasm/handoff.ts",
@@ -76,6 +79,18 @@ export default defineConfig({
           lines: 75,
           functions: 75,
           branches: 64,
+        },
+        // The parquet ingest layer carries the no-Docker paths added in D25–D27
+        // (host profiling, the host fingerprint, the worker-extraction job + its
+        // lease). Those ship at ~100%; the older container code around them does
+        // not, so this is a RATCHET a few points below the directory's current
+        // numbers rather than a hard gate — it stops the new work from decaying
+        // back toward the much lower src/lib floor.
+        "src/lib/parquet/**": {
+          statements: 88,
+          lines: 88,
+          functions: 82,
+          branches: 86,
         },
         // The wasm subsystem is NEW and starts at 100% — every pure-logic line,
         // branch, and function is covered (the Pyodide executor is excluded above

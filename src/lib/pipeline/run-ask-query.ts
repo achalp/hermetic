@@ -8,8 +8,26 @@ import {
 } from "@/lib/csv/storage";
 import { getRunSignal } from "@/lib/pipeline/run-control";
 import { runPipeline, runPipelineWithCode } from "@/lib/pipeline/orchestrator";
-import { resolveLocalSource, resolveRemoteSource } from "@/lib/parquet/duckdb-source";
-import { materializeRemoteCsvForWasm } from "@/lib/sandbox/remote-fetch";
+import {
+  resolveLocalSource,
+  isLocalParquetSource,
+  resolveRemoteSource,
+  resolveWasmRemoteSource,
+} from "@/lib/parquet/duckdb-source";
+import {
+  materializeRemoteCsvForWasm,
+  enumerateRemoteParquetFiles,
+} from "@/lib/sandbox/remote-fetch";
+import { materializeLocalParquetCsvForWasm } from "@/lib/parquet/host-materialize";
+import {
+  buildHiveAliases,
+  buildHiveReadExpr,
+  budgetForFile,
+  encodeS3Key,
+} from "@/lib/sandbox/wasm/remote-hive";
+import { getRangeRegistry, getWarmCache } from "@/lib/sandbox/wasm/range-singleton";
+import { prefetchFooters } from "@/lib/sandbox/wasm/footer-prefetch";
+import { deriveAllowedEgressHosts } from "@/lib/sandbox/egress";
 import { hermeticPaths } from "@/lib/paths";
 import { unlink } from "node:fs/promises";
 import { runWithCostTracking } from "@/lib/cost/accumulator";
@@ -340,15 +358,27 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           }
 
           // Mount path + code-gen "Data Location" context come from the
-          // shared resolver (see lib/parquet/duckdb-source).
-          ({ localMountPath } = resolveLocalSource(stored));
+          // shared resolver (see lib/parquet/duckdb-source) — but ONLY where a
+          // bind-mount exists. The wasm worker has no filesystem, so its local
+          // data is DELIVERED (below) rather than mounted; setting a mount path
+          // here would trip the capability gate on a source we can actually run
+          // (build log D25).
+          if (sandboxRuntime !== "wasm") {
+            ({ localMountPath } = resolveLocalSource(stored));
+          }
         }
 
         // In Parquet mode (local mount, materialized warehouse, or remote
         // URL) the analysis reads Parquet directly — never load the
         // (large) CSV into memory.
+        // On wasm a local CSV has no mount to read from, so it takes the ordinary
+        // content path (the worker's proven `/data/input.csv`); a local PARQUET is
+        // converted host-side instead, further down.
+        const wasmLocalCsv = sandboxRuntime === "wasm" && isLocal && !isLocalParquetSource(stored);
         const csvContent =
-          isLocal || isRemote || warehouseParquetFile ? "" : await getCSVContent(csvId);
+          (isLocal && !wasmLocalCsv) || isRemote || warehouseParquetFile
+            ? ""
+            : await getCSVContent(csvId);
         if (!isLocal && !isRemote && !warehouseParquetFile && !csvContent) {
           if (stored.schema.source_type === "warehouse") {
             throw new Error(
@@ -407,9 +437,70 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // converted parquet→CSV; the worker then reads a local /data/input.csv on its
         // proven pandas path (so the generated code does no remote IO). Delivered to
         // the worker below via wasmFetchInputs; cleaned up after the run.
-        let wasmRemoteCsvPath: string | undefined;
-        if (sandboxRuntime === "wasm" && isRemote) {
-          ({ csvPath: wasmRemoteCsvPath } = await materializeRemoteCsvForWasm(stored, {
+        let wasmCsvPath: string | undefined;
+        // A FOLDER / hive source on the WASM tier (build log D21): enumerate the
+        // prefix host-side, mint one range token per file, and let DuckDB in the
+        // worker range-read them. One token per file (never a prefix-scoped token)
+        // keeps the D20 invariant intact — the worker picks offsets, not destinations.
+        let wasmDuckDbAliases: { name: string; url: string }[] | undefined;
+        let wasmHiveReadExpr: string | undefined;
+        const wasmMultiFile =
+          sandboxRuntime === "wasm" &&
+          isRemote &&
+          Boolean(stored.isHivePartitioned || stored.remoteParquetUrl?.includes("*"));
+
+        if (wasmMultiFile) {
+          const { host, objects } = await enumerateRemoteParquetFiles(stored, {
+            signal: getRunSignal(),
+          });
+          const aliases = buildHiveAliases(objects, host, (url: string, sizeBytes: number) =>
+            getRangeRegistry().register({
+              url,
+              allowlist: deriveAllowedEgressHosts(stored.remoteParquetUrl!, stored.remoteCreds),
+              ...(getRunId() ? { runId: getRunId()! } : {}),
+              budgetBytes: budgetForFile(sizeBytes),
+            })
+          );
+          wasmDuckDbAliases = aliases;
+          wasmHiveReadExpr = buildHiveReadExpr(aliases, Boolean(stored.isHivePartitioned));
+          // Fire-and-forget: warm every file's tail IN PARALLEL while the worker is
+          // still booting Pyodide. DuckDB's sync-XHR footer reads are sequential, so
+          // this is what turns ~1500 serial round trips into cache hits. Deliberately
+          // NOT awaited and never fatal — the worker can always fetch on demand.
+          const egressHosts = deriveAllowedEgressHosts(
+            stored.remoteParquetUrl!,
+            stored.remoteCreds
+          );
+          void prefetchFooters(
+            objects.map((o) => ({
+              url: `https://${host}/${encodeS3Key(o.key)}`,
+              allowlist: egressHosts,
+              sizeBytes: o.size,
+            })),
+            (url, start, body) => getWarmCache().put(url, start, body),
+            { signal: getRunSignal() }
+          ).catch(() => {});
+
+          logger.info("WASM remote: enumerated hive source", {
+            runId: getRunId(),
+            files: aliases.length,
+            totalBytes: objects.reduce((n, o) => n + o.size, 0),
+          });
+        } else if (sandboxRuntime === "wasm" && isRemote) {
+          ({ csvPath: wasmCsvPath } = await materializeRemoteCsvForWasm(stored, {
+            workDir: hermeticPaths.scratchDir(),
+          }));
+        } else if (sandboxRuntime === "wasm" && isLocal && isLocalParquetSource(stored)) {
+          // Local parquet, no bind-mount available: convert it host-side with the
+          // in-process DuckDB and deliver the CSV — the same shape the remote wasm
+          // path uses (D13), so the worker sees one delivery mechanism, not two.
+          ({ csvPath: wasmCsvPath } = await materializeLocalParquetCsvForWasm({
+            localPath: (stored.localFolderPath || stored.localPath)!,
+            isFolder: Boolean(stored.localFolderPath),
+            ...(stored.isHivePartitioned !== undefined
+              ? { isHivePartitioned: stored.isHivePartitioned }
+              : {}),
+            rowCount: stored.schema.row_count,
             workDir: hermeticPaths.scratchDir(),
           }));
         }
@@ -419,20 +510,30 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         // /data/input.parquet (no mount) — same resolvers as Investigate.
         const { localFileContext, remoteAuthSubst } = warehouseParquetFile
           ? { localFileContext: warehouseParquetContext, remoteAuthSubst: undefined }
-          : isLocal
-            ? { ...resolveLocalSource(stored), remoteAuthSubst: undefined }
-            : wasmRemoteCsvPath
-              ? // Reads the delivered /data/input.csv (the base prompt's default) —
-                // NO httpfs, NO remoteAuthSubst.
-                { localFileContext: undefined, remoteAuthSubst: undefined }
-              : isRemote
-                ? resolveRemoteSource(
-                    stored.remoteParquetUrl!,
-                    stored.schema.row_count,
-                    stored.isHivePartitioned,
-                    stored.remoteCreds
-                  )
-                : { localFileContext: undefined, remoteAuthSubst: undefined };
+          : sandboxRuntime === "wasm" && isLocal
+            ? // Delivered as /data/input.csv (the base prompt's default), whether it
+              // started as a CSV or was converted from parquet — no mount to describe.
+              { localFileContext: undefined, remoteAuthSubst: undefined }
+            : isLocal
+              ? { ...resolveLocalSource(stored), remoteAuthSubst: undefined }
+              : wasmCsvPath
+                ? // Reads the delivered /data/input.csv (the base prompt's default) —
+                  // NO httpfs, NO remoteAuthSubst.
+                  { localFileContext: undefined, remoteAuthSubst: undefined }
+                : wasmHiveReadExpr
+                  ? resolveWasmRemoteSource(
+                      wasmHiveReadExpr,
+                      stored.schema.row_count,
+                      stored.isHivePartitioned
+                    )
+                  : isRemote
+                    ? resolveRemoteSource(
+                        stored.remoteParquetUrl!,
+                        stored.schema.row_count,
+                        stored.isHivePartitioned,
+                        stored.remoteCreds
+                      )
+                    : { localFileContext: undefined, remoteAuthSubst: undefined };
 
         // Run the code-gen + sandbox pipeline. When the caller supplied
         // pre-edited code via context.code (Edit-and-Rerun), skip the
@@ -462,15 +563,22 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             localFileContext,
             priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
             inputParquetPath: warehouseParquetFile,
-            wasmFetchInputs: wasmRemoteCsvPath
-              ? [{ workerPath: "/data/input.csv", hostPath: wasmRemoteCsvPath }]
+            wasmFetchInputs: wasmCsvPath
+              ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
               : undefined,
+            wasmDuckDbAliases,
             purpose,
             remoteAuthSubst,
           });
         }
         // The host-materialized remote CSV is consumed once the worker fetched it.
-        if (wasmRemoteCsvPath) await unlink(wasmRemoteCsvPath).catch(() => {});
+        if (wasmCsvPath) await unlink(wasmCsvPath).catch(() => {});
+        // Range tokens are capabilities: release them the moment the run is done so
+        // a later request cannot reuse one (they are also run-scoped in the registry).
+        if (wasmDuckDbAliases?.length) {
+          const rid = getRunId();
+          if (rid) getRangeRegistry().releaseRun(rid);
+        }
 
         // NOTE: deliberately NO `if (closed()) return` here. The
         // execution is the expensive, already-paid part — a client

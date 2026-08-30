@@ -37,6 +37,7 @@ type WasmExecutorFn = (
     additionalFiles?: AdditionalFile[];
     geojsonContent?: string | null;
     fetchInputs?: { path: string; url: string }[];
+    duckdb?: { base: string; aliases: { name: string; url: string }[] };
   }
 ) => Promise<ExecutionResult>;
 
@@ -66,6 +67,7 @@ export function createStreamWasmExecutor(o: StreamWasmExecutorOpts): WasmExecuto
         files: execOpts.additionalFiles ?? [],
         geojsonContent: execOpts.geojsonContent ?? null,
         ...(execOpts.fetchInputs?.length ? { fetchInputs: execOpts.fetchInputs } : {}),
+        ...(execOpts.duckdb ? { duckdb: execOpts.duckdb } : {}),
       });
       const envelope = await Promise.race([
         promise,

@@ -139,6 +139,14 @@ export interface WasmExecuteRequest {
    * URL — only the local `path` to write and the token URL to GET.
    */
   fetchInputs?: { path: string; url: string }[];
+  /**
+   * Boot DuckDB in the worker (build log D18). `base` is the same-origin /duckdb/
+   * asset prefix; each alias binds a SQL-visible name to a token-scoped
+   * `/api/wasm-range/<token>` URL. The worker therefore reads remote parquet by
+   * byte range while only ever addressing THIS origin — it picks offsets, never a
+   * destination. Absent ⇒ the engine is not booted (a 41MB module).
+   */
+  duckdb?: { base: string; aliases: { name: string; url: string }[] };
 }
 
 /** Everything the orchestration layer writes into `spec.state`. */

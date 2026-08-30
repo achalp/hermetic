@@ -612,7 +612,20 @@ function computeCorrelations(
 
 // ── Public API ────────────────────────────────────────────────────
 
-export function extractSchema(parsed: ParsedCSV, csvId: string, filename: string): CSVSchema {
+/**
+ * `dtype` per column, supplied by a caller that already KNOWS the types rather
+ * than inferring them from text. The Parquet paths do: the file carries a real
+ * schema, so `BIGINT` should not be re-guessed from the string "1500" after a
+ * CSV round-trip (build log D25). Columns absent from the map still infer.
+ */
+export type DtypeOverrides = Readonly<Record<string, CSVColumn["dtype"]>>;
+
+export function extractSchema(
+  parsed: ParsedCSV,
+  csvId: string,
+  filename: string,
+  dtypes?: DtypeOverrides
+): CSVSchema {
   const columns: CSVColumn[] = parsed.headers.map((name) => {
     const values = parsed.data.map((row) => row[name] ?? "");
     const nonEmpty = values.filter((v) => v !== "" && v !== null && v !== undefined);
@@ -623,7 +636,7 @@ export function extractSchema(parsed: ParsedCSV, csvId: string, filename: string
     // later non-numeric values were silently dropped by the numeric extractor
     // (finding M8a). Inference is a few O(n) passes with early exit — cheap on the
     // CSV path, which is bounded (large datasets materialize to Parquet instead).
-    const dtype = inferDtype(values);
+    const dtype = dtypes?.[name] ?? inferDtype(values);
     const meta = extractColumnMeta(dtype, values);
     const sampleValues = nonEmpty.slice(0, MAX_SAMPLE_ROWS);
 

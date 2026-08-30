@@ -38,8 +38,8 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use crate::{
-    authorize_fetch, parse_url, redirect_target_authorized, AllowedFetch, ByteCounter, CapStatus,
-    DenyReason, Fetcher, FetchOutcome, Method, ResolveError, Resolver,
+    authorize_fetch, parse_url, redirect_target_authorized, AllowedFetch, ByteCounter, ByteRange,
+    CapStatus, DenyReason, Fetcher, FetchOutcome, Method, ResolveError, Resolver,
 };
 
 /// Read chunk size for streaming the body under the cap. Bounds how many bytes
@@ -161,6 +161,11 @@ impl Fetcher for SystemFetcher {
         // The URL supplies the request-target/path, the Host header, and TLS SNI;
         // the socket still goes to the pinned IP via the resolver above.
         let mut req = agent.get(&target.url);
+        // Range is re-serialized from the validated ByteRange — never the raw
+        // caller-supplied spec (§6a: the core issues only requests it built).
+        if let Some(r) = &target.range {
+            req = req.set("Range", &r.to_header_value());
+        }
         match &self.creds {
             Credentials::None => {}
             Credentials::Bearer(token) => {
@@ -193,6 +198,9 @@ impl Fetcher for SystemFetcher {
             return Err(format!("unexpected upstream status {status}"));
         }
 
+        let content_range = resp.header("content-range").unwrap_or_default().to_string();
+        let is_partial = status == 206 && target.range.is_some();
+
         // Stream the body under the cap. `Content-Length` is deliberately never
         // consulted: we neither pre-size `body` from it nor trust it for framing
         // — the ByteCounter alone decides when to stop.
@@ -212,6 +220,12 @@ impl Fetcher for SystemFetcher {
                 return Ok(FetchOutcome::CapExceeded { read });
             }
             body.extend_from_slice(&chunk[..n]);
+        }
+        if is_partial {
+            return Ok(FetchOutcome::PartialBody {
+                body,
+                content_range,
+            });
         }
         Ok(FetchOutcome::Body(body))
     }
@@ -287,6 +301,59 @@ pub fn authorize_and_fetch<R: Resolver>(
     authorize_and_fetch_with(url, allowlist, resolver, &fetcher, cap)
 }
 
+/// A RANGED fetch through the identical authorization path (parse + scheme +
+/// allowlist + resolve-and-reject + IP pinning + cap + no-follow redirects).
+/// The only difference from [`authorize_and_fetch`] is that the vetted target
+/// carries a validated [`ByteRange`], so the edge sends `Range` and a 206 comes
+/// back as `(body, content_range)`.
+///
+/// This is what lets the desktop tier read a 257 GB remote parquet by footer:
+/// the worker's DuckDB picks byte OFFSETS, but never the destination — the URL
+/// is fixed by the caller (a token-bound source), so the authorization surface
+/// is unchanged from the whole-object path (build log D18).
+pub fn authorize_and_fetch_range<R: Resolver>(
+    url: &str,
+    allowlist: &[String],
+    resolver: &R,
+    creds: &Credentials,
+    cap: u64,
+    range: ByteRange,
+) -> Result<(Vec<u8>, String), FetchError> {
+    let fetcher = SystemFetcher::new().with_credentials(creds.clone());
+    let mut target = authorize_fetch(url, allowlist, resolver, cap).map_err(FetchError::Denied)?;
+    target.range = Some(range);
+
+    for _ in 0..=MAX_REDIRECTS {
+        match fetcher.fetch(&target).map_err(FetchError::Transport)? {
+            FetchOutcome::PartialBody { body, content_range } => return Ok((body, content_range)),
+            // Upstream ignored Range and sent the whole object: report it honestly
+            // with an empty content-range so the caller does not mislabel it 206.
+            FetchOutcome::Body(bytes) => return Ok((bytes, String::new())),
+            FetchOutcome::CapExceeded { read } => return Err(FetchError::CapExceeded { read }),
+            FetchOutcome::Redirect { location } => {
+                let parsed = parse_url(&location)
+                    .ok_or_else(|| FetchError::UnparseableRedirect(location.clone()))?;
+                if parsed.scheme != "http" && parsed.scheme != "https" {
+                    return Err(FetchError::BadRedirectScheme(parsed.scheme));
+                }
+                let addrs =
+                    redirect_target_authorized(&target.host, &parsed.host, allowlist, resolver)
+                        .map_err(FetchError::RedirectNotAllowed)?;
+                target = AllowedFetch {
+                    range: target.range,
+                    host: parsed.host,
+                    port: parsed.port,
+                    addrs,
+                    method: Method::Get,
+                    cap: ByteCounter::new(cap),
+                    url: location,
+                };
+            }
+        }
+    }
+    Err(FetchError::TooManyRedirects)
+}
+
 /// The same wiring as [`authorize_and_fetch`] but over an injected [`Fetcher`],
 /// so the redirect / cap / re-authorization logic is testable with a fake edge
 /// (no socket). Production calls the wrapper above with a [`SystemFetcher`].
@@ -306,6 +373,7 @@ pub fn authorize_and_fetch_with<F: Fetcher, R: Resolver>(
     for _ in 0..=MAX_REDIRECTS {
         match fetcher.fetch(&target).map_err(FetchError::Transport)? {
             FetchOutcome::Body(bytes) => return Ok(bytes),
+            FetchOutcome::PartialBody { body, .. } => return Ok(body),
             FetchOutcome::CapExceeded { read } => return Err(FetchError::CapExceeded { read }),
             FetchOutcome::Redirect { location } => {
                 // Re-authorize THIS hop exactly like the initial one. We require
@@ -320,6 +388,7 @@ pub fn authorize_and_fetch_with<F: Fetcher, R: Resolver>(
                     redirect_target_authorized(&target.host, &parsed.host, allowlist, resolver)
                         .map_err(FetchError::RedirectNotAllowed)?;
                 target = AllowedFetch {
+                    range: target.range,
                     host: parsed.host,
                     port: parsed.port,
                     addrs,

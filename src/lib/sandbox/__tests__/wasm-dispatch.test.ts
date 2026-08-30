@@ -87,3 +87,48 @@ describe("executeSandbox — wasm dispatch", () => {
     expect(getInputRegistry().size()).toBe(before); // released after (no leak)
   });
 });
+
+describe("wasm dispatch — DuckDB is opt-in (build log D18)", () => {
+  it("does NOT boot the engine for pandas-only code (a 41MB module nobody asked for)", async () => {
+    const wasmExecutor = vi.fn<WasmExecutor>(async (_c, _code, opts) => {
+      expect(opts.duckdb).toBeUndefined();
+      return success;
+    });
+    await executeSandbox("a\n1\n", "import pandas as pd\nprint(pd)", {
+      runtime: "wasm",
+      wasmExecutor,
+    });
+    expect(wasmExecutor).toHaveBeenCalledOnce();
+  });
+
+  it("boots it when the generated code imports duckdb, pointing at the same-origin assets", async () => {
+    const wasmExecutor = vi.fn<WasmExecutor>(async (_c, _code, opts) => {
+      expect(opts.duckdb?.base).toBe("/duckdb/");
+      expect(opts.duckdb?.aliases).toEqual([]);
+      return success;
+    });
+    await executeSandbox("a\n1\n", "import duckdb\nduckdb.sql('SELECT 1')", {
+      runtime: "wasm",
+      wasmExecutor,
+    });
+    expect(wasmExecutor).toHaveBeenCalledOnce();
+  });
+
+  it("boots it for a remote source and passes the range-token alias, never the upstream URL", async () => {
+    const aliases = [{ name: "buildings.parquet", url: "/api/wasm-range/tok-abc" }];
+    const wasmExecutor = vi.fn<WasmExecutor>(async (_c, _code, opts) => {
+      expect(opts.duckdb?.aliases).toEqual(aliases);
+      const serialized = JSON.stringify(opts.duckdb);
+      expect(serialized).not.toContain("s3://");
+      expect(serialized).not.toContain("amazonaws.com");
+      return success;
+    });
+    // Note: the code does NOT import duckdb — the alias alone forces the boot.
+    await executeSandbox("a\n1\n", "print(1)", {
+      runtime: "wasm",
+      wasmExecutor,
+      wasmDuckDbAliases: aliases,
+    });
+    expect(wasmExecutor).toHaveBeenCalledOnce();
+  });
+});

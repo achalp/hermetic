@@ -14,6 +14,8 @@ import {
   buildParquetFingerprintScript,
 } from "./schema-script";
 import { duckdbRemoteAuthSql, type RemoteCreds } from "./duckdb-source";
+import { extractParquetSchemaHost } from "./host-schema";
+import { computeRemoteParquetFingerprintHost } from "./host-fingerprint";
 import { logger } from "@/lib/logger";
 
 /**
@@ -151,10 +153,18 @@ export async function extractParquetSchema(
   runtime: SandboxRuntimeId,
   isHivePartitioned?: boolean
 ): Promise<CSVSchema> {
+  // No Docker? Profile it in-process instead. `host-schema.ts` runs the SAME
+  // DuckDB engine against the real filesystem — a container was never what made
+  // local parquet profiling possible, only what we happened to use (build log
+  // D24/D25). Stats come from a smaller sample there; row count and types do not.
   if (runtime !== "docker") {
-    throw new Error(
-      "Parquet schema extraction is currently only supported with the Docker sandbox runtime."
-    );
+    return extractParquetSchemaHost({
+      localPath,
+      csvId,
+      filename,
+      isFolder,
+      ...(isHivePartitioned !== undefined ? { isHivePartitioned } : {}),
+    });
   }
 
   // Mount the parent directory (single file) or the folder itself.
@@ -194,9 +204,14 @@ export async function extractRemoteParquetSchema(
   isHivePartitioned?: boolean,
   creds?: RemoteCreds
 ): Promise<CSVSchema> {
+  // Off Docker this runs IN THE WORKER, driven by the client — see
+  // lib/parquet/wasm-schema-job.ts and /api/remote-parquet/schema(/complete).
+  // Reaching here means something called the server-side extractor directly on a
+  // runtime that has no container, which is a wiring bug, not a user error.
   if (runtime !== "docker") {
     throw new Error(
-      "Cloud Parquet schema extraction is currently only supported with the Docker sandbox runtime."
+      "Cloud Parquet schema extraction on the built-in runtime runs in the browser worker " +
+        "(/api/remote-parquet/schema), not here."
     );
   }
 
@@ -231,8 +246,11 @@ export async function computeRemoteParquetFingerprint(
   runtime: SandboxRuntimeId,
   creds?: RemoteCreds
 ): Promise<string> {
+  // Off Docker, list the object store from the host through the Rust egress core
+  // instead of from inside a container (build log D26). Same change-detection,
+  // deliberately different digest FORMAT so the two can never be compared.
   if (runtime !== "docker") {
-    throw new Error("Remote Parquet fingerprint requires the Docker sandbox runtime.");
+    return computeRemoteParquetFingerprintHost(readUrl, creds);
   }
   const containerId = `hermetic-parquet-fp-${randomUUID()}`;
   let egress: EgressNetwork | undefined;

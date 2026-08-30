@@ -38,6 +38,11 @@ export async function materializeCsvToParquet(
   filename: string,
   runtime: SandboxRuntimeId
 ): Promise<{ parquetPath: string; schema: CSVSchema }> {
+  // Deliberately still Docker-only, and NOT lifted alongside the local-parquet
+  // read path (D25). This converts a large CSV to Parquet so analysis can read it
+  // as a mounted file — but the wasm tier has no mount, so it would convert the
+  // Parquet straight back to CSV to run. The ingest caller already skips this on
+  // non-Docker runtimes and keeps the CSV; this throw is the backstop.
   if (runtime !== "docker") {
     throw new Error("Parquet materialization is only supported with the Docker sandbox runtime.");
   }

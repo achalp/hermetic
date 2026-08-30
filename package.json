@@ -23,6 +23,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--import ./scripts/server-timeouts.mjs' next dev -H ${HERMETIC_HOST:-127.0.0.1}",
     "build": "next build",
+    "build:duckdb-wasm": "node scripts/build-duckdb-wasm-assets.mjs",
     "start": "NODE_OPTIONS='--import ./scripts/server-timeouts.mjs' next start -H ${HERMETIC_HOST:-127.0.0.1}",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
