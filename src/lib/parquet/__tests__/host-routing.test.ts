@@ -7,6 +7,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 
 const hostSpy = vi.fn();
+const fpSpy = vi.fn(() => Promise.resolve("s3list:2:abc"));
+vi.mock("@/lib/parquet/host-fingerprint", () => ({
+  computeRemoteParquetFingerprintHost: (...a: unknown[]) => fpSpy(...(a as [])),
+}));
 vi.mock("@/lib/parquet/host-schema", () => ({
   extractParquetSchemaHost: (args: unknown) => {
     hostSpy(args);
@@ -28,7 +32,10 @@ vi.mock("@/lib/sandbox/docker-utils", () => ({
   }),
 }));
 
-beforeEach(() => hostSpy.mockClear());
+beforeEach(() => {
+  hostSpy.mockClear();
+  fpSpy.mockClear();
+});
 
 describe("extractParquetSchema — runtime routing", () => {
   it("profiles on the HOST for the built-in runtime, never shelling out to docker", async () => {
@@ -58,5 +65,25 @@ describe("extractParquetSchema — runtime routing", () => {
       extractParquetSchema("/d/f.parquet", "cid", "f.parquet", false, "docker")
     ).rejects.toThrow(/docker must not be invoked/);
     expect(hostSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("computeRemoteParquetFingerprint — runtime routing", () => {
+  it("lists from the HOST on the built-in runtime instead of requiring Docker", async () => {
+    const { computeRemoteParquetFingerprint } = await import("@/lib/parquet/schema-extractor");
+    // This used to throw "Remote Parquet fingerprint requires the Docker sandbox
+    // runtime." — the first error the built-in runtime actually reported (D24).
+    await expect(computeRemoteParquetFingerprint("s3://b/release/theme=x", "wasm")).resolves.toBe(
+      "s3list:2:abc"
+    );
+    expect(fpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("still uses the Docker path for the docker runtime", async () => {
+    const { computeRemoteParquetFingerprint } = await import("@/lib/parquet/schema-extractor");
+    await expect(
+      computeRemoteParquetFingerprint("s3://b/release/theme=x", "docker")
+    ).rejects.toThrow();
+    expect(fpSpy).not.toHaveBeenCalled();
   });
 });

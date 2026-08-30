@@ -964,3 +964,36 @@ case is still blocked on those two.
 threshold (100%) was already failing at HEAD (87.43%). These changes moved it to
 87.50%. `pnpm lint` OOMs on the bundled `src-tauri/sidecar/.../viewer/dist` chunks —
 also pre-existing; the touched files lint clean individually.
+
+### D26 — Remote fingerprint, off Docker: the container was not doing anything the host cannot.
+
+`computeRemoteParquetFingerprint` was the FIRST error the built-in runtime actually
+reported when connecting the Overture source ("Remote Parquet fingerprint requires
+the Docker sandbox runtime"), so it is worth being precise about what it needed.
+
+It runs DuckDB's `glob()` over the object store and digests the file listing. The
+container contributed the DuckDB binary — but the LISTING is an S3 `list-type=2`
+call, and `enumerateRemoteParquetFiles` has performed exactly that through the Rust
+egress core since D21, with the allowlist, resolve-and-reject, IP pinning,
+no-redirect and byte cap intact. So the host path is composition of two shipped
+pieces, not a second implementation of the fingerprint idea.
+
+**Same semantics, deliberately different FORMAT.** Both digests detect the same
+change — files added, removed, or rewritten under new names, which is how
+Spark/Delta/Iceberg/Hive writers emit data. But the Docker digest is over DuckDB's
+`s3://bucket/key` strings and this one is over listed keys, so on an UNCHANGED source
+the two disagree. The prefixes (`files:` vs `s3list:`) make that impossible to
+confuse: switching runtimes reads as "changed" and re-extracts, which is correct.
+Unifying them would mean comparing incomparable digests and calling a stale schema
+fresh — the failure this format split exists to prevent.
+
+One improvement fell out for free: the listing already carries object SIZES, so the
+host digest includes them. That closes the Docker digest's blind spot — a file
+rewritten in place under the same name — at no extra request.
+
+A single `https://` object has no listing, so it falls back to its size, read with a
+one-byte ranged GET (the total arrives in `Content-Range`, so no new verb and no
+meaningful transfer).
+
+Gate 2 of 5 down. Remaining: `schema-extractor.ts:199`, cloud parquet SCHEMA
+extraction — still the extract-in-worker job D24 specified.

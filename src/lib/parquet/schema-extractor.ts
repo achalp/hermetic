@@ -15,6 +15,7 @@ import {
 } from "./schema-script";
 import { duckdbRemoteAuthSql, type RemoteCreds } from "./duckdb-source";
 import { extractParquetSchemaHost } from "./host-schema";
+import { computeRemoteParquetFingerprintHost } from "./host-fingerprint";
 import { logger } from "@/lib/logger";
 
 /**
@@ -240,8 +241,11 @@ export async function computeRemoteParquetFingerprint(
   runtime: SandboxRuntimeId,
   creds?: RemoteCreds
 ): Promise<string> {
+  // Off Docker, list the object store from the host through the Rust egress core
+  // instead of from inside a container (build log D26). Same change-detection,
+  // deliberately different digest FORMAT so the two can never be compared.
   if (runtime !== "docker") {
-    throw new Error("Remote Parquet fingerprint requires the Docker sandbox runtime.");
+    return computeRemoteParquetFingerprintHost(readUrl, creds);
   }
   const containerId = `hermetic-parquet-fp-${randomUUID()}`;
   let egress: EgressNetwork | undefined;
