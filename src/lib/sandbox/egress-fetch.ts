@@ -108,6 +108,21 @@ export function materializeRemoteToFile(o: MaterializeRemoteOptions): Promise<{ 
       reject(err);
     };
 
+    // The destination stream needs its OWN error handler: `createWriteStream`
+    // opens the file asynchronously, so a dest that is unwritable, full, or whose
+    // directory vanished mid-flight emits here — and with no listener Node turns
+    // that into an UNCAUGHT EXCEPTION rather than a rejected promise. After
+    // `settled` this is a no-op, which is what makes a late open error harmless.
+    out.on("error", (err: Error) => {
+      void fail(
+        new EgressFetchError(
+          `egress-fetch could not write the destination: ${err.message}`,
+          "transport",
+          null
+        )
+      );
+    });
+
     child.stdout.on("data", (chunk: Buffer) => {
       bytes += chunk.length;
     });

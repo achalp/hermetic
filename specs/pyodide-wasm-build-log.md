@@ -1160,3 +1160,39 @@ is the pre-push hook, and I had been treating it as the definition of done. The
 lint-and-build job also runs `ratchet`, `isolation`, `format:check` and `build`. The
 first three take seconds. Running them locally is now part of finishing, not part of
 reacting to a red PR — the whole set is green here before this push.
+
+### D30 — A CI-only unhandled error, and the real defect underneath it.
+
+The `Tests` job went red with all 3844 tests PASSING and no threshold breach:
+
+    Vitest caught 1 unhandled error during the test run.
+    Uncaught Exception: ENOENT: open '/tmp/egress-fetch-test-XXXX/nope.parquet'
+    This error originated in "src/lib/sandbox/__tests__/egress-fetch.test.ts"
+
+Nothing in D28/D29 touched `egress-fetch.ts`. The honest read is that the D28 work
+added test files to the same worker and shifted timing enough to expose a latent bug
+— it did not cause it.
+
+**The defect.** `materializeRemoteToFile` does `createWriteStream(o.destPath)` and
+never attaches an `'error'` listener to it. `createWriteStream` opens the file
+ASYNCHRONOUSLY, so a destination that is unwritable, out of space, or whose directory
+vanished mid-flight emits on that stream — and an `'error'` event with no listener is
+promoted by Node to an uncaught exception. In the test the last case spawns a missing
+binary, `afterAll` removes the temp dir, and the stream's pending `open` lands after
+both.
+
+It is worse than an unhandled event, which is what the mutation check showed: with
+the listener removed, the "unwritable destination" test does not fail fast — it
+**hangs for 5 seconds and times out**. Nothing else settles that promise. So on a
+real host with a full disk or an unwritable cache dir, a remote materialization would
+have hung rather than reported an error.
+
+**The fix** routes the stream error into the same `fail()` path everything else uses:
+reject with an `EgressFetchError`, delete any partial file, and no-op if the promise
+already settled — which is exactly what makes a LATE open error harmless. Two
+regression tests, both verified by mutation (removing the listener fails both).
+
+**What this says about the previous entry.** D29 claimed the fix for treating
+"type-check + full suite" as done. This is the same lesson one level deeper: the
+suite passed locally AND in CI's own run — the failure was in the _exit code_, from
+an error outside any test. A green test count is not a green run.

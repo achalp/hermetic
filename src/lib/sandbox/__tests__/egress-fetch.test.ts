@@ -98,4 +98,43 @@ describe("materializeRemoteToFile", () => {
       })
     ).rejects.toMatchObject({ kind: "spawn" });
   });
+
+  it("REJECTS on an unwritable destination instead of crashing the process", async () => {
+    // createWriteStream opens asynchronously, so a bad destination surfaces as an
+    // 'error' event on the stream. Without a listener Node promotes that to an
+    // UNCAUGHT EXCEPTION — which is how it showed up: as a CI-only unhandled
+    // error, after the owning test had already passed (build log D30).
+    await expect(
+      materializeRemoteToFile({
+        url: "https://ok/x",
+        allowlist: ["data.example.com"],
+        // A directory that does not exist → ENOENT on open.
+        destPath: join(dir, "no-such-dir", "out.parquet"),
+        binPath,
+      })
+    ).rejects.toBeInstanceOf(EgressFetchError);
+  });
+
+  it("does not leave the rejection unhandled when the dest fails LATE", async () => {
+    // The exact shape of the CI failure: the spawn fails first and settles the
+    // promise, and the stream's open error arrives afterwards. It must be
+    // swallowed by the `settled` guard, not thrown at the process.
+    const seen: unknown[] = [];
+    const onUncaught = (e: unknown) => seen.push(e);
+    process.on("uncaughtException", onUncaught);
+    try {
+      await expect(
+        materializeRemoteToFile({
+          url: "https://ok/x",
+          allowlist: ["data.example.com"],
+          destPath: join(dir, "also-missing", "out.parquet"),
+          binPath: join(dir, "does-not-exist"),
+        })
+      ).rejects.toBeInstanceOf(EgressFetchError);
+      await new Promise((r) => setTimeout(r, 50)); // let a late open error land
+      expect(seen).toEqual([]);
+    } finally {
+      process.off("uncaughtException", onUncaught);
+    }
+  });
 });
