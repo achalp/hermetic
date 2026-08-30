@@ -48,7 +48,19 @@
       // exfil). The packaged-build app CSP below is further tightened (§7 #5b:
       // drop huggingface.co, constrain connect-src/img-src) once the sidecar
       // origin is known.
-      csp: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:3000 ws://localhost:3000; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      // MAP BASEMAP (build log D23): MapLibre fetches its style JSON and raster
+      // tiles from CARTO, so `basemaps.cartocdn.com` is allowed on connect-src (the
+      // style + vector fetches) and img-src (the raster tiles). Without BOTH, pins
+      // render but the map is a blank box — the tiles are the only part that needs
+      // the network.
+      //
+      // PRIVACY NOTE, stated plainly: tiles are requested per VIEWPORT, so CARTO
+      // learns which patch of earth a user is looking at (not their data, but a
+      // strong hint about its subject). That is a real qualification of the app's
+      // "your data stays local" promise and is an accepted, deliberate trade for a
+      // usable map — NOT an oversight. Nothing else here is widened: no scripts, no
+      // other hosts, and analysis egress still goes only through the Rust core.
+      csp: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://basemaps.cartocdn.com; connect-src 'self' http://localhost:3000 ws://localhost:3000 https://*.basemaps.cartocdn.com https://basemaps.cartocdn.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       // Capability grants live in capabilities/default.json — MINIMAL by design
       // (§7 #1): NO fs/shell/http/dialog/os permissions.
     },
