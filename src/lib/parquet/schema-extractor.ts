@@ -14,6 +14,7 @@ import {
   buildParquetFingerprintScript,
 } from "./schema-script";
 import { duckdbRemoteAuthSql, type RemoteCreds } from "./duckdb-source";
+import { extractParquetSchemaHost } from "./host-schema";
 import { logger } from "@/lib/logger";
 
 /**
@@ -151,10 +152,18 @@ export async function extractParquetSchema(
   runtime: SandboxRuntimeId,
   isHivePartitioned?: boolean
 ): Promise<CSVSchema> {
+  // No Docker? Profile it in-process instead. `host-schema.ts` runs the SAME
+  // DuckDB engine against the real filesystem — a container was never what made
+  // local parquet profiling possible, only what we happened to use (build log
+  // D24/D25). Stats come from a smaller sample there; row count and types do not.
   if (runtime !== "docker") {
-    throw new Error(
-      "Parquet schema extraction is currently only supported with the Docker sandbox runtime."
-    );
+    return extractParquetSchemaHost({
+      localPath,
+      csvId,
+      filename,
+      isFolder,
+      ...(isHivePartitioned !== undefined ? { isHivePartitioned } : {}),
+    });
   }
 
   // Mount the parent directory (single file) or the folder itself.

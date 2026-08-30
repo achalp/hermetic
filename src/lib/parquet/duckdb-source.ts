@@ -406,6 +406,20 @@ function csvFileContext(fname: string): string {
  * Mount strategy (unchanged): a folder mounts itself; a single file mounts its
  * parent directory (so the file lands at /data/local/<name>).
  */
+/**
+ * Whether a stored LOCAL source is Parquet (a folder of parts, or a single file)
+ * rather than a plain CSV. The two need different delivery on a runtime with no
+ * bind-mount: parquet must be converted host-side, a CSV can be handed over as
+ * text. Kept next to {@link resolveLocalSource} so the "is this parquet" rule has
+ * ONE definition — they disagreed once and the folder case silently took the CSV
+ * branch.
+ */
+export function isLocalParquetSource(stored: StoredCSV): boolean {
+  if (stored.localFolderPath) return true;
+  if (!stored.localPath) return false;
+  return stored.localPath.toLowerCase().endsWith(".parquet") || !!stored.isParquet;
+}
+
 export function resolveLocalSource(stored: StoredCSV): {
   localMountPath?: string;
   localFileContext?: string;
@@ -427,7 +441,7 @@ export function resolveLocalSource(stored: StoredCSV): {
   if (stored.localPath) {
     const fname = basename(stored.localPath);
     const where = `${LOCAL_MOUNT_PATH}/${fname}`;
-    const isParquet = fname.toLowerCase().endsWith(".parquet") || !!stored.isParquet;
+    const isParquet = isLocalParquetSource(stored);
     return {
       localMountPath: dirname(stored.localPath),
       localFileContext: isParquet

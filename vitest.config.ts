@@ -49,6 +49,9 @@ export default defineConfig({
         "src/lib/sandbox/wasm/transport-node.ts",
         "src/lib/sandbox/wasm/duckdb-bridge.ts",
         "src/lib/sandbox/wasm/duckdb-engine.ts",
+        // Boots the in-process DuckDB-WASM engine (the shared host connection);
+        // gated integration tests cover it, not the unit run.
+        "src/lib/sandbox/wasm/host-duckdb.ts",
         // Host-side parquet→CSV (DuckDB-WASM in-process); gated integration test.
         "src/lib/sandbox/wasm/parquet-convert.ts",
         "src/lib/sandbox/wasm/handoff.ts",

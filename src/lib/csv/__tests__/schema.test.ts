@@ -677,3 +677,49 @@ describe("granularity dedupes repeated timestamps (M8c)", () => {
     expect(meta.granularity).toBe("day");
   });
 });
+
+describe("extractSchema — dtype overrides (build log D25)", () => {
+  /**
+   * The Parquet paths already KNOW the column types; text inference is only a
+   * fallback for real CSVs. Without the override a parquet column round-tripped
+   * through CSV gets re-guessed, and a typed source silently becomes a
+   * mis-typed schema.
+   */
+  const parsed = {
+    headers: ["id", "when", "note"],
+    data: [
+      { id: "20240101", when: "2024-01-01", note: "5" },
+      { id: "20240102", when: "2024-01-02", note: "6" },
+    ],
+    rowCount: 2,
+  };
+
+  it("honors the caller's dtype over what the text looks like", () => {
+    const schema = extractSchema(parsed, "cid", "f.parquet", {
+      id: "string", // 8-digit ints that inference would happily call numbers/dates
+      note: "string", // "5"/"6" look numeric
+    });
+    const byName = Object.fromEntries(schema.columns.map((c) => [c.name, c.dtype]));
+    expect(byName.id).toBe("string");
+    expect(byName.note).toBe("string");
+  });
+
+  it("still INFERS any column the caller did not name", () => {
+    const schema = extractSchema(parsed, "cid", "f.parquet", { id: "string" });
+    const when = schema.columns.find((c) => c.name === "when");
+    expect(when?.dtype).toBe("date");
+  });
+
+  it("drives meta extraction from the OVERRIDE, not the inferred type", () => {
+    // The meta shape follows dtype: a forced "string" must produce categorical
+    // meta, not the numeric meta inference would have built.
+    const schema = extractSchema(parsed, "cid", "f.parquet", { note: "string" });
+    expect(schema.columns.find((c) => c.name === "note")?.meta.kind).toBe("categorical");
+  });
+
+  it("behaves exactly as before when no overrides are passed", () => {
+    expect(extractSchema(parsed, "cid", "f.csv")).toEqual(
+      extractSchema(parsed, "cid", "f.csv", {})
+    );
+  });
+});

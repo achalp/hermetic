@@ -887,3 +887,80 @@ The three LOCAL gates (schema-extractor.ts:156, materialize.ts:42,
 capabilities.ts:103) need none of this: host-side DuckDB already performs exactly
 that work in `parquet-convert.ts` (node-blocking, in-process, no Docker). Those look
 like routing, and are the cheap half — do them first.
+
+### D25 — The LOCAL half of the ingest wall is down: no Docker needed to read a local Parquet.
+
+D24 called these three gates "the cheap half" and said they looked like routing.
+Two of them were. The third was not, and the reason matters more than the fix.
+
+**The trap: lifting the CONNECT gate alone makes things worse.** Letting
+`extractParquetSchema` succeed on the built-in runtime moves the failure from
+source-connect to the first QUESTION — `resolveLocalSource` sets `localMountPath`,
+`hasMount` goes true, and `capabilities.ts` rejects. The user would have invested a
+connect and a question before hearing "switch to Docker". So the schema gate and the
+execution path had to land together, or not at all.
+
+**What shipped.**
+
+| Piece                         | What it does                                                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sandbox/wasm/host-duckdb.ts` | The ONE in-process DuckDB (node-blocking, `NODE_RUNTIME`), extracted from `parquet-convert.ts` — two callers now need it and a second boot buys nothing |
+| `parquet/host-schema.ts`      | Profiles a local parquet file/folder into a `CSVSchema` with no container                                                                               |
+| `parquet/host-materialize.ts` | Converts a local parquet file/folder → one CSV for delivery to the worker                                                                               |
+| `csv/schema.ts`               | `extractSchema` takes optional `dtype` overrides                                                                                                        |
+| `duckdb-source.ts`            | `isLocalParquetSource` — ONE definition of "is this local source parquet"                                                                               |
+
+**Staying at one profiler, not two.** The obvious shape — re-implement
+`SHARED_STATS_TAIL`'s ~400 lines of per-column SQL in TypeScript — leaves two
+profilers that drift silently, only one of them testable without Docker. Instead the
+work splits by who is actually authoritative: DuckDB answers what only DuckDB knows
+(column TYPES via `DESCRIBE`, the true ROW COUNT via parquet footers), and a bounded
+row sample goes to `extractSchema` — the profiler the CSV path has always used —
+with those types passed in as `dtype` overrides. So the stats logic has one
+implementation, and the CSV round-trip cannot mistype a column.
+
+The honest difference: the container profiles a 500k-row sample with SQL aggregates,
+the host profiles 50k rows in JavaScript, because the TS profiler walks every value
+several times per column. `row_count` is exact either way. That is a difference in
+stats PRECISION, not correctness — and it is why this is a parallel path, not a
+replacement for Docker.
+
+One in-contract divergence, deliberate: the Python script maps STRUCT/LIST/MAP/
+GEOMETRY to `"complex"`, which is **not in the `CSVSchema` dtype union**. The host
+mapper returns `"string"` for those (which is what they are once serialized) rather
+than copying an out-of-contract value into a stored schema.
+
+**Execution: a CSV bridge, with a ceiling that refuses rather than degrades.** The
+worker has no filesystem, so local parquet is converted host-side and delivered as
+`/data/input.csv` — the identical shape the remote path has used since D13, so the
+worker sees ONE delivery mechanism. The cost is real: a CSV bridge materializes the
+whole dataset, which is exactly what parquet exists to avoid. Hence
+`WASM_LOCAL_CSV_MAX_ROWS` (2M, checked BEFORE booting DuckDB) and
+`WASM_LOCAL_CSV_MAX_BYTES` (512 MB, checked on the written file, since a few hundred
+wide string columns defeat a row cap). Over either, it names Docker and stops.
+
+The upgrade that removes the ceiling is serving the LOCAL file over a ranged endpoint
+so DuckDB-in-the-worker reads only the row groups it needs — the same trick D18–D21
+already built for remote. The caps live as two named constants for that reason.
+
+**Two gates deliberately NOT lifted:**
+
+- `materialize.ts` (CSV → Parquet) stays Docker-only. It exists so analysis can read
+  a big CSV as a MOUNTED parquet; on the wasm tier that parquet would be converted
+  straight back to CSV to run. Ingest already skips it on non-Docker and keeps the
+  CSV — the throw is the backstop, and now says why.
+- `capabilities.ts`'s mount message was NARROWED, not removed. It no longer claims
+  "Parquet/local-file analysis" needs Docker (false as of this entry); it names what
+  actually still does — a copied-in Parquet, i.e. a materialized warehouse pull,
+  which has no delivery path yet.
+
+**Still open: the REMOTE half.** `schema-extractor.ts:199` (cloud parquet schema) and
+`:235` (remote fingerprint) are untouched. They need the extract-in-worker machinery
+D24 specified — connect-scoped token leases, a describe-only job shape, and
+client-driven dispatch — and the trust note that goes with it. The Seattle/Overture
+case is still blocked on those two.
+
+**Pre-existing, not introduced here:** the `src/lib/sandbox/wasm/**` coverage
+threshold (100%) was already failing at HEAD (87.43%). These changes moved it to
+87.50%. `pnpm lint` OOMs on the bundled `src-tauri/sidecar/.../viewer/dist` chunks —
+also pre-existing; the touched files lint clean individually.

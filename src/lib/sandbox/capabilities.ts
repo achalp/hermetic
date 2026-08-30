@@ -100,7 +100,13 @@ const CAPABILITY_ERRORS: {
   {
     need: "mount",
     has: "supportsMount",
-    message: () => "Parquet/local-file analysis is only supported with the Docker sandbox runtime.",
+    // Narrowed in D25: a browsed local file/folder is no longer gated here — the
+    // wasm path converts it host-side and DELIVERS it, so it never asks for a
+    // mount. What still needs one is a copied-in Parquet (a materialized
+    // warehouse pull), which has no delivery path yet.
+    message: () =>
+      "This source is handed to the sandbox as a mounted Parquet file, which only the " +
+      "Docker sandbox runtime can do.",
   },
   {
     need: "remoteIo",

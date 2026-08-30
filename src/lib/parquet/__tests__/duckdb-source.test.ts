@@ -15,6 +15,7 @@ import {
   S3_SECRET_PLACEHOLDER,
   DUCKDB_CLOUD_PRELUDE,
   duckdbCloudPreludePy,
+  isLocalParquetSource,
 } from "@/lib/parquet/duckdb-source";
 import type { StoredCSV } from "@/lib/contracts/storage-types";
 import type { CSVSchema } from "@/lib/contracts/data-schema";
@@ -380,5 +381,37 @@ describe("redactRemoteSecrets (finding M1)", () => {
   it("is a no-op for a script with no embedded secret", () => {
     const code = `duckdb.sql("SELECT * FROM read_parquet('s3://public/x.parquet')").df()`;
     expect(redactRemoteSecrets(code)).toBe(code);
+  });
+});
+
+describe("isLocalParquetSource (build log D25)", () => {
+  /**
+   * Decides how a LOCAL source reaches a runtime with no bind-mount: parquet is
+   * converted host-side, a CSV is handed over as text. It must agree with
+   * resolveLocalSource's own parquet test — they disagreed once and the folder
+   * case silently took the CSV branch.
+   */
+  const base = { schema: { row_count: 0 } } as unknown as Parameters<
+    typeof isLocalParquetSource
+  >[0];
+
+  it("treats any local FOLDER as parquet — a folder source is only ever parts", () => {
+    expect(isLocalParquetSource({ ...base, localFolderPath: "/d/set" })).toBe(true);
+  });
+
+  it("recognizes a .parquet file by extension, case-insensitively", () => {
+    expect(isLocalParquetSource({ ...base, localPath: "/d/f.parquet" })).toBe(true);
+    expect(isLocalParquetSource({ ...base, localPath: "/d/f.PARQUET" })).toBe(true);
+  });
+
+  it("honors the stored isParquet flag when the name does not say so", () => {
+    expect(isLocalParquetSource({ ...base, localPath: "/d/part-0000", isParquet: true })).toBe(
+      true
+    );
+  });
+
+  it("is false for a local CSV and for a source with no local path at all", () => {
+    expect(isLocalParquetSource({ ...base, localPath: "/d/f.csv" })).toBe(false);
+    expect(isLocalParquetSource(base)).toBe(false);
   });
 });
