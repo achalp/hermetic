@@ -40,7 +40,7 @@ import { parseCSV } from "@/lib/csv/parser";
 import { extractSchema, type DtypeOverrides } from "@/lib/csv/schema";
 import { hostQueryRows, hostExec } from "@/lib/sandbox/wasm/host-duckdb";
 import { sqlLit } from "@/lib/sandbox/wasm/sql-lit";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /**
  * Rows sampled for per-column stats. Bounded because the profiler is JavaScript
@@ -180,7 +180,7 @@ async function countRows(readExpr: string, localPath: string, isFolder: boolean)
       if (n > 0) return n;
     } catch (err) {
       logger.debug("parquet_file_metadata unavailable; counting rows directly", {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       });
     }
   }

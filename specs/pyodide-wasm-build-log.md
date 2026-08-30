@@ -1122,3 +1122,41 @@ Verified by mutation: raising the statement floor to 93 fails the run.
 
 Both leftovers from D27 are now clean too: 0 lint warnings in the touched trees
 (including two pre-existing ones), and `test:coverage` reports no threshold errors.
+
+### D29 — CI red on a gate I never ran: the modularization ratchet.
+
+D25–D28 were reported as done on the strength of type-check + the full suite +
+coverage. CI runs more than that, and `pnpm run ratchet` — a design-flaw counter
+whose baseline may only ever go DOWN — caught two regressions I had introduced and
+never looked for.
+
+**`error-message-ternary` 0 → 1.** `host-schema.ts` wrote the inline
+`err instanceof Error ? err.message : String(err)` instead of `errMessage(err)` from
+`lib/logger`. The metric's rationale is better than "be consistent": the inline
+ternary discards the stack and cause chain, which is exactly what a novel failure
+needs to be localized. One-line fix.
+
+**`oversized-modules` 1 → 2.** `src/app/lib/api.ts` crossed the 1300-line limit —
+1282 on main, 1310 after D27. The tempting fix is to shave a few lines; the honest
+one is that the code I added never belonged there. `api.ts` is a per-endpoint typed
+client, and connect on the built-in runtime is a two-hop ORCHESTRATION spanning two
+endpoints and a worker round trip. That is a different kind of thing, and it now
+lives in `app/lib/remote-parquet-connect.ts` with `RemoteParquetResult` /
+`RemoteParquetCreds` owned there (re-exported from `api.ts`, so no caller changed).
+api.ts is back to 1277 — BELOW where it started — and the protocol gained an
+injectable `run`, so the round trip is now testable without a worker or a network.
+It has five tests it never had.
+
+**A flaky test of my own making, caught by the hook.** The first push attempt failed
+the pre-push suite and then passed on a re-run. The cause was in the new test file:
+it `vi.stubGlobal("fetch", …)` and never restored it, so the stub outlived the file
+and could be seen by another suite reusing the worker (`api.test.ts` stubs fetch
+too). The repo convention is `afterEach(() => vi.unstubAllGlobals())` and I had
+simply omitted it. Worth naming because the tempting response to an intermittent red
+is to re-run until green — which here would have shipped a flake into CI.
+
+**The process lesson, which is the point of this entry.** "Type-check + full suite"
+is the pre-push hook, and I had been treating it as the definition of done. The
+lint-and-build job also runs `ratchet`, `isolation`, `format:check` and `build`. The
+first three take seconds. Running them locally is now part of finishing, not part of
+reacting to a red PR — the whole set is green here before this push.
