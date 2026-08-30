@@ -17,7 +17,7 @@ vi.mock("@/lib/local-files/security", () => ({
 vi.mock("@/lib/sources/recent-sources", () => ({ recordRecentSource: vi.fn(async () => {}) }));
 
 const extractRemoteParquetSchema = vi.fn();
-const computeRemoteParquetFingerprint = vi.fn(async (..._args: unknown[]) => "fp-1");
+const computeRemoteParquetFingerprint = vi.fn<(...args: unknown[]) => Promise<string>>();
 vi.mock("@/lib/parquet/schema-extractor", () => ({
   extractRemoteParquetSchema: (...args: unknown[]) => extractRemoteParquetSchema(...args),
   computeRemoteParquetFingerprint: (...args: unknown[]) => computeRemoteParquetFingerprint(...args),
@@ -26,14 +26,20 @@ vi.mock("@/lib/parquet/schema-extractor", () => ({
 // Mock the cache so no test touches disk: by default it just runs the
 // extraction (a "miss"), but records the opts so we can assert force passthrough.
 const resolveWithCache = vi.fn(
-  async (opts: { extract: () => Promise<unknown>; force?: boolean }) => ({
-    artifact: await opts.extract(),
-    status: opts.force ? "forced" : "miss",
-  })
+  async (opts: {
+    extract: () => Promise<unknown>;
+    fingerprint: () => Promise<string>;
+    force?: boolean;
+  }) => {
+    // Call BOTH callbacks the way the real cache does — otherwise the route's
+    // wiring inside them (which runtime, which creds) is never exercised.
+    await opts.fingerprint();
+    return { artifact: await opts.extract(), status: opts.force ? "forced" : "miss" };
+  }
 );
 vi.mock("@/lib/schema-cache", () => ({
-  resolveWithCache: (opts: { extract: () => Promise<unknown>; force?: boolean }) =>
-    resolveWithCache(opts),
+  resolveWithCache: (opts: Parameters<typeof resolveWithCache>[0]) => resolveWithCache(opts),
+  readWasmSchemaCache: vi.fn(async () => null),
 }));
 
 const storeRemoteParquetRef = vi.fn();
@@ -57,6 +63,7 @@ function makeRequest(body: unknown): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   validateLocalOrigin.mockReturnValue(true);
+  computeRemoteParquetFingerprint.mockResolvedValue("fp-1");
   extractRemoteParquetSchema.mockResolvedValue({ row_count: 42, columns: [] });
 });
 
@@ -151,5 +158,30 @@ describe("POST /api/remote-parquet/schema", () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toContain("network unreachable");
+  });
+});
+
+describe("POST /api/remote-parquet/schema — incidental failures", () => {
+  it("names a source from a URL that does not parse, instead of throwing", async () => {
+    // filenameFromUrl falls back to the last path segment. A connect must not die
+    // because a legal-but-odd URL is not constructible as a URL().
+    const res = await POST(makeRequest({ url: "s3://bucket-only" }));
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { schema: { filename: string } };
+    expect(data.schema.filename).toBeTruthy();
+  });
+
+  it("gates the fingerprint on the ACTIVE runtime and the supplied creds", async () => {
+    await POST(
+      makeRequest({
+        url: "s3://b/x.parquet",
+        creds: { s3AccessKeyId: "AK", s3SecretAccessKey: "SK" },
+      })
+    );
+    expect(computeRemoteParquetFingerprint).toHaveBeenCalledWith(
+      expect.any(String),
+      "docker",
+      expect.objectContaining({ s3AccessKeyId: "AK" })
+    );
   });
 });

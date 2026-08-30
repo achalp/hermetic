@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -64,6 +64,85 @@ describe("materializeLocalParquetCsvForWasm — the ceiling refuses, it does not
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the BYTE ceiling — a row cap alone does not bound size", () => {
+  /**
+   * The row pre-check cannot see width: a few hundred wide string columns blow
+   * past its intent while staying under it. So the WRITTEN file is checked too.
+   * DuckDB is mocked here — the guard is about what happens AFTER the COPY.
+   */
+  const hostExec = vi.fn<(sql: string) => Promise<void>>();
+  const stat = vi.fn();
+  const unlink = vi.fn<(...a: unknown[]) => Promise<void>>();
+
+  beforeEach(() => {
+    vi.resetModules();
+    hostExec.mockReset();
+    hostExec.mockResolvedValue(undefined);
+    unlink.mockReset();
+    unlink.mockResolvedValue(undefined);
+    vi.doMock("@/lib/sandbox/wasm/host-duckdb", () => ({ hostExec }));
+    vi.doMock("node:fs/promises", () => ({
+      mkdir: vi.fn(async () => {}),
+      stat,
+      unlink,
+    }));
+  });
+
+  async function run(bytes: number) {
+    stat.mockResolvedValue({ size: bytes });
+    const mod = await import("@/lib/parquet/host-materialize");
+    return mod.materializeLocalParquetCsvForWasm({
+      localPath: "/d/f.parquet",
+      isFolder: false,
+      rowCount: 10,
+      workDir: "/tmp/w",
+    });
+  }
+
+  it("refuses a CSV that lands over the ceiling, and DELETES the partial file", async () => {
+    const { WASM_LOCAL_CSV_MAX_BYTES } = await import("@/lib/parquet/host-materialize");
+    await expect(run(WASM_LOCAL_CSV_MAX_BYTES + 1)).rejects.toThrow(/too large/i);
+    // Leaving it would fill the disk AND leave something that looks like a result.
+    expect(unlink).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reports the CEILING when deleting the oversized file also fails", async () => {
+    // A cleanup failure masking the real error would leave the user staring at
+    // "EPERM" instead of "too large — switch to Docker".
+    const { WASM_LOCAL_CSV_MAX_BYTES } = await import("@/lib/parquet/host-materialize");
+    unlink.mockRejectedValueOnce(new Error("EPERM"));
+    await expect(run(WASM_LOCAL_CSV_MAX_BYTES + 1)).rejects.toThrow(/too large/i);
+  });
+
+  it("reports the size in MB, so the refusal says something the user can act on", async () => {
+    const { WASM_LOCAL_CSV_MAX_BYTES } = await import("@/lib/parquet/host-materialize");
+    await expect(run(WASM_LOCAL_CSV_MAX_BYTES + 1)).rejects.toThrow(/\d+ MB as CSV/);
+  });
+
+  it("accepts a CSV exactly AT the ceiling and keeps it", async () => {
+    const { WASM_LOCAL_CSV_MAX_BYTES } = await import("@/lib/parquet/host-materialize");
+    const { csvPath } = await run(WASM_LOCAL_CSV_MAX_BYTES);
+    expect(csvPath).toMatch(/^\/tmp\/w\/wasm-local-.*\.csv$/);
+    expect(unlink).not.toHaveBeenCalled();
+  });
+
+  it("COPYs through a hive-aware read expression for a folder source", async () => {
+    stat.mockResolvedValue({ size: 10 });
+    const mod = await import("@/lib/parquet/host-materialize");
+    await mod.materializeLocalParquetCsvForWasm({
+      localPath: "/d/set",
+      isFolder: true,
+      isHivePartitioned: true,
+      rowCount: 10,
+      workDir: "/tmp/w",
+    });
+    const sql = hostExec.mock.calls[0]![0];
+    expect(sql).toContain("/d/set/**/*.parquet");
+    expect(sql).toContain("hive_partitioning=true");
+    expect(sql).toContain("(HEADER, FORMAT CSV)");
   });
 });
 

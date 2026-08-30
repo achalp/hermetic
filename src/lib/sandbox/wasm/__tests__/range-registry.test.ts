@@ -80,6 +80,33 @@ describe("range registry — the budget is a ceiling, charged before bytes go ou
     const r = reg();
     expect(r.charge("ghost", 1)).toBe(false);
   });
+
+  it("spend on an unknown or released token reads as 0, not undefined", () => {
+    // The route logs `registry.spent(token)` on the budget-exhausted path, which
+    // can race a release — an undefined there would print "spent: undefined".
+    const r = reg();
+    expect(r.spent("ghost")).toBe(0);
+    const token = r.register({ ...SRC, budgetBytes: 10 });
+    r.charge(token, 5);
+    r.release(token);
+    expect(r.spent(token)).toBe(0);
+  });
+
+  it("release reports whether it actually removed a token", () => {
+    const r = reg();
+    const token = r.register(SRC);
+    expect(r.release(token)).toBe(true);
+    expect(r.release(token)).toBe(false);
+    expect(r.release("never-existed")).toBe(false);
+  });
+
+  it("uses a real clock when none is injected (leases work in production too)", () => {
+    // The default parameter is the only thing standing between an expiresAt and
+    // a token that never expires; a registry built the production way must honor it.
+    const r = createRangeRegistry(() => "t-real");
+    const expired = r.register({ ...SRC, expiresAt: Date.now() - 1 });
+    expect(r.resolve(expired)).toBeUndefined();
+  });
 });
 
 describe("parseContentRangeTotal", () => {

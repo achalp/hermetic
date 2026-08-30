@@ -80,6 +80,18 @@ export default defineConfig({
           functions: 75,
           branches: 64,
         },
+        // The parquet ingest layer carries the no-Docker paths added in D25–D27
+        // (host profiling, the host fingerprint, the worker-extraction job + its
+        // lease). Those ship at ~100%; the older container code around them does
+        // not, so this is a RATCHET a few points below the directory's current
+        // numbers rather than a hard gate — it stops the new work from decaying
+        // back toward the much lower src/lib floor.
+        "src/lib/parquet/**": {
+          statements: 88,
+          lines: 88,
+          functions: 82,
+          branches: 86,
+        },
         // The wasm subsystem is NEW and starts at 100% — every pure-logic line,
         // branch, and function is covered (the Pyodide executor is excluded above
         // and covered by the wasm-parity job). This is a hard gate, not a floor:

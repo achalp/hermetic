@@ -68,10 +68,16 @@ export interface RangeRegistry {
 export function createRangeRegistry(
   nextToken: () => string,
   /** Injected clock — keeps expiry deterministic in tests. */
-  now: () => number = () => Date.now()
+  now: () => number = Date.now
 ): RangeRegistry {
-  const sources = new Map<string, RemoteRangeSource>();
-  const used = new Map<string, number>();
+  /**
+   * ONE entry per token, holding the source AND its spend together. Deliberately
+   * not two parallel maps keyed by the same token: that shape can represent a
+   * token present in one and absent from the other, which is a state this type
+   * cannot express — and every `?? 0` guarding it was unreachable code that only
+   * looked like safety.
+   */
+  const entries = new Map<string, { src: RemoteRangeSource; used: number }>();
 
   const isExpired = (src: RemoteRangeSource) =>
     src.expiresAt !== undefined && now() >= src.expiresAt;
@@ -79,63 +85,57 @@ export function createRangeRegistry(
   return {
     register(src): string {
       const token = nextToken();
-      sources.set(token, src);
-      used.set(token, 0);
+      entries.set(token, { src, used: 0 });
       return token;
     },
     resolve(token): RemoteRangeSource | undefined {
-      const src = sources.get(token);
-      if (!src) return undefined;
+      const e = entries.get(token);
+      if (!e) return undefined;
       // Checked on READ, not only by the sweeper: a lease must stop working the
       // moment it lapses, whether or not anything has swept since.
-      if (isExpired(src)) {
-        sources.delete(token);
-        used.delete(token);
+      if (isExpired(e.src)) {
+        entries.delete(token);
         return undefined;
       }
-      return src;
+      return e.src;
     },
     sweep(): number {
       let n = 0;
-      for (const [token, src] of sources) {
-        if (isExpired(src)) {
-          sources.delete(token);
-          used.delete(token);
+      for (const [token, e] of entries) {
+        if (isExpired(e.src)) {
+          entries.delete(token);
           n++;
         }
       }
       return n;
     },
     charge(token, n): boolean {
-      const src = sources.get(token);
-      if (!src || isExpired(src)) return false;
+      const e = entries.get(token);
+      if (!e || isExpired(e.src)) return false;
       // A negative/NaN charge would silently refund budget — treat as invalid.
       if (!Number.isFinite(n) || n < 0) return false;
-      const already = used.get(token) ?? 0;
-      if (already + n > src.budgetBytes) return false;
-      used.set(token, already + n);
+      if (e.used + n > e.src.budgetBytes) return false;
+      e.used += n;
       return true;
     },
     spent(token): number {
-      return used.get(token) ?? 0;
+      return entries.get(token)?.used ?? 0;
     },
     release(token): boolean {
-      used.delete(token);
-      return sources.delete(token);
+      return entries.delete(token);
     },
     releaseRun(runId): number {
       let n = 0;
-      for (const [token, src] of sources) {
-        if (src.runId === runId) {
-          sources.delete(token);
-          used.delete(token);
+      for (const [token, e] of entries) {
+        if (e.src.runId === runId) {
+          entries.delete(token);
           n++;
         }
       }
       return n;
     },
     size(): number {
-      return sources.size;
+      return entries.size;
     },
   };
 }

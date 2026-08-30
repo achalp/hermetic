@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  encodeS3Key,
-  buildHiveReadExpr,
-  buildHiveAliases,
-  budgetForFile,
-} from "@/lib/sandbox/wasm/remote-hive";
+import { buildHiveReadExpr, buildHiveAliases, budgetForFile } from "@/lib/sandbox/wasm/remote-hive";
 
 const OBJECTS = [
   { key: "release/2026-07-22.0/theme=buildings/type=building/part-00000.parquet", size: 525687024 },

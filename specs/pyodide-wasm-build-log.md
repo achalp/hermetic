@@ -1065,3 +1065,60 @@ All five D24 gates are now down. What remains before the Seattle/Overture case c
 called done is a real end-to-end run on the packaged desktop app — this is proven by
 unit tests and by every piece having shipped and been exercised separately, NOT yet
 by a live connect.
+
+### D28 — Coverage: the wasm 100% gate was red, and one guard it protected was dead code.
+
+The `src/lib/sandbox/wasm/**` threshold is a HARD 100% gate, not a floor — it had
+been failing at 87.4% since before D25, which means it had stopped being a gate at
+all. Three files were responsible, and each wanted a different answer.
+
+**`footer-prefetch.ts` (8% → 100%).** D21 shipped the prefetcher with no unit test.
+Writing them found a real defect: the `if (end < start) continue` guard could never
+fire, because `Math.max(0, sizeBytes - 1)` on `end` had already clamped the inversion
+away. A zero-byte target therefore fell through to a `bytes=0-0` fetch — a real
+request for a byte that does not exist. The guard now tests the size, which is what
+it always meant. (`parquetObjectsOnly` drops zero-byte entries upstream, so nothing
+was hitting this in production — but the function takes arbitrary targets, and a
+guard that cannot fire is not a guard.)
+
+**`range-registry.ts` (98.4% → 100%).** The uncovered branches were `?? 0` fallbacks
+guarding a state that could not exist: two parallel maps (`sources` and `used`) keyed
+by the same token, where one could in principle hold a key the other did not. It
+never could — every mutation touched both — so the fallbacks were unreachable code
+that only looked like safety. Collapsed into ONE map of `{src, used}`, which makes
+the bad state unrepresentable instead of defended against. That is the same shape of
+fix as the guard above: delete the dead defense, keep the real one.
+
+**`range-singleton.ts` (40% → 100%).** Its own doc comment claimed it was
+"coverage-excluded", and it never was — the exclusion was written but not added to
+the config when D18 landed. The two sibling singletons ARE excluded on that
+rationale, so matching them would have been consistent. Tested instead: the property
+it exists to guarantee (one instance across separate dev module graphs; a token
+minted through one call resolves through another) is worth an assertion, and
+"unguessable token, not a counter" is worth pinning explicitly.
+
+**Then the same pass over D25–D27.** Those shipped outside the wasm gate, so nothing
+was enforcing them. Two genuinely untested guards turned up:
+
+- the 512 MB CSV byte ceiling in `host-materialize.ts` — the ROW cap was tested, the
+  byte cap never was, including its "delete the partial file" and "a cleanup failure
+  must not mask the ceiling error" paths;
+- the `parquet_file_metadata` → `COUNT(*)` fallback in `host-schema.ts`, which is
+  what stops an unreadable footer from silently reporting a dataset as empty. Also
+  now covered: a metadata query that throws a NON-Error value, which `err.message`
+  would have turned from a recoverable fallback into a crash.
+
+The route pair went from untested-on-the-wasm-branch to covering the actual protocol:
+job-vs-schema discrimination, lease recording, cache-hit re-stamping, and — the one
+that mattered — that a FAILED cache write still returns the schema, since a source
+that has become unlistable must not turn a successful extraction into a failed
+connect.
+
+**A ratchet so this does not decay.** `src/lib/parquet/**` now carries a threshold a
+few points under its current numbers (88/88/82/86 vs 91.4/90.8/86.3). Not a hard gate
+— the older container code around the new paths does not reach 100% — but enough that
+the D25–D27 work cannot drift back toward the much lower `src/lib` floor unnoticed.
+Verified by mutation: raising the statement floor to 93 fails the run.
+
+Both leftovers from D27 are now clean too: 0 lint warnings in the touched trees
+(including two pre-existing ones), and `test:coverage` reports no threshold errors.

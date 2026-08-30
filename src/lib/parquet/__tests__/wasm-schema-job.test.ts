@@ -148,6 +148,24 @@ describe("wasm schema lease store", () => {
     expect(store.take("live", 5_000)).toBeDefined();
   });
 
+  it("exposes ONE shared store — the two routes must see the same leases", async () => {
+    // The schema route puts and the completion route takes; they compile into
+    // separate dev module graphs, so a per-module store would 404 every connect.
+    const { getWasmSchemaLeaseStore } = await import("@/lib/parquet/wasm-schema-lease-store");
+    expect(getWasmSchemaLeaseStore()).toBe(getWasmSchemaLeaseStore());
+    getWasmSchemaLeaseStore().put(lease("shared", Date.now() + 60_000));
+    expect(getWasmSchemaLeaseStore().take("shared")).toBeDefined();
+  });
+
+  it("defaults its clock to now when no time is passed", () => {
+    const store = createWasmSchemaLeaseStore();
+    store.put(lease("live", Date.now() + 60_000));
+    store.put(lease("dead", Date.now() - 1));
+    expect(store.take("dead")).toBeUndefined();
+    expect(store.sweep()).toBe(0); // "dead" was already consumed by take()
+    expect(store.take("live")).toBeDefined();
+  });
+
   it("leases the browser a window long enough to boot a cold worker", () => {
     // A cold Pyodide + DuckDB boot plus the profile; shorter and a slow machine
     // loses the connect after doing all the work.
@@ -267,6 +285,62 @@ describe("prepareWasmRemoteSchemaJob", () => {
       isHivePartitioned: false,
     });
     expect(enumerate).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards CREDENTIALS and the run SIGNAL to the enumerator", async () => {
+    // Creds decide which bucket host is even reachable; the signal is how Stop
+    // cancels a listing that is already walking pages.
+    enumerate.mockResolvedValue({ host: "h", objects: [{ key: "a/p.parquet", size: 10 }] });
+    const ctl = new AbortController();
+    const creds = { s3AccessKeyId: "AK", s3SecretAccessKey: "SK", s3Region: "us-west-2" };
+    const { prepareWasmRemoteSchemaJob } = await import("@/lib/parquet/wasm-schema-job");
+    await prepareWasmRemoteSchemaJob({ ...args, creds, signal: ctl.signal });
+    expect(enumerate).toHaveBeenCalledWith(
+      expect.objectContaining({ remoteCreds: creds }),
+      expect.objectContaining({ signal: ctl.signal })
+    );
+  });
+
+  it("omits creds and signal entirely when there are none, rather than passing undefined", async () => {
+    enumerate.mockResolvedValue({ host: "h", objects: [{ key: "a/p.parquet", size: 10 }] });
+    const { prepareWasmRemoteSchemaJob } = await import("@/lib/parquet/wasm-schema-job");
+    await prepareWasmRemoteSchemaJob(args);
+    expect(enumerate.mock.calls[0]![0]).not.toHaveProperty("remoteCreds");
+    expect(enumerate.mock.calls[0]![1]).toEqual({});
+  });
+
+  it("refuses a single object with no safe fetch plan, and mints no token for it", async () => {
+    resolvePlan.mockResolvedValue({ ok: false, unsupported: "internal host" });
+    const { prepareWasmRemoteSchemaJob } = await import("@/lib/parquet/wasm-schema-job");
+    await expect(
+      prepareWasmRemoteSchemaJob({
+        ...args,
+        readUrl: "https://data.example.com/x.parquet",
+        isHivePartitioned: false,
+      })
+    ).rejects.toThrow(/Cannot read this remote source: internal host/);
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it("budgets a single object by a FIXED ceiling, not by a size it has not measured", async () => {
+    resolvePlan.mockResolvedValue({ ok: true, url: "https://h/x.parquet", allowlist: ["h"] });
+    const { prepareWasmRemoteSchemaJob, SINGLE_OBJECT_PROFILE_BUDGET } =
+      await import("@/lib/parquet/wasm-schema-job");
+    await prepareWasmRemoteSchemaJob({
+      ...args,
+      readUrl: "https://h/x.parquet",
+      isHivePartitioned: false,
+    });
+    expect(register.mock.calls[0]![0].budgetBytes).toBe(SINGLE_OBJECT_PROFILE_BUDGET);
+  });
+
+  it("uses a real clock when no `now` is injected", async () => {
+    enumerate.mockResolvedValue({ host: "h", objects: [{ key: "a/p.parquet", size: 10 }] });
+    const { prepareWasmRemoteSchemaJob, CONNECT_LEASE_MS } =
+      await import("@/lib/parquet/wasm-schema-job");
+    const before = Date.now();
+    const { lease } = await prepareWasmRemoteSchemaJob(args);
+    expect(lease.expiresAt).toBeGreaterThanOrEqual(before + CONNECT_LEASE_MS);
   });
 
   it("refuses an empty prefix rather than building read_parquet([])", async () => {

@@ -73,10 +73,14 @@ export async function prefetchFooters(
       if (i >= targets.length) return;
       if (opts?.signal?.aborted) return;
       const t = targets[i];
+      // Nothing to warm, and nothing valid to ask for: with size 0 the tail range
+      // computes to `bytes=0-0`, a real request for a byte that does not exist.
+      // (The `end < start` guard this replaces could never fire — `Math.max(0, …)`
+      // on `end` had already clamped the inversion away.)
+      if (t.sizeBytes <= 0) continue;
       // Tail range: the last FOOTER_TAIL_BYTES of the object (or all of a small one).
       const start = Math.max(0, t.sizeBytes - FOOTER_TAIL_BYTES);
-      const end = Math.max(0, t.sizeBytes - 1);
-      if (end < start) continue;
+      const end = t.sizeBytes - 1;
       try {
         const { body } = await fetchRemoteRange({
           url: t.url,

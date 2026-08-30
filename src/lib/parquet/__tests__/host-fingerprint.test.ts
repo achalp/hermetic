@@ -99,6 +99,35 @@ describe("computeRemoteParquetFingerprintHost — routing", () => {
     expect(enumerate).not.toHaveBeenCalled();
   });
 
+  it("forwards CREDENTIALS and the SIGNAL, and omits them when absent", async () => {
+    enumerate.mockResolvedValue({ host: "h", objects: [] });
+    const { computeRemoteParquetFingerprintHost } = await import("@/lib/parquet/host-fingerprint");
+    const ctl = new AbortController();
+    const creds = { s3AccessKeyId: "AK", s3SecretAccessKey: "SK" };
+    await computeRemoteParquetFingerprintHost("s3://b/p", creds, { signal: ctl.signal });
+    expect(enumerate).toHaveBeenCalledWith(expect.objectContaining({ remoteCreds: creds }), {
+      signal: ctl.signal,
+    });
+
+    enumerate.mockClear();
+    await computeRemoteParquetFingerprintHost("s3://b/p");
+    // A private bucket and a public one are different sources; passing an
+    // explicit `undefined` where the shape expects absence has bitten before.
+    expect(enumerate.mock.calls[0]![0]).not.toHaveProperty("remoteCreds");
+    expect(enumerate.mock.calls[0]![1]).toEqual({});
+  });
+
+  it("forwards the signal on the single-object path too", async () => {
+    resolvePlan.mockResolvedValue({ ok: true, url: "https://h/x", allowlist: ["h"] });
+    fetchRange.mockResolvedValue({ body: Buffer.alloc(1), contentRange: "", total: 5 });
+    const { computeRemoteParquetFingerprintHost } = await import("@/lib/parquet/host-fingerprint");
+    const ctl = new AbortController();
+    await computeRemoteParquetFingerprintHost("https://h/x.parquet", undefined, {
+      signal: ctl.signal,
+    });
+    expect(fetchRange.mock.calls[0]![0].signal).toBe(ctl.signal);
+  });
+
   it("refuses rather than fingerprinting a source with no safe fetch plan", async () => {
     resolvePlan.mockResolvedValue({ ok: false, unsupported: "internal host" });
     const { computeRemoteParquetFingerprintHost } = await import("@/lib/parquet/host-fingerprint");

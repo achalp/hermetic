@@ -17,10 +17,13 @@ vi.mock("@/lib/csv/storage", () => ({
   storeRemoteParquetRef: (...a: unknown[]) => storeRemoteParquetRef(...a),
 }));
 
-const writeSchemaCache = vi.fn(async () => {});
-vi.mock("@/lib/schema-cache", () => ({ writeSchemaCache: () => writeSchemaCache() }));
+const writeSchemaCache = vi.fn<(...a: unknown[]) => Promise<void>>();
+vi.mock("@/lib/schema-cache", () => ({
+  writeSchemaCache: (...a: unknown[]) => writeSchemaCache(...a),
+}));
+const fingerprint = vi.fn<(...a: unknown[]) => Promise<string>>();
 vi.mock("@/lib/parquet/host-fingerprint", () => ({
-  computeRemoteParquetFingerprintHost: vi.fn(async () => "s3list:1:abc"),
+  computeRemoteParquetFingerprintHost: (...a: unknown[]) => fingerprint(...a),
 }));
 
 const release = vi.fn();
@@ -62,9 +65,15 @@ function post(body: unknown): Request {
 beforeEach(() => {
   storeRemoteParquetRef.mockClear();
   release.mockClear();
-  writeSchemaCache.mockClear();
+  writeSchemaCache.mockReset();
+  writeSchemaCache.mockResolvedValue(undefined);
   take.mockReset();
+  fingerprint.mockReset();
+  fingerprint.mockResolvedValue("s3list:1:abc");
 });
+
+/** The cache write is fire-and-forget; let its microtasks settle. */
+const settle = () => new Promise((r) => setTimeout(r, 0));
 
 describe("POST /api/remote-parquet/schema/complete", () => {
   it("stores the schema against the LEASE's identity, not anything in the body", async () => {
@@ -109,6 +118,36 @@ describe("POST /api/remote-parquet/schema/complete", () => {
     // A failed extraction that leaked its capabilities would be the worse bug.
     expect(release).toHaveBeenCalledTimes(2);
     expect(storeRemoteParquetRef).not.toHaveBeenCalled();
+  });
+
+  it("caches under a FRESHLY computed fingerprint, not one captured at hand-out", async () => {
+    // If the source changed while the worker profiled it, the entry must describe
+    // what was actually read — otherwise the next connect serves a stale schema
+    // under a fingerprint that never matched the bytes.
+    take.mockReturnValue(LEASE);
+    const { POST } = await import("../route");
+    await POST(post({ requestId: "req-1", envelope: { exitCode: 0, output: PROFILE } }));
+    await settle();
+    expect(fingerprint).toHaveBeenCalledWith(LEASE.readUrl, undefined);
+    expect(writeSchemaCache).toHaveBeenCalledWith(
+      "k",
+      "s3list:1:abc",
+      expect.objectContaining({ row_count: 1500 })
+    );
+  });
+
+  it("still returns the schema when the cache write FAILS — caching is not the job", async () => {
+    // A source that has become unlistable must not turn a successful extraction
+    // into a failed connect.
+    take.mockReturnValue(LEASE);
+    fingerprint.mockRejectedValue(new Error("bucket gone"));
+    const { POST } = await import("../route");
+    const res = await POST(
+      post({ requestId: "req-1", envelope: { exitCode: 0, output: PROFILE } })
+    );
+    await settle();
+    expect(res.status).toBe(200);
+    expect(writeSchemaCache).not.toHaveBeenCalled();
   });
 
   it("404s an unknown / replayed / expired requestId and stores nothing", async () => {
