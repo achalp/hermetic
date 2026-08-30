@@ -816,3 +816,74 @@ booting the pruned tree: Ready in 60ms, **zero external-load errors**, /api/heal
 Guard: the desktop-sidecar smoke test now fails if ANY dangling symlink remains in
 the bundle. Verified the guard actually fires against a planted link — a green boot
 test alone would never have caught this, which is exactly how it reached a user.
+
+### D24 — Ingest is a SECOND wall: why D18–D21 doesn't already cover schema extraction.
+
+Reported from the built-in runtime when connecting the Overture source:
+
+    schema-cache fingerprint probe failed; re-extracting
+      error: "Remote Parquet fingerprint requires the Docker sandbox runtime."
+    /api/remote-parquet/schema failed
+      "Cloud Parquet schema extraction is currently only supported with the Docker sandbox runtime."
+
+Five Docker-only gates, all UPSTREAM of the execution work:
+
+| Location                          | Gate                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------- |
+| `parquet/schema-extractor.ts:199` | cloud parquet schema extraction                                                 |
+| `parquet/schema-extractor.ts:235` | remote parquet fingerprint                                                      |
+| `parquet/schema-extractor.ts:156` | LOCAL parquet schema extraction                                                 |
+| `parquet/materialize.ts:42`       | parquet materialization                                                         |
+| `sandbox/capabilities.ts:103`     | "Parquet/local-file analysis is only supported with the Docker sandbox runtime" |
+
+**Correcting D21's framing.** D21 said the remaining gap was an unexercised joined
+path. That was understated: the Seattle NN question could never have run on the
+built-in runtime regardless, because it fails at SOURCE CONNECTION, before the
+pipeline is entered. Hive support was not the last piece; ingest is an independent
+second wall.
+
+**Why the D18–D21 machinery doesn't reach here — TWO DOORS.** Everything built so far
+hangs off the pipeline (`run-ask-query.ts`), entered when a QUESTION is asked. Schema
+extraction hangs off `/api/remote-parquet/schema`, entered when a SOURCE IS
+CONNECTED. The execution path assumes three things connect does not have:
+
+1. **A run.** Range tokens are minted with `runId` and released by `releaseRun()`.
+   Connect has no run — nothing to scope a token to, nothing to clean up with.
+2. **A live stream** (the real blocker). `createStreamWasmExecutor` dispatches by
+   `emit({type:"wasm-execute"})` INTO the NDJSON response stream of an in-flight
+   query. Connect is not a streaming endpoint; there is no channel to push down.
+3. **A booted worker.** DuckDB boots per execute-request from `request.duckdb`.
+
+So the parts are not missing — they are reachable only through a door connect never
+walks through. That is what "requires Docker" was really encoding: Docker needs none
+of it, because it runs a container synchronously from wherever it is called.
+
+**DECIDED: extract in the worker.** Chosen over the footer-only sparse-file trick
+(which depends on DuckDB tolerating a file whose data pages are zeros) and over
+hand-parsing the parquet thrift footer. It reuses the proven path instead of adding a
+second, subtly different one.
+
+Reuse is high — range endpoint, token registry, S3 enumeration, `encodeS3Key`, the
+DuckDB boot function, the same-origin extension repository, and alias naming all
+apply unchanged. `DESCRIBE SELECT * FROM read_parquet([...])` over the FIRST file is
+the query path in miniature.
+
+Three things are genuinely new:
+
+1. **Connect-scoped tokens** — a short-TTL lease instead of a `runId` scope.
+2. **A "describe" job shape** — metadata only; no analysis, no output envelope.
+3. **A trust note that must not be skipped**: the schema would arrive FROM THE
+   CLIENT rather than being computed server-side. Defensible here — the schema
+   feeds prompt context only, never a security decision, and is derived from bytes
+   the host is already authorized to fetch — but it moves who computes it, and that
+   belongs in the spec explicitly rather than by omission.
+
+The dispatch problem is smaller than it looks: the RETURN path is already general
+(`POST /api/wasm-result?id=…`, keyed by the handoff registry, not by any stream), and
+connect is USER-INITIATED, so the client already owns the worker (`use-wasm-handoff`
+/ `runInWorker`) and can drive it directly rather than waiting to be pushed a job.
+
+The three LOCAL gates (schema-extractor.ts:156, materialize.ts:42,
+capabilities.ts:103) need none of this: host-side DuckDB already performs exactly
+that work in `parquet-convert.ts` (node-blocking, in-process, no Docker). Those look
+like routing, and are the cheap half — do them first.
