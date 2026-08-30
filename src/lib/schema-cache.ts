@@ -95,6 +95,43 @@ export async function deleteSchemaCache(sourceKey: string): Promise<void> {
  * error), we do NOT serve a possibly-stale cache — we fall through to a fresh
  * extraction. Correctness over speed on the error path.
  */
+/**
+ * The LOOKUP half of {@link resolveWithCache}, for a two-hop extraction that cannot
+ * be wrapped in one call (build log D27): the wasm connect path hands a job to the
+ * browser and only learns the artifact on a second request, so read and write are
+ * necessarily separate.
+ *
+ * Returns the cached artifact only when the fingerprint still matches — and
+ * deliberately returns null (extract fresh) when `force` is set OR the probe throws,
+ * mirroring resolveWithCache's correctness-over-speed rule rather than inventing a
+ * second, laxer cache policy.
+ */
+export async function readWasmSchemaCache<T>(opts: {
+  sourceKey: string;
+  fingerprint: () => Promise<string>;
+  force?: boolean;
+}): Promise<T | null> {
+  if (opts.force) return null;
+  const cached = await readSchemaCache<T>(opts.sourceKey);
+  if (!cached) return null;
+  try {
+    const fp = await opts.fingerprint();
+    if (fp === cached.fingerprint) {
+      logger.info("schema-cache hit", { sourceKey: opts.sourceKey });
+      return cached.artifact;
+    }
+    logger.info("schema-cache stale (fingerprint changed) — re-extracting", {
+      sourceKey: opts.sourceKey,
+    });
+  } catch (err) {
+    logger.warn("schema-cache fingerprint probe failed; re-extracting", {
+      sourceKey: opts.sourceKey,
+      error: errMessage(err),
+    });
+  }
+  return null;
+}
+
 export async function resolveWithCache<T>(opts: {
   sourceKey: string;
   fingerprint: () => Promise<string>;

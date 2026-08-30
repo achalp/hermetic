@@ -33,12 +33,23 @@ export interface RemoteRangeSource {
   allowlist: string[];
   /** The run that owns this token (for bulk release on run end). */
   runId?: string;
+  /**
+   * Absolute epoch-ms after which the token stops resolving, for capabilities that
+   * have no run to be released by — connect-time schema extraction mints tokens
+   * before any run exists (build log D27). A run-scoped token needs no TTL: it is
+   * released deterministically by `releaseRun`. This is the fallback for the case
+   * where nothing else will ever call release, so the ceiling is TIME rather than
+   * an event that might not happen.
+   */
+  expiresAt?: number;
   /** Total bytes this token may serve across all requests. */
   budgetBytes: number;
 }
 
 export interface RangeRegistry {
   register(src: RemoteRangeSource): string;
+  /** Drop every EXPIRED token; returns how many were reaped. */
+  sweep(): number;
   /** Resolve a token → its source, or undefined if unknown/released. */
   resolve(token: string): RemoteRangeSource | undefined;
   /**
@@ -54,9 +65,16 @@ export interface RangeRegistry {
   size(): number;
 }
 
-export function createRangeRegistry(nextToken: () => string): RangeRegistry {
+export function createRangeRegistry(
+  nextToken: () => string,
+  /** Injected clock — keeps expiry deterministic in tests. */
+  now: () => number = () => Date.now()
+): RangeRegistry {
   const sources = new Map<string, RemoteRangeSource>();
   const used = new Map<string, number>();
+
+  const isExpired = (src: RemoteRangeSource) =>
+    src.expiresAt !== undefined && now() >= src.expiresAt;
 
   return {
     register(src): string {
@@ -66,11 +84,31 @@ export function createRangeRegistry(nextToken: () => string): RangeRegistry {
       return token;
     },
     resolve(token): RemoteRangeSource | undefined {
-      return sources.get(token);
+      const src = sources.get(token);
+      if (!src) return undefined;
+      // Checked on READ, not only by the sweeper: a lease must stop working the
+      // moment it lapses, whether or not anything has swept since.
+      if (isExpired(src)) {
+        sources.delete(token);
+        used.delete(token);
+        return undefined;
+      }
+      return src;
+    },
+    sweep(): number {
+      let n = 0;
+      for (const [token, src] of sources) {
+        if (isExpired(src)) {
+          sources.delete(token);
+          used.delete(token);
+          n++;
+        }
+      }
+      return n;
     },
     charge(token, n): boolean {
       const src = sources.get(token);
-      if (!src) return false;
+      if (!src || isExpired(src)) return false;
       // A negative/NaN charge would silently refund budget — treat as invalid.
       if (!Number.isFinite(n) || n < 0) return false;
       const already = used.get(token) ?? 0;

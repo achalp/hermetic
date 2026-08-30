@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildSchemaScript, buildRemoteParquetSchemaScript } from "@/lib/parquet/schema-script";
+import {
+  buildSchemaScript,
+  buildRemoteParquetSchemaScript,
+  buildWasmRemoteSchemaScript,
+  WASM_SCHEMA_SAMPLE_ROWS,
+  WASM_SCHEMA_FOOTER_FILES,
+} from "@/lib/parquet/schema-script";
 
 describe("buildSchemaScript (local) — unchanged structure", () => {
   it("reads the mounted single Parquet file and writes output.json", () => {
@@ -77,5 +83,66 @@ describe("buildRemoteParquetSchemaScript — reuses the shared tail", () => {
     expect(hive).toContain(`read_parquet('${glob}', hive_partitioning=true)`);
     // ...and the glob/footer discovery runs off the bare pattern.
     expect(hive).toContain(`PATTERN = '${glob}'`);
+  });
+});
+
+describe("buildWasmRemoteSchemaScript (build log D27)", () => {
+  /**
+   * The script the WORKER runs for a remote source. What it must NOT contain is
+   * as load-bearing as what it must: the worker holds range tokens, not
+   * credentials, and giving it cloud SQL would be handing it a destination.
+   */
+  const ALIASES = ["theme=buildings/type=building/part-0.parquet", "theme=b/part-1.parquet"];
+
+  it("reads the token-bound ALIASES, never a URL or a bucket key", () => {
+    const script = buildWasmRemoteSchemaScript(ALIASES, true);
+    expect(script).toContain("theme=buildings/type=building/part-0.parquet");
+    expect(script).not.toMatch(/https?:\/\//);
+    expect(script).not.toContain("s3://");
+  });
+
+  it("carries NO cloud prelude, NO credentials, NO s3_url_style", () => {
+    const script = buildWasmRemoteSchemaScript(ALIASES, true);
+    expect(script).not.toContain("INSTALL httpfs");
+    expect(script).not.toContain("httpfs");
+    expect(script).not.toContain("s3_url_style");
+    expect(script).not.toMatch(/CREATE\s+SECRET/i);
+    expect(script).not.toContain("HERMETIC_S3_URL_STYLE");
+  });
+
+  it("keeps hive_partitioning conditional — a non-hive source must not derive columns", () => {
+    expect(buildWasmRemoteSchemaScript(ALIASES, true)).toContain("hive_partitioning=true");
+    // The flag lives behind IS_HIVE, so a false build carries the literal but
+    // never the enabled read: assert on the switch, which is what decides.
+    expect(buildWasmRemoteSchemaScript(ALIASES, false)).toContain("IS_HIVE = False");
+    expect(buildWasmRemoteSchemaScript(ALIASES, true)).toContain("IS_HIVE = True");
+  });
+
+  it("emits the alias list as JSON, so a quote in a key cannot break the Python", () => {
+    // SQL escapes a quote by DOUBLING it; inside a Python literal that silently
+    // concatenates instead. JSON escaping is what keeps the two apart.
+    const script = buildWasmRemoteSchemaScript(["od'd/part-0.parquet"], false);
+    expect(script).toContain('ALL_FILES = ["od\'d/part-0.parquet"]');
+    // ...and the SQL quoting happens in Python, once.
+    expect(script).toContain(`f.replace("'", "''")`);
+  });
+
+  it("writes /data/output.json — the file worker-source.ts returns as the envelope", () => {
+    // The whole reason extraction reuses the profiler instead of forking it.
+    expect(buildWasmRemoteSchemaScript(ALIASES, false)).toContain("/data/output.json");
+  });
+
+  it("bounds BOTH costs the worker actually pays: footers read and rows materialized", () => {
+    const script = buildWasmRemoteSchemaScript(ALIASES, false);
+    expect(script).toContain(`FOOTER_SAMPLE_FILES = ${WASM_SCHEMA_FOOTER_FILES}`);
+    expect(script).toContain(`STATS_SAMPLE_SIZE = ${WASM_SCHEMA_SAMPLE_ROWS}`);
+    // An order of magnitude under the container's 500k: this table lives in the
+    // WASM heap and arrives over ranged reads.
+    expect(WASM_SCHEMA_SAMPLE_ROWS).toBeLessThan(500_000);
+    expect(script).not.toContain("STATS_SAMPLE_SIZE = 500_000");
+  });
+
+  it("refuses to build a script with no files rather than emitting read_parquet([])", () => {
+    expect(() => buildWasmRemoteSchemaScript([], false)).toThrow(/no files/i);
   });
 });

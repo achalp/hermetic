@@ -6,13 +6,16 @@ import {
   computeRemoteParquetFingerprint,
 } from "@/lib/parquet/schema-extractor";
 import { isSafeParquetUrl } from "@/lib/parquet/duckdb-source";
-import { resolveWithCache } from "@/lib/schema-cache";
+import { resolveWithCache, readWasmSchemaCache } from "@/lib/schema-cache";
+import { prepareWasmRemoteSchemaJob } from "@/lib/parquet/wasm-schema-job";
+import { getWasmSchemaLeaseStore } from "@/lib/parquet/wasm-schema-lease-store";
 import { parseBody, RemoteParquetSchemaBody } from "@/lib/api-schemas";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { storeRemoteParquetRef } from "@/lib/csv/storage";
 import { getActiveSandboxRuntime } from "@/lib/runtime-config";
 import { recordRecentSource } from "@/lib/sources/recent-sources";
 import type { RemoteCreds } from "@/lib/contracts/storage-types";
+import type { CSVSchema } from "@/lib/contracts/data-schema";
 import { apiError } from "@/app/lib/api-error";
 
 export const maxDuration = 300; // remote reads over the network can be slow
@@ -26,6 +29,25 @@ function filenameFromUrl(url: string): string {
   } catch {
     return url.split("/").filter(Boolean).pop() || url;
   }
+}
+
+/** Remember the source so the user never re-pastes this URL (recent-sources.ts). */
+function recordRemote(
+  schema: { row_count: number },
+  url: string,
+  name: string,
+  creds: RemoteCreds | undefined,
+  isHivePartitioned: boolean
+): void {
+  recordRecentSource({
+    kind: "remote-parquet",
+    name,
+    subtitle: url,
+    rows: schema.row_count,
+    url,
+    creds,
+    isHivePartitioned,
+  }).catch(() => {});
 }
 
 export async function POST(request: Request) {
@@ -63,6 +85,38 @@ export async function POST(request: Request) {
     // "ignore cache / re-read" control. The csvId/source_type differ per call, so
     // cache only the intrinsic schema and re-stamp csv_id on the returned copy.
     const sourceKey = `parquet:${readUrl}:${JSON.stringify(creds ?? {})}`;
+
+    // ── The built-in (wasm) runtime: extract in the WORKER, in two hops ──
+    // There is no container to run synchronously and no stream to push a job
+    // into, but connect is user-initiated, so the browser already owns a worker.
+    // Hop 1 (here) checks the cache and, on a miss, hands back a prepared job;
+    // hop 2 (/complete) turns its envelope into a schema. See D24/D27.
+    if (runtime !== "docker") {
+      const cached = await readWasmSchemaCache<CSVSchema>({
+        sourceKey,
+        force: parsedBody.data.force,
+        fingerprint: () => computeRemoteParquetFingerprint(readUrl, runtime, creds),
+      });
+      if (cached) {
+        const schema = { ...cached, csv_id: csvId, filename };
+        storeRemoteParquetRef(csvId, schema, readUrl, creds, isHivePartitioned);
+        recordRemote(schema, url, filename, creds, isHivePartitioned);
+        return NextResponse.json({ csv_id: csvId, schema, cache_status: "hit" });
+      }
+      const { job, lease } = await prepareWasmRemoteSchemaJob({
+        readUrl,
+        csvId,
+        filename,
+        sourceKey,
+        ...(creds ? { creds } : {}),
+        isHivePartitioned,
+      });
+      getWasmSchemaLeaseStore().sweep();
+      getWasmSchemaLeaseStore().put(lease);
+      // Not a schema yet: the client must run `job` and POST the envelope back.
+      return NextResponse.json({ needs_worker: true, job });
+    }
+
     const { artifact: cachedSchema, status } = await resolveWithCache({
       sourceKey,
       force: parsedBody.data.force,
@@ -74,16 +128,7 @@ export async function POST(request: Request) {
     const schema = { ...cachedSchema, csv_id: csvId, filename };
     storeRemoteParquetRef(csvId, schema, readUrl, creds, isHivePartitioned);
 
-    // Remember it so the user never re-pastes this URL (see recent-sources.ts).
-    recordRecentSource({
-      kind: "remote-parquet",
-      name: filename,
-      subtitle: url,
-      rows: schema.row_count,
-      url,
-      creds,
-      isHivePartitioned,
-    }).catch(() => {});
+    recordRemote(schema, url, filename, creds, isHivePartitioned);
 
     return NextResponse.json({ csv_id: csvId, schema, cache_status: status });
   } catch (err) {

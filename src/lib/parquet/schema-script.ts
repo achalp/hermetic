@@ -1,4 +1,17 @@
 import { LOCAL_MOUNT_PATH } from "@/lib/constants";
+
+/**
+ * Rows materialized in the WORKER for per-column stats. An order of magnitude
+ * below the container's 500k: this table lives in the WASM heap and every row of
+ * it crosses the ranged endpoint.
+ */
+export const WASM_SCHEMA_SAMPLE_ROWS = 50_000;
+
+/**
+ * Parquet footers read to estimate the row count. Each one is a synchronous XHR,
+ * so an unbounded read over a 1500-file source would dominate the connect.
+ */
+export const WASM_SCHEMA_FOOTER_FILES = 16;
 import {
   DUCKDB_CLOUD_PRELUDE,
   parquetReadExpr,
@@ -498,6 +511,98 @@ export function buildRemoteParquetSchemaScript(
   isHivePartitioned = false
 ): string {
   return remoteSetup(readUrl, authSql, isHivePartitioned) + SHARED_STATS_TAIL;
+}
+
+/**
+ * Source setup for a remote Parquet dataset read from the WASM WORKER (build log
+ * D27). The files arrive as DuckDB aliases already bound to same-origin
+ * `/api/wasm-range/<token>` URLs, so this setup deliberately omits everything the
+ * container version needs and the worker must not have:
+ *
+ *   - NO cloud prelude / `INSTALL httpfs` — the worker's DuckDB reads the alias
+ *     names, and the same-origin extension repository is wired at boot.
+ *   - NO credential SQL and NO `s3_url_style` — a token IS the authorization, and
+ *     the worker never learns a bucket, a region, or a key.
+ *
+ * Everything after this preamble is the SHARED tail, unchanged: the worker writes
+ * `/data/output.json` exactly as the container does, and `worker-source.ts` already
+ * returns that file as the envelope's `output`. That is why extraction in the
+ * worker reuses the profiler instead of forking it.
+ */
+function wasmRemoteSetup(aliases: readonly string[], isHivePartitioned: boolean): string {
+  if (aliases.length === 0) throw new Error("buildWasmRemoteSchemaScript: no files to read");
+  // The alias list is emitted as JSON, not as hand-quoted Python. Aliases mirror
+  // object-store KEY paths (that is what keeps hive columns derivable), so they are
+  // user-influenced text — and SQL's escape for a quote is doubling, which inside a
+  // Python literal would SILENTLY CONCATENATE instead. JSON's array-of-strings form
+  // is valid Python and escapes correctly; the SQL quoting then happens in Python,
+  // once, where it belongs.
+  const filesJson = JSON.stringify([...aliases]);
+  return `
+import duckdb
+import json
+import math
+
+MAX_SAMPLE_ROWS = 5
+MAX_DISTINCT_VALUES = 20
+MAX_TOP_VALUES = 10
+MAX_CORRELATION_PAIRS = 10
+# Smaller than the container's 500_000 ON PURPOSE: this sample is materialized in
+# the worker's WASM heap, not a container's memory, and every row of it arrives
+# over ranged reads. Stats precision is traded for a connect that finishes.
+STATS_SAMPLE_SIZE = ${WASM_SCHEMA_SAMPLE_ROWS}
+# Reading EVERY footer of a many-file dataset is thousands of sequential ranged
+# reads through DuckDB's synchronous XHR. Bound it and extrapolate, exactly as the
+# container's remote path does.
+FOOTER_SAMPLE_FILES = ${WASM_SCHEMA_FOOTER_FILES}
+
+con = duckdb.connect()
+
+ALL_FILES = ${filesJson}
+IS_HIVE = ${isHivePartitioned ? "True" : "False"}
+
+def _sql_list(files):
+    """SQL-quote a list of file names for read_parquet([...])."""
+    return ", ".join("'" + f.replace("'", "''") + "'" for f in files)
+
+READ_FULL = f"read_parquet([{_sql_list(ALL_FILES)}]" + (", hive_partitioning=true" if IS_HIVE else "") + ")"
+
+# Schema for the dataset (partition columns included via hive when asked).
+describe = con.sql(f"DESCRIBE SELECT * FROM {READ_FULL}").fetchall()
+
+# Row count from Parquet footers — metadata only, no data pages.
+try:
+    total_files = len(ALL_FILES)
+    if total_files <= FOOTER_SAMPLE_FILES:
+        sample = ALL_FILES
+    else:
+        step = total_files // FOOTER_SAMPLE_FILES
+        sample = [ALL_FILES[i * step] for i in range(FOOTER_SAMPLE_FILES)]
+    sampled = con.sql(f"SELECT SUM(num_rows) FROM parquet_file_metadata([{_sql_list(sample)}])").fetchone()[0] or 0
+    row_count = int(int(sampled) * total_files / len(sample))
+except Exception:
+    row_count = 0
+
+# A bare LIMIT reads only the leading row groups — no full scan, and no egress of
+# the whole dataset through the range endpoint.
+con.sql(f"CREATE TEMP TABLE stats_data AS SELECT * FROM {READ_FULL} LIMIT {STATS_SAMPLE_SIZE}")
+if row_count == 0:
+    row_count = con.sql("SELECT COUNT(*) FROM stats_data").fetchone()[0]
+STATS_TABLE = 'stats_data'
+`;
+}
+
+/**
+ * Build the extraction script the WASM worker runs for a remote Parquet source.
+ * `aliases` are the SQL-visible names bound to range tokens (see remote-hive.ts) —
+ * never URLs, never bucket keys. Reuses the same stats/output tail as the local and
+ * container-remote paths.
+ */
+export function buildWasmRemoteSchemaScript(
+  aliases: readonly string[],
+  isHivePartitioned = false
+): string {
+  return wasmRemoteSetup(aliases, isHivePartitioned) + SHARED_STATS_TAIL;
 }
 
 /**

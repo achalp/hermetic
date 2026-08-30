@@ -997,3 +997,71 @@ meaningful transfer).
 
 Gate 2 of 5 down. Remaining: `schema-extractor.ts:199`, cloud parquet SCHEMA
 extraction — still the extract-in-worker job D24 specified.
+
+### D27 — The last ingest gate: remote schema extraction runs in the worker.
+
+D24 decided this and named three genuinely new pieces. All three shipped; the
+dispatch problem turned out smaller than the write-up expected, and one design
+detail was wrong in a way worth recording.
+
+**The two hops.** Connect is not a streaming endpoint, so there is nothing to
+`emit()` a job into. But connect is USER-INITIATED — the browser already owns a
+worker (`runInWorker`) and can be handed a job rather than waiting to be pushed one.
+So `/api/remote-parquet/schema` on the built-in runtime returns
+`{needs_worker: true, job}` instead of a schema, the client runs it, and
+`/api/remote-parquet/schema/complete` turns the envelope into a stored schema. No
+handoff registry, no stream, no server-side pending promise.
+
+**The profiler is REUSED, not forked.** `worker-source.ts` already returns
+`/data/output.json` as the envelope's `output` — the same file the container path
+reads. So `SHARED_STATS_TAIL` runs in the worker completely unchanged, and only the
+SETUP preamble is new. What that preamble deliberately omits is the point:
+
+- no cloud prelude / `INSTALL httpfs` — the worker reads alias names bound to
+  `/api/wasm-range/<token>` URLs;
+- no credential SQL and no `s3_url_style` — a token IS the authorization, and the
+  worker never learns a bucket, a region, or a key.
+
+Two costs are bounded because the worker, unlike a container, pays them in a WASM
+heap over ranged reads: `STATS_SAMPLE_SIZE` drops from 500k to 50k rows, and footers
+are read from at most 16 files and extrapolated.
+
+**Connect-scoped LEASES.** Query tokens are released deterministically by
+`releaseRun`. These have no run, so time is the only ceiling guaranteed to arrive:
+`expiresAt` on the token, checked on READ (not merely by a sweeper) so a lapsed lease
+stops working the moment it lapses. The completion route still releases the tokens
+explicitly in a `finally` — including when the profile is REJECTED, since a failed
+extraction that leaked its capabilities would be the worse bug. The TTL is a
+backstop, not the intended lifetime.
+
+**The trust note, stated rather than implied.** The schema is now computed
+CLIENT-SIDE and posted back, so the host trusts the browser's arithmetic. That is
+defensible for exactly two reasons: the schema feeds PROMPT CONTEXT and never a
+security decision, and it is derived from bytes the host itself authorized and
+fetched. What the host does not delegate is the part that matters — the URL, the
+credentials, the allowlist, the token budgets, the lease, and the csvId all come
+from the server's own lease table, keyed by an id the server issued. The body
+contributes only a profile, whose shape is validated before storage. A forged or
+replayed POST can at worst supply a wrong profile for a connect the user already
+started; it cannot name a new source or revive a token. **If a future consumer ever
+makes a trust decision from a schema, this changes.**
+
+**A design detail D24 got wrong.** The first cut keyed the single-file-vs-multi-file
+branch off `splitS3Prefix(readUrl)`. That succeeds for a LITERAL single-file key too,
+so `s3://b/a/f.parquet` would have been listed as the prefix `a/f.parquet/`, matched
+nothing, and failed with "No Parquet files found" — a confident error about a source
+that was fine. The correct discriminant is the one the query path already uses:
+glob-or-hive. Caught by tracing the s3 case rather than the Overture case.
+
+**Caching across a two-hop extraction.** `resolveWithCache` wraps read + extract +
+write in one call, which a client round trip cannot fit inside. `readWasmSchemaCache`
+is the lookup half, deliberately mirroring the same policy (a `force` or a failed
+fingerprint probe means extract fresh — correctness over speed) rather than inventing
+a second, laxer one. The write happens in hop 2 under a FRESHLY computed fingerprint,
+not one captured at hand-out time: if the source changed while the worker profiled
+it, the entry must describe what was actually read.
+
+All five D24 gates are now down. What remains before the Seattle/Overture case can be
+called done is a real end-to-end run on the packaged desktop app — this is proven by
+unit tests and by every piece having shipped and been exercised separately, NOT yet
+by a live connect.

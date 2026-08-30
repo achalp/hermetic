@@ -636,7 +636,35 @@ export async function extractRemoteParquetSchema(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, creds, force }),
   });
-  return json<RemoteParquetResult>(res);
+  const first = await json<RemoteParquetResult | WasmSchemaJobResponse>(res);
+  if (!("needs_worker" in first)) return first;
+
+  // The built-in (wasm) runtime has no container to profile the source in, and
+  // connect is not a streaming endpoint — so the SERVER hands us a job and this
+  // (user-initiated) client runs it in the worker it already owns, then posts the
+  // envelope back. Build log D24/D27.
+  const { runInWorker } = await import("@/app/lib/wasm-worker-client");
+  const envelope = await runInWorker(first.job.request);
+  const done = await fetch("/api/remote-parquet/schema/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId: first.job.requestId, envelope }),
+  });
+  return json<RemoteParquetResult>(done);
+}
+
+/**
+ * What `/api/remote-parquet/schema` returns INSTEAD of a schema on the built-in
+ * runtime: a prepared worker job. The `needs_worker` discriminant is what tells the
+ * two responses apart — a missing field would silently read as a schema with no
+ * columns.
+ */
+interface WasmSchemaJobResponse {
+  needs_worker: true;
+  job: {
+    requestId: string;
+    request: import("@/lib/contracts/stream-state").WasmExecuteRequest;
+  };
 }
 
 // ── Active runs (reconnect to an analysis that survived a client drop) ──

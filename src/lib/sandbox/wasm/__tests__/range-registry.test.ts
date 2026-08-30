@@ -130,3 +130,67 @@ describe("warm cache — footer prefetch (D21)", () => {
     expect(c.size()).toBe(1);
   });
 });
+
+describe("range registry — connect-scoped LEASES (build log D27)", () => {
+  /**
+   * Schema extraction mints tokens before any run exists, so `releaseRun` will
+   * never fire for them. A lapsed lease must stop resolving on its own.
+   */
+  function leased(startAt = 1000) {
+    let clock = startAt;
+    let n = 0;
+    const r = createRangeRegistry(
+      () => `t${++n}`,
+      () => clock
+    );
+    return { r, tick: (ms: number) => (clock += ms) };
+  }
+
+  it("a token with no expiry never lapses (run-scoped tokens are unaffected)", () => {
+    const { r, tick } = leased();
+    const token = r.register({ ...SRC, runId: "run-1" });
+    tick(10_000_000);
+    expect(r.resolve(token)).toBeDefined();
+    expect(r.sweep()).toBe(0);
+  });
+
+  it("stops resolving the moment the lease lapses, without waiting for a sweep", () => {
+    const { r, tick } = leased(1000);
+    const token = r.register({ ...SRC, expiresAt: 1000 + 60_000 });
+    tick(59_999);
+    expect(r.resolve(token)).toBeDefined();
+    tick(1); // exactly at expiry — a lease is dead AT its deadline, not after it
+    expect(r.resolve(token)).toBeUndefined();
+  });
+
+  it("refuses to CHARGE an expired token, so no bytes can be served on it", () => {
+    // resolve() is the route's gate, but charge() must fail independently —
+    // otherwise budget could be consumed by a stale token through another path.
+    const { r, tick } = leased(1000);
+    const token = r.register({ ...SRC, expiresAt: 1000 + 10 });
+    expect(r.charge(token, 1)).toBe(true);
+    tick(10);
+    expect(r.charge(token, 1)).toBe(false);
+  });
+
+  it("resolving an expired token REAPS it rather than leaving it to accumulate", () => {
+    const { r, tick } = leased(1000);
+    const token = r.register({ ...SRC, expiresAt: 1000 + 10 });
+    tick(11);
+    expect(r.resolve(token)).toBeUndefined();
+    expect(r.size()).toBe(0);
+  });
+
+  it("sweep drops every lapsed lease and keeps the live ones", () => {
+    const { r, tick } = leased(1000);
+    r.register({ ...SRC, expiresAt: 1000 + 10 });
+    r.register({ ...SRC, expiresAt: 1000 + 10 });
+    const live = r.register({ ...SRC, expiresAt: 1000 + 100_000 });
+    const scoped = r.register({ ...SRC, runId: "r" });
+    tick(50);
+    expect(r.sweep()).toBe(2);
+    expect(r.size()).toBe(2);
+    expect(r.resolve(live)).toBeDefined();
+    expect(r.resolve(scoped)).toBeDefined();
+  });
+});

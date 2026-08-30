@@ -204,9 +204,14 @@ export async function extractRemoteParquetSchema(
   isHivePartitioned?: boolean,
   creds?: RemoteCreds
 ): Promise<CSVSchema> {
+  // Off Docker this runs IN THE WORKER, driven by the client — see
+  // lib/parquet/wasm-schema-job.ts and /api/remote-parquet/schema(/complete).
+  // Reaching here means something called the server-side extractor directly on a
+  // runtime that has no container, which is a wiring bug, not a user error.
   if (runtime !== "docker") {
     throw new Error(
-      "Cloud Parquet schema extraction is currently only supported with the Docker sandbox runtime."
+      "Cloud Parquet schema extraction on the built-in runtime runs in the browser worker " +
+        "(/api/remote-parquet/schema), not here."
     );
   }
 
