@@ -30,8 +30,9 @@ import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { HandoffEnvelope } from "@/lib/sandbox/wasm/handoff-registry";
 import { enumerateRemoteParquetFiles, resolveRemoteHttpsFetch } from "@/lib/sandbox/remote-fetch";
 import { deriveAllowedEgressHosts } from "@/lib/sandbox/egress";
-import { buildHiveAliases, budgetForFile } from "@/lib/sandbox/wasm/remote-hive";
-import { getRangeRegistry } from "@/lib/sandbox/wasm/range-singleton";
+import { buildHiveAliases, budgetForFile, encodeS3Key } from "@/lib/sandbox/wasm/remote-hive";
+import { prefetchFooters } from "@/lib/sandbox/wasm/footer-prefetch";
+import { getRangeRegistry, getWarmCache } from "@/lib/sandbox/wasm/range-singleton";
 import { buildWasmRemoteSchemaScript } from "./schema-script";
 import { logger } from "@/lib/logger";
 
@@ -111,6 +112,20 @@ export async function prepareWasmRemoteSchemaJob(args: {
       files: aliases.length,
       totalBytes: objects.reduce((n, o) => n + o.size, 0),
     });
+    // D40 item 4a: warm the footer cache WHILE Pyodide boots in the browser —
+    // the listing already told us every size, so the tail-range guesses are
+    // exact. Fire-and-forget: a miss just means the worker's own ranged read
+    // pays the cold fetch, as before. (Single-object connects skip this — no
+    // size is known and probing one would cost the request we're saving.)
+    void prefetchFooters(
+      objects.map((o) => ({
+        url: `https://${host}/${encodeS3Key(o.key)}`,
+        allowlist,
+        sizeBytes: o.size,
+      })),
+      (url, start, body) => getWarmCache().put(url, start, body),
+      { ...(args.signal ? { signal: args.signal } : {}) }
+    ).catch(() => {});
   } else {
     // A single https:// object: one alias, one token. Its byte budget is a fixed
     // ceiling rather than a fraction of the size, because a footer + a bounded row

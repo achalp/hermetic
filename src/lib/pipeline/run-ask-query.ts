@@ -23,6 +23,7 @@ import { materializeLocalParquetCsvForWasm } from "@/lib/parquet/host-materializ
 import {
   resolveManifestQuestion,
   buildManifestQuestionContext,
+  buildManifestWasmAliases,
 } from "@/lib/manifest/question-context";
 import {
   buildHiveAliases,
@@ -452,6 +453,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
         const wasmMultiFile =
           sandboxRuntime === "wasm" &&
           isRemote &&
+          !context.manifest && // manifest questions build per-entity aliases below (D40)
           Boolean(stored.isHivePartitioned || stored.remoteParquetUrl?.includes("*"));
 
         if (wasmMultiFile) {
@@ -491,7 +493,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             files: aliases.length,
             totalBytes: objects.reduce((n, o) => n + o.size, 0),
           });
-        } else if (sandboxRuntime === "wasm" && isRemote) {
+        } else if (sandboxRuntime === "wasm" && isRemote && !context.manifest) {
           ({ csvPath: wasmCsvPath } = await materializeRemoteCsvForWasm(stored, {
             workDir: hermeticPaths.scratchDir(),
           }));
@@ -510,38 +512,38 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           }));
         }
 
-        // ── Multi-entity manifest question (spec §7) ──
+        // ── Multi-entity manifest question (spec §7; delivery revised D40) ──
         // Shared with Investigate via lib/manifest/question-context — the two
         // pipelines must stay at par, so both call the SAME resolver + builder.
         // Docker: generated DuckDB reads each entity's URL (one host — the
         // same-host gate ran at connect, so the primary's egress grant covers
-        // all). WASM: the primary is already at /data/input.csv; each ADDITIONAL
-        // entity materializes host-side and is delivered like a workbook sheet.
+        // all). WASM (D40): NOTHING is materialized — every entity (hive
+        // included) becomes run-scoped range-token aliases and DuckDB in the
+        // worker reads only the row groups the question touches. This removed
+        // the P2 CSV ceilings and the hive fail-closed guard in one move.
         let manifestContext: string | undefined;
-        const manifestExtraInputs: { workerPath: string; hostPath: string }[] = [];
         if (context.manifest && isRemote) {
           const resolvedManifest = resolveManifestQuestion(context.manifest, csvId);
           if (sandboxRuntime === "wasm") {
-            if (resolvedManifest.entities.some((e) => e.stored.isHivePartitioned)) {
-              throw new Error(
-                "Multi-entity questions over hive-partitioned entities need the Docker sandbox runtime."
-              );
-            }
-            const paths = new Map<string, string>([
-              [resolvedManifest.entities[0]!.name, "/data/input.csv"],
-            ]);
-            for (const e of resolvedManifest.entities.slice(1)) {
-              const { csvPath } = await materializeRemoteCsvForWasm(e.stored, {
-                workDir: hermeticPaths.scratchDir(),
-              });
-              const workerPath = `/data/entities/${e.name}.csv`;
-              paths.set(e.name, workerPath);
-              manifestExtraInputs.push({ workerPath, hostPath: csvPath });
-            }
+            const built = await buildManifestWasmAliases(
+              resolvedManifest,
+              getRunId() ?? undefined,
+              {
+                signal: getRunSignal(),
+              }
+            );
+            wasmDuckDbAliases = built.aliases;
             manifestContext = buildManifestQuestionContext(resolvedManifest, {
-              kind: "wasm",
-              paths,
+              kind: "wasm-ranged",
+              readExprs: built.readExprs,
             });
+            // Warm every entity's parquet tail while Pyodide boots (D21 pattern) —
+            // best-effort, never awaited, never fatal.
+            void prefetchFooters(
+              built.prefetch,
+              (url, start, body) => getWarmCache().put(url, start, body),
+              { signal: getRunSignal() }
+            ).catch(() => {});
           } else {
             manifestContext = buildManifestQuestionContext(resolvedManifest, { kind: "docker" });
           }
@@ -549,6 +551,7 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             runId: getRunId(),
             entities: resolvedManifest.entities.map((e) => e.name),
             runtime: sandboxRuntime,
+            ...(sandboxRuntime === "wasm" ? { aliases: wasmDuckDbAliases?.length } : {}),
           });
         }
 
@@ -619,23 +622,16 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             localFileContext,
             priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
             inputParquetPath: warehouseParquetFile,
-            wasmFetchInputs:
-              wasmCsvPath || manifestExtraInputs.length
-                ? [
-                    ...(wasmCsvPath
-                      ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
-                      : []),
-                    ...manifestExtraInputs,
-                  ]
-                : undefined,
+            wasmFetchInputs: wasmCsvPath
+              ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
+              : undefined,
             wasmDuckDbAliases,
             purpose,
             remoteAuthSubst,
           });
         }
-        // The host-materialized remote CSVs are consumed once the worker fetched them.
+        // The host-materialized remote CSV is consumed once the worker fetched it.
         if (wasmCsvPath) await unlink(wasmCsvPath).catch(() => {});
-        for (const extra of manifestExtraInputs) await unlink(extra.hostPath).catch(() => {});
         // Range tokens are capabilities: release them the moment the run is done so
         // a later request cannot reuse one (they are also run-scoped in the registry).
         if (wasmDuckDbAliases?.length) {

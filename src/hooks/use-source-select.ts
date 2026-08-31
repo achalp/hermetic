@@ -23,7 +23,7 @@ import {
   type ManifestView,
   type ManifestEntityDetail,
 } from "@/app/lib/manifest-connect";
-import { isManifestUrl } from "@/lib/manifest/shared";
+import { isManifestUrl, MANIFEST_EAGER_BUDGET_MS } from "@/lib/manifest/shared";
 
 export function useSourceSelect(args: {
   handleUpload: (csvId: string, schema: CSVSchema) => void;
@@ -88,6 +88,69 @@ export function useSourceSelect(args: {
   const [activeEntityName, setActiveEntityName] = useState<string | null>(null);
   /** Entity currently being introspected — drives the "loading" row + header hint. */
   const [loadingEntityName, setLoadingEntityName] = useState<string | null>(null);
+  /**
+   * Interrupt generation for the background-eager loop (D40 item 3): bumped by
+   * any USER action (entity click, question prep, reset) so the loop yields the
+   * single worker immediately instead of racing the user for it.
+   */
+  const eagerGenRef = useRef(0);
+
+  /** Reflect a finished extraction in the entity list without a refetch. */
+  const applyEntityDetail = useCallback((name: string, detail: ManifestEntityDetail) => {
+    if (detail.status !== "ready" || !detail.csvId || !detail.schema) return;
+    setManifest((prev) =>
+      prev
+        ? {
+            ...prev,
+            entities: prev.entities.map((e) =>
+              e.name === name
+                ? {
+                    ...e,
+                    status: "ready" as const,
+                    csvId: detail.csvId!,
+                    rowCount: detail.schema!.row_count,
+                    rowCountIsExact: true,
+                    columnCount: detail.schema!.columns.length,
+                  }
+                : e
+            ),
+          }
+        : prev
+    );
+  }, []);
+
+  /**
+   * Background eager introspection (D40 item 3): on a runtime where the server
+   * could not be eager (wasm — every entity arrived pending), keep extracting
+   * entities AFTER the first one lands, inside the SAME 60s budget the docker
+   * batch gets, one at a time (each is a worker round trip). Yields instantly
+   * when the user clicks an entity or asks a question (generation check), and
+   * failures are silently skipped — this is a warm-up, not a gate.
+   */
+  const runBackgroundEager = useCallback(
+    (view: ManifestView, creds: RemoteParquetCreds | undefined, skip: string) => {
+      const gen = ++eagerGenRef.current;
+      const started = Date.now();
+      void (async () => {
+        for (const e of view.entities) {
+          if (eagerGenRef.current !== gen) return; // user took the worker
+          if (Date.now() - started >= MANIFEST_EAGER_BUDGET_MS) return;
+          if (e.name === skip || e.status === "ready" || e.status === "failed") continue;
+          try {
+            setLoadingEntityName(e.name);
+            const detail = await ensureManifestEntity(view, e.name, creds);
+            if (eagerGenRef.current !== gen) return;
+            applyEntityDetail(e.name, detail);
+          } catch {
+            // warm-up only — the entity stays pending and extracts on touch
+          } finally {
+            setLoadingEntityName((cur) => (cur === e.name ? null : cur));
+          }
+        }
+      })();
+    },
+    [applyEntityDetail]
+  );
 
   const handleRemoteFileSelect = useCallback(
     async (url: string, creds?: RemoteParquetCreds, force?: boolean) => {
@@ -104,6 +167,9 @@ export function useSourceSelect(args: {
         if (isManifestUrl(url)) {
           const view = await connectManifest(url, creds, force);
           setManifest(view);
+          // Did the SERVER manage any eager introspection? (docker: yes, inside
+          // its 60s budget; wasm: no — every entity arrives pending.)
+          const serverWasEager = view.entities.some((e) => e.status === "ready");
           const first = view.entities.find((e) => e.status === "ready") ?? view.entities[0];
           if (first) {
             // The dialog stays OPEN (its extracting spinner showing) until the
@@ -115,6 +181,10 @@ export function useSourceSelect(args: {
               const detail = await ensureManifestEntity(view, first.name, creds);
               if (detail.csvId && detail.schema) {
                 setActiveEntityName(first.name);
+                // Reflect it in the LIST too — without this the auto-selected
+                // entity sat showing "not read yet" while being the active
+                // source (caught by the D40 background-eager tests).
+                applyEntityDetail(first.name, detail);
                 handleUpload(detail.csvId, detail.schema);
               }
             } finally {
@@ -122,6 +192,11 @@ export function useSourceSelect(args: {
             }
           }
           setShowLocalBrowser(false);
+          if (!serverWasEager && first) {
+            // D40 item 3: warm the rest in the background, same budget, until
+            // the user needs the worker for something real.
+            runBackgroundEager(view, creds, first.name);
+          }
           return;
         }
         const data = await extractRemoteParquetSchema(url, creds, force);
@@ -139,7 +214,7 @@ export function useSourceSelect(args: {
         setIsExtractingLocalSchema(false);
       }
     },
-    [handleUpload]
+    [handleUpload, applyEntityDetail, runBackgroundEager]
   );
 
   /** Re-read the last remote Parquet source, bypassing the schema cache. */
@@ -198,6 +273,7 @@ export function useSourceSelect(args: {
   const selectManifestEntity = useCallback(
     async (name: string) => {
       if (!manifest || name === activeEntityName) return;
+      eagerGenRef.current++; // the user takes the worker — background eager yields
       setIsExtractingLocalSchema(true);
       setLoadingEntityName(name);
       setSourceError(null);
@@ -208,25 +284,7 @@ export function useSourceSelect(args: {
           return;
         }
         // Reflect a lazy extraction in the list without a refetch round trip.
-        setManifest((prev) =>
-          prev
-            ? {
-                ...prev,
-                entities: prev.entities.map((e) =>
-                  e.name === name
-                    ? {
-                        ...e,
-                        status: "ready" as const,
-                        csvId: detail.csvId!,
-                        rowCount: detail.schema!.row_count,
-                        rowCountIsExact: true,
-                        columnCount: detail.schema!.columns.length,
-                      }
-                    : e
-                ),
-              }
-            : prev
-        );
+        applyEntityDetail(name, detail);
         setActiveEntityName(name);
         handleUpload(detail.csvId, detail.schema);
       } catch (err) {
@@ -237,7 +295,7 @@ export function useSourceSelect(args: {
         setLoadingEntityName(null);
       }
     },
-    [manifest, activeEntityName, handleUpload]
+    [manifest, activeEntityName, handleUpload, applyEntityDetail]
   );
 
   /**
@@ -261,6 +319,7 @@ export function useSourceSelect(args: {
         setManifestQuestion(null);
         return;
       }
+      eagerGenRef.current++; // question prep takes the worker
       try {
         const { entities: picked } = await selectManifestEntities(manifest.manifestId, question);
         if (!picked?.length) throw new Error("selection unavailable");
@@ -307,6 +366,7 @@ export function useSourceSelect(args: {
     setIsExtractingLocalSchema(false);
     setHasRemoteSource(false);
     setSourceError(null);
+    eagerGenRef.current++;
     setManifest(null);
     setActiveEntityName(null);
     setLoadingEntityName(null);

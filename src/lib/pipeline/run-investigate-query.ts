@@ -7,6 +7,7 @@ import {
 } from "@/lib/pipeline/investigate-orchestrator";
 import { mergeStepEntries, buildDataQuality } from "./investigate-merge";
 import { getRunSignal } from "@/lib/pipeline/run-control";
+import { getRunId } from "@/lib/run-context";
 import { runPipeline } from "@/lib/pipeline/orchestrator";
 import { prewarmCodeGenCache } from "@/lib/llm/code-generation";
 import { runWithCostTracking } from "@/lib/cost/accumulator";
@@ -33,7 +34,10 @@ import { materializeLocalParquetCsvForWasm } from "@/lib/parquet/host-materializ
 import {
   resolveManifestQuestion,
   buildManifestQuestionContext,
+  buildManifestWasmAliases,
 } from "@/lib/manifest/question-context";
+import { getRangeRegistry, getWarmCache } from "@/lib/sandbox/wasm/range-singleton";
+import { prefetchFooters } from "@/lib/sandbox/wasm/footer-prefetch";
 import { materializeRemoteCsvForWasm } from "@/lib/sandbox/remote-fetch";
 import { hermeticPaths } from "@/lib/paths";
 import { unlink } from "node:fs/promises";
@@ -193,8 +197,6 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
       // Hoisted so the finally always deletes the host-materialized remote CSV,
       // even if the investigation throws mid-run (build log D13).
       let wasmCsvPath: string | undefined;
-      // Additional manifest entities delivered to the worker (cleaned in finally).
-      const manifestExtraInputs: { workerPath: string; hostPath: string }[] = [];
       try {
         // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
         // The pull is intentionally row-level (not pre-aggregated): the
@@ -352,30 +354,32 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // per-entity read exprs on the one manifest host (the primary's egress
         // grant covers all); WASM: primary at /data/input.csv, additional
         // entities materialized and delivered like workbook sheets.
+        let wasmDuckDbAliases: { name: string; url: string }[] | undefined;
         if (context.manifest && isRemote) {
           const resolvedManifest = resolveManifestQuestion(context.manifest, csvId);
           if (sandboxRuntime === "wasm") {
-            if (resolvedManifest.entities.some((e) => e.stored.isHivePartitioned)) {
-              throw new Error(
-                "Multi-entity questions over hive-partitioned entities need the Docker sandbox runtime."
-              );
-            }
-            const paths = new Map<string, string>([
-              [resolvedManifest.entities[0]!.name, "/data/input.csv"],
-            ]);
-            for (const e of resolvedManifest.entities.slice(1)) {
-              const { csvPath } = await materializeRemoteCsvForWasm(e.stored, {
-                workDir: hermeticPaths.scratchDir(),
-              });
-              const workerPath = `/data/entities/${e.name}.csv`;
-              paths.set(e.name, workerPath);
-              manifestExtraInputs.push({ workerPath, hostPath: csvPath });
-            }
+            // D40: ranged aliases, exactly as the ask pipeline — no
+            // materialization, hive included. Budgets ×4: every sub-step reads
+            // through the SAME run-scoped tokens.
+            const built = await buildManifestWasmAliases(
+              resolvedManifest,
+              getRunId() ?? undefined,
+              {
+                signal: getRunSignal(),
+                budgetMultiplier: 4,
+              }
+            );
+            wasmDuckDbAliases = built.aliases;
             localFileContext = buildManifestQuestionContext(resolvedManifest, {
-              kind: "wasm",
-              paths,
+              kind: "wasm-ranged",
+              readExprs: built.readExprs,
             });
             remoteAuthSubst = undefined;
+            void prefetchFooters(
+              built.prefetch,
+              (url, start, body) => getWarmCache().put(url, start, body),
+              { signal: getRunSignal() }
+            ).catch(() => {});
           } else {
             localFileContext = buildManifestQuestionContext(resolvedManifest, {
               kind: "docker",
@@ -384,16 +388,13 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           logger.info("Manifest question: multi-entity context (investigate)", {
             entities: resolvedManifest.entities.map((e) => e.name),
             runtime: sandboxRuntime,
+            ...(sandboxRuntime === "wasm" ? { aliases: wasmDuckDbAliases?.length } : {}),
           });
         }
 
-        const wasmFetchInputs =
-          wasmCsvPath || manifestExtraInputs.length
-            ? [
-                ...(wasmCsvPath ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }] : []),
-                ...manifestExtraInputs,
-              ]
-            : undefined;
+        const wasmFetchInputs = wasmCsvPath
+          ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
+          : undefined;
 
         // ── Drill-as-sub-investigation cost gate ──
         // A scoped follow-up (chart drill or sticky follow-up) is classified
@@ -439,6 +440,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
               localFileContext,
               remoteAuthSubst,
               wasmFetchInputs,
+              wasmDuckDbAliases,
             });
             await composeAndStreamDashboard({
               executionResult: cheap.executionResult,
@@ -601,6 +603,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           remoteAuthSubst,
           inputParquetPath: warehouseParquetFile,
           wasmFetchInputs,
+          wasmDuckDbAliases,
           runtime: sandboxRuntime,
           model: codeGenModel,
           originalQuestion: question,
@@ -1435,7 +1438,11 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // The host-materialized remote CSV was consumed by every sub-step's worker
         // fetch; drop it (build log D13).
         if (wasmCsvPath) await unlink(wasmCsvPath).catch(() => {});
-        for (const extra of manifestExtraInputs) await unlink(extra.hostPath).catch(() => {});
+        // Range tokens are capabilities — released the moment the run ends.
+        {
+          const rid = getRunId();
+          if (rid) getRangeRegistry().releaseRun(rid);
+        }
         // ── Cost/diagnostics epilogue: runs for every exit path (cheap
         // fast-path, main investigation, or error) before the stream
         // closes. Shared with Ask — lib/cost/epilogue.ts. ──
