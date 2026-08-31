@@ -20,7 +20,6 @@ import {
   connectManifest,
   ensureManifestEntity,
   type ManifestView,
-  type ManifestEntityDetail,
 } from "@/app/lib/manifest-connect";
 import { isManifestUrl } from "@/lib/manifest/shared";
 
@@ -79,9 +78,12 @@ export function useSourceSelect(args: {
   // re-read it (with force) without re-typing the URL.
   const lastRemoteRef = useRef<{ url: string; creds?: RemoteParquetCreds } | null>(null);
 
-  // A connected dataset manifest awaiting entity selection (spec §6) — the
-  // remote-URL dialog routes .json URLs here instead of the parquet path.
-  const [manifestBrowser, setManifestBrowser] = useState<ManifestView | null>(null);
+  // A connected dataset manifest (spec §6, revised in review): entities render
+  // INSIDE the Data Explorer rail — list on top, the active entity's schema and
+  // sample below — not in a separate panel. Selecting an entity makes it the
+  // page's ACTIVE SOURCE, which is what feeds those sections.
+  const [manifest, setManifest] = useState<ManifestView | null>(null);
+  const [activeEntityName, setActiveEntityName] = useState<string | null>(null);
 
   const handleRemoteFileSelect = useCallback(
     async (url: string, creds?: RemoteParquetCreds, force?: boolean) => {
@@ -91,10 +93,22 @@ export function useSourceSelect(args: {
       setSourceError(null);
       try {
         // Manifest detection (spec §5.1): a .json URL is a CATALOG of entities,
-        // not a parquet source — connect it and open the entity browser.
+        // not a parquet source. Connect it, then auto-select the first entity so
+        // the Data Explorer opens showing the list + a real schema immediately —
+        // preferring one that is already ready (no extraction wait), else lazily
+        // extracting the first.
         if (isManifestUrl(url)) {
-          setManifestBrowser(await connectManifest(url, creds, force));
+          const view = await connectManifest(url, creds, force);
+          setManifest(view);
           setShowLocalBrowser(false);
+          const first = view.entities.find((e) => e.status === "ready") ?? view.entities[0];
+          if (first) {
+            const detail = await ensureManifestEntity(view, first.name, creds);
+            if (detail.csvId && detail.schema) {
+              setActiveEntityName(first.name);
+              handleUpload(detail.csvId, detail.schema);
+            }
+          }
           return;
         }
         const data = await extractRemoteParquetSchema(url, creds, force);
@@ -163,19 +177,24 @@ export function useSourceSelect(args: {
     }
   }, [handleUpload]);
 
-  /** Open one entity's detail (lazy-extracts a pending one via the existing
-   *  per-entity flow, then attaches it back to the manifest). */
-  const openManifestEntity = useCallback(
-    async (name: string): Promise<ManifestEntityDetail> => {
-      if (!manifestBrowser) throw new Error("No manifest connected");
-      const detail = await ensureManifestEntity(
-        manifestBrowser,
-        name,
-        lastRemoteRef.current?.creds
-      );
-      // Reflect a lazy extraction in the list without a refetch round trip.
-      if (detail.status === "ready") {
-        setManifestBrowser((prev) =>
+  /**
+   * Select an entity in the Data Explorer list: lazily extract it if pending
+   * (the existing per-entity flow, both runtimes), then make it the ACTIVE
+   * SOURCE — the explorer's schema/profile/sample sections feed off that.
+   */
+  const selectManifestEntity = useCallback(
+    async (name: string) => {
+      if (!manifest || name === activeEntityName) return;
+      setIsExtractingLocalSchema(true);
+      setSourceError(null);
+      try {
+        const detail = await ensureManifestEntity(manifest, name, lastRemoteRef.current?.creds);
+        if (!detail.csvId || !detail.schema) {
+          setSourceError(detail.error ?? `Couldn't read entity "${name}".`);
+          return;
+        }
+        // Reflect a lazy extraction in the list without a refetch round trip.
+        setManifest((prev) =>
           prev
             ? {
                 ...prev,
@@ -184,34 +203,26 @@ export function useSourceSelect(args: {
                     ? {
                         ...e,
                         status: "ready" as const,
-                        ...(detail.csvId ? { csvId: detail.csvId } : {}),
-                        ...(detail.schema
-                          ? {
-                              rowCount: detail.schema.row_count,
-                              rowCountIsExact: true,
-                              columnCount: detail.schema.columns.length,
-                            }
-                          : {}),
+                        csvId: detail.csvId!,
+                        rowCount: detail.schema!.row_count,
+                        rowCountIsExact: true,
+                        columnCount: detail.schema!.columns.length,
                       }
                     : e
                 ),
               }
             : prev
         );
+        setActiveEntityName(name);
+        handleUpload(detail.csvId, detail.schema);
+      } catch (err) {
+        console.warn("Manifest entity selection failed:", err);
+        setSourceError(errText(err, `Couldn't read entity "${name}".`));
+      } finally {
+        setIsExtractingLocalSchema(false);
       }
-      return detail;
     },
-    [manifestBrowser]
-  );
-
-  /** "Analyze this entity" — the entity becomes the active source. */
-  const useManifestEntity = useCallback(
-    (detail: ManifestEntityDetail) => {
-      if (!detail.csvId || !detail.schema) return;
-      handleUpload(detail.csvId, detail.schema);
-      setManifestBrowser(null);
-    },
-    [handleUpload]
+    [manifest, activeEntityName, handleUpload]
   );
 
   /** Source-scoped UI state cleared by the page-level reset. */
@@ -220,7 +231,8 @@ export function useSourceSelect(args: {
     setIsExtractingLocalSchema(false);
     setHasRemoteSource(false);
     setSourceError(null);
-    setManifestBrowser(null);
+    setManifest(null);
+    setActiveEntityName(null);
     lastRemoteRef.current = null;
   }, []);
 
@@ -237,9 +249,8 @@ export function useSourceSelect(args: {
     resetSourceSelect,
     sourceError,
     clearSourceError: () => setSourceError(null),
-    manifestBrowser,
-    openManifestEntity,
-    useManifestEntity,
-    cancelManifestBrowser: () => setManifestBrowser(null),
+    manifest,
+    activeEntityName,
+    selectManifestEntity,
   };
 }

@@ -30,8 +30,13 @@ import { logger } from "@/lib/logger";
 /** Max bytes any single range request may ask for (a footer/row-group, not an object). */
 const MAX_RANGE_BYTES = 64 * 1024 * 1024;
 
-/** Accept only what the Rust core accepts, so we reject early with a clear status. */
-function parseRange(spec: string | null): { start: number; end?: number } | null {
+/**
+ * Accept only what the Rust core accepts, so we reject early with a clear status.
+ * EXPORTED for the gated e2e (wasm-range-extraction.spec.ts): its fixture server
+ * serves ranges through THIS parser, so the test exercises the route's actual
+ * accept/reject contract instead of a mock's opinion of it — the D31 lesson.
+ */
+export function parseRange(spec: string | null): { start: number; end?: number } | null {
   if (!spec) return null;
   const rest = spec.trim().startsWith("bytes=") ? spec.trim().slice("bytes=".length) : null;
   if (rest === null || rest.includes(",")) return null;

@@ -262,3 +262,16 @@ its job on the code of the person who added it.
 **P1 gate NOT yet verified live**: the housing manifest end-to-end connect needs
 the running app (author-driven, like every live gate in this project).
 Remaining: P2 (selection pre-step + manifest prompt context + MCP), P3 (wasm).
+
+**P1 revision (author review, 2026-08-31): entities live IN the Data Explorer,
+not a separate panel.** The author's screenshot made the argument: the explorer
+already IS the master-detail this feature wants, proven at 66 warehouse tables.
+The separate `EntityBrowser` modal is deleted. Implementation insight that made
+it small: manifest mode reuses the warehouse LAYOUT (entity list + detail) but
+the csv DATA path — selecting an entity makes it the page's ACTIVE SOURCE
+(`handleUpload`), so the explorer's schema/profile/sample sections feed
+themselves through the ordinary csv props. No second data path, no sample
+fetching; selection is external (`activeItem`/`onSheetSelect`). Connect
+auto-selects the first READY entity (else lazily extracts the first) so the rail
+opens with a real schema immediately. Pending entities show "not read yet" and
+extract on click.
