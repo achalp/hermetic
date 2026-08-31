@@ -16,7 +16,7 @@ import {
 import { duckdbRemoteAuthSql, type RemoteCreds } from "./duckdb-source";
 import { extractParquetSchemaHost } from "./host-schema";
 import { computeRemoteParquetFingerprintHost } from "./host-fingerprint";
-import { logger } from "@/lib/logger";
+import { logger, errMessage } from "@/lib/logger";
 
 /**
  * Run a DuckDB schema-extraction script in an ephemeral Docker container and
@@ -298,6 +298,140 @@ export async function computeRemoteParquetFingerprint(
     // Include the file count so a fingerprint collision on the md5 is even less
     // likely, and the value is human-legible in the cache.
     return `files:${parsed.n}:${parsed.fp}`;
+  } finally {
+    await run("docker", ["rm", "-f", containerId], { timeoutMs: 10_000 }).catch(() => {});
+    await egress?.teardown().catch(() => {});
+  }
+}
+
+/** One entity in a manifest batch extraction (lib/manifest/connect.ts). */
+export interface BatchTarget {
+  name: string;
+  readUrl: string;
+  isHivePartitioned: boolean;
+}
+
+export interface BatchExtractionOutcome {
+  results: Map<string, { schema: CSVSchema } | { error: string }>;
+  /** Not attempted — the wall-clock budget ran out first (they stay pending). */
+  skipped: string[];
+}
+
+/**
+ * Eager manifest introspection (spec §5.5): N remote entities, ONE container,
+ * one egress network, one wall-clock budget.
+ *
+ * Why not N calls to extractRemoteParquetSchema: container creation plus egress
+ * -network setup measured ~1.5–2 s per call in live runs — 28 entities would
+ * spend the whole 60 s budget on setup alone. Here the container and the L7
+ * gateway are built once (every entity is on the SAME host — the same-host gate
+ * ran before this), and each entity is one `docker exec` of the UNCHANGED
+ * single-entity script — so the profiling logic cannot fork from the
+ * single-URL path.
+ *
+ * Budget semantics: checked BEFORE each entity; an entity already running may
+ * overshoot by up to its own exec timeout (that overshoot is bounded and
+ * logged, not hidden). Per-entity failures are recorded and do NOT stop the
+ * loop — one unreadable entity must not cost the other 27.
+ */
+export async function extractRemoteParquetSchemaBatch(
+  targets: BatchTarget[],
+  creds: RemoteCreds | undefined,
+  budgetMs: number
+): Promise<BatchExtractionOutcome> {
+  const results = new Map<string, { schema: CSVSchema } | { error: string }>();
+  if (targets.length === 0) return { results, skipped: [] };
+
+  const containerId = `hermetic-manifest-batch-${randomUUID()}`;
+  let egress: EgressNetwork | undefined;
+  const started = Date.now();
+
+  try {
+    const policy = egressPolicyFor(targets[0]!.readUrl, creds);
+    if (policy.mode === "deny" || !policy.hosts?.length) {
+      throw new Error(
+        "Refusing to read this manifest's entities: no safe egress host could be derived."
+      );
+    }
+    egress = await setupEgressNetwork(containerId.slice(-12), policy.hosts);
+    const runArgs = ["run", "-d", "--name", containerId, "--network", egress.networkName];
+    for (const [k, v] of Object.entries(egress.env)) runArgs.push("-e", `${k}=${v}`);
+    // sleep outlives budget + one overshooting entity, with margin.
+    runArgs.push(DOCKER_SANDBOX_IMAGE, "sleep", "900");
+    await run("docker", runArgs, { timeoutMs: 15_000 });
+
+    const authSql = duckdbRemoteAuthSql(creds);
+    let index = 0;
+    for (const t of targets) {
+      if (Date.now() - started >= budgetMs) break;
+      index++;
+      try {
+        const script =
+          pythonNanPrelude() +
+          "\n" +
+          buildRemoteParquetSchemaScript(t.readUrl, authSql, t.isHivePartitioned);
+        await run("docker", ["exec", "-i", containerId, "sh", "-c", "cat > /data/script.py"], {
+          input: script,
+          timeoutMs: 15_000,
+        });
+        const execResult = await run(
+          "docker",
+          [
+            "exec",
+            containerId,
+            "sh",
+            "-c",
+            "python3 /data/script.py > /data/stdout.txt 2>/data/stderr.txt; echo $?",
+          ],
+          { timeoutMs: SANDBOX_TIMEOUT_MS * 3 }
+        );
+        if (parseInt(execResult.stdout.trim(), 10) !== 0) {
+          const stderrResult = await run("docker", [
+            "exec",
+            containerId,
+            "cat",
+            "/data/stderr.txt",
+          ]).catch(() => ({ stdout: "Unknown error", stderr: "", exitCode: 1 }));
+          results.set(t.name, { error: friendlyParquetError(stderrResult.stdout) });
+          continue;
+        }
+        const outputResult = await run("docker", ["exec", containerId, "cat", "/data/output.json"]);
+        const data = parseJsonWithPythonNonFinite(outputResult.stdout) as {
+          row_count: number;
+          columns: CSVSchema["columns"];
+          sample_rows: CSVSchema["sample_rows"];
+          correlations: CSVSchema["correlations"];
+          detected_domain: CSVSchema["detected_domain"];
+        };
+        results.set(t.name, {
+          schema: {
+            csv_id: "", // stamped by the caller per registration
+            filename: t.name,
+            row_count: data.row_count,
+            columns: data.columns,
+            sample_rows: data.sample_rows,
+            correlations: data.correlations ?? undefined,
+            detected_domain: data.detected_domain ?? "general",
+            source_type: "file",
+          },
+        });
+      } catch (err) {
+        // Per-entity failure — record and move on; the batch must survive it.
+        results.set(t.name, { error: errMessage(err) });
+      }
+    }
+
+    const skipped = targets.slice(index).map((t) => t.name);
+    const overshootMs = Math.max(0, Date.now() - started - budgetMs);
+    logger.info("Manifest batch extraction finished", {
+      attempted: index,
+      ok: [...results.values()].filter((r) => "schema" in r).length,
+      failed: [...results.values()].filter((r) => "error" in r).length,
+      skipped: skipped.length,
+      ms: Date.now() - started,
+      ...(overshootMs > 0 ? { overshootMs } : {}),
+    });
+    return { results, skipped };
   } finally {
     await run("docker", ["rm", "-f", containerId], { timeoutMs: 10_000 }).catch(() => {});
     await egress?.teardown().catch(() => {});

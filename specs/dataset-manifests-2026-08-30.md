@@ -223,3 +223,42 @@ and any description carried by the manifest or the dataset, with the dataset-lev
 description displayed too. **Ships straight in, no flag.** The selection pre-step
 runs on the **code-gen model tier** (not the suggest/title tier): the pick decides
 what the expensive step sees, so it gets the better model.
+
+## 11. Build log
+
+**P0 — DONE** (#178): contracts (`lib/contracts/dataset-manifest.ts`), three
+adapters + fixed order, strict same-host gate on storage identity, caps/clamps.
+27 tests.
+
+**P1 — BUILT** (this PR): connect flow on Docker.
+
+- `lib/manifest/fetch.ts` — manifest fetched through the egress core (8 MB cap,
+  oversize named by size, not by a JSON-parse error).
+- `lib/manifest/connect.ts` — deps-injected orchestration: cache pass (per-entity
+  sourceKey IDENTICAL to the single-URL route, so both doors share cache lines;
+  fingerprint = entity sha256 when the manifest carries one, else the manifest
+  hash), then eager batch inside the 60 s budget, then pending for the rest.
+- `parquet/schema-extractor.ts extractRemoteParquetSchemaBatch` — ONE container +
+  ONE egress network for N entities (per-call setup measured ~1.5–2 s; N
+  containers would eat the whole budget), each entity running the UNCHANGED
+  single-entity script so profiling cannot fork. Budget checked before each
+  entity; per-entity failures recorded, never fatal to the batch.
+- Routes: `POST /api/manifest/connect`, `GET /api/manifest/[id][?entity=]`,
+  `POST /api/manifest/attach` (lazy-extraction report-back; refuses a csvId
+  whose stored URL is not exactly the entity's normalized URL).
+- Lazy = the EXISTING per-entity flow: the client extracts a pending entity as
+  if its URL had been pasted directly (works on both runtimes today, including
+  the wasm two-hop), then attaches the csvId. P3 only improves ergonomics.
+- UI: `.json` detection in the remote dialog → `EntityBrowser` (master-detail
+  per review; "Analyze this entity" makes it the active source — single-entity
+  questions work NOW, ahead of P2).
+
+P1 shortcuts, deliberate: recent-sources entry reuses kind "remote-parquet"
+(re-open flows back through .json detection; proper kind is P2 polish); no MCP
+surface yet (P2); the D28 parquet coverage ratchet caught the batch extractor
+untested and forced the docker-mocked orchestration tests — the ratchet doing
+its job on the code of the person who added it.
+
+**P1 gate NOT yet verified live**: the housing manifest end-to-end connect needs
+the running app (author-driven, like every live gate in this project).
+Remaining: P2 (selection pre-step + manifest prompt context + MCP), P3 (wasm).

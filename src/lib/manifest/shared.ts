@@ -110,3 +110,9 @@ export function sha256From(value: unknown): string | undefined {
   const hex = value.startsWith("sha256:") ? value.slice("sha256:".length) : value;
   return /^[0-9a-f]{64}$/i.test(hex) ? hex.toLowerCase() : undefined;
 }
+
+/** Is this URL manifest-shaped (vs a parquet file/prefix)? Detection per §5.1. */
+export function isManifestUrl(url: string): boolean {
+  const path = url.trim().split(/[?#]/, 1)[0]!;
+  return /\.(json|jsonld)$/i.test(path);
+}

@@ -16,6 +16,13 @@ import {
   uploadFile,
   type RemoteParquetCreds,
 } from "@/app/lib/api";
+import {
+  connectManifest,
+  ensureManifestEntity,
+  type ManifestView,
+  type ManifestEntityDetail,
+} from "@/app/lib/manifest-connect";
+import { isManifestUrl } from "@/lib/manifest/shared";
 
 export function useSourceSelect(args: {
   handleUpload: (csvId: string, schema: CSVSchema) => void;
@@ -72,6 +79,10 @@ export function useSourceSelect(args: {
   // re-read it (with force) without re-typing the URL.
   const lastRemoteRef = useRef<{ url: string; creds?: RemoteParquetCreds } | null>(null);
 
+  // A connected dataset manifest awaiting entity selection (spec §6) — the
+  // remote-URL dialog routes .json URLs here instead of the parquet path.
+  const [manifestBrowser, setManifestBrowser] = useState<ManifestView | null>(null);
+
   const handleRemoteFileSelect = useCallback(
     async (url: string, creds?: RemoteParquetCreds, force?: boolean) => {
       lastRemoteRef.current = { url, creds };
@@ -79,6 +90,13 @@ export function useSourceSelect(args: {
       setIsExtractingLocalSchema(true);
       setSourceError(null);
       try {
+        // Manifest detection (spec §5.1): a .json URL is a CATALOG of entities,
+        // not a parquet source — connect it and open the entity browser.
+        if (isManifestUrl(url)) {
+          setManifestBrowser(await connectManifest(url, creds, force));
+          setShowLocalBrowser(false);
+          return;
+        }
         const data = await extractRemoteParquetSchema(url, creds, force);
         handleUpload(data.csv_id, data.schema);
         setShowLocalBrowser(false);
@@ -145,12 +163,64 @@ export function useSourceSelect(args: {
     }
   }, [handleUpload]);
 
+  /** Open one entity's detail (lazy-extracts a pending one via the existing
+   *  per-entity flow, then attaches it back to the manifest). */
+  const openManifestEntity = useCallback(
+    async (name: string): Promise<ManifestEntityDetail> => {
+      if (!manifestBrowser) throw new Error("No manifest connected");
+      const detail = await ensureManifestEntity(
+        manifestBrowser,
+        name,
+        lastRemoteRef.current?.creds
+      );
+      // Reflect a lazy extraction in the list without a refetch round trip.
+      if (detail.status === "ready") {
+        setManifestBrowser((prev) =>
+          prev
+            ? {
+                ...prev,
+                entities: prev.entities.map((e) =>
+                  e.name === name
+                    ? {
+                        ...e,
+                        status: "ready" as const,
+                        ...(detail.csvId ? { csvId: detail.csvId } : {}),
+                        ...(detail.schema
+                          ? {
+                              rowCount: detail.schema.row_count,
+                              rowCountIsExact: true,
+                              columnCount: detail.schema.columns.length,
+                            }
+                          : {}),
+                      }
+                    : e
+                ),
+              }
+            : prev
+        );
+      }
+      return detail;
+    },
+    [manifestBrowser]
+  );
+
+  /** "Analyze this entity" — the entity becomes the active source. */
+  const useManifestEntity = useCallback(
+    (detail: ManifestEntityDetail) => {
+      if (!detail.csvId || !detail.schema) return;
+      handleUpload(detail.csvId, detail.schema);
+      setManifestBrowser(null);
+    },
+    [handleUpload]
+  );
+
   /** Source-scoped UI state cleared by the page-level reset. */
   const resetSourceSelect = useCallback(() => {
     setShowLocalBrowser(false);
     setIsExtractingLocalSchema(false);
     setHasRemoteSource(false);
     setSourceError(null);
+    setManifestBrowser(null);
     lastRemoteRef.current = null;
   }, []);
 
@@ -167,5 +237,9 @@ export function useSourceSelect(args: {
     resetSourceSelect,
     sourceError,
     clearSourceError: () => setSourceError(null),
+    manifestBrowser,
+    openManifestEntity,
+    useManifestEntity,
+    cancelManifestBrowser: () => setManifestBrowser(null),
   };
 }
