@@ -43,3 +43,19 @@ console.error(`e2e fixture written: ${out} (${html.length} bytes)`);
   );
   console.error(`e2e fixture written: ${pq}`);
 }
+
+// ── D40 e2e fixture: a SECOND entity sharing a join key with entities.parquet ──
+// Consumed by the multi-alias JOIN case in wasm-range-extraction.spec.ts.
+{
+  const { hostExec } = await import("@/lib/sandbox/wasm/host-duckdb");
+  const pq = join(OUT_DIR, "lookup.parquet");
+  await hostExec(
+    `COPY (
+       SELECT
+         lpad(CAST(i AS VARCHAR), 5, '0') AS fips_like,
+         'region-' || CAST(i % 7 AS VARCHAR) AS region
+       FROM range(100) t(i)
+     ) TO '${pq.replace(/'/g, "''")}' (FORMAT PARQUET)`
+  );
+  console.error(`e2e fixture written: ${pq}`);
+}

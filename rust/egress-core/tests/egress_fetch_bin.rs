@@ -50,7 +50,11 @@ fn empty_allowlist_fails_closed_exit_1() {
         .env_remove("HERMETIC_EGRESS_ALLOWLIST")
         .output()
         .expect("spawn egress-fetch");
-    assert_eq!(out.status.code(), Some(1), "empty allowlist must fail closed");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "empty allowlist must fail closed"
+    );
     assert!(String::from_utf8_lossy(&out.stderr).contains("fail closed"));
     assert!(out.stdout.is_empty());
 }
@@ -73,7 +77,11 @@ fn host_off_allowlist_is_denied_exit_1() {
         .env("HERMETIC_EGRESS_ALLOWLIST", "data.example.com")
         .output()
         .expect("spawn egress-fetch");
-    assert_eq!(out.status.code(), Some(1), "off-allowlist host must be denied");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "off-allowlist host must be denied"
+    );
     assert!(out.stdout.is_empty());
 }
 
@@ -88,4 +96,54 @@ fn internal_ip_host_is_denied_exit_1() {
         .expect("spawn egress-fetch");
     assert_eq!(out.status.code(), Some(1), "internal IP must be denied");
     assert!(out.stdout.is_empty());
+}
+
+// =========================================================================
+// serve mode (build log D41) — framing over stdin/stdout, no env, no network
+// =========================================================================
+
+#[test]
+fn serve_mode_answers_frames_serially_and_exits_0_on_eof() {
+    use std::process::Stdio;
+    let mut child = Command::new(BIN)
+        .arg("serve")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn serve");
+    let mut stdin = child.stdin.take().unwrap();
+    // Both frames are DENIED on the allowlist check — which runs before DNS, so
+    // this needs no network and still exercises the full request→response path.
+    let f1 = "REQ a1\nURL https://evil.example.com/x.parquet\nALLOW data.example.com\nRANGE bytes=0-9\nEND\n";
+    let f2 = f1.replace("REQ a1", "REQ a2");
+    stdin.write_all(f1.as_bytes()).unwrap();
+    stdin.write_all(f2.as_bytes()).unwrap();
+    drop(stdin); // EOF → orderly shutdown
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "clean EOF must exit 0");
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("ERR a1 1 "), "first denial answered: {s}");
+    assert!(
+        s.contains("ERR a2 1 "),
+        "second frame answered by the SAME process: {s}"
+    );
+}
+
+#[test]
+fn serve_mode_malformed_frame_is_fatal_exit_64() {
+    use std::process::Stdio;
+    let mut child = Command::new(BIN)
+        .arg("serve")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn serve");
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"REQ a1\nVERB POST\nEND\n").unwrap();
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(64), "framing errors fail closed");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("unknown frame key"));
 }

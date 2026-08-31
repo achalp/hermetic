@@ -37,13 +37,15 @@ const ROOT = process.cwd();
 const PYODIDE_DIR = join(ROOT, "node_modules", "pyodide");
 const DUCKDB_DIR = join(ROOT, "public", "duckdb-wasm");
 const FIXTURE = join(ROOT, "e2e", ".artifacts", "entities.parquet");
+const FIXTURE2 = join(ROOT, "e2e", ".artifacts", "lookup.parquet");
 
 const assetsPresent =
   existsSync(join(PYODIDE_DIR, "pyodide.asm.wasm")) &&
   readdirSync(PYODIDE_DIR).some((f) => f.startsWith("numpy") && f.endsWith(".whl")) &&
   existsSync(join(DUCKDB_DIR, "duckdb-bundle.js")) &&
   existsSync(join(DUCKDB_DIR, "duckdb-mvp.wasm")) &&
-  existsSync(FIXTURE);
+  existsSync(FIXTURE) &&
+  existsSync(FIXTURE2);
 
 const CT: Record<string, string> = {
   ".js": "text/javascript",
@@ -72,6 +74,8 @@ const rangeLedger: { method: string; range: string | null; status: number }[] = 
 
 test.beforeAll(async () => {
   const fixture = readFileSync(FIXTURE);
+  const fixture2 = readFileSync(FIXTURE2);
+  const byToken: Record<string, Buffer> = { tok: fixture, tok2: fixture2 };
   const ALIAS = "entities.parquet";
   const request = {
     type: "wasm-execute",
@@ -80,6 +84,32 @@ test.beforeAll(async () => {
     code: buildWasmRemoteSchemaScript([ALIAS], false),
     files: [],
     duckdb: { base: "/duckdb/", aliases: [{ name: ALIAS, url: "/api/wasm-range/tok" }] },
+  };
+  // D40: the manifest-question shape — TWO ranged aliases, python JOINs them via
+  // the duckdb shim and writes results through the runtime contract.
+  const joinRequest = {
+    type: "wasm-execute",
+    id: "e2e-d40",
+    csvContent: "",
+    code: [
+      "import duckdb, json",
+      'rows = duckdb.sql("""',
+      "  SELECT l.region, COUNT(*) AS n, SUM(e.big_id) AS total",
+      "  FROM read_parquet('entities.parquet') e",
+      "  JOIN read_parquet('lookup.parquet') l USING (fips_like)",
+      "  GROUP BY l.region ORDER BY l.region",
+      '""").fetchall()',
+      "with open('/data/output.json', 'w') as f:",
+      "    json.dump({'regions': len(rows), 'total': sum(r[2] for r in rows)}, f)",
+    ].join("\n"),
+    files: [],
+    duckdb: {
+      base: "/duckdb/",
+      aliases: [
+        { name: "entities.parquet", url: "/api/wasm-range/tok" },
+        { name: "lookup.parquet", url: "/api/wasm-range/tok2" },
+      ],
+    },
   };
 
   server = createServer((req, res) => {
@@ -97,16 +127,26 @@ test.beforeAll(async () => {
       res.end(JSON.stringify(request));
       return;
     }
+    if (url === "/join-request.json") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(joinRequest));
+      return;
+    }
     if (url.startsWith("/pyodide/"))
       return serveDir(PYODIDE_DIR, url.slice("/pyodide/".length), res);
     if (url.startsWith("/duckdb/")) return serveDir(DUCKDB_DIR, url.slice("/duckdb/".length), res);
 
-    if (url === "/api/wasm-range/tok") {
+    if (url.startsWith("/api/wasm-range/")) {
+      const fixtureBody = byToken[url.slice("/api/wasm-range/".length)];
+      if (!fixtureBody) {
+        res.writeHead(404).end("nf");
+        return;
+      }
       // The range contract, through the route's OWN parser. HEAD answers the
       // D31 shape: 206 + Content-Range when the probe carries a Range, else 200.
       const raw = req.headers["range"] ?? null;
       const parsed = parseRange(typeof raw === "string" ? raw : null);
-      const total = fixture.length;
+      const total = fixtureBody.length;
       if (req.method === "HEAD") {
         if (!parsed) {
           rangeLedger.push({ method: "HEAD", range: raw as string | null, status: 200 });
@@ -131,7 +171,7 @@ test.beforeAll(async () => {
         return;
       }
       const end = parsed.end === undefined ? total - 1 : Math.min(parsed.end, total - 1);
-      const body = fixture.subarray(parsed.start, end + 1);
+      const body = fixtureBody.subarray(parsed.start, end + 1);
       rangeLedger.push({ method: "GET", range: raw as string | null, status: 206 });
       res.writeHead(206, {
         "content-type": "application/octet-stream",
@@ -147,7 +187,8 @@ test.beforeAll(async () => {
     res.end(`<!doctype html><meta charset=utf-8><title>range-extraction</title><script>
       window.__result = null;
       (async () => {
-        const request = await (await fetch("/request.json")).json();
+        const which = new URLSearchParams(location.search).get("req") || "request";
+        const request = await (await fetch("/" + which + ".json")).json();
         const w = new Worker("/exec-worker.js");
         w.onmessage = (e) => { window.__result = e.data; };
         w.onerror = (e) => { window.__result = { error: String(e.message||e) }; };
@@ -161,6 +202,36 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
+});
+
+test("TWO ranged aliases JOIN in the production worker — the manifest-question shape (D40)", async ({
+  page,
+}) => {
+  test.skip(!assetsPresent, "pyodide / duckdb-wasm assets or fixture parquet not present");
+  test.setTimeout(300_000);
+
+  await page.goto(base + "/?req=join-request");
+  await page.waitForFunction(() => (window as { __result?: unknown }).__result !== null, null, {
+    timeout: 280_000,
+  });
+  const result = (await page.evaluate(() => (window as { __result?: unknown }).__result)) as {
+    exitCode: number;
+    output: unknown;
+    stderr?: string;
+  };
+  expect(result.stderr ?? "").toBe("");
+  expect(result.exitCode).toBe(0);
+  const out = (typeof result.output === "string" ? JSON.parse(result.output) : result.output) as {
+    regions: number;
+    total: number;
+  };
+  // 1000 entities keyed 0..99 (i % 100 → fips_like) joined to 100 lookups across
+  // 7 regions: every entity row matches exactly one lookup row.
+  expect(out.regions).toBe(7);
+  expect(out.total).toBeGreaterThan(0);
+  // Both fixtures were read by RANGES — and nothing was refused.
+  const refused = rangeLedger.filter((e) => e.status === 416);
+  expect(refused).toEqual([]);
 });
 
 test("DuckDB in the production worker extracts a schema over ranged reads (D36 gate)", async ({

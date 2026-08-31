@@ -9,9 +9,13 @@ import { NextRequest } from "next/server";
  * wrong. The gated live test next door proves the bytes; this proves the shape.
  */
 
+// The route reads through the PERSISTENT fetcher (D41); the variable keeps its
+// historical name — it is the same contract fetchRemoteRange had.
 const fetchRemoteRange = vi.fn();
+vi.mock("@/lib/sandbox/persistent-fetcher", () => ({
+  getPersistentFetcher: () => ({ fetchRange: (...a: unknown[]) => fetchRemoteRange(...a) }),
+}));
 vi.mock("@/lib/sandbox/egress-fetch", () => ({
-  fetchRemoteRange: (...a: unknown[]) => fetchRemoteRange(...a),
   EgressFetchError: class extends Error {},
 }));
 

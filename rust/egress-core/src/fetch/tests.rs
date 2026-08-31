@@ -124,7 +124,9 @@ fn system_fetcher_byte_cap_aborts_large_body() {
     let target = loopback_target(&url_for(port, "/big"), port, cap);
     let out = SystemFetcher::new().fetch(&target).expect("fetch ok");
     match out {
-        FetchOutcome::CapExceeded { read } => assert!(read > cap, "read {read} must exceed cap {cap}"),
+        FetchOutcome::CapExceeded { read } => {
+            assert!(read > cap, "read {read} must exceed cap {cap}")
+        }
         other => panic!("expected CapExceeded, got {other:?}"),
     }
 }
@@ -177,14 +179,19 @@ fn system_fetcher_issues_get_only() {
     let cap_clone = Arc::clone(&captured);
     let port = spawn_server(move |head, mut stream| {
         *cap_clone.lock().unwrap() = head;
-        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let _ =
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     });
 
     let target = loopback_target(&url_for(port, "/obj"), port, 1_000_000);
     let _ = SystemFetcher::new().fetch(&target).expect("fetch ok");
 
     let head = captured.lock().unwrap().clone();
-    assert!(head.starts_with(b"GET "), "request must be a GET: {:?}", String::from_utf8_lossy(&head));
+    assert!(
+        head.starts_with(b"GET "),
+        "request must be a GET: {:?}",
+        String::from_utf8_lossy(&head)
+    );
 }
 
 #[test]
@@ -193,7 +200,8 @@ fn system_fetcher_applies_bearer_credential() {
     let cap_clone = Arc::clone(&captured);
     let port = spawn_server(move |head, mut stream| {
         *cap_clone.lock().unwrap() = head;
-        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let _ =
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     });
 
     let target = loopback_target(&url_for(port, "/obj"), port, 1_000_000);
@@ -217,7 +225,9 @@ struct MapResolver {
 }
 impl MapResolver {
     fn new() -> Self {
-        MapResolver { map: HashMap::new() }
+        MapResolver {
+            map: HashMap::new(),
+        }
     }
     fn with(mut self, host: &str, ips: Vec<IpAddr>) -> Self {
         self.map.insert(host.to_string(), ips);
@@ -296,14 +306,9 @@ fn authorize_and_fetch_refuses_internal_ip_before_connect() {
     let al = allow(&["sneaky.example.com"]);
     // Allowlisted host that resolves to a LAN address → refused (desktop §6a).
     let r = MapResolver::new().with("sneaky.example.com", vec![v4(192, 168, 1, 50)]);
-    let err = authorize_and_fetch_with(
-        "https://sneaky.example.com/x",
-        &al,
-        &r,
-        &NeverFetcher,
-        1000,
-    )
-    .unwrap_err();
+    let err =
+        authorize_and_fetch_with("https://sneaky.example.com/x", &al, &r, &NeverFetcher, 1000)
+            .unwrap_err();
     assert_eq!(
         err,
         FetchError::Denied(DenyReason::ResolvesToInternal(v4(192, 168, 1, 50)))
@@ -318,7 +323,10 @@ fn authorize_and_fetch_happy_returns_body() {
     let out =
         authorize_and_fetch_with("https://data.example.com/obj", &al, &r, &fetcher, 1000).unwrap();
     assert_eq!(out, b"payload");
-    assert_eq!(fetcher.seen.borrow().as_slice(), &["https://data.example.com/obj"]);
+    assert_eq!(
+        fetcher.seen.borrow().as_slice(),
+        &["https://data.example.com/obj"]
+    );
 }
 
 #[test]
@@ -350,8 +358,8 @@ fn authorize_and_fetch_redirect_to_nonallowlisted_refused() {
     let fetcher = FakeFetcher::new(vec![FetchOutcome::Redirect {
         location: "https://evil.com/x".into(),
     }]);
-    let err =
-        authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000).unwrap_err();
+    let err = authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000)
+        .unwrap_err();
     assert_eq!(
         err,
         FetchError::RedirectNotAllowed(DenyReason::HostNotAllowed("evil.com".into()))
@@ -368,8 +376,8 @@ fn authorize_and_fetch_redirect_to_internal_refused() {
     let fetcher = FakeFetcher::new(vec![FetchOutcome::Redirect {
         location: "https://b.example.com/x".into(),
     }]);
-    let err =
-        authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000).unwrap_err();
+    let err = authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000)
+        .unwrap_err();
     assert_eq!(
         err,
         FetchError::RedirectNotAllowed(DenyReason::ResolvesToInternal(v4(10, 0, 0, 1)))
@@ -383,9 +391,12 @@ fn authorize_and_fetch_relative_redirect_refused() {
     let fetcher = FakeFetcher::new(vec![FetchOutcome::Redirect {
         location: "/relative/only".into(),
     }]);
-    let err =
-        authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000).unwrap_err();
-    assert_eq!(err, FetchError::UnparseableRedirect("/relative/only".into()));
+    let err = authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000)
+        .unwrap_err();
+    assert_eq!(
+        err,
+        FetchError::UnparseableRedirect("/relative/only".into())
+    );
 }
 
 #[test]
@@ -393,8 +404,8 @@ fn authorize_and_fetch_cap_exceeded_is_surfaced() {
     let al = allow(&["data.example.com"]);
     let r = MapResolver::new().with("data.example.com", vec![v4(93, 184, 216, 34)]);
     let fetcher = FakeFetcher::new(vec![FetchOutcome::CapExceeded { read: 12345 }]);
-    let err =
-        authorize_and_fetch_with("https://data.example.com/obj", &al, &r, &fetcher, 1000).unwrap_err();
+    let err = authorize_and_fetch_with("https://data.example.com/obj", &al, &r, &fetcher, 1000)
+        .unwrap_err();
     assert_eq!(err, FetchError::CapExceeded { read: 12345 });
 }
 
@@ -409,8 +420,8 @@ fn authorize_and_fetch_bounds_redirect_loops() {
         })
         .collect();
     let fetcher = FakeFetcher::new(outcomes);
-    let err =
-        authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000).unwrap_err();
+    let err = authorize_and_fetch_with("https://a.example.com/start", &al, &r, &fetcher, 1000)
+        .unwrap_err();
     assert_eq!(err, FetchError::TooManyRedirects);
 }
 
@@ -420,7 +431,10 @@ fn authorize_and_fetch_bounds_redirect_loops() {
 #[test]
 fn ranged_target_sends_a_canonical_range_header_and_yields_partial_body() {
     let mut t = loopback_target("http://x/", 1, 1024);
-    t.range = Some(ByteRange { start: 4, end: Some(9) });
+    t.range = Some(ByteRange {
+        start: 4,
+        end: Some(9),
+    });
     // The edge builds the header from the parsed numbers.
     assert_eq!(t.range.unwrap().to_header_value(), "bytes=4-9");
 
@@ -431,7 +445,10 @@ fn ranged_target_sends_a_canonical_range_header_and_yields_partial_body() {
         content_range: "bytes 4-9/1000".to_string(),
     };
     match out {
-        FetchOutcome::PartialBody { body, content_range } => {
+        FetchOutcome::PartialBody {
+            body,
+            content_range,
+        } => {
             assert_eq!(body, b"456789");
             assert_eq!(content_range, "bytes 4-9/1000");
         }
@@ -444,8 +461,94 @@ fn a_range_survives_a_redirect_hop_without_widening_authorization() {
     // The hop is re-authorized exactly like hop 0; the range rides along so the
     // final GET still asks for the same offsets.
     let mut t = loopback_target("http://x/", 1, 1024);
-    t.range = Some(ByteRange { start: 100, end: None });
-    let carried = AllowedFetch { range: t.range, ..t.clone() };
+    t.range = Some(ByteRange {
+        start: 100,
+        end: None,
+    });
+    let carried = AllowedFetch {
+        range: t.range,
+        ..t.clone()
+    };
     assert_eq!(carried.range.unwrap().start, 100);
     assert_eq!(carried.range.unwrap().to_header_value(), "bytes=100-");
+}
+
+// =========================================================================
+// AgentPool — serve-mode connection reuse (build log D41)
+// =========================================================================
+
+#[test]
+fn pooled_fetcher_reuses_the_connection_across_requests() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    // A keep-alive server that COUNTS accepted connections and answers any
+    // number of requests per connection — so reuse is observable as exactly one
+    // accept across two fetches.
+    let accepts = Arc::new(AtomicUsize::new(0));
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let a2 = Arc::clone(&accepts);
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            a2.fetch_add(1, Ordering::SeqCst);
+            thread::spawn(move || loop {
+                let head = read_head(&mut stream);
+                if head.is_empty() {
+                    break;
+                }
+                let body = b"pooled";
+                let resp = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                if stream.write_all(resp.as_bytes()).is_err() {
+                    break;
+                }
+                if stream.write_all(body).is_err() {
+                    break;
+                }
+                let _ = stream.flush();
+            });
+        }
+    });
+    let pool = Arc::new(AgentPool::new());
+    let fetcher = SystemFetcher::new().with_pool(Arc::clone(&pool));
+    for _ in 0..2 {
+        let target = loopback_target(&url_for(port, "/obj"), port, 1_000_000);
+        match fetcher.fetch(&target).expect("fetch ok") {
+            FetchOutcome::Body(b) => assert_eq!(b, b"pooled"),
+            other => panic!("expected Body, got {other:?}"),
+        }
+    }
+    assert_eq!(pool.len(), 1, "one cached agent per (host, port)");
+    assert_eq!(
+        accepts.load(Ordering::SeqCst),
+        1,
+        "the second request must reuse the pooled connection, not reconnect"
+    );
+}
+
+#[test]
+fn pooled_fetcher_still_pins_to_the_vetted_addr_per_request() {
+    // The pool's resolver slot is overwritten before every request: hand the
+    // SAME (host, port) key a bogus pinned addr on the second request and the
+    // fetch must fail to connect — proving the slot governs, not stale state.
+    let port = spawn_server(|_head, mut stream| {
+        let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+        let _ = stream.write_all(resp.as_bytes());
+    });
+    let pool = Arc::new(AgentPool::new());
+    let fetcher = SystemFetcher::new().with_pool(Arc::clone(&pool));
+
+    let good = loopback_target(&url_for(port, "/a"), port, 1_000);
+    assert!(matches!(fetcher.fetch(&good), Ok(FetchOutcome::Body(_))));
+
+    // Same host key, but the vetted addr now points at a closed port. With
+    // Connection: close above there is no pooled socket to fall back to.
+    let dead = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let dead_port = dead.local_addr().unwrap().port();
+    drop(dead);
+    let mut bad = loopback_target(&url_for(port, "/b"), port, 1_000);
+    bad.addrs = vec![IpAddr::V4(Ipv4Addr::LOCALHOST)];
+    bad.port = dead_port;
+    bad.url = url_for(dead_port, "/b");
+    let err = fetcher.fetch(&bad).expect_err("must fail to connect");
+    assert!(err.contains("transport"), "got: {err}");
 }

@@ -195,7 +195,16 @@ describe("useSourceSelect — dataset manifests in the Data Explorer (spec §6 r
 
     // The parquet path was never taken; the manifest one was.
     expect(mRemote).not.toHaveBeenCalled();
-    expect(result.current.manifest).toEqual(VIEW);
+    // The auto-selected entity's row reflects its extraction (exact rows from
+    // the detail); the untouched entity keeps its connect-view row verbatim.
+    expect(result.current.manifest).toMatchObject({ manifestId: "m1", title: "Housing hub" });
+    expect(result.current.manifest!.entities[0]).toEqual(VIEW.entities[0]);
+    expect(result.current.manifest!.entities[1]).toMatchObject({
+      name: "population",
+      status: "ready",
+      rowCount: 7,
+      rowCountIsExact: true,
+    });
     // First READY entity preferred over the first pending one (no extraction wait).
     expect(mEnsureEntity).toHaveBeenCalledWith(VIEW, "population", undefined);
     expect(result.current.activeEntityName).toBe("population");
@@ -252,5 +261,109 @@ describe("useSourceSelect — dataset manifests in the Data Explorer (spec §6 r
     act(() => result.current.resetSourceSelect());
     expect(result.current.manifest).toBeNull();
     expect(result.current.activeEntityName).toBeNull();
+  });
+});
+
+describe("background eager introspection (D40 item 3)", () => {
+  const PENDING_VIEW = {
+    manifestId: "m1",
+    manifestUrl: "https://h/data/manifest.json",
+    format: "files-array",
+    excluded: [],
+    entities: [
+      { name: "a", url: "https://h/data/a.parquet", status: "pending", rowCountIsExact: false },
+      { name: "b", url: "https://h/data/b.parquet", status: "pending", rowCountIsExact: false },
+      { name: "c", url: "https://h/data/c.parquet", status: "pending", rowCountIsExact: false },
+    ],
+  };
+  const det = (name: string) => ({
+    name,
+    status: "ready",
+    url: `https://h/data/${name}.parquet`,
+    csvId: `c-${name}`,
+    schema: {
+      csv_id: `c-${name}`,
+      filename: name,
+      row_count: 5,
+      columns: [{ name: "x" }],
+      sample_rows: [],
+    },
+  });
+  const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+  it("keeps extracting the REMAINING entities after connect when the server was not eager", async () => {
+    mConnectManifest.mockResolvedValue(PENDING_VIEW);
+    mEnsureEntity.mockImplementation(async (_v, name: string) => det(name));
+    const { result } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    await flush();
+    await flush();
+    // First entity via auto-select, b and c via the background loop.
+    const names = mEnsureEntity.mock.calls.map((c) => c[1]);
+    expect(names).toEqual(["a", "b", "c"]);
+    const st = Object.fromEntries(result.current.manifest!.entities.map((e) => [e.name, e.status]));
+    expect(st).toEqual({ a: "ready", b: "ready", c: "ready" });
+  });
+
+  it("does NOT run when the server already did eager work (docker connect)", async () => {
+    mConnectManifest.mockResolvedValue({
+      ...PENDING_VIEW,
+      entities: [
+        {
+          ...PENDING_VIEW.entities[0],
+          status: "ready",
+          csvId: "c-a",
+          rowCount: 5,
+          rowCountIsExact: true,
+        },
+        ...PENDING_VIEW.entities.slice(1),
+      ],
+    });
+    mEnsureEntity.mockImplementation(async (_v, name: string) => det(name));
+    const { result } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    await flush();
+    // Only the auto-select ran — pending b/c stay lazy (the docker budget was
+    // already spent server-side; a second client budget would double it).
+    expect(mEnsureEntity.mock.calls.map((c) => c[1])).toEqual(["a"]);
+    expect(result.current.manifest!.entities[1]!.status).toBe("pending");
+  });
+
+  it("YIELDS the worker the moment the user selects an entity", async () => {
+    mConnectManifest.mockResolvedValue(PENDING_VIEW);
+    // Make the background ensure slow so the user click lands mid-loop.
+    let resolveB!: (v: unknown) => void;
+    mEnsureEntity.mockImplementation(async (_v, name: string) => {
+      if (name === "b") return new Promise((r) => (resolveB = r));
+      return det(name);
+    });
+    const { result } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    await flush(); // background loop is now awaiting "b"
+    // User clicks c — generation bumps; when b finally resolves, the loop must
+    // NOT continue on to c a second time.
+    const clicked = act(() => result.current.selectManifestEntity("c"));
+    resolveB(det("b"));
+    await clicked;
+    await flush();
+    const calls = mEnsureEntity.mock.calls.map((c) => c[1]);
+    // a (auto), b (background, in flight), c (user) — and NOTHING after c from
+    // the abandoned loop.
+    expect(calls).toEqual(["a", "b", "c"]);
+  });
+
+  it("a failing entity is skipped silently — warm-up, not a gate", async () => {
+    mConnectManifest.mockResolvedValue(PENDING_VIEW);
+    mEnsureEntity.mockImplementation(async (_v, name: string) => {
+      if (name === "b") throw new Error("404");
+      return det(name);
+    });
+    const { result } = setup();
+    await act(() => result.current.handleRemoteFileSelect("https://h/data/manifest.json"));
+    await flush();
+    await flush();
+    const st = Object.fromEntries(result.current.manifest!.entities.map((e) => [e.name, e.status]));
+    expect(st).toEqual({ a: "ready", b: "pending", c: "ready" });
+    expect(result.current.sourceError).toBeNull(); // no user-facing error for a warm-up miss
   });
 });

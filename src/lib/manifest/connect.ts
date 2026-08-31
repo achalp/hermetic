@@ -19,13 +19,14 @@ import type { RemoteCreds } from "@/lib/contracts/storage-types";
 import type { DatasetManifest, ManifestEntity } from "@/lib/contracts/dataset-manifest";
 import { parseDatasetManifestText } from "./parse";
 import { enforceSameHost } from "./same-host";
-import { ManifestError, MAX_MANIFEST_BYTES } from "./shared";
+import { ManifestError, MAX_MANIFEST_BYTES, MANIFEST_EAGER_BUDGET_MS } from "./shared";
 import type { EntityState, ManifestRecord, ManifestStore } from "./store";
 import { normalizeRemoteParquetUrl } from "@/lib/parquet/partition";
 import { logger } from "@/lib/logger";
 
-/** Wall-clock budget for eager introspection at connect (spec §5.5). */
-export const MANIFEST_EAGER_BUDGET_MS = 60_000;
+// Re-exported from shared.ts (moved D40 — the client's background-eager loop
+// consumes the same budget).
+export { MANIFEST_EAGER_BUDGET_MS } from "./shared";
 
 /** One entity prepared for introspection (post-gate, post-normalize). */
 export interface EntityTarget {

@@ -18,9 +18,22 @@ vi.mock("@/lib/csv/storage", () => ({
   getStoredCSV: (id: string) => getStoredCSV(id),
 }));
 
+const register = vi.fn();
+vi.mock("@/lib/sandbox/wasm/range-singleton", () => ({
+  getRangeRegistry: () => ({ register }),
+}));
+const enumerate = vi.fn();
+const resolvePlan = vi.fn();
+vi.mock("@/lib/sandbox/remote-fetch", () => ({
+  enumerateRemoteParquetFiles: (...a: unknown[]) => enumerate(...a),
+  resolveRemoteHttpsFetch: (...a: unknown[]) => resolvePlan(...a),
+}));
+
 import {
   resolveManifestQuestion,
   buildManifestQuestionContext,
+  buildManifestWasmAliases,
+  questionBudgetFor,
 } from "@/lib/manifest/question-context";
 
 const HOST = "https://acct.blob.core.windows.net";
@@ -89,6 +102,16 @@ const REQ = {
 beforeEach(() => {
   storeGet.mockReset();
   getStoredCSV.mockReset();
+  register.mockReset();
+  enumerate.mockReset();
+  resolvePlan.mockReset();
+  let n = 0;
+  register.mockImplementation(() => `tok${++n}`);
+  resolvePlan.mockImplementation(async (stored: { remoteParquetUrl: string }) => ({
+    ok: true,
+    url: stored.remoteParquetUrl,
+    allowlist: ["acct.blob.core.windows.net"],
+  }));
   seed();
 });
 
@@ -168,5 +191,117 @@ describe("buildManifestQuestionContext — the prompt section", () => {
     // relationship detector should hand the model the join key.
     expect(ctx).toContain("Detected relationships");
     expect(ctx).toContain("geography_id");
+  });
+});
+
+describe("buildManifestWasmAliases — ranged delivery (D40, P3 items 1+2)", () => {
+  it("mints ONE run-scoped token per single-object entity, budgeted from the size hint", async () => {
+    // Give housing-gap a bytesHint through the record.
+    const rec = storeGet("m1");
+    rec.entities.get("housing-gap").entity.bytesHint = 100_000_000;
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    const built = await buildManifestWasmAliases(r, "run-1");
+
+    expect(built.aliases.map((a) => a.name)).toEqual([
+      "housing-gap.parquet",
+      "geographies.parquet",
+    ]);
+    expect(built.aliases[0]!.url).toBe("/api/wasm-range/tok1");
+    // Budget: 2× the hint (a question may scan twice), floored at 64MB.
+    expect(register.mock.calls[0]![0]).toMatchObject({
+      runId: "run-1",
+      budgetBytes: 2 * 100_000_000,
+    });
+    // No hint → the fixed extraction-style ceiling.
+    expect(register.mock.calls[1]![0]).toMatchObject({ budgetBytes: 512 * 1024 * 1024 });
+    expect(built.readExprs.get("housing-gap")).toBe("read_parquet('housing-gap.parquet')");
+  });
+
+  it("a HIVE entity fans out to one token PER FILE — the D20 invariant", async () => {
+    const rec = storeGet("m1");
+    rec.entities.get("housing-gap").entity.url = `${HOST}/release/theme=gap/*.parquet`;
+    getStoredCSV.mockImplementation((id: string) =>
+      id === "c-gap"
+        ? {
+            remoteParquetUrl: `${HOST}/release/theme=gap/*.parquet`,
+            isHivePartitioned: true,
+            schema: {
+              csv_id: "c-gap",
+              filename: "housing-gap",
+              row_count: 1,
+              columns: [],
+              sample_rows: [],
+            },
+          }
+        : {
+            remoteParquetUrl: `${HOST}/data/geographies.parquet`,
+            schema: {
+              csv_id: "c-geo",
+              filename: "geographies",
+              row_count: 1,
+              columns: [],
+              sample_rows: [],
+            },
+          }
+    );
+    enumerate.mockResolvedValue({
+      host: "acct.blob.core.windows.net",
+      objects: [
+        { key: "release/theme=gap/part-0.parquet", size: 10_000_000 },
+        { key: "release/theme=gap/part-1.parquet", size: 12_000_000 },
+      ],
+    });
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    const built = await buildManifestWasmAliases(r, "run-1");
+
+    // 2 hive files + 1 single object = 3 tokens; hive alias names keep key paths.
+    expect(register).toHaveBeenCalledTimes(3);
+    expect(built.readExprs.get("housing-gap")).toContain("hive_partitioning=true");
+    expect(built.readExprs.get("housing-gap")).toContain("release/theme=gap/part-0.parquet");
+    // Prefetch targets carry the LISTING sizes for the hive files.
+    expect(built.prefetch.filter((p) => p.url.includes("part-"))).toHaveLength(2);
+  });
+
+  it("investigate's budgetMultiplier scales every token", async () => {
+    const rec = storeGet("m1");
+    rec.entities.get("housing-gap").entity.bytesHint = 100 * 1024 * 1024;
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    await buildManifestWasmAliases(r, "run-1", { budgetMultiplier: 4 });
+    expect(register.mock.calls[0]![0].budgetBytes).toBe(4 * 2 * 100 * 1024 * 1024);
+  });
+
+  it("prefetches only where a size is KNOWN — no size, no target", async () => {
+    const r = resolveManifestQuestion(REQ, "c-gap"); // no bytesHints seeded
+    const built = await buildManifestWasmAliases(r, "run-1");
+    expect(built.prefetch).toEqual([]);
+  });
+
+  it("fails loudly when an entity has no safe fetch plan", async () => {
+    resolvePlan.mockResolvedValue({ ok: false, unsupported: "internal host" });
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    await expect(buildManifestWasmAliases(r, "run-1")).rejects.toThrow(/internal host/);
+  });
+
+  it("questionBudgetFor: 2×hint with a 64MB floor; 512MB without a hint", () => {
+    expect(questionBudgetFor(10_000_000)).toBe(64 * 1024 * 1024); // floored
+    expect(questionBudgetFor(100_000_000)).toBe(200_000_000);
+    expect(questionBudgetFor(undefined)).toBe(512 * 1024 * 1024);
+  });
+});
+
+describe("wasm-ranged prompt context (D40)", () => {
+  it("gives duckdb read exprs and forbids pandas/URLs for these files", () => {
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    const ctx = buildManifestQuestionContext(r, {
+      kind: "wasm-ranged",
+      readExprs: new Map([
+        ["housing-gap", "read_parquet('housing-gap.parquet')"],
+        ["geographies", "read_parquet('geographies.parquet')"],
+      ]),
+    });
+    expect(ctx).toContain("read_parquet('housing-gap.parquet')");
+    expect(ctx).toContain("import duckdb");
+    expect(ctx).toContain("Do NOT use pd.read_csv");
+    expect(ctx).not.toContain(HOST); // the worker never sees an upstream URL
   });
 });

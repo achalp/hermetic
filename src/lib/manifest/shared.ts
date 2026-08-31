@@ -13,6 +13,10 @@ import type { ManifestEntity } from "@/lib/contracts/dataset-manifest";
 export const MAX_MANIFEST_ENTITIES = 200;
 /** Byte cap the P1 fetch enforces on the manifest document itself. */
 export const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+/** Wall-clock budget for eager introspection (spec §5.5). Lives here (pure)
+ *  because BOTH sides consume it: the server's docker batch and — D40 item 3 —
+ *  the client's background loop on runtimes where the server can't be eager. */
+export const MANIFEST_EAGER_BUDGET_MS = 60_000;
 export const MAX_NAME_CHARS = 120;
 export const MAX_DESCRIPTION_CHARS = 500;
 export const MAX_COLUMN_DOC_CHARS = 300;

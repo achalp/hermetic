@@ -178,6 +178,8 @@ describe("prepareWasmRemoteSchemaJob", () => {
   const enumerate = vi.fn();
   const register = vi.fn();
   const resolvePlan = vi.fn();
+  const warmPut = vi.fn();
+  const prefetch = vi.fn();
 
   beforeEach(() => {
     vi.resetModules();
@@ -190,8 +192,15 @@ describe("prepareWasmRemoteSchemaJob", () => {
       enumerateRemoteParquetFiles: enumerate,
       resolveRemoteHttpsFetch: resolvePlan,
     }));
+    warmPut.mockReset();
+    prefetch.mockReset();
+    prefetch.mockResolvedValue(undefined);
     vi.doMock("@/lib/sandbox/wasm/range-singleton", () => ({
       getRangeRegistry: () => ({ register }),
+      getWarmCache: () => ({ put: warmPut }),
+    }));
+    vi.doMock("@/lib/sandbox/wasm/footer-prefetch", () => ({
+      prefetchFooters: prefetch,
     }));
   });
 
@@ -299,6 +308,54 @@ describe("prepareWasmRemoteSchemaJob", () => {
       expect.objectContaining({ remoteCreds: creds }),
       expect.objectContaining({ signal: ctl.signal })
     );
+  });
+
+  it("warms the footer cache for every ENUMERATED file — sizes from the listing (D40 4a)", async () => {
+    enumerate.mockResolvedValue({
+      host: "bucket.s3.us-west-2.amazonaws.com",
+      objects: [
+        { key: "release/theme=buildings/part-0.parquet", size: 100 },
+        { key: "release/theme=buildings/part-1.parquet", size: 200 },
+      ],
+    });
+    const { prepareWasmRemoteSchemaJob } = await import("@/lib/parquet/wasm-schema-job");
+    await prepareWasmRemoteSchemaJob(args);
+    expect(prefetch).toHaveBeenCalledTimes(1);
+    const targets = prefetch.mock.calls[0]![0];
+    expect(targets).toEqual([
+      expect.objectContaining({
+        url: "https://bucket.s3.us-west-2.amazonaws.com/release/theme=buildings/part-0.parquet",
+        sizeBytes: 100,
+      }),
+      expect.objectContaining({ sizeBytes: 200 }),
+    ]);
+    // The sink is the warm cache the range route consults.
+    const sink = prefetch.mock.calls[0]![1];
+    sink("u", 5, Buffer.from("x"));
+    expect(warmPut).toHaveBeenCalledWith("u", 5, Buffer.from("x"));
+  });
+
+  it("a prefetch FAILURE never fails the connect — warm-up only", async () => {
+    enumerate.mockResolvedValue({ host: "h", objects: [{ key: "a/p.parquet", size: 10 }] });
+    prefetch.mockRejectedValue(new Error("network down"));
+    const { prepareWasmRemoteSchemaJob } = await import("@/lib/parquet/wasm-schema-job");
+    const { job } = await prepareWasmRemoteSchemaJob(args);
+    expect(job.request.duckdb!.aliases).toHaveLength(1);
+  });
+
+  it("does NOT prefetch a single-object connect — no size is known", async () => {
+    resolvePlan.mockResolvedValue({
+      ok: true,
+      url: "https://h/data/f.parquet",
+      allowlist: ["h"],
+    });
+    const { prepareWasmRemoteSchemaJob } = await import("@/lib/parquet/wasm-schema-job");
+    await prepareWasmRemoteSchemaJob({
+      ...args,
+      readUrl: "https://h/data/f.parquet",
+      isHivePartitioned: false,
+    });
+    expect(prefetch).not.toHaveBeenCalled();
   });
 
   it("omits creds and signal entirely when there are none, rather than passing undefined", async () => {
