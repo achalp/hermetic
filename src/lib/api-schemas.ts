@@ -271,6 +271,15 @@ export const analysisRequestSchema: z.ZodType<
       code: z.string().optional(),
       sql: z.string().optional(),
       drill_down_context: drillDownContextSchema.optional(),
+      manifest: z
+        .object({
+          manifest_id: z.string().uuid(),
+          entities: z
+            .array(z.object({ name: z.string().min(1).max(120), csv_id: z.string().uuid() }))
+            .min(1)
+            .max(6),
+        })
+        .optional(),
       scope: investigateScopeSchema.optional(),
       compose_cells: z.boolean().optional(),
     })

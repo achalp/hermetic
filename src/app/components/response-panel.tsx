@@ -40,6 +40,8 @@ const VIEW_MODE_STORAGE_KEY = STORAGE_KEYS.investigateView;
 /** Dashboard | Notebook segmented control for Investigate results. */
 interface ResponsePanelProps {
   csvId: string | null;
+  /** Multi-entity manifest context for the next question (spec §7). */
+  manifestQuestion?: { manifest_id: string; entities: { name: string; csv_id: string }[] } | null;
   warehouseId?: string | null;
   question: string | null;
   questionSeq: number;
@@ -103,6 +105,7 @@ interface ResponsePanelProps {
 
 export function ResponsePanel({
   csvId,
+  manifestQuestion,
   warehouseId,
   question,
   questionSeq,
@@ -182,6 +185,7 @@ export function ResponsePanel({
     questionSeq,
     question,
     csvId,
+    manifestQuestion,
     warehouseId,
     historyId,
     reattachRunId,

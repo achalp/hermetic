@@ -13,12 +13,17 @@ import {
   isLocalParquetSource,
   resolveRemoteSource,
   resolveWasmRemoteSource,
+  remoteAuthSubst as remoteAuthSubstFor,
 } from "@/lib/parquet/duckdb-source";
 import {
   materializeRemoteCsvForWasm,
   enumerateRemoteParquetFiles,
 } from "@/lib/sandbox/remote-fetch";
 import { materializeLocalParquetCsvForWasm } from "@/lib/parquet/host-materialize";
+import {
+  resolveManifestQuestion,
+  buildManifestQuestionContext,
+} from "@/lib/manifest/question-context";
 import {
   buildHiveAliases,
   buildHiveReadExpr,
@@ -505,35 +510,86 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
           }));
         }
 
+        // ── Multi-entity manifest question (spec §7) ──
+        // Shared with Investigate via lib/manifest/question-context — the two
+        // pipelines must stay at par, so both call the SAME resolver + builder.
+        // Docker: generated DuckDB reads each entity's URL (one host — the
+        // same-host gate ran at connect, so the primary's egress grant covers
+        // all). WASM: the primary is already at /data/input.csv; each ADDITIONAL
+        // entity materializes host-side and is delivered like a workbook sheet.
+        let manifestContext: string | undefined;
+        const manifestExtraInputs: { workerPath: string; hostPath: string }[] = [];
+        if (context.manifest && isRemote) {
+          const resolvedManifest = resolveManifestQuestion(context.manifest, csvId);
+          if (sandboxRuntime === "wasm") {
+            if (resolvedManifest.entities.some((e) => e.stored.isHivePartitioned)) {
+              throw new Error(
+                "Multi-entity questions over hive-partitioned entities need the Docker sandbox runtime."
+              );
+            }
+            const paths = new Map<string, string>([
+              [resolvedManifest.entities[0]!.name, "/data/input.csv"],
+            ]);
+            for (const e of resolvedManifest.entities.slice(1)) {
+              const { csvPath } = await materializeRemoteCsvForWasm(e.stored, {
+                workDir: hermeticPaths.scratchDir(),
+              });
+              const workerPath = `/data/entities/${e.name}.csv`;
+              paths.set(e.name, workerPath);
+              manifestExtraInputs.push({ workerPath, hostPath: csvPath });
+            }
+            manifestContext = buildManifestQuestionContext(resolvedManifest, {
+              kind: "wasm",
+              paths,
+            });
+          } else {
+            manifestContext = buildManifestQuestionContext(resolvedManifest, { kind: "docker" });
+          }
+          logger.info("Manifest question: multi-entity context", {
+            runId: getRunId(),
+            entities: resolvedManifest.entities.map((e) => e.name),
+            runtime: sandboxRuntime,
+          });
+        }
+
         // Build local file context for LLM prompt (tells it where to read
         // data). A materialized warehouse pull was docker-cp'd to
         // /data/input.parquet (no mount) — same resolvers as Investigate.
-        const { localFileContext, remoteAuthSubst } = warehouseParquetFile
-          ? { localFileContext: warehouseParquetContext, remoteAuthSubst: undefined }
-          : sandboxRuntime === "wasm" && isLocal
-            ? // Delivered as /data/input.csv (the base prompt's default), whether it
-              // started as a CSV or was converted from parquet — no mount to describe.
-              { localFileContext: undefined, remoteAuthSubst: undefined }
-            : isLocal
-              ? { ...resolveLocalSource(stored), remoteAuthSubst: undefined }
-              : wasmCsvPath
-                ? // Reads the delivered /data/input.csv (the base prompt's default) —
-                  // NO httpfs, NO remoteAuthSubst.
-                  { localFileContext: undefined, remoteAuthSubst: undefined }
-                : wasmHiveReadExpr
-                  ? resolveWasmRemoteSource(
-                      wasmHiveReadExpr,
-                      stored.schema.row_count,
-                      stored.isHivePartitioned
-                    )
-                  : isRemote
-                    ? resolveRemoteSource(
-                        stored.remoteParquetUrl!,
+        const { localFileContext, remoteAuthSubst } = manifestContext
+          ? // Multi-entity manifest: the built context lists EVERY entity's
+            // location + schema; auth (docker only) comes from the primary's
+            // creds — all entities share them (one manifest, one host).
+            {
+              localFileContext: manifestContext,
+              remoteAuthSubst:
+                sandboxRuntime === "wasm" ? undefined : remoteAuthSubstFor(stored.remoteCreds),
+            }
+          : warehouseParquetFile
+            ? { localFileContext: warehouseParquetContext, remoteAuthSubst: undefined }
+            : sandboxRuntime === "wasm" && isLocal
+              ? // Delivered as /data/input.csv (the base prompt's default), whether it
+                // started as a CSV or was converted from parquet — no mount to describe.
+                { localFileContext: undefined, remoteAuthSubst: undefined }
+              : isLocal
+                ? { ...resolveLocalSource(stored), remoteAuthSubst: undefined }
+                : wasmCsvPath
+                  ? // Reads the delivered /data/input.csv (the base prompt's default) —
+                    // NO httpfs, NO remoteAuthSubst.
+                    { localFileContext: undefined, remoteAuthSubst: undefined }
+                  : wasmHiveReadExpr
+                    ? resolveWasmRemoteSource(
+                        wasmHiveReadExpr,
                         stored.schema.row_count,
-                        stored.isHivePartitioned,
-                        stored.remoteCreds
+                        stored.isHivePartitioned
                       )
-                    : { localFileContext: undefined, remoteAuthSubst: undefined };
+                    : isRemote
+                      ? resolveRemoteSource(
+                          stored.remoteParquetUrl!,
+                          stored.schema.row_count,
+                          stored.isHivePartitioned,
+                          stored.remoteCreds
+                        )
+                      : { localFileContext: undefined, remoteAuthSubst: undefined };
 
         // Run the code-gen + sandbox pipeline. When the caller supplied
         // pre-edited code via context.code (Edit-and-Rerun), skip the
@@ -563,16 +619,23 @@ export async function runAskQuery(args: RunAskQueryArgs): Promise<void> {
             localFileContext,
             priorTurns: priorTurns.length > 0 ? priorTurns : undefined,
             inputParquetPath: warehouseParquetFile,
-            wasmFetchInputs: wasmCsvPath
-              ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
-              : undefined,
+            wasmFetchInputs:
+              wasmCsvPath || manifestExtraInputs.length
+                ? [
+                    ...(wasmCsvPath
+                      ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
+                      : []),
+                    ...manifestExtraInputs,
+                  ]
+                : undefined,
             wasmDuckDbAliases,
             purpose,
             remoteAuthSubst,
           });
         }
-        // The host-materialized remote CSV is consumed once the worker fetched it.
+        // The host-materialized remote CSVs are consumed once the worker fetched them.
         if (wasmCsvPath) await unlink(wasmCsvPath).catch(() => {});
+        for (const extra of manifestExtraInputs) await unlink(extra.hostPath).catch(() => {});
         // Range tokens are capabilities: release them the moment the run is done so
         // a later request cannot reuse one (they are also run-scoped in the registry).
         if (wasmDuckDbAliases?.length) {

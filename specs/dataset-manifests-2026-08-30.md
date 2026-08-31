@@ -293,3 +293,23 @@ ensure the chosen entities (existing lazy flow, same loading UI) → submit a
 multi-entity context; the pipeline then builds the workbook-style prompt section
 and delivers N entities (docker: N read exprs on one egress host; wasm: N
 materialized CSVs like sheets).
+
+**P2 increment 2 (2026-08-31): the ask AND investigate flows are wired —
+cross-entity questions work end to end.** Author directive honored structurally:
+"the two must stay at par" means ONE shared module (`lib/manifest/
+question-context.ts`, the validate-request pattern) — one resolver, one context
+builder, called identically by both pipelines; and one shared CLIENT gate
+(`handleGuardedQuery` awaits the pre-step for both modes). Flow: ask →
+`/api/manifest/select` picks K entities from the index → the client ensures each
+(same lazy flow + loading UI as a browser click; primary becomes the active
+source so csv_id, explorer highlight, and pipeline plumbing agree) → the request
+carries `context.manifest` (IDS only; the server re-validates every one: the
+manifest must exist, each name must be its entity, each csvId must be the
+server's own registration, primary must equal csv_id) → the pipeline builds the
+workbook-shaped context (per-entity locations + metadata-mode schemas +
+join-hint relationships via detectRelationships) and delivers: docker = N
+read_parquet exprs on the one manifest host (primary's egress grant covers all);
+wasm = primary at /data/input.csv + additional entities materialized to
+/data/entities/<name>.csv (hive entities on wasm fail closed to Docker guidance).
+A failed pre-step degrades to the single active entity — never blocks the
+question. NOT yet live-verified; the King County join is the gate.

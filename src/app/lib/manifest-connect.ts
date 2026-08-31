@@ -68,3 +68,16 @@ export async function ensureManifestEntity(
   });
   return json<ManifestEntityDetail>(res);
 }
+
+/** The selection pre-step (spec §7): which entities does this question need? */
+export async function selectManifestEntities(
+  manifestId: string,
+  question: string
+): Promise<{ entities: string[]; usedFallback?: boolean }> {
+  const res = await fetch("/api/manifest/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ manifestId, question }),
+  });
+  return json<{ entities: string[]; usedFallback?: boolean }>(res);
+}
