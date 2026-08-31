@@ -58,11 +58,31 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  const parsed = parseRange(req.headers.get("range"));
+  const rawRange = req.headers.get("range");
+  const parsed = parseRange(rawRange);
   if (!parsed) {
-    // DuckDB always sends a Range on data reads; a bare GET would mean "whole
-    // object", which is exactly what this endpoint exists to avoid.
-    return NextResponse.json({ error: "a valid bytes= range is required" }, { status: 416 });
+    // A bare GET means "the whole object", which is what this endpoint exists to
+    // avoid — so it is still refused. What changed (D31): it is no longer refused
+    // SILENTLY. The first live connect died here and the 416 said nothing, which
+    // is the same empty-diagnostics failure the egress gateway hit in PR #126.
+    //
+    // The comment this replaces asserted "DuckDB always sends a Range on data
+    // reads". That is FALSE: Emscripten's lazy-file reader sets the header
+    // conditionally (`fileSize !== chunkSize && setRequestHeader(...)`) and omits
+    // it whenever it believes the chunk is the whole file. The assertion was
+    // written into a security boundary and never checked.
+    logger.warn("wasm-range: refused a request without a usable byte range", {
+      token,
+      range: rawRange ?? "(absent)",
+    });
+    return NextResponse.json(
+      {
+        error: rawRange
+          ? `unsupported Range "${rawRange}" — this endpoint serves a single bytes=START-END window`
+          : "a Range header is required — this endpoint never serves a whole object",
+      },
+      { status: 416 }
+    );
   }
   // Bound one request before asking the network for it.
   const requested = parsed.end === undefined ? MAX_RANGE_BYTES : parsed.end - parsed.start + 1;
@@ -128,12 +148,24 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
 }
 
 /**
- * HEAD — DuckDB probes the object size before reading the footer. We answer it
- * with a one-byte ranged GET and read the total out of `Content-Range`, so the
- * core stays GET-only (`Method` has exactly one variant on purpose) and no new
+ * HEAD — DuckDB probes the object size before reading anything else. We answer it
+ * with a one-byte ranged GET upstream and read the total out of `Content-Range`, so
+ * the core stays GET-only (`Method` has exactly one variant on purpose) and no new
  * verb is ever issued on the worker's behalf.
+ *
+ * ── The status matters, and 200 was wrong (D31) ──
+ * duckdb-wasm opens an HTTP-protocol file like this:
+ *
+ *     xhr.open("HEAD", url); xhr.setRequestHeader("Range", "bytes=0-");
+ *     if (contentLength !== null && xhr.status == 206) { …use it as the size… }
+ *
+ * It requires **206**, not 200. Answering 200 made the size probe fail on every
+ * file, every time, and sent DuckDB down fallback paths that end in a whole-object
+ * GET — which this endpoint refuses. That is what killed the first live connect.
+ * So: when the probe carries a Range, answer 206 with a `Content-Range`; a HEAD
+ * with no Range still gets a plain 200.
  */
-export async function HEAD(_req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+export async function HEAD(req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const registry = getRangeRegistry();
   const src = registry.resolve(token);
@@ -148,15 +180,19 @@ export async function HEAD(_req: NextRequest, ctx: { params: Promise<{ token: st
       capBytes: MAX_RANGE_BYTES,
     });
     if (total === null) return new NextResponse(null, { status: 502 });
-    return new NextResponse(null, {
-      status: 200,
-      headers: {
-        "content-type": "application/octet-stream",
-        "content-length": String(total),
-        "accept-ranges": "bytes",
-        "cache-control": "no-store",
-      },
-    });
+    const probeRange = parseRange(req.headers.get("range"));
+    const headers: Record<string, string> = {
+      "content-type": "application/octet-stream",
+      "accept-ranges": "bytes",
+      "cache-control": "no-store",
+      // DuckDB reads Content-Length as the FILE SIZE. For its `bytes=0-` probe the
+      // range IS the whole object, so the two agree; we never claim otherwise.
+      "content-length": String(total),
+    };
+    if (!probeRange) return new NextResponse(null, { status: 200, headers });
+    const end = probeRange.end === undefined ? total - 1 : Math.min(probeRange.end, total - 1);
+    headers["content-range"] = `bytes ${probeRange.start}-${end}/${total}`;
+    return new NextResponse(null, { status: 206, headers });
   } catch {
     return new NextResponse(null, { status: 502 });
   }

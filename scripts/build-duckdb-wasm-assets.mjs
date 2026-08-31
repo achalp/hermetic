@@ -79,6 +79,55 @@ async function duckdbVersion() {
   return m[1];
 }
 
+/**
+ * `duckdb-browser-blocking.mjs` calls `_setThrew(…)` in 345 places — every one of
+ * them inside an Emscripten `invoke_*` catch block, i.e. the C++ exception path —
+ * and DEFINES IT NOWHERE. Verified against the upstream file, not just our bundle:
+ * 345 references, 0 declarations, in both. This is not a bundling artifact.
+ *
+ * Why it stayed hidden: `invoke_*` is only entered when a C++ exception actually
+ * propagates, so every happy path works (the D18 spike ran a full query). The first
+ * real DuckDB error turns into `ReferenceError: Can't find variable: _setThrew`,
+ * which names nothing useful and buries the actual failure — that is exactly how it
+ * showed up on the first live Overture connect (D31).
+ *
+ * Why we do NOT reimplement it: the historical JS version stored `__THREW__` state
+ * that the WASM side reads back. A JS-only stub would let the module continue
+ * believing nothing was thrown — trading a loud crash for silent corruption. The
+ * blocking build is MVP glue (it ships `invoke_*`), so the eh module is not an
+ * option either: that pairing is the `call_indirect signature mismatch` from D18.
+ *
+ * So this shim does the one honest thing available — it makes the failure LEGIBLE.
+ * The process still stops, but with a message that names the upstream defect and
+ * says what actually happened: DuckDB raised an error and could not report it.
+ */
+const SETTHREW_SHIM = `/* hermetic: see build-duckdb-wasm-assets.mjs (D31) */
+var _setThrew = function (threw, value) {
+  throw new Error(
+    "DuckDB-WASM raised an internal error and could not report it: the blocking " +
+      "browser build calls _setThrew() without defining it (upstream defect). " +
+      "The ORIGINAL failure is whatever DuckDB was doing when this fired — a failed " +
+      "range read is the usual cause. threw=" + threw + " value=" + value
+  );
+};
+`;
+
+/**
+ * Fail the asset build if the shim ever stops being needed OR stops being applied.
+ * Both directions matter: an upstream fix should retire this file's shim rather than
+ * shadow a real `_setThrew`, and a silently-dropped banner would restore the
+ * unreadable crash.
+ */
+async function assertSetThrewDefined(bundlePath) {
+  const text = await readFile(bundlePath, "utf8");
+  const calls = text.match(/_setThrew\s*\(/g)?.length ?? 0;
+  const declared = /var _setThrew = function/.test(text);
+  if (calls > 0 && !declared) {
+    throw new Error("duckdb bundle calls _setThrew but the shim was not applied");
+  }
+  console.log(`duckdb-wasm: _setThrew shim applied (${calls} call sites guarded)`);
+}
+
 async function main() {
   await mkdir(OUT, { recursive: true });
 
@@ -96,7 +145,12 @@ async function main() {
     platform: "browser",
     outfile: join(OUT, "duckdb-bundle.js"),
     logLevel: "warning",
+    // See SETTHREW_SHIM. Goes in a BANNER (outside the IIFE) on purpose: the
+    // undefined reference lives inside esbuild's IIFE, and an inner scope falls
+    // through to the global one — so a global declaration is what resolves it.
+    banner: { js: SETTHREW_SHIM },
   });
+  await assertSetThrewDefined(join(OUT, "duckdb-bundle.js"));
   const bundleBytes = (await stat(join(OUT, "duckdb-bundle.js"))).size;
   console.log(`duckdb-wasm: bundle ${(bundleBytes / 1e6).toFixed(1)}MB`);
 
