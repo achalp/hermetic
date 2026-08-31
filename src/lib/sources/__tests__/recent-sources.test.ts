@@ -18,6 +18,7 @@ import {
   renameRecentSource,
   removeRecentSource,
   clearRecentSources,
+  manifestHostName,
 } from "@/lib/sources/recent-sources";
 import { _setEntryCtorForTests, getRemoteSourceSecrets } from "@/lib/secrets";
 
@@ -283,5 +284,67 @@ describe("recent sources store — credential separation (finding H1)", () => {
 
     await removeRecentSource(entry.id);
     expect(getRemoteSourceSecrets(entry.id)).toBeUndefined();
+  });
+});
+
+describe("manifest sources in recents (named by the host — author decision)", () => {
+  it("records kind 'manifest' with the HOST as the display name", async () => {
+    await recordRecentSource({
+      kind: "manifest",
+      name: manifestHostName("https://ahihubpublic.blob.core.windows.net/data/manifest.json"),
+      subtitle: "https://ahihubpublic.blob.core.windows.net/data/manifest.json",
+      url: "https://ahihubpublic.blob.core.windows.net/data/manifest.json",
+    });
+    const list = await loadRecentSources();
+    const m = list.find((e) => e.kind === "manifest")!;
+    expect(m.name).toBe("ahihubpublic.blob.core.windows.net");
+    // No rows field: the UI renders rows as "N rows", which would misread an
+    // entity count.
+    expect(m.rows).toBeUndefined();
+  });
+
+  it("manifestHostName handles s3:// and junk without throwing", () => {
+    expect(manifestHostName("https://h.example.com/a/manifest.json")).toBe("h.example.com");
+    expect(manifestHostName("s3://my-bucket/data/manifest.json")).toBe("my-bucket");
+    expect(manifestHostName("not a url")).toBe("not a url");
+  });
+
+  it("MIGRATES P1 entries (manifest urls recorded under remote-parquet) on load", async () => {
+    // Recorded the pre-P2.3 way: remote-parquet kind, title name, entity-count rows.
+    await recordRecentSource({
+      kind: "remote-parquet",
+      name: "Housing hub",
+      subtitle: "https://acct.blob.core.windows.net/data/manifest.json",
+      rows: 15,
+      url: "https://acct.blob.core.windows.net/data/manifest.json",
+    });
+    const list = await loadRecentSources();
+    const m = list.find((e) => e.url?.endsWith("/data/manifest.json"))!;
+    expect(m.kind).toBe("manifest");
+    expect(m.name).toBe("acct.blob.core.windows.net"); // host-named
+    expect(m.rows).toBeUndefined(); // the entity-count misread is dropped
+    // A REAL parquet url under remote-parquet is untouched by the migration.
+    await recordRecentSource({
+      kind: "remote-parquet",
+      name: "x.parquet",
+      subtitle: "https://acct.blob.core.windows.net/data/x.parquet",
+      url: "https://acct.blob.core.windows.net/data/x.parquet",
+    });
+    const list2 = await loadRecentSources();
+    expect(list2.find((e) => e.url?.endsWith("x.parquet"))!.kind).toBe("remote-parquet");
+  });
+
+  it("a migrated entry and a fresh manifest record DEDUPE to one row", async () => {
+    const url = "https://dedup.example.com/data/manifest.json";
+    await recordRecentSource({ kind: "remote-parquet", name: "old", subtitle: url, url });
+    await loadRecentSources(); // triggers migration persist
+    await recordRecentSource({
+      kind: "manifest",
+      name: manifestHostName(url),
+      subtitle: url,
+      url,
+    });
+    const list = await loadRecentSources();
+    expect(list.filter((e) => e.url === url)).toHaveLength(1);
   });
 });

@@ -90,7 +90,7 @@ export function useRecentsList({
         }
         const src = recents.find((r) => r.id === item.id);
         if (!src) return;
-        if (src.kind === "remote-parquet" && src.url) {
+        if ((src.kind === "remote-parquet" || src.kind === "manifest") && src.url) {
           await handleRemoteFileSelect(src.url, src.creds, force);
         } else if (src.kind === "local-folder" && src.path) {
           await handleLocalFileSelect(src.path, "folder");
