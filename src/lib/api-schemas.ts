@@ -95,6 +95,11 @@ export const ManifestConnectBody = z.object({
   force: z.boolean().optional(),
 });
 
+export const ManifestSelectBody = z.object({
+  manifestId: z.string().uuid(),
+  question: z.string().min(1).max(4000),
+});
+
 export const ManifestAttachBody = z.object({
   manifestId: z.string().uuid(),
   name: z.string().min(1).max(120),

@@ -275,3 +275,21 @@ fetching; selection is external (`activeItem`/`onSheetSelect`). Connect
 auto-selects the first READY entity (else lazily extracts the first) so the rail
 opens with a real schema immediately. Pending entities show "not read yet" and
 extract on click.
+
+**P2 increment 1 (2026-08-31): loading states + the selection pre-step.**
+Author review items: (1) the connect dialog now stays open (spinner showing)
+until the first entity's schema lands — closing it earlier left a blank page for
+the whole first extraction; (2) clicking a pending entity marks its row
+"loading…" and the explorer header shows "reading <entity>…" (loadingEntityName
+through hook → chrome → rail). (3) `POST /api/manifest/select` implements the
+§7 pre-step: the CODE-GEN-tier model reads the one-line-per-entity INDEX built
+from manifest metadata alone — names, publisher descriptions (year spans folded
+in), row hints — so selection needs NO schemas; pending entities are as
+selectable as ready ones. Hallucinated names are dropped, question-named
+entities always ride, hard cap 6, deterministic keyword fallback (never zero
+entities), spend tracked in the cost ledger, uncached across questions.
+REMAINING P2 wiring: the ask flow does not call it yet — client should select →
+ensure the chosen entities (existing lazy flow, same loading UI) → submit a
+multi-entity context; the pipeline then builds the workbook-style prompt section
+and delivers N entities (docker: N read exprs on one egress host; wasm: N
+materialized CSVs like sheets).

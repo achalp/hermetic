@@ -84,6 +84,8 @@ export function useSourceSelect(args: {
   // page's ACTIVE SOURCE, which is what feeds those sections.
   const [manifest, setManifest] = useState<ManifestView | null>(null);
   const [activeEntityName, setActiveEntityName] = useState<string | null>(null);
+  /** Entity currently being introspected — drives the "loading" row + header hint. */
+  const [loadingEntityName, setLoadingEntityName] = useState<string | null>(null);
 
   const handleRemoteFileSelect = useCallback(
     async (url: string, creds?: RemoteParquetCreds, force?: boolean) => {
@@ -100,15 +102,24 @@ export function useSourceSelect(args: {
         if (isManifestUrl(url)) {
           const view = await connectManifest(url, creds, force);
           setManifest(view);
-          setShowLocalBrowser(false);
           const first = view.entities.find((e) => e.status === "ready") ?? view.entities[0];
           if (first) {
-            const detail = await ensureManifestEntity(view, first.name, creds);
-            if (detail.csvId && detail.schema) {
-              setActiveEntityName(first.name);
-              handleUpload(detail.csvId, detail.schema);
+            // The dialog stays OPEN (its extracting spinner showing) until the
+            // first entity's schema lands — closing it earlier left the user
+            // staring at a blank page for the whole first extraction (author
+            // review #1). The list row also shows "loading…" via loadingEntityName.
+            setLoadingEntityName(first.name);
+            try {
+              const detail = await ensureManifestEntity(view, first.name, creds);
+              if (detail.csvId && detail.schema) {
+                setActiveEntityName(first.name);
+                handleUpload(detail.csvId, detail.schema);
+              }
+            } finally {
+              setLoadingEntityName(null);
             }
           }
+          setShowLocalBrowser(false);
           return;
         }
         const data = await extractRemoteParquetSchema(url, creds, force);
@@ -186,6 +197,7 @@ export function useSourceSelect(args: {
     async (name: string) => {
       if (!manifest || name === activeEntityName) return;
       setIsExtractingLocalSchema(true);
+      setLoadingEntityName(name);
       setSourceError(null);
       try {
         const detail = await ensureManifestEntity(manifest, name, lastRemoteRef.current?.creds);
@@ -220,6 +232,7 @@ export function useSourceSelect(args: {
         setSourceError(errText(err, `Couldn't read entity "${name}".`));
       } finally {
         setIsExtractingLocalSchema(false);
+        setLoadingEntityName(null);
       }
     },
     [manifest, activeEntityName, handleUpload]
@@ -233,6 +246,7 @@ export function useSourceSelect(args: {
     setSourceError(null);
     setManifest(null);
     setActiveEntityName(null);
+    setLoadingEntityName(null);
     lastRemoteRef.current = null;
   }, []);
 
@@ -251,6 +265,7 @@ export function useSourceSelect(args: {
     clearSourceError: () => setSourceError(null),
     manifest,
     activeEntityName,
+    loadingEntityName,
     selectManifestEntity,
   };
 }
