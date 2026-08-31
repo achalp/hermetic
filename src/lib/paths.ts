@@ -100,6 +100,17 @@ export const hermeticPaths = {
   pyodideDir: () =>
     envConfig().HERMETIC_PYODIDE_DIR ?? join(roots().assetRoot, "node_modules", "pyodide"),
   /**
+   * The @duckdb/duckdb-wasm NODE dist (the in-process host engine, build log
+   * D25/D38). Resolved from assetRoot like pyodideDir — NEVER via
+   * `createRequire(import.meta.url).resolve()`: under Turbopack dev that returns
+   * the bundler's module-ID string, and `dirname()` of it produced the
+   * `[externals]/…` ENOENT that killed the first live wasm remote question. The
+   * package is in serverExternalPackages and its dist is force-included in the
+   * standalone trace (next.config), so this path exists in dev AND the sidecar.
+   */
+  duckdbNodeDistDir: () =>
+    join(roots().assetRoot, "node_modules", "@duckdb", "duckdb-wasm", "dist"),
+  /**
    * The DuckDB-WASM browser assets served same-origin at /duckdb/* (build log D18):
    * the classic-worker bundle, the .wasm modules, and the `ext/` extension repository.
    * The worker CSP is `connect-src 'self'`, so extension autoload MUST resolve here —

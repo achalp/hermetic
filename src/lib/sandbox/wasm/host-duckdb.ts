@@ -21,7 +21,8 @@
  * integration tests (HERMETIC_WASM_TEST).
  */
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { hermeticPaths } from "@/lib/paths";
 
 /** The blocking connection's surface, narrowed to what we actually call. */
 export interface HostDuckDbConn {
@@ -33,11 +34,17 @@ let connPromise: Promise<HostDuckDbConn> | null = null;
 export async function hostDuckDb(): Promise<HostDuckDbConn> {
   if (!connPromise) {
     connPromise = (async () => {
-      const require = createRequire(import.meta.url);
       const entry = "@duckdb/duckdb-wasm/dist/duckdb-node-blocking.cjs";
-      // Dynamic require keeps @duckdb/duckdb-wasm OUT of the client bundle.
+      // Dynamic require keeps @duckdb/duckdb-wasm OUT of the client bundle. The
+      // MODULE load works everywhere (serverExternalPackages hands it to real
+      // node require) — but `require.resolve(entry)` does NOT: under Turbopack
+      // dev it returns the bundler's module-ID string, and dirname() of that
+      // produced the `[externals]/…` ENOENT that killed the first live wasm
+      // remote question (D38). The wasm FILE paths therefore come from
+      // hermeticPaths, same pattern as pyodideDir.
+      const require = createRequire(import.meta.url);
       const duckdb = require(entry);
-      const distDir = dirname(require.resolve(entry));
+      const distDir = hermeticPaths.duckdbNodeDistDir();
       const bundles = {
         mvp: {
           mainModule: join(distDir, "duckdb-mvp.wasm"),

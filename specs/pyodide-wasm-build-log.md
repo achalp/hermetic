@@ -1383,3 +1383,25 @@ holds; ranged 206s > 2 = it actually read by ranges. Mutation-verified: deleting
 `db.open(config)` from the boot fails the spec with the exact live signature
 (the _setThrew crash); restored, it passes in ~7 s. Skips gracefully where the
 pyodide/duckdb assets are absent (CI's e2e job), same pattern as the other gates.
+
+### D38 — The first live wasm remote QUESTION: `require.resolve` is not a path under Turbopack.
+
+The question flow died 1.5 s in, before any code-gen: `hostDuckDb()`'s boot read
+`dirname(createRequire(import.meta.url).resolve(entry))` and got Turbopack's
+module-ID string (`[externals]/…cjs [external] (…)`), then tried to open wasm files
+under it — ENOENT. Every prior exercise of this path ran under vitest, where
+`import.meta.url` is a real file URL; the DEV SERVER context was never hit until
+the manifest work made a wasm remote question reachable.
+
+The subtlety worth recording: `require(entry)` WORKED — the package is in
+serverExternalPackages, so the module loads through real node require (the crash
+stack runs inside the real .cjs). Only `require.resolve` is bundler-poisoned. Fix:
+the wasm FILE paths come from `hermeticPaths.duckdbNodeDistDir()` — the exact
+pattern `pyodideDir()` already uses — anchored on assetRoot, which holds in dev
+AND in the sidecar (whose trace force-includes the dist; next.config).
+
+Verified three ways: the gated HERMETIC_WASM_TEST integration tests still boot the
+real engine off the new path; a live probe against the running dev server drove
+the full question flow past materialization to the `__wasm_exec` handoff (the
+stream carried the delivered `/data/input.csv` token — the precise point that
+ENOENT'd now passes); and the orphaned probe run was stopped server-side.
