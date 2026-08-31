@@ -55,6 +55,13 @@ export async function executeSandbox(
   opts: WasmExecOptions = {}
 ): Promise<ExecutionResult> {
   const py = await getPyodide();
+  // scipy is IN the Pyodide distribution but not loaded by default (a ~30MB
+  // wheel a pandas-only run must not pay for). The docker image ships it, so
+  // prompted code legitimately imports it — load it exactly when THIS run's code
+  // does (build log D39; loadPackage is idempotent, so repeats are free).
+  if (/\b(?:import|from)\s+scipy\b/.test(code)) {
+    await py.loadPackage(["scipy"]);
+  }
   const start = Date.now();
 
   // Fresh /data every run (the warm-pool cleanup invariant — spec §8/F7).

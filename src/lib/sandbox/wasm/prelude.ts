@@ -43,7 +43,7 @@
  *   - the `json.dump`/`json.dumps` `allow_nan=True` patch so `write_output` can
  *     emit NaN/Inf (the host parser tolerates non-finite JSON on the way back).
  */
-export function buildWasmPrelude(): string {
+export function buildWasmPrelude(workDir = "/data"): string {
   return `# ── WASM-safe prelude (spec pyodide-wasm-sandbox §5) ─────────────────────────
 # The Docker prelude stripped to what runs under Pyodide + DuckDB-WASM. DROPPED:
 # the heartbeat/memory-watchdog THREADS (Pyodide is single-threaded), the cgroup
@@ -54,20 +54,60 @@ export function buildWasmPrelude(): string {
 # disk-spill). KEPT: /data on sys.path for hermetic_runtime, and the json
 # allow_nan patch so write_output can emit NaN/Inf.
 import sys as _sys
-if "/data" not in _sys.path:
-    _sys.path.insert(0, "/data")
+if "${workDir}" not in _sys.path:
+    _sys.path.insert(0, "${workDir}")
 
 import json as _json_mod
-_orig_dump = _json_mod.dump
-_orig_dumps = _json_mod.dumps
-def _safe_dump(*a, **kw):
-    kw['allow_nan'] = True
-    return _orig_dump(*a, **kw)
-def _safe_dumps(*a, **kw):
-    kw['allow_nan'] = True
-    return _orig_dumps(*a, **kw)
-_json_mod.dump = _safe_dump
-_json_mod.dumps = _safe_dumps
+# IDEMPOTENT (build log D39): the node parity executor keeps ONE warm Pyodide
+# across runs and re-executes this prelude per run. Without the guard, run N's
+# '_orig_dump = _json_mod.dump' captures run N-1's wrapper, and because the
+# wrapper reads the GLOBAL '_orig_dump' at call time, the first re-wrapped call
+# recurses into itself until RecursionError. Latent since D6 (browser workers
+# are fresh per run; the warm node executor never called write_output twice
+# until the D39 behavioral parity test did).
+if not getattr(_json_mod, "_hermetic_nan_patch", False):
+    _orig_dump = _json_mod.dump
+    _orig_dumps = _json_mod.dumps
+    def _safe_dump(*a, **kw):
+        kw['allow_nan'] = True
+        return _orig_dump(*a, **kw)
+    def _safe_dumps(*a, **kw):
+        kw['allow_nan'] = True
+        return _orig_dumps(*a, **kw)
+    _json_mod.dump = _safe_dump
+    _json_mod.dumps = _safe_dumps
+    _json_mod._hermetic_nan_patch = True
+
+# ── Bare-name helper surface (build log D39) ──
+# The docker prelude defines ~30 helpers at GLOBAL scope, and the code-gen prompt
+# tells the model to call them bare: to_num(...), declare_check(...), ... The
+# first live wasm question burned four attempts and $1.65 discovering these were
+# missing one NameError at a time. Every implementation already lives in the
+# hermetic_runtime package the executor stages on every run — so this BINDS,
+# never copies (one implementation, both runtimes). The parity test
+# (prelude-parity.test.ts) fails if docker's prelude grows a public helper this
+# block does not bind.
+try:
+    from hermetic_runtime.frames import to_num, numeric, safe_qcut
+    from hermetic_runtime.coerce import safe_float, safe_int
+    from hermetic_runtime.guards import assert_fits
+    from hermetic_runtime.findings import (
+        declare_finding, get_findings, finding_trend, finding_step_change,
+        finding_decompose, finding_heterogeneity, finding_outliers,
+        finding_correlation, finding_distribution, finding_share,
+        finding_superlative, finding_split_comparison, finding_yoy,
+        finding_current_state)
+    from hermetic_runtime.checks import declare_check
+    from hermetic_runtime.series import declare_series, declare_value, get_series, get_values
+    from hermetic_runtime.output import write_output
+    from hermetic_runtime.regimes import profile_regimes, select_center, zero_policy
+except Exception as _prelude_bind_err:  # loud, not fatal: pandas-only code must still run
+    print("hermetic prelude: runtime binding failed: %r" % (_prelude_bind_err,), file=_sys.stderr)
+
+def progress(phase=None, detail=None, **fields):
+    # Docker's heartbeat hook; the worker has no heartbeat fd — deliberate no-op
+    # so prompted progress() calls never NameError here.
+    return None
 `;
 }
 

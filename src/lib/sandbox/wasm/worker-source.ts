@@ -27,6 +27,13 @@ self.onmessage = async (e) => {
     importScripts(indexURL + "pyodide.js"); // same-origin bundled dist (script-src 'self')
     const pyodide = await self.loadPyodide({ indexURL });
     await pyodide.loadPackage(["numpy", "pandas"]);
+    // scipy is IN the Pyodide distribution but not loaded by default (a ~30MB
+    // wheel a pandas-only run must not pay for). The docker image ships it, so
+    // prompted code legitimately imports it — load it exactly when the CODE does
+    // (build log D39; same opt-in shape as codeNeedsDuckDb).
+    if (/\b(?:import|from)\s+scipy\b/.test(String(request.code || ""))) {
+      await pyodide.loadPackage(["scipy"]);
+    }
     // DuckDB is booted only when the request asks (build log D18): the engine is a
     // 41MB wasm module, so a pandas-only run must not pay for it. Parameters arrive
     // as DATA — the CSP allows wasm-unsafe-eval but NOT unsafe-eval.

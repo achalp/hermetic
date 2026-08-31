@@ -1,3 +1,4 @@
+import { buildWasmPrelude } from "./prelude";
 /**
  * WASM-runtime execution constants shared by BOTH Pyodide hosts — the Node
  * parity executor (executor.ts) and the production browser worker (served by
@@ -42,15 +43,10 @@ export const WASM_EXEC_CSP =
   "connect-src 'self'; img-src 'none'; worker-src 'none'; child-src 'none'";
 
 /**
- * Minimal WASM-safe Python prelude. The Docker prelude's daemon threads / cgroup
- * guards / os.environ proxy don't exist under WASM (spec §5); keep only the
- * stdlib-safe bits the output contract needs: sys.path for hermetic_runtime, and
- * json allow_nan so write_output can emit NaN/Infinity.
+ * The WASM-safe Python prelude the executor and worker actually ship. ONE
+ * source: `buildWasmPrelude` (prelude.ts). Until D39 this was a second inline
+ * copy that had ALREADY drifted from prelude.ts's version — and the D39 helper
+ * bindings landed in the unshipped one first, which is exactly the failure mode
+ * a duplicate invites. Never re-inline this string.
  */
-export const WASM_PRELUDE = `
-import sys, json
-sys.path.insert(0, "${WASM_WORK_DIR}")
-_orig_dump, _orig_dumps = json.dump, json.dumps
-json.dump = lambda obj, fp, **kw: _orig_dump(obj, fp, **{**kw, "allow_nan": True})
-json.dumps = lambda obj, **kw: _orig_dumps(obj, **{**kw, "allow_nan": True})
-`;
+export const WASM_PRELUDE = buildWasmPrelude(WASM_WORK_DIR);
