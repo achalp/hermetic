@@ -217,7 +217,9 @@ Settled: adapter-layer architecture; ride the file-source pipeline, not
 WarehouseConnector; strict same-host; 60 s eager budget then lazy; selection
 pre-step (uncached across questions, reused within a run); V1 adapter set.
 
-Open for review: K (max selected entities) default; whether the entity browser
-lives as a new tab of the existing data-explorer or a new view; whether P1 ships
-behind a flag; exact cheap-tier model for the pre-step (suggest/title tier vs
-code-gen tier).
+Settled in review (2026-08-30, author): **K = 4, hard cap 6.** Entity browser is
+master-detail — a list of entities; clicking one shows its schema, sample rows,
+and any description carried by the manifest or the dataset, with the dataset-level
+description displayed too. **Ships straight in, no flag.** The selection pre-step
+runs on the **code-gen model tier** (not the suggest/title tier): the pick decides
+what the expensive step sees, so it gets the better model.
