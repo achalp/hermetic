@@ -32,7 +32,12 @@ const MANIFEST_TEXT = JSON.stringify({
       sha256: "a".repeat(64),
     },
     { name: "population.parquet", url: `${HOST}/data/population.parquet`, rows: 200 },
-    { name: "evil.parquet", url: "https://evil.example.com/evil.parquet" },
+    // Cross-host is LEGITIMATE under the revised policy (2026-08-31) — the
+    // manifest\u0027s named hosts are the trust set.
+    {
+      name: "mirror.parquet",
+      url: "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/x.parquet",
+    },
   ],
 });
 
@@ -70,28 +75,71 @@ function deps(overrides: Partial<ConnectManifestDeps> = {}): ConnectManifestDeps
 }
 
 describe("connectDatasetManifest", () => {
-  it("gates cross-host entities out, keeps the rest, and introspects eagerly", async () => {
+  it("keeps CROSS-HOST entities, excludes only unreadable URLs, introspects eagerly", async () => {
     const d = deps();
     const { record } = await connectDatasetManifest({ url: M_URL }, d);
 
-    expect(record.excluded.map((e) => e.name)).toEqual(["evil"]);
-    expect([...record.entities.keys()]).toEqual(["housing", "population"]);
+    // Revised policy: the S3 mirror entity is KEPT — nothing is excluded for
+    // being cross-host. (Unreadable URLs are already dropped by the adapters;
+    // partitionManifestEntities is belt-and-suspenders, tested in same-host.)
+    expect(record.excluded).toEqual([]);
+    expect([...record.entities.keys()]).toEqual(["housing", "population", "mirror"]);
     expect([...record.entities.values()].every((e) => e.status === "ready")).toBe(true);
     // Ready entities are REGISTERED — from here the whole pipeline works on them.
     expect(d.registered.map((r) => r.readUrl)).toEqual([
       `${HOST}/data/housing.parquet`,
       `${HOST}/data/population.parquet`,
+      "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/x.parquet",
     ]);
     expect(d.store.get(record.manifestId)).toBe(record);
   });
 
-  it("fails CLOSED when every entity is cross-host", async () => {
-    const text = JSON.stringify({
-      files: [{ name: "e.parquet", url: "https://evil.example.com/e.parquet" }],
-    });
+  it("a manifest with no readable parquet entries fails the connect closed", async () => {
+    // The adapters drop unresolvable/non-parquet URLs; zero survivors = not a
+    // usable manifest. The partition-level fail-closed is covered in same-host.
+    const text = JSON.stringify({ files: [{ name: "e.parquet", url: "::::" }] });
     await expect(
       connectDatasetManifest({ url: M_URL }, deps({ fetchManifestText: async () => text }))
-    ).rejects.toThrow(/different host/);
+    ).rejects.toThrow(/not a manifest form/);
+  });
+
+  it("routes a STAC catalog through the traversal — entities from collections", async () => {
+    const CAT = "https://stac.example.org";
+    const S3H = "https://bucket.s3.us-west-2.amazonaws.com/release";
+    const docsMap: Record<string, unknown> = {
+      [`${CAT}/catalog.json`]: {
+        type: "Catalog",
+        stac_version: "1.1.0",
+        id: "root",
+        links: [{ rel: "child", href: `${CAT}/building/collection.json` }],
+      },
+      [`${CAT}/building/collection.json`]: {
+        type: "Collection",
+        stac_version: "1.1.0",
+        id: "building",
+        "table:row_count": 99,
+        links: [
+          { rel: "item", href: `${CAT}/building/0.json` },
+          { rel: "item", href: `${CAT}/building/1.json` },
+        ],
+      },
+      [`${CAT}/building/0.json`]: {
+        type: "Feature",
+        assets: {
+          aws: { href: `${S3H}/theme=b/type=building/part-0.parquet` },
+        },
+      },
+    };
+    const d = deps({
+      fetchManifestText: vi.fn(async (url: string) => JSON.stringify(docsMap[url] ?? {})),
+    });
+    const { record } = await connectDatasetManifest({ url: `${CAT}/catalog.json` }, d);
+    expect(record.manifest.format).toBe("stac");
+    expect([...record.entities.keys()]).toEqual(["building"]);
+    // Multi-item collection → s3:// glob, normalized as a hive/glob source.
+    expect(d.registered[0]!.readUrl).toBe("s3://bucket/release/theme=b/type=building/*.parquet");
+    expect(d.registered[0]!.isHive).toBe(true);
+    expect(record.entities.get("building")!.entity.rowCountHint).toBe(99);
   });
 
   it("serves cache hits WITHOUT extraction and reports them", async () => {
@@ -104,7 +152,10 @@ describe("connectDatasetManifest", () => {
     expect(fromCache).toBe(1);
     // Only the miss went to the batch.
     const batch = d.extractBatch as ReturnType<typeof vi.fn>;
-    expect(batch.mock.calls[0]![0].map((t: { name: string }) => t.name)).toEqual(["population"]);
+    expect(batch.mock.calls[0]![0].map((t: { name: string }) => t.name)).toEqual([
+      "population",
+      "mirror",
+    ]);
     expect(record.entities.get("housing")!.status).toBe("ready");
   });
 
@@ -212,7 +263,7 @@ describe("views", () => {
     const population = view.entities.find((e) => e.name === "population")!;
     expect(housing).toMatchObject({ rowCount: 42, rowCountIsExact: true, status: "ready" });
     expect(population).toMatchObject({ rowCount: 200, rowCountIsExact: false, status: "pending" });
-    expect(view.excluded).toHaveLength(1);
+    expect(view.excluded).toHaveLength(0); // nothing cross-host-excluded anymore
     // The list view must stay LIGHT: no schemas in it.
     expect(JSON.stringify(view)).not.toContain("sample_rows");
   });

@@ -33,6 +33,7 @@ import {
   resolveManifestQuestion,
   buildManifestQuestionContext,
   buildManifestWasmAliases,
+  manifestEgressHosts,
   questionBudgetFor,
 } from "@/lib/manifest/question-context";
 
@@ -303,5 +304,46 @@ describe("wasm-ranged prompt context (D40)", () => {
     expect(ctx).toContain("import duckdb");
     expect(ctx).toContain("Do NOT use pd.read_csv");
     expect(ctx).not.toContain(HOST); // the worker never sees an upstream URL
+  });
+});
+
+describe("manifestEgressHosts — the docker union (revised host policy 2026-08-31)", () => {
+  it("unions the hosts of every SELECTED entity, deduped", () => {
+    getStoredCSV.mockImplementation((id: string) =>
+      id === "c-gap"
+        ? {
+            remoteParquetUrl: "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/a.parquet",
+            schema: { csv_id: "c-gap", filename: "a", row_count: 1, columns: [], sample_rows: [] },
+          }
+        : {
+            remoteParquetUrl: `${HOST}/data/geographies.parquet`,
+            schema: { csv_id: "c-geo", filename: "g", row_count: 1, columns: [], sample_rows: [] },
+          }
+    );
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    const hosts = manifestEgressHosts(r);
+    expect(hosts).toContain("overturemaps-us-west-2.s3.us-west-2.amazonaws.com");
+    expect(hosts).toContain("acct.blob.core.windows.net");
+  });
+
+  it("same-host entities produce ONE host, not duplicates", () => {
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    expect(manifestEgressHosts(r)).toEqual(["acct.blob.core.windows.net"]);
+  });
+
+  it("never unions an internal host — the SSRF guard holds per entity", () => {
+    getStoredCSV.mockImplementation((id: string) =>
+      id === "c-gap"
+        ? {
+            remoteParquetUrl: "https://169.254.169.254/latest/meta-data.parquet",
+            schema: { csv_id: "c-gap", filename: "a", row_count: 1, columns: [], sample_rows: [] },
+          }
+        : {
+            remoteParquetUrl: `${HOST}/data/geographies.parquet`,
+            schema: { csv_id: "c-geo", filename: "g", row_count: 1, columns: [], sample_rows: [] },
+          }
+    );
+    const r = resolveManifestQuestion(REQ, "c-gap");
+    expect(manifestEgressHosts(r)).toEqual(["acct.blob.core.windows.net"]);
   });
 });

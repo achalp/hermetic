@@ -15,8 +15,8 @@
  *
  * ── Delivery ──
  * Docker: nothing to deliver — generated DuckDB reads each entity's URL
- * directly; all entities share one host (the same-host gate ran at connect), so
- * the PRIMARY's egress grant covers every read.
+ * directly; the run's egress allowlist is the UNION of the selected entities'
+ * hosts (manifestEgressHosts — revised host policy 2026-08-31).
  * WASM: the primary rides the existing path (/data/input.csv); each ADDITIONAL
  * entity is materialized host-side and delivered like a workbook sheet at
  * /data/entities/<name>.csv (spec §7.4 — one delivery mechanism, not two).
@@ -190,6 +190,23 @@ export function questionBudgetFor(bytesHint: number | undefined): number {
   const FLOOR = 64 * 1024 * 1024;
   const NO_HINT = 512 * 1024 * 1024;
   return bytesHint === undefined ? NO_HINT : Math.max(FLOOR, 2 * bytesHint);
+}
+
+/**
+ * The docker egress allowlist for a manifest question: the UNION of the
+ * selected entities' derived hosts (revised host policy 2026-08-31 — entities
+ * may live on different hosts; each still derives through the same safe-host
+ * logic, and unselected hosts get no grant). Empty result = fail closed at the
+ * routing layer, same as a single-source run.
+ */
+export function manifestEgressHosts(resolved: ResolvedManifestQuestion): string[] {
+  const hosts = new Set<string>();
+  for (const e of resolved.entities) {
+    for (const h of deriveAllowedEgressHosts(e.stored.remoteParquetUrl!, e.stored.remoteCreds)) {
+      hosts.add(h);
+    }
+  }
+  return [...hosts];
 }
 
 export interface ManifestWasmAliases {

@@ -24,7 +24,7 @@ export interface ManifestEntity {
   columnDocs?: { name: string; description: string }[];
 }
 
-export type DatasetManifestFormat = "datapackage" | "croissant" | "files-array";
+export type DatasetManifestFormat = "datapackage" | "croissant" | "files-array" | "stac";
 
 export interface DatasetManifest {
   manifestUrl: string;

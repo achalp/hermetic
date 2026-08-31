@@ -224,6 +224,8 @@ interface OrchestrateOptions {
   wasmFetchInputs?: { workerPath: string; hostPath: string }[];
   /** WASM-only: range-token DuckDB aliases every sub-step's worker binds (D40). */
   wasmDuckDbAliases?: { name: string; url: string }[];
+  /** Docker egress allowlist for multi-host manifest questions (2026-08-31). */
+  allowedEgressHosts?: string[];
   /** Reported per-sub-question and per-wave status updates. */
   onProgress?: (event: InvestigateProgressEvent) => void;
 }
@@ -267,6 +269,7 @@ function runCsvSubQuestion(
     inputParquetPath: options.inputParquetPath,
     wasmFetchInputs: options.wasmFetchInputs,
     wasmDuckDbAliases: options.wasmDuckDbAliases,
+    allowedEgressHosts: options.allowedEgressHosts,
     purpose: options.purpose,
   });
 }
