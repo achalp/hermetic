@@ -156,6 +156,62 @@ describe("parseSandboxOutput", () => {
     }
   });
 
+  it("classifies a 404 from the data source as TERMINAL, not retryable", async () => {
+    // Run 5f8b7787: a missing blob produced four identical tracebacks over 13
+    // minutes and $2.52, because regenerating code cannot conjure an object that
+    // does not exist. Note the wording — DuckDB says "Unable to connect to URL",
+    // one word off the "Failed to connect to" the network matcher looks for, so
+    // this needs its own rule rather than a tweak to that regex.
+    const result = await parseSandboxOutput({
+      ...base,
+      exitCode: 1,
+      readFile: io({
+        "/data/stderr.txt":
+          "duckdb.duckdb.HTTPException: HTTP Error: Unable to connect to URL " +
+          '"https://acct.blob.core.windows.net/data/housing.parquet": 404 (The specified blob does not exist.).',
+      }),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorKind).toBe("user-config"); // fast-fail, no retries
+      expect(result.error).toContain("404");
+      // Name the object, so the user can see WHICH url was wrong.
+      expect(result.error).toContain("https://acct.blob.core.windows.net/data/housing.parquet");
+      expect(result.error).toMatch(/does not exist/i);
+      expect(result.error).toMatch(/not a code problem|was not retried/i);
+    }
+  });
+
+  it("classifies a 403 as terminal too, and points at credentials", async () => {
+    const result = await parseSandboxOutput({
+      ...base,
+      exitCode: 1,
+      readFile: io({
+        "/data/stderr.txt":
+          'duckdb.duckdb.HTTPException: HTTP Error: Unable to connect to URL "s3://b/x.parquet": 403 (Forbidden).',
+      }),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorKind).toBe("user-config");
+      expect(result.error).toMatch(/credentials/i);
+    }
+  });
+
+  it("leaves a 5xx RETRYABLE — a server error genuinely can be transient", async () => {
+    const result = await parseSandboxOutput({
+      ...base,
+      exitCode: 1,
+      readFile: io({
+        "/data/stderr.txt":
+          'duckdb.duckdb.HTTPException: HTTP Error: Unable to connect to URL "s3://b/x.parquet": 503 (Slow Down).',
+      }),
+    });
+    expect(result.success).toBe(false);
+    // No errorKind → the ordinary retry path, which is correct here.
+    if (!result.success) expect(result.errorKind).toBeUndefined();
+  });
+
   it("classifies proxy-deny failures as network too (L3 backlog #8)", async () => {
     // Python requests/urllib behind the egress gateway word a denied or dead
     // proxy differently from a direct connection failure.

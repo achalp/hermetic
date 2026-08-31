@@ -103,7 +103,17 @@ export function materializeRemoteToFile(o: MaterializeRemoteOptions): Promise<{ 
     const fail = async (err: EgressFetchError) => {
       if (settled) return;
       settled = true;
-      out.destroy();
+      // WAIT for the stream to close before deleting. `destroy()` is async and does
+      // not cancel a pending `open()`: unlinking straight after it lets that open
+      // land afterwards and RE-CREATE the file — which is precisely the partial
+      // materialization this promises to remove. Surfaced as an order-dependent
+      // test failure that passed in isolation; it is a real ordering bug, not a
+      // flaky test.
+      await new Promise<void>((res) => {
+        if (out.closed) return res();
+        out.once("close", () => res());
+        out.destroy();
+      });
       await unlink(o.destPath).catch(() => {}); // never leave a partial materialization
       reject(err);
     };
@@ -141,6 +151,22 @@ export function materializeRemoteToFile(o: MaterializeRemoteOptions): Promise<{ 
       if (code === 0) {
         out.end(() => {
           if (settled) return;
+          // A successful FETCH is not a successful materialization. The write
+          // stream can be in an error state here — an unwritable destination
+          // errors asynchronously, and `end()`'s callback can win the race
+          // against the 'error' event — in which case resolving would report
+          // success for a file that was never written, and hand the caller a
+          // path to nothing. Check the stream, not just the exit code.
+          if (out.errored) {
+            void fail(
+              new EgressFetchError(
+                `egress-fetch could not write the destination: ${out.errored.message}`,
+                "transport",
+                null
+              )
+            );
+            return;
+          }
           settled = true;
           logger.debug("Remote source materialized via egress-fetch", { bytes });
           resolve({ bytes });

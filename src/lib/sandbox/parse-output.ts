@@ -406,6 +406,34 @@ export async function parseSandboxOutput(opts: ParseSandboxOutputOpts): Promise<
         execDiag,
       };
     }
+    // A 4xx from the data source is TERMINAL, not a code bug: the object is
+    // missing, renamed, or not readable with these credentials. Regenerating code
+    // cannot conjure it, so retrying is pure cost — run 5f8b7787 spent 13 minutes
+    // and $2.52 producing four identical 404 tracebacks. 5xx and timeouts stay
+    // retryable: those genuinely can be transient.
+    const httpStatus = /HTTP (?:Error|GET error).*?:\s*(4\d\d)\b/i.exec(stderr);
+    if (httpStatus) {
+      const status = httpStatus[1];
+      const url = /Unable to connect to URL "([^"]+)"/i.exec(stderr)?.[1];
+      logger.warn("Sandbox: data source returned a client error — not retrying", {
+        runtime: opts.runtime,
+        status,
+      });
+      return {
+        success: false,
+        error:
+          `The data source returned HTTP ${status}` +
+          (url ? ` for ${url}` : "") +
+          `. ${
+            status === "404"
+              ? "That object does not exist — check the source URL, or re-connect the source if it has moved."
+              : "The sandbox could not read it — check the URL and any credentials on the source."
+          } This is a source/configuration problem, not a code problem, so the analysis was not retried.`,
+        errorKind: "user-config",
+        execution_ms: executionMs,
+        execDiag,
+      };
+    }
     return {
       success: false,
       error: stderr || "Unknown execution error",

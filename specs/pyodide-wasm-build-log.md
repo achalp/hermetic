@@ -1256,3 +1256,64 @@ a real `_setThrew`.
 
 **Still unverified:** whether fixing (1) is enough for the Seattle case to complete.
 That needs another live run.
+
+### D32 — Hermetic corrupted its own generated code on every remote source under a `data/` prefix.
+
+Run 5f8b7787 failed four times with an identical 404 on
+`https://…blob.core.windows.net/data/input.csv`. The connected source was
+`…/data/housing-landscape.parquet`. Nothing about the model was wrong — the URL was
+rewritten AFTER generation.
+
+`fixUpFilenames` existed to repair a local-upload mistake (weak models write
+`/data/sales.csv` instead of the delivered `/data/input.csv`). It did a global,
+unanchored `code.replace('/data/' + schema.filename, '/data/input.csv')`. For a
+REMOTE source `schema.filename` is the object's basename, so a URL whose own path
+contains `/data/` had its path rewritten — pointing the analysis at an object that
+does not exist.
+
+**The audit, because one URL is not a scope.** Running the real chain over a matrix
+of realistic sources: **9 of 13 corrupted, and s3/gs/az were hit exactly as hard as
+https.** `/data/` need not be the first segment (`s3://bucket/warehouse/data/facts.parquet`
+corrupts). Single-star globs corrupt; double-star hive globs do not. An object
+legitimately named `input.csv.csv` corrupts via the OTHER regex, independent of the
+filename. Sources without a `/data/` segment were never affected. That matrix is now
+the regression test, mutation-verified: with both guards removed, all 9 fail.
+
+**Why retries could never win.** The corruption is deterministic and post-generation,
+so every attempt was broken identically — which is exactly why four tracebacks were
+byte-identical, over 13 minutes and $2.52. The first reading of that log ("the model
+kept repeating a mistake") was backwards; the model was right every time.
+
+**Root error.** These repairs assume every run's input is a CSV at `/data/input.csv`.
+That is true for uploads and false for every Data Location run — remote, mounted
+local file, materialized warehouse parquet. `prompts.ts:370` already tells the MODEL
+that Data Location overrides every default; the repairs never got that memo, so they
+overrode the override. `postProcessGeneratedCode` now makes that assumption explicit
+and gates on it, and is the single chain both call sites use (it had been hand-copied
+in two places — free to drift, and a retry could have repaired code differently from
+the attempt it was fixing).
+
+Two independent defects found on the way:
+
+- **`fixReadCsvDelimiter` forced `delimiter=','` onto REMOTE reads.** Harmless for a
+  real CSV; for a remote TSV or pipe-delimited file it overrides DuckDB's
+  auto-detection and parses everything into one column — a silent wrong answer.
+  Now skipped for any `scheme://` path.
+- **A 4xx from the data source was retried.** It is terminal: no rewrite conjures a
+  missing object. Now fails fast with the status and the URL named, instead of
+  "Analysis failed after 4 attempts" with the cause buried in the last traceback.
+  5xx stays retryable — those genuinely can be transient.
+
+**And two in `egress-fetch.ts`, surfaced by an order-dependent test failure.** Both
+predate this work; both are real:
+
+1. `fail()` called `out.destroy()` (asynchronous) and unlinked immediately. A pending
+   `open()` could land AFTER the unlink and re-create the file — so "never leave a
+   partial materialization" held only by luck. Now waits for `close`.
+2. Worse: on a successful fetch to an unwritable destination, `out.end()`'s callback
+   could win the race against the stream's `error` event, and the promise **resolved
+   as success with nothing on disk** — handing the caller a path to a file that does
+   not exist. Now an errored stream can never report success.
+
+The tell was a test that passed in isolation and failed ~2 of 3 full runs. Re-running
+until green would have shipped both.

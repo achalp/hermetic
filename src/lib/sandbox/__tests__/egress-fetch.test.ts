@@ -99,6 +99,25 @@ describe("materializeRemoteToFile", () => {
     ).rejects.toMatchObject({ kind: "spawn" });
   });
 
+  it("leaves NO file behind when the fetch fails — even racing a pending open", async () => {
+    // `createWriteStream` opens asynchronously. Unlinking before the stream has
+    // closed lets that open land afterwards and re-create the file, so the
+    // "never leave a partial materialization" guarantee held only by luck. This
+    // failed order-dependently in the full suite and passed in isolation.
+    for (const mode of ["deny", "cap", "unknown"]) {
+      const dest = join(dir, `race-${mode}.parquet`);
+      await expect(
+        materializeRemoteToFile({
+          url: `https://${mode}/x`,
+          allowlist: ["data.example.com"],
+          destPath: dest,
+          binPath,
+        })
+      ).rejects.toBeInstanceOf(EgressFetchError);
+      expect(existsSync(dest)).toBe(false);
+    }
+  });
+
   it("REJECTS on an unwritable destination instead of crashing the process", async () => {
     // createWriteStream opens asynchronously, so a bad destination surfaces as an
     // 'error' event on the stream. Without a listener Node promotes that to an

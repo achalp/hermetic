@@ -1,13 +1,4 @@
-import {
-  generateAnalysisCode,
-  cleanGeneratedCode,
-  fixUpFilenames,
-  fixExcelReadOnCsv,
-  fixReadCsvDelimiter,
-  fixColumnNameCase,
-  stripValueAssertions,
-  fixMissingSqlFString,
-} from "@/lib/llm/code-generation";
+import { generateAnalysisCode, postProcessGeneratedCode } from "@/lib/llm/code-generation";
 import { buildRetryPromptMulti, RETRY_GUIDANCE, buildCodeGenSystemPrompt } from "@/lib/llm/prompts";
 import { activateSkills, reportSkillActivation } from "@/lib/skills";
 import { userModuleFiles } from "@/lib/skills/user-modules";
@@ -237,16 +228,12 @@ export async function runPipeline(
       })
     );
     const retryText = await retryResult.text;
-    return fixColumnNameCase(
-      stripValueAssertions(
-        fixMissingSqlFString(
-          fixReadCsvDelimiter(
-            fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(retryText), schema.filename))
-          )
-        )
-      ),
-      schema.columns.map((c) => c.name)
-    );
+    // Same repairs as the first generation, from the SAME function — this was a
+    // hand-copied duplicate of that chain, which is how a retry could silently
+    // repair code differently from the attempt it was fixing.
+    return postProcessGeneratedCode(retryText, schema, {
+      hasDataLocation: Boolean(localFileContext),
+    });
   };
 
   // Deterministic checks-presence gate (declared-checks spec §2): whether
