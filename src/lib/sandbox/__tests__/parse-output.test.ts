@@ -3,6 +3,7 @@ import {
   parseSandboxOutput,
   parseJsonWithPythonNonFinite,
   classifyThrownError,
+  pythonErrorSummary,
 } from "@/lib/sandbox/parse-output";
 
 /** In-memory readFile adapter: a map of path → content (missing = null). */
@@ -660,5 +661,77 @@ describe("classifyThrownError (finding M7)", () => {
     expect(classifyThrownError("Sandbox.create failed: ECONNREFUSED")).toBe("infra");
     expect(classifyThrownError("docker daemon not reachable")).toBe("infra");
     expect(classifyThrownError("transport closed")).toBe("infra");
+  });
+});
+
+describe("pythonErrorSummary — logs must say WHAT failed, not just where", () => {
+  /**
+   * Every failed-execution log line used `error.slice(0, 200)`. On a Python
+   * traceback that is the boilerplate header and the OUTERMOST frames; the
+   * exception is the LAST line. Run 72319f5a is the cost: the logs showed
+   * `File "/data/script.py", line 789 … File "/data/script.py", lin` — cut off
+   * mid-word, one frame short of the only sentence that mattered.
+   */
+  const TRACEBACK = [
+    "Traceback (most recent call last):",
+    '  File "/data/script.py", line 789, in <module>',
+    '    df = duckdb.sql("SELECT * FROM t").df()',
+    "         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+    '  File "/data/script.py", line 190, in _safe_duckdb_sql',
+    "    return _orig_duckdb_sql(query, *a, **kw)",
+    "duckdb.duckdb.OutOfMemoryException: Out of Memory Error: failed to allocate data of size 2.0 GiB",
+  ].join("\n");
+
+  it("keeps the terminal exception line — the one thing a reader needs", () => {
+    const out = pythonErrorSummary(TRACEBACK);
+    expect(out).toContain("OutOfMemoryException");
+    expect(out).toContain("failed to allocate data of size 2.0 GiB");
+  });
+
+  it("keeps the DEEPEST frame, so the location is the real one", () => {
+    // Not line 789 (the outermost) — line 190, where it actually raised.
+    expect(pythonErrorSummary(TRACEBACK)).toContain("line 190");
+  });
+
+  it("drops the boilerplate header a head-slice would have spent its budget on", () => {
+    expect(pythonErrorSummary(TRACEBACK)).not.toContain("Traceback (most recent call last)");
+  });
+
+  it("beats the old head-slice on the exact log that motivated this", () => {
+    const old = TRACEBACK.slice(0, 200);
+    expect(old).not.toContain("OutOfMemory"); // the old log genuinely could not say why
+    expect(pythonErrorSummary(TRACEBACK)).toContain("OutOfMemory");
+  });
+
+  it("falls back to the last line for output that is not a traceback", () => {
+    expect(pythonErrorSummary("Killed\n")).toBe("Killed");
+    expect(pythonErrorSummary("segmentation fault (core dumped)")).toBe(
+      "segmentation fault (core dumped)"
+    );
+  });
+
+  it("handles empty / whitespace-only stderr without throwing", () => {
+    expect(pythonErrorSummary("")).toBe("");
+    expect(pythonErrorSummary("   \n\n  ")).toBe("");
+  });
+
+  it("respects the max length", () => {
+    const long = "ValueError: " + "x".repeat(999);
+    expect(pythonErrorSummary(long, 60).length).toBe(60);
+  });
+
+  it("picks the LAST exception when a traceback chains (raise-from)", () => {
+    const chained = [
+      "Traceback (most recent call last):",
+      '  File "/data/script.py", line 10, in <module>',
+      "ValueError: inner cause",
+      "",
+      "The above exception was the direct cause of the following exception:",
+      "",
+      "Traceback (most recent call last):",
+      '  File "/data/script.py", line 20, in <module>',
+      "RuntimeError: what the caller actually sees",
+    ].join("\n");
+    expect(pythonErrorSummary(chained)).toContain("RuntimeError: what the caller actually sees");
   });
 });

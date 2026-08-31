@@ -1,5 +1,6 @@
 import { generateAnalysisCode, postProcessGeneratedCode } from "@/lib/llm/code-generation";
 import { buildRetryPromptMulti, RETRY_GUIDANCE, buildCodeGenSystemPrompt } from "@/lib/llm/prompts";
+import { pythonErrorSummary } from "@/lib/sandbox/parse-output";
 import { activateSkills, reportSkillActivation } from "@/lib/skills";
 import { userModuleFiles } from "@/lib/skills/user-modules";
 import { getSandboxMemoryLimitGbLabel } from "@/lib/sandbox/memory-budget";
@@ -531,7 +532,9 @@ export async function runPipeline(
       attempt,
       maxRetries: MAX_RETRIES,
       kind: result.success ? "semantic" : "execution",
-      errorPreview: retryError.slice(0, 200),
+      // Same reason as the executor's log: the head of a traceback never says
+      // what failed, so a reader watching retries scroll by learned nothing.
+      errorPreview: pythonErrorSummary(retryError),
     });
     void recordFailure({
       stage: "code-exec",
