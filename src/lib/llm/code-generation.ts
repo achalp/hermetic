@@ -64,20 +64,63 @@ export function cleanGeneratedCode(raw: string): string {
 }
 
 /**
+ * Is this `/data/…` occurrence part of a URL rather than a sandbox path?
+ *
+ * A remote object stored under a `data/` prefix — `s3://bucket/data/facts.parquet`,
+ * `https://acct.blob.core.windows.net/data/housing-landscape.parquet` — contains a
+ * literal `/data/<basename>`, and `schema.filename` for a remote source IS that
+ * basename. So the naive global replace rewrote the URL's own path and pointed the
+ * analysis at an object that does not exist (run 5f8b7787: four identical 404s,
+ * 13 minutes, $2.52 — the model emitted the RIGHT url every time and this rewrote
+ * it every time).
+ */
+function isInsideUrl(code: string, matchIndex: number): boolean {
+  // Walk back to the start of the string/URL token and look for a scheme.
+  const from = Math.max(0, matchIndex - 2048);
+  const before = code.slice(from, matchIndex);
+  return /[a-z][a-z0-9+.-]*:\/\/[^\s"'`]*$/i.test(before);
+}
+
+/**
  * Fix filenames in generated code: local models sometimes use the original
  * filename (e.g. "/data/sales.csv") instead of the expected "/data/input.csv".
  * They also sometimes double the extension (e.g. "/data/input.csv.csv").
+ *
+ * ── Scope (tightened after run 5f8b7787) ──
+ * This helper is ONLY correct when the run's input really is a CSV delivered to
+ * `/data/input.csv` — i.e. an upload. On a Data Location run (remote URL, mounted
+ * local file, materialized warehouse parquet) there is no `/data/input.csv` at all,
+ * and rewriting toward it corrupts a correct program. `postProcessGeneratedCode`
+ * gates it on exactly that; the two guards below are defense in depth, because this
+ * function is exported and directly reachable.
  */
 export function fixUpFilenames(code: string, originalFilename: string): string {
   // Fix double extensions first — models see "Filename: data.csv" in the prompt
-  // and construct paths like "/data/data.csv.csv" or "/data/input.csv.csv"
-  code = code.replace(/\/data\/([^"'\s]+)\.csv\.csv/g, "/data/$1.csv");
+  // and construct paths like "/data/data.csv.csv" or "/data/input.csv.csv".
+  // URL-guarded too: an object legitimately named `input.csv.csv` is not a typo.
+  code = replaceOutsideUrls(code, /\/data\/([^"'\s]+)\.csv\.csv/g, (m) =>
+    m.replace(/\.csv\.csv$/, ".csv")
+  );
 
   if (!originalFilename || originalFilename === "input.csv") return code;
-  // Replace /data/<original-filename> with /data/input.csv
-  // Handle both the exact name and common variations (with/without extension)
+  // Never rewrite a NON-CSV sandbox path to a .csv one: `/data/input.parquet` is a
+  // real delivery path (a materialized warehouse pull), and "input.csv" is simply
+  // the wrong file there — under any premise, not just the remote one.
+  if (!/\.csv$/i.test(originalFilename)) return code;
   const escaped = originalFilename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return code.replace(new RegExp(`/data/${escaped}`, "g"), "/data/input.csv");
+  return replaceOutsideUrls(code, new RegExp(`/data/${escaped}`, "g"), () => "/data/input.csv");
+}
+
+/** `String.replace` that leaves matches sitting inside a URL literal alone. */
+function replaceOutsideUrls(
+  code: string,
+  pattern: RegExp,
+  replacer: (match: string) => string
+): string {
+  return code.replace(pattern, (match, ...rest) => {
+    const offset = rest[rest.length - 2] as number;
+    return isInsideUrl(code, offset) ? match : replacer(match);
+  });
 }
 
 /**
@@ -107,6 +150,12 @@ export function fixReadCsvDelimiter(code: string): string {
   // Match read_csv('...' or read_csv("..." that don't already have a delimiter/delim/sep arg
   return code.replace(/read_csv\((['""][^)]*?['""]\s*)\)/g, (match, inner) => {
     if (/delimiter|delim|sep\s*=/.test(match)) return match;
+    // A REMOTE csv is not ours to assume commas about. Hermetic's own delivered
+    // input is comma-separated by construction, but a user's `s3://…/f.tsv` is
+    // not — and forcing `delimiter=','` overrides DuckDB's auto-detection and
+    // parses the whole file into ONE column. A silent wrong answer is worse than
+    // the missing-delimiter warning this exists to prevent.
+    if (/[a-z][a-z0-9+.-]*:\/\//i.test(inner)) return match;
     return `read_csv(${inner}, delimiter=',')`;
   });
 }
@@ -249,14 +298,42 @@ export async function generateAnalysisCode(
   );
   const generatedText = await result.text;
 
+  return postProcessGeneratedCode(generatedText, schema, {
+    hasDataLocation: Boolean(localFileContext),
+  });
+}
+
+/**
+ * Every deterministic repair applied to a generated program, in one place.
+ *
+ * It lived inline at two call sites (here and the orchestrator's retry) — byte
+ * identical, and therefore free to drift. Worse, both hard-coded the assumption
+ * that the input is a CSV at `/data/input.csv`.
+ *
+ * `hasDataLocation` is that assumption made explicit. When the prompt carries a
+ * Data Location section the input is something else entirely — a remote URL, a
+ * mounted local file, a materialized parquet — and `prompts.ts` already tells the
+ * MODEL that section overrides every default. The repairs never got that memo, so
+ * they overrode the override: run 5f8b7787 had a correct `s3`/`https` URL rewritten
+ * to a nonexistent `/data/input.csv` on all four attempts.
+ */
+export function postProcessGeneratedCode(
+  rawText: string,
+  schema: { filename: string; columns: { name: string }[] },
+  opts: { hasDataLocation: boolean }
+): string {
+  let code = cleanGeneratedCode(rawText);
+  // Both of these speak specifically about the delivered `/data/input.csv`, so
+  // they only apply when that file is actually what the run reads.
+  if (!opts.hasDataLocation) {
+    code = fixUpFilenames(code, schema.filename);
+    code = fixReadCsvDelimiter(code);
+  }
+  code = fixExcelReadOnCsv(code);
+  code = fixMissingSqlFString(code);
+  code = stripValueAssertions(code);
   return fixColumnNameCase(
-    stripValueAssertions(
-      fixMissingSqlFString(
-        fixReadCsvDelimiter(
-          fixExcelReadOnCsv(fixUpFilenames(cleanGeneratedCode(generatedText), schema.filename))
-        )
-      )
-    ),
+    code,
     schema.columns.map((c) => c.name)
   );
 }
