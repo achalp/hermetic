@@ -19,6 +19,12 @@ interface UseAnalysisActionsArgs {
   dashboardRef: RefObject<HTMLDivElement | null>;
   onSaved: () => void;
   handleQuery: (question: string, mode: QueryMode) => void;
+  /**
+   * Manifest selection pre-step (spec §7) — runs BEFORE dispatch for BOTH
+   * modes; this shared gate is what keeps ask and investigate at par on the
+   * client. Optional: absent when no manifest source is connected.
+   */
+  prepareManifestForQuestion?: (question: string) => Promise<void>;
   queryMode: QueryMode;
   currentQuestion: string | null;
   currentMode: QueryMode;
@@ -38,6 +44,7 @@ export function useAnalysisActions({
   dashboardRef,
   onSaved,
   handleQuery,
+  prepareManifestForQuestion,
   queryMode,
   currentQuestion,
   currentMode,
@@ -77,11 +84,15 @@ export function useAnalysisActions({
         openSettings();
         return;
       }
+      // Manifest sources: select entities + ensure them BEFORE dispatch, so the
+      // stream request carries the multi-entity context (never blocks — a
+      // failed pre-step degrades to the single active entity).
+      await prepareManifestForQuestion?.(question);
       // Callers without an explicit mode (suggestion pills, history replay)
       // inherit the currently-selected mode from the QueryInput.
       handleQuery(question, mode ?? queryMode);
     },
-    [handleQuery, openSettings, queryMode, setLlmWarning]
+    [handleQuery, openSettings, queryMode, setLlmWarning, prepareManifestForQuestion]
   );
 
   // Changing the output style re-asks the current question with the new

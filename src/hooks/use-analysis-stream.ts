@@ -26,6 +26,8 @@ export interface UseAnalysisStreamArgs {
   questionSeq: number;
   question: string | null | undefined;
   csvId: string | null | undefined;
+  /** Multi-entity manifest context (spec §7) — included in the request context. */
+  manifestQuestion?: { manifest_id: string; entities: { name: string; csv_id: string }[] } | null;
   warehouseId: string | null | undefined;
   /** The restored analysis this session follows up on (?restore= id). Sent with
    *  every query so the server can self-heal a cold csvId miss by rehydrating the
@@ -56,6 +58,7 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     questionSeq,
     question,
     csvId,
+    manifestQuestion,
     warehouseId,
     historyId,
     reattachRunId,
@@ -207,6 +210,9 @@ export function useAnalysisStream(args: UseAnalysisStreamArgs) {
     isReattachStreamRef.current = false;
     send("", {
       csv_id: csvId ?? undefined,
+      // Multi-entity manifest context (spec §7) — ids only; the server
+      // re-validates every one against its own manifest store.
+      manifest: manifestQuestion ?? undefined,
       warehouse_id: warehouseId ?? undefined,
       history_id: historyId ?? undefined,
       question: question,

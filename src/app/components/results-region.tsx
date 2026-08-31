@@ -39,6 +39,8 @@ export interface ResultsRegionProps {
   dispatch: ReturnType<typeof usePageState>["dispatch"];
   dashboardRef: RefObject<HTMLDivElement | null>;
   csvId: string | null;
+  /** Multi-entity manifest context for the next question (spec §7). */
+  manifestQuestion?: { manifest_id: string; entities: { name: string; csv_id: string }[] } | null;
   warehouseId: string | null;
   reattach: ReturnType<typeof useReattach>;
   schemaMode: SchemaMode;
@@ -126,6 +128,7 @@ export function ResultsRegion(props: ResultsRegionProps) {
         )}
         <ResponsePanel
           csvId={props.csvId}
+          manifestQuestion={props.manifestQuestion}
           warehouseId={props.warehouseId}
           question={pageState.currentQuestion}
           questionSeq={pageState.questionSeq}

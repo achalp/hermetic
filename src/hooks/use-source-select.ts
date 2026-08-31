@@ -19,7 +19,9 @@ import {
 import {
   connectManifest,
   ensureManifestEntity,
+  selectManifestEntities,
   type ManifestView,
+  type ManifestEntityDetail,
 } from "@/app/lib/manifest-connect";
 import { isManifestUrl } from "@/lib/manifest/shared";
 
@@ -238,6 +240,67 @@ export function useSourceSelect(args: {
     [manifest, activeEntityName, handleUpload]
   );
 
+  /**
+   * Prepared multi-entity context for the NEXT question (spec §7): set by
+   * prepareManifestForQuestion right before the ask/investigate dispatch,
+   * consumed by the stream request. Cleared when there is no manifest.
+   */
+  const [manifestQuestion, setManifestQuestion] = useState<{
+    manifest_id: string;
+    entities: { name: string; csv_id: string }[];
+  } | null>(null);
+
+  /**
+   * The selection pre-step + ensure, run BEFORE a question dispatches (both
+   * modes — handleGuardedQuery is the shared gate). Never blocks the question:
+   * any failure falls back to the single active entity.
+   */
+  const prepareManifestForQuestion = useCallback(
+    async (question: string) => {
+      if (!manifest) {
+        setManifestQuestion(null);
+        return;
+      }
+      try {
+        const { entities: picked } = await selectManifestEntities(manifest.manifestId, question);
+        if (!picked?.length) throw new Error("selection unavailable");
+
+        // Ensure every picked entity is ready (the existing lazy flow, with the
+        // same loading UI a browser click drives). Kept sequential: each may be
+        // a wasm two-hop worker extraction, and one worker at a time is plenty.
+        const ready: { name: string; csvId: string; detail: ManifestEntityDetail }[] = [];
+        for (const name of picked) {
+          setLoadingEntityName(name);
+          try {
+            const detail = await ensureManifestEntity(manifest, name, lastRemoteRef.current?.creds);
+            if (detail.csvId && detail.schema) ready.push({ name, csvId: detail.csvId, detail });
+          } catch (err) {
+            console.warn(`Manifest pre-step: entity "${name}" failed to load:`, err);
+          } finally {
+            setLoadingEntityName(null);
+          }
+        }
+        if (ready.length === 0) throw new Error("no picked entity became ready");
+
+        // The PRIMARY (first picked) becomes the active source, so the request's
+        // csv_id, the explorer highlight, and the pipeline's plumbing all agree.
+        const primary = ready[0]!;
+        setActiveEntityName(primary.name);
+        handleUpload(primary.csvId, primary.detail.schema!);
+        setManifestQuestion({
+          manifest_id: manifest.manifestId,
+          entities: ready.map((r) => ({ name: r.name, csv_id: r.csvId })),
+        });
+      } catch (err) {
+        // Fall back to the single ACTIVE entity — a broken pre-step must never
+        // block the question (a degradation, not an error).
+        console.warn("Manifest selection pre-step failed; single-entity fallback:", err);
+        setManifestQuestion(null);
+      }
+    },
+    [manifest, handleUpload]
+  );
+
   /** Source-scoped UI state cleared by the page-level reset. */
   const resetSourceSelect = useCallback(() => {
     setShowLocalBrowser(false);
@@ -247,6 +310,7 @@ export function useSourceSelect(args: {
     setManifest(null);
     setActiveEntityName(null);
     setLoadingEntityName(null);
+    setManifestQuestion(null);
     lastRemoteRef.current = null;
   }, []);
 
@@ -267,5 +331,7 @@ export function useSourceSelect(args: {
     activeEntityName,
     loadingEntityName,
     selectManifestEntity,
+    manifestQuestion,
+    prepareManifestForQuestion,
   };
 }

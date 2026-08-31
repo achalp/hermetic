@@ -30,6 +30,10 @@ import {
   isLocalParquetSource,
 } from "@/lib/parquet/duckdb-source";
 import { materializeLocalParquetCsvForWasm } from "@/lib/parquet/host-materialize";
+import {
+  resolveManifestQuestion,
+  buildManifestQuestionContext,
+} from "@/lib/manifest/question-context";
 import { materializeRemoteCsvForWasm } from "@/lib/sandbox/remote-fetch";
 import { hermeticPaths } from "@/lib/paths";
 import { unlink } from "node:fs/promises";
@@ -189,6 +193,8 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
       // Hoisted so the finally always deletes the host-materialized remote CSV,
       // even if the investigation throws mid-run (build log D13).
       let wasmCsvPath: string | undefined;
+      // Additional manifest entities delivered to the worker (cleaned in finally).
+      const manifestExtraInputs: { workerPath: string; hostPath: string }[] = [];
       try {
         // ── Step 0 (warehouse only): materialize via one broad SQL pull ──
         // The pull is intentionally row-level (not pre-aggregated): the
@@ -340,9 +346,54 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
           }));
           localFileContext = undefined;
         }
-        const wasmFetchInputs = wasmCsvPath
-          ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }]
-          : undefined;
+        // ── Multi-entity manifest question (spec §7) ──
+        // The SAME resolver + builder the ask pipeline uses
+        // (lib/manifest/question-context) — the two must stay at par. Docker:
+        // per-entity read exprs on the one manifest host (the primary's egress
+        // grant covers all); WASM: primary at /data/input.csv, additional
+        // entities materialized and delivered like workbook sheets.
+        if (context.manifest && isRemote) {
+          const resolvedManifest = resolveManifestQuestion(context.manifest, csvId);
+          if (sandboxRuntime === "wasm") {
+            if (resolvedManifest.entities.some((e) => e.stored.isHivePartitioned)) {
+              throw new Error(
+                "Multi-entity questions over hive-partitioned entities need the Docker sandbox runtime."
+              );
+            }
+            const paths = new Map<string, string>([
+              [resolvedManifest.entities[0]!.name, "/data/input.csv"],
+            ]);
+            for (const e of resolvedManifest.entities.slice(1)) {
+              const { csvPath } = await materializeRemoteCsvForWasm(e.stored, {
+                workDir: hermeticPaths.scratchDir(),
+              });
+              const workerPath = `/data/entities/${e.name}.csv`;
+              paths.set(e.name, workerPath);
+              manifestExtraInputs.push({ workerPath, hostPath: csvPath });
+            }
+            localFileContext = buildManifestQuestionContext(resolvedManifest, {
+              kind: "wasm",
+              paths,
+            });
+            remoteAuthSubst = undefined;
+          } else {
+            localFileContext = buildManifestQuestionContext(resolvedManifest, {
+              kind: "docker",
+            });
+          }
+          logger.info("Manifest question: multi-entity context (investigate)", {
+            entities: resolvedManifest.entities.map((e) => e.name),
+            runtime: sandboxRuntime,
+          });
+        }
+
+        const wasmFetchInputs =
+          wasmCsvPath || manifestExtraInputs.length
+            ? [
+                ...(wasmCsvPath ? [{ workerPath: "/data/input.csv", hostPath: wasmCsvPath }] : []),
+                ...manifestExtraInputs,
+              ]
+            : undefined;
 
         // ── Drill-as-sub-investigation cost gate ──
         // A scoped follow-up (chart drill or sticky follow-up) is classified
@@ -1384,6 +1435,7 @@ export async function runInvestigateQuery(args: RunInvestigateQueryArgs): Promis
         // The host-materialized remote CSV was consumed by every sub-step's worker
         // fetch; drop it (build log D13).
         if (wasmCsvPath) await unlink(wasmCsvPath).catch(() => {});
+        for (const extra of manifestExtraInputs) await unlink(extra.hostPath).catch(() => {});
         // ── Cost/diagnostics epilogue: runs for every exit path (cheap
         // fast-path, main investigation, or error) before the stream
         // closes. Shared with Ask — lib/cost/epilogue.ts. ──

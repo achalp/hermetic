@@ -19,7 +19,7 @@ import { preloadedExtrasLine } from "@/lib/sandbox/runtime-files";
 
 // ── Column metadata formatter ─────────────────────────────────────
 
-function formatColumnMeta(col: CSVColumn): string {
+export function formatColumnMeta(col: CSVColumn): string {
   const nullSuffix = col.null_count > 0 ? ` [${col.null_count} nulls]` : "";
   const m = col.meta;
 

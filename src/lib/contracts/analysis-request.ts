@@ -50,6 +50,17 @@ export interface AnalysisRequestContext {
   /** Edit-and-Rerun (warehouse): use this SQL instead of generating it. */
   sql?: string;
   drill_down_context?: DrillDownContext;
+  /**
+   * Multi-entity manifest question (dataset-manifests spec §7): the selection
+   * pre-step already ran client-side and the chosen entities are READY (each
+   * csv_id names a registered remote source). entities[0] is the PRIMARY and
+   * must equal csv_id — the server re-validates every id against the manifest
+   * store, so this carries ids, never data.
+   */
+  manifest?: {
+    manifest_id: string;
+    entities: { name: string; csv_id: string }[];
+  };
   /** Scoped follow-up on a prior Investigate (investigate route only). */
   scope?: InvestigateScope;
   /** Eagerly compose notebook cells (investigate route only; default true). */

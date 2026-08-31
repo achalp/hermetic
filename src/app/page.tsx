@@ -165,9 +165,14 @@ export default function Home() {
   // Page-level artifacts — uses effectiveCsvId reported by ResponsePanel
   const pageArtifacts = useArtifacts({ csvId: effectiveCsvId });
 
+  // Local/remote/upload/sample source selection — see use-source-select.ts.
+  // (Above useAnalysisActions: the guarded query awaits its manifest pre-step.)
+  const source = useSourceSelect({ handleUpload, handleExcelSheets });
+
   // Guarded query, style re-ask, save/export/schedule — use-analysis-actions.
   const actions = useAnalysisActions({
     csvId: effectiveCsvId ?? csvId,
+    prepareManifestForQuestion: source.prepareManifestForQuestion,
     analysis,
     dashboardRef,
     onSaved: handleSaved,
@@ -192,9 +197,6 @@ export default function Home() {
     warehouseId: warehouse.warehouseId,
     onHistoryId: setLiveHistoryId,
   });
-
-  // Local/remote/upload/sample source selection — see use-source-select.ts.
-  const source = useSourceSelect({ handleUpload, handleExcelSheets });
 
   // Recent sources (uploads / local / cloud + saved warehouses) — use-recents-list.
   const { recentItems, reopenRecent } = useRecentsList({
@@ -575,6 +577,7 @@ export default function Home() {
             dispatch={dispatch}
             dashboardRef={dashboardRef}
             csvId={csvId}
+            manifestQuestion={source.manifestQuestion}
             warehouseId={warehouse.warehouseId}
             reattach={reattach}
             schemaMode={schemaMode}
