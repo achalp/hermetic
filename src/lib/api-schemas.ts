@@ -86,6 +86,21 @@ export const RemoteParquetSchemaBody = z.object({
   force: z.boolean().optional(),
 });
 
+// ── dataset manifest connect (spec: dataset-manifests-2026-08-30) ────────
+
+export const ManifestConnectBody = z.object({
+  url: z.string().min(1).max(2048),
+  creds: RemoteCredsSchema,
+  /** "Ignore cache / re-read" — skip per-entity schema caches and re-extract. */
+  force: z.boolean().optional(),
+});
+
+export const ManifestAttachBody = z.object({
+  manifestId: z.string().uuid(),
+  name: z.string().min(1).max(120),
+  csvId: z.string().uuid(),
+});
+
 // ── warehouse connect (credentials → live connector) ─────────────────────
 
 const port = z.number().int().min(1).max(65535);

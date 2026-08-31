@@ -8,6 +8,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { SheetPicker } from "@/app/components/sheet-picker";
+import { EntityBrowser } from "@/app/components/entity-browser";
 import { type QueryMode } from "@/app/components/query-input";
 import { SavedVizsPanel } from "@/app/components/saved-vizs-panel";
 import { MainContent } from "@/app/components/main-content";
@@ -253,7 +254,13 @@ export default function Home() {
 
   // ── Derived state ───────────────────────────────────────────
   const hasData = isUploaded || warehouse.isConnected;
-  const isState1 = !hasData && !showSheetPicker && !showSaved && !loadingViz && !rerunningViz;
+  const isState1 =
+    !hasData &&
+    !showSheetPicker &&
+    !source.manifestBrowser &&
+    !showSaved &&
+    !loadingViz &&
+    !rerunningViz;
   // hasResults: true when there are results to display (queried or loaded a viz)
   // hasResults joins the one-holder principle (M5-5e): a reattached run
   // (browser reload mid-analysis) completes through analysis.complete() and
@@ -502,6 +509,16 @@ export default function Home() {
               onSheetSelected={handleUpload}
               onWorkbookSelected={handleWorkbookUpload}
               onCancel={cancelSheetPicker}
+            />
+          )}
+
+          {/* Entity browser (dataset-manifest flow — spec §6) */}
+          {source.manifestBrowser && (
+            <EntityBrowser
+              view={source.manifestBrowser}
+              onOpenEntity={source.openManifestEntity}
+              onUseEntity={source.useManifestEntity}
+              onCancel={source.cancelManifestBrowser}
             />
           )}
 
